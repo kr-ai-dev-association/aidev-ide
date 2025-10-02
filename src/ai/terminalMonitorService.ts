@@ -24,6 +24,8 @@ export class TerminalMonitorService {
     private outputChannel: vscode.OutputChannel;
     private terminalDisposables: vscode.Disposable[] = [];
     private activeTerminals: Set<vscode.Terminal> = new Set();
+    private monitoringInterval: NodeJS.Timeout | null = null;
+    private lastTerminalCount: number = 0;
 
     constructor(notificationService: NotificationService) {
         this.notificationService = notificationService;
@@ -102,6 +104,7 @@ export class TerminalMonitorService {
 
         this.isMonitoring = true;
         this.logEntries = [];
+        this.lastTerminalCount = vscode.window.terminals.length;
         console.log('[TerminalMonitorService] 터미널 모니터링 시작');
 
         // 터미널 생성 이벤트 리스너
@@ -110,6 +113,7 @@ export class TerminalMonitorService {
                 console.log(`[TerminalMonitorService] 터미널 생성됨: ${terminal.name}`);
                 this.activeTerminals.add(terminal);
                 this.monitorTerminal(terminal);
+                this.logTerminalEvent('info', 'terminal', `터미널 생성됨: ${terminal.name}`);
             })
         );
 
@@ -118,6 +122,7 @@ export class TerminalMonitorService {
             vscode.window.onDidCloseTerminal((terminal) => {
                 console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name}`);
                 this.activeTerminals.delete(terminal);
+                this.logTerminalEvent('info', 'terminal', `터미널 종료됨: ${terminal.name}`);
             })
         );
 
@@ -125,10 +130,11 @@ export class TerminalMonitorService {
         vscode.window.terminals.forEach(terminal => {
             this.activeTerminals.add(terminal);
             this.monitorTerminal(terminal);
+            this.logTerminalEvent('info', 'terminal', `기존 터미널 발견: ${terminal.name}`);
         });
 
-        // 출력 패널 모니터링
-        this.monitorOutputChannels();
+        // 주기적 모니터링 시작
+        this.startPeriodicMonitoring();
     }
 
     /**
@@ -142,7 +148,54 @@ export class TerminalMonitorService {
         this.terminalDisposables = [];
         this.activeTerminals.clear();
         
+        // 주기적 모니터링 중지
+        if (this.monitoringInterval) {
+            clearInterval(this.monitoringInterval);
+            this.monitoringInterval = null;
+        }
+        
         console.log('[TerminalMonitorService] 터미널 모니터링 중지');
+    }
+
+    /**
+     * 주기적 모니터링을 시작합니다.
+     */
+    private startPeriodicMonitoring(): void {
+        this.monitoringInterval = setInterval(() => {
+            if (!this.isMonitoring) return;
+            
+            this.checkTerminalChanges();
+            this.checkActiveTerminals();
+        }, 1000); // 1초마다 확인
+    }
+
+    /**
+     * 터미널 변경사항을 확인합니다.
+     */
+    private checkTerminalChanges(): void {
+        const currentTerminalCount = vscode.window.terminals.length;
+        
+        if (currentTerminalCount !== this.lastTerminalCount) {
+            console.log(`[TerminalMonitorService] 터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
+            this.logTerminalEvent('info', 'terminal', `터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
+            this.lastTerminalCount = currentTerminalCount;
+        }
+    }
+
+    /**
+     * 터미널 이벤트를 로그에 기록합니다.
+     */
+    private logTerminalEvent(level: 'info' | 'warn' | 'error' | 'debug', source: 'terminal' | 'console' | 'output', message: string): void {
+        const logEntry: LogEntry = {
+            timestamp: Date.now(),
+            level,
+            source,
+            message,
+            rawOutput: message
+        };
+        
+        this.logEntries.push(logEntry);
+        this.outputChannel.appendLine(`[${new Date().toISOString()}] ${level.toUpperCase()}: ${message}`);
     }
 
     /**
@@ -209,18 +262,6 @@ export class TerminalMonitorService {
     }
 
 
-    /**
-     * 출력 채널들을 모니터링합니다.
-     */
-    private monitorOutputChannels(): void {
-        // VSCode의 출력 패널들을 주기적으로 확인
-        setInterval(() => {
-            if (!this.isMonitoring) return;
-            
-            // 현재 활성 터미널들의 상태를 확인
-            this.checkActiveTerminals();
-        }, 3000); // 3초마다 확인
-    }
 
     /**
      * 활성 터미널들의 상태를 확인합니다.
@@ -372,28 +413,41 @@ export class TerminalMonitorService {
         console.log(`[TerminalMonitorService] 에러 패턴 추가: ${pattern} (${severity})`);
     }
 
-    /**
-     * 모니터링 상태를 가져옵니다.
-     * @returns 모니터링 상태
-     */
-    public getMonitoringStatus(): { isMonitoring: boolean; logCount: number; errorCount: number } {
-        const errorCount = this.logEntries.filter(log => 
-            this.errorPatterns.some(pattern => 
-                pattern.regex && pattern.regex.test(log.message)
-            )
-        ).length;
-
-        return {
-            isMonitoring: this.isMonitoring,
-            logCount: this.logEntries.length,
-            errorCount
-        };
-    }
 
     /**
      * 출력 채널을 표시합니다.
      */
     public showOutputChannel(): void {
         this.outputChannel.show();
+    }
+
+    /**
+     * 모니터링 상태를 반환합니다.
+     * @returns 모니터링 상태 정보
+     */
+    public getMonitoringStatus(): { isMonitoring: boolean, activeTerminals: number, totalLogs: number } {
+        return {
+            isMonitoring: this.isMonitoring,
+            activeTerminals: this.activeTerminals.size,
+            totalLogs: this.logEntries.length
+        };
+    }
+
+    /**
+     * 터미널 모니터링 테스트를 실행합니다.
+     */
+    public testTerminalMonitoring(): void {
+        console.log('[TerminalMonitorService] 터미널 모니터링 테스트 시작');
+        this.logTerminalEvent('info', 'terminal', '터미널 모니터링 테스트 시작');
+        
+        // 현재 터미널 상태 출력
+        const terminals = vscode.window.terminals;
+        console.log(`[TerminalMonitorService] 현재 터미널 수: ${terminals.length}`);
+        terminals.forEach((terminal, index) => {
+            console.log(`[TerminalMonitorService] 터미널 ${index + 1}: ${terminal.name}`);
+            this.logTerminalEvent('info', 'terminal', `터미널 ${index + 1}: ${terminal.name}`);
+        });
+        
+        this.notificationService.showInfoMessage(`터미널 모니터링 테스트 완료. 현재 ${terminals.length}개 터미널 감지됨.`);
     }
 }

@@ -266,6 +266,27 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
+    // 터미널 모니터링 테스트 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testTerminalMonitoring', async () => {
+        try {
+            if (llmService) {
+                // LlmService의 terminalMonitorService를 통해 테스트 실행
+                const terminalMonitorService = (llmService as any).terminalMonitorService;
+                if (terminalMonitorService) {
+                    terminalMonitorService.testTerminalMonitoring();
+                    const status = terminalMonitorService.getMonitoringStatus();
+                    vscode.window.showInformationMessage(`터미널 모니터링 상태: 모니터링=${status.isMonitoring}, 활성 터미널=${status.activeTerminals}, 로그=${status.totalLogs}`);
+                } else {
+                    vscode.window.showErrorMessage('터미널 모니터링 서비스를 찾을 수 없습니다.');
+                }
+            } else {
+                vscode.window.showErrorMessage('LlmService가 초기화되지 않았습니다.');
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`터미널 모니터링 테스트 오류: ${error}`);
+        }
+    }));
+
     console.log('aidev-ide activated and commands registered.');
 }
 
