@@ -70,16 +70,16 @@ export class LlmService {
         try {
             if (this.currentModelType === AiModelType.GEMINI) {
                 return 'Gemini 2.5 Flash';
-            } else if (this.currentModelType === AiModelType.OLLAMA_Gemma || 
-                       this.currentModelType === AiModelType.OLLAMA_DeepSeek || 
-                       this.currentModelType === AiModelType.OLLAMA_CodeLlama) {
+            } else if (this.currentModelType === AiModelType.OLLAMA_Gemma ||
+                this.currentModelType === AiModelType.OLLAMA_DeepSeek ||
+                this.currentModelType === AiModelType.OLLAMA_CodeLlama) {
                 // Ollama 모델의 경우 실제 모델명을 가져옴
                 return await this.ollamaApi.getCurrentModelName();
             }
         } catch (error) {
             console.warn(`[LlmService] 모델명 가져오기 실패: ${error}`);
         }
-        
+
         // 기본값 반환
         switch (this.currentModelType) {
             case AiModelType.GEMINI:
