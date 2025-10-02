@@ -159,50 +159,50 @@ export class CodebaseContextService {
     private prioritizeKeywords(keywords: string[], userQuery: string): string[] {
         // 키워드 점수 계산
         const keywordScores = new Map<string, number>();
-        
+
         for (const keyword of keywords) {
             let score = 0;
-            
+
             // 1. 질의에서 직접 언급된 키워드 (높은 점수)
             if (userQuery.toLowerCase().includes(keyword.toLowerCase())) {
                 score += 10;
             }
-            
+
             // 2. 기술적 키워드 (중간 점수)
             const techKeywords = ['react', 'vue', 'angular', 'node', 'express', 'typescript', 'javascript', 'python', 'java', 'spring', 'django', 'flask', 'vite', 'webpack', 'babel', 'eslint', 'prettier'];
             if (techKeywords.includes(keyword.toLowerCase())) {
                 score += 5;
             }
-            
+
             // 3. 파일/폴더 관련 키워드 (낮은 점수)
             const fileKeywords = ['src', 'package', 'config', 'main', 'index', 'app', 'component', 'service', 'util', 'helper'];
             if (fileKeywords.includes(keyword.toLowerCase())) {
                 score += 2;
             }
-            
+
             // 4. 한국어 키워드 (중간 점수)
             if (/^[가-힣]+$/.test(keyword)) {
                 score += 3;
             }
-            
+
             // 5. 길이 기반 점수 (너무 짧거나 긴 키워드 감점)
             if (keyword.length < 2) {
                 score -= 5;
             } else if (keyword.length > 20) {
                 score -= 2;
             }
-            
+
             keywordScores.set(keyword, score);
         }
-        
+
         // 점수 순으로 정렬하고 상위 10개만 선택
         const sortedKeywords = Array.from(keywordScores.entries())
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10)
             .map(([keyword]) => keyword);
-        
+
         console.log(`[CodebaseContextService] 키워드 우선순위 점수:`, Array.from(keywordScores.entries()).sort((a, b) => b[1] - a[1]));
-        
+
         return sortedKeywords;
     }
 
@@ -565,37 +565,37 @@ export class CodebaseContextService {
     private selectFilesBasedOnTokenLimit(relevantFiles: string[], userQuery: string): string[] {
         // 파일 우선순위 계산
         const fileScores = new Map<string, number>();
-        
+
         for (const filePath of relevantFiles) {
             let score = 0;
             const fileName = path.basename(filePath).toLowerCase();
             const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
-            
+
             // 1. 파일명이 질의와 직접 관련된 경우 (높은 점수)
             if (userQuery.toLowerCase().includes(fileName.split('.')[0])) {
                 score += 20;
             }
-            
+
             // 2. 중요한 파일들 (높은 점수)
             if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'webpack.config.js') {
                 score += 15;
             }
-            
+
             // 3. 소스 코드 파일들 (중간 점수)
             if (fileName.endsWith('.ts') || fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx')) {
                 score += 10;
             }
-            
+
             // 4. 설정 파일들 (중간 점수)
             if (fileName.endsWith('.json') || fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
                 score += 8;
             }
-            
+
             // 5. 문서 파일들 (낮은 점수)
             if (fileName.endsWith('.md') || fileName.endsWith('.txt')) {
                 score += 5;
             }
-            
+
             // 6. 파일 크기 고려 (작은 파일 우선)
             try {
                 const stats = require('fs').statSync(filePath);
@@ -607,18 +607,18 @@ export class CodebaseContextService {
             } catch (error) {
                 // 파일 크기 확인 실패 시 기본 점수 유지
             }
-            
+
             fileScores.set(filePath, score);
         }
-        
+
         // 점수 순으로 정렬하고 상위 20개만 선택
         const sortedFiles = Array.from(fileScores.entries())
             .sort((a, b) => b[1] - a[1])
             .slice(0, 20)
             .map(([filePath]) => filePath);
-        
+
         console.log(`[CodebaseContextService] 파일 우선순위 점수:`, Array.from(fileScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10));
-        
+
         return sortedFiles;
     }
 
