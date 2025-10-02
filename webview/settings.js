@@ -51,24 +51,34 @@ const ollamaModelSelect = document.getElementById('ollama-model-select');
 const saveOllamaModelButton = document.getElementById('save-ollama-model-button');
 const ollamaModelStatus = document.getElementById('ollama-model-status');
 
-// Banya 라이센스 관련 요소들
+// AIDEV 시리얼 번호 관련 요소들
 const banyaLicenseSerialInput = document.getElementById('banya-license-serial-input');
 const saveBanyaLicenseButton = document.getElementById('save-banya-license-button');
 const verifyBanyaLicenseButton = document.getElementById('verify-banya-license-button');
 const deleteBanyaLicenseButton = document.getElementById('delete-banya-license-button');
 const banyaLicenseStatus = document.getElementById('banya-license-status');
 
+// Ollama Blocker 관련 요소들
+const startOllamaBlockerButton = document.getElementById('start-ollama-blocker-button');
+const stopOllamaBlockerButton = document.getElementById('stop-ollama-blocker-button');
+const ollamaBlockerStatusButton = document.getElementById('ollama-blocker-status-button');
+const killOllamaProcessesButton = document.getElementById('kill-ollama-processes-button');
+const ollamaBlockerStatus = document.getElementById('ollama-blocker-status');
+const ollamaBlockerSerialInput = document.getElementById('ollama-blocker-serial-input');
+const ollamaBlockerAuthButton = document.getElementById('ollama-blocker-auth-button');
+const ollamaBlockerAuthStatus = document.getElementById('ollama-blocker-auth-status');
+
 // AI 모델 선택 관련 요소들
 const aiModelSelect = document.getElementById('ai-model-select');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
 const ollamaSettingsSection = document.getElementById('ollama-settings-section');
 
-// 라이센스 검증 상태 추적
+// 시리얼 번호 검증 상태 추적
 let isLicenseVerified = false;
 
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
-    // 라이선스 검증이 필요한 버튼들 (API 키 관련)
+    // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
     const licenseRequiredButtons = [
         saveGeminiApiKeyButton,
         saveWeatherApiKeyButton,
@@ -76,16 +86,16 @@ function updateSaveButtonsState() {
         saveNewsApiSecretButton,
         saveStockApiKeyButton
     ];
-    
-    // 라이선스 검증이 필요하지 않은 버튼들 (설정 관련)
+
+    // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
     const alwaysEnabledButtons = [
         saveOllamaApiUrlButton,
         saveOllamaEndpointButton
     ];
-    
-    console.log('Updating save buttons state. License verified:', isLicenseVerified);
-    
-    // 라이선스 검증이 필요한 버튼들 처리
+
+    console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
+
+    // 시리얼 번호 검증이 필요한 버튼들 처리
     licenseRequiredButtons.forEach(button => {
         if (button) {
             if (isLicenseVerified) {
@@ -101,7 +111,7 @@ function updateSaveButtonsState() {
             }
         }
     });
-    
+
     // 항상 활성화되는 버튼들 처리
     alwaysEnabledButtons.forEach(button => {
         if (button) {
@@ -116,7 +126,7 @@ function updateSaveButtonsState() {
 // 라이센스 버튼들의 활성화/비활성화를 제어하는 함수
 function updateLicenseButtonsState() {
     const hasStoredLicense = banyaLicenseSerialInput && banyaLicenseSerialInput.value.trim() !== '';
-    
+
     // 라이센스 저장 버튼: 검증이 완료되어야 활성화
     if (saveBanyaLicenseButton) {
         if (isLicenseVerified) {
@@ -129,7 +139,7 @@ function updateLicenseButtonsState() {
             saveBanyaLicenseButton.style.cursor = 'not-allowed';
         }
     }
-    
+
     // 라이센스 삭제 버튼: 저장된 라이센스가 있어야 활성화
     if (deleteBanyaLicenseButton) {
         if (hasStoredLicense) {
@@ -142,7 +152,7 @@ function updateLicenseButtonsState() {
             deleteBanyaLicenseButton.style.cursor = 'not-allowed';
         }
     }
-    
+
     // 라이센스 검증 버튼: 항상 활성화 (입력값이 있을 때만)
     if (verifyBanyaLicenseButton) {
         const hasInputValue = banyaLicenseSerialInput && banyaLicenseSerialInput.value.trim() !== '';
@@ -170,7 +180,7 @@ async function loadLanguage(lang) {
 
 function applyLanguage() {
     console.log('Applying language:', currentLanguage, languageData);
-    
+
     // 타이틀
     const settingsTitle = document.getElementById('settings-title');
     if (settingsTitle && languageData['settingsTitle']) {
@@ -413,103 +423,103 @@ function applyLanguage() {
     const infoMessages = document.querySelectorAll('.info-message');
     infoMessages.forEach(msg => {
         const text = msg.textContent;
-        if (text && (text.includes('CodePilot이 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다') || 
-                     text.includes('Set the directory that CodePilot will recognize') ||
-                     text.includes('Establece el directorio que CodePilot reconocerá') ||
-                     text.includes('Définissez le répertoire que CodePilot reconnaîtra') ||
-                     text.includes('設定 CodePilot 将识别为项目顶级路径的目录') ||
-                     text.includes('CodePilotがプロジェクトの最上位パスとして認識するディレクトリを設定します'))) {
+        if (text && (text.includes('CodePilot이 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다') ||
+            text.includes('Set the directory that CodePilot will recognize') ||
+            text.includes('Establece el directorio que CodePilot reconocerá') ||
+            text.includes('Définissez le répertoire que CodePilot reconnaîtra') ||
+            text.includes('設定 CodePilot 将识别为项目顶级路径的目录') ||
+            text.includes('CodePilotがプロジェクトの最上位パスとして認識するディレクトリを設定します'))) {
             // 프로젝트 Root 설명
             if (languageData['projectRootDescription']) {
                 msg.textContent = languageData['projectRootDescription'];
             }
         } else if (text && (text.includes('CodePilot이 AI 응답을 생성할 때 참조할 소스 코드 경로 목록입니다') ||
-                           text.includes('This is a list of source code paths that CodePilot will reference') ||
-                           text.includes('Esta es una lista de rutas de código fuente que CodePilot referenciará') ||
-                           text.includes('Ceci est une liste de chemins de code source que CodePilot référencera') ||
-                           text.includes('这是 CodePilot 在生成 AI 响应时将引用的源代码路径列表') ||
-                           text.includes('これは、CodePilotがAI応答を生成する際に参照するソースコードパスのリストです'))) {
+            text.includes('This is a list of source code paths that CodePilot will reference') ||
+            text.includes('Esta es una lista de rutas de código fuente que CodePilot referenciará') ||
+            text.includes('Ceci est une liste de chemins de code source que CodePilot référencera') ||
+            text.includes('这是 CodePilot 在生成 AI 响应时将引用的源代码路径列表') ||
+            text.includes('これは、CodePilotがAI応答を生成する際に参照するソースコードパスのリストです'))) {
             // 소스 경로 설명
             if (languageData['sourcePathDescription']) {
                 msg.textContent = languageData['sourcePathDescription'];
             }
         } else if (text && (text.includes('LLM이 제안한 코드를 기반으로 파일을 자동으로 업데이트할지 여부를 설정합니다') ||
-                           text.includes('Set whether to automatically update files based on code suggested by the LLM') ||
-                           text.includes('Establece si actualizar automáticamente archivos basándose en código sugerido por el LLM') ||
-                           text.includes('Définissez s\'il faut mettre à jour automatiquement les fichiers en fonction du code suggéré par le LLM') ||
-                           text.includes('设置是否基于 LLM 建议的代码自动更新文件') ||
-                           text.includes('LLMが提案したコードに基づいてファイルを自動更新するかどうかを設定します'))) {
+            text.includes('Set whether to automatically update files based on code suggested by the LLM') ||
+            text.includes('Establece si actualizar automáticamente archivos basándose en código sugerido por el LLM') ||
+            text.includes('Définissez s\'il faut mettre à jour automatiquement les fichiers en fonction du code suggéré par le LLM') ||
+            text.includes('设置是否基于 LLM 建议的代码自动更新文件') ||
+            text.includes('LLMが提案したコードに基づいてファイルを自動更新するかどうかを設定します'))) {
             // 자동 업데이트 설명
             if (languageData['autoUpdateDescription']) {
                 msg.textContent = languageData['autoUpdateDescription'];
             }
         } else if (text && (text.includes('설정 변경은 즉시 저장됩니다') ||
-                           text.includes('Settings are saved immediately when changed') ||
-                           text.includes('La configuración se guarda inmediatamente cuando se cambia') ||
-                           text.includes('Les paramètres sont enregistrés immédiatement lors de la modification') ||
-                           text.includes('设置更改时立即保存') ||
-                           text.includes('設定は変更時に即座に保存されます') ||
-                           text.includes('Einstellungen werden sofort gespeichert, wenn sie geändert werden'))) {
+            text.includes('Settings are saved immediately when changed') ||
+            text.includes('La configuración se guarda inmediatamente cuando se cambia') ||
+            text.includes('Les paramètres sont enregistrés immédiatement lors de la modification') ||
+            text.includes('设置更改时立即保存') ||
+            text.includes('設定は変更時に即座に保存されます') ||
+            text.includes('Einstellungen werden sofort gespeichert, wenn sie geändert werden'))) {
             // 설정 저장 설명
             if (languageData['settingsSavedImmediately']) {
                 msg.textContent = languageData['settingsSavedImmediately'];
             }
         } else if (text && (text.includes('CodePilot의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
-                           text.includes('Set the Gemini API key to use CodePilot\'s AI features') ||
-                           text.includes('Establece la clave API de Gemini para usar las funciones de IA de CodePilot') ||
-                           text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de CodePilot') ||
-                           text.includes('设置 Gemini API 密钥以使用 CodePilot 的 AI 功能') ||
-                           text.includes('CodePilotのAI機能を使用するためのGemini APIキーを設定します'))) {
+            text.includes('Set the Gemini API key to use CodePilot\'s AI features') ||
+            text.includes('Establece la clave API de Gemini para usar las funciones de IA de CodePilot') ||
+            text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de CodePilot') ||
+            text.includes('设置 Gemini API 密钥以使用 CodePilot 的 AI 功能') ||
+            text.includes('CodePilotのAI機能を使用するためのGemini APIキーを設定します'))) {
             // Gemini API 설명
             if (languageData['geminiApiDescription']) {
                 msg.textContent = languageData['geminiApiDescription'];
             }
         } else if (text && (text.includes('AI 코드 생성 및 분석 기능을 활성화합니다') ||
-                           text.includes('Enables AI code generation and analysis features') ||
-                           text.includes('Habilita las funciones de generación y análisis de código de IA') ||
-                           text.includes('Active les fonctionnalités de génération et d\'analyse de code IA') ||
-                           text.includes('启用 AI 代码生成和分析功能') ||
-                           text.includes('AIコード生成と分析機能を有効にします'))) {
+            text.includes('Enables AI code generation and analysis features') ||
+            text.includes('Habilita las funciones de generación y análisis de código de IA') ||
+            text.includes('Active les fonctionnalités de génération et d\'analyse de code IA') ||
+            text.includes('启用 AI 代码生成和分析功能') ||
+            text.includes('AIコード生成と分析機能を有効にします'))) {
             // Gemini API 기능 설명
             if (languageData['geminiApiFunctionDescription']) {
                 msg.textContent = languageData['geminiApiFunctionDescription'];
             }
         } else if (text && (text.includes('실시간 정보 기능을 사용하기 위한 외부 API 키들을 설정합니다') ||
-                           text.includes('Set external API keys to use real-time information features') ||
-                           text.includes('Establece claves API externas para usar funciones de información en tiempo real') ||
-                           text.includes('Définissez les clés API externes pour utiliser les fonctionnalités d\'information en temps réel') ||
-                           text.includes('设置外部 API 密钥以使用实时信息功能') ||
-                           text.includes('リアルタイム情報機能を使用するための外部APIキーを設定します'))) {
+            text.includes('Set external API keys to use real-time information features') ||
+            text.includes('Establece claves API externas para usar funciones de información en tiempo real') ||
+            text.includes('Définissez les clés API externes pour utiliser les fonctionnalités d\'information en temps réel') ||
+            text.includes('设置外部 API 密钥以使用实时信息功能') ||
+            text.includes('リアルタイム情報機能を使用するための外部APIキーを設定します'))) {
             // 외부 API 키 설명
             if (languageData['externalApiKeysDescription']) {
                 msg.textContent = languageData['externalApiKeysDescription'];
             }
         } else if (text && (text.includes('한국의 정확한 날씨 정보를 제공합니다') ||
-                           text.includes('Provides accurate weather information for Korea') ||
-                           text.includes('Proporciona información meteorológica precisa para Corea') ||
-                           text.includes('Fournit des informations météorologiques précises pour la Corée') ||
-                           text.includes('提供韩国的准确天气信息') ||
-                           text.includes('韓国の正確な天気情報を提供します'))) {
+            text.includes('Provides accurate weather information for Korea') ||
+            text.includes('Proporciona información meteorológica precisa para Corea') ||
+            text.includes('Fournit des informations météorologiques précises pour la Corée') ||
+            text.includes('提供韩国的准确天气信息') ||
+            text.includes('韓国の正確な天気情報を提供します'))) {
             // 날씨 API 설명
             if (languageData['weatherApiDescription']) {
                 msg.textContent = languageData['weatherApiDescription'];
             }
         } else if (text && (text.includes('한국의 최신 뉴스 정보를 제공합니다') ||
-                           text.includes('Provides the latest news information from Korea') ||
-                           text.includes('Proporciona la información de noticias más reciente de Corea') ||
-                           text.includes('Fournit les dernières informations d\'actualités de Corée') ||
-                           text.includes('提供韩国的最新新闻信息') ||
-                           text.includes('韓国の最新ニュース情報を提供します'))) {
+            text.includes('Provides the latest news information from Korea') ||
+            text.includes('Proporciona la información de noticias más reciente de Corea') ||
+            text.includes('Fournit les dernières informations d\'actualités de Corée') ||
+            text.includes('提供韩国的最新新闻信息') ||
+            text.includes('韓国の最新ニュース情報を提供します'))) {
             // 뉴스 API 설명
             if (languageData['newsApiDescription']) {
                 msg.textContent = languageData['newsApiDescription'];
             }
         } else if (text && (text.includes('실시간 주식 정보를 제공합니다') ||
-                           text.includes('Provides real-time stock information') ||
-                           text.includes('Proporciona información de acciones en tiempo real') ||
-                           text.includes('Fournit des informations boursières en temps réel') ||
-                           text.includes('提供实时股票信息') ||
-                           text.includes('リアルタイムの株式情報を提供します'))) {
+            text.includes('Provides real-time stock information') ||
+            text.includes('Proporciona información de acciones en tiempo real') ||
+            text.includes('Fournit des informations boursières en temps réel') ||
+            text.includes('提供实时股票信息') ||
+            text.includes('リアルタイムの株式情報を提供します'))) {
             // 주식 API 설명
             if (languageData['stockApiDescription']) {
                 msg.textContent = languageData['stockApiDescription'];
@@ -520,14 +530,14 @@ function applyLanguage() {
     // 로딩 텍스트 업데이트 (언어 데이터가 로드된 후) - 더 포괄적인 매칭 추가
     if (languageData['settingsLoading'] && sourcePathStatus) {
         const currentText = sourcePathStatus.textContent;
-        if (currentText === '설정 로드 중...' || currentText === 'Loading settings...' || 
+        if (currentText === '설정 로드 중...' || currentText === 'Loading settings...' ||
             currentText === 'Cargando configuración...' || currentText === 'Chargement des paramètres...' ||
             currentText === '正在加载设置...' || currentText === '設定を読み込み中...' ||
             currentText === 'Lade Einstellungen...') {
             sourcePathStatus.textContent = languageData['settingsLoading'];
         }
     }
-    
+
     if (languageData['autoUpdateLoading'] && autoUpdateStatus) {
         const currentText = autoUpdateStatus.textContent;
         if (currentText === '자동 업데이트 설정 로드 중...' || currentText === 'Loading auto update settings...' ||
@@ -537,7 +547,7 @@ function applyLanguage() {
             autoUpdateStatus.textContent = languageData['autoUpdateLoading'];
         }
     }
-    
+
     if (languageData['projectRootLoading'] && projectRootStatus) {
         const currentText = projectRootStatus.textContent;
         if (currentText === '프로젝트 Root 설정 로드 중...' || currentText === 'Loading project root settings...' ||
@@ -689,15 +699,15 @@ function applyLanguage() {
     const banyaLicenseStatus = document.getElementById('banya-license-status');
     if (banyaLicenseStatus && banyaLicenseStatus.textContent) {
         const currentText = banyaLicenseStatus.textContent;
-        if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
+        if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
             currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
             currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
             currentText.includes('未设置')) {
             banyaLicenseStatus.textContent = languageData['banyaLicenseNotSet'] || 'Banya 라이센스가 설정되지 않았습니다.';
-        } else if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
-                   currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-                   currentText.includes('est définie') || currentText.includes('設定されています') ||
-                   currentText.includes('已设置')) {
+        } else if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
+            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
+            currentText.includes('est définie') || currentText.includes('設定されています') ||
+            currentText.includes('已设置')) {
             banyaLicenseStatus.textContent = languageData['banyaLicenseSet'] || 'Banya 라이센스가 설정되어 있습니다.';
         }
     }
@@ -783,15 +793,15 @@ function applyLanguage() {
     // Gemini API 키 상태
     if (geminiApiKeyStatus && geminiApiKeyStatus.textContent) {
         const currentText = geminiApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
             geminiApiKeyStatus.textContent = languageData['geminiApiKeySet'] || 'Gemini API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
-                   currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-                   currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-                   currentText.includes('未设置')) {
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
             geminiApiKeyStatus.textContent = languageData['geminiApiKeyNotSet'] || 'Gemini API 키가 설정되지 않았습니다.';
         }
     }
@@ -799,15 +809,15 @@ function applyLanguage() {
     // Ollama API URL 상태
     if (ollamaApiUrlStatus && ollamaApiUrlStatus.textContent) {
         const currentText = ollamaApiUrlStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
             ollamaApiUrlStatus.textContent = languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
-                   currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-                   currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-                   currentText.includes('未设置')) {
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
             ollamaApiUrlStatus.textContent = languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.';
         }
     }
@@ -815,15 +825,15 @@ function applyLanguage() {
     // Weather API 키 상태
     if (weatherApiKeyStatus && weatherApiKeyStatus.textContent) {
         const currentText = weatherApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
             weatherApiKeyStatus.textContent = languageData['weatherApiKeySet'] || '기상청 API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
-                   currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-                   currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-                   currentText.includes('未设置')) {
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
             weatherApiKeyStatus.textContent = languageData['weatherApiKeyNotSet'] || '기상청 API 키가 설정되지 않았습니다.';
         }
     }
@@ -831,15 +841,15 @@ function applyLanguage() {
     // News API 키 상태
     if (newsApiKeyStatus && newsApiKeyStatus.textContent) {
         const currentText = newsApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
             newsApiKeyStatus.textContent = languageData['newsApiKeySet'] || '네이버 API Client ID가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
-                   currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-                   currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-                   currentText.includes('未设置')) {
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
             newsApiKeyStatus.textContent = languageData['newsApiKeyNotSet'] || '네이버 API Client ID가 설정되지 않았습니다.';
         }
     }
@@ -847,15 +857,15 @@ function applyLanguage() {
     // News API Secret 상태
     if (newsApiSecretStatus && newsApiSecretStatus.textContent) {
         const currentText = newsApiSecretStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
             newsApiSecretStatus.textContent = languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
-                   currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-                   currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-                   currentText.includes('未设置')) {
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
             newsApiSecretStatus.textContent = languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.';
         }
     }
@@ -863,15 +873,15 @@ function applyLanguage() {
     // Stock API 키 상태
     if (stockApiKeyStatus && stockApiKeyStatus.textContent) {
         const currentText = stockApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || 
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
             stockApiKeyStatus.textContent = languageData['stockApiKeySet'] || '주식 API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || 
-                   currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-                   currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-                   currentText.includes('未设置')) {
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
             stockApiKeyStatus.textContent = languageData['stockApiKeyNotSet'] || '주식 API 키가 설정되지 않았습니다.';
         }
     }
@@ -881,16 +891,16 @@ if (languageSelect) {
     languageSelect.addEventListener('change', (e) => {
         const lang = e.target.value;
         console.log('Language changed to:', lang);
-        
+
         // 언어 변경 시 즉시 저장 요청
         vscode.postMessage({ command: 'saveLanguage', language: lang });
-        
+
         // 언어 데이터 로드 요청
         loadLanguage(lang);
-        
+
         // 임시로 현재 언어 업데이트 (UI 반응성 향상)
         currentLanguage = lang;
-        
+
         // 즉시 UI 업데이트 시도 (기존 언어 데이터로)
         if (Object.keys(languageData).length > 0) {
             console.log('Immediate UI update with existing language data');
@@ -904,16 +914,16 @@ if (saveLanguageButton) {
     saveLanguageButton.addEventListener('click', () => {
         const selectedLang = languageSelect.value;
         console.log('Manual language save requested:', selectedLang);
-        
+
         // 이미 현재 언어와 같으면 저장하지 않음
         if (selectedLang === currentLanguage) {
             console.log('Language already saved, skipping duplicate save');
             return;
         }
-        
+
         // 확장에 언어 저장 요청
         vscode.postMessage({ command: 'saveLanguage', language: selectedLang });
-        
+
         // 로컬에서도 즉시 적용
         currentLanguage = selectedLang;
         loadLanguage(selectedLang);
@@ -924,10 +934,10 @@ if (saveLanguageButton) {
 window.addEventListener('DOMContentLoaded', () => {
     // VS Code 설정에서 언어를 가져오도록 요청
     vscode.postMessage({ command: 'getLanguage' });
-    
+
     // 기본 언어 데이터 로드 (한국어)
     loadLanguage('ko');
-    
+
     // 라이센스 입력 필드 초기 상태 설정
     if (banyaLicenseSerialInput) {
         banyaLicenseSerialInput.readOnly = false; // 초기에는 편집 가능
@@ -1198,7 +1208,7 @@ if (aiModelSelect) {
     aiModelSelect.addEventListener('change', () => {
         const selectedModel = aiModelSelect.value;
         console.log('AI model selected:', selectedModel);
-        
+
         // 선택된 모델에 따라 설정 섹션 활성화/비활성화
         if (selectedModel === 'gemini') {
             geminiSettingsSection.classList.remove('disabled');
@@ -1212,9 +1222,50 @@ if (aiModelSelect) {
             geminiSettingsSection.classList.remove('disabled');
             ollamaSettingsSection.classList.add('disabled');
         }
-        
+
         // 확장 프로그램에 선택된 모델 저장 요청
         vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
+    });
+}
+
+// Ollama Blocker 이벤트 리스너들
+if (startOllamaBlockerButton) {
+    startOllamaBlockerButton.addEventListener('click', () => {
+        vscode.postMessage({ command: 'startOllamaBlocker' });
+        showStatus(ollamaBlockerStatus, 'Ollama Blocker 시작 중...', 'info');
+    });
+}
+
+if (stopOllamaBlockerButton) {
+    stopOllamaBlockerButton.addEventListener('click', () => {
+        vscode.postMessage({ command: 'stopOllamaBlocker' });
+        showStatus(ollamaBlockerStatus, 'Ollama Blocker 중지 중...', 'info');
+    });
+}
+
+if (ollamaBlockerStatusButton) {
+    ollamaBlockerStatusButton.addEventListener('click', () => {
+        vscode.postMessage({ command: 'ollamaBlockerStatus' });
+        showStatus(ollamaBlockerStatus, '상태 확인 중...', 'info');
+    });
+}
+
+if (killOllamaProcessesButton) {
+    killOllamaProcessesButton.addEventListener('click', () => {
+        vscode.postMessage({ command: 'killOllamaProcesses' });
+        showStatus(ollamaBlockerStatus, 'Ollama 프로세스 종료 중...', 'info');
+    });
+}
+
+if (ollamaBlockerAuthButton) {
+    ollamaBlockerAuthButton.addEventListener('click', () => {
+        const serialNumber = ollamaBlockerSerialInput.value.trim();
+        if (serialNumber) {
+            vscode.postMessage({ command: 'ollamaBlockerAuth', serialNumber: serialNumber });
+            showStatus(ollamaBlockerAuthStatus, '인증 중...', 'info');
+        } else {
+            showStatus(ollamaBlockerAuthStatus, '시리얼 번호를 입력해주세요.', 'error');
+        }
     });
 }
 
@@ -1292,28 +1343,28 @@ window.addEventListener('message', event => {
             // API 키 상태 로드
             if (weatherApiKeyInput && typeof message.weatherApiKey === 'string') {
                 weatherApiKeyInput.value = message.weatherApiKey;
-                const weatherApiKeySetText = message.weatherApiKey ? 
+                const weatherApiKeySetText = message.weatherApiKey ?
                     (languageData['weatherApiKeySet'] || '기상청 API 키가 설정되어 있습니다.') :
                     (languageData['weatherApiKeyNotSet'] || '기상청 API 키가 설정되지 않았습니다.');
                 showStatus(weatherApiKeyStatus, weatherApiKeySetText, message.weatherApiKey ? 'success' : 'info');
             }
             if (newsApiKeyInput && typeof message.newsApiKey === 'string') {
                 newsApiKeyInput.value = message.newsApiKey;
-                const newsApiKeySetText = message.newsApiKey ? 
+                const newsApiKeySetText = message.newsApiKey ?
                     (languageData['newsApiKeySet'] || '네이버 API Client ID가 설정되어 있습니다.') :
                     (languageData['newsApiKeyNotSet'] || '네이버 API Client ID가 설정되지 않았습니다.');
                 showStatus(newsApiKeyStatus, newsApiKeySetText, message.newsApiKey ? 'success' : 'info');
             }
             if (newsApiSecretInput && typeof message.newsApiSecret === 'string') {
                 newsApiSecretInput.value = message.newsApiSecret;
-                const newsApiSecretSetText = message.newsApiSecret ? 
+                const newsApiSecretSetText = message.newsApiSecret ?
                     (languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.') :
                     (languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.');
                 showStatus(newsApiSecretStatus, newsApiSecretSetText, message.newsApiSecret ? 'success' : 'info');
             }
             if (stockApiKeyInput && typeof message.stockApiKey === 'string') {
                 stockApiKeyInput.value = message.stockApiKey;
-                const stockApiKeySetText = message.stockApiKey ? 
+                const stockApiKeySetText = message.stockApiKey ?
                     (languageData['stockApiKeySet'] || '주식 API 키가 설정되어 있습니다.') :
                     (languageData['stockApiKeyNotSet'] || '주식 API 키가 설정되지 않았습니다.');
                 showStatus(stockApiKeyStatus, stockApiKeySetText, message.stockApiKey ? 'success' : 'info');
@@ -1321,7 +1372,7 @@ window.addEventListener('message', event => {
             // Gemini API 키 상태 로드
             if (geminiApiKeyInput && typeof message.geminiApiKey === 'string') {
                 geminiApiKeyInput.value = message.geminiApiKey;
-                const geminiApiKeySetText = message.geminiApiKey ? 
+                const geminiApiKeySetText = message.geminiApiKey ?
                     (languageData['geminiApiKeySet'] || 'Gemini API 키가 설정되어 있습니다.') :
                     (languageData['geminiApiKeyNotSet'] || 'Gemini API 키가 설정되지 않았습니다.');
                 showStatus(geminiApiKeyStatus, geminiApiKeySetText, message.geminiApiKey ? 'success' : 'info');
@@ -1329,7 +1380,7 @@ window.addEventListener('message', event => {
             // Ollama API URL 상태 로드
             if (ollamaApiUrlInput && typeof message.ollamaApiUrl === 'string') {
                 ollamaApiUrlInput.value = message.ollamaApiUrl;
-                const ollamaApiUrlSetText = message.ollamaApiUrl ? 
+                const ollamaApiUrlSetText = message.ollamaApiUrl ?
                     (languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.') :
                     (languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.');
                 showStatus(ollamaApiUrlStatus, ollamaApiUrlSetText, message.ollamaApiUrl ? 'success' : 'info');
@@ -1337,7 +1388,7 @@ window.addEventListener('message', event => {
             // Ollama 엔드포인트 상태 로드
             if (ollamaEndpointSelect && typeof message.ollamaEndpoint === 'string') {
                 ollamaEndpointSelect.value = message.ollamaEndpoint;
-                const ollamaEndpointSetText = message.ollamaEndpoint ? 
+                const ollamaEndpointSetText = message.ollamaEndpoint ?
                     `Ollama 엔드포인트가 설정되어 있습니다: ${message.ollamaEndpoint}` :
                     'Ollama 엔드포인트가 설정되지 않았습니다.';
                 showStatus(ollamaEndpointStatus, ollamaEndpointSetText, message.ollamaEndpoint ? 'success' : 'info');
@@ -1345,7 +1396,7 @@ window.addEventListener('message', event => {
             // Ollama 모델 상태 로드
             if (ollamaModelSelect && typeof message.ollamaModel === 'string') {
                 ollamaModelSelect.value = message.ollamaModel;
-                const ollamaModelSetText = message.ollamaModel ? 
+                const ollamaModelSetText = message.ollamaModel ?
                     `Ollama 모델이 설정되어 있습니다: ${message.ollamaModel}` :
                     'Ollama 모델이 설정되지 않았습니다.';
                 showStatus(ollamaModelStatus, ollamaModelSetText, message.ollamaModel ? 'success' : 'info');
@@ -1353,16 +1404,16 @@ window.addEventListener('message', event => {
             // Banya 라이센스 상태 로드
             if (banyaLicenseSerialInput && typeof message.banyaLicenseSerial === 'string') {
                 // 추가 검증 - 잘못된 데이터 필터링
-                const isValidLicense = message.banyaLicenseSerial && 
+                const isValidLicense = message.banyaLicenseSerial &&
                     message.banyaLicenseSerial.trim() !== '' &&
-                    !message.banyaLicenseSerial.includes('/') && 
+                    !message.banyaLicenseSerial.includes('/') &&
                     !message.banyaLicenseSerial.includes('\\') &&
                     !message.banyaLicenseSerial.includes('프로젝트') &&
                     !message.banyaLicenseSerial.includes('Project') &&
                     !message.banyaLicenseSerial.includes('설정') &&
                     !message.banyaLicenseSerial.includes('Setting') &&
                     message.banyaLicenseSerial.length > 5;
-                
+
                 if (isValidLicense) {
                     banyaLicenseSerialInput.value = message.banyaLicenseSerial.trim();
                     banyaLicenseSerialInput.readOnly = true; // 저장된 라이센스는 읽기 전용으로 설정
@@ -1375,7 +1426,7 @@ window.addEventListener('message', event => {
                     showStatus(banyaLicenseStatus, banyaLicenseNotSetText, 'info');
                 }
             }
-            
+
             // 라이선스 검증 상태 처리
             if (typeof message.isLicenseVerified === 'boolean') {
                 isLicenseVerified = message.isLicenseVerified;
@@ -1383,7 +1434,7 @@ window.addEventListener('message', event => {
             } else {
                 console.log('No license verification status received, message:', message);
             }
-            
+
             // API 키 로드 완료 후 저장 버튼 상태 재확인
             setTimeout(() => {
                 console.log('Final button state update after API keys load, isLicenseVerified:', isLicenseVerified);
@@ -1506,7 +1557,7 @@ window.addEventListener('message', event => {
                 if (message.model === 'ollama-gemma' || message.model === 'ollama-deepseek' || message.model === 'ollama-codellama') {
                     displayModel = 'ollama';
                 }
-                
+
                 aiModelSelect.value = displayModel;
                 // 모델 선택에 따른 UI 업데이트
                 if (displayModel === 'gemini') {
@@ -1524,7 +1575,7 @@ window.addEventListener('message', event => {
         case 'currentOllamaModel':
             if (message.model && ollamaModelSelect) {
                 ollamaModelSelect.value = message.model;
-                const ollamaModelSetText = message.model ? 
+                const ollamaModelSetText = message.model ?
                     `Ollama 모델이 설정되어 있습니다: ${message.model}` :
                     'Ollama 모델이 설정되지 않았습니다.';
                 showStatus(ollamaModelStatus, ollamaModelSetText, message.model ? 'success' : 'info');
@@ -1576,70 +1627,70 @@ window.addEventListener('message', event => {
                 languageData = message.data;
                 currentLanguage = message.language;
                 sessionStorage.setItem('aidev-ideLang', message.language);
-                
+
                 // 언어 선택 드롭다운 값 업데이트
                 if (languageSelect) {
                     languageSelect.value = currentLanguage;
                     console.log('Updated language select value to:', currentLanguage);
                 }
-                
+
                 // 즉시 언어 적용
                 console.log('Applying language immediately');
                 applyLanguage();
-                
+
                 // 강제로 모든 UI 요소 업데이트 (여러 번 실행)
                 setTimeout(() => {
                     console.log('Forcing UI refresh after language change (1st)');
                     applyLanguage();
                 }, 50);
-                
+
                 setTimeout(() => {
                     console.log('Forcing UI refresh after language change (2nd)');
                     applyLanguage();
                 }, 200);
-                
+
                 setTimeout(() => {
                     console.log('Forcing UI refresh after language change (3rd)');
                     applyLanguage();
                 }, 500);
-                
+
                 // 추가 강제 업데이트
                 setTimeout(() => {
                     console.log('Final UI refresh after language change');
                     applyLanguage();
                 }, 1000);
-                
+
                 // 디버깅: 프로젝트 Root 표시 업데이트 확인
                 if (projectRootPathDisplay) {
                     console.log('Project root display current text:', projectRootPathDisplay.textContent);
                     console.log('No project root set translation:', languageData['noProjectRootSet']);
                 }
-                
+
                 // 언어 변경 후 즉시 모든 상태 메시지 업데이트
                 if (sourcePathStatus && sourcePathStatus.textContent) {
                     const currentText = sourcePathStatus.textContent;
-                    if (currentText.includes('로드 완료') || currentText.includes('loaded successfully') || 
+                    if (currentText.includes('로드 완료') || currentText.includes('loaded successfully') ||
                         currentText.includes('cargado correctamente') || currentText.includes('chargé avec succès') ||
                         currentText.includes('加载完成') || currentText.includes('正常に読み込まれました')) {
                         sourcePathStatus.textContent = languageData['sourcePathsLoaded'] || '소스 경로 로드 완료.';
                     }
                 }
-                
+
                 if (projectRootStatus && projectRootStatus.textContent) {
                     const currentText = projectRootStatus.textContent;
-                    if (currentText.includes('로드 완료') || currentText.includes('loaded successfully') || 
+                    if (currentText.includes('로드 완료') || currentText.includes('loaded successfully') ||
                         currentText.includes('cargado correctamente') || currentText.includes('chargé avec succès') ||
                         currentText.includes('加载完成') || currentText.includes('正常に読み込まれました')) {
                         projectRootStatus.textContent = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';
                     }
                 }
-                
+
                 if (autoUpdateStatus && autoUpdateStatus.textContent) {
                     const currentText = autoUpdateStatus.textContent;
-                    if (currentText.includes('활성화됨') || currentText.includes('enabled') || 
+                    if (currentText.includes('활성화됨') || currentText.includes('enabled') ||
                         currentText.includes('habilitada') || currentText.includes('activée') ||
                         currentText.includes('已启用') || currentText.includes('有効') ||
-                        currentText.includes('비활성화됨') || currentText.includes('disabled') || 
+                        currentText.includes('비활성화됨') || currentText.includes('disabled') ||
                         currentText.includes('deshabilitada') || currentText.includes('désactivée') ||
                         currentText.includes('已禁用') || currentText.includes('無効')) {
                         // 자동 업데이트 상태 텍스트 업데이트
@@ -1654,6 +1705,24 @@ window.addEventListener('message', event => {
                 }
             }
             break;
+        case 'ollamaBlockerResult':
+            if (message.success) {
+                showStatus(ollamaBlockerStatus, message.message, 'success');
+            } else {
+                showStatus(ollamaBlockerStatus, message.message, 'error');
+            }
+            break;
+        case 'ollamaBlockerStatusResult':
+            const statusText = `상태: ${message.running ? '실행 중' : '중지됨'} - ${message.message}`;
+            showStatus(ollamaBlockerStatus, statusText, message.running ? 'success' : 'info');
+            break;
+        case 'ollamaBlockerAuthResult':
+            if (message.success) {
+                showStatus(ollamaBlockerAuthStatus, message.message, 'success');
+            } else {
+                showStatus(ollamaBlockerAuthStatus, message.message, 'error');
+            }
+            break;
     }
 });
 
@@ -1666,7 +1735,7 @@ document.addEventListener('DOMContentLoaded', () => {
     autoUpdateStatus.textContent = autoUpdateLoadingText;
     const projectRootLoadingText = languageData['projectRootLoading'] || '프로젝트 Root 설정 로드 중...';
     projectRootStatus.textContent = projectRootLoadingText;
-    
+
     // API 키 상태 요청
     vscode.postMessage({ command: 'loadApiKeys' });
     const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
@@ -1676,20 +1745,95 @@ document.addEventListener('DOMContentLoaded', () => {
     showStatus(geminiApiKeyStatus, apiKeysLoadingText, 'info');
     showStatus(ollamaApiUrlStatus, apiKeysLoadingText, 'info');
     showStatus(banyaLicenseStatus, apiKeysLoadingText, 'info');
-    
+
     // API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨
     // 여기서는 초기화만 하고, 실제 업데이트는 서버 응답 후에 수행
-    
+
     // AI 모델 설정 요청
     vscode.postMessage({ command: 'loadAiModel' });
-    
+
     // Ollama 모델 설정 요청
     vscode.postMessage({ command: 'loadOllamaModel' });
-    
+
+    // Ollama 모델 목록 불러오기
+    loadOllamaModels();
+
     // 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
     if (geminiSettingsSection) geminiSettingsSection.classList.remove('disabled');
     if (ollamaSettingsSection) ollamaSettingsSection.classList.add('disabled');
-    
+
     // 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
     // isLicenseVerified는 서버에서 전송된 값으로 설정됨
 });
+
+// Ollama 모델 목록을 불러오는 함수
+async function loadOllamaModels() {
+    try {
+        console.log('Ollama 모델 목록 불러오기 시작');
+
+        // Ollama API URL 가져오기
+        const ollamaApiUrl = document.getElementById('ollama-api-url-input')?.value || 'http://localhost:11434';
+
+        // Ollama API에서 모델 목록 가져오기
+        const response = await fetch(`${ollamaApiUrl}/api/tags`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Ollama 모델 목록:', data);
+
+        if (data.models && Array.isArray(data.models)) {
+            // 기존 옵션들 제거 (첫 번째 옵션 제외)
+            const ollamaModelSelect = document.getElementById('ollama-model-select');
+            if (ollamaModelSelect) {
+                // 기존 옵션들 제거
+                ollamaModelSelect.innerHTML = '';
+
+                // 기본 옵션 추가
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = '모델을 선택하세요';
+                ollamaModelSelect.appendChild(defaultOption);
+
+                // 로컬에 설치된 모델들 추가
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = model.name;
+                    ollamaModelSelect.appendChild(option);
+                });
+
+                console.log(`Ollama 모델 목록 업데이트 완료: ${data.models.length}개 모델`);
+            }
+        } else {
+            console.warn('Ollama 모델 목록이 비어있습니다.');
+        }
+    } catch (error) {
+        console.error('Ollama 모델 목록 불러오기 실패:', error);
+
+        // 오류 발생 시 기본 모델들로 폴백
+        const ollamaModelSelect = document.getElementById('ollama-model-select');
+        if (ollamaModelSelect) {
+            ollamaModelSelect.innerHTML = `
+                <option value="">모델을 선택하세요</option>
+                <option value="gemma3:27b">Gemma3:27b</option>
+                <option value="deepseek-r1:70b">DeepSeek R1:70B</option>
+                <option value="codellama:7b">CodeLlama:7B</option>
+            `;
+        }
+    }
+}
+
+// Ollama API URL 변경 시 모델 목록 다시 불러오기
+if (ollamaApiUrlInput) {
+    ollamaApiUrlInput.addEventListener('change', () => {
+        console.log('Ollama API URL 변경됨, 모델 목록 다시 불러오기');
+        loadOllamaModels();
+    });
+
+    ollamaApiUrlInput.addEventListener('blur', () => {
+        console.log('Ollama API URL 입력 완료, 모델 목록 다시 불러오기');
+        loadOllamaModels();
+    });
+}

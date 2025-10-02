@@ -58,31 +58,41 @@ const ollamaModelSelect = document.getElementById('ollama-model-select');
 const saveOllamaModelButton = document.getElementById('save-ollama-model-button');
 const ollamaModelStatus = document.getElementById('ollama-model-status');
 
-// Banya 라이센스 관련 요소들
+// AIDEV 시리얼 번호 관련 요소들
 const banyaLicenseSerialInput = document.getElementById('banya-license-serial-input');
 const saveBanyaLicenseButton = document.getElementById('save-banya-license-button');
 const verifyBanyaLicenseButton = document.getElementById('verify-banya-license-button');
 const deleteBanyaLicenseButton = document.getElementById('delete-banya-license-button');
 const banyaLicenseStatus = document.getElementById('banya-license-status');
 
+// Ollama Blocker 관련 요소들
+const startOllamaBlockerButton = document.getElementById('start-ollama-blocker-button');
+const stopOllamaBlockerButton = document.getElementById('stop-ollama-blocker-button');
+const ollamaBlockerStatusButton = document.getElementById('ollama-blocker-status-button');
+const killOllamaProcessesButton = document.getElementById('kill-ollama-processes-button');
+const ollamaBlockerStatus = document.getElementById('ollama-blocker-status');
+const ollamaBlockerSerialInput = document.getElementById('ollama-blocker-serial-input');
+const ollamaBlockerAuthButton = document.getElementById('ollama-blocker-auth-button');
+const ollamaBlockerAuthStatus = document.getElementById('ollama-blocker-auth-status');
+
 // AI 모델 선택 관련 요소들
 const aiModelSelect = document.getElementById('ai-model-select');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
 const ollamaSettingsSection = document.getElementById('ollama-settings-section');
 
-// 라이센스 검증 상태 추적
+// 시리얼 번호 검증 상태 추적
 let isLicenseVerified = false;
 
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
-  // 라이선스 검증이 필요한 버튼들 (API 키 관련)
+  // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
   const licenseRequiredButtons = [saveGeminiApiKeyButton, saveWeatherApiKeyButton, saveNewsApiKeyButton, saveNewsApiSecretButton, saveStockApiKeyButton];
 
-  // 라이선스 검증이 필요하지 않은 버튼들 (설정 관련)
+  // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
   const alwaysEnabledButtons = [saveOllamaApiUrlButton, saveOllamaEndpointButton];
-  console.log('Updating save buttons state. License verified:', isLicenseVerified);
+  console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
 
-  // 라이선스 검증이 필요한 버튼들 처리
+  // 시리얼 번호 검증이 필요한 버튼들 처리
   licenseRequiredButtons.forEach(button => {
     if (button) {
       if (isLicenseVerified) {
@@ -1161,6 +1171,54 @@ if (aiModelSelect) {
   });
 }
 
+// Ollama Blocker 이벤트 리스너들
+if (startOllamaBlockerButton) {
+  startOllamaBlockerButton.addEventListener('click', () => {
+    vscode.postMessage({
+      command: 'startOllamaBlocker'
+    });
+    showStatus(ollamaBlockerStatus, 'Ollama Blocker 시작 중...', 'info');
+  });
+}
+if (stopOllamaBlockerButton) {
+  stopOllamaBlockerButton.addEventListener('click', () => {
+    vscode.postMessage({
+      command: 'stopOllamaBlocker'
+    });
+    showStatus(ollamaBlockerStatus, 'Ollama Blocker 중지 중...', 'info');
+  });
+}
+if (ollamaBlockerStatusButton) {
+  ollamaBlockerStatusButton.addEventListener('click', () => {
+    vscode.postMessage({
+      command: 'ollamaBlockerStatus'
+    });
+    showStatus(ollamaBlockerStatus, '상태 확인 중...', 'info');
+  });
+}
+if (killOllamaProcessesButton) {
+  killOllamaProcessesButton.addEventListener('click', () => {
+    vscode.postMessage({
+      command: 'killOllamaProcesses'
+    });
+    showStatus(ollamaBlockerStatus, 'Ollama 프로세스 종료 중...', 'info');
+  });
+}
+if (ollamaBlockerAuthButton) {
+  ollamaBlockerAuthButton.addEventListener('click', () => {
+    const serialNumber = ollamaBlockerSerialInput.value.trim();
+    if (serialNumber) {
+      vscode.postMessage({
+        command: 'ollamaBlockerAuth',
+        serialNumber: serialNumber
+      });
+      showStatus(ollamaBlockerAuthStatus, '인증 중...', 'info');
+    } else {
+      showStatus(ollamaBlockerAuthStatus, '시리얼 번호를 입력해주세요.', 'error');
+    }
+  });
+}
+
 // 확장으로부터 메시지 수신
 window.addEventListener('message', event => {
   const message = event.data;
@@ -1556,6 +1614,24 @@ window.addEventListener('message', event => {
         }
       }
       break;
+    case 'ollamaBlockerResult':
+      if (message.success) {
+        showStatus(ollamaBlockerStatus, message.message, 'success');
+      } else {
+        showStatus(ollamaBlockerStatus, message.message, 'error');
+      }
+      break;
+    case 'ollamaBlockerStatusResult':
+      const statusText = `상태: ${message.running ? '실행 중' : '중지됨'} - ${message.message}`;
+      showStatus(ollamaBlockerStatus, statusText, message.running ? 'success' : 'info');
+      break;
+    case 'ollamaBlockerAuthResult':
+      if (message.success) {
+        showStatus(ollamaBlockerAuthStatus, message.message, 'success');
+      } else {
+        showStatus(ollamaBlockerAuthStatus, message.message, 'error');
+      }
+      break;
   }
 });
 
@@ -1596,6 +1672,9 @@ document.addEventListener('DOMContentLoaded', () => {
     command: 'loadOllamaModel'
   });
 
+  // Ollama 모델 목록 불러오기
+  loadOllamaModels();
+
   // 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
   if (geminiSettingsSection) geminiSettingsSection.classList.remove('disabled');
   if (ollamaSettingsSection) ollamaSettingsSection.classList.add('disabled');
@@ -1603,6 +1682,74 @@ document.addEventListener('DOMContentLoaded', () => {
   // 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
   // isLicenseVerified는 서버에서 전송된 값으로 설정됨
 });
+
+// Ollama 모델 목록을 불러오는 함수
+async function loadOllamaModels() {
+  try {
+    console.log('Ollama 모델 목록 불러오기 시작');
+
+    // Ollama API URL 가져오기
+    const ollamaApiUrl = document.getElementById('ollama-api-url-input')?.value || 'http://localhost:11434';
+
+    // Ollama API에서 모델 목록 가져오기
+    const response = await fetch(`${ollamaApiUrl}/api/tags`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log('Ollama 모델 목록:', data);
+    if (data.models && Array.isArray(data.models)) {
+      // 기존 옵션들 제거 (첫 번째 옵션 제외)
+      const ollamaModelSelect = document.getElementById('ollama-model-select');
+      if (ollamaModelSelect) {
+        // 기존 옵션들 제거
+        ollamaModelSelect.innerHTML = '';
+
+        // 기본 옵션 추가
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '모델을 선택하세요';
+        ollamaModelSelect.appendChild(defaultOption);
+
+        // 로컬에 설치된 모델들 추가
+        data.models.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model.name;
+          option.textContent = model.name;
+          ollamaModelSelect.appendChild(option);
+        });
+        console.log(`Ollama 모델 목록 업데이트 완료: ${data.models.length}개 모델`);
+      }
+    } else {
+      console.warn('Ollama 모델 목록이 비어있습니다.');
+    }
+  } catch (error) {
+    console.error('Ollama 모델 목록 불러오기 실패:', error);
+
+    // 오류 발생 시 기본 모델들로 폴백
+    const ollamaModelSelect = document.getElementById('ollama-model-select');
+    if (ollamaModelSelect) {
+      ollamaModelSelect.innerHTML = `
+                <option value="">모델을 선택하세요</option>
+                <option value="gemma3:27b">Gemma3:27b</option>
+                <option value="deepseek-r1:70b">DeepSeek R1:70B</option>
+                <option value="codellama:7b">CodeLlama:7B</option>
+            `;
+    }
+  }
+}
+
+// Ollama API URL 변경 시 모델 목록 다시 불러오기
+if (ollamaApiUrlInput) {
+  ollamaApiUrlInput.addEventListener('change', () => {
+    console.log('Ollama API URL 변경됨, 모델 목록 다시 불러오기');
+    loadOllamaModels();
+  });
+  ollamaApiUrlInput.addEventListener('blur', () => {
+    console.log('Ollama API URL 입력 완료, 모델 목록 다시 불러오기');
+    loadOllamaModels();
+  });
+}
 /******/ 	return __webpack_exports__;
 /******/ })()
 ;

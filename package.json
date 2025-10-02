@@ -88,6 +88,30 @@
       {
         "command": "aidevIdeAsk.openAskView",
         "title": "Open aidev-ide Ask"
+      },
+      {
+        "command": "aidevIdeCode.startOllamaBlocker",
+        "title": "Start Ollama Blocker"
+      },
+      {
+        "command": "aidevIdeCode.stopOllamaBlocker",
+        "title": "Stop Ollama Blocker"
+      },
+      {
+        "command": "aidevIdeCode.ollamaBlockerStatus",
+        "title": "Ollama Blocker Status"
+      },
+      {
+        "command": "aidevIdeCode.killOllamaProcesses",
+        "title": "Kill Ollama Processes"
+      },
+      {
+        "command": "aidevIdeCode.testOllamaBlocker",
+        "title": "Test Ollama Blocker (Debug)"
+      },
+      {
+        "command": "aidevIdeCode.testFirebaseConnection",
+        "title": "Test Firebase Connection (Debug)"
       }
     ],
     "menus": {

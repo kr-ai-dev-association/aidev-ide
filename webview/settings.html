@@ -492,20 +492,20 @@
     </div>
 
     <div class="section-container">
-        <h2 id="banya-license-title">🔑 AIDEV 라이센스 설정</h2>
-        <p class="info-message">고급 기능을 사용하기 위한 AIDEV 라이센스 시리얼을 입력하고 검증합니다.</p>
+        <h2 id="banya-license-title">🔑 AIDEV 시리얼 번호 인증</h2>
+        <p class="info-message">ollama-blocker와 연동된 AIDEV 시리얼 번호를 입력하고 검증합니다.</p>
 
         <div class="api-key-section">
-            <h3 id="banya-license-label">라이센스 시리얼</h3>
-            <p class="info-message">AIDEV 라이센스 시리얼을 입력하여 제품을 활성화하세요.</p>
+            <h3 id="banya-license-label">시리얼 번호</h3>
+            <p class="info-message">ollama-blocker에서 사용하는 시리얼 번호를 입력하여 제품을 활성화하세요.</p>
             <div class="license-input-group">
                 <div class="license-input-row">
-                    <input type="text" id="banya-license-serial-input" placeholder="하이픈을 포함한 16자리의 시리얼 번호를 입력하세요">
+                    <input type="text" id="banya-license-serial-input" placeholder="시리얼 번호를 입력하세요 (예: TEST_SERIAL_123)">
                     <button id="verify-banya-license-button">검증</button>
                 </div>
                 <div class="license-button-group">
-                    <button id="save-banya-license-button">라이센스 저장</button>
-                    <button id="delete-banya-license-button">라이센스 삭제</button>
+                    <button id="save-banya-license-button">시리얼 번호 저장</button>
+                    <button id="delete-banya-license-button">시리얼 번호 삭제</button>
                 </div>
             </div>
             <p id="banya-license-status" class="info-message"></p>
@@ -601,7 +601,8 @@
 
             <!-- Ollama API URL 설정 -->
             <div class="api-key-input-group">
-                <input type="text" id="ollama-api-url-input" placeholder="http://localhost:11434">
+                <input type="text" id="ollama-api-url-input" placeholder="http://localhost:11434"
+                    value="http://localhost:11434">
                 <button id="save-ollama-api-url-button">저장</button>
             </div>
             <p id="ollama-api-url-status" class="info-message"></p>
@@ -617,6 +618,36 @@
                 <button id="save-ollama-endpoint-button">엔드포인트 저장</button>
             </div>
             <p id="ollama-endpoint-status" class="info-message"></p>
+        </div>
+    </div>
+
+    <div class="section-container">
+        <h2 id="ollama-blocker-title">🛡️ Ollama Blocker 관리</h2>
+        <p class="info-message">ollama-blocker는 Ollama 프로세스를 차단하고 시리얼 번호 인증을 통해 제어하는 백그라운드 서비스입니다.</p>
+
+        <div class="api-key-section">
+            <h3 id="ollama-blocker-status-label">서비스 상태</h3>
+            <p class="info-message">ollama-blocker의 현재 상태를 확인하고 제어할 수 있습니다.</p>
+            <div class="button-group">
+                <button id="start-ollama-blocker-button">Ollama Blocker 시작</button>
+                <button id="stop-ollama-blocker-button">Ollama Blocker 중지</button>
+                <button id="ollama-blocker-status-button">상태 확인</button>
+                <button id="kill-ollama-processes-button">Ollama 프로세스 종료</button>
+            </div>
+            <p id="ollama-blocker-status" class="info-message"></p>
+        </div>
+
+        <div class="api-key-section">
+            <h3 id="ollama-blocker-auth-label">시리얼 번호 인증</h3>
+            <p class="info-message">ollama-blocker에서 사용하는 시리얼 번호로 인증하여 Ollama를 시작할 수 있습니다.</p>
+            <div class="license-input-group">
+                <div class="license-input-row">
+                    <input type="text" id="ollama-blocker-serial-input"
+                        placeholder="시리얼 번호를 입력하세요 (예: TEST_SERIAL_123)">
+                    <button id="ollama-blocker-auth-button">인증</button>
+                </div>
+            </div>
+            <p id="ollama-blocker-auth-status" class="info-message"></p>
         </div>
     </div>
 

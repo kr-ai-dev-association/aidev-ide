@@ -56,6 +56,7 @@ const askViewProvider_1 = __webpack_require__(50); // 새로 추가된 AskViewPr
 const terminalManager_1 = __webpack_require__(41);
 const panelManager_1 = __webpack_require__(51);
 const licenseService_1 = __webpack_require__(52);
+const ollamaBlockerService_1 = __webpack_require__(185);
 // 전역 변수
 let storageService;
 let geminiApi;
@@ -66,6 +67,7 @@ let codebaseContextService;
 let llmResponseProcessor;
 let llmService;
 let licenseService;
+let ollamaBlockerService;
 async function activate(context) {
     console.log('Congratulations, aidev-ide is now active!');
     // 서비스 초기화 (순서 중요: 의존성 주입)
@@ -73,11 +75,70 @@ async function activate(context) {
     notificationService = new notificationService_1.NotificationService();
     configurationService = new configurationService_1.ConfigurationService();
     licenseService = new licenseService_1.LicenseService();
-    const initialApiKey = await storageService.getApiKey();
-    if (!initialApiKey) {
-        notificationService.showWarningMessage('aidev-ide: Gemini API Key is not set. Please set it in the License panel for AI features.');
+    ollamaBlockerService = ollamaBlockerService_1.OllamaBlockerService.getInstance(context);
+    // ollama-blocker 자동 설치 확인 및 설치
+    try {
+        const isInstalled = await ollamaBlockerService.isInstalled();
+        if (!isInstalled) {
+            console.log('ollama-blocker 설치 중...');
+            const installResult = await ollamaBlockerService.install();
+            if (installResult.success) {
+                console.log('ollama-blocker 설치 완료:', installResult.message);
+            }
+            else {
+                console.error('ollama-blocker 설치 실패:', installResult.message);
+            }
+        }
     }
-    geminiApi = new gemini_1.GeminiApi(initialApiKey || '');
+    catch (error) {
+        console.error('ollama-blocker 설치 확인 중 오류:', error);
+    }
+    // ollama-blocker 자동 시작 (시리얼 번호가 없는 경우에만)
+    try {
+        // 시리얼 번호 확인
+        const licenseSerial = await storageService.getBanyaLicenseSerial();
+        if (licenseSerial && licenseSerial.trim() !== '') {
+            console.log('시리얼 번호가 저장되어 있습니다. ollama-blocker를 시작하지 않습니다.');
+        }
+        else {
+            console.log('ollama-blocker 자동 시작 중...');
+            // 먼저 현재 상태 확인
+            const statusResult = await ollamaBlockerService.getStatus();
+            if (statusResult.running) {
+                console.log('ollama-blocker가 이미 실행 중입니다.');
+            }
+            else {
+                // ollama-blocker 시작
+                const startResult = await ollamaBlockerService.start();
+                if (startResult.success) {
+                    console.log('ollama-blocker 자동 시작 완료:', startResult.message);
+                }
+                else {
+                    console.error('ollama-blocker 자동 시작 실패:', startResult.message);
+                    // 재시도 로직
+                    console.log('ollama-blocker 재시도 중...');
+                    const retryResult = await ollamaBlockerService.start();
+                    if (retryResult.success) {
+                        console.log('ollama-blocker 재시도 성공:', retryResult.message);
+                    }
+                    else {
+                        console.error('ollama-blocker 재시도 실패:', retryResult.message);
+                    }
+                }
+            }
+        }
+    }
+    catch (error) {
+        console.error('ollama-blocker 자동 시작 중 오류:', error);
+    }
+    const initialApiKey = await storageService.getApiKey();
+    if (!initialApiKey || initialApiKey.trim() === '') {
+        notificationService.showWarningMessage('aidev-ide: Gemini API Key is not set. Please set it in the License panel for AI features.');
+        geminiApi = new gemini_1.GeminiApi();
+    }
+    else {
+        geminiApi = new gemini_1.GeminiApi(initialApiKey);
+    }
     // Ollama API 초기화
     const initialOllamaUrl = await storageService.getOllamaApiUrl();
     const initialOllamaEndpoint = await storageService.getOllamaEndpoint();
@@ -128,7 +189,7 @@ async function activate(context) {
         vscode.commands.executeCommand(`${askViewProvider_1.AskViewProvider.viewType}.focus`); // ASK 탭으로 포커스
     }));
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openSettingsPanel', () => {
-        (0, panelManager_1.openSettingsPanel)(context.extensionUri, context, vscode.ViewColumn.One, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService);
+        (0, panelManager_1.openSettingsPanel)(context.extensionUri, context, vscode.ViewColumn.One, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService);
     }));
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openLicensePanel', () => {
         (0, panelManager_1.openLicensePanel)(context.extensionUri, context, vscode.ViewColumn.One, storageService, geminiApi, notificationService, configurationService);
@@ -147,6 +208,67 @@ async function activate(context) {
                 terminal.sendText(`echo "Language changed to: ${language}"`);
             }
         });
+    }));
+    // ollama-blocker 관리 명령어들
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.startOllamaBlocker', async () => {
+        const result = await ollamaBlockerService.start();
+        if (result.success) {
+            vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
+        }
+        else {
+            vscode.window.showErrorMessage(`ollama-blocker: ${result.message}`);
+        }
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.stopOllamaBlocker', async () => {
+        const result = await ollamaBlockerService.stop();
+        if (result.success) {
+            vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
+        }
+        else {
+            vscode.window.showErrorMessage(`ollama-blocker: ${result.message}`);
+        }
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.ollamaBlockerStatus', async () => {
+        const status = await ollamaBlockerService.getStatus();
+        vscode.window.showInformationMessage(`ollama-blocker Status: ${status.message}`);
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.killOllamaProcesses', async () => {
+        const result = await ollamaBlockerService.killOllamaProcesses();
+        if (result.success) {
+            vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
+        }
+        else {
+            vscode.window.showErrorMessage(`ollama-blocker: ${result.message}`);
+        }
+    }));
+    // 디버그용 ollama-blocker 테스트 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testOllamaBlocker', async () => {
+        try {
+            const isInstalled = await ollamaBlockerService.isInstalled();
+            vscode.window.showInformationMessage(`ollama-blocker 설치 상태: ${isInstalled ? '설치됨' : '설치되지 않음'}`);
+            if (isInstalled) {
+                const status = await ollamaBlockerService.getStatus();
+                vscode.window.showInformationMessage(`ollama-blocker 상태: ${status.message}`);
+            }
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`ollama-blocker 테스트 오류: ${error}`);
+        }
+    }));
+    // Firebase 연결 테스트 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testFirebaseConnection', async () => {
+        try {
+            const result = await licenseService.testFirebaseConnection();
+            if (result.success) {
+                vscode.window.showInformationMessage(`Firebase 연결: ${result.message}`);
+            }
+            else {
+                vscode.window.showErrorMessage(`Firebase 연결 실패: ${result.message}`);
+            }
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Firebase 테스트 오류: ${error}`);
+        }
     }));
     console.log('aidev-ide activated and commands registered.');
 }
@@ -540,11 +662,11 @@ class GeminiApi {
         { category: generative_ai_1.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_NONE },
     ];
     constructor(apiKey) {
-        if (apiKey) {
+        if (apiKey && apiKey.trim() !== '') {
             this.initializeApi(apiKey);
         }
         else {
-            console.warn('Banya API Key is not provided at construction.');
+            console.warn('AIDEV-IDE API Key is not provided at construction.');
         }
     }
     initializeApi(apiKey, systemInstructionText) {
@@ -554,23 +676,23 @@ class GeminiApi {
                 model: this.MODEL_NAME,
                 safetySettings: this.defaultSafetySettings,
             });
-            console.log(`Banya API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
         }
         catch (error) {
-            console.error('Error initializing Banya API:', error);
+            console.error('Error initializing AIDEV-IDE API:', error);
             this.genAI = undefined;
             this.model = undefined;
         }
     }
     updateApiKey(apiKey) {
-        if (apiKey) {
+        if (apiKey && apiKey.trim() !== '') {
             this.initializeApi(apiKey);
-            console.log('Banya API Key updated.');
+            console.log('AIDEV-IDE API Key updated.');
         }
         else {
             this.genAI = undefined;
             this.model = undefined;
-            console.warn('Banya API Key removed. API is now uninitialized.');
+            console.warn('AIDEV-IDE API Key removed. API is now uninitialized.');
         }
     }
     isInitialized() {
@@ -579,7 +701,7 @@ class GeminiApi {
     // <-- 수정: sendMessage 메서드에 RequestOptions를 두 번째 인자로 전달 -->
     async sendMessage(message, generationConfigParam, options) {
         if (!this.isInitialized()) {
-            throw new Error("Banya API is not initialized. Please set your API Key in the CodePilot settings (License section).");
+            throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
         }
         try {
             const chat = this.model.startChat({
@@ -597,7 +719,7 @@ class GeminiApi {
             return text;
         }
         catch (error) {
-            console.error('Error calling Banya API (sendMessage):', error);
+            console.error('Error calling AIDEV-IDE API (sendMessage):', error);
             return this.handleApiError(error);
         }
     }
@@ -606,7 +728,7 @@ class GeminiApi {
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText, userParts, options) {
         if (!this.genAI) {
-            throw new Error("Banya Gemma 27B Tunded is not initialized. Please set your API Key.");
+            throw new Error("AIDEV-IDE is not initialized. Please set your API Key.");
         }
         try {
             const tempModel = this.genAI.getGenerativeModel({
@@ -623,7 +745,7 @@ class GeminiApi {
             // <-- 수정 끝 -->
             const response = result.response;
             if (response.promptFeedback && response.promptFeedback.blockReason) {
-                console.warn(`Banya API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
+                console.warn(`AIDEV-IDE API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
                 throw new Error(`Response was blocked by safety settings. Reason: ${response.promptFeedback.blockReason}. Please adjust your prompt or safety settings.`);
             }
             const text = response.text();
@@ -632,24 +754,24 @@ class GeminiApi {
             return text;
         }
         catch (error) {
-            console.error('Error calling Banya API (sendMessageWithSystemPrompt):', error);
+            console.error('Error calling AIDEV-IDE API (sendMessageWithSystemPrompt):', error);
             return this.handleApiError(error);
         }
     }
     // <-- 수정 끝 -->
     handleApiError(error) {
         if (error.name === 'AbortError') {
-            return "Error: Banya API call was cancelled.";
+            return "Error: AIDEV-IDE API call was cancelled.";
         }
         if (error.message) {
             if (error.message.includes('API key not valid') || error.message.includes('invalid api key')) {
-                return "Error: Invalid Banya API Key. Please check and update it in the CodePilot settings (License section).";
+                return "Error: Invalid AIDEV-IDE API Key. Please check and update it in the AIDEV-IDE settings (License section).";
             }
             if (error.message.includes('quota') || error.message.includes('Quota')) {
-                return "Error: Banya API quota exceeded. Please check your Banya Lincese detail.";
+                return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
             }
             if (error.message.includes('Billing account not found')) {
-                return "Error: Billing account not found or not associated with the project. Please check your Banya Codepilot payment account.";
+                return "Error: Billing account not found or not associated with the project. Please check your AIDEV-IDE payment account.";
             }
             if (error.message.includes('LOCATION_INVALID')) {
                 return "Error: Invalid location or model not available in the region. Please check model availability.";
@@ -657,9 +779,9 @@ class GeminiApi {
             if (error.message.includes('Response was blocked')) {
                 return error.message;
             }
-            return `Error communicating with Banya API: Banya agent ochestration service aborted LLM calling`;
+            return `Error communicating with AIDEV-IDE API: AIDEV-IDE agent orchestration service aborted LLM calling`;
         }
-        return "Error: An unknown error occurred while communicating with the Banya API.";
+        return "Error: An unknown error occurred while communicating with the AIDEV-IDE API.";
     }
 }
 exports.GeminiApi = GeminiApi;
@@ -10873,8 +10995,8 @@ class LlmResponseProcessor {
             // 터미널 명령어가 포함되어 있으면 경고 메시지 표시하고 제거
             if ((0, terminalManager_1.hasBashCommands)(llmResponse)) {
                 const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warningMsg });
-                this.notificationService.showWarningMessage(`aidev-ide: ${warningMsg}`);
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
+                this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
                 hasWarnings = true;
                 // 터미널 명령어 부분 제거
                 cleanedResponse = this.removeBashCommands(cleanedResponse);
@@ -10882,15 +11004,15 @@ class LlmResponseProcessor {
             // 파일 생성/수정/삭제 지시어가 포함되어 있으면 경고 메시지 표시하고 제거
             if (llmResponse.includes("새 파일:") || llmResponse.includes("수정 파일:") || llmResponse.includes("삭제 파일:")) {
                 const warningMsg = "ASK 탭에서는 파일 생성, 수정, 삭제를 할 수 없습니다. CODE 탭을 사용해주세요.";
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warningMsg });
-                this.notificationService.showWarningMessage(`aidev-ide: ${warningMsg}`);
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
+                this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
                 hasWarnings = true;
                 // 파일 작업 지시어 부분 제거
                 cleanedResponse = this.removeFileDirectives(cleanedResponse);
             }
             // 정리된 응답을 웹뷰에 전달
             if (cleanedResponse.trim()) {
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: cleanedResponse });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: cleanedResponse });
             }
             return;
         }
@@ -10916,7 +11038,7 @@ class LlmResponseProcessor {
         // 새 파일 생성을 위한 프로젝트 루트가 없으면 경고
         if (!projectRoot && llmResponse.includes("새 파일:")) {
             this.notificationService.showErrorMessage("새 파일 생성을 위해 프로젝트 루트 경로를 찾을 수 없습니다. aidev-ide 설정에서 'Project Root'를 설정하거나, 워크스페이스를 여십시오.");
-            (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: "오류: 새 파일 생성을 위한 프로젝트 루트 경로를 찾을 수 없습니다." });
+            (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: "오류: 새 파일 생성을 위한 프로젝트 루트 경로를 찾을 수 없습니다." });
             // 여기서 return하지 않고, 아래 루프에서 새 파일 생성을 건너뛰도록 처리
         }
         // 코드 블록이 있는 파일 작업 처리 (생성, 수정)
@@ -10945,7 +11067,7 @@ class LlmResponseProcessor {
                 else {
                     const warnMsg = `경고: AI가 수정을 제안한 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                     console.warn(`[LLM Response Processor] WARN: '수정 파일' specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f) => `${f.name} -> ${f.fullPath}`));
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -10960,7 +11082,7 @@ class LlmResponseProcessor {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 파일 생성을 건너뜀.`;
                     // console.warn(`[LLM Response Processor] WARN: ${warnMsg}`);
                     this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -11008,7 +11130,7 @@ class LlmResponseProcessor {
                 else {
                     const warnMsg = `경고: AI가 수정을 제안한 마크다운 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                     console.warn(`[LLM Response Processor] WARN: '수정 파일' markdown specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f) => `${f.name} -> ${f.fullPath}`));
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -11021,7 +11143,7 @@ class LlmResponseProcessor {
                 else {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                     this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -11067,7 +11189,7 @@ class LlmResponseProcessor {
                     else {
                         const warnMsg = `경고: AI가 수정을 제안한 마크다운 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                         console.warn(`[LLM Response Processor] WARN: '수정 파일' markdown specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f) => `${f.name} -> ${f.fullPath}`));
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -11080,7 +11202,7 @@ class LlmResponseProcessor {
                     else {
                         const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                         this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -11127,7 +11249,7 @@ class LlmResponseProcessor {
                     else {
                         const warnMsg = `경고: AI가 수정을 제안한 마크다운 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                         console.warn(`[LLM Response Processor] WARN: '수정 파일' markdown specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f) => `${f.name} -> ${f.fullPath}`));
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -11140,7 +11262,7 @@ class LlmResponseProcessor {
                     else {
                         const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                         this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -11173,7 +11295,7 @@ class LlmResponseProcessor {
                 const warnMsg = `경고: '삭제 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 파일 삭제를 건너뜀.`;
                 // console.warn(`[LLM Response Processor] WARN: ${warnMsg}`);
                 this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                 updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                 continue; // Skip this operation
             }
@@ -11199,7 +11321,7 @@ class LlmResponseProcessor {
         else if (promptType === types_1.PromptType.CODE_GENERATION) {
             initialWebviewResponse += `\n\n--- 컨텍스트에 포함된 파일 ---\n(없음)`;
         }
-        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: initialWebviewResponse });
+        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: initialWebviewResponse });
         // 파일 작업이 있는 경우에만 추가 처리
         console.log(`[LLM Response Processor] Found ${fileOperations.length} file operations:`, fileOperations.map(op => `${op.type}: ${op.llmSpecifiedPath}`));
         if (fileOperations.length > 0) {
@@ -11481,7 +11603,7 @@ class LlmResponseProcessor {
             // 파일 작업 결과를 추가로 채팅창에 표시
             if (updateSummaryMessages.length > 0) {
                 const updateResultMessage = "\n\n📁 파일 업데이트 결과\n" + updateSummaryMessages.join("\n");
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: updateResultMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: updateResultMessage });
             }
             // Bash 명령어 실행 처리
             if ((0, terminalManager_1.hasBashCommands)(llmResponse)) {
@@ -11489,53 +11611,53 @@ class LlmResponseProcessor {
                     const executedCommands = (0, terminalManager_1.executeBashCommandsFromLlmResponse)(llmResponse);
                     if (executedCommands.length > 0) {
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: bashMessage });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
                 }
                 catch (error) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: errorMessage });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                 }
             }
             // 작업 요약과 설명을 마지막에 출력
             if (workSummary) {
                 const summaryMessage = "\n\n📋 AI 작업 요약\n" + workSummary;
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: summaryMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMessage });
             }
             if (workDescription) {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: descriptionMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
             // 파일 작업 완료 후 hideLoading 호출
             (0, panelUtils_1.safePostMessage)(webview, { command: 'hideLoading' });
         }
         else if (llmResponse.includes("Copy") && !llmResponse.includes("수정 파일:") && !llmResponse.includes("새 파일:") && !llmResponse.includes("삭제 파일:")) {
             const infoMessage = "\n\n[정보] 코드 블록이 응답에 포함되어 있으나, '수정 파일:', '새 파일:', 또는 '삭제 파일:' 지시어가 없어 자동 업데이트가 시도되지 않았습니다. 필요시 수동으로 복사하여 사용해주세요.";
-            (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: infoMessage });
+            (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
             // Bash 명령어 실행 처리
             if ((0, terminalManager_1.hasBashCommands)(llmResponse)) {
                 try {
                     const executedCommands = (0, terminalManager_1.executeBashCommandsFromLlmResponse)(llmResponse);
                     if (executedCommands.length > 0) {
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: bashMessage });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
                 }
                 catch (error) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: errorMessage });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                 }
             }
             // 파일 작업이 없어도 작업 요약과 설명이 있으면 출력
             if (workSummary) {
                 const summaryMessage = "\n\n📋 AI 작업 요약\n" + workSummary;
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: summaryMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMessage });
             }
             if (workDescription) {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: descriptionMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
         }
         else {
@@ -11547,23 +11669,23 @@ class LlmResponseProcessor {
                     const executedCommands = (0, terminalManager_1.executeBashCommandsFromLlmResponse)(llmResponse);
                     if (executedCommands.length > 0) {
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: bashMessage });
+                        (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
                 }
                 catch (error) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: errorMessage });
+                    (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                 }
             }
             // 파일 작업이 없어도 작업 요약과 설명이 있으면 출력
             if (workSummary) {
                 const summaryMessage = "\n\n📋 AI 작업 요약\n" + workSummary;
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: summaryMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMessage });
             }
             if (workDescription) {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
-                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: descriptionMessage });
+                (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
         }
     }
@@ -12109,7 +12231,7 @@ class LlmService {
         return this.currentModelType;
     }
     cancelCurrentCall() {
-        console.log(`[ CodePilot ] Attempting to cancel current ${this.currentModelType} call.`);
+        console.log(`[ AIDEV-IDE ] Attempting to cancel current ${this.currentModelType} call.`);
         if (this.currentCallController) {
             this.currentCallController.abort();
             this.currentCallController = null;
@@ -12176,10 +12298,10 @@ class LlmService {
             if (tokenCheck.isExceeded) {
                 const errorMessage = tokenCheck.message;
                 console.error(`[LlmService] ${errorMessage}`);
-                this.notificationService.showErrorMessage(`CodePilot: ${errorMessage}`);
+                this.notificationService.showErrorMessage(`AIDEV-IDE: ${errorMessage}`);
                 (0, panelUtils_1.safePostMessage)(webviewToRespond, {
                     command: 'receiveMessage',
-                    sender: 'CodePilot',
+                    sender: 'AIDEV-IDE',
                     text: errorMessage
                 });
                 return;
@@ -12212,13 +12334,13 @@ class LlmService {
         }
         catch (error) {
             if (error.name === 'AbortError') {
-                console.warn(`[CodePilot] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'CodePilot', text: 'AI 호출이 취소되었습니다.' });
+                console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
+                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
             }
             else {
                 console.error(`Error in handleUserMessageAndRespond (${this.currentModelType}):`, error);
                 this.notificationService.showErrorMessage(`Error: Failed to process request. ${error.message}`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'CodePilot', text: `Failed to process request. ${error.message}` });
+                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request. ${error.message}` });
             }
         }
         finally {
@@ -13491,13 +13613,13 @@ class ChatViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
                 case 'sendMessage':
-                    // 라이센스 확인
+                    // ollama-blocker 방식으로 시리얼 번호 검증
                     const licenseSerial = await this.storageService.getBanyaLicenseSerial();
                     if (!licenseSerial || licenseSerial.trim() === '') {
                         // 다국어 메시지 가져오기
                         const currentLanguage = await this.configurationService.getLanguage();
                         const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${currentLanguage}.json`);
-                        let licenseNotSetMessage = '라이센스가 설정되지 않았습니다. 설정에서 AIDEV 라이센스를 입력하고 검증해주세요.';
+                        let licenseNotSetMessage = '시리얼 번호가 설정되지 않았습니다. 설정에서 AIDEV 시리얼 번호를 입력하고 검증해주세요.';
                         try {
                             const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
                             const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
@@ -13510,6 +13632,17 @@ class ChatViewProvider {
                             command: 'receiveMessage',
                             sender: 'AIDEV-IDE',
                             text: licenseNotSetMessage
+                        });
+                        return;
+                    }
+                    // 시리얼 번호 검증 (ollama-blocker 방식)
+                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 52))).LicenseService();
+                    const verificationResult = await licenseService.verifyLicense(licenseSerial);
+                    if (!verificationResult.success) {
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: `시리얼 번호 검증 실패: ${verificationResult.message}`
                         });
                         return;
                     }
@@ -13739,13 +13872,13 @@ class AskViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
                 case 'sendMessage':
-                    // 라이센스 확인
+                    // ollama-blocker 방식으로 시리얼 번호 검증
                     const licenseSerial = await this.storageService.getBanyaLicenseSerial();
                     if (!licenseSerial || licenseSerial.trim() === '') {
                         // 다국어 메시지 가져오기
                         const currentLanguage = await this.configurationService.getLanguage();
                         const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${currentLanguage}.json`);
-                        let licenseNotSetMessage = '라이센스가 설정되지 않았습니다. 설정에서 AIDEV 라이센스를 입력하고 검증해주세요.';
+                        let licenseNotSetMessage = '시리얼 번호가 설정되지 않았습니다. 설정에서 AIDEV 시리얼 번호를 입력하고 검증해주세요.';
                         try {
                             const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
                             const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
@@ -13758,6 +13891,17 @@ class AskViewProvider {
                             command: 'receiveMessage',
                             sender: 'AIDEV-IDE',
                             text: licenseNotSetMessage
+                        });
+                        return;
+                    }
+                    // 시리얼 번호 검증 (ollama-blocker 방식)
+                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 52))).LicenseService();
+                    const verificationResult = await licenseService.verifyLicense(licenseSerial);
+                    if (!verificationResult.success) {
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: `시리얼 번호 검증 실패: ${verificationResult.message}`
                         });
                         return;
                     }
@@ -13887,15 +14031,16 @@ const panelUtils_1 = __webpack_require__(40);
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews = [];
 /**
- * CodePilot 설정 패널을 엽니다.
+ * AIDEV-IDE 설정 패널을 엽니다.
  */
 function openSettingsPanel(extensionUri, context, viewColumn, configurationService, notificationService, storageService, // StorageService 추가
 geminiApi, // GeminiApi 추가
 licenseService, // LicenseService 추가
 ollamaApi, // OllamaApi 추가
-llmService // LlmService 추가
+llmService, // LlmService 추가
+ollamaBlockerService // OllamaBlockerService 추가
 ) {
-    const panel = (0, panelUtils_1.createAndSetupWebviewPanel)(extensionUri, context, 'settings', 'CodePilot Settings', 'settings', viewColumn, async (data, panel) => {
+    const panel = (0, panelUtils_1.createAndSetupWebviewPanel)(extensionUri, context, 'settings', 'AIDEV-IDE Settings', 'settings', viewColumn, async (data, panel) => {
         console.log('Settings panel received message:', data.command, data);
         switch (data.command) {
             case 'initSettings':
@@ -14025,7 +14170,7 @@ llmService // LlmService 추가
                         await storageService.saveApiKey(apiKeyToSave);
                         geminiApi.updateApiKey(apiKeyToSave);
                         panel.webview.postMessage({ command: 'apiKeySaved' });
-                        notificationService.showInfoMessage('CodePilot: Gemini API Key saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: Gemini API Key saved.');
                     }
                     catch (error) {
                         panel.webview.postMessage({ command: 'apiKeySaveError', error: error.message });
@@ -14047,7 +14192,7 @@ llmService // LlmService 추가
                             ollamaApi.setApiUrl(ollamaApiUrlToSave);
                         }
                         panel.webview.postMessage({ command: 'ollamaApiUrlSaved' });
-                        notificationService.showInfoMessage('CodePilot: Ollama API URL saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: Ollama API URL saved.');
                     }
                     catch (error) {
                         panel.webview.postMessage({ command: 'ollamaApiUrlError', error: error.message });
@@ -14076,7 +14221,7 @@ llmService // LlmService 추가
                             console.log('OllamaApi instance not available or setEndpoint method not found');
                         }
                         panel.webview.postMessage({ command: 'ollamaEndpointSaved' });
-                        notificationService.showInfoMessage('CodePilot: Ollama endpoint saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: Ollama endpoint saved.');
                     }
                     catch (error) {
                         console.error('Error saving Ollama endpoint:', error);
@@ -14096,7 +14241,26 @@ llmService // LlmService 추가
                     try {
                         await storageService.saveBanyaLicenseSerial(licenseSerialToSave);
                         panel.webview.postMessage({ command: 'banyaLicenseSaved' });
-                        notificationService.showInfoMessage('CodePilot: Banya license saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: AIDEV license saved.');
+                        // 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행
+                        if (ollamaBlockerService) {
+                            console.log('[PanelManager] 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행');
+                            try {
+                                const authResult = await ollamaBlockerService.authenticate(licenseSerialToSave);
+                                if (authResult.success) {
+                                    console.log('[PanelManager] ollama-blocker 인증 성공:', authResult.message);
+                                    notificationService.showInfoMessage(`AIDEV-IDE: ${authResult.message}`);
+                                }
+                                else {
+                                    console.error('[PanelManager] ollama-blocker 인증 실패:', authResult.message);
+                                    notificationService.showWarningMessage(`AIDEV-IDE: ${authResult.message}`);
+                                }
+                            }
+                            catch (error) {
+                                console.error('[PanelManager] ollama-blocker 인증 중 오류:', error);
+                                notificationService.showErrorMessage(`AIDEV-IDE: ollama-blocker 인증 중 오류가 발생했습니다.`);
+                            }
+                        }
                     }
                     catch (error) {
                         panel.webview.postMessage({ command: 'banyaLicenseError', error: error.message });
@@ -14116,11 +14280,30 @@ llmService // LlmService 추가
                         const verificationResult = await licenseService.verifyLicense(licenseSerialToVerify);
                         if (verificationResult.success) {
                             panel.webview.postMessage({ command: 'banyaLicenseVerified' });
-                            notificationService.showInfoMessage(`CodePilot: ${verificationResult.message}`);
+                            notificationService.showInfoMessage(`AIDEV-IDE: ${verificationResult.message}`);
+                            // 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행
+                            if (ollamaBlockerService) {
+                                console.log('[PanelManager] 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행');
+                                try {
+                                    const authResult = await ollamaBlockerService.authenticate(licenseSerialToVerify);
+                                    if (authResult.success) {
+                                        console.log('[PanelManager] ollama-blocker 인증 성공:', authResult.message);
+                                        notificationService.showInfoMessage(`AIDEV-IDE: ${authResult.message}`);
+                                    }
+                                    else {
+                                        console.error('[PanelManager] ollama-blocker 인증 실패:', authResult.message);
+                                        notificationService.showWarningMessage(`AIDEV-IDE: ${authResult.message}`);
+                                    }
+                                }
+                                catch (error) {
+                                    console.error('[PanelManager] ollama-blocker 인증 중 오류:', error);
+                                    notificationService.showErrorMessage(`AIDEV-IDE: ollama-blocker 인증 중 오류가 발생했습니다.`);
+                                }
+                            }
                         }
                         else {
                             panel.webview.postMessage({ command: 'banyaLicenseVerificationFailed', error: verificationResult.message });
-                            notificationService.showErrorMessage(`CodePilot: ${verificationResult.message}`);
+                            notificationService.showErrorMessage(`AIDEV-IDE: ${verificationResult.message}`);
                         }
                     }
                     catch (error) {
@@ -14137,7 +14320,7 @@ llmService // LlmService 추가
                 try {
                     await storageService.deleteBanyaLicenseSerial();
                     panel.webview.postMessage({ command: 'banyaLicenseDeleted' });
-                    notificationService.showInfoMessage('CodePilot: Banya license deleted successfully.');
+                    notificationService.showInfoMessage('AIDEV-IDE: AIDEV license deleted successfully.');
                 }
                 catch (error) {
                     panel.webview.postMessage({ command: 'banyaLicenseDeleteError', error: error.message });
@@ -14152,13 +14335,19 @@ llmService // LlmService 추가
                         let modelToSave = aiModelToSave;
                         if (aiModelToSave === 'ollama') {
                             const currentOllamaModel = await storageService.getOllamaModel();
+                            console.log('Current Ollama model for mapping:', currentOllamaModel);
                             if (currentOllamaModel === 'deepseek-r1:70b') {
                                 modelToSave = 'ollama-deepseek';
                             }
                             else if (currentOllamaModel && currentOllamaModel.startsWith('codellama')) {
                                 modelToSave = 'ollama-codellama';
                             }
+                            else if (currentOllamaModel && (currentOllamaModel.includes('gemma') || currentOllamaModel.includes('Gemma'))) {
+                                modelToSave = 'ollama-gemma';
+                            }
                             else {
+                                // 기본값을 ollama-gemma로 설정하되, 실제 모델명을 로그로 출력
+                                console.log('Unknown Ollama model, defaulting to ollama-gemma:', currentOllamaModel);
                                 modelToSave = 'ollama-gemma';
                             }
                         }
@@ -14168,7 +14357,7 @@ llmService // LlmService 추가
                             llmService.setCurrentModel(modelToSave);
                         }
                         panel.webview.postMessage({ command: 'aiModelSaved' });
-                        notificationService.showInfoMessage(`CodePilot: AI model changed to ${aiModelToSave}.`);
+                        notificationService.showInfoMessage(`AIDEV-IDE: AI model changed to ${aiModelToSave}.`);
                     }
                     catch (error) {
                         panel.webview.postMessage({ command: 'aiModelSaveError', error: error.message });
@@ -14213,7 +14402,7 @@ llmService // LlmService 추가
                             }
                         }
                         panel.webview.postMessage({ command: 'ollamaModelSaved' });
-                        notificationService.showInfoMessage(`CodePilot: Ollama model changed to ${ollamaModelToSave}.`);
+                        notificationService.showInfoMessage(`AIDEV-IDE: Ollama model changed to ${ollamaModelToSave}.`);
                     }
                     catch (error) {
                         panel.webview.postMessage({ command: 'ollamaModelError', error: error.message });
@@ -14239,7 +14428,7 @@ llmService // LlmService 추가
                 try {
                     await configurationService.updateWeatherApiKey(data.apiKey);
                     panel.webview.postMessage({ command: 'weatherApiKeySaved' });
-                    notificationService.showInfoMessage('CodePilot: Weather API key saved.');
+                    notificationService.showInfoMessage('AIDEV-IDE: Weather API key saved.');
                 }
                 catch (error) {
                     panel.webview.postMessage({ command: 'weatherApiKeyError', error: error.message });
@@ -14250,7 +14439,7 @@ llmService // LlmService 추가
                 try {
                     await configurationService.updateNewsApiKey(data.apiKey);
                     panel.webview.postMessage({ command: 'newsApiKeySaved' });
-                    notificationService.showInfoMessage('CodePilot: News API key saved.');
+                    notificationService.showInfoMessage('AIDEV-IDE: News API key saved.');
                 }
                 catch (error) {
                     panel.webview.postMessage({ command: 'newsApiKeyError', error: error.message });
@@ -14261,7 +14450,7 @@ llmService // LlmService 추가
                 try {
                     await configurationService.updateNewsApiSecret(data.apiSecret);
                     panel.webview.postMessage({ command: 'newsApiSecretSaved' });
-                    notificationService.showInfoMessage('CodePilot: News API secret saved.');
+                    notificationService.showInfoMessage('AIDEV-IDE: News API secret saved.');
                 }
                 catch (error) {
                     panel.webview.postMessage({ command: 'newsApiSecretError', error: error.message });
@@ -14272,7 +14461,7 @@ llmService // LlmService 추가
                 try {
                     await configurationService.updateStockApiKey(data.apiKey);
                     panel.webview.postMessage({ command: 'stockApiKeySaved' });
-                    notificationService.showInfoMessage('CodePilot: Stock API key saved.');
+                    notificationService.showInfoMessage('AIDEV-IDE: Stock API key saved.');
                 }
                 catch (error) {
                     panel.webview.postMessage({ command: 'stockApiKeyError', error: error.message });
@@ -14286,7 +14475,7 @@ llmService // LlmService 추가
                         // 언어 설정을 저장
                         await configurationService.updateLanguage(language);
                         panel.webview.postMessage({ command: 'languageSaved', language: language });
-                        notificationService.showInfoMessage(`CodePilot: Language changed to ${language}.`);
+                        notificationService.showInfoMessage(`AIDEV-IDE: Language changed to ${language}.`);
                         // 모든 활성 webview에 언어 변경 브로드캐스트
                         allWebviews.forEach(webview => {
                             webview.postMessage({ command: 'languageChanged', language });
@@ -14343,6 +14532,67 @@ llmService // LlmService 추가
                     }
                 }
                 break;
+            // Ollama Blocker 명령어 처리
+            case 'startOllamaBlocker':
+                if (ollamaBlockerService) {
+                    console.log('[PanelManager] startOllamaBlocker 명령어 처리 시작');
+                    const result = await ollamaBlockerService.start();
+                    console.log('[PanelManager] startOllamaBlocker 결과:', result);
+                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
+                }
+                else {
+                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                }
+                break;
+            case 'stopOllamaBlocker':
+                if (ollamaBlockerService) {
+                    console.log('[PanelManager] stopOllamaBlocker 명령어 처리 시작');
+                    const result = await ollamaBlockerService.stop();
+                    console.log('[PanelManager] stopOllamaBlocker 결과:', result);
+                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
+                }
+                else {
+                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                }
+                break;
+            case 'ollamaBlockerStatus':
+                if (ollamaBlockerService) {
+                    console.log('[PanelManager] ollamaBlockerStatus 명령어 처리 시작');
+                    const status = await ollamaBlockerService.getStatus();
+                    console.log('[PanelManager] ollamaBlockerStatus 결과:', status);
+                    panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: status.running, message: status.message });
+                }
+                else {
+                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                    panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                }
+                break;
+            case 'killOllamaProcesses':
+                if (ollamaBlockerService) {
+                    console.log('[PanelManager] killOllamaProcesses 명령어 처리 시작');
+                    const result = await ollamaBlockerService.killOllamaProcesses();
+                    console.log('[PanelManager] killOllamaProcesses 결과:', result);
+                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
+                }
+                else {
+                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                }
+                break;
+            case 'ollamaBlockerAuth':
+                if (ollamaBlockerService && data.serialNumber) {
+                    console.log('[PanelManager] ollamaBlockerAuth 명령어 처리 시작');
+                    const result = await ollamaBlockerService.authenticate(data.serialNumber);
+                    console.log('[PanelManager] ollamaBlockerAuth 결과:', result);
+                    panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: result.success, message: result.message });
+                }
+                else {
+                    console.error('[PanelManager] ollamaBlockerService 또는 serialNumber가 없음');
+                    panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: false, message: 'Ollama Blocker 서비스 또는 시리얼 번호가 없습니다.' });
+                }
+                break;
         }
     });
     // webview를 전역 배열에 등록
@@ -14357,12 +14607,12 @@ llmService // LlmService 추가
     return panel;
 }
 /**
- * CodePilot 라이선스 패널을 엽니다.
+ * AIDEV-IDE 라이선스 패널을 엽니다.
  */
 function openLicensePanel(extensionUri, context, viewColumn, storageService, geminiApi, notificationService, // NotificationService 주입
 configurationService // ConfigurationService 주입
 ) {
-    const panel = (0, panelUtils_1.createAndSetupWebviewPanel)(extensionUri, context, 'license', 'CodePilot License & Copyright', 'license', viewColumn, async (data, panel) => {
+    const panel = (0, panelUtils_1.createAndSetupWebviewPanel)(extensionUri, context, 'license', 'AIDEV-IDE License & Copyright', 'license', viewColumn, async (data, panel) => {
         switch (data.command) {
             case 'saveApiKey':
                 const apiKeyToSave = data.apiKey;
@@ -14371,7 +14621,7 @@ configurationService // ConfigurationService 주입
                         await storageService.saveApiKey(apiKeyToSave);
                         geminiApi.updateApiKey(apiKeyToSave);
                         panel.webview.postMessage({ command: 'apiKeySaved', message: 'API Key saved!' });
-                        notificationService.showInfoMessage('CodePilot: API Key saved.'); // NotificationService 사용
+                        notificationService.showInfoMessage('AIDEV-IDE: API Key saved.'); // NotificationService 사용
                     }
                     catch (error) {
                         panel.webview.postMessage({ command: 'apiKeySaveError', error: error.message });
@@ -14457,22 +14707,52 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LicenseService = void 0;
 const app_1 = __webpack_require__(53);
 const firestore_1 = __webpack_require__(61);
-// Firebase 설정
+// Firebase 설정 (ollama-blocker와 동일한 프로젝트)
 const firebaseConfig = {
-    apiKey: "AIzaSyAP-mrOZzWwW9LYXoOsyoJH4i-yJtVZlA0",
-    authDomain: "my-react-app-878e3.firebaseapp.com",
-    projectId: "my-react-app-878e3",
-    storageBucket: "my-react-app-878e3.firebasestorage.app",
-    messagingSenderId: "102788218249",
-    appId: "1:102788218249:web:c29c248cbcc8565bb4b558",
-    measurementId: "G-NHJ8YXZ6W6"
+    projectId: "aidev-ass"
 };
 // Firebase 초기화
-const app = (0, app_1.initializeApp)(firebaseConfig);
-const db = (0, firestore_1.getFirestore)(app);
+let app;
+let db;
+try {
+    app = (0, app_1.initializeApp)(firebaseConfig);
+    db = (0, firestore_1.getFirestore)(app);
+    console.log('Firebase 초기화 성공');
+}
+catch (error) {
+    console.error('Firebase 초기화 실패:', error);
+}
 class LicenseService {
     /**
-     * 입력된 시리얼 번호가 ID 0번의 라이센스와 일치하는지 검증
+     * Firebase 연결 테스트
+     */
+    async testFirebaseConnection() {
+        try {
+            if (!db) {
+                return {
+                    success: false,
+                    message: 'Firebase가 초기화되지 않았습니다.'
+                };
+            }
+            // 간단한 Firestore 연결 테스트
+            const testDoc = (0, firestore_1.doc)(db, 'test', 'connection');
+            await (0, firestore_1.getDoc)(testDoc);
+            return {
+                success: true,
+                message: 'Firebase 연결이 정상입니다.'
+            };
+        }
+        catch (error) {
+            console.error('Firebase 연결 테스트 실패:', error);
+            const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+            return {
+                success: false,
+                message: `Firebase 연결 실패: ${errorMessage}`
+            };
+        }
+    }
+    /**
+     * ollama-blocker와 동일한 방식으로 시리얼 번호 검증
      * @param serialNumber 검증할 시리얼 번호
      * @returns 검증 결과 (성공/실패)
      */
@@ -14486,60 +14766,93 @@ class LicenseService {
                     message: '시리얼 번호를 입력해주세요.'
                 };
             }
-            // Firestore에서 ID 0번 라이센스 데이터 조회
-            const licenseDocRef = (0, firestore_1.doc)(db, 'licenses', '0');
-            const licenseDoc = await (0, firestore_1.getDoc)(licenseDocRef);
-            if (!licenseDoc.exists()) {
-                return {
-                    success: false,
-                    message: '라이센스 데이터를 찾을 수 없습니다.'
-                };
-            }
-            const licenseData = licenseDoc.data();
-            // 라이센스가 비활성화된 경우
-            if (!licenseData.isActive) {
-                return {
-                    success: false,
-                    message: '비활성화된 라이센스입니다.'
-                };
-            }
-            // 시리얼 번호 비교
-            if (licenseData.serialNumber === cleanedSerialNumber) {
+            // 임시: 개발용 테스트 시리얼 번호
+            if (cleanedSerialNumber === 'TEST_SERIAL_123' || cleanedSerialNumber === 'DEMO_SERIAL_456') {
                 return {
                     success: true,
-                    message: '라이센스 검증이 성공했습니다.'
+                    message: '개발용 시리얼 번호가 인증되었습니다.'
                 };
             }
-            else {
+            // Firestore에서 serial_numbers 컬렉션에서 시리얼 번호 조회 (ollama-blocker와 동일)
+            const serialDocRef = (0, firestore_1.doc)(db, 'serial_numbers', cleanedSerialNumber);
+            const serialDoc = await (0, firestore_1.getDoc)(serialDocRef);
+            if (!serialDoc.exists()) {
                 return {
                     success: false,
-                    message: '잘못된 시리얼 번호입니다.'
+                    message: '시리얼 번호를 찾을 수 없습니다.'
                 };
             }
+            const serialData = serialDoc.data();
+            // 시리얼 번호가 유효한지 확인
+            if (!serialData.valid) {
+                return {
+                    success: false,
+                    message: '유효하지 않은 시리얼 번호입니다.'
+                };
+            }
+            // 만료일 확인 (선택사항)
+            if (serialData.expires_at) {
+                const expiresAt = new Date(serialData.expires_at);
+                const now = new Date();
+                if (now > expiresAt) {
+                    return {
+                        success: false,
+                        message: '만료된 시리얼 번호입니다.'
+                    };
+                }
+            }
+            return {
+                success: true,
+                message: '시리얼 번호 검증이 성공했습니다.'
+            };
         }
         catch (error) {
-            console.error('라이센스 검증 중 오류 발생:', error);
+            console.error('시리얼 번호 검증 중 오류 발생:', error);
+            const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+            const errorName = error instanceof Error ? error.name : 'UnknownError';
+            const errorStack = error instanceof Error ? error.stack : undefined;
+            console.error('오류 상세:', {
+                name: errorName,
+                message: errorMessage,
+                stack: errorStack
+            });
+            // Firebase 연결 오류인지 확인
+            if (errorMessage.includes('firebase')) {
+                return {
+                    success: false,
+                    message: 'Firebase 연결 오류: Firebase 설정을 확인해주세요.'
+                };
+            }
+            // 네트워크 오류인지 확인
+            if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+                return {
+                    success: false,
+                    message: '네트워크 연결 오류: 인터넷 연결을 확인해주세요.'
+                };
+            }
             return {
                 success: false,
-                message: '라이센스 검증 중 오류가 발생했습니다. 네트워크 연결을 확인해주세요.'
+                message: `시리얼 번호 검증 중 오류가 발생했습니다: ${errorMessage}`
             };
         }
     }
     /**
-     * ID 0번 라이센스 정보 조회 (디버깅용)
-     * @returns 라이센스 데이터
+     * 시리얼 번호 정보 조회 (디버깅용)
+     * @param serialNumber 조회할 시리얼 번호
+     * @returns 시리얼 번호 데이터
      */
-    async getLicenseInfo() {
+    async getSerialNumberInfo(serialNumber) {
         try {
-            const licenseDocRef = (0, firestore_1.doc)(db, 'licenses', '0');
-            const licenseDoc = await (0, firestore_1.getDoc)(licenseDocRef);
-            if (!licenseDoc.exists()) {
+            const cleanedSerialNumber = serialNumber.trim().toUpperCase();
+            const serialDocRef = (0, firestore_1.doc)(db, 'serial_numbers', cleanedSerialNumber);
+            const serialDoc = await (0, firestore_1.getDoc)(serialDocRef);
+            if (!serialDoc.exists()) {
                 return null;
             }
-            return licenseDoc.data();
+            return serialDoc.data();
         }
         catch (error) {
-            console.error('라이센스 정보 조회 중 오류 발생:', error);
+            console.error('시리얼 번호 정보 조회 중 오류 발생:', error);
             return null;
         }
     }
@@ -78817,6 +79130,416 @@ function setup() {
 }
 exports.setup = setup;
 //# sourceMappingURL=load-balancer-round-robin.js.map
+
+/***/ }),
+/* 185 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OllamaBlockerService = void 0;
+const path = __importStar(__webpack_require__(10));
+const fs = __importStar(__webpack_require__(25));
+const os = __importStar(__webpack_require__(81));
+const child_process_1 = __webpack_require__(186);
+const util_1 = __webpack_require__(63);
+const execAsync = (0, util_1.promisify)(child_process_1.exec);
+class OllamaBlockerService {
+    static instance;
+    extensionContext;
+    blockerProcess = null;
+    constructor(context) {
+        this.extensionContext = context;
+    }
+    static getInstance(context) {
+        if (!OllamaBlockerService.instance) {
+            OllamaBlockerService.instance = new OllamaBlockerService(context);
+        }
+        return OllamaBlockerService.instance;
+    }
+    /**
+     * ollama-blocker 바이너리 경로 반환
+     */
+    getBlockerPath() {
+        // 디버그 모드에서는 현재 프로젝트의 ollama-blocker 디렉토리 사용
+        const debugPath = path.join(this.extensionContext.extensionPath, '..', 'ollama-blocker', 'ollama-blocker-embedded');
+        const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'ollama-blocker', 'ollama-blocker-embedded');
+        console.log('ollama-blocker 디버그 경로:', debugPath);
+        console.log('ollama-blocker 릴리스 경로:', releasePath);
+        console.log('extensionPath:', this.extensionContext.extensionPath);
+        // 디버그 모드 파일이 존재하는지 확인
+        if (fs.existsSync(debugPath)) {
+            console.log('디버그 모드 ollama-blocker 사용');
+            return debugPath;
+        }
+        // 릴리스 모드 파일이 존재하는지 확인
+        if (fs.existsSync(releasePath)) {
+            console.log('릴리스 모드 ollama-blocker 사용');
+            return releasePath;
+        }
+        // 기본적으로 릴리스 경로 반환 (에러 메시지용)
+        console.log('ollama-blocker 파일을 찾을 수 없음, 릴리스 경로 반환');
+        return releasePath;
+    }
+    /**
+     * 서비스 계정 키 파일 경로 반환
+     */
+    getServiceAccountKeyPath() {
+        // 디버그 모드에서는 현재 프로젝트의 ollama-blocker 디렉토리 사용
+        const debugPath = path.join(this.extensionContext.extensionPath, '..', 'ollama-blocker', 'service-account-key.json');
+        const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'ollama-blocker', 'service-account-key.json');
+        console.log('서비스 계정 키 디버그 경로:', debugPath);
+        console.log('서비스 계정 키 릴리스 경로:', releasePath);
+        // 디버그 모드 파일이 존재하는지 확인
+        if (fs.existsSync(debugPath)) {
+            console.log('디버그 모드 서비스 계정 키 사용');
+            return debugPath;
+        }
+        // 릴리스 모드 파일이 존재하는지 확인
+        if (fs.existsSync(releasePath)) {
+            console.log('릴리스 모드 서비스 계정 키 사용');
+            return releasePath;
+        }
+        // 기본적으로 릴리스 경로 반환 (에러 메시지용)
+        console.log('서비스 계정 키 파일을 찾을 수 없음, 릴리스 경로 반환');
+        return releasePath;
+    }
+    /**
+     * ollama-blocker가 설치되어 있는지 확인
+     */
+    async isInstalled() {
+        try {
+            const blockerPath = this.getBlockerPath();
+            const keyPath = this.getServiceAccountKeyPath();
+            return fs.existsSync(blockerPath) && fs.existsSync(keyPath);
+        }
+        catch (error) {
+            console.error('ollama-blocker 설치 확인 중 오류:', error);
+            return false;
+        }
+    }
+    /**
+     * ollama-blocker 설치
+     */
+    async install() {
+        try {
+            const blockerPath = this.getBlockerPath();
+            const keyPath = this.getServiceAccountKeyPath();
+            // 파일 존재 확인
+            if (!fs.existsSync(blockerPath)) {
+                return {
+                    success: false,
+                    message: 'ollama-blocker 바이너리를 찾을 수 없습니다.'
+                };
+            }
+            if (!fs.existsSync(keyPath)) {
+                return {
+                    success: false,
+                    message: '서비스 계정 키 파일을 찾을 수 없습니다.'
+                };
+            }
+            // 실행 권한 설정
+            await execAsync(`chmod +x "${blockerPath}"`);
+            return {
+                success: true,
+                message: 'ollama-blocker가 성공적으로 설치되었습니다.'
+            };
+        }
+        catch (error) {
+            console.error('ollama-blocker 설치 중 오류:', error);
+            return {
+                success: false,
+                message: `ollama-blocker 설치 실패: ${error}`
+            };
+        }
+    }
+    /**
+     * ollama-blocker 시작
+     */
+    async start() {
+        try {
+            console.log('[OllamaBlockerService] start() 메서드 호출됨');
+            if (this.blockerProcess) {
+                console.log('[OllamaBlockerService] 이미 실행 중인 프로세스가 있음');
+                return {
+                    success: false,
+                    message: 'ollama-blocker가 이미 실행 중입니다.'
+                };
+            }
+            const blockerPath = this.getBlockerPath();
+            const keyPath = this.getServiceAccountKeyPath();
+            console.log('[OllamaBlockerService] blockerPath:', blockerPath);
+            console.log('[OllamaBlockerService] keyPath:', keyPath);
+            // 파일 존재 여부 확인
+            if (!fs.existsSync(blockerPath)) {
+                console.error('[OllamaBlockerService] blockerPath 파일이 존재하지 않음:', blockerPath);
+                return {
+                    success: false,
+                    message: `ollama-blocker 바이너리를 찾을 수 없습니다: ${blockerPath}`
+                };
+            }
+            if (!fs.existsSync(keyPath)) {
+                console.error('[OllamaBlockerService] keyPath 파일이 존재하지 않음:', keyPath);
+                return {
+                    success: false,
+                    message: `서비스 계정 키 파일을 찾을 수 없습니다: ${keyPath}`
+                };
+            }
+            // 서비스 계정 키 파일을 임시 디렉토리에 복사
+            const tempDir = os.tmpdir();
+            const targetKeyPath = path.join(tempDir, 'service-account-key.json');
+            console.log('[OllamaBlockerService] tempDir:', tempDir);
+            console.log('[OllamaBlockerService] targetKeyPath:', targetKeyPath);
+            if (fs.existsSync(targetKeyPath)) {
+                fs.unlinkSync(targetKeyPath);
+            }
+            fs.copyFileSync(keyPath, targetKeyPath);
+            console.log('[OllamaBlockerService] 서비스 계정 키 파일 복사 완료');
+            // ollama-blocker 시작 (작업 디렉토리를 임시 디렉토리로 설정)
+            const command = `"${blockerPath}" start`;
+            console.log('[OllamaBlockerService] 실행 명령어:', command);
+            console.log('[OllamaBlockerService] 작업 디렉토리:', tempDir);
+            this.blockerProcess = (0, child_process_1.exec)(command, { cwd: tempDir }, (error, stdout, stderr) => {
+                console.log('[OllamaBlockerService] exec 콜백 호출됨');
+                if (error) {
+                    console.error('[OllamaBlockerService] ollama-blocker 실행 오류:', error);
+                }
+                if (stderr) {
+                    console.error('[OllamaBlockerService] ollama-blocker stderr:', stderr);
+                }
+                if (stdout) {
+                    console.log('[OllamaBlockerService] ollama-blocker stdout:', stdout);
+                }
+            });
+            console.log('[OllamaBlockerService] ollama-blocker 프로세스 시작됨, PID:', this.blockerProcess.pid);
+            return {
+                success: true,
+                message: 'ollama-blocker가 시작되었습니다.'
+            };
+        }
+        catch (error) {
+            console.error('[OllamaBlockerService] ollama-blocker 시작 중 오류:', error);
+            return {
+                success: false,
+                message: `ollama-blocker 시작 실패: ${error}`
+            };
+        }
+    }
+    /**
+     * ollama-blocker 중지
+     */
+    async stop() {
+        try {
+            if (!this.blockerProcess) {
+                return {
+                    success: false,
+                    message: 'ollama-blocker가 실행 중이 아닙니다.'
+                };
+            }
+            this.blockerProcess.kill();
+            this.blockerProcess = null;
+            return {
+                success: true,
+                message: 'ollama-blocker가 중지되었습니다.'
+            };
+        }
+        catch (error) {
+            console.error('ollama-blocker 중지 중 오류:', error);
+            return {
+                success: false,
+                message: `ollama-blocker 중지 실패: ${error}`
+            };
+        }
+    }
+    /**
+     * ollama-blocker 상태 확인
+     */
+    async getStatus() {
+        try {
+            console.log('[OllamaBlockerService] getStatus() 메서드 호출됨');
+            const blockerPath = this.getBlockerPath();
+            const keyPath = this.getServiceAccountKeyPath();
+            console.log('[OllamaBlockerService] getStatus - blockerPath:', blockerPath);
+            console.log('[OllamaBlockerService] getStatus - keyPath:', keyPath);
+            if (!fs.existsSync(blockerPath)) {
+                console.log('[OllamaBlockerService] getStatus - blockerPath 파일이 존재하지 않음');
+                return {
+                    running: false,
+                    message: 'ollama-blocker가 설치되지 않았습니다.'
+                };
+            }
+            if (!fs.existsSync(keyPath)) {
+                console.log('[OllamaBlockerService] getStatus - keyPath 파일이 존재하지 않음');
+                return {
+                    running: false,
+                    message: '서비스 계정 키 파일을 찾을 수 없습니다.'
+                };
+            }
+            // 서비스 계정 키 파일을 임시 디렉토리에 복사
+            const tempDir = os.tmpdir();
+            const targetKeyPath = path.join(tempDir, 'service-account-key.json');
+            console.log('[OllamaBlockerService] getStatus - tempDir:', tempDir);
+            console.log('[OllamaBlockerService] getStatus - targetKeyPath:', targetKeyPath);
+            if (fs.existsSync(targetKeyPath)) {
+                fs.unlinkSync(targetKeyPath);
+            }
+            fs.copyFileSync(keyPath, targetKeyPath);
+            console.log('[OllamaBlockerService] getStatus - 서비스 계정 키 파일 복사 완료');
+            console.log('[OllamaBlockerService] getStatus - blockerProcess 상태:', this.blockerProcess !== null);
+            console.log('[OllamaBlockerService] getStatus - blockerProcess PID:', this.blockerProcess?.pid);
+            const command = `"${blockerPath}" status`;
+            console.log('[OllamaBlockerService] getStatus - 실행 명령어:', command);
+            console.log('[OllamaBlockerService] getStatus - 작업 디렉토리:', tempDir);
+            const { stdout } = await execAsync(command, { cwd: tempDir });
+            console.log('[OllamaBlockerService] getStatus - stdout:', stdout);
+            return {
+                running: this.blockerProcess !== null,
+                message: stdout || '상태 확인 완료'
+            };
+        }
+        catch (error) {
+            console.error('[OllamaBlockerService] ollama-blocker 상태 확인 중 오류:', error);
+            return {
+                running: false,
+                message: `상태 확인 실패: ${error}`
+            };
+        }
+    }
+    /**
+     * 시리얼 번호로 인증
+     */
+    async authenticate(serialNumber) {
+        try {
+            const blockerPath = this.getBlockerPath();
+            const keyPath = this.getServiceAccountKeyPath();
+            if (!fs.existsSync(blockerPath)) {
+                return {
+                    success: false,
+                    message: 'ollama-blocker가 설치되지 않았습니다.'
+                };
+            }
+            if (!fs.existsSync(keyPath)) {
+                return {
+                    success: false,
+                    message: '서비스 계정 키 파일을 찾을 수 없습니다.'
+                };
+            }
+            // 서비스 계정 키 파일을 임시 디렉토리에 복사
+            const tempDir = os.tmpdir();
+            const targetKeyPath = path.join(tempDir, 'service-account-key.json');
+            if (fs.existsSync(targetKeyPath)) {
+                fs.unlinkSync(targetKeyPath);
+            }
+            fs.copyFileSync(keyPath, targetKeyPath);
+            const { stdout, stderr } = await execAsync(`"${blockerPath}" auth "${serialNumber}"`, { cwd: tempDir });
+            if (stderr && stderr.includes('Authentication failed')) {
+                return {
+                    success: false,
+                    message: '인증 실패: 잘못된 시리얼 번호입니다.'
+                };
+            }
+            // 인증 성공 시 ollama-blocker 프로세스 중지
+            if (this.blockerProcess) {
+                console.log('[OllamaBlockerService] ollama-blocker 인증 성공, 프로세스 중지');
+                this.blockerProcess = null;
+            }
+            return {
+                success: true,
+                message: '인증 성공: Ollama가 시작되었습니다.'
+            };
+        }
+        catch (error) {
+            console.error('ollama-blocker 인증 중 오류:', error);
+            return {
+                success: false,
+                message: `인증 실패: ${error}`
+            };
+        }
+    }
+    /**
+     * Ollama 프로세스 강제 종료
+     */
+    async killOllamaProcesses() {
+        try {
+            const blockerPath = this.getBlockerPath();
+            const keyPath = this.getServiceAccountKeyPath();
+            if (!fs.existsSync(blockerPath)) {
+                return {
+                    success: false,
+                    message: 'ollama-blocker가 설치되지 않았습니다.'
+                };
+            }
+            if (!fs.existsSync(keyPath)) {
+                return {
+                    success: false,
+                    message: '서비스 계정 키 파일을 찾을 수 없습니다.'
+                };
+            }
+            // 서비스 계정 키 파일을 임시 디렉토리에 복사
+            const tempDir = os.tmpdir();
+            const targetKeyPath = path.join(tempDir, 'service-account-key.json');
+            if (fs.existsSync(targetKeyPath)) {
+                fs.unlinkSync(targetKeyPath);
+            }
+            fs.copyFileSync(keyPath, targetKeyPath);
+            await execAsync(`"${blockerPath}" kill`, { cwd: tempDir });
+            return {
+                success: true,
+                message: 'Ollama 프로세스가 종료되었습니다.'
+            };
+        }
+        catch (error) {
+            console.error('Ollama 프로세스 종료 중 오류:', error);
+            return {
+                success: false,
+                message: `Ollama 프로세스 종료 실패: ${error}`
+            };
+        }
+    }
+}
+exports.OllamaBlockerService = OllamaBlockerService;
+
+
+/***/ }),
+/* 186 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("child_process");
 
 /***/ })
 /******/ 	]);

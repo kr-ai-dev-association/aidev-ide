@@ -70,8 +70,8 @@ export class LlmResponseProcessor {
             // 터미널 명령어가 포함되어 있으면 경고 메시지 표시하고 제거
             if (hasBashCommands(llmResponse)) {
                 const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warningMsg });
-                this.notificationService.showWarningMessage(`aidev-ide: ${warningMsg}`);
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
+                this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
                 hasWarnings = true;
 
                 // 터미널 명령어 부분 제거
@@ -81,8 +81,8 @@ export class LlmResponseProcessor {
             // 파일 생성/수정/삭제 지시어가 포함되어 있으면 경고 메시지 표시하고 제거
             if (llmResponse.includes("새 파일:") || llmResponse.includes("수정 파일:") || llmResponse.includes("삭제 파일:")) {
                 const warningMsg = "ASK 탭에서는 파일 생성, 수정, 삭제를 할 수 없습니다. CODE 탭을 사용해주세요.";
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warningMsg });
-                this.notificationService.showWarningMessage(`aidev-ide: ${warningMsg}`);
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
+                this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
                 hasWarnings = true;
 
                 // 파일 작업 지시어 부분 제거
@@ -91,7 +91,7 @@ export class LlmResponseProcessor {
 
             // 정리된 응답을 웹뷰에 전달
             if (cleanedResponse.trim()) {
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: cleanedResponse });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: cleanedResponse });
             }
 
             return;
@@ -128,7 +128,7 @@ export class LlmResponseProcessor {
         // 새 파일 생성을 위한 프로젝트 루트가 없으면 경고
         if (!projectRoot && llmResponse.includes("새 파일:")) {
             this.notificationService.showErrorMessage("새 파일 생성을 위해 프로젝트 루트 경로를 찾을 수 없습니다. aidev-ide 설정에서 'Project Root'를 설정하거나, 워크스페이스를 여십시오.");
-            safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: "오류: 새 파일 생성을 위한 프로젝트 루트 경로를 찾을 수 없습니다." });
+            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: "오류: 새 파일 생성을 위한 프로젝트 루트 경로를 찾을 수 없습니다." });
             // 여기서 return하지 않고, 아래 루프에서 새 파일 생성을 건너뛰도록 처리
         }
 
@@ -165,7 +165,7 @@ export class LlmResponseProcessor {
                 } else {
                     const warnMsg = `경고: AI가 수정을 제안한 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                     console.warn(`[LLM Response Processor] WARN: '수정 파일' specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f: { name: string, fullPath: string }) => `${f.name} -> ${f.fullPath}`));
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -178,7 +178,7 @@ export class LlmResponseProcessor {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 파일 생성을 건너뜀.`;
                     // console.warn(`[LLM Response Processor] WARN: ${warnMsg}`);
                     this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -234,7 +234,7 @@ export class LlmResponseProcessor {
                 } else {
                     const warnMsg = `경고: AI가 수정을 제안한 마크다운 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                     console.warn(`[LLM Response Processor] WARN: '수정 파일' markdown specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f: { name: string, fullPath: string }) => `${f.name} -> ${f.fullPath}`));
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -245,7 +245,7 @@ export class LlmResponseProcessor {
                 } else {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                     this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                     updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                     continue; // Skip this operation
                 }
@@ -296,7 +296,7 @@ export class LlmResponseProcessor {
                     } else {
                         const warnMsg = `경고: AI가 수정을 제안한 마크다운 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                         console.warn(`[LLM Response Processor] WARN: '수정 파일' markdown specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f: { name: string, fullPath: string }) => `${f.name} -> ${f.fullPath}`));
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -307,7 +307,7 @@ export class LlmResponseProcessor {
                     } else {
                         const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                         this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -359,7 +359,7 @@ export class LlmResponseProcessor {
                     } else {
                         const warnMsg = `경고: AI가 수정을 제안한 마크다운 파일 '${llmSpecifiedPath}'을(를) 컨텍스트 목록에서 찾을 수 없습니다. 해당 파일은 업데이트되지 않았습니다.`;
                         console.warn(`[LLM Response Processor] WARN: '수정 파일' markdown specified as "${llmSpecifiedPath}" but not found in context. Context files:`, contextFiles.map((f: { name: string, fullPath: string }) => `${f.name} -> ${f.fullPath}`));
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -370,7 +370,7 @@ export class LlmResponseProcessor {
                     } else {
                         const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                         this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                         updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                         continue; // Skip this operation
                     }
@@ -407,7 +407,7 @@ export class LlmResponseProcessor {
                 const warnMsg = `경고: '삭제 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 파일 삭제를 건너뜀.`;
                 // console.warn(`[LLM Response Processor] WARN: ${warnMsg}`);
                 this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: warnMsg });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warnMsg });
                 updateSummaryMessages.push(`⚠️ ${warnMsg}`);
                 continue; // Skip this operation
             }
@@ -438,7 +438,7 @@ export class LlmResponseProcessor {
 
 
 
-        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: initialWebviewResponse });
+        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: initialWebviewResponse });
 
 
 
@@ -733,7 +733,7 @@ export class LlmResponseProcessor {
             // 파일 작업 결과를 추가로 채팅창에 표시
             if (updateSummaryMessages.length > 0) {
                 const updateResultMessage = "\n\n📁 파일 업데이트 결과\n" + updateSummaryMessages.join("\n");
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: updateResultMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: updateResultMessage });
             }
 
             // Bash 명령어 실행 처리
@@ -742,31 +742,31 @@ export class LlmResponseProcessor {
                     const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
                     if (executedCommands.length > 0) {
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: bashMessage });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
                 } catch (error: any) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: errorMessage });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                 }
             }
 
             // 작업 요약과 설명을 마지막에 출력
             if (workSummary) {
                 const summaryMessage = "\n\n📋 AI 작업 요약\n" + workSummary;
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: summaryMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMessage });
             }
 
             if (workDescription) {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: descriptionMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
 
             // 파일 작업 완료 후 hideLoading 호출
             safePostMessage(webview, { command: 'hideLoading' });
         } else if (llmResponse.includes("Copy") && !llmResponse.includes("수정 파일:") && !llmResponse.includes("새 파일:") && !llmResponse.includes("삭제 파일:")) {
             const infoMessage = "\n\n[정보] 코드 블록이 응답에 포함되어 있으나, '수정 파일:', '새 파일:', 또는 '삭제 파일:' 지시어가 없어 자동 업데이트가 시도되지 않았습니다. 필요시 수동으로 복사하여 사용해주세요.";
-            safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: infoMessage });
+            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
 
             // Bash 명령어 실행 처리
             if (hasBashCommands(llmResponse)) {
@@ -774,24 +774,24 @@ export class LlmResponseProcessor {
                     const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
                     if (executedCommands.length > 0) {
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: bashMessage });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
                 } catch (error: any) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: errorMessage });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                 }
             }
 
             // 파일 작업이 없어도 작업 요약과 설명이 있으면 출력
             if (workSummary) {
                 const summaryMessage = "\n\n📋 AI 작업 요약\n" + workSummary;
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: summaryMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMessage });
             }
 
             if (workDescription) {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: descriptionMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
         } else {
             // 파일 작업이 없는 경우 thinking 애니메이션 제거
@@ -803,24 +803,24 @@ export class LlmResponseProcessor {
                     const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
                     if (executedCommands.length > 0) {
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: bashMessage });
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
                 } catch (error: any) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: errorMessage });
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                 }
             }
 
             // 파일 작업이 없어도 작업 요약과 설명이 있으면 출력
             if (workSummary) {
                 const summaryMessage = "\n\n📋 AI 작업 요약\n" + workSummary;
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: summaryMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMessage });
             }
 
             if (workDescription) {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
-                safePostMessage(webview, { command: 'receiveMessage', sender: 'aidev-ide', text: descriptionMessage });
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
         }
     }

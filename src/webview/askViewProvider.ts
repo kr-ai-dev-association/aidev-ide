@@ -43,13 +43,13 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
                 case 'sendMessage':
-                    // 라이센스 확인
+                    // ollama-blocker 방식으로 시리얼 번호 검증
                     const licenseSerial = await this.storageService.getBanyaLicenseSerial();
                     if (!licenseSerial || licenseSerial.trim() === '') {
                         // 다국어 메시지 가져오기
                         const currentLanguage = await this.configurationService.getLanguage();
                         const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${currentLanguage}.json`);
-                        let licenseNotSetMessage = '라이센스가 설정되지 않았습니다. 설정에서 AIDEV 라이센스를 입력하고 검증해주세요.';
+                        let licenseNotSetMessage = '시리얼 번호가 설정되지 않았습니다. 설정에서 AIDEV 시리얼 번호를 입력하고 검증해주세요.';
 
                         try {
                             const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
@@ -63,6 +63,18 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                             command: 'receiveMessage',
                             sender: 'AIDEV-IDE',
                             text: licenseNotSetMessage
+                        });
+                        return;
+                    }
+
+                    // 시리얼 번호 검증 (ollama-blocker 방식)
+                    const licenseService = new (await import('../services/licenseService')).LicenseService();
+                    const verificationResult = await licenseService.verifyLicense(licenseSerial);
+                    if (!verificationResult.success) {
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: `시리얼 번호 검증 실패: ${verificationResult.message}`
                         });
                         return;
                     }

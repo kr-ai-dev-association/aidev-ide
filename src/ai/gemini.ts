@@ -3,9 +3,9 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, GenerationConfig, Part, GenerateContentRequest, Content, RequestOptions } from '@google/generative-ai';
 
 declare module '@google/generative-ai' {
-  interface RequestOptions {
-    signal?: AbortSignal;
-  }
+    interface RequestOptions {
+        signal?: AbortSignal;
+    }
 }
 
 
@@ -31,10 +31,10 @@ export class GeminiApi {
     ];
 
     constructor(apiKey?: string) {
-        if (apiKey) {
+        if (apiKey && apiKey.trim() !== '') {
             this.initializeApi(apiKey);
         } else {
-            console.warn('Banya API Key is not provided at construction.');
+            console.warn('AIDEV-IDE API Key is not provided at construction.');
         }
     }
 
@@ -45,22 +45,22 @@ export class GeminiApi {
                 model: this.MODEL_NAME,
                 safetySettings: this.defaultSafetySettings,
             });
-            console.log(`Banya API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
         } catch (error) {
-            console.error('Error initializing Banya API:', error);
+            console.error('Error initializing AIDEV-IDE API:', error);
             this.genAI = undefined;
             this.model = undefined;
         }
     }
 
     updateApiKey(apiKey: string | undefined): void {
-        if (apiKey) {
+        if (apiKey && apiKey.trim() !== '') {
             this.initializeApi(apiKey);
-            console.log('Banya API Key updated.');
+            console.log('AIDEV-IDE API Key updated.');
         } else {
             this.genAI = undefined;
             this.model = undefined;
-            console.warn('Banya API Key removed. API is now uninitialized.');
+            console.warn('AIDEV-IDE API Key removed. API is now uninitialized.');
         }
     }
 
@@ -71,7 +71,7 @@ export class GeminiApi {
     // <-- 수정: sendMessage 메서드에 RequestOptions를 두 번째 인자로 전달 -->
     async sendMessage(message: string, generationConfigParam?: GenerationConfig, options?: RequestOptions): Promise<string> {
         if (!this.isInitialized()) {
-            throw new Error("Banya API is not initialized. Please set your API Key in the CodePilot settings (License section).");
+            throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
         }
 
         try {
@@ -90,7 +90,7 @@ export class GeminiApi {
             console.log('Banya Response (sendMessage):', text);
             return text;
         } catch (error: any) {
-            console.error('Error calling Banya API (sendMessage):', error);
+            console.error('Error calling AIDEV-IDE API (sendMessage):', error);
             return this.handleApiError(error);
         }
     }
@@ -100,7 +100,7 @@ export class GeminiApi {
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
         if (!this.genAI) {
-            throw new Error("Banya Gemma 27B Tunded is not initialized. Please set your API Key.");
+            throw new Error("AIDEV-IDE is not initialized. Please set your API Key.");
         }
 
         try {
@@ -121,7 +121,7 @@ export class GeminiApi {
 
             const response = result.response;
             if (response.promptFeedback && response.promptFeedback.blockReason) {
-                console.warn(`Banya API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
+                console.warn(`AIDEV-IDE API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
                 throw new Error(`Response was blocked by safety settings. Reason: ${response.promptFeedback.blockReason}. Please adjust your prompt or safety settings.`);
             }
             const text = response.text();
@@ -130,7 +130,7 @@ export class GeminiApi {
             return text;
 
         } catch (error: any) {
-            console.error('Error calling Banya API (sendMessageWithSystemPrompt):', error);
+            console.error('Error calling AIDEV-IDE API (sendMessageWithSystemPrompt):', error);
             return this.handleApiError(error);
         }
     }
@@ -138,17 +138,17 @@ export class GeminiApi {
 
     private handleApiError(error: any): string {
         if (error.name === 'AbortError') {
-            return "Error: Banya API call was cancelled.";
+            return "Error: AIDEV-IDE API call was cancelled.";
         }
         if (error.message) {
             if (error.message.includes('API key not valid') || error.message.includes('invalid api key')) {
-                return "Error: Invalid Banya API Key. Please check and update it in the CodePilot settings (License section).";
+                return "Error: Invalid AIDEV-IDE API Key. Please check and update it in the AIDEV-IDE settings (License section).";
             }
             if (error.message.includes('quota') || error.message.includes('Quota')) {
-                return "Error: Banya API quota exceeded. Please check your Banya Lincese detail.";
+                return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
             }
             if (error.message.includes('Billing account not found')) {
-                return "Error: Billing account not found or not associated with the project. Please check your Banya Codepilot payment account.";
+                return "Error: Billing account not found or not associated with the project. Please check your AIDEV-IDE payment account.";
             }
             if (error.message.includes('LOCATION_INVALID')) {
                 return "Error: Invalid location or model not available in the region. Please check model availability.";
@@ -156,8 +156,8 @@ export class GeminiApi {
             if (error.message.includes('Response was blocked')) {
                 return error.message;
             }
-            return `Error communicating with Banya API: Banya agent ochestration service aborted LLM calling`;
+            return `Error communicating with AIDEV-IDE API: AIDEV-IDE agent orchestration service aborted LLM calling`;
         }
-        return "Error: An unknown error occurred while communicating with the Banya API.";
+        return "Error: An unknown error occurred while communicating with the AIDEV-IDE API.";
     }
 }
