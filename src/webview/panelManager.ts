@@ -4,13 +4,14 @@ import { GeminiApi } from '../ai/gemini';
 import { ConfigurationService } from '../services/configurationService'; // 새로 추가
 import { NotificationService } from '../services/notificationService'; // 새로 추가
 import { LicenseService } from '../services/licenseService'; // 라이센스 서비스 추가
+import { OllamaBlockerService } from '../services/ollamaBlockerService'; // Ollama Blocker 서비스 추가
 import { createAndSetupWebviewPanel } from './panelUtils';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
 
 /**
- * CodePilot 설정 패널을 엽니다.
+ * AIDEV-IDE 설정 패널을 엽니다.
  */
 export function openSettingsPanel(
     extensionUri: vscode.Uri,
@@ -22,9 +23,10 @@ export function openSettingsPanel(
     geminiApi: GeminiApi, // GeminiApi 추가
     licenseService: LicenseService, // LicenseService 추가
     ollamaApi?: any, // OllamaApi 추가
-    llmService?: any // LlmService 추가
+    llmService?: any, // LlmService 추가
+    ollamaBlockerService?: OllamaBlockerService // OllamaBlockerService 추가
 ) {
-    const panel = createAndSetupWebviewPanel(extensionUri, context, 'settings', 'CodePilot Settings', 'settings', viewColumn,
+    const panel = createAndSetupWebviewPanel(extensionUri, context, 'settings', 'AIDEV-IDE Settings', 'settings', viewColumn,
         async (data, panel) => {
             console.log('Settings panel received message:', data.command, data);
             switch (data.command) {
@@ -155,7 +157,7 @@ export function openSettingsPanel(
                             await storageService.saveApiKey(apiKeyToSave);
                             geminiApi.updateApiKey(apiKeyToSave);
                             panel.webview.postMessage({ command: 'apiKeySaved' });
-                            notificationService.showInfoMessage('CodePilot: Gemini API Key saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Gemini API Key saved.');
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'apiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Gemini API Key: ${error.message}`);
@@ -175,7 +177,7 @@ export function openSettingsPanel(
                                 ollamaApi.setApiUrl(ollamaApiUrlToSave);
                             }
                             panel.webview.postMessage({ command: 'ollamaApiUrlSaved' });
-                            notificationService.showInfoMessage('CodePilot: Ollama API URL saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Ollama API URL saved.');
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'ollamaApiUrlError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama API URL: ${error.message}`);
@@ -203,7 +205,7 @@ export function openSettingsPanel(
                             }
 
                             panel.webview.postMessage({ command: 'ollamaEndpointSaved' });
-                            notificationService.showInfoMessage('CodePilot: Ollama endpoint saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Ollama endpoint saved.');
                         } catch (error: any) {
                             console.error('Error saving Ollama endpoint:', error);
                             panel.webview.postMessage({ command: 'ollamaEndpointError', error: error.message });
@@ -221,7 +223,25 @@ export function openSettingsPanel(
                         try {
                             await storageService.saveBanyaLicenseSerial(licenseSerialToSave);
                             panel.webview.postMessage({ command: 'banyaLicenseSaved' });
-                            notificationService.showInfoMessage('CodePilot: Banya license saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: AIDEV license saved.');
+
+                            // 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행
+                            if (ollamaBlockerService) {
+                                console.log('[PanelManager] 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행');
+                                try {
+                                    const authResult = await ollamaBlockerService.authenticate(licenseSerialToSave);
+                                    if (authResult.success) {
+                                        console.log('[PanelManager] ollama-blocker 인증 성공:', authResult.message);
+                                        notificationService.showInfoMessage(`AIDEV-IDE: ${authResult.message}`);
+                                    } else {
+                                        console.error('[PanelManager] ollama-blocker 인증 실패:', authResult.message);
+                                        notificationService.showWarningMessage(`AIDEV-IDE: ${authResult.message}`);
+                                    }
+                                } catch (error) {
+                                    console.error('[PanelManager] ollama-blocker 인증 중 오류:', error);
+                                    notificationService.showErrorMessage(`AIDEV-IDE: ollama-blocker 인증 중 오류가 발생했습니다.`);
+                                }
+                            }
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'banyaLicenseError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Banya license: ${error.message}`);
@@ -240,10 +260,28 @@ export function openSettingsPanel(
 
                             if (verificationResult.success) {
                                 panel.webview.postMessage({ command: 'banyaLicenseVerified' });
-                                notificationService.showInfoMessage(`CodePilot: ${verificationResult.message}`);
+                                notificationService.showInfoMessage(`AIDEV-IDE: ${verificationResult.message}`);
+
+                                // 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행
+                                if (ollamaBlockerService) {
+                                    console.log('[PanelManager] 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행');
+                                    try {
+                                        const authResult = await ollamaBlockerService.authenticate(licenseSerialToVerify);
+                                        if (authResult.success) {
+                                            console.log('[PanelManager] ollama-blocker 인증 성공:', authResult.message);
+                                            notificationService.showInfoMessage(`AIDEV-IDE: ${authResult.message}`);
+                                        } else {
+                                            console.error('[PanelManager] ollama-blocker 인증 실패:', authResult.message);
+                                            notificationService.showWarningMessage(`AIDEV-IDE: ${authResult.message}`);
+                                        }
+                                    } catch (error) {
+                                        console.error('[PanelManager] ollama-blocker 인증 중 오류:', error);
+                                        notificationService.showErrorMessage(`AIDEV-IDE: ollama-blocker 인증 중 오류가 발생했습니다.`);
+                                    }
+                                }
                             } else {
                                 panel.webview.postMessage({ command: 'banyaLicenseVerificationFailed', error: verificationResult.message });
-                                notificationService.showErrorMessage(`CodePilot: ${verificationResult.message}`);
+                                notificationService.showErrorMessage(`AIDEV-IDE: ${verificationResult.message}`);
                             }
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'banyaLicenseVerificationFailed', error: error.message });
@@ -258,7 +296,7 @@ export function openSettingsPanel(
                     try {
                         await storageService.deleteBanyaLicenseSerial();
                         panel.webview.postMessage({ command: 'banyaLicenseDeleted' });
-                        notificationService.showInfoMessage('CodePilot: Banya license deleted successfully.');
+                        notificationService.showInfoMessage('AIDEV-IDE: AIDEV license deleted successfully.');
                     } catch (error: any) {
                         panel.webview.postMessage({ command: 'banyaLicenseDeleteError', error: error.message });
                         notificationService.showErrorMessage(`Error deleting Banya license: ${error.message}`);
@@ -272,11 +310,17 @@ export function openSettingsPanel(
                             let modelToSave = aiModelToSave;
                             if (aiModelToSave === 'ollama') {
                                 const currentOllamaModel = await storageService.getOllamaModel();
+                                console.log('Current Ollama model for mapping:', currentOllamaModel);
+
                                 if (currentOllamaModel === 'deepseek-r1:70b') {
                                     modelToSave = 'ollama-deepseek';
                                 } else if (currentOllamaModel && currentOllamaModel.startsWith('codellama')) {
                                     modelToSave = 'ollama-codellama';
+                                } else if (currentOllamaModel && (currentOllamaModel.includes('gemma') || currentOllamaModel.includes('Gemma'))) {
+                                    modelToSave = 'ollama-gemma';
                                 } else {
+                                    // 기본값을 ollama-gemma로 설정하되, 실제 모델명을 로그로 출력
+                                    console.log('Unknown Ollama model, defaulting to ollama-gemma:', currentOllamaModel);
                                     modelToSave = 'ollama-gemma';
                                 }
                             }
@@ -287,7 +331,7 @@ export function openSettingsPanel(
                                 llmService.setCurrentModel(modelToSave as any);
                             }
                             panel.webview.postMessage({ command: 'aiModelSaved' });
-                            notificationService.showInfoMessage(`CodePilot: AI model changed to ${aiModelToSave}.`);
+                            notificationService.showInfoMessage(`AIDEV-IDE: AI model changed to ${aiModelToSave}.`);
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'aiModelSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving AI model: ${error.message}`);
@@ -331,7 +375,7 @@ export function openSettingsPanel(
                             }
 
                             panel.webview.postMessage({ command: 'ollamaModelSaved' });
-                            notificationService.showInfoMessage(`CodePilot: Ollama model changed to ${ollamaModelToSave}.`);
+                            notificationService.showInfoMessage(`AIDEV-IDE: Ollama model changed to ${ollamaModelToSave}.`);
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'ollamaModelError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama model: ${error.message}`);
@@ -354,7 +398,7 @@ export function openSettingsPanel(
                     try {
                         await configurationService.updateWeatherApiKey(data.apiKey);
                         panel.webview.postMessage({ command: 'weatherApiKeySaved' });
-                        notificationService.showInfoMessage('CodePilot: Weather API key saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: Weather API key saved.');
                     } catch (error: any) {
                         panel.webview.postMessage({ command: 'weatherApiKeyError', error: error.message });
                         notificationService.showErrorMessage(`Error saving weather API key: ${error.message}`);
@@ -364,7 +408,7 @@ export function openSettingsPanel(
                     try {
                         await configurationService.updateNewsApiKey(data.apiKey);
                         panel.webview.postMessage({ command: 'newsApiKeySaved' });
-                        notificationService.showInfoMessage('CodePilot: News API key saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: News API key saved.');
                     } catch (error: any) {
                         panel.webview.postMessage({ command: 'newsApiKeyError', error: error.message });
                         notificationService.showErrorMessage(`Error saving news API key: ${error.message}`);
@@ -374,7 +418,7 @@ export function openSettingsPanel(
                     try {
                         await configurationService.updateNewsApiSecret(data.apiSecret);
                         panel.webview.postMessage({ command: 'newsApiSecretSaved' });
-                        notificationService.showInfoMessage('CodePilot: News API secret saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: News API secret saved.');
                     } catch (error: any) {
                         panel.webview.postMessage({ command: 'newsApiSecretError', error: error.message });
                         notificationService.showErrorMessage(`Error saving news API secret: ${error.message}`);
@@ -384,7 +428,7 @@ export function openSettingsPanel(
                     try {
                         await configurationService.updateStockApiKey(data.apiKey);
                         panel.webview.postMessage({ command: 'stockApiKeySaved' });
-                        notificationService.showInfoMessage('CodePilot: Stock API key saved.');
+                        notificationService.showInfoMessage('AIDEV-IDE: Stock API key saved.');
                     } catch (error: any) {
                         panel.webview.postMessage({ command: 'stockApiKeyError', error: error.message });
                         notificationService.showErrorMessage(`Error saving stock API key: ${error.message}`);
@@ -397,7 +441,7 @@ export function openSettingsPanel(
                             // 언어 설정을 저장
                             await configurationService.updateLanguage(language);
                             panel.webview.postMessage({ command: 'languageSaved', language: language });
-                            notificationService.showInfoMessage(`CodePilot: Language changed to ${language}.`);
+                            notificationService.showInfoMessage(`AIDEV-IDE: Language changed to ${language}.`);
 
                             // 모든 활성 webview에 언어 변경 브로드캐스트
                             allWebviews.forEach(webview => {
@@ -453,6 +497,62 @@ export function openSettingsPanel(
                         }
                     }
                     break;
+                // Ollama Blocker 명령어 처리
+                case 'startOllamaBlocker':
+                    if (ollamaBlockerService) {
+                        console.log('[PanelManager] startOllamaBlocker 명령어 처리 시작');
+                        const result = await ollamaBlockerService.start();
+                        console.log('[PanelManager] startOllamaBlocker 결과:', result);
+                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
+                    } else {
+                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                    }
+                    break;
+                case 'stopOllamaBlocker':
+                    if (ollamaBlockerService) {
+                        console.log('[PanelManager] stopOllamaBlocker 명령어 처리 시작');
+                        const result = await ollamaBlockerService.stop();
+                        console.log('[PanelManager] stopOllamaBlocker 결과:', result);
+                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
+                    } else {
+                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                    }
+                    break;
+                case 'ollamaBlockerStatus':
+                    if (ollamaBlockerService) {
+                        console.log('[PanelManager] ollamaBlockerStatus 명령어 처리 시작');
+                        const status = await ollamaBlockerService.getStatus();
+                        console.log('[PanelManager] ollamaBlockerStatus 결과:', status);
+                        panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: status.running, message: status.message });
+                    } else {
+                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                        panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                    }
+                    break;
+                case 'killOllamaProcesses':
+                    if (ollamaBlockerService) {
+                        console.log('[PanelManager] killOllamaProcesses 명령어 처리 시작');
+                        const result = await ollamaBlockerService.killOllamaProcesses();
+                        console.log('[PanelManager] killOllamaProcesses 결과:', result);
+                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
+                    } else {
+                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
+                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
+                    }
+                    break;
+                case 'ollamaBlockerAuth':
+                    if (ollamaBlockerService && data.serialNumber) {
+                        console.log('[PanelManager] ollamaBlockerAuth 명령어 처리 시작');
+                        const result = await ollamaBlockerService.authenticate(data.serialNumber);
+                        console.log('[PanelManager] ollamaBlockerAuth 결과:', result);
+                        panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: result.success, message: result.message });
+                    } else {
+                        console.error('[PanelManager] ollamaBlockerService 또는 serialNumber가 없음');
+                        panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: false, message: 'Ollama Blocker 서비스 또는 시리얼 번호가 없습니다.' });
+                    }
+                    break;
             }
         }
     );
@@ -472,7 +572,7 @@ export function openSettingsPanel(
 }
 
 /**
- * CodePilot 라이선스 패널을 엽니다.
+ * AIDEV-IDE 라이선스 패널을 엽니다.
  */
 export function openLicensePanel(
     extensionUri: vscode.Uri,
@@ -483,7 +583,7 @@ export function openLicensePanel(
     notificationService: NotificationService, // NotificationService 주입
     configurationService: ConfigurationService // ConfigurationService 주입
 ) {
-    const panel = createAndSetupWebviewPanel(extensionUri, context, 'license', 'CodePilot License & Copyright', 'license', viewColumn,
+    const panel = createAndSetupWebviewPanel(extensionUri, context, 'license', 'AIDEV-IDE License & Copyright', 'license', viewColumn,
         async (data, panel) => {
             switch (data.command) {
                 case 'saveApiKey':
@@ -493,7 +593,7 @@ export function openLicensePanel(
                             await storageService.saveApiKey(apiKeyToSave);
                             geminiApi.updateApiKey(apiKeyToSave);
                             panel.webview.postMessage({ command: 'apiKeySaved', message: 'API Key saved!' });
-                            notificationService.showInfoMessage('CodePilot: API Key saved.'); // NotificationService 사용
+                            notificationService.showInfoMessage('AIDEV-IDE: API Key saved.'); // NotificationService 사용
                         } catch (error: any) {
                             panel.webview.postMessage({ command: 'apiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving API Key: ${error.message}`); // NotificationService 사용

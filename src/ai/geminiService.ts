@@ -38,12 +38,12 @@ export class GeminiService {
     }
 
     public cancelCurrentCall(): void {
-        console.log('[ CodePilot ] Attempting to cancel current Banya call.');
+        console.log('[ AIDEV-IDE ] Attempting to cancel current Banya call.');
         if (this.currentGeminiCallController) {
             this.currentGeminiCallController.abort();
-            console.log('[CodePilot] Banya call aborted.');
+            console.log('[AIDEV-IDE] Banya call aborted.');
         } else {
-            console.log('[CodePilot] No active Banya call to abort.');
+            console.log('[AIDEV-IDE] No active Banya call to abort.');
         }
     }
 
@@ -57,7 +57,7 @@ export class GeminiService {
     ): Promise<void> {
         const apiKey = await this.storageService.getApiKey();
         if (!apiKey) {
-            webviewToRespond.postMessage({ command: 'receiveMessage', sender: 'CodePilot', text: "Error: Banya API Key is not set. Please set it via CodePilot settings." });
+            webviewToRespond.postMessage({ command: 'receiveMessage', sender: 'AIDEV-IDE', text: "Error: AIDEV-IDE API Key is not set. Please set it via AIDEV-IDE settings." });
             return;
         }
         webviewToRespond.postMessage({ command: 'showLoading' });
@@ -65,7 +65,7 @@ export class GeminiService {
         this.currentGeminiCallController = new AbortController();
         const abortSignal = this.currentGeminiCallController.signal;
         abortSignal.onabort = () => {
-            console.log('[CodePilot] Banya API call was aborted by user.');
+            console.log('[AIDEV-IDE] AIDEV-IDE API call was aborted by user.');
         };
 
         // --- 히스토리 관리용 키 ---
@@ -191,7 +191,7 @@ ${projectRootInfo}
                 const prevQuestions = history.slice(0, -1).slice(-5); // 마지막(현재) 제외, 최대 5개
                 if (prevQuestions.length > 0) {
                     historyContext = '--- 최근 사용자 질문 내역 ---\n' +
-                        prevQuestions.map((h, i) => `${i+1}. ${h.text}`).join('\n') + '\n';
+                        prevQuestions.map((h, i) => `${i + 1}. ${h.text}`).join('\n') + '\n';
                 }
             }
 
@@ -204,20 +204,20 @@ ${projectRootInfo}
                         const contentBytes = await vscode.workspace.fs.readFile(fileUri);
                         const content = Buffer.from(contentBytes).toString('utf8');
                         const fileName = filePath.split(/[/\\]/).pop() || 'Unknown';
-                        
+
                         // 선택된 파일을 includedFilesForContext 배열에 추가
-                        includedFilesForContext.push({ 
-                            name: fileName, 
-                            fullPath: filePath 
+                        includedFilesForContext.push({
+                            name: fileName,
+                            fullPath: filePath
                         });
-                        
+
                         selectedFilesContext += `파일명: ${fileName}\n경로: ${filePath}\n코드:\n\`\`\`\n${content}\n\`\`\`\n\n`;
                     } catch (error) {
                         console.error(`Error reading selected file ${filePath}:`, error);
                         selectedFilesContext += `파일명: ${filePath.split(/[/\\]/).pop() || 'Unknown'}\n경로: ${filePath}\n오류: 파일을 읽을 수 없습니다.\n\n`;
                     }
                 }
-                
+
                 if (selectedFilesContext) {
                     fileContentsContext += `\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`;
                 }
@@ -252,7 +252,7 @@ ${projectRootInfo}
                 : { text: "--- 참조 코드 컨텍스트 ---\n참조 코드가 제공되지 않았습니다." };
 
             // 실시간 정보가 있으면 추가
-            const realTimePart: Part = realTimeInfo 
+            const realTimePart: Part = realTimeInfo
                 ? { text: `--- 실시간 정보 ---\n${realTimeInfo}` }
                 : { text: "" };
 
@@ -267,8 +267,8 @@ ${projectRootInfo}
 
             const requestOptions: RequestOptions = { signal: abortSignal };
             let llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(
-                systemPrompt, 
-                fullParts, 
+                systemPrompt,
+                fullParts,
                 requestOptions
             ); // userParts 전달
 
@@ -282,12 +282,12 @@ ${projectRootInfo}
 
         } catch (error: any) {
             if (error.name === 'AbortError') {
-                console.warn("[CodePilot] Banya API call was explicitly aborted.");
-                webviewToRespond.postMessage({ command: 'receiveMessage', sender: 'CodePilot', text: 'AI 호출이 취소되었습니다.' });
+                console.warn("[AIDEV-IDE] AIDEV-IDE API call was explicitly aborted.");
+                webviewToRespond.postMessage({ command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
             } else {
                 console.error("Error in handleUserMessageAndRespond:", error);
                 this.notificationService.showErrorMessage(`Error: Failed to process request.'}`);
-                webviewToRespond.postMessage({ command: 'receiveMessage', sender: 'CodePilot', text: `Failed to process request.'}` });
+                webviewToRespond.postMessage({ command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request.'}` });
             }
         } finally {
             this.currentGeminiCallController = null;
@@ -307,7 +307,7 @@ ${projectRootInfo}
             if (query.includes('날씨') || query.includes('weather')) {
                 const cityMatch = query.match(/(?:날씨|weather)\s*(?:는|이|가|의)?\s*([가-힣a-zA-Z\s]+)/);
                 const city = cityMatch ? cityMatch[1].trim() : '서울';
-                
+
                 const weather = await this.externalApiService.getWeatherData(city);
                 if (weather) {
                     realTimeInfo += `### 🌤️ ${weather.location} 날씨\n`;
@@ -332,7 +332,7 @@ ${projectRootInfo}
                             const dateObj = new Date(forecast.date);
                             const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][dateObj.getDay()];
                             const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()} (${dayOfWeek})`;
-                            
+
                             realTimeInfo += `#### 📆 ${formattedDate}\n`;
                             if (forecast.minTemp !== 0 || forecast.maxTemp !== 0) {
                                 realTimeInfo += `- 기온: ${forecast.minTemp}°C ~ ${forecast.maxTemp}°C\n`;
@@ -366,12 +366,12 @@ ${projectRootInfo}
             // 뉴스 정보 요청 확인 (키워드 기반)
             const newsKeywords = ['뉴스', 'news', '최신', 'latest', '최근', 'recent', '정보', 'info', '소식', 'announcement', '발표', 'announce'];
             const hasNewsKeyword = newsKeywords.some(keyword => query.includes(keyword));
-            
+
             if (hasNewsKeyword) {
                 // 키워드에 따라 뉴스 개수 결정
                 let newsCount = 3; // 기본값
                 let newsQuery = 'general';
-                
+
                 // 특정 키워드가 있으면 더 많은 뉴스를 가져옴
                 if (query.includes('최신') || query.includes('latest') || query.includes('최근') || query.includes('recent')) {
                     newsCount = 5;
@@ -382,19 +382,19 @@ ${projectRootInfo}
                 if (query.includes('모든') || query.includes('everything')) {
                     newsCount = 15;
                 }
-                
+
                 // 특정 주제 키워드 추출
-                const topicKeywords = ['IT', '기술', 'tech', '프로그래밍', 'programming', '개발', 'development', 
-                                     'AI', '인공지능', 'artificial intelligence', '머신러닝', 'machine learning',
-                                     '블록체인', 'blockchain', '클라우드', 'cloud', '보안', 'security',
-                                     '모바일', 'mobile', '웹', 'web', '앱', 'app', '소프트웨어', 'software',
-                                     '게임', 'game', '엔터테인먼트', 'entertainment', '영화', 'movie',
-                                     '음악', 'music', '스포츠', 'sports', '경제', 'economy', '금융', 'finance',
-                                     '정치', 'politics', '사회', 'society', '교육', 'education', '의료', 'medical',
-                                     '건강', 'health', '환경', 'environment', '과학', 'science', '우주', 'space',
-                                     '자동차', 'car', '자동차', 'automotive', '부동산', 'real estate', '여행', 'travel',
-                                     '음식', 'food', '요리', 'cooking', '패션', 'fashion', '뷰티', 'beauty'];
-                
+                const topicKeywords = ['IT', '기술', 'tech', '프로그래밍', 'programming', '개발', 'development',
+                    'AI', '인공지능', 'artificial intelligence', '머신러닝', 'machine learning',
+                    '블록체인', 'blockchain', '클라우드', 'cloud', '보안', 'security',
+                    '모바일', 'mobile', '웹', 'web', '앱', 'app', '소프트웨어', 'software',
+                    '게임', 'game', '엔터테인먼트', 'entertainment', '영화', 'movie',
+                    '음악', 'music', '스포츠', 'sports', '경제', 'economy', '금융', 'finance',
+                    '정치', 'politics', '사회', 'society', '교육', 'education', '의료', 'medical',
+                    '건강', 'health', '환경', 'environment', '과학', 'science', '우주', 'space',
+                    '자동차', 'car', '자동차', 'automotive', '부동산', 'real estate', '여행', 'travel',
+                    '음식', 'food', '요리', 'cooking', '패션', 'fashion', '뷰티', 'beauty'];
+
                 // 사용자 쿼리에서 주제 키워드 찾기
                 let foundTopic = false;
                 for (const keyword of topicKeywords) {
@@ -405,18 +405,18 @@ ${projectRootInfo}
                         break;
                     }
                 }
-                
+
                 // 주제 키워드가 없으면 사용자 쿼리에서 주요 단어 추출
                 if (!foundTopic) {
                     // 한국어와 영어 단어 추출 (2글자 이상)
                     const words = query.match(/[가-힣a-zA-Z]{2,}/g) || [];
                     // 뉴스 관련 키워드 제외
-                    const filteredWords = words.filter(word => 
-                        !newsKeywords.some(newsKeyword => 
+                    const filteredWords = words.filter(word =>
+                        !newsKeywords.some(newsKeyword =>
                             word.toLowerCase().includes(newsKeyword.toLowerCase())
                         )
                     );
-                    
+
                     if (filteredWords.length > 0) {
                         // 가장 긴 단어를 우선 선택 (더 구체적인 키워드)
                         newsQuery = filteredWords.sort((a, b) => b.length - a.length)[0];
@@ -429,7 +429,7 @@ ${projectRootInfo}
                         }
                     }
                 }
-                
+
                 const news = await this.externalApiService.getNewsData(newsQuery, newsCount);
                 if (news.length > 0) {
                     realTimeInfo += `### 📰 ${newsQuery} 관련 뉴스 (${news.length}건)\n\n`;
@@ -460,12 +460,12 @@ ${projectRootInfo}
                 // 뉴스 키워드가 없어도 사용자 쿼리가 충분히 구체적이면 뉴스 검색 시도
                 // 뉴스 키워드 제거 후 남은 텍스트가 의미있는 길이인지 확인
                 const queryWithoutNewsKeywords = query.replace(new RegExp(newsKeywords.join('|'), 'gi'), '').trim();
-                
+
                 // 3글자 이상의 의미있는 쿼리인 경우 뉴스 검색 시도
                 if (queryWithoutNewsKeywords.length >= 3) {
                     let newsCount = 3; // 기본 뉴스 개수
                     let newsQuery = queryWithoutNewsKeywords;
-                    
+
                     // 쿼리 길이에 따라 뉴스 개수 조정
                     if (queryWithoutNewsKeywords.length >= 10) {
                         newsCount = 5;
@@ -473,26 +473,26 @@ ${projectRootInfo}
                     if (queryWithoutNewsKeywords.length >= 20) {
                         newsCount = 8;
                     }
-                    
+
                     // 특정 주제 키워드가 있으면 더 많은 뉴스
-                    const topicKeywords = ['IT', '기술', 'tech', '프로그래밍', 'programming', '개발', 'development', 
-                                         'AI', '인공지능', 'artificial intelligence', '머신러닝', 'machine learning',
-                                         '블록체인', 'blockchain', '클라우드', 'cloud', '보안', 'security',
-                                         '모바일', 'mobile', '웹', 'web', '앱', 'app', '소프트웨어', 'software',
-                                         '게임', 'game', '엔터테인먼트', 'entertainment', '영화', 'movie',
-                                         '음악', 'music', '스포츠', 'sports', '경제', 'economy', '금융', 'finance',
-                                         '정치', 'politics', '사회', 'society', '교육', 'education', '의료', 'medical',
-                                         '건강', 'health', '환경', 'environment', '과학', 'science', '우주', 'space',
-                                         '자동차', 'car', '자동차', 'automotive', '부동산', 'real estate', '여행', 'travel',
-                                         '음식', 'food', '요리', 'cooking', '패션', 'fashion', '뷰티', 'beauty'];
-                    
+                    const topicKeywords = ['IT', '기술', 'tech', '프로그래밍', 'programming', '개발', 'development',
+                        'AI', '인공지능', 'artificial intelligence', '머신러닝', 'machine learning',
+                        '블록체인', 'blockchain', '클라우드', 'cloud', '보안', 'security',
+                        '모바일', 'mobile', '웹', 'web', '앱', 'app', '소프트웨어', 'software',
+                        '게임', 'game', '엔터테인먼트', 'entertainment', '영화', 'movie',
+                        '음악', 'music', '스포츠', 'sports', '경제', 'economy', '금융', 'finance',
+                        '정치', 'politics', '사회', 'society', '교육', 'education', '의료', 'medical',
+                        '건강', 'health', '환경', 'environment', '과학', 'science', '우주', 'space',
+                        '자동차', 'car', '자동차', 'automotive', '부동산', 'real estate', '여행', 'travel',
+                        '음식', 'food', '요리', 'cooking', '패션', 'fashion', '뷰티', 'beauty'];
+
                     for (const keyword of topicKeywords) {
                         if (queryWithoutNewsKeywords.includes(keyword)) {
                             newsCount = Math.max(newsCount, 8);
                             break;
                         }
                     }
-                    
+
                     const news = await this.externalApiService.getNewsData(newsQuery, newsCount);
                     if (news.length > 0) {
                         realTimeInfo += `### 📰 "${newsQuery}" 관련 뉴스 (${news.length}건)\n\n`;

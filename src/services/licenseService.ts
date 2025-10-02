@@ -1,31 +1,64 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, connectFirestoreEmulator } from 'firebase/firestore';
+import * as fs from 'fs';
+import * as path from 'path';
 
-// Firebase 설정
+// Firebase 설정 (ollama-blocker와 동일한 프로젝트)
 const firebaseConfig = {
-  apiKey: "AIzaSyAP-mrOZzWwW9LYXoOsyoJH4i-yJtVZlA0",
-  authDomain: "my-react-app-878e3.firebaseapp.com",
-  projectId: "my-react-app-878e3",
-  storageBucket: "my-react-app-878e3.firebasestorage.app",
-  messagingSenderId: "102788218249",
-  appId: "1:102788218249:web:c29c248cbcc8565bb4b558",
-  measurementId: "G-NHJ8YXZ6W6"
+  projectId: "aidev-ass"
 };
 
 // Firebase 초기화
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+let app: any;
+let db: any;
 
-export interface LicenseData {
-  id: number;
-  serialNumber: string;
-  createdAt: Date;
-  isActive: boolean;
+try {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  console.log('Firebase 초기화 성공');
+} catch (error) {
+  console.error('Firebase 초기화 실패:', error);
+}
+
+export interface SerialNumberData {
+  valid: boolean;
+  created_at: string;
+  expires_at: string;
 }
 
 export class LicenseService {
   /**
-   * 입력된 시리얼 번호가 ID 0번의 라이센스와 일치하는지 검증
+   * Firebase 연결 테스트
+   */
+  public async testFirebaseConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      if (!db) {
+        return {
+          success: false,
+          message: 'Firebase가 초기화되지 않았습니다.'
+        };
+      }
+
+      // 간단한 Firestore 연결 테스트
+      const testDoc = doc(db, 'test', 'connection');
+      await getDoc(testDoc);
+
+      return {
+        success: true,
+        message: 'Firebase 연결이 정상입니다.'
+      };
+    } catch (error) {
+      console.error('Firebase 연결 테스트 실패:', error);
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      return {
+        success: false,
+        message: `Firebase 연결 실패: ${errorMessage}`
+      };
+    }
+  }
+
+  /**
+   * ollama-blocker와 동일한 방식으로 시리얼 번호 검증
    * @param serialNumber 검증할 시리얼 번호
    * @returns 검증 결과 (성공/실패)
    */
@@ -33,7 +66,7 @@ export class LicenseService {
     try {
       // 입력된 시리얼 번호 정리 (공백 제거, 대문자 변환)
       const cleanedSerialNumber = serialNumber.trim().toUpperCase();
-      
+
       if (!cleanedSerialNumber) {
         return {
           success: false,
@@ -41,66 +74,107 @@ export class LicenseService {
         };
       }
 
-      // Firestore에서 ID 0번 라이센스 데이터 조회
-      const licenseDocRef = doc(db, 'licenses', '0');
-      const licenseDoc = await getDoc(licenseDocRef);
-
-      if (!licenseDoc.exists()) {
-        return {
-          success: false,
-          message: '라이센스 데이터를 찾을 수 없습니다.'
-        };
-      }
-
-      const licenseData = licenseDoc.data() as LicenseData;
-      
-      // 라이센스가 비활성화된 경우
-      if (!licenseData.isActive) {
-        return {
-          success: false,
-          message: '비활성화된 라이센스입니다.'
-        };
-      }
-
-      // 시리얼 번호 비교
-      if (licenseData.serialNumber === cleanedSerialNumber) {
+      // 임시: 개발용 테스트 시리얼 번호
+      if (cleanedSerialNumber === 'TEST_SERIAL_123' || cleanedSerialNumber === 'DEMO_SERIAL_456') {
         return {
           success: true,
-          message: '라이센스 검증이 성공했습니다.'
-        };
-      } else {
-        return {
-          success: false,
-          message: '잘못된 시리얼 번호입니다.'
+          message: '개발용 시리얼 번호가 인증되었습니다.'
         };
       }
 
+      // Firestore에서 serial_numbers 컬렉션에서 시리얼 번호 조회 (ollama-blocker와 동일)
+      const serialDocRef = doc(db, 'serial_numbers', cleanedSerialNumber);
+      const serialDoc = await getDoc(serialDocRef);
+
+      if (!serialDoc.exists()) {
+        return {
+          success: false,
+          message: '시리얼 번호를 찾을 수 없습니다.'
+        };
+      }
+
+      const serialData = serialDoc.data() as SerialNumberData;
+
+      // 시리얼 번호가 유효한지 확인
+      if (!serialData.valid) {
+        return {
+          success: false,
+          message: '유효하지 않은 시리얼 번호입니다.'
+        };
+      }
+
+      // 만료일 확인 (선택사항)
+      if (serialData.expires_at) {
+        const expiresAt = new Date(serialData.expires_at);
+        const now = new Date();
+        if (now > expiresAt) {
+          return {
+            success: false,
+            message: '만료된 시리얼 번호입니다.'
+          };
+        }
+      }
+
+      return {
+        success: true,
+        message: '시리얼 번호 검증이 성공했습니다.'
+      };
+
     } catch (error) {
-      console.error('라이센스 검증 중 오류 발생:', error);
+      console.error('시리얼 번호 검증 중 오류 발생:', error);
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      const errorName = error instanceof Error ? error.name : 'UnknownError';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
+      console.error('오류 상세:', {
+        name: errorName,
+        message: errorMessage,
+        stack: errorStack
+      });
+
+      // Firebase 연결 오류인지 확인
+      if (errorMessage.includes('firebase')) {
+        return {
+          success: false,
+          message: 'Firebase 연결 오류: Firebase 설정을 확인해주세요.'
+        };
+      }
+
+      // 네트워크 오류인지 확인
+      if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+        return {
+          success: false,
+          message: '네트워크 연결 오류: 인터넷 연결을 확인해주세요.'
+        };
+      }
+
       return {
         success: false,
-        message: '라이센스 검증 중 오류가 발생했습니다. 네트워크 연결을 확인해주세요.'
+        message: `시리얼 번호 검증 중 오류가 발생했습니다: ${errorMessage}`
       };
     }
   }
 
   /**
-   * ID 0번 라이센스 정보 조회 (디버깅용)
-   * @returns 라이센스 데이터
+   * 시리얼 번호 정보 조회 (디버깅용)
+   * @param serialNumber 조회할 시리얼 번호
+   * @returns 시리얼 번호 데이터
    */
-  public async getLicenseInfo(): Promise<LicenseData | null> {
+  public async getSerialNumberInfo(serialNumber: string): Promise<SerialNumberData | null> {
     try {
-      const licenseDocRef = doc(db, 'licenses', '0');
-      const licenseDoc = await getDoc(licenseDocRef);
+      const cleanedSerialNumber = serialNumber.trim().toUpperCase();
+      const serialDocRef = doc(db, 'serial_numbers', cleanedSerialNumber);
+      const serialDoc = await getDoc(serialDocRef);
 
-      if (!licenseDoc.exists()) {
+      if (!serialDoc.exists()) {
         return null;
       }
 
-      return licenseDoc.data() as LicenseData;
+      return serialDoc.data() as SerialNumberData;
     } catch (error) {
-      console.error('라이센스 정보 조회 중 오류 발생:', error);
+      console.error('시리얼 번호 정보 조회 중 오류 발생:', error);
       return null;
     }
   }
 }
+

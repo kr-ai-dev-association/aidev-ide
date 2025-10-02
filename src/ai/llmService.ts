@@ -53,7 +53,7 @@ export class LlmService {
     }
 
     public cancelCurrentCall(): void {
-        console.log(`[ CodePilot ] Attempting to cancel current ${this.currentModelType} call.`);
+        console.log(`[ AIDEV-IDE ] Attempting to cancel current ${this.currentModelType} call.`);
         if (this.currentCallController) {
             this.currentCallController.abort();
             this.currentCallController = null;
@@ -144,10 +144,10 @@ export class LlmService {
             if (tokenCheck.isExceeded) {
                 const errorMessage = tokenCheck.message;
                 console.error(`[LlmService] ${errorMessage}`);
-                this.notificationService.showErrorMessage(`CodePilot: ${errorMessage}`);
+                this.notificationService.showErrorMessage(`AIDEV-IDE: ${errorMessage}`);
                 safePostMessage(webviewToRespond, {
                     command: 'receiveMessage',
-                    sender: 'CodePilot',
+                    sender: 'AIDEV-IDE',
                     text: errorMessage
                 });
                 return;
@@ -197,12 +197,12 @@ export class LlmService {
 
         } catch (error: any) {
             if (error.name === 'AbortError') {
-                console.warn(`[CodePilot] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
-                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'CodePilot', text: 'AI 호출이 취소되었습니다.' });
+                console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
+                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
             } else {
                 console.error(`Error in handleUserMessageAndRespond (${this.currentModelType}):`, error);
                 this.notificationService.showErrorMessage(`Error: Failed to process request. ${error.message}`);
-                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'CodePilot', text: `Failed to process request. ${error.message}` });
+                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request. ${error.message}` });
             }
         } finally {
             this.currentCallController = null;
