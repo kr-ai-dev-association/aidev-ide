@@ -2306,12 +2306,26 @@ class ConfigurationService {
         const valueToSave = path || '';
         console.log(`[ConfigurationService] 프로젝트 Root 설정 시도: "${valueToSave}"`);
         await config.update(this.PROJECT_ROOT_KEY, valueToSave, vscode.ConfigurationTarget.Global);
-        // 설정이 제대로 저장되었는지 확인
-        const savedValue = config.get(this.PROJECT_ROOT_KEY);
-        console.log(`[ConfigurationService] 저장된 프로젝트 Root 값: "${savedValue}"`);
+        // VSCode 설정 저장이 비동기적으로 처리되므로 잠시 대기
+        await new Promise(resolve => setTimeout(resolve, 100));
+        // 설정이 제대로 저장되었는지 확인 (여러 번 시도)
+        let savedValue = config.get(this.PROJECT_ROOT_KEY);
+        console.log(`[ConfigurationService] 저장된 프로젝트 Root 값 (첫 번째 확인): "${savedValue}"`);
+        // 첫 번째 확인에서 실패하면 추가로 2번 더 시도
+        if (savedValue !== valueToSave) {
+            for (let i = 0; i < 2; i++) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                savedValue = config.get(this.PROJECT_ROOT_KEY);
+                console.log(`[ConfigurationService] 저장된 프로젝트 Root 값 (${i + 2}번째 확인): "${savedValue}"`);
+                if (savedValue === valueToSave) {
+                    break;
+                }
+            }
+        }
         if (savedValue !== valueToSave) {
             throw new Error(`프로젝트 Root 설정 저장 실패: 예상값 "${valueToSave}", 실제값 "${savedValue}"`);
         }
+        console.log(`[ConfigurationService] 프로젝트 Root 설정 성공: "${savedValue}"`);
     }
     // 외부 API 키 관리 메서드들
     async getWeatherApiKey() {
