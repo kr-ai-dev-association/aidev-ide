@@ -33,42 +33,9 @@ export function openSettingsPanel(
                 case 'initSettings':
                     panel.webview.postMessage({
                         command: 'currentSettings',
-                        sourcePaths: await configurationService.getSourcePaths(),
                         autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
                         projectRoot: await configurationService.getProjectRoot()
                     });
-                    break;
-                case 'addDirectory':
-                    const uris = await vscode.window.showOpenDialog({
-                        canSelectFiles: true,
-                        //윈도우즈의 경우 false로 설정
-                        canSelectFolders: false,
-                        canSelectMany: true,
-                        openLabel: 'Select Files and Folders',
-                        filters: {
-                            'All Files': ['*'],
-                            'Source Files': ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'scala', 'html', 'css', 'scss', 'sass', 'json', 'xml', 'yaml', 'yml', 'md', 'txt'],
-                            'Code Files': ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'scala'],
-                            'Web Files': ['html', 'css', 'scss', 'sass', 'js', 'ts', 'jsx', 'tsx'],
-                            'Config Files': ['json', 'xml', 'yaml', 'yml', 'md', 'txt']
-                        }
-                    });
-                    if (uris && uris.length > 0) {
-                        const newPaths = uris.map(u => u.fsPath);
-                        const current = await configurationService.getSourcePaths();
-                        const updatedPaths = Array.from(new Set([...current, ...newPaths]));
-                        await configurationService.updateSourcePaths(updatedPaths);
-                        panel.webview.postMessage({ command: 'updatedSourcePaths', sourcePaths: updatedPaths });
-                    }
-                    break;
-                case 'removeDirectory':
-                    const pathToRemove = data.path;
-                    if (pathToRemove) {
-                        const current = await configurationService.getSourcePaths();
-                        const updatedPaths = current.filter(p => p !== pathToRemove);
-                        await configurationService.updateSourcePaths(updatedPaths);
-                        panel.webview.postMessage({ command: 'updatedSourcePaths', sourcePaths: updatedPaths });
-                    }
                     break;
                 case 'setAutoUpdate':
                     if (typeof data.enabled === 'boolean') {
@@ -495,62 +462,6 @@ export function openSettingsPanel(
                         } catch (fallbackError) {
                             console.error('Error loading fallback language data:', fallbackError);
                         }
-                    }
-                    break;
-                // Ollama Blocker 명령어 처리
-                case 'startOllamaBlocker':
-                    if (ollamaBlockerService) {
-                        console.log('[PanelManager] startOllamaBlocker 명령어 처리 시작');
-                        const result = await ollamaBlockerService.start();
-                        console.log('[PanelManager] startOllamaBlocker 결과:', result);
-                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
-                    } else {
-                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                    }
-                    break;
-                case 'stopOllamaBlocker':
-                    if (ollamaBlockerService) {
-                        console.log('[PanelManager] stopOllamaBlocker 명령어 처리 시작');
-                        const result = await ollamaBlockerService.stop();
-                        console.log('[PanelManager] stopOllamaBlocker 결과:', result);
-                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
-                    } else {
-                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                    }
-                    break;
-                case 'ollamaBlockerStatus':
-                    if (ollamaBlockerService) {
-                        console.log('[PanelManager] ollamaBlockerStatus 명령어 처리 시작');
-                        const status = await ollamaBlockerService.getStatus();
-                        console.log('[PanelManager] ollamaBlockerStatus 결과:', status);
-                        panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: status.running, message: status.message });
-                    } else {
-                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                        panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                    }
-                    break;
-                case 'killOllamaProcesses':
-                    if (ollamaBlockerService) {
-                        console.log('[PanelManager] killOllamaProcesses 명령어 처리 시작');
-                        const result = await ollamaBlockerService.killOllamaProcesses();
-                        console.log('[PanelManager] killOllamaProcesses 결과:', result);
-                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
-                    } else {
-                        console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                        panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                    }
-                    break;
-                case 'ollamaBlockerAuth':
-                    if (ollamaBlockerService && data.serialNumber) {
-                        console.log('[PanelManager] ollamaBlockerAuth 명령어 처리 시작');
-                        const result = await ollamaBlockerService.authenticate(data.serialNumber);
-                        console.log('[PanelManager] ollamaBlockerAuth 결과:', result);
-                        panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: result.success, message: result.message });
-                    } else {
-                        console.error('[PanelManager] ollamaBlockerService 또는 serialNumber가 없음');
-                        panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: false, message: 'Ollama Blocker 서비스 또는 시리얼 번호가 없습니다.' });
                     }
                     break;
             }

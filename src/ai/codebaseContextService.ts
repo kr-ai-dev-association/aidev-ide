@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as glob from 'glob';
+import { glob } from 'glob';
 import { getFileType } from '../utils/fileUtils';
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
@@ -20,6 +20,222 @@ export class CodebaseContextService {
     constructor(configurationService: ConfigurationService, notificationService: NotificationService) {
         this.configurationService = configurationService;
         this.notificationService = notificationService;
+    }
+
+    /**
+     * 사용자 질의와 관련된 파일들을 자동으로 찾아서 컨텍스트에 추가합니다.
+     * @param userQuery 사용자의 질의
+     * @param abortSignal 취소 신호
+     * @returns 파일 컨텍스트와 포함된 파일 목록
+     */
+    public async getRelevantFilesContext(userQuery: string, abortSignal: AbortSignal): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
+        const projectRoot = await this.configurationService.getProjectRoot();
+        if (!projectRoot) {
+            this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았습니다. 설정에서 프로젝트 루트를 지정해주세요.');
+            return { fileContentsContext: '', includedFilesForContext: [] };
+        }
+
+        let fileContentsContext = "";
+        let currentTotalContentLength = 0;
+        const includedFilesForContext: { name: string, fullPath: string }[] = [];
+
+        try {
+            // 질의에서 키워드 추출
+            const keywords = this.extractKeywordsFromQuery(userQuery);
+            console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
+
+            // 프로젝트 루트에서 관련 파일들 검색
+            const relevantFiles = await this.findRelevantFiles(projectRoot, keywords, abortSignal);
+            console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
+
+            // 파일들을 우선순위에 따라 정렬
+            const sortedFiles = this.prioritizeFiles(relevantFiles, keywords);
+
+            // 파일 내용을 컨텍스트에 추가
+            for (const filePath of sortedFiles) {
+                if (abortSignal.aborted) {
+                    this.notificationService.showWarningMessage('컨텍스트 수집이 취소되었습니다.');
+                    break;
+                }
+                if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
+                    fileContentsContext += "\n[INFO] 컨텍스트 길이 제한으로 일부 파일 내용이 생략되었습니다.\n";
+                    break;
+                }
+
+                try {
+                    const uri = vscode.Uri.file(filePath);
+                    const stats = await vscode.workspace.fs.stat(uri);
+
+                    if (stats.type === vscode.FileType.File) {
+                        // 제외된 확장자 확인
+                        if (this.EXCLUDED_EXTENSIONS.includes(path.extname(filePath).toLowerCase())) {
+                            continue;
+                        }
+
+                        const contentBytes = await vscode.workspace.fs.readFile(uri);
+                        const content = Buffer.from(contentBytes).toString('utf8');
+
+                        // 워크스페이스 기준 상대 경로를 얻거나, 없으면 기본 파일명 사용
+                        const nameForContext = this.getPathRelativeToWorkspace(filePath) || path.basename(filePath);
+                        const fileType = getFileType(filePath);
+
+                        // 파일 내용을 컨텍스트에 추가
+                        fileContentsContext += `\n--- 파일: ${nameForContext} (${fileType}) ---\n${content}\n`;
+                        includedFilesForContext.push({
+                            name: path.basename(filePath),
+                            fullPath: filePath
+                        });
+
+                        currentTotalContentLength += content.length;
+                    }
+                } catch (error) {
+                    console.warn(`[CodebaseContextService] 파일 읽기 실패: ${filePath}`, error);
+                }
+            }
+
+            console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
+            return { fileContentsContext, includedFilesForContext };
+
+        } catch (error) {
+            console.error('[CodebaseContextService] 관련 파일 검색 중 오류:', error);
+            this.notificationService.showErrorMessage('관련 파일 검색 중 오류가 발생했습니다.');
+            return { fileContentsContext: '', includedFilesForContext: [] };
+        }
+    }
+
+    /**
+     * 사용자 질의에서 키워드를 추출합니다.
+     * @param userQuery 사용자의 질의
+     * @returns 추출된 키워드 배열
+     */
+    private extractKeywordsFromQuery(userQuery: string): string[] {
+        // 질의를 소문자로 변환하고 특수문자 제거
+        const cleanQuery = userQuery.toLowerCase()
+            .replace(/[^\w\s가-힣]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // 단어들을 분리하고 의미있는 키워드만 추출
+        const words = cleanQuery.split(' ')
+            .filter(word => word.length > 2) // 2글자 이상만
+            .filter(word => !this.isStopWord(word)); // 불용어 제거
+
+        // 중복 제거
+        return [...new Set(words)];
+    }
+
+    /**
+     * 불용어인지 확인합니다.
+     * @param word 확인할 단어
+     * @returns 불용어 여부
+     */
+    private isStopWord(word: string): boolean {
+        const stopWords = [
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall',
+            'this', 'that', 'these', 'those', 'a', 'an', 'the',
+            'how', 'what', 'when', 'where', 'why', 'who', 'which',
+            'please', 'help', 'me', 'my', 'your', 'our', 'their',
+            '코드', '파일', '함수', '클래스', '변수', '메서드', '프로그램', '개발', '작성', '만들', '생성'
+        ];
+        return stopWords.includes(word.toLowerCase());
+    }
+
+    /**
+     * 프로젝트 루트에서 관련 파일들을 검색합니다.
+     * @param projectRoot 프로젝트 루트 경로
+     * @param keywords 검색 키워드
+     * @param abortSignal 취소 신호
+     * @returns 관련 파일 경로 배열
+     */
+    private async findRelevantFiles(projectRoot: string, keywords: string[], abortSignal: AbortSignal): Promise<string[]> {
+        const relevantFiles: string[] = [];
+        const searchPatterns = [
+            '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
+            '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
+            '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
+            '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
+        ];
+
+        try {
+            for (const pattern of searchPatterns) {
+                if (abortSignal.aborted) break;
+
+                const files = await glob(pattern, { cwd: projectRoot, nodir: true });
+                const fullPaths = files.map((file: string) => path.join(projectRoot, file));
+
+                for (const filePath of fullPaths) {
+                    if (abortSignal.aborted) break;
+
+                    try {
+                        // 파일명이나 경로에 키워드가 포함되어 있는지 확인
+                        const fileName = path.basename(filePath).toLowerCase();
+                        const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+
+                        const isRelevant = keywords.some(keyword =>
+                            fileName.includes(keyword) || relativePath.includes(keyword)
+                        );
+
+                        if (isRelevant) {
+                            relevantFiles.push(filePath);
+                        }
+                    } catch (error) {
+                        console.warn(`[CodebaseContextService] 파일 검색 중 오류: ${filePath}`, error);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[CodebaseContextService] 파일 검색 중 오류:', error);
+        }
+
+        return relevantFiles;
+    }
+
+    /**
+     * 파일들을 우선순위에 따라 정렬합니다.
+     * @param files 파일 경로 배열
+     * @param keywords 키워드 배열
+     * @returns 정렬된 파일 경로 배열
+     */
+    private prioritizeFiles(files: string[], keywords: string[]): string[] {
+        return files.sort((a, b) => {
+            const aScore = this.calculateRelevanceScore(a, keywords);
+            const bScore = this.calculateRelevanceScore(b, keywords);
+            return bScore - aScore; // 높은 점수부터
+        });
+    }
+
+    /**
+     * 파일의 관련성 점수를 계산합니다.
+     * @param filePath 파일 경로
+     * @param keywords 키워드 배열
+     * @returns 관련성 점수
+     */
+    private calculateRelevanceScore(filePath: string, keywords: string[]): number {
+        const fileName = path.basename(filePath).toLowerCase();
+        const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
+        let score = 0;
+
+        // 파일명에 키워드가 포함된 경우 높은 점수
+        keywords.forEach(keyword => {
+            if (fileName.includes(keyword)) score += 10;
+            if (relativePath.includes(keyword)) score += 5;
+        });
+
+        // 특정 디렉토리에 있는 파일들에 가중치 부여
+        if (relativePath.includes('src/') || relativePath.includes('source/')) score += 3;
+        if (relativePath.includes('lib/') || relativePath.includes('libs/')) score += 2;
+        if (relativePath.includes('utils/') || relativePath.includes('helpers/')) score += 2;
+        if (relativePath.includes('config/') || relativePath.includes('settings/')) score += 1;
+
+        // 특정 파일 확장자에 가중치 부여
+        const ext = path.extname(filePath).toLowerCase();
+        if (['.ts', '.js', '.tsx', '.jsx'].includes(ext)) score += 2;
+        if (['.py', '.java', '.cpp', '.c'].includes(ext)) score += 2;
+        if (['.json', '.yaml', '.yml'].includes(ext)) score += 1;
+
+        return score;
     }
 
     /**

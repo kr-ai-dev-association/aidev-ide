@@ -74,17 +74,46 @@ export class LlmService {
         try {
             safePostMessage(webviewToRespond, { command: 'showLoading' });
 
+            // --- 대화 기록 관리 ---
+            const historyKey = promptType === PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
+            let history: { userQuery: string, aiResponse?: string, timestamp: number }[] = [];
+            if (this.extensionContext) {
+                history = this.extensionContext.globalState.get(historyKey, []);
+            }
+
+            // --- 최근 5개 대화 context 생성 ---
+            let historyContext = '';
+            if (history.length > 0) {
+                const recentConversations = history.slice(-5); // 최근 5개 대화
+                if (recentConversations.length > 0) {
+                    historyContext = '--- 최근 대화 내역 ---\n' +
+                        recentConversations.map((conv, i) => {
+                            let conversationText = `${i + 1}. 사용자: ${conv.userQuery}`;
+                            if (conv.aiResponse) {
+                                conversationText += `\n   AI: ${conv.aiResponse}`;
+                            }
+                            return conversationText;
+                        }).join('\n\n') + '\n\n';
+                }
+            }
+
             // 실시간 정보 요청 처리
             const realTimeInfo = await this.processRealTimeInfoRequest(userQuery);
 
-            // 코드베이스 컨텍스트 수집 (GENERAL_ASK 타입일 때는 건너뜀)
+            // 코드베이스 컨텍스트 수집
             let fileContentsContext = '';
             let includedFilesForContext: { name: string, fullPath: string }[] = [];
 
             if (promptType === PromptType.CODE_GENERATION) {
-                const contextResult = await this.codebaseContextService.getProjectCodebaseContext(abortSignal);
-                fileContentsContext = contextResult.fileContentsContext;
-                includedFilesForContext = contextResult.includedFilesForContext;
+                // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                fileContentsContext = relevantContextResult.fileContentsContext;
+                includedFilesForContext = relevantContextResult.includedFilesForContext;
+            } else if (promptType === PromptType.GENERAL_ASK) {
+                // 새로운 방식: 질의 기반 관련 파일 자동 검색
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                fileContentsContext = relevantContextResult.fileContentsContext;
+                includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
 
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
@@ -122,7 +151,15 @@ export class LlmService {
             const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo);
 
             // 사용자 메시지 파트 구성
-            const userParts: any[] = [{ text: userQuery }];
+            const userParts: any[] = [];
+
+            // 대화 기록이 있으면 먼저 추가
+            if (historyContext) {
+                userParts.push({ text: historyContext });
+            }
+
+            // 현재 질문 추가
+            userParts.push({ text: userQuery });
 
             // 이미지가 있는 경우 추가
             if (imageData && imageMimeType) {
@@ -195,6 +232,23 @@ export class LlmService {
                 promptType
             );
 
+            // --- AI 응답을 대화 기록에 저장 ---
+            if (this.extensionContext && userQuery) {
+                const summarizedResponse = this.summarizeAiResponse(llmResponse);
+                history.push({
+                    userQuery: userQuery,
+                    aiResponse: summarizedResponse,
+                    timestamp: Date.now()
+                });
+
+                // 최대 5개 대화만 유지
+                if (history.length > 5) {
+                    history = history.slice(-5);
+                }
+
+                await this.extensionContext.globalState.update(historyKey, history);
+            }
+
         } catch (error: any) {
             if (error.name === 'AbortError') {
                 console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
@@ -208,6 +262,57 @@ export class LlmService {
             this.currentCallController = null;
             safePostMessage(webviewToRespond, { command: 'hideLoading' });
         }
+    }
+
+    /**
+     * AI 응답을 요약하여 대화 기록에 저장합니다.
+     * 코드 블록과 긴 설명을 간단히 요약하여 토큰 사용량을 줄입니다.
+     */
+    private summarizeAiResponse(response: string): string {
+        // 응답이 너무 짧으면 그대로 반환
+        if (response.length <= 200) {
+            return response;
+        }
+
+        // 코드 블록 추출
+        const codeBlocks = response.match(/```[\s\S]*?```/g) || [];
+        const hasCodeBlocks = codeBlocks.length > 0;
+
+        // 파일 작업 지시어 추출
+        const fileOperations = response.match(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g) || [];
+        const hasFileOperations = fileOperations.length > 0;
+
+        // 요약 생성
+        let summary = '';
+
+        if (hasFileOperations) {
+            summary += `파일 작업: ${fileOperations.join(', ')}. `;
+        }
+
+        if (hasCodeBlocks) {
+            summary += `코드 블록 ${codeBlocks.length}개 포함. `;
+        }
+
+        // 코드 블록과 파일 작업 지시어를 제거한 텍스트에서 첫 2-3문장 추출
+        let textContent = response;
+        textContent = textContent.replace(/```[\s\S]*?```/g, ''); // 코드 블록 제거
+        textContent = textContent.replace(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g, ''); // 파일 작업 지시어 제거
+        textContent = textContent.replace(/\n+/g, ' ').trim(); // 줄바꿈 정리
+
+        // 첫 2-3문장 추출 (마침표 기준)
+        const sentences = textContent.split(/[.!?]+/).filter(s => s.trim().length > 10);
+        const firstSentences = sentences.slice(0, 2).join('. ').trim();
+
+        if (firstSentences) {
+            summary += firstSentences + '.';
+        }
+
+        // 요약이 너무 길면 더 줄임
+        if (summary.length > 300) {
+            summary = summary.substring(0, 297) + '...';
+        }
+
+        return summary || 'AI가 응답을 제공했습니다.';
     }
 
     /**

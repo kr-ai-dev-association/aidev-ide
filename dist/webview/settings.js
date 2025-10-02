@@ -14,9 +14,7 @@ var __webpack_exports__ = {};
 const vscode = acquireVsCodeApi();
 
 // DOM 요소 참조
-const sourcePathsList = document.getElementById('source-paths-list');
-const addSourcePathButton = document.getElementById('add-source-path-button');
-const sourcePathStatus = document.getElementById('source-path-status');
+
 const autoUpdateToggle = document.getElementById('auto-update-toggle');
 const autoUpdateStatus = document.getElementById('auto-update-status');
 const projectRootPathDisplay = document.getElementById('project-root-path-display');
@@ -64,16 +62,6 @@ const saveBanyaLicenseButton = document.getElementById('save-banya-license-butto
 const verifyBanyaLicenseButton = document.getElementById('verify-banya-license-button');
 const deleteBanyaLicenseButton = document.getElementById('delete-banya-license-button');
 const banyaLicenseStatus = document.getElementById('banya-license-status');
-
-// Ollama Blocker 관련 요소들
-const startOllamaBlockerButton = document.getElementById('start-ollama-blocker-button');
-const stopOllamaBlockerButton = document.getElementById('stop-ollama-blocker-button');
-const ollamaBlockerStatusButton = document.getElementById('ollama-blocker-status-button');
-const killOllamaProcessesButton = document.getElementById('kill-ollama-processes-button');
-const ollamaBlockerStatus = document.getElementById('ollama-blocker-status');
-const ollamaBlockerSerialInput = document.getElementById('ollama-blocker-serial-input');
-const ollamaBlockerAuthButton = document.getElementById('ollama-blocker-auth-button');
-const ollamaBlockerAuthStatus = document.getElementById('ollama-blocker-auth-status');
 
 // AI 모델 선택 관련 요소들
 const aiModelSelect = document.getElementById('ai-model-select');
@@ -842,26 +830,6 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// UI 업데이트 함수 (소스 경로)
-function updateSourcePathsList(paths) {
-  sourcePathsList.innerHTML = '';
-  if (!paths || paths.length === 0) {
-    const noPathsText = languageData['noPathsSpecified'] || '지정된 경로 없음';
-    sourcePathsList.innerHTML = `<li class="path-item" style="justify-content: center; color: var(--vscode-descriptionForeground);">${noPathsText}</li>`;
-  } else {
-    paths.forEach(path => {
-      const listItem = document.createElement('li');
-      listItem.classList.add('path-item');
-      const deleteButtonText = languageData['removeSourcePathButton'] || '경로 삭제';
-      listItem.innerHTML = `
-                <span class="path-text" title="${path}">${path}</span>
-                <button class="delete-button" data-path="${path}" title="${deleteButtonText}">×</button>
-            `;
-      sourcePathsList.appendChild(listItem);
-    });
-  }
-}
-
 // UI 업데이트 함수 (프로젝트 Root)
 function updateProjectRootDisplay(rootPath) {
   if (projectRootPathDisplay) {
@@ -891,35 +859,6 @@ function showStatus(element, message, type = 'info', duration = 3000) {
       element.className = 'info-message';
     }, duration);
   }
-}
-
-// 이벤트 리스너: 경로 추가 버튼
-if (addSourcePathButton) {
-  addSourcePathButton.addEventListener('click', () => {
-    const pathSelectionText = languageData['pathSelectionDialog'] || '경로 선택 창 열림...';
-    showStatus(sourcePathStatus, pathSelectionText, 'info');
-    vscode.postMessage({
-      command: 'addDirectory'
-    });
-  });
-}
-
-// 이벤트 리스너: 경로 삭제 버튼 (이벤트 위임)
-if (sourcePathsList) {
-  sourcePathsList.addEventListener('click', event => {
-    const target = event.target;
-    if (target && target.classList.contains('delete-button')) {
-      const pathToRemove = target.dataset.path;
-      if (pathToRemove) {
-        const removalText = languageData['pathRemovalRequest'] || '삭제 요청 중...';
-        showStatus(sourcePathStatus, `'${pathToRemove}' ${removalText}`, 'info');
-        vscode.postMessage({
-          command: 'removeDirectory',
-          path: pathToRemove
-        });
-      }
-    }
-  });
 }
 
 // 이벤트 리스너: 프로젝트 Root 선택 버튼
@@ -1171,65 +1110,12 @@ if (aiModelSelect) {
   });
 }
 
-// Ollama Blocker 이벤트 리스너들
-if (startOllamaBlockerButton) {
-  startOllamaBlockerButton.addEventListener('click', () => {
-    vscode.postMessage({
-      command: 'startOllamaBlocker'
-    });
-    showStatus(ollamaBlockerStatus, 'Ollama Blocker 시작 중...', 'info');
-  });
-}
-if (stopOllamaBlockerButton) {
-  stopOllamaBlockerButton.addEventListener('click', () => {
-    vscode.postMessage({
-      command: 'stopOllamaBlocker'
-    });
-    showStatus(ollamaBlockerStatus, 'Ollama Blocker 중지 중...', 'info');
-  });
-}
-if (ollamaBlockerStatusButton) {
-  ollamaBlockerStatusButton.addEventListener('click', () => {
-    vscode.postMessage({
-      command: 'ollamaBlockerStatus'
-    });
-    showStatus(ollamaBlockerStatus, '상태 확인 중...', 'info');
-  });
-}
-if (killOllamaProcessesButton) {
-  killOllamaProcessesButton.addEventListener('click', () => {
-    vscode.postMessage({
-      command: 'killOllamaProcesses'
-    });
-    showStatus(ollamaBlockerStatus, 'Ollama 프로세스 종료 중...', 'info');
-  });
-}
-if (ollamaBlockerAuthButton) {
-  ollamaBlockerAuthButton.addEventListener('click', () => {
-    const serialNumber = ollamaBlockerSerialInput.value.trim();
-    if (serialNumber) {
-      vscode.postMessage({
-        command: 'ollamaBlockerAuth',
-        serialNumber: serialNumber
-      });
-      showStatus(ollamaBlockerAuthStatus, '인증 중...', 'info');
-    } else {
-      showStatus(ollamaBlockerAuthStatus, '시리얼 번호를 입력해주세요.', 'error');
-    }
-  });
-}
-
 // 확장으로부터 메시지 수신
 window.addEventListener('message', event => {
   const message = event.data;
   switch (message.command) {
     case 'currentSettings':
       console.log('Received currentSettings:', message);
-      if (message.sourcePaths) {
-        updateSourcePathsList(message.sourcePaths);
-        const sourcePathsLoadedText = languageData['sourcePathsLoaded'] || '소스 경로 로드 완료.';
-        showStatus(sourcePathStatus, sourcePathsLoadedText, 'success');
-      }
       if (typeof message.autoUpdateEnabled === 'boolean' && autoUpdateToggle) {
         autoUpdateToggle.checked = message.autoUpdateEnabled;
         const autoUpdateChangedText = languageData['autoUpdateChanged'] || '자동 업데이트';
@@ -1247,13 +1133,6 @@ window.addEventListener('message', event => {
       } else {
         // 프로젝트 Root가 설정되지 않은 경우에도 업데이트
         updateProjectRootDisplay(null);
-      }
-      break;
-    case 'updatedSourcePaths':
-      if (message.sourcePaths) {
-        updateSourcePathsList(message.sourcePaths);
-        const sourcePathsUpdatedText = languageData['sourcePathsUpdated'] || '소스 경로 업데이트 완료.';
-        showStatus(sourcePathStatus, sourcePathsUpdatedText, 'success');
       }
       break;
     case 'updatedProjectRoot':
@@ -1276,14 +1155,6 @@ window.addEventListener('message', event => {
         showStatus(autoUpdateStatus, statusText, 'success');
         autoUpdateStatus.textContent = `${currentText} ${statusText}`;
       }
-      break;
-    case 'pathAddError':
-      const pathAddErrorText = languageData['pathAddError'] || '오류 (경로 추가):';
-      showStatus(sourcePathStatus, `${pathAddErrorText} ${message.error}`, 'error');
-      break;
-    case 'pathRemoveError':
-      const pathRemoveErrorText = languageData['pathRemoveError'] || '오류 (경로 삭제):';
-      showStatus(sourcePathStatus, `${pathRemoveErrorText} ${message.error}`, 'error');
       break;
     case 'projectRootError':
       const projectRootErrorText = languageData['projectRootError'] || '오류 (프로젝트 Root 설정):';
@@ -1612,24 +1483,6 @@ window.addEventListener('message', event => {
             autoUpdateStatus.textContent = `${currentText} ${statusText}`;
           }
         }
-      }
-      break;
-    case 'ollamaBlockerResult':
-      if (message.success) {
-        showStatus(ollamaBlockerStatus, message.message, 'success');
-      } else {
-        showStatus(ollamaBlockerStatus, message.message, 'error');
-      }
-      break;
-    case 'ollamaBlockerStatusResult':
-      const statusText = `상태: ${message.running ? '실행 중' : '중지됨'} - ${message.message}`;
-      showStatus(ollamaBlockerStatus, statusText, message.running ? 'success' : 'info');
-      break;
-    case 'ollamaBlockerAuthResult':
-      if (message.success) {
-        showStatus(ollamaBlockerAuthStatus, message.message, 'success');
-      } else {
-        showStatus(ollamaBlockerAuthStatus, message.message, 'error');
       }
       break;
   }

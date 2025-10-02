@@ -61,61 +61,6 @@
             color: var(--vscode-terminal-ansiRed);
         }
 
-        /* 소스 경로 리스트 스타일 */
-        .path-list {
-            list-style-type: none;
-            padding: 0;
-            margin: 0;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 5px;
-            max-height: 200px;
-            /* 고정 높이, 스크롤 가능 */
-            overflow-y: auto;
-            background-color: var(--vscode-input-background);
-        }
-
-        .path-list .path-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 10px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-        }
-
-        .path-list .path-item:last-child {
-            border-bottom: none;
-        }
-
-        .path-list .path-item:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-
-        .path-list .path-item .path-text {
-            flex-grow: 1;
-            white-space: nowrap;
-            /* 줄바꿈 방지 */
-            overflow: hidden;
-            /* 넘치는 내용 숨김 */
-            text-overflow: ellipsis;
-            /* ... 표시 */
-            margin-right: 10px;
-            color: var(--vscode-foreground);
-        }
-
-        .path-list .path-item .delete-button {
-            background: none;
-            border: none;
-            color: var(--vscode-textLink-foreground);
-            font-size: 1.2em;
-            cursor: pointer;
-            padding: 0 5px;
-            line-height: 1;
-            /* 높이 맞춤 */
-        }
-
-        .path-list .path-item .delete-button:hover {
-            color: var(--vscode-textLink-activeForeground);
-        }
 
         /* 버튼 그룹 스타일 */
         .button-group {
@@ -527,18 +472,6 @@
         <p class="info-message">설정 변경은 즉시 저장됩니다.</p>
     </div>
 
-    <div class="section-container">
-        <h2 id="source-path-label">소스 코드 경로 지정</h2>
-        <p class="info-message">CodePilot이 AI 응답을 생성할 때 참조할 소스 코드 경로 목록입니다. 지정된 파일 및 폴더의 내용이 AI에게 컨텍스트로 제공될 수 있습니다.</p>
-        <ul id="source-paths-list" class="path-list">
-            <!-- 경로들이 여기에 동적으로 추가됩니다. -->
-        </ul>
-        <div class="button-group">
-            <button id="add-source-path-button">경로 추가</button>
-            <span id="source-path-status" class="info-message"></span>
-        </div>
-        <p class="info-message">설정 변경은 즉시 저장됩니다.</p>
-    </div>
 
     <div class="section-container">
         <h2 id="auto-update-label">파일 자동 업데이트</h2>
@@ -621,35 +554,6 @@
         </div>
     </div>
 
-    <div class="section-container">
-        <h2 id="ollama-blocker-title">🛡️ Ollama Blocker 관리</h2>
-        <p class="info-message">ollama-blocker는 Ollama 프로세스를 차단하고 시리얼 번호 인증을 통해 제어하는 백그라운드 서비스입니다.</p>
-
-        <div class="api-key-section">
-            <h3 id="ollama-blocker-status-label">서비스 상태</h3>
-            <p class="info-message">ollama-blocker의 현재 상태를 확인하고 제어할 수 있습니다.</p>
-            <div class="button-group">
-                <button id="start-ollama-blocker-button">Ollama Blocker 시작</button>
-                <button id="stop-ollama-blocker-button">Ollama Blocker 중지</button>
-                <button id="ollama-blocker-status-button">상태 확인</button>
-                <button id="kill-ollama-processes-button">Ollama 프로세스 종료</button>
-            </div>
-            <p id="ollama-blocker-status" class="info-message"></p>
-        </div>
-
-        <div class="api-key-section">
-            <h3 id="ollama-blocker-auth-label">시리얼 번호 인증</h3>
-            <p class="info-message">ollama-blocker에서 사용하는 시리얼 번호로 인증하여 Ollama를 시작할 수 있습니다.</p>
-            <div class="license-input-group">
-                <div class="license-input-row">
-                    <input type="text" id="ollama-blocker-serial-input"
-                        placeholder="시리얼 번호를 입력하세요 (예: TEST_SERIAL_123)">
-                    <button id="ollama-blocker-auth-button">인증</button>
-                </div>
-            </div>
-            <p id="ollama-blocker-auth-status" class="info-message"></p>
-        </div>
-    </div>
 
     <div class="section-container">
         <h2 id="external-api-keys-title">외부 API 키 설정</h2>
