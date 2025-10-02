@@ -71,7 +71,8 @@ export function calculateTotalTokens(systemPrompt: string, userParts: any[]): nu
 export function checkTokenLimit(
     systemPrompt: string,
     userParts: any[],
-    modelType: AiModelType
+    modelType: AiModelType,
+    actualModelName?: string
 ): { isExceeded: boolean; currentTokens: number; maxTokens: number; message: string } {
     // 안전 가드: 알 수 없는 모델 타입 대비 (예: 과거 'ollama' 값 등)
     const limits = MODEL_TOKEN_LIMITS[modelType as AiModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA_Gemma] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
@@ -81,21 +82,8 @@ export function checkTokenLimit(
 
     let message = '';
     if (isExceeded) {
-        let modelName = 'Unknown Model';
-        switch (modelType) {
-            case AiModelType.GEMINI:
-                modelName = 'Gemini 2.5 Flash';
-                break;
-            case AiModelType.OLLAMA_Gemma:
-                modelName = 'Gemma3:27b';
-                break;
-            case AiModelType.OLLAMA_DeepSeek:
-                modelName = 'DeepSeek R1:70B';
-                break;
-            case AiModelType.OLLAMA_CodeLlama:
-                modelName = 'CodeLlama 7B';
-                break;
-        }
+        // 실제 모델명이 제공되면 사용, 아니면 기본 모델명 사용
+        const modelName = actualModelName || getDefaultModelName(modelType);
         message = `토큰 제한 초과: ${modelName}의 입력 토큰 제한(${limits.maxInputTokens.toLocaleString()}개)을 초과했습니다. 현재: ${currentTokens.toLocaleString()}개`;
     }
 
@@ -105,6 +93,26 @@ export function checkTokenLimit(
         maxTokens: limits.maxInputTokens,
         message
     };
+}
+
+/**
+ * 모델 타입에 따른 기본 모델명을 반환합니다.
+ * @param modelType 모델 타입
+ * @returns 기본 모델명
+ */
+function getDefaultModelName(modelType: AiModelType): string {
+    switch (modelType) {
+        case AiModelType.GEMINI:
+            return 'Gemini 2.5 Flash';
+        case AiModelType.OLLAMA_Gemma:
+            return 'Gemma3:27b';
+        case AiModelType.OLLAMA_DeepSeek:
+            return 'DeepSeek R1:70B';
+        case AiModelType.OLLAMA_CodeLlama:
+            return 'CodeLlama 7B';
+        default:
+            return 'Unknown Model';
+    }
 }
 
 /**

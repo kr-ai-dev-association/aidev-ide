@@ -25,7 +25,7 @@ export class LlmService {
     private externalApiService: ExternalApiService;
     private currentCallController: AbortController | null = null;
     private currentModelType: AiModelType = AiModelType.GEMINI; // 기본값
-    
+
     // 액션 플래너 관련 서비스들
     private actionPlannerService: ActionPlannerService;
     private terminalMonitorService: TerminalMonitorService;
@@ -50,7 +50,7 @@ export class LlmService {
         this.notificationService = notificationService;
         this.configurationService = configurationService;
         this.externalApiService = new ExternalApiService(configurationService);
-        
+
         // 액션 플래너 서비스들 초기화
         this.actionPlannerService = new ActionPlannerService(notificationService, configurationService);
         this.terminalMonitorService = new TerminalMonitorService(notificationService);
@@ -60,6 +60,39 @@ export class LlmService {
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
         console.log(`[LlmService] Current model set to: ${modelType}`);
+    }
+
+    /**
+     * 현재 설정된 모델의 실제 이름을 가져옵니다.
+     * @returns 현재 모델명
+     */
+    private async getCurrentModelName(): Promise<string> {
+        try {
+            if (this.currentModelType === AiModelType.GEMINI) {
+                return 'Gemini 2.5 Flash';
+            } else if (this.currentModelType === AiModelType.OLLAMA_Gemma || 
+                       this.currentModelType === AiModelType.OLLAMA_DeepSeek || 
+                       this.currentModelType === AiModelType.OLLAMA_CodeLlama) {
+                // Ollama 모델의 경우 실제 모델명을 가져옴
+                return await this.ollamaApi.getCurrentModelName();
+            }
+        } catch (error) {
+            console.warn(`[LlmService] 모델명 가져오기 실패: ${error}`);
+        }
+        
+        // 기본값 반환
+        switch (this.currentModelType) {
+            case AiModelType.GEMINI:
+                return 'Gemini 2.5 Flash';
+            case AiModelType.OLLAMA_Gemma:
+                return 'Gemma3:27b';
+            case AiModelType.OLLAMA_DeepSeek:
+                return 'DeepSeek R1:70B';
+            case AiModelType.OLLAMA_CodeLlama:
+                return 'CodeLlama 7B';
+            default:
+                return 'Unknown Model';
+        }
     }
 
     public getCurrentModel(): AiModelType {
@@ -189,7 +222,8 @@ export class LlmService {
 
 
             // 토큰 제한 확인
-            const tokenCheck = checkTokenLimit(systemPrompt, userParts, this.currentModelType);
+            const actualModelName = await this.getCurrentModelName();
+            const tokenCheck = checkTokenLimit(systemPrompt, userParts, this.currentModelType, actualModelName);
             logTokenUsage(systemPrompt, userParts, this.currentModelType);
 
             if (tokenCheck.isExceeded) {
