@@ -2467,7 +2467,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CodebaseContextService = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const path = __importStar(__webpack_require__(10));
-const glob = __importStar(__webpack_require__(11));
+const glob_1 = __webpack_require__(11);
 const fileUtils_1 = __webpack_require__(37);
 class CodebaseContextService {
     configurationService;
@@ -2483,6 +2483,203 @@ class CodebaseContextService {
     constructor(configurationService, notificationService) {
         this.configurationService = configurationService;
         this.notificationService = notificationService;
+    }
+    /**
+     * 사용자 질의와 관련된 파일들을 자동으로 찾아서 컨텍스트에 추가합니다.
+     * @param userQuery 사용자의 질의
+     * @param abortSignal 취소 신호
+     * @returns 파일 컨텍스트와 포함된 파일 목록
+     */
+    async getRelevantFilesContext(userQuery, abortSignal) {
+        const projectRoot = await this.configurationService.getProjectRoot();
+        if (!projectRoot) {
+            this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았습니다. 설정에서 프로젝트 루트를 지정해주세요.');
+            return { fileContentsContext: '', includedFilesForContext: [] };
+        }
+        let fileContentsContext = "";
+        let currentTotalContentLength = 0;
+        const includedFilesForContext = [];
+        try {
+            // 질의에서 키워드 추출
+            const keywords = this.extractKeywordsFromQuery(userQuery);
+            console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
+            // 프로젝트 루트에서 관련 파일들 검색
+            const relevantFiles = await this.findRelevantFiles(projectRoot, keywords, abortSignal);
+            console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
+            // 파일들을 우선순위에 따라 정렬
+            const sortedFiles = this.prioritizeFiles(relevantFiles, keywords);
+            // 파일 내용을 컨텍스트에 추가
+            for (const filePath of sortedFiles) {
+                if (abortSignal.aborted) {
+                    this.notificationService.showWarningMessage('컨텍스트 수집이 취소되었습니다.');
+                    break;
+                }
+                if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
+                    fileContentsContext += "\n[INFO] 컨텍스트 길이 제한으로 일부 파일 내용이 생략되었습니다.\n";
+                    break;
+                }
+                try {
+                    const uri = vscode.Uri.file(filePath);
+                    const stats = await vscode.workspace.fs.stat(uri);
+                    if (stats.type === vscode.FileType.File) {
+                        // 제외된 확장자 확인
+                        if (this.EXCLUDED_EXTENSIONS.includes(path.extname(filePath).toLowerCase())) {
+                            continue;
+                        }
+                        const contentBytes = await vscode.workspace.fs.readFile(uri);
+                        const content = Buffer.from(contentBytes).toString('utf8');
+                        // 워크스페이스 기준 상대 경로를 얻거나, 없으면 기본 파일명 사용
+                        const nameForContext = this.getPathRelativeToWorkspace(filePath) || path.basename(filePath);
+                        const fileType = (0, fileUtils_1.getFileType)(filePath);
+                        // 파일 내용을 컨텍스트에 추가
+                        fileContentsContext += `\n--- 파일: ${nameForContext} (${fileType}) ---\n${content}\n`;
+                        includedFilesForContext.push({
+                            name: path.basename(filePath),
+                            fullPath: filePath
+                        });
+                        currentTotalContentLength += content.length;
+                    }
+                }
+                catch (error) {
+                    console.warn(`[CodebaseContextService] 파일 읽기 실패: ${filePath}`, error);
+                }
+            }
+            console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
+            return { fileContentsContext, includedFilesForContext };
+        }
+        catch (error) {
+            console.error('[CodebaseContextService] 관련 파일 검색 중 오류:', error);
+            this.notificationService.showErrorMessage('관련 파일 검색 중 오류가 발생했습니다.');
+            return { fileContentsContext: '', includedFilesForContext: [] };
+        }
+    }
+    /**
+     * 사용자 질의에서 키워드를 추출합니다.
+     * @param userQuery 사용자의 질의
+     * @returns 추출된 키워드 배열
+     */
+    extractKeywordsFromQuery(userQuery) {
+        // 질의를 소문자로 변환하고 특수문자 제거
+        const cleanQuery = userQuery.toLowerCase()
+            .replace(/[^\w\s가-힣]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        // 단어들을 분리하고 의미있는 키워드만 추출
+        const words = cleanQuery.split(' ')
+            .filter(word => word.length > 2) // 2글자 이상만
+            .filter(word => !this.isStopWord(word)); // 불용어 제거
+        // 중복 제거
+        return [...new Set(words)];
+    }
+    /**
+     * 불용어인지 확인합니다.
+     * @param word 확인할 단어
+     * @returns 불용어 여부
+     */
+    isStopWord(word) {
+        const stopWords = [
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall',
+            'this', 'that', 'these', 'those', 'a', 'an', 'the',
+            'how', 'what', 'when', 'where', 'why', 'who', 'which',
+            'please', 'help', 'me', 'my', 'your', 'our', 'their',
+            '코드', '파일', '함수', '클래스', '변수', '메서드', '프로그램', '개발', '작성', '만들', '생성'
+        ];
+        return stopWords.includes(word.toLowerCase());
+    }
+    /**
+     * 프로젝트 루트에서 관련 파일들을 검색합니다.
+     * @param projectRoot 프로젝트 루트 경로
+     * @param keywords 검색 키워드
+     * @param abortSignal 취소 신호
+     * @returns 관련 파일 경로 배열
+     */
+    async findRelevantFiles(projectRoot, keywords, abortSignal) {
+        const relevantFiles = [];
+        const searchPatterns = [
+            '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
+            '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
+            '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
+            '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
+        ];
+        try {
+            for (const pattern of searchPatterns) {
+                if (abortSignal.aborted)
+                    break;
+                const files = await (0, glob_1.glob)(pattern, { cwd: projectRoot, nodir: true });
+                const fullPaths = files.map((file) => path.join(projectRoot, file));
+                for (const filePath of fullPaths) {
+                    if (abortSignal.aborted)
+                        break;
+                    try {
+                        // 파일명이나 경로에 키워드가 포함되어 있는지 확인
+                        const fileName = path.basename(filePath).toLowerCase();
+                        const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+                        const isRelevant = keywords.some(keyword => fileName.includes(keyword) || relativePath.includes(keyword));
+                        if (isRelevant) {
+                            relevantFiles.push(filePath);
+                        }
+                    }
+                    catch (error) {
+                        console.warn(`[CodebaseContextService] 파일 검색 중 오류: ${filePath}`, error);
+                    }
+                }
+            }
+        }
+        catch (error) {
+            console.error('[CodebaseContextService] 파일 검색 중 오류:', error);
+        }
+        return relevantFiles;
+    }
+    /**
+     * 파일들을 우선순위에 따라 정렬합니다.
+     * @param files 파일 경로 배열
+     * @param keywords 키워드 배열
+     * @returns 정렬된 파일 경로 배열
+     */
+    prioritizeFiles(files, keywords) {
+        return files.sort((a, b) => {
+            const aScore = this.calculateRelevanceScore(a, keywords);
+            const bScore = this.calculateRelevanceScore(b, keywords);
+            return bScore - aScore; // 높은 점수부터
+        });
+    }
+    /**
+     * 파일의 관련성 점수를 계산합니다.
+     * @param filePath 파일 경로
+     * @param keywords 키워드 배열
+     * @returns 관련성 점수
+     */
+    calculateRelevanceScore(filePath, keywords) {
+        const fileName = path.basename(filePath).toLowerCase();
+        const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
+        let score = 0;
+        // 파일명에 키워드가 포함된 경우 높은 점수
+        keywords.forEach(keyword => {
+            if (fileName.includes(keyword))
+                score += 10;
+            if (relativePath.includes(keyword))
+                score += 5;
+        });
+        // 특정 디렉토리에 있는 파일들에 가중치 부여
+        if (relativePath.includes('src/') || relativePath.includes('source/'))
+            score += 3;
+        if (relativePath.includes('lib/') || relativePath.includes('libs/'))
+            score += 2;
+        if (relativePath.includes('utils/') || relativePath.includes('helpers/'))
+            score += 2;
+        if (relativePath.includes('config/') || relativePath.includes('settings/'))
+            score += 1;
+        // 특정 파일 확장자에 가중치 부여
+        const ext = path.extname(filePath).toLowerCase();
+        if (['.ts', '.js', '.tsx', '.jsx'].includes(ext))
+            score += 2;
+        if (['.py', '.java', '.cpp', '.c'].includes(ext))
+            score += 2;
+        if (['.json', '.yaml', '.yml'].includes(ext))
+            score += 1;
+        return score;
     }
     /**
      * 파일의 전체 경로를 VS Code 워크스페이스 루트를 기준으로 한 상대 경로로 변환합니다.
@@ -2561,7 +2758,7 @@ class CodebaseContextService {
                 }
                 else if (stats.type === vscode.FileType.Directory) {
                     const pattern = path.join(uri.fsPath, '**', '*');
-                    const files = glob.sync(pattern, {
+                    const files = glob_1.glob.sync(pattern, {
                         nodir: true,
                         dot: false,
                         ignore: [
@@ -12242,15 +12439,43 @@ class LlmService {
         const abortSignal = this.currentCallController.signal;
         try {
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'showLoading' });
+            // --- 대화 기록 관리 ---
+            const historyKey = promptType === types_1.PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
+            let history = [];
+            if (this.extensionContext) {
+                history = this.extensionContext.globalState.get(historyKey, []);
+            }
+            // --- 최근 5개 대화 context 생성 ---
+            let historyContext = '';
+            if (history.length > 0) {
+                const recentConversations = history.slice(-5); // 최근 5개 대화
+                if (recentConversations.length > 0) {
+                    historyContext = '--- 최근 대화 내역 ---\n' +
+                        recentConversations.map((conv, i) => {
+                            let conversationText = `${i + 1}. 사용자: ${conv.userQuery}`;
+                            if (conv.aiResponse) {
+                                conversationText += `\n   AI: ${conv.aiResponse}`;
+                            }
+                            return conversationText;
+                        }).join('\n\n') + '\n\n';
+                }
+            }
             // 실시간 정보 요청 처리
             const realTimeInfo = await this.processRealTimeInfoRequest(userQuery);
-            // 코드베이스 컨텍스트 수집 (GENERAL_ASK 타입일 때는 건너뜀)
+            // 코드베이스 컨텍스트 수집
             let fileContentsContext = '';
             let includedFilesForContext = [];
             if (promptType === types_1.PromptType.CODE_GENERATION) {
-                const contextResult = await this.codebaseContextService.getProjectCodebaseContext(abortSignal);
-                fileContentsContext = contextResult.fileContentsContext;
-                includedFilesForContext = contextResult.includedFilesForContext;
+                // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                fileContentsContext = relevantContextResult.fileContentsContext;
+                includedFilesForContext = relevantContextResult.includedFilesForContext;
+            }
+            else if (promptType === types_1.PromptType.GENERAL_ASK) {
+                // 새로운 방식: 질의 기반 관련 파일 자동 검색
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                fileContentsContext = relevantContextResult.fileContentsContext;
+                includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
             let selectedFilesContext = "";
@@ -12281,7 +12506,13 @@ class LlmService {
             // 시스템 프롬프트 생성
             const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo);
             // 사용자 메시지 파트 구성
-            const userParts = [{ text: userQuery }];
+            const userParts = [];
+            // 대화 기록이 있으면 먼저 추가
+            if (historyContext) {
+                userParts.push({ text: historyContext });
+            }
+            // 현재 질문 추가
+            userParts.push({ text: userQuery });
             // 이미지가 있는 경우 추가
             if (imageData && imageMimeType) {
                 // Gemini와 Ollama 모두 이미지 데이터 전달 (Ollama는 멀티모달 모델에서 지원)
@@ -12331,6 +12562,20 @@ class LlmService {
             }
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, promptType === types_1.PromptType.CODE_GENERATION ? allContextFiles : [], webviewToRespond, promptType);
+            // --- AI 응답을 대화 기록에 저장 ---
+            if (this.extensionContext && userQuery) {
+                const summarizedResponse = this.summarizeAiResponse(llmResponse);
+                history.push({
+                    userQuery: userQuery,
+                    aiResponse: summarizedResponse,
+                    timestamp: Date.now()
+                });
+                // 최대 5개 대화만 유지
+                if (history.length > 5) {
+                    history = history.slice(-5);
+                }
+                await this.extensionContext.globalState.update(historyKey, history);
+            }
         }
         catch (error) {
             if (error.name === 'AbortError') {
@@ -12347,6 +12592,46 @@ class LlmService {
             this.currentCallController = null;
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'hideLoading' });
         }
+    }
+    /**
+     * AI 응답을 요약하여 대화 기록에 저장합니다.
+     * 코드 블록과 긴 설명을 간단히 요약하여 토큰 사용량을 줄입니다.
+     */
+    summarizeAiResponse(response) {
+        // 응답이 너무 짧으면 그대로 반환
+        if (response.length <= 200) {
+            return response;
+        }
+        // 코드 블록 추출
+        const codeBlocks = response.match(/```[\s\S]*?```/g) || [];
+        const hasCodeBlocks = codeBlocks.length > 0;
+        // 파일 작업 지시어 추출
+        const fileOperations = response.match(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g) || [];
+        const hasFileOperations = fileOperations.length > 0;
+        // 요약 생성
+        let summary = '';
+        if (hasFileOperations) {
+            summary += `파일 작업: ${fileOperations.join(', ')}. `;
+        }
+        if (hasCodeBlocks) {
+            summary += `코드 블록 ${codeBlocks.length}개 포함. `;
+        }
+        // 코드 블록과 파일 작업 지시어를 제거한 텍스트에서 첫 2-3문장 추출
+        let textContent = response;
+        textContent = textContent.replace(/```[\s\S]*?```/g, ''); // 코드 블록 제거
+        textContent = textContent.replace(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g, ''); // 파일 작업 지시어 제거
+        textContent = textContent.replace(/\n+/g, ' ').trim(); // 줄바꿈 정리
+        // 첫 2-3문장 추출 (마침표 기준)
+        const sentences = textContent.split(/[.!?]+/).filter(s => s.trim().length > 10);
+        const firstSentences = sentences.slice(0, 2).join('. ').trim();
+        if (firstSentences) {
+            summary += firstSentences + '.';
+        }
+        // 요약이 너무 길면 더 줄임
+        if (summary.length > 300) {
+            summary = summary.substring(0, 297) + '...';
+        }
+        return summary || 'AI가 응답을 제공했습니다.';
     }
     /**
      * 실시간 정보 요청을 처리합니다
@@ -14046,42 +14331,9 @@ ollamaBlockerService // OllamaBlockerService 추가
             case 'initSettings':
                 panel.webview.postMessage({
                     command: 'currentSettings',
-                    sourcePaths: await configurationService.getSourcePaths(),
                     autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
                     projectRoot: await configurationService.getProjectRoot()
                 });
-                break;
-            case 'addDirectory':
-                const uris = await vscode.window.showOpenDialog({
-                    canSelectFiles: true,
-                    //윈도우즈의 경우 false로 설정
-                    canSelectFolders: false,
-                    canSelectMany: true,
-                    openLabel: 'Select Files and Folders',
-                    filters: {
-                        'All Files': ['*'],
-                        'Source Files': ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'scala', 'html', 'css', 'scss', 'sass', 'json', 'xml', 'yaml', 'yml', 'md', 'txt'],
-                        'Code Files': ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'scala'],
-                        'Web Files': ['html', 'css', 'scss', 'sass', 'js', 'ts', 'jsx', 'tsx'],
-                        'Config Files': ['json', 'xml', 'yaml', 'yml', 'md', 'txt']
-                    }
-                });
-                if (uris && uris.length > 0) {
-                    const newPaths = uris.map(u => u.fsPath);
-                    const current = await configurationService.getSourcePaths();
-                    const updatedPaths = Array.from(new Set([...current, ...newPaths]));
-                    await configurationService.updateSourcePaths(updatedPaths);
-                    panel.webview.postMessage({ command: 'updatedSourcePaths', sourcePaths: updatedPaths });
-                }
-                break;
-            case 'removeDirectory':
-                const pathToRemove = data.path;
-                if (pathToRemove) {
-                    const current = await configurationService.getSourcePaths();
-                    const updatedPaths = current.filter(p => p !== pathToRemove);
-                    await configurationService.updateSourcePaths(updatedPaths);
-                    panel.webview.postMessage({ command: 'updatedSourcePaths', sourcePaths: updatedPaths });
-                }
                 break;
             case 'setAutoUpdate':
                 if (typeof data.enabled === 'boolean') {
@@ -14530,67 +14782,6 @@ ollamaBlockerService // OllamaBlockerService 추가
                     catch (fallbackError) {
                         console.error('Error loading fallback language data:', fallbackError);
                     }
-                }
-                break;
-            // Ollama Blocker 명령어 처리
-            case 'startOllamaBlocker':
-                if (ollamaBlockerService) {
-                    console.log('[PanelManager] startOllamaBlocker 명령어 처리 시작');
-                    const result = await ollamaBlockerService.start();
-                    console.log('[PanelManager] startOllamaBlocker 결과:', result);
-                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
-                }
-                else {
-                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                }
-                break;
-            case 'stopOllamaBlocker':
-                if (ollamaBlockerService) {
-                    console.log('[PanelManager] stopOllamaBlocker 명령어 처리 시작');
-                    const result = await ollamaBlockerService.stop();
-                    console.log('[PanelManager] stopOllamaBlocker 결과:', result);
-                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
-                }
-                else {
-                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                }
-                break;
-            case 'ollamaBlockerStatus':
-                if (ollamaBlockerService) {
-                    console.log('[PanelManager] ollamaBlockerStatus 명령어 처리 시작');
-                    const status = await ollamaBlockerService.getStatus();
-                    console.log('[PanelManager] ollamaBlockerStatus 결과:', status);
-                    panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: status.running, message: status.message });
-                }
-                else {
-                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                    panel.webview.postMessage({ command: 'ollamaBlockerStatusResult', running: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                }
-                break;
-            case 'killOllamaProcesses':
-                if (ollamaBlockerService) {
-                    console.log('[PanelManager] killOllamaProcesses 명령어 처리 시작');
-                    const result = await ollamaBlockerService.killOllamaProcesses();
-                    console.log('[PanelManager] killOllamaProcesses 결과:', result);
-                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: result.success, message: result.message });
-                }
-                else {
-                    console.error('[PanelManager] ollamaBlockerService가 초기화되지 않음');
-                    panel.webview.postMessage({ command: 'ollamaBlockerResult', success: false, message: 'Ollama Blocker 서비스가 초기화되지 않았습니다.' });
-                }
-                break;
-            case 'ollamaBlockerAuth':
-                if (ollamaBlockerService && data.serialNumber) {
-                    console.log('[PanelManager] ollamaBlockerAuth 명령어 처리 시작');
-                    const result = await ollamaBlockerService.authenticate(data.serialNumber);
-                    console.log('[PanelManager] ollamaBlockerAuth 결과:', result);
-                    panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: result.success, message: result.message });
-                }
-                else {
-                    console.error('[PanelManager] ollamaBlockerService 또는 serialNumber가 없음');
-                    panel.webview.postMessage({ command: 'ollamaBlockerAuthResult', success: false, message: 'Ollama Blocker 서비스 또는 시리얼 번호가 없습니다.' });
                 }
                 break;
         }
