@@ -2512,7 +2512,7 @@ class CodebaseContextService {
      * @param abortSignal 취소 신호
      * @returns 파일 컨텍스트와 포함된 파일 목록
      */
-    async getRelevantFilesContext(userQuery, abortSignal) {
+    async getRelevantFilesContext(userQuery, abortSignal, conversationHistory) {
         const projectRoot = await this.configurationService.getProjectRoot();
         if (!projectRoot) {
             this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았습니다. 설정에서 프로젝트 루트를 지정해주세요.');
@@ -2525,11 +2525,14 @@ class CodebaseContextService {
             // 질의에서 키워드 추출
             const keywords = this.extractKeywordsFromQuery(userQuery);
             console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
+            // 대화 기록을 활용한 키워드 확장
+            const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
+            console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
             // 프로젝트 루트에서 관련 파일들 검색
-            const relevantFiles = await this.findRelevantFiles(projectRoot, keywords, abortSignal);
+            const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
             console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
             // 파일들을 우선순위에 따라 정렬
-            const sortedFiles = this.prioritizeFiles(relevantFiles, keywords);
+            const sortedFiles = this.prioritizeFiles(relevantFiles, expandedKeywords);
             // 파일 내용을 컨텍스트에 추가
             for (const filePath of sortedFiles) {
                 if (abortSignal.aborted) {
@@ -2586,19 +2589,83 @@ class CodebaseContextService {
             .replace(/[^\w\s가-힣]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
-        // 단어들을 분리하고 의미있는 키워드만 추출
-        const words = cleanQuery.split(' ')
-            .filter(word => word.length > 1) // 1글자 이상으로 변경 (더 많은 키워드 포함)
-            .filter(word => !this.isStopWord(word)); // 불용어 제거
+        // 한국어 형태소 분석을 통한 키워드 추출
+        const koreanStems = this.extractKoreanStems(cleanQuery);
+        // 영어 단어들 추출
+        const englishWords = cleanQuery.split(' ')
+            .filter(word => word.length > 1)
+            .filter(word => !this.isStopWord(word))
+            .filter(word => !/^[가-힣]+$/.test(word)); // 한국어가 아닌 것만
         // 일반적인 개발 관련 키워드 추가
         const developmentKeywords = this.getDevelopmentKeywords(userQuery);
         // 중복 제거하고 모든 키워드 결합
-        const allKeywords = [...new Set([...words, ...developmentKeywords])];
+        const allKeywords = [...new Set([...koreanStems, ...englishWords, ...developmentKeywords])];
         console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
-        console.log(`[CodebaseContextService] 추출된 단어: ${words.join(', ')}`);
+        console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
+        console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
         console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
         console.log(`[CodebaseContextService] 최종 키워드: ${allKeywords.join(', ')}`);
         return allKeywords;
+    }
+    /**
+     * 한국어 형태소 분석을 통해 어간을 추출합니다.
+     * @param text 분석할 텍스트
+     * @returns 추출된 어간 배열
+     */
+    extractKoreanStems(text) {
+        const koreanWords = text.split(' ')
+            .filter(word => /^[가-힣]+$/.test(word)) // 한국어만
+            .filter(word => word.length > 1)
+            .filter(word => !this.isKoreanStopWord(word));
+        const stems = [];
+        for (const word of koreanWords) {
+            const stem = this.extractKoreanStem(word);
+            if (stem && stem.length > 1) {
+                stems.push(stem);
+            }
+        }
+        return [...new Set(stems)]; // 중복 제거
+    }
+    /**
+     * 한국어 단어에서 어간을 추출합니다.
+     * @param word 한국어 단어
+     * @returns 추출된 어간
+     */
+    extractKoreanStem(word) {
+        // 간단한 한국어 어간 추출 (조사/어미 제거)
+        const endings = [
+            // 조사
+            '을', '를', '이', '가', '은', '는', '에', '에서', '로', '으로', '와', '과', '의', '도', '만', '부터', '까지', '처럼', '같이',
+            // 어미
+            '다', '요', '어요', '아요', '해요', '세요', '세요', '습니다', '습니다', '어', '아', '해', '지', '고', '면', '는데', '지만', '면서',
+            // 동사/형용사 어미
+            '하다', '되다', '있다', '없다', '이다', '아니다', '같다', '다르다', '크다', '작다', '좋다', '나쁘다',
+            // 활용 어미
+            '하는', '한', '될', '된', '있는', '없는', '같은', '다른', '큰', '작은', '좋은', '나쁜'
+        ];
+        let stem = word;
+        // 가장 긴 어미부터 제거
+        const sortedEndings = endings.sort((a, b) => b.length - a.length);
+        for (const ending of sortedEndings) {
+            if (stem.endsWith(ending) && stem.length > ending.length) {
+                stem = stem.slice(0, -ending.length);
+                break; // 하나의 어미만 제거
+            }
+        }
+        return stem;
+    }
+    /**
+     * 한국어 불용어인지 확인합니다.
+     * @param word 확인할 단어
+     * @returns 한국어 불용어 여부
+     */
+    isKoreanStopWord(word) {
+        const koreanStopWords = [
+            '이', '가', '을', '를', '은', '는', '에', '에서', '로', '으로', '와', '과', '의', '도', '만', '부터', '까지',
+            '하다', '되다', '있다', '없다', '이다', '아니다', '같다', '다르다', '크다', '작다', '좋다', '나쁘다',
+            '코드', '파일', '함수', '클래스', '변수', '메서드', '프로그램', '개발', '작성', '만들', '생성', '분석', '설명'
+        ];
+        return koreanStopWords.includes(word);
     }
     /**
      * 불용어인지 확인합니다.
@@ -2612,10 +2679,60 @@ class CodebaseContextService {
             'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall',
             'this', 'that', 'these', 'those', 'a', 'an', 'the',
             'how', 'what', 'when', 'where', 'why', 'who', 'which',
-            'please', 'help', 'me', 'my', 'your', 'our', 'their',
-            '코드', '파일', '함수', '클래스', '변수', '메서드', '프로그램', '개발', '작성', '만들', '생성'
+            'please', 'help', 'me', 'my', 'your', 'our', 'their'
         ];
         return stopWords.includes(word.toLowerCase());
+    }
+    /**
+     * 대화 기록을 활용하여 키워드를 확장합니다.
+     * @param keywords 기본 키워드 배열
+     * @param conversationHistory 대화 기록
+     * @returns 확장된 키워드 배열
+     */
+    expandKeywordsWithHistory(keywords, conversationHistory) {
+        if (!conversationHistory || conversationHistory.length === 0) {
+            return keywords;
+        }
+        const expandedKeywords = [...keywords];
+        // 최근 3개 대화에서 키워드 추출
+        const recentConversations = conversationHistory.slice(-3);
+        for (const conversation of recentConversations) {
+            // 사용자 질의에서 키워드 추출
+            const userKeywords = this.extractKeywordsFromQuery(conversation.userQuery);
+            expandedKeywords.push(...userKeywords);
+            // AI 응답에서도 키워드 추출 (요약된 응답이므로 간단히)
+            if (conversation.aiResponse) {
+                const responseKeywords = this.extractKeywordsFromResponse(conversation.aiResponse);
+                expandedKeywords.push(...responseKeywords);
+            }
+        }
+        // 중복 제거
+        return [...new Set(expandedKeywords)];
+    }
+    /**
+     * AI 응답에서 키워드를 추출합니다.
+     * @param response AI 응답 텍스트
+     * @returns 추출된 키워드 배열
+     */
+    extractKeywordsFromResponse(response) {
+        // AI 응답에서 파일명, 함수명, 클래스명 등을 추출
+        const keywords = [];
+        // 파일명 패턴 추출 (예: "src/main.js", "package.json")
+        const filePattern = /([a-zA-Z0-9_\-\.\/]+\.(js|ts|tsx|jsx|py|java|cpp|c|cs|php|rb|go|rs|swift|kt|scala|html|css|scss|sass|json|xml|yaml|yml|md|txt|sql|sh|bat))/g;
+        const fileMatches = response.match(filePattern);
+        if (fileMatches) {
+            keywords.push(...fileMatches.map(match => match.split('/').pop()?.split('.')[0]).filter(Boolean));
+        }
+        // 함수명/클래스명 패턴 추출 (예: "getUserData", "UserService")
+        const namePattern = /([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)/g;
+        const nameMatches = response.match(namePattern);
+        if (nameMatches) {
+            keywords.push(...nameMatches.filter(name => name.length > 2));
+        }
+        // 한국어 키워드 추출
+        const koreanStems = this.extractKoreanStems(response);
+        keywords.push(...koreanStems);
+        return [...new Set(keywords)];
     }
     /**
      * 질의에서 개발 관련 키워드를 추출합니다.
@@ -2698,33 +2815,126 @@ class CodebaseContextService {
             '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
         ];
         try {
-            for (const pattern of searchPatterns) {
+            // 키워드별로 관련 디렉토리와 파일 패턴 생성
+            const keywordPatterns = this.generateKeywordPatterns(keywords);
+            console.log(`[CodebaseContextService] 생성된 키워드 패턴: ${keywordPatterns.join(', ')}`);
+            // 모든 검색 패턴과 키워드 패턴을 결합
+            const allPatterns = [...searchPatterns, ...keywordPatterns];
+            for (const pattern of allPatterns) {
                 if (abortSignal.aborted)
                     break;
-                const files = await (0, glob_1.glob)(pattern, { cwd: projectRoot, nodir: true });
-                const fullPaths = files.map((file) => path.join(projectRoot, file));
-                for (const filePath of fullPaths) {
-                    if (abortSignal.aborted)
-                        break;
-                    try {
-                        // 파일명이나 경로에 키워드가 포함되어 있는지 확인
-                        const fileName = path.basename(filePath).toLowerCase();
-                        const relativePath = path.relative(projectRoot, filePath).toLowerCase();
-                        const isRelevant = keywords.some(keyword => fileName.includes(keyword) || relativePath.includes(keyword));
-                        if (isRelevant) {
-                            relevantFiles.push(filePath);
+                try {
+                    const files = await (0, glob_1.glob)(pattern, { cwd: projectRoot, nodir: true });
+                    const fullPaths = files.map((file) => path.join(projectRoot, file));
+                    for (const filePath of fullPaths) {
+                        if (abortSignal.aborted)
+                            break;
+                        try {
+                            // 파일명이나 경로에 키워드가 포함되어 있는지 확인
+                            const fileName = path.basename(filePath).toLowerCase();
+                            const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+                            const isRelevant = keywords.some(keyword => fileName.includes(keyword) ||
+                                relativePath.includes(keyword) ||
+                                this.isKeywordRelated(filePath, keyword));
+                            if (isRelevant && !relevantFiles.includes(filePath)) {
+                                relevantFiles.push(filePath);
+                            }
+                        }
+                        catch (error) {
+                            console.warn(`[CodebaseContextService] 파일 검색 중 오류: ${filePath}`, error);
                         }
                     }
-                    catch (error) {
-                        console.warn(`[CodebaseContextService] 파일 검색 중 오류: ${filePath}`, error);
-                    }
+                }
+                catch (error) {
+                    console.warn(`[CodebaseContextService] 패턴 검색 중 오류: ${pattern}`, error);
                 }
             }
         }
         catch (error) {
             console.error('[CodebaseContextService] 파일 검색 중 오류:', error);
         }
+        console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
         return relevantFiles;
+    }
+    /**
+     * 키워드 기반 검색 패턴을 생성합니다.
+     * @param keywords 키워드 배열
+     * @returns 생성된 패턴 배열
+     */
+    generateKeywordPatterns(keywords) {
+        const patterns = [];
+        for (const keyword of keywords) {
+            // 키워드가 포함된 디렉토리 검색
+            patterns.push(`**/*${keyword}*/**/*`);
+            patterns.push(`**/${keyword}/**/*`);
+            patterns.push(`**/*${keyword}*`);
+            // 특정 키워드에 대한 추가 패턴
+            if (keyword === 'src' || keyword === 'source') {
+                patterns.push('**/src/**/*');
+                patterns.push('**/source/**/*');
+            }
+            if (keyword === 'test' || keyword === 'spec') {
+                patterns.push('**/test/**/*');
+                patterns.push('**/tests/**/*');
+                patterns.push('**/spec/**/*');
+                patterns.push('**/specs/**/*');
+            }
+            if (keyword === 'config' || keyword === 'setting') {
+                patterns.push('**/config/**/*');
+                patterns.push('**/settings/**/*');
+                patterns.push('**/conf/**/*');
+            }
+            if (keyword === 'util' || keyword === 'helper') {
+                patterns.push('**/util/**/*');
+                patterns.push('**/utils/**/*');
+                patterns.push('**/helper/**/*');
+                patterns.push('**/helpers/**/*');
+            }
+            if (keyword === 'component' || keyword === 'components') {
+                patterns.push('**/component/**/*');
+                patterns.push('**/components/**/*');
+            }
+            if (keyword === 'service' || keyword === 'services') {
+                patterns.push('**/service/**/*');
+                patterns.push('**/services/**/*');
+            }
+        }
+        return [...new Set(patterns)]; // 중복 제거
+    }
+    /**
+     * 파일이 키워드와 관련이 있는지 확인합니다.
+     * @param filePath 파일 경로
+     * @param keyword 키워드
+     * @returns 관련성 여부
+     */
+    isKeywordRelated(filePath, keyword) {
+        const fileName = path.basename(filePath).toLowerCase();
+        const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
+        const keywordLower = keyword.toLowerCase();
+        // 파일명이나 경로에 키워드가 포함되어 있는지 확인
+        if (fileName.includes(keywordLower) || relativePath.includes(keywordLower)) {
+            return true;
+        }
+        // 디렉토리 구조 기반 관련성 확인
+        const pathParts = relativePath.split('/');
+        for (const part of pathParts) {
+            if (part.includes(keywordLower)) {
+                return true;
+            }
+        }
+        // 특정 키워드에 대한 추가 관련성 확인
+        if (keywordLower === 'src' && (relativePath.includes('/src/') || relativePath.startsWith('src/'))) {
+            return true;
+        }
+        if (keywordLower === 'test' && (relativePath.includes('/test/') || relativePath.includes('/tests/') ||
+            fileName.includes('test') || fileName.includes('spec'))) {
+            return true;
+        }
+        if (keywordLower === 'config' && (relativePath.includes('/config/') || relativePath.includes('/settings/') ||
+            fileName.includes('config') || fileName.includes('setting'))) {
+            return true;
+        }
+        return false;
     }
     /**
      * 파일들을 우선순위에 따라 정렬합니다.
@@ -12561,13 +12771,13 @@ class LlmService {
             let includedFilesForContext = [];
             if (promptType === types_1.PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
             else if (promptType === types_1.PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
