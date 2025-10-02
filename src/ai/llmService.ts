@@ -106,12 +106,12 @@ export class LlmService {
 
             if (promptType === PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             } else if (promptType === PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
