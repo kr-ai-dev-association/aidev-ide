@@ -1201,12 +1201,19 @@ window.addEventListener('message', event => {
             }
             break;
         case 'updatedProjectRoot':
-            if (typeof message.projectRoot === 'string') {
+            if (message.success === false) {
+                // 설정 실패 또는 취소된 경우
+                const errorText = message.error || '프로젝트 Root 설정에 실패했습니다.';
+                showStatus(projectRootStatus, errorText, 'error');
+                console.error('프로젝트 Root 설정 실패:', errorText);
+            } else if (typeof message.projectRoot === 'string') {
+                // 설정 성공한 경우
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootUpdatedText = languageData['projectRootUpdated'] || '프로젝트 Root 업데이트 완료:';
                 const projectRootClearedText = languageData['projectRootCleared'] || '프로젝트 Root가 지워졌습니다.';
                 const statusText = message.projectRoot ? `${projectRootUpdatedText} ${message.projectRoot}` : projectRootClearedText;
                 showStatus(projectRootStatus, statusText, 'success');
+                console.log('프로젝트 Root 설정 성공:', message.projectRoot);
             }
             break;
         case 'autoUpdateStatusChanged':

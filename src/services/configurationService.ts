@@ -44,7 +44,18 @@ export class ConfigurationService {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         // If path is undefined, save an empty string to clear the setting.
         // VS Code stores empty strings, not `undefined` for string settings.
-        await config.update(this.PROJECT_ROOT_KEY, path || '', vscode.ConfigurationTarget.Global);
+        const valueToSave = path || '';
+        console.log(`[ConfigurationService] 프로젝트 Root 설정 시도: "${valueToSave}"`);
+        
+        await config.update(this.PROJECT_ROOT_KEY, valueToSave, vscode.ConfigurationTarget.Global);
+        
+        // 설정이 제대로 저장되었는지 확인
+        const savedValue = config.get<string>(this.PROJECT_ROOT_KEY);
+        console.log(`[ConfigurationService] 저장된 프로젝트 Root 값: "${savedValue}"`);
+        
+        if (savedValue !== valueToSave) {
+            throw new Error(`프로젝트 Root 설정 저장 실패: 예상값 "${valueToSave}", 실제값 "${savedValue}"`);
+        }
     }
 
     // 외부 API 키 관리 메서드들

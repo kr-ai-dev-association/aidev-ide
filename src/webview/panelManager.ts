@@ -44,19 +44,65 @@ export function openSettingsPanel(
                     }
                     break;
                 case 'setProjectRoot':
-                    const rootUris = await vscode.window.showOpenDialog({
-                        canSelectFiles: false,
-                        canSelectFolders: true,
-                        canSelectMany: false,
-                        openLabel: 'Select Project Root Directory'
-                    });
-                    if (rootUris && rootUris.length > 0) {
-                        const newRootPath = rootUris[0].fsPath;
-                        await configurationService.updateProjectRoot(newRootPath);
-                        panel.webview.postMessage({ command: 'updatedProjectRoot', projectRoot: newRootPath });
-                    } else if (data.clear) {
+                    if (data.clear) {
+                        // 프로젝트 Root 지우기
                         await configurationService.updateProjectRoot(undefined);
                         panel.webview.postMessage({ command: 'updatedProjectRoot', projectRoot: '' });
+                    } else {
+                        // 프로젝트 Root 선택
+                        const rootUris = await vscode.window.showOpenDialog({
+                            canSelectFiles: false,
+                            canSelectFolders: true,
+                            canSelectMany: false,
+                            openLabel: 'Select Project Root Directory'
+                        });
+                        
+                        if (rootUris && rootUris.length > 0) {
+                            const newRootPath = rootUris[0].fsPath;
+                            console.log(`[PanelManager] 프로젝트 Root 설정 시도: ${newRootPath}`);
+                            
+                            try {
+                                await configurationService.updateProjectRoot(newRootPath);
+                                
+                                // 설정이 제대로 저장되었는지 확인
+                                const savedRoot = await configurationService.getProjectRoot();
+                                console.log(`[PanelManager] 저장된 프로젝트 Root 확인: ${savedRoot}`);
+                                
+                                if (savedRoot === newRootPath) {
+                                    panel.webview.postMessage({ 
+                                        command: 'updatedProjectRoot', 
+                                        projectRoot: newRootPath,
+                                        success: true 
+                                    });
+                                    console.log(`[PanelManager] 프로젝트 Root 설정 성공: ${newRootPath}`);
+                                } else {
+                                    panel.webview.postMessage({ 
+                                        command: 'updatedProjectRoot', 
+                                        projectRoot: '',
+                                        success: false,
+                                        error: '설정 저장에 실패했습니다.'
+                                    });
+                                    console.error(`[PanelManager] 프로젝트 Root 설정 실패: 저장된 값이 다름`);
+                                }
+                            } catch (error) {
+                                console.error(`[PanelManager] 프로젝트 Root 설정 중 오류:`, error);
+                                panel.webview.postMessage({ 
+                                    command: 'updatedProjectRoot', 
+                                    projectRoot: '',
+                                    success: false,
+                                    error: `설정 저장 중 오류가 발생했습니다: ${error}`
+                                });
+                            }
+                        } else {
+                            // 사용자가 다이얼로그를 취소한 경우
+                            console.log(`[PanelManager] 프로젝트 Root 선택이 취소됨`);
+                            panel.webview.postMessage({ 
+                                command: 'updatedProjectRoot', 
+                                projectRoot: '',
+                                success: false,
+                                error: '프로젝트 Root 선택이 취소되었습니다.'
+                            });
+                        }
                     }
                     break;
                 case 'loadApiKeys':
