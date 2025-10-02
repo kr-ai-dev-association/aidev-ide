@@ -121,7 +121,7 @@ export class CodebaseContextService {
 
         // 한국어 형태소 분석을 통한 키워드 추출
         const koreanStems = this.extractKoreanStems(cleanQuery);
-        
+
         // 영어 단어들 추출
         const englishWords = cleanQuery.split(' ')
             .filter(word => word.length > 1)
@@ -130,16 +130,16 @@ export class CodebaseContextService {
 
         // 일반적인 개발 관련 키워드 추가
         const developmentKeywords = this.getDevelopmentKeywords(userQuery);
-        
+
         // 중복 제거하고 모든 키워드 결합
         const allKeywords = [...new Set([...koreanStems, ...englishWords, ...developmentKeywords])];
-        
+
         console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
         console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
         console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
         console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
         console.log(`[CodebaseContextService] 최종 키워드: ${allKeywords.join(', ')}`);
-        
+
         return allKeywords;
     }
 
@@ -155,14 +155,14 @@ export class CodebaseContextService {
             .filter(word => !this.isKoreanStopWord(word));
 
         const stems: string[] = [];
-        
+
         for (const word of koreanWords) {
             const stem = this.extractKoreanStem(word);
             if (stem && stem.length > 1) {
                 stems.push(stem);
             }
         }
-        
+
         return [...new Set(stems)]; // 중복 제거
     }
 
@@ -185,17 +185,17 @@ export class CodebaseContextService {
         ];
 
         let stem = word;
-        
+
         // 가장 긴 어미부터 제거
         const sortedEndings = endings.sort((a, b) => b.length - a.length);
-        
+
         for (const ending of sortedEndings) {
             if (stem.endsWith(ending) && stem.length > ending.length) {
                 stem = stem.slice(0, -ending.length);
                 break; // 하나의 어미만 제거
             }
         }
-        
+
         return stem;
     }
 
@@ -242,22 +242,22 @@ export class CodebaseContextService {
         }
 
         const expandedKeywords = [...keywords];
-        
+
         // 최근 3개 대화에서 키워드 추출
         const recentConversations = conversationHistory.slice(-3);
-        
+
         for (const conversation of recentConversations) {
             // 사용자 질의에서 키워드 추출
             const userKeywords = this.extractKeywordsFromQuery(conversation.userQuery);
             expandedKeywords.push(...userKeywords);
-            
+
             // AI 응답에서도 키워드 추출 (요약된 응답이므로 간단히)
             if (conversation.aiResponse) {
                 const responseKeywords = this.extractKeywordsFromResponse(conversation.aiResponse);
                 expandedKeywords.push(...responseKeywords);
             }
         }
-        
+
         // 중복 제거
         return [...new Set(expandedKeywords)];
     }
@@ -270,25 +270,25 @@ export class CodebaseContextService {
     private extractKeywordsFromResponse(response: string): string[] {
         // AI 응답에서 파일명, 함수명, 클래스명 등을 추출
         const keywords: string[] = [];
-        
+
         // 파일명 패턴 추출 (예: "src/main.js", "package.json")
         const filePattern = /([a-zA-Z0-9_\-\.\/]+\.(js|ts|tsx|jsx|py|java|cpp|c|cs|php|rb|go|rs|swift|kt|scala|html|css|scss|sass|json|xml|yaml|yml|md|txt|sql|sh|bat))/g;
         const fileMatches = response.match(filePattern);
         if (fileMatches) {
             keywords.push(...fileMatches.map(match => match.split('/').pop()?.split('.')[0]).filter(Boolean) as string[]);
         }
-        
+
         // 함수명/클래스명 패턴 추출 (예: "getUserData", "UserService")
         const namePattern = /([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)/g;
         const nameMatches = response.match(namePattern);
         if (nameMatches) {
             keywords.push(...nameMatches.filter(name => name.length > 2));
         }
-        
+
         // 한국어 키워드 추출
         const koreanStems = this.extractKoreanStems(response);
         keywords.push(...koreanStems);
-        
+
         return [...new Set(keywords)];
     }
 
@@ -417,7 +417,7 @@ export class CodebaseContextService {
                             const relativePath = path.relative(projectRoot, filePath).toLowerCase();
 
                             const isRelevant = keywords.some(keyword =>
-                                fileName.includes(keyword) || 
+                                fileName.includes(keyword) ||
                                 relativePath.includes(keyword) ||
                                 this.isKeywordRelated(filePath, keyword)
                             );
@@ -448,50 +448,50 @@ export class CodebaseContextService {
      */
     private generateKeywordPatterns(keywords: string[]): string[] {
         const patterns: string[] = [];
-        
+
         for (const keyword of keywords) {
             // 키워드가 포함된 디렉토리 검색
             patterns.push(`**/*${keyword}*/**/*`);
             patterns.push(`**/${keyword}/**/*`);
             patterns.push(`**/*${keyword}*`);
-            
+
             // 특정 키워드에 대한 추가 패턴
             if (keyword === 'src' || keyword === 'source') {
                 patterns.push('**/src/**/*');
                 patterns.push('**/source/**/*');
             }
-            
+
             if (keyword === 'test' || keyword === 'spec') {
                 patterns.push('**/test/**/*');
                 patterns.push('**/tests/**/*');
                 patterns.push('**/spec/**/*');
                 patterns.push('**/specs/**/*');
             }
-            
+
             if (keyword === 'config' || keyword === 'setting') {
                 patterns.push('**/config/**/*');
                 patterns.push('**/settings/**/*');
                 patterns.push('**/conf/**/*');
             }
-            
+
             if (keyword === 'util' || keyword === 'helper') {
                 patterns.push('**/util/**/*');
                 patterns.push('**/utils/**/*');
                 patterns.push('**/helper/**/*');
                 patterns.push('**/helpers/**/*');
             }
-            
+
             if (keyword === 'component' || keyword === 'components') {
                 patterns.push('**/component/**/*');
                 patterns.push('**/components/**/*');
             }
-            
+
             if (keyword === 'service' || keyword === 'services') {
                 patterns.push('**/service/**/*');
                 patterns.push('**/services/**/*');
             }
         }
-        
+
         return [...new Set(patterns)]; // 중복 제거
     }
 
@@ -505,12 +505,12 @@ export class CodebaseContextService {
         const fileName = path.basename(filePath).toLowerCase();
         const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
         const keywordLower = keyword.toLowerCase();
-        
+
         // 파일명이나 경로에 키워드가 포함되어 있는지 확인
         if (fileName.includes(keywordLower) || relativePath.includes(keywordLower)) {
             return true;
         }
-        
+
         // 디렉토리 구조 기반 관련성 확인
         const pathParts = relativePath.split('/');
         for (const part of pathParts) {
@@ -518,22 +518,22 @@ export class CodebaseContextService {
                 return true;
             }
         }
-        
+
         // 특정 키워드에 대한 추가 관련성 확인
         if (keywordLower === 'src' && (relativePath.includes('/src/') || relativePath.startsWith('src/'))) {
             return true;
         }
-        
-        if (keywordLower === 'test' && (relativePath.includes('/test/') || relativePath.includes('/tests/') || 
+
+        if (keywordLower === 'test' && (relativePath.includes('/test/') || relativePath.includes('/tests/') ||
             fileName.includes('test') || fileName.includes('spec'))) {
             return true;
         }
-        
-        if (keywordLower === 'config' && (relativePath.includes('/config/') || relativePath.includes('/settings/') || 
+
+        if (keywordLower === 'config' && (relativePath.includes('/config/') || relativePath.includes('/settings/') ||
             fileName.includes('config') || fileName.includes('setting'))) {
             return true;
         }
-        
+
         return false;
     }
 
