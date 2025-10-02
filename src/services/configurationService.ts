@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 export class ConfigurationService {
-    private readonly CONFIG_SECTION = 'aidev-ide';
+    private readonly CONFIG_SECTION = 'aidevIde';
     private readonly SOURCE_PATHS_KEY = 'sourcePaths';
     private readonly AUTO_UPDATE_KEY = 'autoUpdateFiles';
     private readonly PROJECT_ROOT_KEY = 'projectRoot';
