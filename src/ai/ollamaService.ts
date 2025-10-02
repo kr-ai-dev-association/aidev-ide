@@ -37,6 +37,15 @@ export class OllamaApi {
     }
 
     /**
+     * 현재 설정된 모델명을 반환합니다.
+     * @returns 현재 모델명
+     */
+    public async getCurrentModelName(): Promise<string> {
+        // 현재 설정된 모델명을 반환
+        return this.modelName;
+    }
+
+    /**
      * 모델에 따른 토큰 제한을 반환합니다.
      */
     private getTokenLimit(): number {

@@ -12740,6 +12740,39 @@ class LlmService {
         this.currentModelType = modelType;
         console.log(`[LlmService] Current model set to: ${modelType}`);
     }
+    /**
+     * 현재 설정된 모델의 실제 이름을 가져옵니다.
+     * @returns 현재 모델명
+     */
+    async getCurrentModelName() {
+        try {
+            if (this.currentModelType === types_1.AiModelType.GEMINI) {
+                return 'Gemini 2.5 Flash';
+            }
+            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
+                // Ollama 모델의 경우 실제 모델명을 가져옴
+                return await this.ollamaApi.getCurrentModelName();
+            }
+        }
+        catch (error) {
+            console.warn(`[LlmService] 모델명 가져오기 실패: ${error}`);
+        }
+        // 기본값 반환
+        switch (this.currentModelType) {
+            case types_1.AiModelType.GEMINI:
+                return 'Gemini 2.5 Flash';
+            case types_1.AiModelType.OLLAMA_Gemma:
+                return 'Gemma3:27b';
+            case types_1.AiModelType.OLLAMA_DeepSeek:
+                return 'DeepSeek R1:70B';
+            case types_1.AiModelType.OLLAMA_CodeLlama:
+                return 'CodeLlama 7B';
+            default:
+                return 'Unknown Model';
+        }
+    }
     getCurrentModel() {
         return this.currentModelType;
     }
@@ -12840,7 +12873,8 @@ class LlmService {
                 });
             }
             // 토큰 제한 확인
-            const tokenCheck = (0, tokenUtils_1.checkTokenLimit)(systemPrompt, userParts, this.currentModelType);
+            const actualModelName = await this.getCurrentModelName();
+            const tokenCheck = (0, tokenUtils_1.checkTokenLimit)(systemPrompt, userParts, this.currentModelType, actualModelName);
             (0, tokenUtils_1.logTokenUsage)(systemPrompt, userParts, this.currentModelType);
             if (tokenCheck.isExceeded) {
                 const errorMessage = tokenCheck.message;
@@ -13606,28 +13640,15 @@ function calculateTotalTokens(systemPrompt, userParts) {
 /**
  * 모델의 토큰 제한을 초과하는지 확인합니다.
  */
-function checkTokenLimit(systemPrompt, userParts, modelType) {
+function checkTokenLimit(systemPrompt, userParts, modelType, actualModelName) {
     // 안전 가드: 알 수 없는 모델 타입 대비 (예: 과거 'ollama' 값 등)
     const limits = exports.MODEL_TOKEN_LIMITS[modelType] || exports.MODEL_TOKEN_LIMITS[types_1.AiModelType.OLLAMA_Gemma] || exports.MODEL_TOKEN_LIMITS[types_1.AiModelType.GEMINI];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const isExceeded = currentTokens > limits.maxInputTokens;
     let message = '';
     if (isExceeded) {
-        let modelName = 'Unknown Model';
-        switch (modelType) {
-            case types_1.AiModelType.GEMINI:
-                modelName = 'Gemini 2.5 Flash';
-                break;
-            case types_1.AiModelType.OLLAMA_Gemma:
-                modelName = 'Gemma3:27b';
-                break;
-            case types_1.AiModelType.OLLAMA_DeepSeek:
-                modelName = 'DeepSeek R1:70B';
-                break;
-            case types_1.AiModelType.OLLAMA_CodeLlama:
-                modelName = 'CodeLlama 7B';
-                break;
-        }
+        // 실제 모델명이 제공되면 사용, 아니면 기본 모델명 사용
+        const modelName = actualModelName || getDefaultModelName(modelType);
         message = `토큰 제한 초과: ${modelName}의 입력 토큰 제한(${limits.maxInputTokens.toLocaleString()}개)을 초과했습니다. 현재: ${currentTokens.toLocaleString()}개`;
     }
     return {
@@ -13636,6 +13657,25 @@ function checkTokenLimit(systemPrompt, userParts, modelType) {
         maxTokens: limits.maxInputTokens,
         message
     };
+}
+/**
+ * 모델 타입에 따른 기본 모델명을 반환합니다.
+ * @param modelType 모델 타입
+ * @returns 기본 모델명
+ */
+function getDefaultModelName(modelType) {
+    switch (modelType) {
+        case types_1.AiModelType.GEMINI:
+            return 'Gemini 2.5 Flash';
+        case types_1.AiModelType.OLLAMA_Gemma:
+            return 'Gemma3:27b';
+        case types_1.AiModelType.OLLAMA_DeepSeek:
+            return 'DeepSeek R1:70B';
+        case types_1.AiModelType.OLLAMA_CodeLlama:
+            return 'CodeLlama 7B';
+        default:
+            return 'Unknown Model';
+    }
 }
 /**
  * 토큰 사용량을 로그로 출력합니다.
@@ -14766,6 +14806,14 @@ class OllamaApi {
         this.modelName = modelName;
     }
     getModel() {
+        return this.modelName;
+    }
+    /**
+     * 현재 설정된 모델명을 반환합니다.
+     * @returns 현재 모델명
+     */
+    async getCurrentModelName() {
+        // 현재 설정된 모델명을 반환
         return this.modelName;
     }
     /**
