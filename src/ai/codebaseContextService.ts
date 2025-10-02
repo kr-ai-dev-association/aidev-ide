@@ -117,11 +117,21 @@ export class CodebaseContextService {
 
         // 단어들을 분리하고 의미있는 키워드만 추출
         const words = cleanQuery.split(' ')
-            .filter(word => word.length > 2) // 2글자 이상만
+            .filter(word => word.length > 1) // 1글자 이상으로 변경 (더 많은 키워드 포함)
             .filter(word => !this.isStopWord(word)); // 불용어 제거
 
-        // 중복 제거
-        return [...new Set(words)];
+        // 일반적인 개발 관련 키워드 추가
+        const developmentKeywords = this.getDevelopmentKeywords(userQuery);
+        
+        // 중복 제거하고 모든 키워드 결합
+        const allKeywords = [...new Set([...words, ...developmentKeywords])];
+        
+        console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
+        console.log(`[CodebaseContextService] 추출된 단어: ${words.join(', ')}`);
+        console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
+        console.log(`[CodebaseContextService] 최종 키워드: ${allKeywords.join(', ')}`);
+        
+        return allKeywords;
     }
 
     /**
@@ -140,6 +150,91 @@ export class CodebaseContextService {
             '코드', '파일', '함수', '클래스', '변수', '메서드', '프로그램', '개발', '작성', '만들', '생성'
         ];
         return stopWords.includes(word.toLowerCase());
+    }
+
+    /**
+     * 질의에서 개발 관련 키워드를 추출합니다.
+     * @param userQuery 사용자의 질의
+     * @returns 개발 관련 키워드 배열
+     */
+    private getDevelopmentKeywords(userQuery: string): string[] {
+        const keywords: string[] = [];
+        const query = userQuery.toLowerCase();
+        
+        // 일반적인 개발 질문 패턴 감지
+        if (query.includes('분석') || query.includes('analyze') || query.includes('analysis')) {
+            keywords.push('src', 'main', 'index', 'app', 'component', 'service', 'util', 'helper');
+        }
+        
+        if (query.includes('프로젝트') || query.includes('project')) {
+            keywords.push('package', 'config', 'src', 'main', 'index', 'app', 'component');
+        }
+        
+        if (query.includes('구조') || query.includes('structure') || query.includes('architecture')) {
+            keywords.push('src', 'lib', 'utils', 'components', 'services', 'config', 'main');
+        }
+        
+        if (query.includes('설정') || query.includes('config') || query.includes('setting')) {
+            keywords.push('config', 'setting', 'env', 'json', 'yaml', 'toml');
+        }
+        
+        if (query.includes('API') || query.includes('api')) {
+            keywords.push('api', 'service', 'endpoint', 'route', 'controller');
+        }
+        
+        if (query.includes('데이터베이스') || query.includes('database') || query.includes('db')) {
+            keywords.push('database', 'db', 'model', 'schema', 'migration', 'seed');
+        }
+        
+        if (query.includes('테스트') || query.includes('test')) {
+            keywords.push('test', 'spec', 'mock', 'stub', 'fixture');
+        }
+        
+        if (query.includes('스타일') || query.includes('style') || query.includes('CSS')) {
+            keywords.push('css', 'style', 'scss', 'sass', 'less', 'styl');
+        }
+        
+        if (query.includes('컴포넌트') || query.includes('component')) {
+            keywords.push('component', 'view', 'template', 'ui');
+        }
+        
+        if (query.includes('유틸리티') || query.includes('utility') || query.includes('util')) {
+            keywords.push('util', 'helper', 'tool', 'common', 'shared');
+        }
+        
+        // 파일 확장자 기반 키워드
+        if (query.includes('javascript') || query.includes('js')) {
+            keywords.push('js', 'javascript', 'node');
+        }
+        
+        if (query.includes('typescript') || query.includes('ts')) {
+            keywords.push('ts', 'typescript', 'interface', 'type');
+        }
+        
+        if (query.includes('react')) {
+            keywords.push('react', 'jsx', 'tsx', 'component', 'hook');
+        }
+        
+        if (query.includes('vue')) {
+            keywords.push('vue', 'template', 'component');
+        }
+        
+        if (query.includes('angular')) {
+            keywords.push('angular', 'component', 'service', 'module');
+        }
+        
+        if (query.includes('python') || query.includes('py')) {
+            keywords.push('py', 'python', 'django', 'flask', 'fastapi');
+        }
+        
+        if (query.includes('java')) {
+            keywords.push('java', 'class', 'spring', 'maven', 'gradle');
+        }
+        
+        // 일반적인 개발 파일명
+        keywords.push('index', 'main', 'app', 'server', 'client', 'router', 'controller', 'model', 'view');
+        
+        return [...new Set(keywords)]; // 중복 제거
     }
 
     /**
