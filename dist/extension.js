@@ -2531,8 +2531,11 @@ class CodebaseContextService {
             // 프로젝트 루트에서 관련 파일들 검색
             const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
             console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
+            // 토큰 사용량을 고려한 파일 선별
+            const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery);
+            console.log(`[CodebaseContextService] 토큰 제한 고려하여 ${selectedFiles.length}개 파일 선별`);
             // 파일들을 우선순위에 따라 정렬
-            const sortedFiles = this.prioritizeFiles(relevantFiles, expandedKeywords);
+            const sortedFiles = this.prioritizeFiles(selectedFiles, expandedKeywords);
             // 파일 내용을 컨텍스트에 추가
             for (const filePath of sortedFiles) {
                 if (abortSignal.aborted) {
@@ -2596,16 +2599,64 @@ class CodebaseContextService {
             .filter(word => word.length > 1)
             .filter(word => !this.isStopWord(word))
             .filter(word => !/^[가-힣]+$/.test(word)); // 한국어가 아닌 것만
-        // 일반적인 개발 관련 키워드 추가
+        // 일반적인 개발 관련 키워드 추가 (제한적으로)
         const developmentKeywords = this.getDevelopmentKeywords(userQuery);
-        // 중복 제거하고 모든 키워드 결합
-        const allKeywords = [...new Set([...koreanStems, ...englishWords, ...developmentKeywords])];
+        // 모든 키워드 결합
+        const allKeywords = [...koreanStems, ...englishWords, ...developmentKeywords];
+        // 키워드 우선순위 기반 필터링 및 중복 제거
+        const prioritizedKeywords = this.prioritizeKeywords(allKeywords, userQuery);
         console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
         console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
         console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
         console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
-        console.log(`[CodebaseContextService] 최종 키워드: ${allKeywords.join(', ')}`);
-        return allKeywords;
+        console.log(`[CodebaseContextService] 최종 키워드: ${prioritizedKeywords.join(', ')}`);
+        return prioritizedKeywords;
+    }
+    /**
+     * 키워드 우선순위를 기반으로 필터링하고 중복을 제거합니다.
+     * @param keywords 키워드 배열
+     * @param userQuery 사용자 질의
+     * @returns 우선순위가 높은 키워드 배열 (최대 10개)
+     */
+    prioritizeKeywords(keywords, userQuery) {
+        // 키워드 점수 계산
+        const keywordScores = new Map();
+        for (const keyword of keywords) {
+            let score = 0;
+            // 1. 질의에서 직접 언급된 키워드 (높은 점수)
+            if (userQuery.toLowerCase().includes(keyword.toLowerCase())) {
+                score += 10;
+            }
+            // 2. 기술적 키워드 (중간 점수)
+            const techKeywords = ['react', 'vue', 'angular', 'node', 'express', 'typescript', 'javascript', 'python', 'java', 'spring', 'django', 'flask', 'vite', 'webpack', 'babel', 'eslint', 'prettier'];
+            if (techKeywords.includes(keyword.toLowerCase())) {
+                score += 5;
+            }
+            // 3. 파일/폴더 관련 키워드 (낮은 점수)
+            const fileKeywords = ['src', 'package', 'config', 'main', 'index', 'app', 'component', 'service', 'util', 'helper'];
+            if (fileKeywords.includes(keyword.toLowerCase())) {
+                score += 2;
+            }
+            // 4. 한국어 키워드 (중간 점수)
+            if (/^[가-힣]+$/.test(keyword)) {
+                score += 3;
+            }
+            // 5. 길이 기반 점수 (너무 짧거나 긴 키워드 감점)
+            if (keyword.length < 2) {
+                score -= 5;
+            }
+            else if (keyword.length > 20) {
+                score -= 2;
+            }
+            keywordScores.set(keyword, score);
+        }
+        // 점수 순으로 정렬하고 상위 10개만 선택
+        const sortedKeywords = Array.from(keywordScores.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([keyword]) => keyword);
+        console.log(`[CodebaseContextService] 키워드 우선순위 점수:`, Array.from(keywordScores.entries()).sort((a, b) => b[1] - a[1]));
+        return sortedKeywords;
     }
     /**
      * 한국어 형태소 분석을 통해 어간을 추출합니다.
@@ -2737,26 +2788,26 @@ class CodebaseContextService {
     /**
      * 질의에서 개발 관련 키워드를 추출합니다.
      * @param userQuery 사용자의 질의
-     * @returns 개발 관련 키워드 배열
+     * @returns 개발 관련 키워드 배열 (최대 5개)
      */
     getDevelopmentKeywords(userQuery) {
         const keywords = [];
         const query = userQuery.toLowerCase();
-        // 일반적인 개발 질문 패턴 감지
+        // 질의에 따라 최소한의 관련 키워드만 추가
         if (query.includes('분석') || query.includes('analyze') || query.includes('analysis')) {
-            keywords.push('src', 'main', 'index', 'app', 'component', 'service', 'util', 'helper');
+            keywords.push('src', 'main', 'index');
         }
         if (query.includes('프로젝트') || query.includes('project')) {
-            keywords.push('package', 'config', 'src', 'main', 'index', 'app', 'component');
+            keywords.push('package', 'src');
         }
         if (query.includes('구조') || query.includes('structure') || query.includes('architecture')) {
-            keywords.push('src', 'lib', 'utils', 'components', 'services', 'config', 'main');
+            keywords.push('src', 'lib');
         }
         if (query.includes('설정') || query.includes('config') || query.includes('setting')) {
-            keywords.push('config', 'setting', 'env', 'json', 'yaml', 'toml');
+            keywords.push('config', 'package');
         }
         if (query.includes('API') || query.includes('api')) {
-            keywords.push('api', 'service', 'endpoint', 'route', 'controller');
+            keywords.push('api', 'service');
         }
         if (query.includes('데이터베이스') || query.includes('database') || query.includes('db')) {
             keywords.push('database', 'db', 'model', 'schema', 'migration', 'seed');
@@ -2863,43 +2914,97 @@ class CodebaseContextService {
      */
     generateKeywordPatterns(keywords) {
         const patterns = [];
-        for (const keyword of keywords) {
-            // 키워드가 포함된 디렉토리 검색
-            patterns.push(`**/*${keyword}*/**/*`);
-            patterns.push(`**/${keyword}/**/*`);
-            patterns.push(`**/*${keyword}*`);
-            // 특정 키워드에 대한 추가 패턴
-            if (keyword === 'src' || keyword === 'source') {
+        const addedPatterns = new Set();
+        // 상위 5개 키워드만 사용하여 패턴 생성
+        const topKeywords = keywords.slice(0, 5);
+        for (const keyword of topKeywords) {
+            // 기본 패턴만 추가 (중복 방지)
+            const basicPatterns = [
+                `**/*${keyword}*`,
+                `**/${keyword}/**/*`
+            ];
+            for (const pattern of basicPatterns) {
+                if (!addedPatterns.has(pattern)) {
+                    patterns.push(pattern);
+                    addedPatterns.add(pattern);
+                }
+            }
+            // 특정 키워드에 대한 최소한의 패턴만 추가
+            if (keyword === 'src' && !addedPatterns.has('**/src/**/*')) {
                 patterns.push('**/src/**/*');
-                patterns.push('**/source/**/*');
+                addedPatterns.add('**/src/**/*');
             }
-            if (keyword === 'test' || keyword === 'spec') {
-                patterns.push('**/test/**/*');
-                patterns.push('**/tests/**/*');
-                patterns.push('**/spec/**/*');
-                patterns.push('**/specs/**/*');
+            if (keyword === 'package' && !addedPatterns.has('**/package.json')) {
+                patterns.push('**/package.json');
+                addedPatterns.add('**/package.json');
             }
-            if (keyword === 'config' || keyword === 'setting') {
+            if (keyword === 'config' && !addedPatterns.has('**/config/**/*')) {
                 patterns.push('**/config/**/*');
-                patterns.push('**/settings/**/*');
-                patterns.push('**/conf/**/*');
+                addedPatterns.add('**/config/**/*');
             }
-            if (keyword === 'util' || keyword === 'helper') {
-                patterns.push('**/util/**/*');
-                patterns.push('**/utils/**/*');
-                patterns.push('**/helper/**/*');
-                patterns.push('**/helpers/**/*');
-            }
-            if (keyword === 'component' || keyword === 'components') {
-                patterns.push('**/component/**/*');
-                patterns.push('**/components/**/*');
-            }
-            if (keyword === 'service' || keyword === 'services') {
-                patterns.push('**/service/**/*');
-                patterns.push('**/services/**/*');
+            // 최대 15개 패턴으로 제한
+            if (patterns.length >= 15) {
+                break;
             }
         }
-        return [...new Set(patterns)]; // 중복 제거
+        console.log(`[CodebaseContextService] 생성된 키워드 패턴 (${patterns.length}개): ${patterns.join(', ')}`);
+        return patterns;
+    }
+    /**
+     * 토큰 사용량을 고려하여 파일을 선별합니다.
+     * @param relevantFiles 관련 파일 배열
+     * @param userQuery 사용자 질의
+     * @returns 선별된 파일 배열
+     */
+    selectFilesBasedOnTokenLimit(relevantFiles, userQuery) {
+        // 파일 우선순위 계산
+        const fileScores = new Map();
+        for (const filePath of relevantFiles) {
+            let score = 0;
+            const fileName = path.basename(filePath).toLowerCase();
+            const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
+            // 1. 파일명이 질의와 직접 관련된 경우 (높은 점수)
+            if (userQuery.toLowerCase().includes(fileName.split('.')[0])) {
+                score += 20;
+            }
+            // 2. 중요한 파일들 (높은 점수)
+            if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'webpack.config.js') {
+                score += 15;
+            }
+            // 3. 소스 코드 파일들 (중간 점수)
+            if (fileName.endsWith('.ts') || fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx')) {
+                score += 10;
+            }
+            // 4. 설정 파일들 (중간 점수)
+            if (fileName.endsWith('.json') || fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
+                score += 8;
+            }
+            // 5. 문서 파일들 (낮은 점수)
+            if (fileName.endsWith('.md') || fileName.endsWith('.txt')) {
+                score += 5;
+            }
+            // 6. 파일 크기 고려 (작은 파일 우선)
+            try {
+                const stats = (__webpack_require__(25).statSync)(filePath);
+                if (stats.size < 10000) { // 10KB 미만
+                    score += 5;
+                }
+                else if (stats.size > 100000) { // 100KB 초과
+                    score -= 5;
+                }
+            }
+            catch (error) {
+                // 파일 크기 확인 실패 시 기본 점수 유지
+            }
+            fileScores.set(filePath, score);
+        }
+        // 점수 순으로 정렬하고 상위 20개만 선택
+        const sortedFiles = Array.from(fileScores.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 20)
+            .map(([filePath]) => filePath);
+        console.log(`[CodebaseContextService] 파일 우선순위 점수:`, Array.from(fileScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10));
+        return sortedFiles;
     }
     /**
      * 파일이 키워드와 관련이 있는지 확인합니다.
