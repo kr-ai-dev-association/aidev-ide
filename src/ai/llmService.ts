@@ -10,6 +10,9 @@ import { GeminiApi } from './gemini';
 import { OllamaApi } from './ollamaService';
 import { checkTokenLimit, logTokenUsage } from '../utils/tokenUtils';
 import { AiModelType, PromptType } from './types';
+import { ActionPlannerService, ActionPlan } from './actionPlannerService';
+import { TerminalMonitorService } from './terminalMonitorService';
+import { ActionExecutionEngine } from './actionExecutionEngine';
 
 export class LlmService {
     private storageService: StorageService;
@@ -22,6 +25,12 @@ export class LlmService {
     private externalApiService: ExternalApiService;
     private currentCallController: AbortController | null = null;
     private currentModelType: AiModelType = AiModelType.GEMINI; // 기본값
+    
+    // 액션 플래너 관련 서비스들
+    private actionPlannerService: ActionPlannerService;
+    private terminalMonitorService: TerminalMonitorService;
+    private actionExecutionEngine: ActionExecutionEngine;
+    private activePlans: Map<string, ActionPlan> = new Map();
 
     constructor(
         storageService: StorageService,
@@ -41,6 +50,11 @@ export class LlmService {
         this.notificationService = notificationService;
         this.configurationService = configurationService;
         this.externalApiService = new ExternalApiService(configurationService);
+        
+        // 액션 플래너 서비스들 초기화
+        this.actionPlannerService = new ActionPlannerService(notificationService, configurationService);
+        this.terminalMonitorService = new TerminalMonitorService(notificationService);
+        this.actionExecutionEngine = new ActionExecutionEngine(notificationService, this.terminalMonitorService);
     }
 
     public setCurrentModel(modelType: AiModelType): void {
