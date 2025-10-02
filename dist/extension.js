@@ -2267,7 +2267,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ConfigurationService = void 0;
 const vscode = __importStar(__webpack_require__(1));
 class ConfigurationService {
-    CONFIG_SECTION = 'aidev-ide';
+    CONFIG_SECTION = 'aidevIde';
     SOURCE_PATHS_KEY = 'sourcePaths';
     AUTO_UPDATE_KEY = 'autoUpdateFiles';
     PROJECT_ROOT_KEY = 'projectRoot';
