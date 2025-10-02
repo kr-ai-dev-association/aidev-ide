@@ -112,6 +112,10 @@
       {
         "command": "aidevIdeCode.testFirebaseConnection",
         "title": "Test Firebase Connection (Debug)"
+      },
+      {
+        "command": "aidevIdeCode.testTerminalMonitoring",
+        "title": "Test Terminal Monitoring (Debug)"
       }
     ],
     "menus": {
