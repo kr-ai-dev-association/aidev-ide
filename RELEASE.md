@@ -15,6 +15,37 @@ This document contains the complete release history for aidev-ide VSCode extensi
 
 </details>
 
+## Unreleased (2025/10/03) - Terminal Daemon, Smarter Context, Error Handling
+
+<details>
+<summary>Terminal-Daemon Integration & Command Routing</summary>
+
+- Added Go-based terminal-daemon integration for non-interactive and long-running dev commands
+- Sequential command execution via Unix domain socket with accurate exit codes
+- Real-time stdout/stderr streaming to VS Code Output channel (`AIDEV-IDE Terminal Capture`)
+- Single `aidev-ide Terminal` reuse; only truly interactive commands open the integrated terminal
+- Effective CWD now prefers `aidevIde.projectRoot`, falling back to workspace root; logged per run
+
+</details>
+
+<details>
+<summary>Output Sanitization & Error Monitoring</summary>
+
+- Stripped ANSI/PTY control sequences from logs for clean rendering
+- Expanded error pattern detection: `npm error`, `Missing script:`, `Exit status X`, `Process exited (code X)`
+- Errors are auto-forwarded to chat and used to trigger LLM-based remediation
+
+</details>
+
+<details>
+<summary>Context Gathering Improvements (Node.js)</summary>
+
+- `package.json` is always included first in prompt context for Node.js projects
+- For Node frontend stacks (React/Vue/Angular/Svelte/Next/Nuxt/Vite/Webpack), search scope limited to `package.json` and `src/**`, explicitly excluding `node_modules/`
+- Logged searched file list to debug console for transparency
+
+</details>
+
 <details>
 <summary>Enhanced Model Management</summary>
 
