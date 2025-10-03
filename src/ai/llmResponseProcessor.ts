@@ -724,6 +724,9 @@ export class LlmResponseProcessor {
                         }
                     }
                 }
+            } else {
+                // autoUpdateEnabled=true: 파일 작업은 즉시 수행하지 않고 큐에 맡김
+                console.log('[LLM Response Processor] Auto-update enabled -> deferring file ops to queue');
             }
 
             // 파일 작업 결과를 추가로 채팅창에 표시

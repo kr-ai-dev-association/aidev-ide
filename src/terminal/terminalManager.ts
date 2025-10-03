@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { runCommandCapture } from '../utils/processRunner';
 import { getTerminalMonitor } from '../ai/monitorBridge';
+import { TerminalDaemonClient } from './terminalDaemonClient';
+import { ConfigurationService } from '../services/configurationService';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
@@ -14,11 +16,22 @@ let _normalQueue: string[] = [];
 let _isProcessingQueue = false;
 let _queuePausedForLongRunning = false;
 const FILE_OP_PREFIX = '__AIDEV_FILE_OP__::';
+const _daemonClient = new TerminalDaemonClient();
 
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
  */
 export function getAidevIdeTerminal(): vscode.Terminal {
+    // 기존 동일 이름 터미널 재사용 및 중복 정리
+    const existing = vscode.window.terminals.filter(t => t.name === 'aidev-ide Terminal');
+    if (existing.length > 0) {
+        _codePilotTerminal = existing[0];
+        // 나머지 중복 터미널 정리
+        for (let i = 1; i < existing.length; i++) {
+            try { existing[i].dispose(); } catch { }
+        }
+    }
+
     if (!_codePilotTerminal || _codePilotTerminal.exitStatus !== undefined) {
         _codePilotTerminal = vscode.window.createTerminal({ name: "aidev-ide Terminal" });
         const disposable = vscode.window.onDidCloseTerminal(event => {
@@ -85,11 +98,28 @@ function getProjectCwd(): string | undefined {
     return folder?.uri.fsPath;
 }
 
+const _configService = new ConfigurationService();
+async function getEffectiveCwd(): Promise<string | undefined> {
+    try {
+        const configured = await _configService.getProjectRoot();
+        if (configured && configured.trim().length > 0) {
+            return configured;
+        }
+    } catch { }
+    return getProjectCwd();
+}
+
 function getCaptureOutputChannel(): vscode.OutputChannel {
     if (!_captureOutputChannel) {
         _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Capture');
     }
     return _captureOutputChannel;
+}
+
+function sanitizeOutput(text: string): string {
+    // Strip ANSI escape sequences and control codes
+    const ansiPattern = /[\u001B\u009B][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+    return text.replace(/\r/g, '\n').replace(ansiPattern, '').replace(/\u0007/g, '').replace(/\u0008/g, '').trimEnd();
 }
 
 /**
@@ -151,9 +181,23 @@ function hasPackageJson(cwd: string | undefined): boolean {
     try { return fs.existsSync(path.join(cwd, 'package.json')); } catch { return false; }
 }
 
+async function readPackageJson(cwd: string | undefined): Promise<any | null> {
+    if (!cwd) return null;
+    const p = path.join(cwd, 'package.json');
+    try {
+        const raw = await fs.promises.readFile(p, 'utf8');
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+// Note: We intentionally do not pre-validate npm scripts.
+
 async function handleInteractiveCommand(command: string): Promise<boolean> {
     const lower = command.toLowerCase();
-    const shouldUseTerminal = isInteractiveCommand(lower) || isLongRunningDevCommand(lower);
+    const isDevLong = isLongRunningDevCommand(lower);
+    let shouldUseTerminal = isInteractiveCommand(lower); // dev 서버 등 비대화형 장기 실행은 데몬 사용
 
     // 위험 명령어 방지
     if (isDangerousCommand(lower)) {
@@ -167,6 +211,8 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
             return false;
         }
     }
+
+    const cwd = await getEffectiveCwd();
 
     if (shouldUseTerminal) {
         const terminal = getAidevIdeTerminal();
@@ -194,52 +240,101 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         return true;
     }
 
-    // 캡처 기반 실행 경로 (표준 출력/에러 수집)
+    // 기본 경로: terminal-daemon 경유 실행 (비대화형)
     const channel = getCaptureOutputChannel();
-    const cwd = getProjectCwd();
     channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
+    channel.appendLine(`CWD: ${cwd || '(not set)'}`);
 
-    const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(text);
+    const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i.test(text);
 
-    // npm 관련 선행 조건 체크
-    if (/^npm\s+(install|ci)\b/.test(lower) || /^npm\s+run\b/.test(lower) || /^(yarn|pnpm)\b/.test(lower)) {
-        if (!hasPackageJson(cwd)) {
-            const msg = 'package.json이 존재하지 않아 npm 명령을 실행할 수 없습니다. 먼저 프로젝트 초기화 또는 파일 생성이 필요합니다.';
-            channel.appendLine(msg);
-            vscode.window.showErrorMessage(`aidev-ide: ${msg}`);
-            try { getTerminalMonitor()?.ingestExternalOutput('stderr', msg); } catch { }
+    let stderrAgg = '';
+    let stdoutAgg = '';
+
+    try {
+        const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        console.log(`[TerminalManager] Starting via daemon. id=${id}, cwd=${cwd || '(not set)'}, cmd="${command}"`);
+        const runPromise = _daemonClient.run(
+            { id, command, cwd },
+            (stream, chunk) => {
+                const lines = chunk.replace(/\r\n/g, '\n').split('\n');
+                for (const line of lines) {
+                    const cleaned = sanitizeOutput(line).trim();
+                    if (!cleaned) continue;
+                    channel.appendLine(cleaned);
+                    try { getTerminalMonitor()?.ingestExternalOutput(stream, cleaned); } catch { }
+                }
+                if (stream === 'stderr') { stderrAgg += chunk + '\n'; }
+                else { stdoutAgg += chunk + '\n'; }
+            }
+        );
+
+        if (isDevLong) {
+            // 장기 실행은 즉시 반환하여 큐를 일시정지하도록 함 (processQueue에서 처리)
+            runPromise.then((res) => {
+                if (res.exitCode !== 0) {
+                    const msg = `Exit status ${res.exitCode}: ${command}`;
+                    try { getTerminalMonitor()?.ingestExternalOutput('stderr', msg); } catch { }
+                    channel.appendLine(msg);
+                    channel.show(true);
+                } else {
+                    try { getTerminalMonitor()?.ingestExternalOutput('stdout', `Process exited (code ${res.exitCode}): ${command}`); } catch { }
+                }
+            }).catch((err) => {
+                try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Process error: ${err?.message || String(err)}`); } catch { }
+            });
+            console.log(`[TerminalManager] Started long-running via daemon: ${command}`);
+            try { channel.show(true); } catch { }
+            return true;
+        }
+
+        const result = await runPromise;
+
+        if (result.exitCode !== 0 || isErrorLike(stderrAgg)) {
+            channel.appendLine(`----- Exit code: ${result.exitCode} -----`);
+            try {
+                getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.exitCode}): ${command}`);
+                getTerminalMonitor()?.ingestExternalOutput('stderr', `Exit status ${result.exitCode}`);
+            } catch { }
+            channel.show(true);
+            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
             return false;
         }
-    }
+        console.log(`[TerminalManager] Executed via daemon: ${command}`);
+        return true;
+    } catch (e: any) {
+        // 데몬 실패 시 캡처 기반으로 폴백
+        channel.appendLine(`[WARN] terminal-daemon 사용 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
+        const result = await runCommandCapture(
+            command,
+            { cwd, shell: true },
+            (chunk) => {
+                chunk.split(/\r?\n/).forEach(line => {
+                    const cleaned = sanitizeOutput(line).trim();
+                    if (!cleaned) return;
+                    channel.appendLine(cleaned);
+                    try { getTerminalMonitor()?.ingestExternalOutput('stdout', cleaned); } catch { }
+                });
+            },
+            (chunk) => {
+                chunk.split(/\r?\n/).forEach(line => {
+                    const cleaned = sanitizeOutput(line).trim();
+                    if (!cleaned) return;
+                    channel.appendLine(cleaned);
+                    try { getTerminalMonitor()?.ingestExternalOutput('stderr', cleaned); } catch { }
+                });
+            }
+        );
 
-    const result = await runCommandCapture(
-        command,
-        { cwd, shell: true },
-        (chunk) => {
-            chunk.split(/\r?\n/).forEach(line => {
-                if (!line.trim()) return;
-                channel.appendLine(line);
-                try { getTerminalMonitor()?.ingestExternalOutput('stdout', line); } catch { }
-            });
-        },
-        (chunk) => {
-            chunk.split(/\r?\n/).forEach(line => {
-                if (!line.trim()) return;
-                channel.appendLine(line);
-                try { getTerminalMonitor()?.ingestExternalOutput('stderr', line); } catch { }
-            });
+        if (result.code !== 0 || isErrorLike(result.stderr)) {
+            channel.appendLine(`----- Exit code: ${result.code} -----`);
+            channel.show(true);
+            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+            try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`); } catch { }
+            return false;
         }
-    );
-
-    if (result.code !== 0 || isErrorLike(result.stderr)) {
-        channel.appendLine(`----- Exit code: ${result.code} -----`);
-        channel.show(true);
-        vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
-        try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`); } catch { }
-        return false;
+        console.log(`[TerminalManager] Executed locally (fallback): ${command}`);
+        return true;
     }
-    console.log(`[TerminalManager] Executed bash command: ${command}`);
-    return true;
 }
 
 /**
@@ -268,10 +363,11 @@ async function processQueue(): Promise<void> {
                 }
             }
 
-            // 대화형/장기 실행 명령이면 큐를 일시 정지 (사용자 종료 시 재개 가능)
-            if (isInteractiveCommand(command) || isLongRunningDevCommand(command)) {
+            // 장기 실행(dev server 등) 명령이면 큐를 일시 정지 (사용자 종료 시 재개 가능)
+            if (isLongRunningDevCommand(command)) {
                 _queuePausedForLongRunning = true;
-                break;
+                // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
+                return;
             }
 
             // 다음 항목 처리 (완료 후에만 진행) — 불필요한 대기 제거
@@ -287,9 +383,8 @@ function enqueueCommands(commands: string[], priority = false): void {
     } else {
         _normalQueue = _normalQueue.concat(commands);
     }
-    if (!_queuePausedForLongRunning) {
-        processQueue();
-    }
+    // 항상 처리 시도: 장기 실행 중이라도 파일 작업 등은 재호출 시 처리될 수 있음
+    processQueue();
 }
 
 async function executeFileOpFromToken(token: string): Promise<boolean> {

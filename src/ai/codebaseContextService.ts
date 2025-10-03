@@ -38,8 +38,32 @@ export class CodebaseContextService {
         let fileContentsContext = "";
         let currentTotalContentLength = 0;
         const includedFilesForContext: { name: string, fullPath: string }[] = [];
+        const includedPathSet: Set<string> = new Set();
 
         try {
+            // Node.js 프로젝트의 경우 package.json을 최우선으로 포함
+            try {
+                const isNode = await this.isNodeProject(projectRoot);
+                if (isNode) {
+                    const packageJsonPath = path.join(projectRoot, 'package.json');
+                    const uri = vscode.Uri.file(packageJsonPath);
+                    const stats = await vscode.workspace.fs.stat(uri);
+                    if (stats.type === vscode.FileType.File) {
+                        const contentBytes = await vscode.workspace.fs.readFile(uri);
+                        const content = Buffer.from(contentBytes).toString('utf8');
+                        const nameForContext = this.getPathRelativeToWorkspace(packageJsonPath) || 'package.json';
+                        const fileType = getFileType(packageJsonPath);
+                        fileContentsContext += `\n--- 파일: ${nameForContext} (${fileType}) ---\n${content}\n`;
+                        includedFilesForContext.push({ name: 'package.json', fullPath: packageJsonPath });
+                        includedPathSet.add(packageJsonPath);
+                        currentTotalContentLength += content.length;
+                        console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
+                    }
+                }
+            } catch (e) {
+                console.warn('[CodebaseContextService] package.json 우선 포함 중 오류:', e);
+            }
+
             // 질의에서 키워드 추출
             const keywords = this.extractKeywordsFromQuery(userQuery);
             console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
@@ -68,6 +92,11 @@ export class CodebaseContextService {
                 if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
                     fileContentsContext += "\n[INFO] 컨텍스트 길이 제한으로 일부 파일 내용이 생략되었습니다.\n";
                     break;
+                }
+
+                // 이미 포함된 파일은 건너뜁니다 (예: package.json)
+                if (includedPathSet.has(filePath)) {
+                    continue;
                 }
 
                 try {
