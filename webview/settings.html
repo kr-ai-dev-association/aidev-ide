@@ -487,6 +487,16 @@
     </div>
 
     <div class="section-container">
+        <h2>Terminal Daemon</h2>
+        <div class="toggle-switch-container">
+            <input type="checkbox" id="terminal-daemon-toggle" />
+            <label for="terminal-daemon-toggle">Toggle</label>
+            <span class="toggle-label-text">Enable terminal-daemon (external PTY runner)</span>
+        </div>
+        <p id="terminal-daemon-status" class="info-message" style="margin-top: 5px;">-</p>
+    </div>
+
+    <div class="section-container">
         <h2 id="api-key-section-title">🤖 AI 모델 설정 (UPDATED - 2024-12-19)</h2>
         <p class="info-message">CodePilot의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을 선택하고 해당 설정을 구성하세요.</p>
 
@@ -497,7 +507,9 @@
                 <option value="gemini" selected>Gemini 2.5 Pro Flash</option>
                 <option value="ollama">Ollama</option>
             </select>
+            <button id="save-ai-model-button" style="margin-left: 10px;">모델 저장</button>
         </div>
+        <p id="ai-model-status" class="info-message"></p>
 
         <!-- Gemini API 키 설정 -->
         <div class="api-key-section" id="gemini-settings-section">

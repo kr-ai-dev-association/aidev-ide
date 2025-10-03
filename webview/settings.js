@@ -47,6 +47,9 @@ const ollamaEndpointStatus = document.getElementById('ollama-endpoint-status');
 const ollamaModelSelect = document.getElementById('ollama-model-select');
 const saveOllamaModelButton = document.getElementById('save-ollama-model-button');
 const ollamaModelStatus = document.getElementById('ollama-model-status');
+// Terminal Daemon 토글
+const terminalDaemonToggle = document.getElementById('terminal-daemon-toggle');
+const terminalDaemonStatus = document.getElementById('terminal-daemon-status');
 
 // AIDEV 시리얼 번호 관련 요소들
 const banyaLicenseSerialInput = document.getElementById('banya-license-serial-input');
@@ -58,6 +61,8 @@ const banyaLicenseStatus = document.getElementById('banya-license-status');
 
 // AI 모델 선택 관련 요소들
 const aiModelSelect = document.getElementById('ai-model-select');
+const saveAiModelButton = document.getElementById('save-ai-model-button');
+const aiModelStatus = document.getElementById('ai-model-status');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
 const ollamaSettingsSection = document.getElementById('ollama-settings-section');
 
@@ -995,6 +1000,17 @@ if (autoUpdateToggle) {
     });
 }
 
+// 이벤트 리스너: terminal-daemon 토글
+if (typeof terminalDaemonToggle !== 'undefined' && terminalDaemonToggle) {
+    terminalDaemonToggle.addEventListener('change', () => {
+        const isChecked = terminalDaemonToggle.checked;
+        vscode.postMessage({ command: 'setTerminalDaemonEnabled', enabled: isChecked });
+        if (terminalDaemonStatus) {
+            terminalDaemonStatus.textContent = isChecked ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
+        }
+    });
+}
+
 // API 키 저장 이벤트 리스너들
 if (saveWeatherApiKeyButton) {
     saveWeatherApiKeyButton.addEventListener('click', () => {
@@ -1168,6 +1184,19 @@ if (aiModelSelect) {
             geminiSettingsSection.classList.remove('disabled');
             ollamaSettingsSection.classList.add('disabled');
         }
+    });
+}
+
+// AI 모델 저장 버튼 이벤트 리스너
+if (saveAiModelButton) {
+    saveAiModelButton.addEventListener('click', () => {
+        const selectedModel = aiModelSelect.value;
+        console.log('AI model save button clicked, selected model:', selectedModel);
+        
+        if (aiModelStatus) {
+            aiModelStatus.textContent = 'AI 모델 저장 중...';
+            aiModelStatus.className = 'info-message';
+        }
 
         // 확장 프로그램에 선택된 모델 저장 요청
         vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
@@ -1191,6 +1220,10 @@ window.addEventListener('message', event => {
                 showStatus(autoUpdateStatus, statusText, 'success');
                 autoUpdateStatus.textContent = `${currentText} ${statusText}`;
             }
+            if (typeof message.terminalDaemonEnabled === 'boolean' && terminalDaemonToggle) {
+                terminalDaemonToggle.checked = message.terminalDaemonEnabled;
+                if (terminalDaemonStatus) terminalDaemonStatus.textContent = message.terminalDaemonEnabled ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
+            }
             if (typeof message.projectRoot === 'string') {
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootLoadedText = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';
@@ -1198,6 +1231,31 @@ window.addEventListener('message', event => {
             } else {
                 // 프로젝트 Root가 설정되지 않은 경우에도 업데이트
                 updateProjectRootDisplay(null);
+            }
+            break;
+        case 'aiModelSaved':
+            if (aiModelStatus) {
+                aiModelStatus.textContent = 'AI 모델이 성공적으로 저장되었습니다.';
+                aiModelStatus.className = 'info-message success-message';
+            }
+            break;
+        case 'aiModelSaveError':
+            if (aiModelStatus) {
+                aiModelStatus.textContent = `AI 모델 저장 실패: ${message.error}`;
+                aiModelStatus.className = 'info-message error-message';
+            }
+            break;
+        case 'currentAiModel':
+            if (aiModelSelect && message.model) {
+                aiModelSelect.value = message.model;
+                // 모델에 따라 섹션 활성화/비활성화
+                if (message.model === 'gemini' || message.model.startsWith('gemini')) {
+                    geminiSettingsSection.classList.remove('disabled');
+                    ollamaSettingsSection.classList.add('disabled');
+                } else if (message.model.startsWith('ollama')) {
+                    geminiSettingsSection.classList.add('disabled');
+                    ollamaSettingsSection.classList.remove('disabled');
+                }
             }
             break;
         case 'updatedProjectRoot':
@@ -1226,6 +1284,11 @@ window.addEventListener('message', event => {
                 const statusText = `${autoUpdateChangedText} ${message.enabled ? enabledText : disabledText}.`;
                 showStatus(autoUpdateStatus, statusText, 'success');
                 autoUpdateStatus.textContent = `${currentText} ${statusText}`;
+            }
+            break;
+        case 'terminalDaemonStatusChanged':
+            if (terminalDaemonStatus && typeof message.enabled === 'boolean') {
+                terminalDaemonStatus.textContent = message.enabled ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
             }
             break;
         case 'projectRootError':

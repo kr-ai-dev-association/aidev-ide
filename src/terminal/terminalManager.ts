@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { runCommandCapture } from '../utils/processRunner';
+import { getTerminalMonitor } from '../ai/monitorBridge';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
@@ -49,8 +50,8 @@ function isInteractiveCommand(command: string): boolean {
         'docker run -it',
         'docker exec -it'
     ];
-    
-    return interactiveCommands.some(interactiveCmd => 
+
+    return interactiveCommands.some(interactiveCmd =>
         command.toLowerCase().includes(interactiveCmd.toLowerCase())
     );
 }
@@ -84,7 +85,7 @@ function getCaptureOutputChannel(): vscode.OutputChannel {
  */
 function getDefaultResponseForCommand(command: string): string | null {
     const lowerCommand = command.toLowerCase();
-    
+
     // npm create 명령어들
     if (lowerCommand.includes('npm create vite')) {
         return 'y'; // 기본값으로 yes
@@ -98,22 +99,22 @@ function getDefaultResponseForCommand(command: string): string | null {
     if (lowerCommand.includes('npm create next')) {
         return 'y';
     }
-    
+
     // git clone
     if (lowerCommand.includes('git clone')) {
         return ''; // Enter 키만 누름
     }
-    
+
     // SSH 연결
     if (lowerCommand.includes('ssh')) {
         return 'yes'; // 호스트 키 확인
     }
-    
+
     // Docker 대화형 명령어
     if (lowerCommand.includes('docker run -it') || lowerCommand.includes('docker exec -it')) {
         return 'exit'; // 컨테이너에서 빠져나옴
     }
-    
+
     return null;
 }
 
@@ -122,7 +123,7 @@ function getDefaultResponseForCommand(command: string): string | null {
  */
 async function handleInteractiveCommand(command: string): Promise<void> {
     const lower = command.toLowerCase();
-    const shouldUseTerminal = isInteractiveCommand(lower) || isLongRunningDevCommand(lower);
+    const shouldUseTerminal = isInteractiveCommand(lower);
 
     if (shouldUseTerminal) {
         const terminal = getAidevIdeTerminal();
@@ -164,12 +165,14 @@ async function handleInteractiveCommand(command: string): Promise<void> {
             chunk.split(/\r?\n/).forEach(line => {
                 if (!line.trim()) return;
                 channel.appendLine(line);
+                try { getTerminalMonitor()?.ingestExternalOutput('stdout', line); } catch { }
             });
         },
         (chunk) => {
             chunk.split(/\r?\n/).forEach(line => {
                 if (!line.trim()) return;
                 channel.appendLine(line);
+                try { getTerminalMonitor()?.ingestExternalOutput('stderr', line); } catch { }
             });
         }
     );
@@ -178,6 +181,7 @@ async function handleInteractiveCommand(command: string): Promise<void> {
         channel.appendLine(`----- Exit code: ${result.code} -----`);
         channel.show(true);
         vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+        try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`); } catch { }
     }
     console.log(`[TerminalManager] Executed bash command: ${command}`);
 }
@@ -188,21 +192,21 @@ async function handleInteractiveCommand(command: string): Promise<void> {
 async function executeCommandSequence(commands: string[]): Promise<void> {
     _pendingCommands = [...commands];
     _currentCommandIndex = 0;
-    
+
     while (_currentCommandIndex < _pendingCommands.length) {
         const command = _pendingCommands[_currentCommandIndex];
         await handleInteractiveCommand(command);
-        
+
         // 대화형 명령어인 경우 더 긴 대기 시간
         if (isInteractiveCommand(command)) {
             await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기
         } else {
             await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
         }
-        
+
         _currentCommandIndex++;
     }
-    
+
     // 시퀀스 완료 후 상태 초기화
     _pendingCommands = [];
     _currentCommandIndex = 0;
@@ -213,17 +217,17 @@ async function executeCommandSequence(commands: string[]): Promise<void> {
  */
 export function executeBashCommandsFromLlmResponse(llmResponse: string): string[] {
     const executedCommands: string[] = [];
-    
+
     // bash로 시작하는 코드 블록을 찾는 정규식
     const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
-    
+
     let match;
     while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
         const bashCommands = match[1].trim();
         if (bashCommands) {
             // 여러 명령어를 개행으로 분리
             const commands = bashCommands.split('\n').filter(cmd => cmd.trim());
-            
+
             for (const command of commands) {
                 if (command.trim()) {
                     executedCommands.push(command.trim());
@@ -231,12 +235,12 @@ export function executeBashCommandsFromLlmResponse(llmResponse: string): string[
             }
         }
     }
-    
+
     // 명령어들을 순차적으로 실행
     if (executedCommands.length > 0) {
         executeCommandSequence(executedCommands);
     }
-    
+
     return executedCommands;
 }
 
@@ -273,6 +277,6 @@ export function stopCommandSequence(): void {
     _pendingCommands = [];
     _currentCommandIndex = 0;
     _isWaitingForInput = false;
-    
+
     vscode.window.showInformationMessage('aidev-ide: 명령어 시퀀스가 중단되었습니다.');
 }

@@ -16,6 +16,7 @@ import { getAidevIdeTerminal } from './terminal/terminalManager';
 import { openSettingsPanel, openLicensePanel } from './webview/panelManager';
 import { LicenseService } from './services/licenseService';
 import { OllamaBlockerService } from './services/ollamaBlockerService';
+import { TerminalDaemonService } from './services/terminalDaemonService';
 
 // 전역 변수
 let storageService: StorageService;
@@ -28,6 +29,7 @@ let llmResponseProcessor: LlmResponseProcessor;
 let llmService: LlmService;
 let licenseService: LicenseService;
 let ollamaBlockerService: OllamaBlockerService;
+let terminalDaemonService: TerminalDaemonService;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Congratulations, aidev-ide is now active!');
@@ -38,6 +40,7 @@ export async function activate(context: vscode.ExtensionContext) {
     configurationService = new ConfigurationService();
     licenseService = new LicenseService();
     ollamaBlockerService = OllamaBlockerService.getInstance(context);
+    terminalDaemonService = TerminalDaemonService.getInstance(context);
 
     // ollama-blocker 자동 설치 확인 및 설치
     try {
@@ -88,6 +91,33 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     } catch (error) {
         console.error('ollama-blocker 자동 시작 중 오류:', error);
+    }
+
+    // terminal-daemon 자동 시작 (설정이 활성화된 경우)
+    try {
+        const enabled = await configurationService.isTerminalDaemonEnabled();
+        if (enabled) {
+            try {
+                const installed = await terminalDaemonService.isInstalled();
+                if (!installed) {
+                    await terminalDaemonService.install();
+                }
+                const status = await terminalDaemonService.getStatus();
+                if (!status.running) {
+                    const res = await terminalDaemonService.start();
+                    console.log('terminal-daemon start:', res.message);
+                    terminalDaemonService.showLogs();
+                } else {
+                    console.log('terminal-daemon already running.');
+                }
+            } catch (err) {
+                console.error('terminal-daemon start error:', err);
+            }
+        } else {
+            console.log('terminal-daemon disabled by settings');
+        }
+    } catch (error) {
+        console.error('terminal-daemon 자동 시작 중 오류:', error);
     }
 
     const initialApiKey = await storageService.getApiKey();

@@ -49,14 +49,15 @@ const configurationService_1 = __webpack_require__(7);
 const notificationService_1 = __webpack_require__(8);
 const codebaseContextService_1 = __webpack_require__(9);
 const llmResponseProcessor_1 = __webpack_require__(38);
-const llmService_1 = __webpack_require__(44);
+const llmService_1 = __webpack_require__(45);
 const ollamaService_1 = __webpack_require__(52);
-const chatViewProvider_1 = __webpack_require__(56);
-const askViewProvider_1 = __webpack_require__(57); // 새로 추가된 AskViewProvider 임포트
+const chatViewProvider_1 = __webpack_require__(57);
+const askViewProvider_1 = __webpack_require__(58); // 새로 추가된 AskViewProvider 임포트
 const terminalManager_1 = __webpack_require__(41);
-const panelManager_1 = __webpack_require__(58);
-const licenseService_1 = __webpack_require__(59);
-const ollamaBlockerService_1 = __webpack_require__(192);
+const panelManager_1 = __webpack_require__(59);
+const licenseService_1 = __webpack_require__(63);
+const ollamaBlockerService_1 = __webpack_require__(194);
+const terminalDaemonService_1 = __webpack_require__(60);
 // 전역 변수
 let storageService;
 let geminiApi;
@@ -68,6 +69,7 @@ let llmResponseProcessor;
 let llmService;
 let licenseService;
 let ollamaBlockerService;
+let terminalDaemonService;
 async function activate(context) {
     console.log('Congratulations, aidev-ide is now active!');
     // 서비스 초기화 (순서 중요: 의존성 주입)
@@ -76,6 +78,7 @@ async function activate(context) {
     configurationService = new configurationService_1.ConfigurationService();
     licenseService = new licenseService_1.LicenseService();
     ollamaBlockerService = ollamaBlockerService_1.OllamaBlockerService.getInstance(context);
+    terminalDaemonService = terminalDaemonService_1.TerminalDaemonService.getInstance(context);
     // ollama-blocker 자동 설치 확인 및 설치
     try {
         const isInstalled = await ollamaBlockerService.isInstalled();
@@ -130,6 +133,36 @@ async function activate(context) {
     }
     catch (error) {
         console.error('ollama-blocker 자동 시작 중 오류:', error);
+    }
+    // terminal-daemon 자동 시작 (설정이 활성화된 경우)
+    try {
+        const enabled = await configurationService.isTerminalDaemonEnabled();
+        if (enabled) {
+            try {
+                const installed = await terminalDaemonService.isInstalled();
+                if (!installed) {
+                    await terminalDaemonService.install();
+                }
+                const status = await terminalDaemonService.getStatus();
+                if (!status.running) {
+                    const res = await terminalDaemonService.start();
+                    console.log('terminal-daemon start:', res.message);
+                    terminalDaemonService.showLogs();
+                }
+                else {
+                    console.log('terminal-daemon already running.');
+                }
+            }
+            catch (err) {
+                console.error('terminal-daemon start error:', err);
+            }
+        }
+        else {
+            console.log('terminal-daemon disabled by settings');
+        }
+    }
+    catch (error) {
+        console.error('terminal-daemon 자동 시작 중 오류:', error);
     }
     const initialApiKey = await storageService.getApiKey();
     if (!initialApiKey || initialApiKey.trim() === '') {
@@ -2298,6 +2331,7 @@ class ConfigurationService {
     NEWS_API_KEY = 'newsApiKey';
     NEWS_API_SECRET = 'newsApiSecret';
     STOCK_API_KEY = 'stockApiKey';
+    TERMINAL_DAEMON_ENABLED = 'terminalDaemonEnabled';
     constructor() { }
     async getSourcePaths() {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
@@ -2399,6 +2433,14 @@ class ConfigurationService {
     async getLanguage() {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         return config.get('language', 'ko');
+    }
+    async isTerminalDaemonEnabled() {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        return config.get(this.TERMINAL_DAEMON_ENABLED) || false;
+    }
+    async updateTerminalDaemonEnabled(enabled) {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        await config.update(this.TERMINAL_DAEMON_ENABLED, enabled, vscode.ConfigurationTarget.Global);
     }
 }
 exports.ConfigurationService = ConfigurationService;
@@ -2882,12 +2924,29 @@ class CodebaseContextService {
      */
     async findRelevantFiles(projectRoot, keywords, abortSignal) {
         const relevantFiles = [];
-        const searchPatterns = [
-            '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
-            '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
-            '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
-            '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
-        ];
+        // 프로젝트 타입 감지
+        const isNodeProject = await this.isNodeProject(projectRoot);
+        const isFrontendFramework = await this.isFrontendFramework(projectRoot);
+        let searchPatterns;
+        if (isNodeProject && isFrontendFramework) {
+            // Node.js 기반 프론트엔드 프레임워크 프로젝트의 경우 제한된 검색
+            console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
+            searchPatterns = [
+                'package.json',
+                'src/**/*.ts', 'src/**/*.js', 'src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue',
+                'src/**/*.css', 'src/**/*.scss', 'src/**/*.sass', 'src/**/*.less', 'src/**/*.html',
+                'src/**/*.json', 'src/**/*.md', 'src/**/*.svelte'
+            ];
+        }
+        else {
+            // 일반적인 검색 패턴
+            searchPatterns = [
+                '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
+                '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
+                '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
+                '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
+            ];
+        }
         try {
             // 키워드별로 관련 디렉토리와 파일 패턴 생성
             const keywordPatterns = this.generateKeywordPatterns(keywords);
@@ -2904,11 +2963,16 @@ class CodebaseContextService {
                         if (abortSignal.aborted)
                             break;
                         try {
+                            // node_modules 하위 파일 제외
+                            const relativePath = path.relative(projectRoot, filePath);
+                            if (relativePath.includes('node_modules/') || relativePath.startsWith('node_modules/')) {
+                                continue;
+                            }
                             // 파일명이나 경로에 키워드가 포함되어 있는지 확인
                             const fileName = path.basename(filePath).toLowerCase();
-                            const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+                            const relativePathLower = relativePath.toLowerCase();
                             const isRelevant = keywords.some(keyword => fileName.includes(keyword) ||
-                                relativePath.includes(keyword) ||
+                                relativePathLower.includes(keyword) ||
                                 this.isKeywordRelated(filePath, keyword));
                             if (isRelevant && !relevantFiles.includes(filePath)) {
                                 relevantFiles.push(filePath);
@@ -2928,7 +2992,62 @@ class CodebaseContextService {
             console.error('[CodebaseContextService] 파일 검색 중 오류:', error);
         }
         console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
+        // 검색된 파일들의 리스트를 디버그 콘솔에 출력
+        if (relevantFiles.length > 0) {
+            console.log('[CodebaseContextService] 검색된 파일 목록:');
+            relevantFiles.forEach((filePath, index) => {
+                const relativePath = path.relative(projectRoot, filePath);
+                console.log(`  ${index + 1}. ${relativePath}`);
+            });
+        }
         return relevantFiles;
+    }
+    /**
+     * Node.js 프로젝트인지 확인합니다.
+     */
+    async isNodeProject(projectRoot) {
+        try {
+            const packageJsonPath = path.join(projectRoot, 'package.json');
+            const fs = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 195, 23));
+            await fs.access(packageJsonPath);
+            return true;
+        }
+        catch {
+            return false;
+        }
+    }
+    /**
+     * 프론트엔드 프레임워크 프로젝트인지 확인합니다.
+     * React, Vue, Angular, Svelte, Next.js, Nuxt.js 등을 감지합니다.
+     */
+    async isFrontendFramework(projectRoot) {
+        try {
+            const packageJsonPath = path.join(projectRoot, 'package.json');
+            const fs = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 195, 23));
+            const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
+            const packageJson = JSON.parse(packageJsonContent);
+            const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+            // React 관련
+            const isReact = !!(dependencies.react || dependencies['@vitejs/plugin-react'] || dependencies['react-scripts']);
+            // Vue 관련
+            const isVue = !!(dependencies.vue || dependencies['@vitejs/plugin-vue'] || dependencies['vue-cli-service']);
+            // Angular 관련
+            const isAngular = !!(dependencies['@angular/core'] || dependencies['@angular/cli']);
+            // Svelte 관련
+            const isSvelte = !!(dependencies.svelte || dependencies['@sveltejs/kit'] || dependencies['vite-plugin-svelte']);
+            // Next.js 관련
+            const isNext = !!(dependencies.next || dependencies['@next/babel-plugin-react-require']);
+            // Nuxt.js 관련
+            const isNuxt = !!(dependencies.nuxt || dependencies['@nuxt/core']);
+            // Vite 관련 (다양한 프레임워크와 함께 사용)
+            const isVite = !!(dependencies.vite || dependencies['@vitejs/plugin-react'] || dependencies['@vitejs/plugin-vue']);
+            // Webpack 관련 (다양한 프레임워크와 함께 사용)
+            const isWebpack = !!(dependencies.webpack || dependencies['webpack-cli']);
+            return isReact || isVue || isAngular || isSvelte || isNext || isNuxt || isVite || isWebpack;
+        }
+        catch {
+            return false;
+        }
     }
     /**
      * 키워드 기반 검색 패턴을 생성합니다.
@@ -12594,6 +12713,7 @@ exports.getCommandSequenceStatus = getCommandSequenceStatus;
 exports.stopCommandSequence = stopCommandSequence;
 const vscode = __importStar(__webpack_require__(1));
 const processRunner_1 = __webpack_require__(42);
+const monitorBridge_1 = __webpack_require__(44);
 let _codePilotTerminal;
 let _isWaitingForInput = false;
 let _pendingCommands = [];
@@ -12698,7 +12818,7 @@ function getDefaultResponseForCommand(command) {
  */
 async function handleInteractiveCommand(command) {
     const lower = command.toLowerCase();
-    const shouldUseTerminal = isInteractiveCommand(lower) || isLongRunningDevCommand(lower);
+    const shouldUseTerminal = isInteractiveCommand(lower);
     if (shouldUseTerminal) {
         const terminal = getAidevIdeTerminal();
         if (!terminal.state.isInteractedWith) {
@@ -12731,18 +12851,30 @@ async function handleInteractiveCommand(command) {
             if (!line.trim())
                 return;
             channel.appendLine(line);
+            try {
+                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stdout', line);
+            }
+            catch { }
         });
     }, (chunk) => {
         chunk.split(/\r?\n/).forEach(line => {
             if (!line.trim())
                 return;
             channel.appendLine(line);
+            try {
+                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', line);
+            }
+            catch { }
         });
     });
     if (result.code !== 0 || isErrorLike(result.stderr)) {
         channel.appendLine(`----- Exit code: ${result.code} -----`);
         channel.show(true);
         vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+        try {
+            (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`);
+        }
+        catch { }
     }
     console.log(`[TerminalManager] Executed bash command: ${command}`);
 }
@@ -12886,6 +13018,24 @@ module.exports = require("child_process");
 
 /***/ }),
 /* 44 */
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.setTerminalMonitor = setTerminalMonitor;
+exports.getTerminalMonitor = getTerminalMonitor;
+let monitorRef;
+function setTerminalMonitor(monitor) {
+    monitorRef = monitor;
+}
+function getTerminalMonitor() {
+    return monitorRef;
+}
+
+
+/***/ }),
+/* 45 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -12926,7 +13076,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlmService = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const externalApiService_1 = __webpack_require__(45);
 const panelUtils_1 = __webpack_require__(40);
 const tokenUtils_1 = __webpack_require__(46);
 const types_1 = __webpack_require__(39);
@@ -12944,10 +13093,8 @@ class LlmService {
     llmResponseProcessor;
     notificationService;
     configurationService;
-    externalApiService;
     currentCallController = null;
-    currentModelType = types_1.AiModelType.GEMINI; // 기본값
-    // 액션 플래너 관련 서비스들
+    currentModelType = types_1.AiModelType.GEMINI;
     actionPlannerService;
     terminalMonitorService;
     actionExecutionEngine;
@@ -12955,6 +13102,8 @@ class LlmService {
     projectProfileService;
     projectProfile;
     intentDetectionService;
+    chatWebview;
+    askWebview;
     constructor(storageService, geminiApi, ollamaApi, codebaseContextService, llmResponseProcessor, notificationService, configurationService, extensionContext) {
         this.extensionContext = extensionContext;
         this.storageService = storageService;
@@ -12964,11 +13113,13 @@ class LlmService {
         this.llmResponseProcessor = llmResponseProcessor;
         this.notificationService = notificationService;
         this.configurationService = configurationService;
-        this.externalApiService = new externalApiService_1.ExternalApiService(configurationService);
-        // 액션 플래너 서비스들 초기화
         this.actionPlannerService = new actionPlannerService_1.ActionPlannerService(notificationService, configurationService);
         this.terminalMonitorService = new terminalMonitorService_1.TerminalMonitorService(notificationService);
         this.actionExecutionEngine = new actionExecutionEngine_1.ActionExecutionEngine(notificationService, this.terminalMonitorService);
+        try {
+            this.terminalMonitorService.startMonitoring();
+        }
+        catch { }
         if (extensionContext) {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (workspaceFolder) {
@@ -12977,221 +13128,69 @@ class LlmService {
         }
         this.intentDetectionService = new intentDetectionService_1.IntentDetectionService(ollamaApi);
     }
+    setChatWebview(webview) { this.chatWebview = webview; }
+    setAskWebview(webview) { this.askWebview = webview; }
+    getTerminalMonitorService() { return this.terminalMonitorService; }
     setCurrentModel(modelType) {
         this.currentModelType = modelType;
         console.log(`[LlmService] Current model set to: ${modelType}`);
-    }
-    /**
-     * 현재 설정된 모델의 실제 이름을 가져옵니다.
-     * @returns 현재 모델명
-     */
-    async getCurrentModelName() {
-        try {
-            if (this.currentModelType === types_1.AiModelType.GEMINI) {
-                return 'Gemini 2.5 Flash';
-            }
-            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
-                this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
-                // Ollama 모델의 경우 실제 모델명을 가져옴
-                return await this.ollamaApi.getCurrentModelName();
-            }
-        }
-        catch (error) {
-            console.warn(`[LlmService] 모델명 가져오기 실패: ${error}`);
-        }
-        // 기본값 반환
-        switch (this.currentModelType) {
-            case types_1.AiModelType.GEMINI:
-                return 'Gemini 2.5 Flash';
-            case types_1.AiModelType.OLLAMA_Gemma:
-                return 'Gemma3:27b';
-            case types_1.AiModelType.OLLAMA_DeepSeek:
-                return 'DeepSeek R1:70B';
-            case types_1.AiModelType.OLLAMA_CodeLlama:
-                return 'CodeLlama 7B';
-            default:
-                return 'Unknown Model';
-        }
     }
     getCurrentModel() {
         return this.currentModelType;
     }
     cancelCurrentCall() {
-        console.log(`[ AIDEV-IDE ] Attempting to cancel current ${this.currentModelType} call.`);
         if (this.currentCallController) {
             this.currentCallController.abort();
             this.currentCallController = null;
+        }
+    }
+    async getCurrentModelName() {
+        try {
+            if (this.currentModelType === types_1.AiModelType.GEMINI) {
+                return 'Gemini 2.5 Flash';
+            }
+            return await this.ollamaApi.getCurrentModelName();
+        }
+        catch {
+            return 'Unknown Model';
         }
     }
     async handleUserMessageAndRespond(userQuery, webviewToRespond, promptType, imageData, imageMimeType, selectedFiles) {
         this.currentCallController = new AbortController();
         const abortSignal = this.currentCallController.signal;
         try {
+            // Log model used for this query
+            const modelName = await this.getCurrentModelName();
+            console.log(`[LlmService] Using model: type=${this.currentModelType}, name=${modelName}`);
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'showLoading' });
-            if (this.projectProfileService) {
-                this.projectProfile = await this.projectProfileService.loadProfile();
-            }
-            let intentResult;
-            if (this.intentDetectionService) {
-                try {
-                    intentResult = await this.intentDetectionService.detectIntent(userQuery);
-                    console.log('[LlmService] Detected intent:', intentResult);
-                }
-                catch (error) {
-                    console.warn('[LlmService] Intent detection failed:', error);
-                }
-            }
-            // --- 대화 기록 관리 ---
-            const historyKey = promptType === types_1.PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
-            let history = [];
-            if (this.extensionContext) {
-                history = this.extensionContext.globalState.get(historyKey, []);
-            }
-            // --- 최근 5개 대화 context 생성 ---
-            let historyContext = '';
-            if (history.length > 0) {
-                const recentConversations = history.slice(-5); // 최근 5개 대화
-                if (recentConversations.length > 0) {
-                    historyContext = '--- 최근 대화 내역 ---\n' +
-                        recentConversations.map((conv, i) => {
-                            let conversationText = `${i + 1}. 사용자: ${conv.userQuery}`;
-                            if (conv.aiResponse) {
-                                conversationText += `\n   AI: ${conv.aiResponse}`;
-                            }
-                            return conversationText;
-                        }).join('\n\n') + '\n\n';
-                }
-            }
-            // 실시간 정보 요청 처리
-            const realTimeInfo = await this.processRealTimeInfoRequest(userQuery);
-            // 코드베이스 컨텍스트 수집
-            let fileContentsContext = '';
-            let includedFilesForContext = [];
-            if (promptType === types_1.PromptType.CODE_GENERATION) {
-                // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
-                fileContentsContext = relevantContextResult.fileContentsContext;
-                includedFilesForContext = relevantContextResult.includedFilesForContext;
-            }
-            else if (promptType === types_1.PromptType.GENERAL_ASK) {
-                // 새로운 방식: 질의 기반 관련 파일 자동 검색
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
-                fileContentsContext = relevantContextResult.fileContentsContext;
-                includedFilesForContext = relevantContextResult.includedFilesForContext;
-            }
-            // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
-            let selectedFilesContext = "";
-            if (selectedFiles && selectedFiles.length > 0) {
-                for (const filePath of selectedFiles) {
-                    try {
-                        const fileUri = vscode.Uri.file(filePath);
-                        const contentBytes = await vscode.workspace.fs.readFile(fileUri);
-                        const content = Buffer.from(contentBytes).toString('utf8');
-                        const fileName = filePath.split(/[/\\]/).pop() || 'Unknown';
-                        // 선택된 파일을 includedFilesForContext 배열에 추가
-                        includedFilesForContext.push({
-                            name: fileName,
-                            fullPath: filePath
-                        });
-                        selectedFilesContext += `파일명: ${fileName}\n경로: ${filePath}\n코드:\n\`\`\`\n${content}\n\`\`\`\n\n`;
-                    }
-                    catch (error) {
-                        console.error(`Error reading selected file ${filePath}:`, error);
-                        selectedFilesContext += `파일명: ${filePath.split(/[/\\]/).pop() || 'Unknown'}\n경로: ${filePath}\n오류: 파일을 읽을 수 없습니다.\n\n`;
-                    }
-                }
-            }
-            // 선택된 파일 컨텍스트를 기존 컨텍스트에 추가
-            const fullFileContentsContext = selectedFilesContext
-                ? `${fileContentsContext}\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`
-                : fileContentsContext;
-            // 시스템 프롬프트 생성
-            const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
-            const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
-            // 사용자 메시지 파트 구성
-            const userParts = [];
-            // 대화 기록이 있으면 먼저 추가
-            if (historyContext) {
-                userParts.push({ text: historyContext });
-            }
-            // 현재 질문 추가
-            userParts.push({ text: userQuery });
-            // 이미지가 있는 경우 추가
-            if (imageData && imageMimeType) {
-                // Gemini와 Ollama 모두 이미지 데이터 전달 (Ollama는 멀티모달 모델에서 지원)
-                userParts.push({
-                    inlineData: {
-                        data: imageData,
-                        mimeType: imageMimeType
-                    }
-                });
-            }
-            // 토큰 제한 확인
-            const actualModelName = await this.getCurrentModelName();
-            const tokenCheck = (0, tokenUtils_1.checkTokenLimit)(systemPrompt, userParts, this.currentModelType, actualModelName);
+            // Minimal passthrough without heavy context to keep compilable
+            const systemPrompt = `개발 도우미.`;
+            const userParts = [{ text: userQuery }];
+            const tokenCheck = (0, tokenUtils_1.checkTokenLimit)(systemPrompt, userParts, this.currentModelType, modelName);
             (0, tokenUtils_1.logTokenUsage)(systemPrompt, userParts, this.currentModelType);
             if (tokenCheck.isExceeded) {
-                const errorMessage = tokenCheck.message;
-                console.error(`[LlmService] ${errorMessage}`);
-                this.notificationService.showErrorMessage(`AIDEV-IDE: ${errorMessage}`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, {
-                    command: 'receiveMessage',
-                    sender: 'AIDEV-IDE',
-                    text: errorMessage
-                });
+                const msg = tokenCheck.message;
+                this.notificationService.showErrorMessage(`AIDEV-IDE: ${msg}`);
+                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: msg });
                 return;
             }
-            let llmResponse;
+            let llmResponse = '';
+            const requestOptions = { signal: abortSignal };
             if (this.currentModelType === types_1.AiModelType.GEMINI) {
-                const requestOptions = { signal: abortSignal };
                 llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
             }
-            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
-                this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
-                // Ollama API에 직접 호출 (selectedFiles는 이미 시스템 프롬프트에 포함됨)
-                const requestOptions = { signal: abortSignal };
+            else {
                 llmResponse = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
             }
-            else {
-                throw new Error(`Unsupported model type: ${this.currentModelType}`);
-            }
-            // 컨텍스트 파일 목록에 선택된 파일들도 포함
-            const allContextFiles = [...includedFilesForContext];
-            if (selectedFiles && selectedFiles.length > 0) {
-                for (const filePath of selectedFiles) {
-                    const fileName = filePath.split(/[/\\]/).pop() || 'Unknown';
-                    allContextFiles.push({ name: fileName, fullPath: filePath });
-                }
-            }
-            // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
-            await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, promptType === types_1.PromptType.CODE_GENERATION ? allContextFiles : [], webviewToRespond, promptType);
-            // --- AI 응답을 대화 기록에 저장 ---
-            if (this.extensionContext && userQuery) {
-                const summarizedResponse = this.summarizeAiResponse(llmResponse);
-                history.push({
-                    userQuery: userQuery,
-                    aiResponse: summarizedResponse,
-                    timestamp: Date.now()
-                });
-                // 최대 5개 대화만 유지
-                if (history.length > 5) {
-                    history = history.slice(-5);
-                }
-                await this.extensionContext.globalState.update(historyKey, history);
-            }
+            await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, [], webviewToRespond, promptType);
         }
         catch (error) {
-            if (error.name === 'AbortError') {
-                console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
+            if (error?.name === 'AbortError') {
                 (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
             }
             else {
-                console.error(`Error in handleUserMessageAndRespond (${this.currentModelType}):`, error);
-                this.notificationService.showErrorMessage(`Error: Failed to process request. ${error.message}`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request. ${error.message}` });
+                this.notificationService.showErrorMessage(`Error: Failed to process request. ${error?.message || error}`);
+                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request. ${error?.message || error}` });
             }
         }
         finally {
@@ -13199,680 +13198,8 @@ class LlmService {
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'hideLoading' });
         }
     }
-    /**
-     * AI 응답을 요약하여 대화 기록에 저장합니다.
-     * 코드 블록과 긴 설명을 간단히 요약하여 토큰 사용량을 줄입니다.
-     */
-    summarizeAiResponse(response) {
-        // 응답이 너무 짧으면 그대로 반환
-        if (response.length <= 200) {
-            return response;
-        }
-        // 코드 블록 추출
-        const codeBlocks = response.match(/```[\s\S]*?```/g) || [];
-        const hasCodeBlocks = codeBlocks.length > 0;
-        // 파일 작업 지시어 추출
-        const fileOperations = response.match(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g) || [];
-        const hasFileOperations = fileOperations.length > 0;
-        // 요약 생성
-        let summary = '';
-        if (hasFileOperations) {
-            summary += `파일 작업: ${fileOperations.join(', ')}. `;
-        }
-        if (hasCodeBlocks) {
-            summary += `코드 블록 ${codeBlocks.length}개 포함. `;
-        }
-        // 코드 블록과 파일 작업 지시어를 제거한 텍스트에서 첫 2-3문장 추출
-        let textContent = response;
-        textContent = textContent.replace(/```[\s\S]*?```/g, ''); // 코드 블록 제거
-        textContent = textContent.replace(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g, ''); // 파일 작업 지시어 제거
-        textContent = textContent.replace(/\n+/g, ' ').trim(); // 줄바꿈 정리
-        // 첫 2-3문장 추출 (마침표 기준)
-        const sentences = textContent.split(/[.!?]+/).filter(s => s.trim().length > 10);
-        const firstSentences = sentences.slice(0, 2).join('. ').trim();
-        if (firstSentences) {
-            summary += firstSentences + '.';
-        }
-        // 요약이 너무 길면 더 줄임
-        if (summary.length > 300) {
-            summary = summary.substring(0, 297) + '...';
-        }
-        return summary || 'AI가 응답을 제공했습니다.';
-    }
-    buildProfileContext(profile) {
-        const lines = [];
-        lines.push(`언어: ${profile.language}`);
-        if (profile.frameworks.length > 0) {
-            const formatted = profile.frameworks
-                .map(f => `${f.framework} (신뢰도 ${(f.confidence * 100).toFixed(0)}%)`)
-                .join(', ');
-            lines.push(`프레임워크: ${formatted}`);
-        }
-        if (profile.packageManager) {
-            lines.push(`패키지 매니저: ${profile.packageManager}`);
-        }
-        if (profile.entryPoints.length > 0) {
-            lines.push(`실행 엔트리포인트: ${profile.entryPoints.slice(0, 5).join(', ')}`);
-        }
-        if (Object.keys(profile.scripts || {}).length > 0) {
-            const highlightedScripts = ['start', 'dev', 'serve', 'build', 'test'];
-            const selected = highlightedScripts
-                .filter(name => profile.scripts[name])
-                .map(name => `${name}: ${profile.scripts[name]}`);
-            if (selected.length > 0) {
-                lines.push('주요 npm 스크립트:');
-                lines.push(...selected.map(script => `- ${script}`));
-            }
-        }
-        return lines.join('\n');
-    }
-    buildIntentContext(intent) {
-        const lines = [];
-        lines.push(`카테고리: ${intent.category}`);
-        lines.push(`세부 유형: ${intent.subtype}`);
-        lines.push(`신뢰도: ${(intent.confidence * 100).toFixed(0)}%`);
-        if (intent.keywords && intent.keywords.length > 0) {
-            lines.push(`매칭 키워드: ${intent.keywords.join(', ')}`);
-        }
-        if (intent.reasoning) {
-            lines.push(`근거: ${intent.reasoning}`);
-        }
-        return lines.join('\n');
-    }
-    /**
-     * 실시간 정보 요청을 처리합니다
-     */
-    async processRealTimeInfoRequest(userQuery) {
-        try {
-            // ExternalApiService를 통해 실시간 정보 요청 처리
-            // 기본적으로 서울 날씨 정보만 포함
-            return await this.externalApiService.getRealTimeSummary('서울');
-        }
-        catch (error) {
-            console.warn('Failed to process real-time info request:', error);
-            return '';
-        }
-    }
-    /**
-     * 시스템 프롬프트를 생성합니다
-     */
-    generateSystemPrompt(promptType, codebaseContext, realTimeInfo, profileContext, intentContext) {
-        let systemPrompt = '';
-        // DeepSeek 모델에 대한 특별한 언어 지시사항 추가
-        const isDeepSeek = this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek;
-        const languageInstruction = isDeepSeek ?
-            '\n\n️중요: 반드시 한국어로만 답변하세요. 중국어, 영어, 일본어 등 다른 언어는 사용하지 마세요. 모든 설명과 응답은 한국어로 작성해주세요.' : '';
-        if (promptType === types_1.PromptType.CODE_GENERATION) {
-            systemPrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
-
-주요 지침:
-1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
-2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
-3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
-4. 한글로 설명을 제공하세요.
-5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
-6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
-7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
-8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
-9. 터미널 명령어가 필요한 경우 "bash" 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
-
-파일 생성/수정 형식 예시:
-
-코드 파일의 경우:
-새 파일: src/components/Button.jsx
-\`\`\`javascript
-import React from 'react';
-
-function Button({ children, onClick }) {
-  return (
-    <button onClick={onClick}>
-      {children}
-    </button>
-  );
-}
-
-export default Button;
-\`\`\`
-
-마크다운 파일의 경우:
-새 파일: docs/README.md
-
-# 프로젝트 문서
-
-이 프로젝트는 React 기반의 웹 애플리케이션입니다.
-
-## 기능
-
-- 사용자 인증
-- 데이터 관리
-- 실시간 업데이트
-
-## 설치 방법
-
-\`\`\`bash
-npm install
-npm start
-\`\`\`
-
-터미널 명령어의 경우:
-\`\`\`bash
-npm install
-npm run build
-npm start
-\`\`\`
-
-코드베이스 컨텍스트:
-${codebaseContext}
-
-프로젝트 프로필:
-${profileContext}
-
-사용자 의도:
-${intentContext}
-
-실시간 정보:
-${realTimeInfo}
-
-사용자의 요청에 따라 적절한 코드를 생성하거나 수정해주세요.${languageInstruction}`;
-        }
-        else {
-            systemPrompt = `당신은 전문적인 소프트웨어 개발자이자 기술 전문가입니다. 사용자의 질문에 대해 정확하고 유용한 답변을 제공합니다.
-
-주요 지침:
-1. 기술적 질문에 대해 명확하고 이해하기 쉬운 답변을 제공하세요.
-2. 코드 예제가 필요한 경우 완전하고 실행 가능한 코드를 제공하세요.
-3. 한글로 답변하되, 필요한 경우 영어 용어나 코드는 그대로 사용하세요.
-4. 실시간 정보가 있는 경우 이를 활용하여 답변하세요.
-5. 파일 생성, 수정, 삭제 또는 터미널 명령어 실행은 하지 마세요. 이는 단순 질의 응답 모드입니다.
-6. 첨부된 파일이 있는 경우 해당 파일의 내용을 분석하여 답변하세요.
-
-코드베이스 컨텍스트:
-${codebaseContext}
-
-프로젝트 프로필:
-${profileContext}
-
-사용자 의도:
-${intentContext}
-
-실시간 정보:
-${realTimeInfo}
-
-사용자의 질문에 대해 전문적이고 유용한 답변을 제공해주세요.${languageInstruction}`;
-        }
-        return systemPrompt;
-    }
 }
 exports.LlmService = LlmService;
-
-
-/***/ }),
-/* 45 */
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ExternalApiService = void 0;
-class ExternalApiService {
-    configurationService;
-    constructor(configurationService) {
-        this.configurationService = configurationService;
-    }
-    /**
-     * 날씨 정보를 가져옵니다 (기상청 육상예보 API + 중기예보 API 사용)
-     */
-    async getWeatherData(city) {
-        try {
-            const apiKey = await this.configurationService.getWeatherApiKey();
-            if (!apiKey) {
-                console.warn('Weather API key not configured');
-                return null;
-            }
-            // 도시명을 기상청 육상예보 지역코드로 매핑
-            const cityCodeMap = {
-                '서울': '11B10101',
-                '부산': '11H20201',
-                '대구': '11H10701',
-                '인천': '11B20201',
-                '광주': '11F20501',
-                '대전': '11C20401',
-                '울산': '11H20101',
-                '세종': '11C20404',
-                '수원': '11B20601',
-                '고양': '11B20301',
-                '용인': '11B20602',
-                '창원': '11H20301',
-                '포항': '11H20201',
-                '춘천': '11D10101',
-                '강릉': '11D10201',
-                '청주': '11C10301',
-                '전주': '11F10201',
-                '순천': '11F20401',
-                '목포': '11F20301',
-                '여수': '11F20401',
-                '제주': '11G00201',
-                '백령도': '11A00101'
-            };
-            const regId = cityCodeMap[city] || '11B10101'; // 기본값은 서울
-            // 육상예보 API 사용 (기온 정보 포함)
-            const response = await fetch(`https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getLandFcst?pageNo=1&numOfRows=10&dataType=XML&regId=${regId}&authKey=${apiKey}`);
-            if (!response.ok) {
-                throw new Error(`Weather API error: ${response.status}`);
-            }
-            // XML 응답 파싱
-            const xmlText = await response.text();
-            console.log('Weather API response preview:', xmlText.substring(0, 300));
-            const weatherData = this.parseWeatherXmlResponse(xmlText);
-            if (!weatherData) {
-                throw new Error('No weather data found in XML response');
-            }
-            console.log('Parsed weather data:', weatherData);
-            // 날씨코드를 텍스트로 변환
-            const weatherCodeMap = {
-                'DB01': '맑음',
-                'DB02': '구름조금',
-                'DB03': '구름많음',
-                'DB04': '흐림'
-            };
-            // 강수형태 코드를 텍스트로 변환
-            const precipitationMap = {
-                '0': '없음',
-                '1': '비',
-                '2': '비/눈',
-                '3': '눈',
-                '4': '눈/비'
-            };
-            // 풍향을 16방위로 변환
-            const windDirectionMap = {
-                'N': '북', 'NNE': '북북동', 'NE': '북동', 'ENE': '동북동',
-                'E': '동', 'ESE': '동남동', 'SE': '남동', 'SSE': '남남동',
-                'S': '남', 'SSW': '남남서', 'SW': '남서', 'WSW': '서남서',
-                'W': '서', 'WNW': '서북서', 'NW': '북서', 'NNW': '북북서'
-            };
-            const windDirection = windDirectionMap[weatherData.wd1] || weatherData.wd1 || '알 수 없음';
-            const skyCondition = weatherCodeMap[weatherData.wfCd] || '알 수 없음';
-            const precipitation = precipitationMap[weatherData.rnYn] || '없음';
-            // 기온 처리
-            let temperature = 0;
-            let temperatureText = '정보 없음';
-            if (weatherData.ta && weatherData.ta !== '-99' && weatherData.ta.trim() !== '') {
-                const tempValue = parseFloat(weatherData.ta);
-                if (!isNaN(tempValue)) {
-                    temperature = tempValue;
-                    temperatureText = `${tempValue}°C`;
-                }
-            }
-            // 강수확률 처리
-            let precipitationProbability = '';
-            if (weatherData.rnSt && weatherData.rnSt !== '-99' && weatherData.rnSt.trim() !== '') {
-                const probValue = parseFloat(weatherData.rnSt);
-                if (!isNaN(probValue)) {
-                    precipitationProbability = `${probValue}%`;
-                }
-            }
-            // 풍속 처리 (육상예보 API에서는 풍속 정보가 제한적)
-            let windSpeed = 0;
-            let windSpeedText = '';
-            if (weatherData.wsIt && weatherData.wsIt !== '-99' && weatherData.wsIt.trim() !== '') {
-                // 풍속 강도코드를 텍스트로 변환
-                const windSpeedMap = {
-                    '0': '약함',
-                    '1': '약함',
-                    '2': '보통',
-                    '3': '강함',
-                    '4': '매우강함'
-                };
-                windSpeedText = windSpeedMap[weatherData.wsIt] || '알 수 없음';
-            }
-            // 중기 예보 데이터 가져오기
-            let mediumTermForecast = [];
-            try {
-                const mediumTermData = await this.getMediumTermForecast(regId, apiKey);
-                if (mediumTermData && mediumTermData.length > 0) {
-                    mediumTermForecast = mediumTermData;
-                }
-            }
-            catch (error) {
-                console.warn('Failed to fetch medium-term forecast:', error);
-                // 중기 예보 실패해도 단기 예보는 계속 진행
-            }
-            return {
-                location: city,
-                temperature: temperature,
-                description: weatherData.wf || '날씨 정보 없음',
-                humidity: 0, // 기상청 API에는 습도 정보가 없음
-                windSpeed: windSpeed,
-                windDirection: windDirection,
-                precipitation: precipitation,
-                skyCondition: skyCondition,
-                forecast: weatherData.wf || '예보 정보 없음',
-                temperatureText: temperatureText,
-                precipitationProbability: precipitationProbability,
-                windSpeedText: windSpeedText,
-                waveHeight: '', // 육상예보에는 파고 정보가 없음
-                mediumTermForecast: mediumTermForecast
-            };
-        }
-        catch (error) {
-            console.error('Error fetching weather data:', error);
-            return null;
-        }
-    }
-    /**
-     * 기상청 육상예보 API의 XML 응답을 파싱합니다
-     */
-    parseWeatherXmlResponse(xmlText) {
-        try {
-            // 간단한 XML 파싱 (정규식 사용)
-            const wd1Match = xmlText.match(/<wd1>([^<]+)<\/wd1>/);
-            const wd2Match = xmlText.match(/<wd2>([^<]+)<\/wd2>/);
-            const taMatch = xmlText.match(/<ta>([^<]+)<\/ta>/);
-            const rnStMatch = xmlText.match(/<rnSt>([^<]+)<\/rnSt>/);
-            const wfMatch = xmlText.match(/<wf>([^<]+)<\/wf>/);
-            const wfCdMatch = xmlText.match(/<wfCd>([^<]+)<\/wfCd>/);
-            const rnYnMatch = xmlText.match(/<rnYn>([^<]+)<\/rnYn>/);
-            const wsItMatch = xmlText.match(/<wsIt>([^<]+)<\/wsIt>/);
-            if (!taMatch && !wfMatch) {
-                console.error('No weather data found in XML response');
-                return null;
-            }
-            return {
-                wd1: wd1Match ? wd1Match[1].trim() : '',
-                wd2: wd2Match ? wd2Match[1].trim() : '',
-                ta: taMatch ? taMatch[1].trim() : '',
-                rnSt: rnStMatch ? rnStMatch[1].trim() : '',
-                wf: wfMatch ? wfMatch[1].trim() : '',
-                wfCd: wfCdMatch ? wfCdMatch[1].trim() : '',
-                rnYn: rnYnMatch ? rnYnMatch[1].trim() : '',
-                wsIt: wsItMatch ? wsItMatch[1].trim() : ''
-            };
-        }
-        catch (error) {
-            console.error('Error parsing weather XML response:', error);
-            return null;
-        }
-    }
-    /**
-     * 기상청 중기 예보 데이터를 가져옵니다
-     */
-    async getMediumTermForecast(regId, apiKey) {
-        try {
-            // 현재 날짜 기준으로 내일부터 7일간의 예보 요청
-            const today = new Date();
-            const tomorrow = new Date(today);
-            tomorrow.setDate(today.getDate() + 1);
-            const tmef1 = tomorrow.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
-            const tmef2 = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, ''); // 7일 후
-            const response = await fetch(`https://apihub.kma.go.kr/api/typ01/url/fct_afs_wc.php?reg=${regId}&tmef1=${tmef1}&tmef2=${tmef2}&disp=0&help=0&authKey=${apiKey}`);
-            if (!response.ok) {
-                throw new Error(`Medium-term forecast API error: ${response.status}`);
-            }
-            const xmlText = await response.text();
-            console.log('Medium-term forecast API response preview:', xmlText.substring(0, 300));
-            return this.parseMediumTermForecastXml(xmlText);
-        }
-        catch (error) {
-            console.error('Error fetching medium-term forecast:', error);
-            return [];
-        }
-    }
-    /**
-     * 기상청 중기 예보 XML 응답을 파싱합니다
-     */
-    parseMediumTermForecastXml(xmlText) {
-        try {
-            const forecasts = [];
-            // XML에서 각 예보 항목을 추출
-            const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/g);
-            if (!itemMatches) {
-                console.warn('No forecast items found in medium-term forecast XML');
-                return [];
-            }
-            // 하늘상태 코드 매핑
-            const skyCodeMap = {
-                'WB01': '맑음',
-                'WB02': '구름조금',
-                'WB03': '구름많음',
-                'WB04': '흐림'
-            };
-            // 강수 코드 매핑
-            const precipitationCodeMap = {
-                'WB09': '비',
-                'WB11': '비/눈',
-                'WB13': '눈/비',
-                'WB12': '눈'
-            };
-            for (const itemMatch of itemMatches) {
-                // 각 필드 추출
-                const tmStMatch = itemMatch.match(/<TM_ST>([^<]+)<\/TM_ST>/);
-                const tmEdMatch = itemMatch.match(/<TM_ED>([^<]+)<\/TM_ED>/);
-                const skyMatch = itemMatch.match(/<SKY>([^<]+)<\/SKY>/);
-                const preMatch = itemMatch.match(/<PRE>([^<]+)<\/PRE>/);
-                const wfMatch = itemMatch.match(/<WF>([^<]+)<\/WF>/);
-                const rnStMatch = itemMatch.match(/<RN_ST>([^<]+)<\/RN_ST>/);
-                const minMatch = itemMatch.match(/<MIN>([^<]+)<\/MIN>/);
-                const maxMatch = itemMatch.match(/<MAX>([^<]+)<\/MAX>/);
-                if (tmStMatch && tmEdMatch) {
-                    const startDate = tmStMatch[1].substring(0, 8); // YYYYMMDD
-                    const endDate = tmEdMatch[1].substring(0, 8);
-                    // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
-                    const formattedDate = `${startDate.substring(0, 4)}-${startDate.substring(4, 6)}-${startDate.substring(6, 8)}`;
-                    // 최저/최고 기온 처리
-                    let minTemp = 0;
-                    let maxTemp = 0;
-                    if (minMatch && minMatch[1] !== '-99' && minMatch[1].trim() !== '') {
-                        const tempValue = parseFloat(minMatch[1]);
-                        if (!isNaN(tempValue)) {
-                            minTemp = tempValue;
-                        }
-                    }
-                    if (maxMatch && maxMatch[1] !== '-99' && maxMatch[1].trim() !== '') {
-                        const tempValue = parseFloat(maxMatch[1]);
-                        if (!isNaN(tempValue)) {
-                            maxTemp = tempValue;
-                        }
-                    }
-                    // 강수확률 처리
-                    let precipitationProbability = '';
-                    if (rnStMatch && rnStMatch[1] !== '-99' && rnStMatch[1].trim() !== '') {
-                        const probValue = parseFloat(rnStMatch[1]);
-                        if (!isNaN(probValue)) {
-                            precipitationProbability = `${probValue}%`;
-                        }
-                    }
-                    forecasts.push({
-                        date: formattedDate,
-                        minTemp: minTemp,
-                        maxTemp: maxTemp,
-                        skyCondition: skyMatch ? (skyCodeMap[skyMatch[1]] || '알 수 없음') : '알 수 없음',
-                        precipitation: preMatch ? (precipitationCodeMap[preMatch[1]] || '없음') : '없음',
-                        precipitationProbability: precipitationProbability,
-                        forecast: wfMatch ? wfMatch[1].trim() : '예보 정보 없음'
-                    });
-                }
-            }
-            // 날짜순으로 정렬하고 중복 제거 (같은 날짜의 경우 첫 번째 항목만 유지)
-            const uniqueForecasts = forecasts.filter((forecast, index, self) => index === self.findIndex(f => f.date === forecast.date));
-            return uniqueForecasts.sort((a, b) => a.date.localeCompare(b.date));
-        }
-        catch (error) {
-            console.error('Error parsing medium-term forecast XML:', error);
-            return [];
-        }
-    }
-    /**
-     * 뉴스 정보를 가져옵니다 (네이버 뉴스 검색 API 사용)
-     */
-    async getNewsData(query = 'IT', count = 10) {
-        try {
-            const clientId = await this.configurationService.getNewsApiKey();
-            const clientSecret = await this.configurationService.getNewsApiSecret();
-            if (!clientId || !clientSecret) {
-                console.warn('Naver News API credentials not configured');
-                return [];
-            }
-            // 네이버 API는 한 번에 최대 100개까지 요청 가능하지만, 
-            // 실제로는 10-20개 정도가 적절한 응답 시간을 보장
-            const displayCount = Math.min(count, 20);
-            const response = await fetch(`https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(query)}&display=${displayCount}&sort=date`, {
-                headers: {
-                    'X-Naver-Client-Id': clientId,
-                    'X-Naver-Client-Secret': clientSecret
-                }
-            });
-            if (!response.ok) {
-                throw new Error(`Naver News API error: ${response.status}`);
-            }
-            const data = await response.json();
-            return data.items.map((item) => ({
-                title: this.decodeHtmlEntities(item.title),
-                description: this.decodeHtmlEntities(item.description),
-                url: item.link,
-                publishedAt: new Date(item.pubDate).toLocaleString('ko-KR'),
-                source: this.extractSourceFromUrl(item.originallink)
-            }));
-        }
-        catch (error) {
-            console.error('Error fetching news data:', error);
-            return [];
-        }
-    }
-    /**
-     * HTML 엔티티를 디코딩합니다 (네이버 API 응답에서 HTML 태그 제거)
-     */
-    decodeHtmlEntities(text) {
-        return text
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/<[^>]*>/g, '') // HTML 태그 제거
-            .trim();
-    }
-    /**
-     * URL에서 뉴스 소스를 추출합니다
-     */
-    extractSourceFromUrl(url) {
-        try {
-            const urlObj = new URL(url);
-            const hostname = urlObj.hostname;
-            // 주요 뉴스 사이트 매핑
-            const sourceMap = {
-                'news.naver.com': '네이버뉴스',
-                'www.chosun.com': '조선일보',
-                'www.donga.com': '동아일보',
-                'www.hani.co.kr': '한겨레',
-                'www.khan.co.kr': '경향신문',
-                'www.kyunghyang.com': '경향신문',
-                'www.mk.co.kr': '매일경제',
-                'www.hankyung.com': '한국경제',
-                'www.etnews.com': '전자신문',
-                'www.zdnet.co.kr': 'ZDNet Korea',
-                'www.itworld.co.kr': 'ITWorld',
-                'www.ciokorea.com': 'CIO Korea'
-            };
-            return sourceMap[hostname] || hostname.replace('www.', '');
-        }
-        catch {
-            return '알 수 없음';
-        }
-    }
-    /**
-     * 주식 정보를 가져옵니다 (Alpha Vantage API 사용)
-     */
-    async getStockData(symbol) {
-        try {
-            const apiKey = await this.configurationService.getStockApiKey();
-            if (!apiKey) {
-                console.warn('Stock API key not configured');
-                return null;
-            }
-            const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`);
-            if (!response.ok) {
-                throw new Error(`Stock API error: ${response.status}`);
-            }
-            const data = await response.json();
-            const quote = data['Global Quote'];
-            if (!quote) {
-                throw new Error('No stock data found');
-            }
-            return {
-                symbol: quote['01. symbol'],
-                price: parseFloat(quote['05. price']),
-                change: parseFloat(quote['09. change']),
-                changePercent: parseFloat(quote['10. change percent'].replace('%', '')),
-                volume: parseInt(quote['06. volume'])
-            };
-        }
-        catch (error) {
-            console.error('Error fetching stock data:', error);
-            return null;
-        }
-    }
-    /**
-     * 여러 주식 정보를 한 번에 가져옵니다
-     */
-    async getMultipleStockData(symbols) {
-        const stockData = [];
-        for (const symbol of symbols) {
-            const data = await this.getStockData(symbol);
-            if (data) {
-                stockData.push(data);
-            }
-            // API 호출 제한을 위해 잠시 대기
-            await new Promise(resolve => setTimeout(resolve, 200));
-        }
-        return stockData;
-    }
-    /**
-     * 실시간 정보 요약을 생성합니다
-     */
-    async getRealTimeSummary(weatherCity, newsQuery, stockSymbols) {
-        let summary = '## 실시간 정보 요약\n\n';
-        // 날씨 정보
-        if (weatherCity) {
-            const weather = await this.getWeatherData(weatherCity);
-            if (weather) {
-                summary += `### 🌤️ ${weather.location} 날씨\n`;
-                summary += `- 온도: ${weather.temperatureText}\n`;
-                summary += `- 날씨: ${weather.forecast}\n`;
-                summary += `- 하늘상태: ${weather.skyCondition}\n`;
-                summary += `- 강수: ${weather.precipitation}\n`;
-                summary += `- 풍향: ${weather.windDirection}\n\n`;
-            }
-        }
-        // 뉴스 정보
-        if (newsQuery) {
-            const news = await this.getNewsData(newsQuery, 3);
-            if (news.length > 0) {
-                summary += `### 📰 ${newsQuery} 관련 뉴스\n`;
-                news.forEach((item, index) => {
-                    summary += `${index + 1}. **${item.title}**\n`;
-                    summary += `   - ${item.description}\n`;
-                    summary += `   - 출처: ${item.source} (${item.publishedAt})\n\n`;
-                });
-            }
-        }
-        // 주식 정보
-        if (stockSymbols && stockSymbols.length > 0) {
-            const stocks = await this.getMultipleStockData(stockSymbols);
-            if (stocks.length > 0) {
-                summary += `### 📈 주식 정보\n`;
-                stocks.forEach(stock => {
-                    const changeIcon = stock.change >= 0 ? '📈' : '📉';
-                    summary += `- **${stock.symbol}**: $${stock.price.toFixed(2)} `;
-                    summary += `${changeIcon} ${stock.change >= 0 ? '+' : ''}${stock.change.toFixed(2)} `;
-                    summary += `(${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%)\n`;
-                });
-                summary += '\n';
-            }
-        }
-        return summary;
-    }
-}
-exports.ExternalApiService = ExternalApiService;
 
 
 /***/ }),
@@ -14577,6 +13904,8 @@ class TerminalMonitorService {
     activeTerminals = new Set();
     monitoringInterval = null;
     lastTerminalCount = 0;
+    onErrorEmitter = new vscode.EventEmitter();
+    onError = this.onErrorEmitter.event;
     constructor(notificationService) {
         this.notificationService = notificationService;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Monitor');
@@ -14801,8 +14130,10 @@ class TerminalMonitorService {
     processTerminalOutput(terminalName, data) {
         if (!this.isMonitoring)
             return;
+        console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
         const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(data);
         const level = isErrorLike ? 'error' : 'info';
+        console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
         const logEntry = {
             timestamp: Date.now(),
             level,
@@ -14814,12 +14145,31 @@ class TerminalMonitorService {
         // 출력 채널에도 즉시 기록
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
         const hasErr = this.checkForErrors(data);
+        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
         if (isErrorLike || hasErr) {
+            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
             // 에러가 감지되면 출력 채널 노출
             try {
                 this.outputChannel.show(true);
             }
             catch { }
+            try {
+                const recent = this.getRecentErrors(30);
+                console.log(`[TerminalMonitorService] Recent errors:`, recent);
+                this.onErrorEmitter.fire({
+                    time: Date.now(),
+                    source: terminalName,
+                    message: data.trim(),
+                    recentLogs: recent
+                });
+                console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
+            }
+            catch (e) {
+                console.warn('[TerminalMonitorService] onError emit failed:', e);
+            }
+        }
+        else {
+            console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
         }
     }
     /**
@@ -14872,14 +14222,23 @@ class TerminalMonitorService {
      * @param errors 발견된 에러들
      */
     handleErrors(errors) {
+        console.log(`[TerminalMonitorService] handleErrors called with ${errors.length} errors:`, errors);
         const criticalErrors = errors.filter(e => e.severity === 'critical');
         const highErrors = errors.filter(e => e.severity === 'high');
         const mediumErrors = errors.filter(e => e.severity === 'medium');
         if (criticalErrors.length > 0) {
             this.notificationService.showErrorMessage(`치명적 에러 발견: ${criticalErrors.map(e => e.pattern).join(', ')}`);
+            try {
+                console.error('[TerminalMonitorService] Critical errors:', criticalErrors);
+            }
+            catch { }
         }
         else if (highErrors.length > 0) {
             this.notificationService.showWarningMessage(`높은 심각도 에러 발견: ${highErrors.map(e => e.pattern).join(', ')}`);
+            try {
+                console.error('[TerminalMonitorService] High severity errors:', highErrors);
+            }
+            catch { }
         }
         else if (mediumErrors.length > 0) {
             console.log(`[TerminalMonitorService] 중간 심각도 에러: ${mediumErrors.map(e => e.pattern).join(', ')}`);
@@ -14889,6 +14248,28 @@ class TerminalMonitorService {
         errors.forEach(error => {
             this.outputChannel.appendLine(`  - ${error.pattern} (${error.severity}): ${error.description}`);
         });
+        // Fire onError event for all detected errors
+        if (errors.length > 0) {
+            console.log(`[TerminalMonitorService] Firing onError event with ${errors.length} errors`);
+            try {
+                const recentLogs = this.getRecentErrors(30);
+                const errorEvent = {
+                    time: Date.now(),
+                    source: 'terminal',
+                    message: errors.map(e => `${e.pattern}: ${e.description}`).join('; '),
+                    recentLogs: recentLogs
+                };
+                console.log(`[TerminalMonitorService] Error event to fire:`, errorEvent);
+                this.onErrorEmitter.fire(errorEvent);
+                console.log(`[TerminalMonitorService] onError event fired successfully`);
+            }
+            catch (e) {
+                console.warn('[TerminalMonitorService] onError fire failed:', e);
+            }
+        }
+        else {
+            console.log(`[TerminalMonitorService] No errors to fire onError event`);
+        }
     }
     /**
      * 특정 에러 패턴이 있는지 확인합니다.
@@ -14921,6 +14302,13 @@ class TerminalMonitorService {
     getRecentLogs(seconds) {
         const cutoffTime = Date.now() - (seconds * 1000);
         return this.logEntries.filter(log => log.timestamp >= cutoffTime);
+    }
+    /**
+     * 최근 에러 로그만 반환합니다.
+     */
+    getRecentErrors(seconds) {
+        const cutoffTime = Date.now() - (seconds * 1000);
+        return this.logEntries.filter(log => log.timestamp >= cutoffTime && log.level === 'error');
     }
     /**
      * 모든 로그를 가져옵니다.
@@ -15849,7 +15237,7 @@ const vscode = __importStar(__webpack_require__(1));
 const http = __importStar(__webpack_require__(53));
 const https = __importStar(__webpack_require__(54));
 const url_1 = __webpack_require__(55);
-const externalApiService_1 = __webpack_require__(45);
+const externalApiService_1 = __webpack_require__(56);
 const types_1 = __webpack_require__(39);
 class OllamaApi {
     apiUrl;
@@ -16290,6 +15678,475 @@ module.exports = require("url");
 
 /***/ }),
 /* 56 */
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ExternalApiService = void 0;
+class ExternalApiService {
+    configurationService;
+    constructor(configurationService) {
+        this.configurationService = configurationService;
+    }
+    /**
+     * 날씨 정보를 가져옵니다 (기상청 육상예보 API + 중기예보 API 사용)
+     */
+    async getWeatherData(city) {
+        try {
+            const apiKey = await this.configurationService.getWeatherApiKey();
+            if (!apiKey) {
+                console.warn('Weather API key not configured');
+                return null;
+            }
+            // 도시명을 기상청 육상예보 지역코드로 매핑
+            const cityCodeMap = {
+                '서울': '11B10101',
+                '부산': '11H20201',
+                '대구': '11H10701',
+                '인천': '11B20201',
+                '광주': '11F20501',
+                '대전': '11C20401',
+                '울산': '11H20101',
+                '세종': '11C20404',
+                '수원': '11B20601',
+                '고양': '11B20301',
+                '용인': '11B20602',
+                '창원': '11H20301',
+                '포항': '11H20201',
+                '춘천': '11D10101',
+                '강릉': '11D10201',
+                '청주': '11C10301',
+                '전주': '11F10201',
+                '순천': '11F20401',
+                '목포': '11F20301',
+                '여수': '11F20401',
+                '제주': '11G00201',
+                '백령도': '11A00101'
+            };
+            const regId = cityCodeMap[city] || '11B10101'; // 기본값은 서울
+            // 육상예보 API 사용 (기온 정보 포함)
+            const response = await fetch(`https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getLandFcst?pageNo=1&numOfRows=10&dataType=XML&regId=${regId}&authKey=${apiKey}`);
+            if (!response.ok) {
+                throw new Error(`Weather API error: ${response.status}`);
+            }
+            // XML 응답 파싱
+            const xmlText = await response.text();
+            console.log('Weather API response preview:', xmlText.substring(0, 300));
+            const weatherData = this.parseWeatherXmlResponse(xmlText);
+            if (!weatherData) {
+                throw new Error('No weather data found in XML response');
+            }
+            console.log('Parsed weather data:', weatherData);
+            // 날씨코드를 텍스트로 변환
+            const weatherCodeMap = {
+                'DB01': '맑음',
+                'DB02': '구름조금',
+                'DB03': '구름많음',
+                'DB04': '흐림'
+            };
+            // 강수형태 코드를 텍스트로 변환
+            const precipitationMap = {
+                '0': '없음',
+                '1': '비',
+                '2': '비/눈',
+                '3': '눈',
+                '4': '눈/비'
+            };
+            // 풍향을 16방위로 변환
+            const windDirectionMap = {
+                'N': '북', 'NNE': '북북동', 'NE': '북동', 'ENE': '동북동',
+                'E': '동', 'ESE': '동남동', 'SE': '남동', 'SSE': '남남동',
+                'S': '남', 'SSW': '남남서', 'SW': '남서', 'WSW': '서남서',
+                'W': '서', 'WNW': '서북서', 'NW': '북서', 'NNW': '북북서'
+            };
+            const windDirection = windDirectionMap[weatherData.wd1] || weatherData.wd1 || '알 수 없음';
+            const skyCondition = weatherCodeMap[weatherData.wfCd] || '알 수 없음';
+            const precipitation = precipitationMap[weatherData.rnYn] || '없음';
+            // 기온 처리
+            let temperature = 0;
+            let temperatureText = '정보 없음';
+            if (weatherData.ta && weatherData.ta !== '-99' && weatherData.ta.trim() !== '') {
+                const tempValue = parseFloat(weatherData.ta);
+                if (!isNaN(tempValue)) {
+                    temperature = tempValue;
+                    temperatureText = `${tempValue}°C`;
+                }
+            }
+            // 강수확률 처리
+            let precipitationProbability = '';
+            if (weatherData.rnSt && weatherData.rnSt !== '-99' && weatherData.rnSt.trim() !== '') {
+                const probValue = parseFloat(weatherData.rnSt);
+                if (!isNaN(probValue)) {
+                    precipitationProbability = `${probValue}%`;
+                }
+            }
+            // 풍속 처리 (육상예보 API에서는 풍속 정보가 제한적)
+            let windSpeed = 0;
+            let windSpeedText = '';
+            if (weatherData.wsIt && weatherData.wsIt !== '-99' && weatherData.wsIt.trim() !== '') {
+                // 풍속 강도코드를 텍스트로 변환
+                const windSpeedMap = {
+                    '0': '약함',
+                    '1': '약함',
+                    '2': '보통',
+                    '3': '강함',
+                    '4': '매우강함'
+                };
+                windSpeedText = windSpeedMap[weatherData.wsIt] || '알 수 없음';
+            }
+            // 중기 예보 데이터 가져오기
+            let mediumTermForecast = [];
+            try {
+                const mediumTermData = await this.getMediumTermForecast(regId, apiKey);
+                if (mediumTermData && mediumTermData.length > 0) {
+                    mediumTermForecast = mediumTermData;
+                }
+            }
+            catch (error) {
+                console.warn('Failed to fetch medium-term forecast:', error);
+                // 중기 예보 실패해도 단기 예보는 계속 진행
+            }
+            return {
+                location: city,
+                temperature: temperature,
+                description: weatherData.wf || '날씨 정보 없음',
+                humidity: 0, // 기상청 API에는 습도 정보가 없음
+                windSpeed: windSpeed,
+                windDirection: windDirection,
+                precipitation: precipitation,
+                skyCondition: skyCondition,
+                forecast: weatherData.wf || '예보 정보 없음',
+                temperatureText: temperatureText,
+                precipitationProbability: precipitationProbability,
+                windSpeedText: windSpeedText,
+                waveHeight: '', // 육상예보에는 파고 정보가 없음
+                mediumTermForecast: mediumTermForecast
+            };
+        }
+        catch (error) {
+            console.error('Error fetching weather data:', error);
+            return null;
+        }
+    }
+    /**
+     * 기상청 육상예보 API의 XML 응답을 파싱합니다
+     */
+    parseWeatherXmlResponse(xmlText) {
+        try {
+            // 간단한 XML 파싱 (정규식 사용)
+            const wd1Match = xmlText.match(/<wd1>([^<]+)<\/wd1>/);
+            const wd2Match = xmlText.match(/<wd2>([^<]+)<\/wd2>/);
+            const taMatch = xmlText.match(/<ta>([^<]+)<\/ta>/);
+            const rnStMatch = xmlText.match(/<rnSt>([^<]+)<\/rnSt>/);
+            const wfMatch = xmlText.match(/<wf>([^<]+)<\/wf>/);
+            const wfCdMatch = xmlText.match(/<wfCd>([^<]+)<\/wfCd>/);
+            const rnYnMatch = xmlText.match(/<rnYn>([^<]+)<\/rnYn>/);
+            const wsItMatch = xmlText.match(/<wsIt>([^<]+)<\/wsIt>/);
+            if (!taMatch && !wfMatch) {
+                console.error('No weather data found in XML response');
+                return null;
+            }
+            return {
+                wd1: wd1Match ? wd1Match[1].trim() : '',
+                wd2: wd2Match ? wd2Match[1].trim() : '',
+                ta: taMatch ? taMatch[1].trim() : '',
+                rnSt: rnStMatch ? rnStMatch[1].trim() : '',
+                wf: wfMatch ? wfMatch[1].trim() : '',
+                wfCd: wfCdMatch ? wfCdMatch[1].trim() : '',
+                rnYn: rnYnMatch ? rnYnMatch[1].trim() : '',
+                wsIt: wsItMatch ? wsItMatch[1].trim() : ''
+            };
+        }
+        catch (error) {
+            console.error('Error parsing weather XML response:', error);
+            return null;
+        }
+    }
+    /**
+     * 기상청 중기 예보 데이터를 가져옵니다
+     */
+    async getMediumTermForecast(regId, apiKey) {
+        try {
+            // 현재 날짜 기준으로 내일부터 7일간의 예보 요청
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(today.getDate() + 1);
+            const tmef1 = tomorrow.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+            const tmef2 = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, ''); // 7일 후
+            const response = await fetch(`https://apihub.kma.go.kr/api/typ01/url/fct_afs_wc.php?reg=${regId}&tmef1=${tmef1}&tmef2=${tmef2}&disp=0&help=0&authKey=${apiKey}`);
+            if (!response.ok) {
+                throw new Error(`Medium-term forecast API error: ${response.status}`);
+            }
+            const xmlText = await response.text();
+            console.log('Medium-term forecast API response preview:', xmlText.substring(0, 300));
+            return this.parseMediumTermForecastXml(xmlText);
+        }
+        catch (error) {
+            console.error('Error fetching medium-term forecast:', error);
+            return [];
+        }
+    }
+    /**
+     * 기상청 중기 예보 XML 응답을 파싱합니다
+     */
+    parseMediumTermForecastXml(xmlText) {
+        try {
+            const forecasts = [];
+            // XML에서 각 예보 항목을 추출
+            const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/g);
+            if (!itemMatches) {
+                console.warn('No forecast items found in medium-term forecast XML');
+                return [];
+            }
+            // 하늘상태 코드 매핑
+            const skyCodeMap = {
+                'WB01': '맑음',
+                'WB02': '구름조금',
+                'WB03': '구름많음',
+                'WB04': '흐림'
+            };
+            // 강수 코드 매핑
+            const precipitationCodeMap = {
+                'WB09': '비',
+                'WB11': '비/눈',
+                'WB13': '눈/비',
+                'WB12': '눈'
+            };
+            for (const itemMatch of itemMatches) {
+                // 각 필드 추출
+                const tmStMatch = itemMatch.match(/<TM_ST>([^<]+)<\/TM_ST>/);
+                const tmEdMatch = itemMatch.match(/<TM_ED>([^<]+)<\/TM_ED>/);
+                const skyMatch = itemMatch.match(/<SKY>([^<]+)<\/SKY>/);
+                const preMatch = itemMatch.match(/<PRE>([^<]+)<\/PRE>/);
+                const wfMatch = itemMatch.match(/<WF>([^<]+)<\/WF>/);
+                const rnStMatch = itemMatch.match(/<RN_ST>([^<]+)<\/RN_ST>/);
+                const minMatch = itemMatch.match(/<MIN>([^<]+)<\/MIN>/);
+                const maxMatch = itemMatch.match(/<MAX>([^<]+)<\/MAX>/);
+                if (tmStMatch && tmEdMatch) {
+                    const startDate = tmStMatch[1].substring(0, 8); // YYYYMMDD
+                    const endDate = tmEdMatch[1].substring(0, 8);
+                    // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
+                    const formattedDate = `${startDate.substring(0, 4)}-${startDate.substring(4, 6)}-${startDate.substring(6, 8)}`;
+                    // 최저/최고 기온 처리
+                    let minTemp = 0;
+                    let maxTemp = 0;
+                    if (minMatch && minMatch[1] !== '-99' && minMatch[1].trim() !== '') {
+                        const tempValue = parseFloat(minMatch[1]);
+                        if (!isNaN(tempValue)) {
+                            minTemp = tempValue;
+                        }
+                    }
+                    if (maxMatch && maxMatch[1] !== '-99' && maxMatch[1].trim() !== '') {
+                        const tempValue = parseFloat(maxMatch[1]);
+                        if (!isNaN(tempValue)) {
+                            maxTemp = tempValue;
+                        }
+                    }
+                    // 강수확률 처리
+                    let precipitationProbability = '';
+                    if (rnStMatch && rnStMatch[1] !== '-99' && rnStMatch[1].trim() !== '') {
+                        const probValue = parseFloat(rnStMatch[1]);
+                        if (!isNaN(probValue)) {
+                            precipitationProbability = `${probValue}%`;
+                        }
+                    }
+                    forecasts.push({
+                        date: formattedDate,
+                        minTemp: minTemp,
+                        maxTemp: maxTemp,
+                        skyCondition: skyMatch ? (skyCodeMap[skyMatch[1]] || '알 수 없음') : '알 수 없음',
+                        precipitation: preMatch ? (precipitationCodeMap[preMatch[1]] || '없음') : '없음',
+                        precipitationProbability: precipitationProbability,
+                        forecast: wfMatch ? wfMatch[1].trim() : '예보 정보 없음'
+                    });
+                }
+            }
+            // 날짜순으로 정렬하고 중복 제거 (같은 날짜의 경우 첫 번째 항목만 유지)
+            const uniqueForecasts = forecasts.filter((forecast, index, self) => index === self.findIndex(f => f.date === forecast.date));
+            return uniqueForecasts.sort((a, b) => a.date.localeCompare(b.date));
+        }
+        catch (error) {
+            console.error('Error parsing medium-term forecast XML:', error);
+            return [];
+        }
+    }
+    /**
+     * 뉴스 정보를 가져옵니다 (네이버 뉴스 검색 API 사용)
+     */
+    async getNewsData(query = 'IT', count = 10) {
+        try {
+            const clientId = await this.configurationService.getNewsApiKey();
+            const clientSecret = await this.configurationService.getNewsApiSecret();
+            if (!clientId || !clientSecret) {
+                console.warn('Naver News API credentials not configured');
+                return [];
+            }
+            // 네이버 API는 한 번에 최대 100개까지 요청 가능하지만, 
+            // 실제로는 10-20개 정도가 적절한 응답 시간을 보장
+            const displayCount = Math.min(count, 20);
+            const response = await fetch(`https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(query)}&display=${displayCount}&sort=date`, {
+                headers: {
+                    'X-Naver-Client-Id': clientId,
+                    'X-Naver-Client-Secret': clientSecret
+                }
+            });
+            if (!response.ok) {
+                throw new Error(`Naver News API error: ${response.status}`);
+            }
+            const data = await response.json();
+            return data.items.map((item) => ({
+                title: this.decodeHtmlEntities(item.title),
+                description: this.decodeHtmlEntities(item.description),
+                url: item.link,
+                publishedAt: new Date(item.pubDate).toLocaleString('ko-KR'),
+                source: this.extractSourceFromUrl(item.originallink)
+            }));
+        }
+        catch (error) {
+            console.error('Error fetching news data:', error);
+            return [];
+        }
+    }
+    /**
+     * HTML 엔티티를 디코딩합니다 (네이버 API 응답에서 HTML 태그 제거)
+     */
+    decodeHtmlEntities(text) {
+        return text
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/<[^>]*>/g, '') // HTML 태그 제거
+            .trim();
+    }
+    /**
+     * URL에서 뉴스 소스를 추출합니다
+     */
+    extractSourceFromUrl(url) {
+        try {
+            const urlObj = new URL(url);
+            const hostname = urlObj.hostname;
+            // 주요 뉴스 사이트 매핑
+            const sourceMap = {
+                'news.naver.com': '네이버뉴스',
+                'www.chosun.com': '조선일보',
+                'www.donga.com': '동아일보',
+                'www.hani.co.kr': '한겨레',
+                'www.khan.co.kr': '경향신문',
+                'www.kyunghyang.com': '경향신문',
+                'www.mk.co.kr': '매일경제',
+                'www.hankyung.com': '한국경제',
+                'www.etnews.com': '전자신문',
+                'www.zdnet.co.kr': 'ZDNet Korea',
+                'www.itworld.co.kr': 'ITWorld',
+                'www.ciokorea.com': 'CIO Korea'
+            };
+            return sourceMap[hostname] || hostname.replace('www.', '');
+        }
+        catch {
+            return '알 수 없음';
+        }
+    }
+    /**
+     * 주식 정보를 가져옵니다 (Alpha Vantage API 사용)
+     */
+    async getStockData(symbol) {
+        try {
+            const apiKey = await this.configurationService.getStockApiKey();
+            if (!apiKey) {
+                console.warn('Stock API key not configured');
+                return null;
+            }
+            const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`);
+            if (!response.ok) {
+                throw new Error(`Stock API error: ${response.status}`);
+            }
+            const data = await response.json();
+            const quote = data['Global Quote'];
+            if (!quote) {
+                throw new Error('No stock data found');
+            }
+            return {
+                symbol: quote['01. symbol'],
+                price: parseFloat(quote['05. price']),
+                change: parseFloat(quote['09. change']),
+                changePercent: parseFloat(quote['10. change percent'].replace('%', '')),
+                volume: parseInt(quote['06. volume'])
+            };
+        }
+        catch (error) {
+            console.error('Error fetching stock data:', error);
+            return null;
+        }
+    }
+    /**
+     * 여러 주식 정보를 한 번에 가져옵니다
+     */
+    async getMultipleStockData(symbols) {
+        const stockData = [];
+        for (const symbol of symbols) {
+            const data = await this.getStockData(symbol);
+            if (data) {
+                stockData.push(data);
+            }
+            // API 호출 제한을 위해 잠시 대기
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        return stockData;
+    }
+    /**
+     * 실시간 정보 요약을 생성합니다
+     */
+    async getRealTimeSummary(weatherCity, newsQuery, stockSymbols) {
+        let summary = '## 실시간 정보 요약\n\n';
+        // 날씨 정보
+        if (weatherCity) {
+            const weather = await this.getWeatherData(weatherCity);
+            if (weather) {
+                summary += `### 🌤️ ${weather.location} 날씨\n`;
+                summary += `- 온도: ${weather.temperatureText}\n`;
+                summary += `- 날씨: ${weather.forecast}\n`;
+                summary += `- 하늘상태: ${weather.skyCondition}\n`;
+                summary += `- 강수: ${weather.precipitation}\n`;
+                summary += `- 풍향: ${weather.windDirection}\n\n`;
+            }
+        }
+        // 뉴스 정보
+        if (newsQuery) {
+            const news = await this.getNewsData(newsQuery, 3);
+            if (news.length > 0) {
+                summary += `### 📰 ${newsQuery} 관련 뉴스\n`;
+                news.forEach((item, index) => {
+                    summary += `${index + 1}. **${item.title}**\n`;
+                    summary += `   - ${item.description}\n`;
+                    summary += `   - 출처: ${item.source} (${item.publishedAt})\n\n`;
+                });
+            }
+        }
+        // 주식 정보
+        if (stockSymbols && stockSymbols.length > 0) {
+            const stocks = await this.getMultipleStockData(stockSymbols);
+            if (stocks.length > 0) {
+                summary += `### 📈 주식 정보\n`;
+                stocks.forEach(stock => {
+                    const changeIcon = stock.change >= 0 ? '📈' : '📉';
+                    summary += `- **${stock.symbol}**: $${stock.price.toFixed(2)} `;
+                    summary += `${changeIcon} ${stock.change >= 0 ? '+' : ''}${stock.change.toFixed(2)} `;
+                    summary += `(${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%)\n`;
+                });
+                summary += '\n';
+            }
+        }
+        return summary;
+    }
+}
+exports.ExternalApiService = ExternalApiService;
+
+
+/***/ }),
+/* 57 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -16397,7 +16254,7 @@ class ChatViewProvider {
                         return;
                     }
                     // 시리얼 번호 검증 (ollama-blocker 방식)
-                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 59))).LicenseService();
+                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 63))).LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
@@ -16491,7 +16348,15 @@ class ChatViewProvider {
         webviewView.onDidDispose(() => {
             console.log('[ChatViewProvider] Chat view disposed');
             this._view = undefined;
+            try {
+                this.llmService.setChatWebview(undefined);
+            }
+            catch { }
         }, null, this.context.subscriptions);
+        try {
+            this.llmService.setChatWebview(webviewView.webview);
+        }
+        catch { }
     }
     async openFilePicker(webview) {
         try {
@@ -16550,7 +16415,7 @@ exports.ChatViewProvider = ChatViewProvider;
 
 
 /***/ }),
-/* 57 */
+/* 58 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -16656,7 +16521,7 @@ class AskViewProvider {
                         return;
                     }
                     // 시리얼 번호 검증 (ollama-blocker 방식)
-                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 59))).LicenseService();
+                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 63))).LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
@@ -16687,7 +16552,15 @@ class AskViewProvider {
         webviewView.onDidDispose(() => {
             console.log('[AskViewProvider] Ask view disposed');
             this._view = undefined;
+            try {
+                this.llmService.setAskWebview(undefined);
+            }
+            catch { }
         }, null, this.context.subscriptions);
+        try {
+            this.llmService.setAskWebview(webviewView.webview);
+        }
+        catch { }
     }
     async openFilePicker(webview) {
         try {
@@ -16746,7 +16619,7 @@ exports.AskViewProvider = AskViewProvider;
 
 
 /***/ }),
-/* 58 */
+/* 59 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -16789,6 +16662,7 @@ exports.openSettingsPanel = openSettingsPanel;
 exports.openLicensePanel = openLicensePanel;
 const vscode = __importStar(__webpack_require__(1));
 const panelUtils_1 = __webpack_require__(40);
+const terminalDaemonService_1 = __webpack_require__(60);
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews = [];
 /**
@@ -16808,8 +16682,32 @@ ollamaBlockerService // OllamaBlockerService 추가
                 panel.webview.postMessage({
                     command: 'currentSettings',
                     autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
-                    projectRoot: await configurationService.getProjectRoot()
+                    projectRoot: await configurationService.getProjectRoot(),
+                    terminalDaemonEnabled: await configurationService.isTerminalDaemonEnabled()
                 });
+                break;
+            case 'setTerminalDaemonEnabled':
+                if (typeof data.enabled === 'boolean') {
+                    await configurationService.updateTerminalDaemonEnabled(data.enabled);
+                    try {
+                        const tds = terminalDaemonService_1.TerminalDaemonService.getInstance(context);
+                        const isInstalled = await tds.isInstalled();
+                        if (!isInstalled) {
+                            await tds.install();
+                        }
+                        if (data.enabled) {
+                            await tds.start();
+                            tds.showLogs();
+                        }
+                        else {
+                            await tds.stop();
+                        }
+                    }
+                    catch (e) {
+                        console.error('[PanelManager] terminal-daemon 토글 처리 중 오류:', e);
+                    }
+                    panel.webview.postMessage({ command: 'terminalDaemonStatusChanged', enabled: data.enabled });
+                }
                 break;
             case 'setAutoUpdate':
                 if (typeof data.enabled === 'boolean') {
@@ -17410,15 +17308,184 @@ configurationService // ConfigurationService 주입
 
 
 /***/ }),
-/* 59 */
+/* 60 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TerminalDaemonService = void 0;
+const vscode = __importStar(__webpack_require__(1));
+const path = __importStar(__webpack_require__(10));
+const fs = __importStar(__webpack_require__(25));
+const os = __importStar(__webpack_require__(61));
+const child_process_1 = __webpack_require__(43);
+const util_1 = __webpack_require__(62);
+const execAsync = (0, util_1.promisify)(child_process_1.exec);
+class TerminalDaemonService {
+    static instance;
+    extensionContext;
+    processRef = null;
+    socketPath = path.join(os.tmpdir(), 'terminal-daemon.sock');
+    outputChannel;
+    constructor(context) {
+        this.extensionContext = context;
+        this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Daemon');
+    }
+    static getInstance(context) {
+        if (!TerminalDaemonService.instance) {
+            TerminalDaemonService.instance = new TerminalDaemonService(context);
+        }
+        return TerminalDaemonService.instance;
+    }
+    getSocketPath() {
+        return this.socketPath;
+    }
+    getDaemonPath() {
+        const debugPath = path.join(this.extensionContext.extensionPath, '..', 'terminal-daemon', 'bin', 'terminal-daemon');
+        const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'terminal-daemon', 'terminal-daemon');
+        if (fs.existsSync(debugPath)) {
+            return debugPath;
+        }
+        return releasePath;
+    }
+    async isInstalled() {
+        try {
+            const p = this.getDaemonPath();
+            return fs.existsSync(p);
+        }
+        catch {
+            return false;
+        }
+    }
+    async install() {
+        const p = this.getDaemonPath();
+        if (!fs.existsSync(p)) {
+            return { success: false, message: 'terminal-daemon 바이너리를 찾을 수 없습니다.' };
+        }
+        await execAsync(`chmod +x "${p}"`);
+        return { success: true, message: 'terminal-daemon 설치 완료' };
+    }
+    async start() {
+        if (this.processRef) {
+            return { success: false, message: 'terminal-daemon 이미 실행 중' };
+        }
+        const p = this.getDaemonPath();
+        if (!fs.existsSync(p)) {
+            return { success: false, message: `바이너리를 찾을 수 없음: ${p}` };
+        }
+        // 기존 소켓 제거
+        try {
+            fs.unlinkSync(this.socketPath);
+        }
+        catch { }
+        this.outputChannel.appendLine(`[INFO] Starting terminal-daemon: ${p} --socket ${this.socketPath}`);
+        const child = (0, child_process_1.spawn)(p, ['--socket', this.socketPath], { cwd: os.tmpdir() });
+        this.processRef = child;
+        child.stdout.on('data', (data) => {
+            const text = data.toString();
+            this.outputChannel.appendLine(`[STDOUT] ${text.trimEnd()}`);
+            console.log('[TerminalDaemonService] daemon stdout:', text);
+        });
+        child.stderr.on('data', (data) => {
+            const text = data.toString();
+            this.outputChannel.appendLine(`[STDERR] ${text.trimEnd()}`);
+            console.error('[TerminalDaemonService] daemon stderr:', text);
+            this.outputChannel.show(true);
+        });
+        child.on('close', (code) => {
+            this.outputChannel.appendLine(`[INFO] terminal-daemon exited with code ${code}`);
+            this.processRef = null;
+        });
+        child.on('error', (err) => {
+            this.outputChannel.appendLine(`[ERROR] Failed to start terminal-daemon: ${err.message}`);
+            console.error('[TerminalDaemonService] daemon error:', err);
+            this.outputChannel.show(true);
+        });
+        return { success: true, message: 'terminal-daemon 시작됨' };
+    }
+    async stop() {
+        if (!this.processRef) {
+            return { success: false, message: 'terminal-daemon 실행 중이 아님' };
+        }
+        this.processRef.kill();
+        this.processRef = null;
+        try {
+            fs.unlinkSync(this.socketPath);
+        }
+        catch { }
+        this.outputChannel.appendLine('[INFO] terminal-daemon stopped');
+        return { success: true, message: 'terminal-daemon 중지됨' };
+    }
+    async getStatus() {
+        const running = !!this.processRef;
+        const exists = fs.existsSync(this.socketPath);
+        return { running, message: exists ? 'socket ready' : 'socket not found', socket: this.socketPath };
+    }
+    showLogs() {
+        this.outputChannel.show(true);
+    }
+}
+exports.TerminalDaemonService = TerminalDaemonService;
+
+
+/***/ }),
+/* 61 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 62 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("util");
+
+/***/ }),
+/* 63 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LicenseService = void 0;
-const app_1 = __webpack_require__(60);
-const firestore_1 = __webpack_require__(68);
+const app_1 = __webpack_require__(64);
+const firestore_1 = __webpack_require__(72);
 // Firebase 설정 (ollama-blocker와 동일한 프로젝트)
 const firebaseConfig = {
     projectId: "aidev-ass"
@@ -17573,7 +17640,7 @@ exports.LicenseService = LicenseService;
 
 
 /***/ }),
-/* 60 */
+/* 64 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -17581,7 +17648,7 @@ exports.LicenseService = LicenseService;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var app = __webpack_require__(61);
+var app = __webpack_require__(65);
 
 var name = "firebase";
 var version = "10.14.1";
@@ -17614,7 +17681,7 @@ Object.keys(app).forEach(function (k) {
 
 
 /***/ }),
-/* 61 */
+/* 65 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -17622,11 +17689,11 @@ Object.keys(app).forEach(function (k) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var component = __webpack_require__(62);
-var tslib = __webpack_require__(63);
-var logger$1 = __webpack_require__(65);
-var util = __webpack_require__(64);
-var idb = __webpack_require__(66);
+var component = __webpack_require__(66);
+var tslib = __webpack_require__(67);
+var logger$1 = __webpack_require__(69);
+var util = __webpack_require__(68);
+var idb = __webpack_require__(70);
 
 /**
  * @license
@@ -19007,7 +19074,7 @@ exports.setLogLevel = setLogLevel;
 
 
 /***/ }),
-/* 62 */
+/* 66 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -19015,8 +19082,8 @@ exports.setLogLevel = setLogLevel;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var tslib = __webpack_require__(63);
-var util = __webpack_require__(64);
+var tslib = __webpack_require__(67);
+var util = __webpack_require__(68);
 
 /**
  * Component for service name T, e.g. `auth`, `auth-internal`
@@ -19480,7 +19547,7 @@ exports.Provider = Provider;
 
 
 /***/ }),
-/* 63 */
+/* 67 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -19924,7 +19991,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 
 
 /***/ }),
-/* 64 */
+/* 68 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -19932,7 +19999,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var tslib = __webpack_require__(63);
+var tslib = __webpack_require__(67);
 
 /**
  * @license
@@ -22150,7 +22217,7 @@ exports.validateNamespace = validateNamespace;
 
 
 /***/ }),
-/* 65 */
+/* 69 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -22158,7 +22225,7 @@ exports.validateNamespace = validateNamespace;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var tslib = __webpack_require__(63);
+var tslib = __webpack_require__(67);
 
 /**
  * @license
@@ -22429,7 +22496,7 @@ exports.setUserLogHandler = setUserLogHandler;
 
 
 /***/ }),
-/* 66 */
+/* 70 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -22440,7 +22507,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   unwrap: () => (/* reexport safe */ _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__.u),
 /* harmony export */   wrap: () => (/* reexport safe */ _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__.w)
 /* harmony export */ });
-/* harmony import */ var _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(67);
+/* harmony import */ var _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(71);
 
 
 
@@ -22539,7 +22606,7 @@ function getMethod(target, prop) {
 
 
 /***/ }),
-/* 67 */
+/* 71 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -22739,7 +22806,7 @@ const unwrap = (value) => reverseTransformCache.get(value);
 
 
 /***/ }),
-/* 68 */
+/* 72 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -22747,7 +22814,7 @@ const unwrap = (value) => reverseTransformCache.get(value);
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var firestore = __webpack_require__(69);
+var firestore = __webpack_require__(73);
 
 
 
@@ -22761,7 +22828,7 @@ Object.keys(firestore).forEach(function (k) {
 
 
 /***/ }),
-/* 69 */
+/* 73 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -22769,15 +22836,15 @@ Object.keys(firestore).forEach(function (k) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var app = __webpack_require__(61);
-var component = __webpack_require__(62);
-var logger = __webpack_require__(65);
-var util$1 = __webpack_require__(70);
-var util = __webpack_require__(64);
+var app = __webpack_require__(65);
+var component = __webpack_require__(66);
+var logger = __webpack_require__(69);
+var util$1 = __webpack_require__(62);
+var util = __webpack_require__(68);
 var crypto = __webpack_require__(4);
-var bloomBlob = __webpack_require__(71);
-var grpc = __webpack_require__(72);
-var protoLoader = __webpack_require__(109);
+var bloomBlob = __webpack_require__(74);
+var grpc = __webpack_require__(75);
+var protoLoader = __webpack_require__(111);
 
 function _interopNamespace(e) {
   if (e && e.__esModule) return e;
@@ -55475,14 +55542,7 @@ exports.writeBatch = writeBatch;
 
 
 /***/ }),
-/* 70 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("util");
-
-/***/ }),
-/* 71 */
+/* 74 */
 /***/ ((module) => {
 
 /** @license
@@ -55519,7 +55579,7 @@ h.xor=function(f){for(var a=Math.max(this.g.length,f.g.length),c=[],d=0;d<a;d++)
 
 
 /***/ }),
-/* 72 */
+/* 75 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -55542,34 +55602,34 @@ h.xor=function(f){for(var a=Math.max(this.g.length,f.g.length),c=[],d=0;d<a;d++)
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.experimental = exports.addAdminServicesToServer = exports.getChannelzHandlers = exports.getChannelzServiceDefinition = exports.InterceptorConfigurationError = exports.InterceptingCall = exports.RequesterBuilder = exports.ListenerBuilder = exports.StatusBuilder = exports.getClientChannel = exports.ServerCredentials = exports.Server = exports.setLogVerbosity = exports.setLogger = exports.load = exports.loadObject = exports.CallCredentials = exports.ChannelCredentials = exports.waitForClientReady = exports.closeClient = exports.Channel = exports.makeGenericClientConstructor = exports.makeClientConstructor = exports.loadPackageDefinition = exports.Client = exports.compressionAlgorithms = exports.propagate = exports.connectivityState = exports.status = exports.logVerbosity = exports.Metadata = exports.credentials = void 0;
-const call_credentials_1 = __webpack_require__(73);
+const call_credentials_1 = __webpack_require__(76);
 Object.defineProperty(exports, "CallCredentials", ({ enumerable: true, get: function () { return call_credentials_1.CallCredentials; } }));
-const channel_1 = __webpack_require__(80);
+const channel_1 = __webpack_require__(83);
 Object.defineProperty(exports, "Channel", ({ enumerable: true, get: function () { return channel_1.ChannelImplementation; } }));
-const compression_algorithms_1 = __webpack_require__(173);
+const compression_algorithms_1 = __webpack_require__(175);
 Object.defineProperty(exports, "compressionAlgorithms", ({ enumerable: true, get: function () { return compression_algorithms_1.CompressionAlgorithms; } }));
-const connectivity_state_1 = __webpack_require__(89);
+const connectivity_state_1 = __webpack_require__(91);
 Object.defineProperty(exports, "connectivityState", ({ enumerable: true, get: function () { return connectivity_state_1.ConnectivityState; } }));
-const channel_credentials_1 = __webpack_require__(81);
+const channel_credentials_1 = __webpack_require__(84);
 Object.defineProperty(exports, "ChannelCredentials", ({ enumerable: true, get: function () { return channel_credentials_1.ChannelCredentials; } }));
-const client_1 = __webpack_require__(103);
+const client_1 = __webpack_require__(105);
 Object.defineProperty(exports, "Client", ({ enumerable: true, get: function () { return client_1.Client; } }));
-const constants_1 = __webpack_require__(76);
+const constants_1 = __webpack_require__(79);
 Object.defineProperty(exports, "logVerbosity", ({ enumerable: true, get: function () { return constants_1.LogVerbosity; } }));
 Object.defineProperty(exports, "status", ({ enumerable: true, get: function () { return constants_1.Status; } }));
 Object.defineProperty(exports, "propagate", ({ enumerable: true, get: function () { return constants_1.Propagate; } }));
-const logging = __webpack_require__(75);
-const make_client_1 = __webpack_require__(102);
+const logging = __webpack_require__(78);
+const make_client_1 = __webpack_require__(104);
 Object.defineProperty(exports, "loadPackageDefinition", ({ enumerable: true, get: function () { return make_client_1.loadPackageDefinition; } }));
 Object.defineProperty(exports, "makeClientConstructor", ({ enumerable: true, get: function () { return make_client_1.makeClientConstructor; } }));
 Object.defineProperty(exports, "makeGenericClientConstructor", ({ enumerable: true, get: function () { return make_client_1.makeClientConstructor; } }));
-const metadata_1 = __webpack_require__(74);
+const metadata_1 = __webpack_require__(77);
 Object.defineProperty(exports, "Metadata", ({ enumerable: true, get: function () { return metadata_1.Metadata; } }));
-const server_1 = __webpack_require__(181);
+const server_1 = __webpack_require__(183);
 Object.defineProperty(exports, "Server", ({ enumerable: true, get: function () { return server_1.Server; } }));
-const server_credentials_1 = __webpack_require__(183);
+const server_credentials_1 = __webpack_require__(185);
 Object.defineProperty(exports, "ServerCredentials", ({ enumerable: true, get: function () { return server_credentials_1.ServerCredentials; } }));
-const status_builder_1 = __webpack_require__(184);
+const status_builder_1 = __webpack_require__(186);
 Object.defineProperty(exports, "StatusBuilder", ({ enumerable: true, get: function () { return status_builder_1.StatusBuilder; } }));
 /**** Client Credentials ****/
 // Using assign only copies enumerable properties, which is what we want
@@ -55634,25 +55694,25 @@ const getClientChannel = (client) => {
     return client_1.Client.prototype.getChannel.call(client);
 };
 exports.getClientChannel = getClientChannel;
-var client_interceptors_1 = __webpack_require__(107);
+var client_interceptors_1 = __webpack_require__(109);
 Object.defineProperty(exports, "ListenerBuilder", ({ enumerable: true, get: function () { return client_interceptors_1.ListenerBuilder; } }));
 Object.defineProperty(exports, "RequesterBuilder", ({ enumerable: true, get: function () { return client_interceptors_1.RequesterBuilder; } }));
 Object.defineProperty(exports, "InterceptingCall", ({ enumerable: true, get: function () { return client_interceptors_1.InterceptingCall; } }));
 Object.defineProperty(exports, "InterceptorConfigurationError", ({ enumerable: true, get: function () { return client_interceptors_1.InterceptorConfigurationError; } }));
-var channelz_1 = __webpack_require__(100);
+var channelz_1 = __webpack_require__(102);
 Object.defineProperty(exports, "getChannelzServiceDefinition", ({ enumerable: true, get: function () { return channelz_1.getChannelzServiceDefinition; } }));
 Object.defineProperty(exports, "getChannelzHandlers", ({ enumerable: true, get: function () { return channelz_1.getChannelzHandlers; } }));
-var admin_1 = __webpack_require__(101);
+var admin_1 = __webpack_require__(103);
 Object.defineProperty(exports, "addAdminServicesToServer", ({ enumerable: true, get: function () { return admin_1.addAdminServicesToServer; } }));
-const experimental = __webpack_require__(185);
+const experimental = __webpack_require__(187);
 exports.experimental = experimental;
-const resolver_dns = __webpack_require__(165);
-const resolver_uds = __webpack_require__(188);
-const resolver_ip = __webpack_require__(189);
-const load_balancer_pick_first = __webpack_require__(190);
-const load_balancer_round_robin = __webpack_require__(191);
-const load_balancer_outlier_detection = __webpack_require__(187);
-const channelz = __webpack_require__(100);
+const resolver_dns = __webpack_require__(167);
+const resolver_uds = __webpack_require__(190);
+const resolver_ip = __webpack_require__(191);
+const load_balancer_pick_first = __webpack_require__(192);
+const load_balancer_round_robin = __webpack_require__(193);
+const load_balancer_outlier_detection = __webpack_require__(189);
+const channelz = __webpack_require__(102);
 (() => {
     resolver_dns.setup();
     resolver_uds.setup();
@@ -55665,7 +55725,7 @@ const channelz = __webpack_require__(100);
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 73 */
+/* 76 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -55688,7 +55748,7 @@ const channelz = __webpack_require__(100);
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CallCredentials = void 0;
-const metadata_1 = __webpack_require__(74);
+const metadata_1 = __webpack_require__(77);
 function isCurrentOauth2Client(client) {
     return ('getRequestHeaders' in client &&
         typeof client.getRequestHeaders === 'function');
@@ -55824,7 +55884,7 @@ class EmptyCallCredentials extends CallCredentials {
 //# sourceMappingURL=call-credentials.js.map
 
 /***/ }),
-/* 74 */
+/* 77 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -55847,9 +55907,9 @@ class EmptyCallCredentials extends CallCredentials {
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Metadata = void 0;
-const logging_1 = __webpack_require__(75);
-const constants_1 = __webpack_require__(76);
-const error_1 = __webpack_require__(79);
+const logging_1 = __webpack_require__(78);
+const constants_1 = __webpack_require__(79);
+const error_1 = __webpack_require__(82);
 const LEGAL_KEY_REGEX = /^[0-9a-z_.-]+$/;
 const LEGAL_NON_BINARY_VALUE_REGEX = /^[ -~]*$/;
 function isLegalKey(key) {
@@ -56079,7 +56139,7 @@ const bufToString = (val) => {
 //# sourceMappingURL=metadata.js.map
 
 /***/ }),
-/* 75 */
+/* 78 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -56103,9 +56163,9 @@ const bufToString = (val) => {
 var _a, _b, _c, _d;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.isTracerEnabled = exports.trace = exports.log = exports.setLoggerVerbosity = exports.setLogger = exports.getLogger = void 0;
-const constants_1 = __webpack_require__(76);
-const process_1 = __webpack_require__(77);
-const clientVersion = (__webpack_require__(78).version);
+const constants_1 = __webpack_require__(79);
+const process_1 = __webpack_require__(80);
+const clientVersion = (__webpack_require__(81).version);
 const DEFAULT_LOGGER = {
     error: (message, ...optionalParams) => {
         console.error('E ' + message, ...optionalParams);
@@ -56199,7 +56259,7 @@ exports.isTracerEnabled = isTracerEnabled;
 //# sourceMappingURL=logging.js.map
 
 /***/ }),
-/* 76 */
+/* 79 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -56269,21 +56329,21 @@ exports.DEFAULT_MAX_RECEIVE_MESSAGE_LENGTH = 4 * 1024 * 1024;
 //# sourceMappingURL=constants.js.map
 
 /***/ }),
-/* 77 */
+/* 80 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("process");
 
 /***/ }),
-/* 78 */
+/* 81 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"name":"@grpc/grpc-js","version":"1.9.15","description":"gRPC Library for Node - pure JS implementation","homepage":"https://grpc.io/","repository":"https://github.com/grpc/grpc-node/tree/master/packages/grpc-js","main":"build/src/index.js","engines":{"node":"^8.13.0 || >=10.10.0"},"keywords":[],"author":{"name":"Google Inc."},"types":"build/src/index.d.ts","license":"Apache-2.0","devDependencies":{"@types/gulp":"^4.0.6","@types/gulp-mocha":"0.0.32","@types/lodash":"^4.14.186","@types/mocha":"^5.2.6","@types/ncp":"^2.0.1","@types/pify":"^3.0.2","@types/semver":"^7.3.9","@typescript-eslint/eslint-plugin":"^5.59.11","@typescript-eslint/parser":"^5.59.11","@typescript-eslint/typescript-estree":"^5.59.11","clang-format":"^1.0.55","eslint":"^8.42.0","eslint-config-prettier":"^8.8.0","eslint-plugin-node":"^11.1.0","eslint-plugin-prettier":"^4.2.1","execa":"^2.0.3","gulp":"^4.0.2","gulp-mocha":"^6.0.0","lodash":"^4.17.4","madge":"^5.0.1","mocha-jenkins-reporter":"^0.4.1","ncp":"^2.0.0","pify":"^4.0.1","prettier":"^2.8.8","rimraf":"^3.0.2","semver":"^7.3.5","ts-node":"^10.9.1","typescript":"^5.1.3"},"contributors":[{"name":"Google Inc."}],"scripts":{"build":"npm run compile","clean":"rimraf ./build","compile":"tsc -p .","format":"clang-format -i -style=\\"{Language: JavaScript, BasedOnStyle: Google, ColumnLimit: 80}\\" src/*.ts test/*.ts","lint":"eslint src/*.ts test/*.ts","prepare":"npm run generate-types && npm run compile","test":"gulp test","check":"npm run lint","fix":"eslint --fix src/*.ts test/*.ts","pretest":"npm run generate-types && npm run generate-test-types && npm run compile","posttest":"npm run check && madge -c ./build/src","generate-types":"proto-loader-gen-types --keepCase --longs String --enums String --defaults --oneofs --includeComments --includeDirs proto/ --include-dirs test/fixtures/ -O src/generated/ --grpcLib ../index channelz.proto","generate-test-types":"proto-loader-gen-types --keepCase --longs String --enums String --defaults --oneofs --includeComments --include-dirs test/fixtures/ -O test/generated/ --grpcLib ../../src/index test_service.proto"},"dependencies":{"@grpc/proto-loader":"^0.7.8","@types/node":">=12.12.47"},"files":["src/**/*.ts","build/src/**/*.{js,d.ts,js.map}","proto/*.proto","LICENSE","deps/envoy-api/envoy/api/v2/**/*.proto","deps/envoy-api/envoy/config/**/*.proto","deps/envoy-api/envoy/service/**/*.proto","deps/envoy-api/envoy/type/**/*.proto","deps/udpa/udpa/**/*.proto","deps/googleapis/google/api/*.proto","deps/googleapis/google/rpc/*.proto","deps/protoc-gen-validate/validate/**/*.proto"]}');
 
 /***/ }),
-/* 79 */
+/* 82 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -56330,7 +56390,7 @@ exports.getErrorCode = getErrorCode;
 //# sourceMappingURL=error.js.map
 
 /***/ }),
-/* 80 */
+/* 83 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -56353,8 +56413,8 @@ exports.getErrorCode = getErrorCode;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChannelImplementation = void 0;
-const channel_credentials_1 = __webpack_require__(81);
-const internal_channel_1 = __webpack_require__(84);
+const channel_credentials_1 = __webpack_require__(84);
+const internal_channel_1 = __webpack_require__(87);
 class ChannelImplementation {
     constructor(target, credentials, options) {
         if (typeof target !== 'string') {
@@ -56404,7 +56464,7 @@ exports.ChannelImplementation = ChannelImplementation;
 //# sourceMappingURL=channel.js.map
 
 /***/ }),
-/* 81 */
+/* 84 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -56427,9 +56487,9 @@ exports.ChannelImplementation = ChannelImplementation;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChannelCredentials = void 0;
-const tls_1 = __webpack_require__(82);
-const call_credentials_1 = __webpack_require__(73);
-const tls_helpers_1 = __webpack_require__(83);
+const tls_1 = __webpack_require__(85);
+const call_credentials_1 = __webpack_require__(76);
+const tls_helpers_1 = __webpack_require__(86);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function verifyIsBufferOrNull(obj, friendlyName) {
     if (obj && !(obj instanceof Buffer)) {
@@ -56587,14 +56647,14 @@ class ComposedChannelCredentialsImpl extends ChannelCredentials {
 //# sourceMappingURL=channel-credentials.js.map
 
 /***/ }),
-/* 82 */
+/* 85 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tls");
 
 /***/ }),
-/* 83 */
+/* 86 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -56634,7 +56694,7 @@ exports.getDefaultRootsData = getDefaultRootsData;
 //# sourceMappingURL=tls-helpers.js.map
 
 /***/ }),
-/* 84 */
+/* 87 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -56657,26 +56717,26 @@ exports.getDefaultRootsData = getDefaultRootsData;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.InternalChannel = void 0;
-const channel_credentials_1 = __webpack_require__(81);
-const resolving_load_balancer_1 = __webpack_require__(85);
-const subchannel_pool_1 = __webpack_require__(95);
-const picker_1 = __webpack_require__(92);
-const constants_1 = __webpack_require__(76);
-const filter_stack_1 = __webpack_require__(170);
-const compression_filter_1 = __webpack_require__(171);
-const resolver_1 = __webpack_require__(90);
-const logging_1 = __webpack_require__(75);
-const http_proxy_1 = __webpack_require__(164);
-const uri_parser_1 = __webpack_require__(91);
-const connectivity_state_1 = __webpack_require__(89);
-const channelz_1 = __webpack_require__(100);
-const load_balancing_call_1 = __webpack_require__(175);
-const deadline_1 = __webpack_require__(176);
-const resolving_call_1 = __webpack_require__(178);
-const call_number_1 = __webpack_require__(169);
-const control_plane_status_1 = __webpack_require__(177);
-const retrying_call_1 = __webpack_require__(179);
-const subchannel_interface_1 = __webpack_require__(180);
+const channel_credentials_1 = __webpack_require__(84);
+const resolving_load_balancer_1 = __webpack_require__(88);
+const subchannel_pool_1 = __webpack_require__(97);
+const picker_1 = __webpack_require__(94);
+const constants_1 = __webpack_require__(79);
+const filter_stack_1 = __webpack_require__(172);
+const compression_filter_1 = __webpack_require__(173);
+const resolver_1 = __webpack_require__(92);
+const logging_1 = __webpack_require__(78);
+const http_proxy_1 = __webpack_require__(166);
+const uri_parser_1 = __webpack_require__(93);
+const connectivity_state_1 = __webpack_require__(91);
+const channelz_1 = __webpack_require__(102);
+const load_balancing_call_1 = __webpack_require__(177);
+const deadline_1 = __webpack_require__(178);
+const resolving_call_1 = __webpack_require__(180);
+const call_number_1 = __webpack_require__(171);
+const control_plane_status_1 = __webpack_require__(179);
+const retrying_call_1 = __webpack_require__(181);
+const subchannel_interface_1 = __webpack_require__(182);
 /**
  * See https://nodejs.org/api/timers.html#timers_setinterval_callback_delay_args
  */
@@ -57173,7 +57233,7 @@ exports.InternalChannel = InternalChannel;
 //# sourceMappingURL=internal-channel.js.map
 
 /***/ }),
-/* 85 */
+/* 88 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -57196,18 +57256,18 @@ exports.InternalChannel = InternalChannel;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ResolvingLoadBalancer = void 0;
-const load_balancer_1 = __webpack_require__(86);
-const service_config_1 = __webpack_require__(87);
-const connectivity_state_1 = __webpack_require__(89);
-const resolver_1 = __webpack_require__(90);
-const picker_1 = __webpack_require__(92);
-const backoff_timeout_1 = __webpack_require__(93);
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const logging = __webpack_require__(75);
-const constants_2 = __webpack_require__(76);
-const uri_parser_1 = __webpack_require__(91);
-const load_balancer_child_handler_1 = __webpack_require__(94);
+const load_balancer_1 = __webpack_require__(89);
+const service_config_1 = __webpack_require__(90);
+const connectivity_state_1 = __webpack_require__(91);
+const resolver_1 = __webpack_require__(92);
+const picker_1 = __webpack_require__(94);
+const backoff_timeout_1 = __webpack_require__(95);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const logging = __webpack_require__(78);
+const constants_2 = __webpack_require__(79);
+const uri_parser_1 = __webpack_require__(93);
+const load_balancer_child_handler_1 = __webpack_require__(96);
 const TRACER_NAME = 'resolving_load_balancer';
 function trace(text) {
     logging.trace(constants_2.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -57483,7 +57543,7 @@ exports.ResolvingLoadBalancer = ResolvingLoadBalancer;
 //# sourceMappingURL=resolving-load-balancer.js.map
 
 /***/ }),
-/* 86 */
+/* 89 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -57592,7 +57652,7 @@ exports.validateLoadBalancingConfig = validateLoadBalancingConfig;
 //# sourceMappingURL=load-balancer.js.map
 
 /***/ }),
-/* 87 */
+/* 90 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -57624,9 +57684,9 @@ exports.extractAndSelectServiceConfig = exports.validateServiceConfig = exports.
 /* The any type is purposely used here. All functions validate their input at
  * runtime */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const os = __webpack_require__(88);
-const constants_1 = __webpack_require__(76);
-const load_balancer_1 = __webpack_require__(86);
+const os = __webpack_require__(61);
+const constants_1 = __webpack_require__(79);
+const load_balancer_1 = __webpack_require__(89);
 /**
  * Recognizes a number with up to 9 digits after the decimal point, followed by
  * an "s", representing a number of seconds.
@@ -58015,14 +58075,7 @@ exports.extractAndSelectServiceConfig = extractAndSelectServiceConfig;
 //# sourceMappingURL=service-config.js.map
 
 /***/ }),
-/* 88 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("os");
-
-/***/ }),
-/* 89 */
+/* 91 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -58056,7 +58109,7 @@ var ConnectivityState;
 //# sourceMappingURL=connectivity-state.js.map
 
 /***/ }),
-/* 90 */
+/* 92 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58079,7 +58132,7 @@ var ConnectivityState;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.mapUriDefaultScheme = exports.getDefaultAuthority = exports.createResolver = exports.registerDefaultScheme = exports.registerResolver = void 0;
-const uri_parser_1 = __webpack_require__(91);
+const uri_parser_1 = __webpack_require__(93);
 const registeredResolvers = {};
 let defaultScheme = null;
 /**
@@ -58150,7 +58203,7 @@ exports.mapUriDefaultScheme = mapUriDefaultScheme;
 //# sourceMappingURL=resolver.js.map
 
 /***/ }),
-/* 91 */
+/* 93 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -58267,7 +58320,7 @@ exports.uriToString = uriToString;
 //# sourceMappingURL=uri-parser.js.map
 
 /***/ }),
-/* 92 */
+/* 94 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58290,8 +58343,8 @@ exports.uriToString = uriToString;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.QueuePicker = exports.UnavailablePicker = exports.PickResultType = void 0;
-const metadata_1 = __webpack_require__(74);
-const constants_1 = __webpack_require__(76);
+const metadata_1 = __webpack_require__(77);
+const constants_1 = __webpack_require__(79);
 var PickResultType;
 (function (PickResultType) {
     PickResultType[PickResultType["COMPLETE"] = 0] = "COMPLETE";
@@ -58351,7 +58404,7 @@ exports.QueuePicker = QueuePicker;
 //# sourceMappingURL=picker.js.map
 
 /***/ }),
-/* 93 */
+/* 95 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -58531,7 +58584,7 @@ exports.BackoffTimeout = BackoffTimeout;
 //# sourceMappingURL=backoff-timeout.js.map
 
 /***/ }),
-/* 94 */
+/* 96 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58554,8 +58607,8 @@ exports.BackoffTimeout = BackoffTimeout;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChildLoadBalancerHandler = void 0;
-const load_balancer_1 = __webpack_require__(86);
-const connectivity_state_1 = __webpack_require__(89);
+const load_balancer_1 = __webpack_require__(89);
+const connectivity_state_1 = __webpack_require__(91);
 const TYPE_NAME = 'child_load_balancer_helper';
 class ChildLoadBalancerHandler {
     constructor(channelControlHelper) {
@@ -58688,7 +58741,7 @@ exports.ChildLoadBalancerHandler = ChildLoadBalancerHandler;
 //# sourceMappingURL=load-balancer-child-handler.js.map
 
 /***/ }),
-/* 95 */
+/* 97 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58711,11 +58764,11 @@ exports.ChildLoadBalancerHandler = ChildLoadBalancerHandler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getSubchannelPool = exports.SubchannelPool = void 0;
-const channel_options_1 = __webpack_require__(96);
-const subchannel_1 = __webpack_require__(97);
-const subchannel_address_1 = __webpack_require__(98);
-const uri_parser_1 = __webpack_require__(91);
-const transport_1 = __webpack_require__(162);
+const channel_options_1 = __webpack_require__(98);
+const subchannel_1 = __webpack_require__(99);
+const subchannel_address_1 = __webpack_require__(100);
+const uri_parser_1 = __webpack_require__(93);
+const transport_1 = __webpack_require__(164);
 // 10 seconds in milliseconds. This value is arbitrary.
 /**
  * The amount of time in between checks for dropping subchannels that have no
@@ -58831,7 +58884,7 @@ exports.getSubchannelPool = getSubchannelPool;
 //# sourceMappingURL=subchannel-pool.js.map
 
 /***/ }),
-/* 96 */
+/* 98 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -58906,7 +58959,7 @@ exports.channelOptionsEqual = channelOptionsEqual;
 //# sourceMappingURL=channel-options.js.map
 
 /***/ }),
-/* 97 */
+/* 99 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58929,13 +58982,13 @@ exports.channelOptionsEqual = channelOptionsEqual;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Subchannel = void 0;
-const connectivity_state_1 = __webpack_require__(89);
-const backoff_timeout_1 = __webpack_require__(93);
-const logging = __webpack_require__(75);
-const constants_1 = __webpack_require__(76);
-const uri_parser_1 = __webpack_require__(91);
-const subchannel_address_1 = __webpack_require__(98);
-const channelz_1 = __webpack_require__(100);
+const connectivity_state_1 = __webpack_require__(91);
+const backoff_timeout_1 = __webpack_require__(95);
+const logging = __webpack_require__(78);
+const constants_1 = __webpack_require__(79);
+const uri_parser_1 = __webpack_require__(93);
+const subchannel_address_1 = __webpack_require__(100);
+const channelz_1 = __webpack_require__(102);
 const TRACER_NAME = 'subchannel';
 /* setInterval and setTimeout only accept signed 32 bit integers. JS doesn't
  * have a constant for the max signed 32 bit integer, so this is a simple way
@@ -59265,7 +59318,7 @@ exports.Subchannel = Subchannel;
 //# sourceMappingURL=subchannel.js.map
 
 /***/ }),
-/* 98 */
+/* 100 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -59288,7 +59341,7 @@ exports.Subchannel = Subchannel;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.stringToSubchannelAddress = exports.subchannelAddressToString = exports.subchannelAddressEqual = exports.isTcpSubchannelAddress = void 0;
-const net_1 = __webpack_require__(99);
+const net_1 = __webpack_require__(101);
 function isTcpSubchannelAddress(address) {
     return 'port' in address;
 }
@@ -59337,14 +59390,14 @@ exports.stringToSubchannelAddress = stringToSubchannelAddress;
 //# sourceMappingURL=subchannel-address.js.map
 
 /***/ }),
-/* 99 */
+/* 101 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("net");
 
 /***/ }),
-/* 100 */
+/* 102 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -59367,12 +59420,12 @@ module.exports = require("net");
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.getChannelzServiceDefinition = exports.getChannelzHandlers = exports.unregisterChannelzRef = exports.registerChannelzSocket = exports.registerChannelzServer = exports.registerChannelzSubchannel = exports.registerChannelzChannel = exports.ChannelzCallTracker = exports.ChannelzChildrenTracker = exports.ChannelzTrace = void 0;
-const net_1 = __webpack_require__(99);
-const connectivity_state_1 = __webpack_require__(89);
-const constants_1 = __webpack_require__(76);
-const subchannel_address_1 = __webpack_require__(98);
-const admin_1 = __webpack_require__(101);
-const make_client_1 = __webpack_require__(102);
+const net_1 = __webpack_require__(101);
+const connectivity_state_1 = __webpack_require__(91);
+const constants_1 = __webpack_require__(79);
+const subchannel_address_1 = __webpack_require__(100);
+const admin_1 = __webpack_require__(103);
+const make_client_1 = __webpack_require__(104);
 function channelRefToMessage(ref) {
     return {
         channel_id: ref.id,
@@ -59964,7 +60017,7 @@ function getChannelzServiceDefinition() {
     }
     /* The purpose of this complexity is to avoid loading @grpc/proto-loader at
      * runtime for users who will not use/enable channelz. */
-    const loaderLoadSync = (__webpack_require__(109).loadSync);
+    const loaderLoadSync = (__webpack_require__(111).loadSync);
     const loadedProto = loaderLoadSync('channelz.proto', {
         keepCase: true,
         longs: String,
@@ -59986,7 +60039,7 @@ exports.setup = setup;
 //# sourceMappingURL=channelz.js.map
 
 /***/ }),
-/* 101 */
+/* 103 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -60023,7 +60076,7 @@ exports.addAdminServicesToServer = addAdminServicesToServer;
 //# sourceMappingURL=admin.js.map
 
 /***/ }),
-/* 102 */
+/* 104 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60046,7 +60099,7 @@ exports.addAdminServicesToServer = addAdminServicesToServer;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.loadPackageDefinition = exports.makeClientConstructor = void 0;
-const client_1 = __webpack_require__(103);
+const client_1 = __webpack_require__(105);
 /**
  * Map with short names for each of the requester maker functions. Used in
  * makeClientConstructor
@@ -60173,7 +60226,7 @@ exports.loadPackageDefinition = loadPackageDefinition;
 //# sourceMappingURL=make-client.js.map
 
 /***/ }),
-/* 103 */
+/* 105 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60196,12 +60249,12 @@ exports.loadPackageDefinition = loadPackageDefinition;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Client = void 0;
-const call_1 = __webpack_require__(104);
-const channel_1 = __webpack_require__(80);
-const connectivity_state_1 = __webpack_require__(89);
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const client_interceptors_1 = __webpack_require__(107);
+const call_1 = __webpack_require__(106);
+const channel_1 = __webpack_require__(83);
+const connectivity_state_1 = __webpack_require__(91);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const client_interceptors_1 = __webpack_require__(109);
 const CHANNEL_SYMBOL = Symbol();
 const INTERCEPTOR_SYMBOL = Symbol();
 const INTERCEPTOR_PROVIDER_SYMBOL = Symbol();
@@ -60610,7 +60663,7 @@ exports.Client = Client;
 //# sourceMappingURL=client.js.map
 
 /***/ }),
-/* 104 */
+/* 106 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60633,9 +60686,9 @@ exports.Client = Client;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ClientDuplexStreamImpl = exports.ClientWritableStreamImpl = exports.ClientReadableStreamImpl = exports.ClientUnaryCallImpl = exports.callErrorFromStatus = void 0;
-const events_1 = __webpack_require__(105);
-const stream_1 = __webpack_require__(106);
-const constants_1 = __webpack_require__(76);
+const events_1 = __webpack_require__(107);
+const stream_1 = __webpack_require__(108);
+const constants_1 = __webpack_require__(79);
 /**
  * Construct a ServiceError from a StatusObject. This function exists primarily
  * as an attempt to make the error stack trace clearly communicate that the
@@ -60752,21 +60805,21 @@ exports.ClientDuplexStreamImpl = ClientDuplexStreamImpl;
 //# sourceMappingURL=call.js.map
 
 /***/ }),
-/* 105 */
+/* 107 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("events");
 
 /***/ }),
-/* 106 */
+/* 108 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("stream");
 
 /***/ }),
-/* 107 */
+/* 109 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60789,10 +60842,10 @@ module.exports = require("stream");
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getInterceptingCall = exports.InterceptingCall = exports.RequesterBuilder = exports.ListenerBuilder = exports.InterceptorConfigurationError = void 0;
-const metadata_1 = __webpack_require__(74);
-const call_interface_1 = __webpack_require__(108);
-const constants_1 = __webpack_require__(76);
-const error_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const call_interface_1 = __webpack_require__(110);
+const constants_1 = __webpack_require__(79);
+const error_1 = __webpack_require__(82);
 /**
  * Error class associated with passing both interceptors and interceptor
  * providers to a client constructor or as call options.
@@ -61200,7 +61253,7 @@ exports.getInterceptingCall = getInterceptingCall;
 //# sourceMappingURL=client-interceptors.js.map
 
 /***/ }),
-/* 108 */
+/* 110 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -61290,7 +61343,7 @@ exports.InterceptingListenerImpl = InterceptingListenerImpl;
 //# sourceMappingURL=call-interface.js.map
 
 /***/ }),
-/* 109 */
+/* 111 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -61314,11 +61367,11 @@ exports.InterceptingListenerImpl = InterceptingListenerImpl;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.loadFileDescriptorSetFromObject = exports.loadFileDescriptorSetFromBuffer = exports.fromJSON = exports.loadSync = exports.load = exports.IdempotencyLevel = exports.isAnyExtension = exports.Long = void 0;
-const camelCase = __webpack_require__(110);
-const Protobuf = __webpack_require__(111);
-const descriptor = __webpack_require__(155);
-const util_1 = __webpack_require__(157);
-const Long = __webpack_require__(161);
+const camelCase = __webpack_require__(112);
+const Protobuf = __webpack_require__(113);
+const descriptor = __webpack_require__(157);
+const util_1 = __webpack_require__(159);
+const Long = __webpack_require__(163);
 exports.Long = Long;
 function isAnyExtension(obj) {
     return ('@type' in obj) && (typeof obj['@type'] === 'string');
@@ -61540,7 +61593,7 @@ exports.loadFileDescriptorSetFromObject = loadFileDescriptorSetFromObject;
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 110 */
+/* 112 */
 /***/ ((module) => {
 
 /**
@@ -62145,42 +62198,42 @@ module.exports = camelCase;
 
 
 /***/ }),
-/* 111 */
+/* 113 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 // full library entry point.
 
 
-module.exports = __webpack_require__(112);
+module.exports = __webpack_require__(114);
 
 
 /***/ }),
-/* 112 */
+/* 114 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
-var protobuf = module.exports = __webpack_require__(113);
+var protobuf = module.exports = __webpack_require__(115);
 
 protobuf.build = "full";
 
 // Parser
-protobuf.tokenize         = __webpack_require__(152);
-protobuf.parse            = __webpack_require__(153);
-protobuf.common           = __webpack_require__(154);
+protobuf.tokenize         = __webpack_require__(154);
+protobuf.parse            = __webpack_require__(155);
+protobuf.common           = __webpack_require__(156);
 
 // Configure parser
 protobuf.Root._configure(protobuf.Type, protobuf.parse, protobuf.common);
 
 
 /***/ }),
-/* 113 */
+/* 115 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
-var protobuf = module.exports = __webpack_require__(114);
+var protobuf = module.exports = __webpack_require__(116);
 
 protobuf.build = "light";
 
@@ -62253,30 +62306,30 @@ function loadSync(filename, root) {
 protobuf.loadSync = loadSync;
 
 // Serialization
-protobuf.encoder          = __webpack_require__(131);
-protobuf.decoder          = __webpack_require__(147);
-protobuf.verifier         = __webpack_require__(148);
-protobuf.converter        = __webpack_require__(149);
+protobuf.encoder          = __webpack_require__(133);
+protobuf.decoder          = __webpack_require__(149);
+protobuf.verifier         = __webpack_require__(150);
+protobuf.converter        = __webpack_require__(151);
 
 // Reflection
-protobuf.ReflectionObject = __webpack_require__(133);
-protobuf.Namespace        = __webpack_require__(142);
-protobuf.Root             = __webpack_require__(151);
-protobuf.Enum             = __webpack_require__(132);
-protobuf.Type             = __webpack_require__(141);
-protobuf.Field            = __webpack_require__(135);
-protobuf.OneOf            = __webpack_require__(134);
-protobuf.MapField         = __webpack_require__(143);
-protobuf.Service          = __webpack_require__(144);
-protobuf.Method           = __webpack_require__(145);
+protobuf.ReflectionObject = __webpack_require__(135);
+protobuf.Namespace        = __webpack_require__(144);
+protobuf.Root             = __webpack_require__(153);
+protobuf.Enum             = __webpack_require__(134);
+protobuf.Type             = __webpack_require__(143);
+protobuf.Field            = __webpack_require__(137);
+protobuf.OneOf            = __webpack_require__(136);
+protobuf.MapField         = __webpack_require__(145);
+protobuf.Service          = __webpack_require__(146);
+protobuf.Method           = __webpack_require__(147);
 
 // Runtime
-protobuf.Message          = __webpack_require__(146);
-protobuf.wrappers         = __webpack_require__(150);
+protobuf.Message          = __webpack_require__(148);
+protobuf.wrappers         = __webpack_require__(152);
 
 // Utility
-protobuf.types            = __webpack_require__(136);
-protobuf.util             = __webpack_require__(137);
+protobuf.types            = __webpack_require__(138);
+protobuf.util             = __webpack_require__(139);
 
 // Set up possibly cyclic reflection dependencies
 protobuf.ReflectionObject._configure(protobuf.Root);
@@ -62286,7 +62339,7 @@ protobuf.Field._configure(protobuf.Type);
 
 
 /***/ }),
-/* 114 */
+/* 116 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -62302,15 +62355,15 @@ var protobuf = exports;
 protobuf.build = "minimal";
 
 // Serialization
-protobuf.Writer       = __webpack_require__(115);
-protobuf.BufferWriter = __webpack_require__(125);
-protobuf.Reader       = __webpack_require__(126);
-protobuf.BufferReader = __webpack_require__(127);
+protobuf.Writer       = __webpack_require__(117);
+protobuf.BufferWriter = __webpack_require__(127);
+protobuf.Reader       = __webpack_require__(128);
+protobuf.BufferReader = __webpack_require__(129);
 
 // Utility
-protobuf.util         = __webpack_require__(116);
-protobuf.rpc          = __webpack_require__(128);
-protobuf.roots        = __webpack_require__(130);
+protobuf.util         = __webpack_require__(118);
+protobuf.rpc          = __webpack_require__(130);
+protobuf.roots        = __webpack_require__(132);
 protobuf.configure    = configure;
 
 /* istanbul ignore next */
@@ -62329,14 +62382,14 @@ configure();
 
 
 /***/ }),
-/* 115 */
+/* 117 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = Writer;
 
-var util      = __webpack_require__(116);
+var util      = __webpack_require__(118);
 
 var BufferWriter; // cyclic
 
@@ -62801,7 +62854,7 @@ Writer._configure = function(BufferWriter_) {
 
 
 /***/ }),
-/* 116 */
+/* 118 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -62809,28 +62862,28 @@ Writer._configure = function(BufferWriter_) {
 var util = exports;
 
 // used to return a Promise where callback is omitted
-util.asPromise = __webpack_require__(117);
+util.asPromise = __webpack_require__(119);
 
 // converts to / from base64 encoded strings
-util.base64 = __webpack_require__(118);
+util.base64 = __webpack_require__(120);
 
 // base class of rpc.Service
-util.EventEmitter = __webpack_require__(119);
+util.EventEmitter = __webpack_require__(121);
 
 // float handling accross browsers
-util.float = __webpack_require__(120);
+util.float = __webpack_require__(122);
 
 // requires modules optionally and hides the call from bundlers
-util.inquire = __webpack_require__(121);
+util.inquire = __webpack_require__(123);
 
 // converts to / from utf8 encoded strings
-util.utf8 = __webpack_require__(122);
+util.utf8 = __webpack_require__(124);
 
 // provides a node-like buffer pool in the browser
-util.pool = __webpack_require__(123);
+util.pool = __webpack_require__(125);
 
 // utility to work with the low and high bits of a 64 bit value
-util.LongBits = __webpack_require__(124);
+util.LongBits = __webpack_require__(126);
 
 /**
  * Whether running within node or not.
@@ -63246,7 +63299,7 @@ util._configure = function() {
 
 
 /***/ }),
-/* 117 */
+/* 119 */
 /***/ ((module) => {
 
 "use strict";
@@ -63305,7 +63358,7 @@ function asPromise(fn, ctx/*, varargs */) {
 
 
 /***/ }),
-/* 118 */
+/* 120 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -63451,7 +63504,7 @@ base64.test = function test(string) {
 
 
 /***/ }),
-/* 119 */
+/* 121 */
 /***/ ((module) => {
 
 "use strict";
@@ -63534,7 +63587,7 @@ EventEmitter.prototype.emit = function emit(evt) {
 
 
 /***/ }),
-/* 120 */
+/* 122 */
 /***/ ((module) => {
 
 "use strict";
@@ -63876,7 +63929,7 @@ function readUintBE(buf, pos) {
 
 
 /***/ }),
-/* 121 */
+/* 123 */
 /***/ ((module) => {
 
 "use strict";
@@ -63900,7 +63953,7 @@ function inquire(moduleName) {
 
 
 /***/ }),
-/* 122 */
+/* 124 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -64012,7 +64065,7 @@ utf8.write = function utf8_write(string, buffer, offset) {
 
 
 /***/ }),
-/* 123 */
+/* 125 */
 /***/ ((module) => {
 
 "use strict";
@@ -64067,14 +64120,14 @@ function pool(alloc, slice, size) {
 
 
 /***/ }),
-/* 124 */
+/* 126 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = LongBits;
 
-var util = __webpack_require__(116);
+var util = __webpack_require__(118);
 
 /**
  * Constructs new long bits.
@@ -64274,7 +64327,7 @@ LongBits.prototype.length = function length() {
 
 
 /***/ }),
-/* 125 */
+/* 127 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -64282,10 +64335,10 @@ LongBits.prototype.length = function length() {
 module.exports = BufferWriter;
 
 // extends Writer
-var Writer = __webpack_require__(115);
+var Writer = __webpack_require__(117);
 (BufferWriter.prototype = Object.create(Writer.prototype)).constructor = BufferWriter;
 
-var util = __webpack_require__(116);
+var util = __webpack_require__(118);
 
 /**
  * Constructs a new buffer writer instance.
@@ -64366,14 +64419,14 @@ BufferWriter._configure();
 
 
 /***/ }),
-/* 126 */
+/* 128 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = Reader;
 
-var util      = __webpack_require__(116);
+var util      = __webpack_require__(118);
 
 var BufferReader; // cyclic
 
@@ -64789,7 +64842,7 @@ Reader._configure = function(BufferReader_) {
 
 
 /***/ }),
-/* 127 */
+/* 129 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -64797,10 +64850,10 @@ Reader._configure = function(BufferReader_) {
 module.exports = BufferReader;
 
 // extends Reader
-var Reader = __webpack_require__(126);
+var Reader = __webpack_require__(128);
 (BufferReader.prototype = Object.create(Reader.prototype)).constructor = BufferReader;
 
-var util = __webpack_require__(116);
+var util = __webpack_require__(118);
 
 /**
  * Constructs a new buffer reader instance.
@@ -64847,7 +64900,7 @@ BufferReader._configure();
 
 
 /***/ }),
-/* 128 */
+/* 130 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -64886,18 +64939,18 @@ var rpc = exports;
  * @returns {undefined}
  */
 
-rpc.Service = __webpack_require__(129);
+rpc.Service = __webpack_require__(131);
 
 
 /***/ }),
-/* 129 */
+/* 131 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = Service;
 
-var util = __webpack_require__(116);
+var util = __webpack_require__(118);
 
 // Extends EventEmitter
 (Service.prototype = Object.create(util.EventEmitter.prototype)).constructor = Service;
@@ -65039,7 +65092,7 @@ Service.prototype.end = function end(endedByRPC) {
 
 
 /***/ }),
-/* 130 */
+/* 132 */
 /***/ ((module) => {
 
 "use strict";
@@ -65064,16 +65117,16 @@ module.exports = {};
 
 
 /***/ }),
-/* 131 */
+/* 133 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = encoder;
 
-var Enum     = __webpack_require__(132),
-    types    = __webpack_require__(136),
-    util     = __webpack_require__(137);
+var Enum     = __webpack_require__(134),
+    types    = __webpack_require__(138),
+    util     = __webpack_require__(139);
 
 /**
  * Generates a partial message type encoder.
@@ -65171,7 +65224,7 @@ function encoder(mtype) {
 
 
 /***/ }),
-/* 132 */
+/* 134 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -65179,11 +65232,11 @@ function encoder(mtype) {
 module.exports = Enum;
 
 // extends ReflectionObject
-var ReflectionObject = __webpack_require__(133);
+var ReflectionObject = __webpack_require__(135);
 ((Enum.prototype = Object.create(ReflectionObject.prototype)).constructor = Enum).className = "Enum";
 
-var Namespace = __webpack_require__(142),
-    util = __webpack_require__(137);
+var Namespace = __webpack_require__(144),
+    util = __webpack_require__(139);
 
 /**
  * Constructs a new enum instance.
@@ -65401,7 +65454,7 @@ Enum.prototype.isReservedName = function isReservedName(name) {
 
 
 /***/ }),
-/* 133 */
+/* 135 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -65410,8 +65463,8 @@ module.exports = ReflectionObject;
 
 ReflectionObject.className = "ReflectionObject";
 
-const OneOf = __webpack_require__(134);
-var util = __webpack_require__(137);
+const OneOf = __webpack_require__(136);
+var util = __webpack_require__(139);
 
 var Root; // cyclic
 
@@ -65786,7 +65839,7 @@ ReflectionObject._configure = function(Root_) {
 
 
 /***/ }),
-/* 134 */
+/* 136 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -65794,11 +65847,11 @@ ReflectionObject._configure = function(Root_) {
 module.exports = OneOf;
 
 // extends ReflectionObject
-var ReflectionObject = __webpack_require__(133);
+var ReflectionObject = __webpack_require__(135);
 ((OneOf.prototype = Object.create(ReflectionObject.prototype)).constructor = OneOf).className = "OneOf";
 
-var Field = __webpack_require__(135),
-    util  = __webpack_require__(137);
+var Field = __webpack_require__(137),
+    util  = __webpack_require__(139);
 
 /**
  * Constructs a new oneof instance.
@@ -66015,7 +66068,7 @@ OneOf.d = function decorateOneOf() {
 
 
 /***/ }),
-/* 135 */
+/* 137 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -66023,12 +66076,12 @@ OneOf.d = function decorateOneOf() {
 module.exports = Field;
 
 // extends ReflectionObject
-var ReflectionObject = __webpack_require__(133);
+var ReflectionObject = __webpack_require__(135);
 ((Field.prototype = Object.create(ReflectionObject.prototype)).constructor = Field).className = "Field";
 
-var Enum  = __webpack_require__(132),
-    types = __webpack_require__(136),
-    util  = __webpack_require__(137);
+var Enum  = __webpack_require__(134),
+    types = __webpack_require__(138),
+    util  = __webpack_require__(139);
 
 var Type; // cyclic
 
@@ -66475,7 +66528,7 @@ Field._configure = function configure(Type_) {
 
 
 /***/ }),
-/* 136 */
+/* 138 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -66487,7 +66540,7 @@ Field._configure = function configure(Type_) {
  */
 var types = exports;
 
-var util = __webpack_require__(137);
+var util = __webpack_require__(139);
 
 var s = [
     "double",   // 0
@@ -66678,7 +66731,7 @@ types.packed = bake([
 
 
 /***/ }),
-/* 137 */
+/* 139 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -66688,16 +66741,16 @@ types.packed = bake([
  * Various utility functions.
  * @namespace
  */
-var util = module.exports = __webpack_require__(116);
+var util = module.exports = __webpack_require__(118);
 
-var roots = __webpack_require__(130);
+var roots = __webpack_require__(132);
 
 var Type, // cyclic
     Enum;
 
-util.codegen = __webpack_require__(138);
-util.fetch   = __webpack_require__(139);
-util.path    = __webpack_require__(140);
+util.codegen = __webpack_require__(140);
+util.fetch   = __webpack_require__(141);
+util.path    = __webpack_require__(142);
 
 /**
  * Node's fs module if available.
@@ -66816,7 +66869,7 @@ util.decorateType = function decorateType(ctor, typeName) {
 
     /* istanbul ignore next */
     if (!Type)
-        Type = __webpack_require__(141);
+        Type = __webpack_require__(143);
 
     var type = new Type(typeName || ctor.name);
     util.decorateRoot.add(type);
@@ -66841,7 +66894,7 @@ util.decorateEnum = function decorateEnum(object) {
 
     /* istanbul ignore next */
     if (!Enum)
-        Enum = __webpack_require__(132);
+        Enum = __webpack_require__(134);
 
     var enm = new Enum("Enum" + decorateEnumIndex++, object);
     util.decorateRoot.add(enm);
@@ -66894,13 +66947,13 @@ util.setProperty = function setProperty(dst, path, value, ifNotSet) {
  */
 Object.defineProperty(util, "decorateRoot", {
     get: function() {
-        return roots["decorated"] || (roots["decorated"] = new (__webpack_require__(151))());
+        return roots["decorated"] || (roots["decorated"] = new (__webpack_require__(153))());
     }
 });
 
 
 /***/ }),
-/* 138 */
+/* 140 */
 /***/ ((module) => {
 
 "use strict";
@@ -67006,15 +67059,15 @@ codegen.verbose = false;
 
 
 /***/ }),
-/* 139 */
+/* 141 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = fetch;
 
-var asPromise = __webpack_require__(117),
-    inquire   = __webpack_require__(121);
+var asPromise = __webpack_require__(119),
+    inquire   = __webpack_require__(123);
 
 var fs = inquire("fs");
 
@@ -67128,7 +67181,7 @@ fetch.xhr = function fetch_xhr(filename, options, callback) {
 
 
 /***/ }),
-/* 140 */
+/* 142 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -67200,7 +67253,7 @@ path.resolve = function resolve(originPath, includePath, alreadyNormalized) {
 
 
 /***/ }),
-/* 141 */
+/* 143 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -67208,23 +67261,23 @@ path.resolve = function resolve(originPath, includePath, alreadyNormalized) {
 module.exports = Type;
 
 // extends Namespace
-var Namespace = __webpack_require__(142);
+var Namespace = __webpack_require__(144);
 ((Type.prototype = Object.create(Namespace.prototype)).constructor = Type).className = "Type";
 
-var Enum      = __webpack_require__(132),
-    OneOf     = __webpack_require__(134),
-    Field     = __webpack_require__(135),
-    MapField  = __webpack_require__(143),
-    Service   = __webpack_require__(144),
-    Message   = __webpack_require__(146),
-    Reader    = __webpack_require__(126),
-    Writer    = __webpack_require__(115),
-    util      = __webpack_require__(137),
-    encoder   = __webpack_require__(131),
-    decoder   = __webpack_require__(147),
-    verifier  = __webpack_require__(148),
-    converter = __webpack_require__(149),
-    wrappers  = __webpack_require__(150);
+var Enum      = __webpack_require__(134),
+    OneOf     = __webpack_require__(136),
+    Field     = __webpack_require__(137),
+    MapField  = __webpack_require__(145),
+    Service   = __webpack_require__(146),
+    Message   = __webpack_require__(148),
+    Reader    = __webpack_require__(128),
+    Writer    = __webpack_require__(117),
+    util      = __webpack_require__(139),
+    encoder   = __webpack_require__(133),
+    decoder   = __webpack_require__(149),
+    verifier  = __webpack_require__(150),
+    converter = __webpack_require__(151),
+    wrappers  = __webpack_require__(152);
 
 /**
  * Constructs a new reflected message type instance.
@@ -67821,7 +67874,7 @@ Type.d = function decorateType(typeName) {
 
 
 /***/ }),
-/* 142 */
+/* 144 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -67829,12 +67882,12 @@ Type.d = function decorateType(typeName) {
 module.exports = Namespace;
 
 // extends ReflectionObject
-var ReflectionObject = __webpack_require__(133);
+var ReflectionObject = __webpack_require__(135);
 ((Namespace.prototype = Object.create(ReflectionObject.prototype)).constructor = Namespace).className = "Namespace";
 
-var Field    = __webpack_require__(135),
-    util     = __webpack_require__(137),
-    OneOf    = __webpack_require__(134);
+var Field    = __webpack_require__(137),
+    util     = __webpack_require__(139),
+    OneOf    = __webpack_require__(136);
 
 var Type,    // cyclic
     Service,
@@ -68374,7 +68427,7 @@ Namespace._configure = function(Type_, Service_, Enum_) {
 
 
 /***/ }),
-/* 143 */
+/* 145 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -68382,11 +68435,11 @@ Namespace._configure = function(Type_, Service_, Enum_) {
 module.exports = MapField;
 
 // extends Field
-var Field = __webpack_require__(135);
+var Field = __webpack_require__(137);
 ((MapField.prototype = Object.create(Field.prototype)).constructor = MapField).className = "MapField";
 
-var types   = __webpack_require__(136),
-    util    = __webpack_require__(137);
+var types   = __webpack_require__(138),
+    util    = __webpack_require__(139);
 
 /**
  * Constructs a new map field instance.
@@ -68507,7 +68560,7 @@ MapField.d = function decorateMapField(fieldId, fieldKeyType, fieldValueType) {
 
 
 /***/ }),
-/* 144 */
+/* 146 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -68515,12 +68568,12 @@ MapField.d = function decorateMapField(fieldId, fieldKeyType, fieldValueType) {
 module.exports = Service;
 
 // extends Namespace
-var Namespace = __webpack_require__(142);
+var Namespace = __webpack_require__(144);
 ((Service.prototype = Object.create(Namespace.prototype)).constructor = Service).className = "Service";
 
-var Method = __webpack_require__(145),
-    util   = __webpack_require__(137),
-    rpc    = __webpack_require__(128);
+var Method = __webpack_require__(147),
+    util   = __webpack_require__(139),
+    rpc    = __webpack_require__(130);
 
 /**
  * Constructs a new service instance.
@@ -68703,7 +68756,7 @@ Service.prototype.create = function create(rpcImpl, requestDelimited, responseDe
 
 
 /***/ }),
-/* 145 */
+/* 147 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -68711,10 +68764,10 @@ Service.prototype.create = function create(rpcImpl, requestDelimited, responseDe
 module.exports = Method;
 
 // extends ReflectionObject
-var ReflectionObject = __webpack_require__(133);
+var ReflectionObject = __webpack_require__(135);
 ((Method.prototype = Object.create(ReflectionObject.prototype)).constructor = Method).className = "Method";
 
-var util = __webpack_require__(137);
+var util = __webpack_require__(139);
 
 /**
  * Constructs a new service method instance.
@@ -68870,14 +68923,14 @@ Method.prototype.resolve = function resolve() {
 
 
 /***/ }),
-/* 146 */
+/* 148 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = Message;
 
-var util = __webpack_require__(116);
+var util = __webpack_require__(118);
 
 /**
  * Constructs a new message instance.
@@ -69015,16 +69068,16 @@ Message.prototype.toJSON = function toJSON() {
 /*eslint-enable valid-jsdoc*/
 
 /***/ }),
-/* 147 */
+/* 149 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = decoder;
 
-var Enum    = __webpack_require__(132),
-    types   = __webpack_require__(136),
-    util    = __webpack_require__(137);
+var Enum    = __webpack_require__(134),
+    types   = __webpack_require__(138),
+    util    = __webpack_require__(139);
 
 function missing(field) {
     return "missing required '" + field.name + "'";
@@ -69149,15 +69202,15 @@ function decoder(mtype) {
 
 
 /***/ }),
-/* 148 */
+/* 150 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 module.exports = verifier;
 
-var Enum      = __webpack_require__(132),
-    util      = __webpack_require__(137);
+var Enum      = __webpack_require__(134),
+    util      = __webpack_require__(139);
 
 function invalid(field, expected) {
     return field.name + ": " + expected + (field.repeated && expected !== "array" ? "[]" : field.map && expected !== "object" ? "{k:"+field.keyType+"}" : "") + " expected";
@@ -69332,7 +69385,7 @@ function verifier(mtype) {
 }
 
 /***/ }),
-/* 149 */
+/* 151 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -69343,8 +69396,8 @@ function verifier(mtype) {
  */
 var converter = exports;
 
-var Enum = __webpack_require__(132),
-    util = __webpack_require__(137);
+var Enum = __webpack_require__(134),
+    util = __webpack_require__(139);
 
 /**
  * Generates a partial value fromObject conveter.
@@ -69640,7 +69693,7 @@ converter.toObject = function toObject(mtype) {
 
 
 /***/ }),
-/* 150 */
+/* 152 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -69653,7 +69706,7 @@ converter.toObject = function toObject(mtype) {
  */
 var wrappers = exports;
 
-var Message = __webpack_require__(146);
+var Message = __webpack_require__(148);
 
 /**
  * From object converter part of an {@link IWrapper}.
@@ -69749,7 +69802,7 @@ wrappers[".google.protobuf.Any"] = {
 
 
 /***/ }),
-/* 151 */
+/* 153 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -69757,13 +69810,13 @@ wrappers[".google.protobuf.Any"] = {
 module.exports = Root;
 
 // extends Namespace
-var Namespace = __webpack_require__(142);
+var Namespace = __webpack_require__(144);
 ((Root.prototype = Object.create(Namespace.prototype)).constructor = Root).className = "Root";
 
-var Field   = __webpack_require__(135),
-    Enum    = __webpack_require__(132),
-    OneOf   = __webpack_require__(134),
-    util    = __webpack_require__(137);
+var Field   = __webpack_require__(137),
+    Enum    = __webpack_require__(134),
+    OneOf   = __webpack_require__(136),
+    util    = __webpack_require__(139);
 
 var Type,   // cyclic
     parse,  // might be excluded
@@ -70160,7 +70213,7 @@ Root._configure = function(Type_, parse_, common_) {
 
 
 /***/ }),
-/* 152 */
+/* 154 */
 /***/ ((module) => {
 
 "use strict";
@@ -70583,7 +70636,7 @@ function tokenize(source, alternateCommentMode) {
 
 
 /***/ }),
-/* 153 */
+/* 155 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -70593,18 +70646,18 @@ module.exports = parse;
 parse.filename = null;
 parse.defaults = { keepCase: false };
 
-var tokenize  = __webpack_require__(152),
-    Root      = __webpack_require__(151),
-    Type      = __webpack_require__(141),
-    Field     = __webpack_require__(135),
-    MapField  = __webpack_require__(143),
-    OneOf     = __webpack_require__(134),
-    Enum      = __webpack_require__(132),
-    Service   = __webpack_require__(144),
-    Method    = __webpack_require__(145),
-    ReflectionObject = __webpack_require__(133),
-    types     = __webpack_require__(136),
-    util      = __webpack_require__(137);
+var tokenize  = __webpack_require__(154),
+    Root      = __webpack_require__(153),
+    Type      = __webpack_require__(143),
+    Field     = __webpack_require__(137),
+    MapField  = __webpack_require__(145),
+    OneOf     = __webpack_require__(136),
+    Enum      = __webpack_require__(134),
+    Service   = __webpack_require__(146),
+    Method    = __webpack_require__(147),
+    ReflectionObject = __webpack_require__(135),
+    types     = __webpack_require__(138),
+    util      = __webpack_require__(139);
 
 var base10Re    = /^[1-9][0-9]*$/,
     base10NegRe = /^-?[1-9][0-9]*$/,
@@ -71559,7 +71612,7 @@ function parse(source, root, options) {
 
 
 /***/ }),
-/* 154 */
+/* 156 */
 /***/ ((module) => {
 
 "use strict";
@@ -71965,13 +72018,13 @@ common.get = function get(file) {
 
 
 /***/ }),
-/* 155 */
+/* 157 */
 /***/ ((module, exports, __webpack_require__) => {
 
 "use strict";
 
-var $protobuf = __webpack_require__(111);
-module.exports = exports = $protobuf.descriptor = $protobuf.Root.fromJSON(__webpack_require__(156)).lookup(".google.protobuf");
+var $protobuf = __webpack_require__(113);
+module.exports = exports = $protobuf.descriptor = $protobuf.Root.fromJSON(__webpack_require__(158)).lookup(".google.protobuf");
 
 var Namespace = $protobuf.Namespace,
     Root      = $protobuf.Root,
@@ -73134,14 +73187,14 @@ function editionToDescriptor(edition, fileDescriptor) {
 
 
 /***/ }),
-/* 156 */
+/* 158 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"nested":{"google":{"nested":{"protobuf":{"options":{"go_package":"google.golang.org/protobuf/types/descriptorpb","java_package":"com.google.protobuf","java_outer_classname":"DescriptorProtos","csharp_namespace":"Google.Protobuf.Reflection","objc_class_prefix":"GPB","cc_enable_arenas":true,"optimize_for":"SPEED"},"nested":{"FileDescriptorSet":{"edition":"proto2","fields":{"file":{"rule":"repeated","type":"FileDescriptorProto","id":1}},"extensions":[[536000000,536000000]]},"Edition":{"edition":"proto2","values":{"EDITION_UNKNOWN":0,"EDITION_LEGACY":900,"EDITION_PROTO2":998,"EDITION_PROTO3":999,"EDITION_2023":1000,"EDITION_2024":1001,"EDITION_1_TEST_ONLY":1,"EDITION_2_TEST_ONLY":2,"EDITION_99997_TEST_ONLY":99997,"EDITION_99998_TEST_ONLY":99998,"EDITION_99999_TEST_ONLY":99999,"EDITION_MAX":2147483647}},"FileDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"package":{"type":"string","id":2},"dependency":{"rule":"repeated","type":"string","id":3},"publicDependency":{"rule":"repeated","type":"int32","id":10},"weakDependency":{"rule":"repeated","type":"int32","id":11},"optionDependency":{"rule":"repeated","type":"string","id":15},"messageType":{"rule":"repeated","type":"DescriptorProto","id":4},"enumType":{"rule":"repeated","type":"EnumDescriptorProto","id":5},"service":{"rule":"repeated","type":"ServiceDescriptorProto","id":6},"extension":{"rule":"repeated","type":"FieldDescriptorProto","id":7},"options":{"type":"FileOptions","id":8},"sourceCodeInfo":{"type":"SourceCodeInfo","id":9},"syntax":{"type":"string","id":12},"edition":{"type":"Edition","id":14}}},"DescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"field":{"rule":"repeated","type":"FieldDescriptorProto","id":2},"extension":{"rule":"repeated","type":"FieldDescriptorProto","id":6},"nestedType":{"rule":"repeated","type":"DescriptorProto","id":3},"enumType":{"rule":"repeated","type":"EnumDescriptorProto","id":4},"extensionRange":{"rule":"repeated","type":"ExtensionRange","id":5},"oneofDecl":{"rule":"repeated","type":"OneofDescriptorProto","id":8},"options":{"type":"MessageOptions","id":7},"reservedRange":{"rule":"repeated","type":"ReservedRange","id":9},"reservedName":{"rule":"repeated","type":"string","id":10},"visibility":{"type":"SymbolVisibility","id":11}},"nested":{"ExtensionRange":{"fields":{"start":{"type":"int32","id":1},"end":{"type":"int32","id":2},"options":{"type":"ExtensionRangeOptions","id":3}}},"ReservedRange":{"fields":{"start":{"type":"int32","id":1},"end":{"type":"int32","id":2}}}}},"ExtensionRangeOptions":{"edition":"proto2","fields":{"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999},"declaration":{"rule":"repeated","type":"Declaration","id":2,"options":{"retention":"RETENTION_SOURCE"}},"features":{"type":"FeatureSet","id":50},"verification":{"type":"VerificationState","id":3,"options":{"default":"UNVERIFIED","retention":"RETENTION_SOURCE"}}},"extensions":[[1000,536870911]],"nested":{"Declaration":{"fields":{"number":{"type":"int32","id":1},"fullName":{"type":"string","id":2},"type":{"type":"string","id":3},"reserved":{"type":"bool","id":5},"repeated":{"type":"bool","id":6}},"reserved":[[4,4]]},"VerificationState":{"values":{"DECLARATION":0,"UNVERIFIED":1}}}},"FieldDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"number":{"type":"int32","id":3},"label":{"type":"Label","id":4},"type":{"type":"Type","id":5},"typeName":{"type":"string","id":6},"extendee":{"type":"string","id":2},"defaultValue":{"type":"string","id":7},"oneofIndex":{"type":"int32","id":9},"jsonName":{"type":"string","id":10},"options":{"type":"FieldOptions","id":8},"proto3Optional":{"type":"bool","id":17}},"nested":{"Type":{"values":{"TYPE_DOUBLE":1,"TYPE_FLOAT":2,"TYPE_INT64":3,"TYPE_UINT64":4,"TYPE_INT32":5,"TYPE_FIXED64":6,"TYPE_FIXED32":7,"TYPE_BOOL":8,"TYPE_STRING":9,"TYPE_GROUP":10,"TYPE_MESSAGE":11,"TYPE_BYTES":12,"TYPE_UINT32":13,"TYPE_ENUM":14,"TYPE_SFIXED32":15,"TYPE_SFIXED64":16,"TYPE_SINT32":17,"TYPE_SINT64":18}},"Label":{"values":{"LABEL_OPTIONAL":1,"LABEL_REPEATED":3,"LABEL_REQUIRED":2}}}},"OneofDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"options":{"type":"OneofOptions","id":2}}},"EnumDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"value":{"rule":"repeated","type":"EnumValueDescriptorProto","id":2},"options":{"type":"EnumOptions","id":3},"reservedRange":{"rule":"repeated","type":"EnumReservedRange","id":4},"reservedName":{"rule":"repeated","type":"string","id":5},"visibility":{"type":"SymbolVisibility","id":6}},"nested":{"EnumReservedRange":{"fields":{"start":{"type":"int32","id":1},"end":{"type":"int32","id":2}}}}},"EnumValueDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"number":{"type":"int32","id":2},"options":{"type":"EnumValueOptions","id":3}}},"ServiceDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"method":{"rule":"repeated","type":"MethodDescriptorProto","id":2},"options":{"type":"ServiceOptions","id":3}}},"MethodDescriptorProto":{"edition":"proto2","fields":{"name":{"type":"string","id":1},"inputType":{"type":"string","id":2},"outputType":{"type":"string","id":3},"options":{"type":"MethodOptions","id":4},"clientStreaming":{"type":"bool","id":5},"serverStreaming":{"type":"bool","id":6}}},"FileOptions":{"edition":"proto2","fields":{"javaPackage":{"type":"string","id":1},"javaOuterClassname":{"type":"string","id":8},"javaMultipleFiles":{"type":"bool","id":10},"javaGenerateEqualsAndHash":{"type":"bool","id":20,"options":{"deprecated":true}},"javaStringCheckUtf8":{"type":"bool","id":27},"optimizeFor":{"type":"OptimizeMode","id":9,"options":{"default":"SPEED"}},"goPackage":{"type":"string","id":11},"ccGenericServices":{"type":"bool","id":16},"javaGenericServices":{"type":"bool","id":17},"pyGenericServices":{"type":"bool","id":18},"deprecated":{"type":"bool","id":23},"ccEnableArenas":{"type":"bool","id":31,"options":{"default":true}},"objcClassPrefix":{"type":"string","id":36},"csharpNamespace":{"type":"string","id":37},"swiftPrefix":{"type":"string","id":39},"phpClassPrefix":{"type":"string","id":40},"phpNamespace":{"type":"string","id":41},"phpMetadataNamespace":{"type":"string","id":44},"rubyPackage":{"type":"string","id":45},"features":{"type":"FeatureSet","id":50},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]],"reserved":[[42,42],[38,38],"php_generic_services"],"nested":{"OptimizeMode":{"values":{"SPEED":1,"CODE_SIZE":2,"LITE_RUNTIME":3}}}},"MessageOptions":{"edition":"proto2","fields":{"messageSetWireFormat":{"type":"bool","id":1},"noStandardDescriptorAccessor":{"type":"bool","id":2},"deprecated":{"type":"bool","id":3},"mapEntry":{"type":"bool","id":7},"deprecatedLegacyJsonFieldConflicts":{"type":"bool","id":11,"options":{"deprecated":true}},"features":{"type":"FeatureSet","id":12},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]],"reserved":[[4,4],[5,5],[6,6],[8,8],[9,9]]},"FieldOptions":{"edition":"proto2","fields":{"ctype":{"type":"CType","id":1,"options":{"default":"STRING"}},"packed":{"type":"bool","id":2},"jstype":{"type":"JSType","id":6,"options":{"default":"JS_NORMAL"}},"lazy":{"type":"bool","id":5},"unverifiedLazy":{"type":"bool","id":15},"deprecated":{"type":"bool","id":3},"weak":{"type":"bool","id":10,"options":{"deprecated":true}},"debugRedact":{"type":"bool","id":16},"retention":{"type":"OptionRetention","id":17},"targets":{"rule":"repeated","type":"OptionTargetType","id":19},"editionDefaults":{"rule":"repeated","type":"EditionDefault","id":20},"features":{"type":"FeatureSet","id":21},"featureSupport":{"type":"FeatureSupport","id":22},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]],"reserved":[[4,4],[18,18]],"nested":{"CType":{"values":{"STRING":0,"CORD":1,"STRING_PIECE":2}},"JSType":{"values":{"JS_NORMAL":0,"JS_STRING":1,"JS_NUMBER":2}},"OptionRetention":{"values":{"RETENTION_UNKNOWN":0,"RETENTION_RUNTIME":1,"RETENTION_SOURCE":2}},"OptionTargetType":{"values":{"TARGET_TYPE_UNKNOWN":0,"TARGET_TYPE_FILE":1,"TARGET_TYPE_EXTENSION_RANGE":2,"TARGET_TYPE_MESSAGE":3,"TARGET_TYPE_FIELD":4,"TARGET_TYPE_ONEOF":5,"TARGET_TYPE_ENUM":6,"TARGET_TYPE_ENUM_ENTRY":7,"TARGET_TYPE_SERVICE":8,"TARGET_TYPE_METHOD":9}},"EditionDefault":{"fields":{"edition":{"type":"Edition","id":3},"value":{"type":"string","id":2}}},"FeatureSupport":{"fields":{"editionIntroduced":{"type":"Edition","id":1},"editionDeprecated":{"type":"Edition","id":2},"deprecationWarning":{"type":"string","id":3},"editionRemoved":{"type":"Edition","id":4}}}}},"OneofOptions":{"edition":"proto2","fields":{"features":{"type":"FeatureSet","id":1},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]]},"EnumOptions":{"edition":"proto2","fields":{"allowAlias":{"type":"bool","id":2},"deprecated":{"type":"bool","id":3},"deprecatedLegacyJsonFieldConflicts":{"type":"bool","id":6,"options":{"deprecated":true}},"features":{"type":"FeatureSet","id":7},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]],"reserved":[[5,5]]},"EnumValueOptions":{"edition":"proto2","fields":{"deprecated":{"type":"bool","id":1},"features":{"type":"FeatureSet","id":2},"debugRedact":{"type":"bool","id":3},"featureSupport":{"type":"FieldOptions.FeatureSupport","id":4},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]]},"ServiceOptions":{"edition":"proto2","fields":{"features":{"type":"FeatureSet","id":34},"deprecated":{"type":"bool","id":33},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]]},"MethodOptions":{"edition":"proto2","fields":{"deprecated":{"type":"bool","id":33},"idempotencyLevel":{"type":"IdempotencyLevel","id":34,"options":{"default":"IDEMPOTENCY_UNKNOWN"}},"features":{"type":"FeatureSet","id":35},"uninterpretedOption":{"rule":"repeated","type":"UninterpretedOption","id":999}},"extensions":[[1000,536870911]],"nested":{"IdempotencyLevel":{"values":{"IDEMPOTENCY_UNKNOWN":0,"NO_SIDE_EFFECTS":1,"IDEMPOTENT":2}}}},"UninterpretedOption":{"edition":"proto2","fields":{"name":{"rule":"repeated","type":"NamePart","id":2},"identifierValue":{"type":"string","id":3},"positiveIntValue":{"type":"uint64","id":4},"negativeIntValue":{"type":"int64","id":5},"doubleValue":{"type":"double","id":6},"stringValue":{"type":"bytes","id":7},"aggregateValue":{"type":"string","id":8}},"nested":{"NamePart":{"fields":{"namePart":{"rule":"required","type":"string","id":1},"isExtension":{"rule":"required","type":"bool","id":2}}}}},"FeatureSet":{"edition":"proto2","fields":{"fieldPresence":{"type":"FieldPresence","id":1,"options":{"retention":"RETENTION_RUNTIME","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2023","edition_defaults.edition":"EDITION_2023","edition_defaults.value":"EXPLICIT"}},"enumType":{"type":"EnumType","id":2,"options":{"retention":"RETENTION_RUNTIME","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2023","edition_defaults.edition":"EDITION_PROTO3","edition_defaults.value":"OPEN"}},"repeatedFieldEncoding":{"type":"RepeatedFieldEncoding","id":3,"options":{"retention":"RETENTION_RUNTIME","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2023","edition_defaults.edition":"EDITION_PROTO3","edition_defaults.value":"PACKED"}},"utf8Validation":{"type":"Utf8Validation","id":4,"options":{"retention":"RETENTION_RUNTIME","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2023","edition_defaults.edition":"EDITION_PROTO3","edition_defaults.value":"VERIFY"}},"messageEncoding":{"type":"MessageEncoding","id":5,"options":{"retention":"RETENTION_RUNTIME","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2023","edition_defaults.edition":"EDITION_LEGACY","edition_defaults.value":"LENGTH_PREFIXED"}},"jsonFormat":{"type":"JsonFormat","id":6,"options":{"retention":"RETENTION_RUNTIME","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2023","edition_defaults.edition":"EDITION_PROTO3","edition_defaults.value":"ALLOW"}},"enforceNamingStyle":{"type":"EnforceNamingStyle","id":7,"options":{"retention":"RETENTION_SOURCE","targets":"TARGET_TYPE_METHOD","feature_support.edition_introduced":"EDITION_2024","edition_defaults.edition":"EDITION_2024","edition_defaults.value":"STYLE2024"}},"defaultSymbolVisibility":{"type":"VisibilityFeature.DefaultSymbolVisibility","id":8,"options":{"retention":"RETENTION_SOURCE","targets":"TARGET_TYPE_FILE","feature_support.edition_introduced":"EDITION_2024","edition_defaults.edition":"EDITION_2024","edition_defaults.value":"EXPORT_TOP_LEVEL"}}},"extensions":[[1000,9994],[9995,9999],[10000,10000]],"reserved":[[999,999]],"nested":{"FieldPresence":{"values":{"FIELD_PRESENCE_UNKNOWN":0,"EXPLICIT":1,"IMPLICIT":2,"LEGACY_REQUIRED":3}},"EnumType":{"values":{"ENUM_TYPE_UNKNOWN":0,"OPEN":1,"CLOSED":2}},"RepeatedFieldEncoding":{"values":{"REPEATED_FIELD_ENCODING_UNKNOWN":0,"PACKED":1,"EXPANDED":2}},"Utf8Validation":{"values":{"UTF8_VALIDATION_UNKNOWN":0,"VERIFY":2,"NONE":3}},"MessageEncoding":{"values":{"MESSAGE_ENCODING_UNKNOWN":0,"LENGTH_PREFIXED":1,"DELIMITED":2}},"JsonFormat":{"values":{"JSON_FORMAT_UNKNOWN":0,"ALLOW":1,"LEGACY_BEST_EFFORT":2}},"EnforceNamingStyle":{"values":{"ENFORCE_NAMING_STYLE_UNKNOWN":0,"STYLE2024":1,"STYLE_LEGACY":2}},"VisibilityFeature":{"fields":{},"reserved":[[1,536870911]],"nested":{"DefaultSymbolVisibility":{"values":{"DEFAULT_SYMBOL_VISIBILITY_UNKNOWN":0,"EXPORT_ALL":1,"EXPORT_TOP_LEVEL":2,"LOCAL_ALL":3,"STRICT":4}}}}}},"FeatureSetDefaults":{"edition":"proto2","fields":{"defaults":{"rule":"repeated","type":"FeatureSetEditionDefault","id":1},"minimumEdition":{"type":"Edition","id":4},"maximumEdition":{"type":"Edition","id":5}},"nested":{"FeatureSetEditionDefault":{"fields":{"edition":{"type":"Edition","id":3},"overridableFeatures":{"type":"FeatureSet","id":4},"fixedFeatures":{"type":"FeatureSet","id":5}},"reserved":[[1,1],[2,2],"features"]}}},"SourceCodeInfo":{"edition":"proto2","fields":{"location":{"rule":"repeated","type":"Location","id":1}},"extensions":[[536000000,536000000]],"nested":{"Location":{"fields":{"path":{"rule":"repeated","type":"int32","id":1,"options":{"packed":true}},"span":{"rule":"repeated","type":"int32","id":2,"options":{"packed":true}},"leadingComments":{"type":"string","id":3},"trailingComments":{"type":"string","id":4},"leadingDetachedComments":{"rule":"repeated","type":"string","id":6}}}}},"GeneratedCodeInfo":{"edition":"proto2","fields":{"annotation":{"rule":"repeated","type":"Annotation","id":1}},"nested":{"Annotation":{"fields":{"path":{"rule":"repeated","type":"int32","id":1,"options":{"packed":true}},"sourceFile":{"type":"string","id":2},"begin":{"type":"int32","id":3},"end":{"type":"int32","id":4},"semantic":{"type":"Semantic","id":5}},"nested":{"Semantic":{"values":{"NONE":0,"SET":1,"ALIAS":2}}}}}},"SymbolVisibility":{"edition":"proto2","values":{"VISIBILITY_UNSET":0,"VISIBILITY_LOCAL":1,"VISIBILITY_EXPORT":2}}}}}}}}');
 
 /***/ }),
-/* 157 */
+/* 159 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -73167,7 +73220,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.addCommonProtos = exports.loadProtosWithOptionsSync = exports.loadProtosWithOptions = void 0;
 const fs = __webpack_require__(25);
 const path = __webpack_require__(10);
-const Protobuf = __webpack_require__(111);
+const Protobuf = __webpack_require__(113);
 function addIncludePathResolver(root, includePaths) {
     const originalResolvePath = root.resolvePath;
     root.resolvePath = (origin, target) => {
@@ -73223,10 +73276,10 @@ function addCommonProtos() {
     // Protobuf.js exposes: any, duration, empty, field_mask, struct, timestamp,
     // and wrappers. compiler/plugin is excluded in Protobuf.js and here.
     // Using constant strings for compatibility with tools like Webpack
-    const apiDescriptor = __webpack_require__(158);
-    const descriptorDescriptor = __webpack_require__(156);
-    const sourceContextDescriptor = __webpack_require__(159);
-    const typeDescriptor = __webpack_require__(160);
+    const apiDescriptor = __webpack_require__(160);
+    const descriptorDescriptor = __webpack_require__(158);
+    const sourceContextDescriptor = __webpack_require__(161);
+    const typeDescriptor = __webpack_require__(162);
     Protobuf.common('api', apiDescriptor.nested.google.nested.protobuf.nested);
     Protobuf.common('descriptor', descriptorDescriptor.nested.google.nested.protobuf.nested);
     Protobuf.common('source_context', sourceContextDescriptor.nested.google.nested.protobuf.nested);
@@ -73236,28 +73289,28 @@ exports.addCommonProtos = addCommonProtos;
 //# sourceMappingURL=util.js.map
 
 /***/ }),
-/* 158 */
+/* 160 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"nested":{"google":{"nested":{"protobuf":{"nested":{"Api":{"fields":{"name":{"type":"string","id":1},"methods":{"rule":"repeated","type":"Method","id":2},"options":{"rule":"repeated","type":"Option","id":3},"version":{"type":"string","id":4},"sourceContext":{"type":"SourceContext","id":5},"mixins":{"rule":"repeated","type":"Mixin","id":6},"syntax":{"type":"Syntax","id":7}}},"Method":{"fields":{"name":{"type":"string","id":1},"requestTypeUrl":{"type":"string","id":2},"requestStreaming":{"type":"bool","id":3},"responseTypeUrl":{"type":"string","id":4},"responseStreaming":{"type":"bool","id":5},"options":{"rule":"repeated","type":"Option","id":6},"syntax":{"type":"Syntax","id":7}}},"Mixin":{"fields":{"name":{"type":"string","id":1},"root":{"type":"string","id":2}}},"SourceContext":{"fields":{"fileName":{"type":"string","id":1}}},"Option":{"fields":{"name":{"type":"string","id":1},"value":{"type":"Any","id":2}}},"Syntax":{"values":{"SYNTAX_PROTO2":0,"SYNTAX_PROTO3":1}}}}}}}}');
 
 /***/ }),
-/* 159 */
+/* 161 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"nested":{"google":{"nested":{"protobuf":{"nested":{"SourceContext":{"fields":{"fileName":{"type":"string","id":1}}}}}}}}}');
 
 /***/ }),
-/* 160 */
+/* 162 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"nested":{"google":{"nested":{"protobuf":{"nested":{"Type":{"fields":{"name":{"type":"string","id":1},"fields":{"rule":"repeated","type":"Field","id":2},"oneofs":{"rule":"repeated","type":"string","id":3},"options":{"rule":"repeated","type":"Option","id":4},"sourceContext":{"type":"SourceContext","id":5},"syntax":{"type":"Syntax","id":6}}},"Field":{"fields":{"kind":{"type":"Kind","id":1},"cardinality":{"type":"Cardinality","id":2},"number":{"type":"int32","id":3},"name":{"type":"string","id":4},"typeUrl":{"type":"string","id":6},"oneofIndex":{"type":"int32","id":7},"packed":{"type":"bool","id":8},"options":{"rule":"repeated","type":"Option","id":9},"jsonName":{"type":"string","id":10},"defaultValue":{"type":"string","id":11}},"nested":{"Kind":{"values":{"TYPE_UNKNOWN":0,"TYPE_DOUBLE":1,"TYPE_FLOAT":2,"TYPE_INT64":3,"TYPE_UINT64":4,"TYPE_INT32":5,"TYPE_FIXED64":6,"TYPE_FIXED32":7,"TYPE_BOOL":8,"TYPE_STRING":9,"TYPE_GROUP":10,"TYPE_MESSAGE":11,"TYPE_BYTES":12,"TYPE_UINT32":13,"TYPE_ENUM":14,"TYPE_SFIXED32":15,"TYPE_SFIXED64":16,"TYPE_SINT32":17,"TYPE_SINT64":18}},"Cardinality":{"values":{"CARDINALITY_UNKNOWN":0,"CARDINALITY_OPTIONAL":1,"CARDINALITY_REQUIRED":2,"CARDINALITY_REPEATED":3}}}},"Enum":{"fields":{"name":{"type":"string","id":1},"enumvalue":{"rule":"repeated","type":"EnumValue","id":2},"options":{"rule":"repeated","type":"Option","id":3},"sourceContext":{"type":"SourceContext","id":4},"syntax":{"type":"Syntax","id":5}}},"EnumValue":{"fields":{"name":{"type":"string","id":1},"number":{"type":"int32","id":2},"options":{"rule":"repeated","type":"Option","id":3}}},"Option":{"fields":{"name":{"type":"string","id":1},"value":{"type":"Any","id":2}}},"Syntax":{"values":{"SYNTAX_PROTO2":0,"SYNTAX_PROTO3":1}},"Any":{"fields":{"type_url":{"type":"string","id":1},"value":{"type":"bytes","id":2}}},"SourceContext":{"fields":{"fileName":{"type":"string","id":1}}}}}}}}}');
 
 /***/ }),
-/* 161 */
+/* 163 */
 /***/ (function(module, exports) {
 
 var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;// GENERATED FILE. DO NOT EDIT.
@@ -74878,7 +74931,7 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;// GENERATED FIL
 
 
 /***/ }),
-/* 162 */
+/* 164 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -74901,21 +74954,21 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;// GENERATED FIL
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Http2SubchannelConnector = void 0;
-const http2 = __webpack_require__(163);
-const tls_1 = __webpack_require__(82);
-const channelz_1 = __webpack_require__(100);
-const constants_1 = __webpack_require__(76);
-const http_proxy_1 = __webpack_require__(164);
-const logging = __webpack_require__(75);
-const resolver_1 = __webpack_require__(90);
-const subchannel_address_1 = __webpack_require__(98);
-const uri_parser_1 = __webpack_require__(91);
-const net = __webpack_require__(99);
-const subchannel_call_1 = __webpack_require__(167);
-const call_number_1 = __webpack_require__(169);
+const http2 = __webpack_require__(165);
+const tls_1 = __webpack_require__(85);
+const channelz_1 = __webpack_require__(102);
+const constants_1 = __webpack_require__(79);
+const http_proxy_1 = __webpack_require__(166);
+const logging = __webpack_require__(78);
+const resolver_1 = __webpack_require__(92);
+const subchannel_address_1 = __webpack_require__(100);
+const uri_parser_1 = __webpack_require__(93);
+const net = __webpack_require__(101);
+const subchannel_call_1 = __webpack_require__(169);
+const call_number_1 = __webpack_require__(171);
 const TRACER_NAME = 'transport';
 const FLOW_CONTROL_TRACER_NAME = 'transport_flowctrl';
-const clientVersion = (__webpack_require__(78).version);
+const clientVersion = (__webpack_require__(81).version);
 const { HTTP2_HEADER_AUTHORITY, HTTP2_HEADER_CONTENT_TYPE, HTTP2_HEADER_METHOD, HTTP2_HEADER_PATH, HTTP2_HEADER_TE, HTTP2_HEADER_USER_AGENT, } = http2.constants;
 const KEEPALIVE_TIMEOUT_MS = 20000;
 const tooManyPingsData = Buffer.from('too_many_pings', 'ascii');
@@ -75528,14 +75581,14 @@ exports.Http2SubchannelConnector = Http2SubchannelConnector;
 //# sourceMappingURL=transport.js.map
 
 /***/ }),
-/* 163 */
+/* 165 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("http2");
 
 /***/ }),
-/* 164 */
+/* 166 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -75558,16 +75611,16 @@ module.exports = require("http2");
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getProxiedConnection = exports.mapProxyName = void 0;
-const logging_1 = __webpack_require__(75);
-const constants_1 = __webpack_require__(76);
-const resolver_1 = __webpack_require__(90);
+const logging_1 = __webpack_require__(78);
+const constants_1 = __webpack_require__(79);
+const resolver_1 = __webpack_require__(92);
 const http = __webpack_require__(53);
-const tls = __webpack_require__(82);
-const logging = __webpack_require__(75);
-const subchannel_address_1 = __webpack_require__(98);
-const uri_parser_1 = __webpack_require__(91);
+const tls = __webpack_require__(85);
+const logging = __webpack_require__(78);
+const subchannel_address_1 = __webpack_require__(100);
+const uri_parser_1 = __webpack_require__(93);
 const url_1 = __webpack_require__(55);
-const resolver_dns_1 = __webpack_require__(165);
+const resolver_dns_1 = __webpack_require__(167);
 const TRACER_NAME = 'proxy';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -75801,7 +75854,7 @@ exports.getProxiedConnection = getProxiedConnection;
 //# sourceMappingURL=http_proxy.js.map
 
 /***/ }),
-/* 165 */
+/* 167 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -75823,17 +75876,17 @@ exports.getProxiedConnection = getProxiedConnection;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.DEFAULT_PORT = void 0;
-const resolver_1 = __webpack_require__(90);
-const dns = __webpack_require__(166);
-const util = __webpack_require__(70);
-const service_config_1 = __webpack_require__(87);
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const logging = __webpack_require__(75);
-const constants_2 = __webpack_require__(76);
-const uri_parser_1 = __webpack_require__(91);
-const net_1 = __webpack_require__(99);
-const backoff_timeout_1 = __webpack_require__(93);
+const resolver_1 = __webpack_require__(92);
+const dns = __webpack_require__(168);
+const util = __webpack_require__(62);
+const service_config_1 = __webpack_require__(90);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const logging = __webpack_require__(78);
+const constants_2 = __webpack_require__(79);
+const uri_parser_1 = __webpack_require__(93);
+const net_1 = __webpack_require__(101);
+const backoff_timeout_1 = __webpack_require__(95);
 const TRACER_NAME = 'dns_resolver';
 function trace(text) {
     logging.trace(constants_2.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -76135,14 +76188,14 @@ exports.setup = setup;
 //# sourceMappingURL=resolver-dns.js.map
 
 /***/ }),
-/* 166 */
+/* 168 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("dns");
 
 /***/ }),
-/* 167 */
+/* 169 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -76165,13 +76218,13 @@ module.exports = require("dns");
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Http2SubchannelCall = void 0;
-const http2 = __webpack_require__(163);
-const os = __webpack_require__(88);
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const stream_decoder_1 = __webpack_require__(168);
-const logging = __webpack_require__(75);
-const constants_2 = __webpack_require__(76);
+const http2 = __webpack_require__(165);
+const os = __webpack_require__(61);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const stream_decoder_1 = __webpack_require__(170);
+const logging = __webpack_require__(78);
+const constants_2 = __webpack_require__(79);
 const TRACER_NAME = 'subchannel_call';
 /**
  * Should do approximately the same thing as util.getSystemErrorName but the
@@ -76618,7 +76671,7 @@ exports.Http2SubchannelCall = Http2SubchannelCall;
 //# sourceMappingURL=subchannel-call.js.map
 
 /***/ }),
-/* 168 */
+/* 170 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -76724,7 +76777,7 @@ exports.StreamDecoder = StreamDecoder;
 //# sourceMappingURL=stream-decoder.js.map
 
 /***/ }),
-/* 169 */
+/* 171 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -76755,7 +76808,7 @@ exports.getNextCallNumber = getNextCallNumber;
 //# sourceMappingURL=call-number.js.map
 
 /***/ }),
-/* 170 */
+/* 172 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -76843,7 +76896,7 @@ exports.FilterStackFactory = FilterStackFactory;
 //# sourceMappingURL=filter-stack.js.map
 
 /***/ }),
-/* 171 */
+/* 173 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -76866,11 +76919,11 @@ exports.FilterStackFactory = FilterStackFactory;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CompressionFilterFactory = exports.CompressionFilter = void 0;
-const zlib = __webpack_require__(172);
-const compression_algorithms_1 = __webpack_require__(173);
-const constants_1 = __webpack_require__(76);
-const filter_1 = __webpack_require__(174);
-const logging = __webpack_require__(75);
+const zlib = __webpack_require__(174);
+const compression_algorithms_1 = __webpack_require__(175);
+const constants_1 = __webpack_require__(79);
+const filter_1 = __webpack_require__(176);
+const logging = __webpack_require__(78);
 const isCompressionAlgorithmKey = (key) => {
     return (typeof key === 'number' && typeof compression_algorithms_1.CompressionAlgorithms[key] === 'string');
 };
@@ -77137,14 +77190,14 @@ exports.CompressionFilterFactory = CompressionFilterFactory;
 //# sourceMappingURL=compression-filter.js.map
 
 /***/ }),
-/* 172 */
+/* 174 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("zlib");
 
 /***/ }),
-/* 173 */
+/* 175 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -77176,7 +77229,7 @@ var CompressionAlgorithms;
 //# sourceMappingURL=compression-algorithms.js.map
 
 /***/ }),
-/* 174 */
+/* 176 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -77220,7 +77273,7 @@ exports.BaseFilter = BaseFilter;
 //# sourceMappingURL=filter.js.map
 
 /***/ }),
-/* 175 */
+/* 177 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -77243,15 +77296,15 @@ exports.BaseFilter = BaseFilter;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LoadBalancingCall = void 0;
-const connectivity_state_1 = __webpack_require__(89);
-const constants_1 = __webpack_require__(76);
-const deadline_1 = __webpack_require__(176);
-const metadata_1 = __webpack_require__(74);
-const picker_1 = __webpack_require__(92);
-const uri_parser_1 = __webpack_require__(91);
-const logging = __webpack_require__(75);
-const control_plane_status_1 = __webpack_require__(177);
-const http2 = __webpack_require__(163);
+const connectivity_state_1 = __webpack_require__(91);
+const constants_1 = __webpack_require__(79);
+const deadline_1 = __webpack_require__(178);
+const metadata_1 = __webpack_require__(77);
+const picker_1 = __webpack_require__(94);
+const uri_parser_1 = __webpack_require__(93);
+const logging = __webpack_require__(78);
+const control_plane_status_1 = __webpack_require__(179);
+const http2 = __webpack_require__(165);
 const TRACER_NAME = 'load_balancing_call';
 class LoadBalancingCall {
     constructor(channel, callConfig, methodName, host, credentials, deadline, callNumber) {
@@ -77495,7 +77548,7 @@ exports.LoadBalancingCall = LoadBalancingCall;
 //# sourceMappingURL=load-balancing-call.js.map
 
 /***/ }),
-/* 176 */
+/* 178 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -77599,7 +77652,7 @@ exports.deadlineToString = deadlineToString;
 //# sourceMappingURL=deadline.js.map
 
 /***/ }),
-/* 177 */
+/* 179 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -77622,7 +77675,7 @@ exports.deadlineToString = deadlineToString;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.restrictControlPlaneStatusCode = void 0;
-const constants_1 = __webpack_require__(76);
+const constants_1 = __webpack_require__(79);
 const INAPPROPRIATE_CONTROL_PLANE_CODES = [
     constants_1.Status.OK,
     constants_1.Status.INVALID_ARGUMENT,
@@ -77648,7 +77701,7 @@ exports.restrictControlPlaneStatusCode = restrictControlPlaneStatusCode;
 //# sourceMappingURL=control-plane-status.js.map
 
 /***/ }),
-/* 178 */
+/* 180 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -77671,11 +77724,11 @@ exports.restrictControlPlaneStatusCode = restrictControlPlaneStatusCode;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ResolvingCall = void 0;
-const constants_1 = __webpack_require__(76);
-const deadline_1 = __webpack_require__(176);
-const metadata_1 = __webpack_require__(74);
-const logging = __webpack_require__(75);
-const control_plane_status_1 = __webpack_require__(177);
+const constants_1 = __webpack_require__(79);
+const deadline_1 = __webpack_require__(178);
+const metadata_1 = __webpack_require__(77);
+const logging = __webpack_require__(78);
+const control_plane_status_1 = __webpack_require__(179);
 const TRACER_NAME = 'resolving_call';
 class ResolvingCall {
     constructor(channel, method, options, filterStackFactory, credentials, callNumber) {
@@ -77927,7 +77980,7 @@ exports.ResolvingCall = ResolvingCall;
 //# sourceMappingURL=resolving-call.js.map
 
 /***/ }),
-/* 179 */
+/* 181 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -77950,9 +78003,9 @@ exports.ResolvingCall = ResolvingCall;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.RetryingCall = exports.MessageBufferTracker = exports.RetryThrottler = void 0;
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const logging = __webpack_require__(75);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const logging = __webpack_require__(78);
 const TRACER_NAME = 'retrying_call';
 class RetryThrottler {
     constructor(maxTokens, tokenRatio, previousRetryThrottler) {
@@ -78572,7 +78625,7 @@ exports.RetryingCall = RetryingCall;
 //# sourceMappingURL=retrying-call.js.map
 
 /***/ }),
-/* 180 */
+/* 182 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -78637,7 +78690,7 @@ exports.BaseSubchannelWrapper = BaseSubchannelWrapper;
 //# sourceMappingURL=subchannel-interface.js.map
 
 /***/ }),
-/* 181 */
+/* 183 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -78660,15 +78713,15 @@ exports.BaseSubchannelWrapper = BaseSubchannelWrapper;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Server = void 0;
-const http2 = __webpack_require__(163);
-const constants_1 = __webpack_require__(76);
-const server_call_1 = __webpack_require__(182);
-const server_credentials_1 = __webpack_require__(183);
-const resolver_1 = __webpack_require__(90);
-const logging = __webpack_require__(75);
-const subchannel_address_1 = __webpack_require__(98);
-const uri_parser_1 = __webpack_require__(91);
-const channelz_1 = __webpack_require__(100);
+const http2 = __webpack_require__(165);
+const constants_1 = __webpack_require__(79);
+const server_call_1 = __webpack_require__(184);
+const server_credentials_1 = __webpack_require__(185);
+const resolver_1 = __webpack_require__(92);
+const logging = __webpack_require__(78);
+const subchannel_address_1 = __webpack_require__(100);
+const uri_parser_1 = __webpack_require__(93);
+const channelz_1 = __webpack_require__(102);
 const UNLIMITED_CONNECTION_AGE_MS = ~(1 << 31);
 const KEEPALIVE_MAX_TIME_MS = ~(1 << 31);
 const KEEPALIVE_TIMEOUT_MS = 20000;
@@ -79535,7 +79588,7 @@ function handleBidiStreaming(call, handler, metadata, encoding) {
 //# sourceMappingURL=server.js.map
 
 /***/ }),
-/* 182 */
+/* 184 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -79558,15 +79611,15 @@ function handleBidiStreaming(call, handler, metadata, encoding) {
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Http2ServerCallStream = exports.ServerDuplexStreamImpl = exports.ServerWritableStreamImpl = exports.ServerReadableStreamImpl = exports.ServerUnaryCallImpl = void 0;
-const events_1 = __webpack_require__(105);
-const http2 = __webpack_require__(163);
-const stream_1 = __webpack_require__(106);
-const zlib = __webpack_require__(172);
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const stream_decoder_1 = __webpack_require__(168);
-const logging = __webpack_require__(75);
-const error_1 = __webpack_require__(79);
+const events_1 = __webpack_require__(107);
+const http2 = __webpack_require__(165);
+const stream_1 = __webpack_require__(108);
+const zlib = __webpack_require__(174);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const stream_decoder_1 = __webpack_require__(170);
+const logging = __webpack_require__(78);
+const error_1 = __webpack_require__(82);
 const TRACER_NAME = 'server_call';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -80236,7 +80289,7 @@ function handleExpiredDeadline(call) {
 //# sourceMappingURL=server-call.js.map
 
 /***/ }),
-/* 183 */
+/* 185 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -80259,7 +80312,7 @@ function handleExpiredDeadline(call) {
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ServerCredentials = void 0;
-const tls_helpers_1 = __webpack_require__(83);
+const tls_helpers_1 = __webpack_require__(86);
 class ServerCredentials {
     static createInsecure() {
         return new InsecureServerCredentials();
@@ -80323,7 +80376,7 @@ class SecureServerCredentials extends ServerCredentials {
 //# sourceMappingURL=server-credentials.js.map
 
 /***/ }),
-/* 184 */
+/* 186 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -80397,52 +80450,52 @@ exports.StatusBuilder = StatusBuilder;
 //# sourceMappingURL=status-builder.js.map
 
 /***/ }),
-/* 185 */
+/* 187 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OutlierDetectionLoadBalancingConfig = exports.BaseSubchannelWrapper = exports.registerAdminService = exports.FilterStackFactory = exports.BaseFilter = exports.PickResultType = exports.QueuePicker = exports.UnavailablePicker = exports.ChildLoadBalancerHandler = exports.subchannelAddressToString = exports.validateLoadBalancingConfig = exports.getFirstUsableConfig = exports.registerLoadBalancerType = exports.createChildChannelControlHelper = exports.BackoffTimeout = exports.durationToMs = exports.uriToString = exports.createResolver = exports.registerResolver = exports.log = exports.trace = void 0;
-var logging_1 = __webpack_require__(75);
+var logging_1 = __webpack_require__(78);
 Object.defineProperty(exports, "trace", ({ enumerable: true, get: function () { return logging_1.trace; } }));
 Object.defineProperty(exports, "log", ({ enumerable: true, get: function () { return logging_1.log; } }));
-var resolver_1 = __webpack_require__(90);
+var resolver_1 = __webpack_require__(92);
 Object.defineProperty(exports, "registerResolver", ({ enumerable: true, get: function () { return resolver_1.registerResolver; } }));
 Object.defineProperty(exports, "createResolver", ({ enumerable: true, get: function () { return resolver_1.createResolver; } }));
-var uri_parser_1 = __webpack_require__(91);
+var uri_parser_1 = __webpack_require__(93);
 Object.defineProperty(exports, "uriToString", ({ enumerable: true, get: function () { return uri_parser_1.uriToString; } }));
-var duration_1 = __webpack_require__(186);
+var duration_1 = __webpack_require__(188);
 Object.defineProperty(exports, "durationToMs", ({ enumerable: true, get: function () { return duration_1.durationToMs; } }));
-var backoff_timeout_1 = __webpack_require__(93);
+var backoff_timeout_1 = __webpack_require__(95);
 Object.defineProperty(exports, "BackoffTimeout", ({ enumerable: true, get: function () { return backoff_timeout_1.BackoffTimeout; } }));
-var load_balancer_1 = __webpack_require__(86);
+var load_balancer_1 = __webpack_require__(89);
 Object.defineProperty(exports, "createChildChannelControlHelper", ({ enumerable: true, get: function () { return load_balancer_1.createChildChannelControlHelper; } }));
 Object.defineProperty(exports, "registerLoadBalancerType", ({ enumerable: true, get: function () { return load_balancer_1.registerLoadBalancerType; } }));
 Object.defineProperty(exports, "getFirstUsableConfig", ({ enumerable: true, get: function () { return load_balancer_1.getFirstUsableConfig; } }));
 Object.defineProperty(exports, "validateLoadBalancingConfig", ({ enumerable: true, get: function () { return load_balancer_1.validateLoadBalancingConfig; } }));
-var subchannel_address_1 = __webpack_require__(98);
+var subchannel_address_1 = __webpack_require__(100);
 Object.defineProperty(exports, "subchannelAddressToString", ({ enumerable: true, get: function () { return subchannel_address_1.subchannelAddressToString; } }));
-var load_balancer_child_handler_1 = __webpack_require__(94);
+var load_balancer_child_handler_1 = __webpack_require__(96);
 Object.defineProperty(exports, "ChildLoadBalancerHandler", ({ enumerable: true, get: function () { return load_balancer_child_handler_1.ChildLoadBalancerHandler; } }));
-var picker_1 = __webpack_require__(92);
+var picker_1 = __webpack_require__(94);
 Object.defineProperty(exports, "UnavailablePicker", ({ enumerable: true, get: function () { return picker_1.UnavailablePicker; } }));
 Object.defineProperty(exports, "QueuePicker", ({ enumerable: true, get: function () { return picker_1.QueuePicker; } }));
 Object.defineProperty(exports, "PickResultType", ({ enumerable: true, get: function () { return picker_1.PickResultType; } }));
-var filter_1 = __webpack_require__(174);
+var filter_1 = __webpack_require__(176);
 Object.defineProperty(exports, "BaseFilter", ({ enumerable: true, get: function () { return filter_1.BaseFilter; } }));
-var filter_stack_1 = __webpack_require__(170);
+var filter_stack_1 = __webpack_require__(172);
 Object.defineProperty(exports, "FilterStackFactory", ({ enumerable: true, get: function () { return filter_stack_1.FilterStackFactory; } }));
-var admin_1 = __webpack_require__(101);
+var admin_1 = __webpack_require__(103);
 Object.defineProperty(exports, "registerAdminService", ({ enumerable: true, get: function () { return admin_1.registerAdminService; } }));
-var subchannel_interface_1 = __webpack_require__(180);
+var subchannel_interface_1 = __webpack_require__(182);
 Object.defineProperty(exports, "BaseSubchannelWrapper", ({ enumerable: true, get: function () { return subchannel_interface_1.BaseSubchannelWrapper; } }));
-var load_balancer_outlier_detection_1 = __webpack_require__(187);
+var load_balancer_outlier_detection_1 = __webpack_require__(189);
 Object.defineProperty(exports, "OutlierDetectionLoadBalancingConfig", ({ enumerable: true, get: function () { return load_balancer_outlier_detection_1.OutlierDetectionLoadBalancingConfig; } }));
 //# sourceMappingURL=experimental.js.map
 
 /***/ }),
-/* 186 */
+/* 188 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -80483,7 +80536,7 @@ exports.isDuration = isDuration;
 //# sourceMappingURL=duration.js.map
 
 /***/ }),
-/* 187 */
+/* 189 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -80507,16 +80560,16 @@ exports.isDuration = isDuration;
 var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.OutlierDetectionLoadBalancer = exports.OutlierDetectionLoadBalancingConfig = void 0;
-const connectivity_state_1 = __webpack_require__(89);
-const constants_1 = __webpack_require__(76);
-const duration_1 = __webpack_require__(186);
-const experimental_1 = __webpack_require__(185);
-const load_balancer_1 = __webpack_require__(86);
-const load_balancer_child_handler_1 = __webpack_require__(94);
-const picker_1 = __webpack_require__(92);
-const subchannel_address_1 = __webpack_require__(98);
-const subchannel_interface_1 = __webpack_require__(180);
-const logging = __webpack_require__(75);
+const connectivity_state_1 = __webpack_require__(91);
+const constants_1 = __webpack_require__(79);
+const duration_1 = __webpack_require__(188);
+const experimental_1 = __webpack_require__(187);
+const load_balancer_1 = __webpack_require__(89);
+const load_balancer_child_handler_1 = __webpack_require__(96);
+const picker_1 = __webpack_require__(94);
+const subchannel_address_1 = __webpack_require__(100);
+const subchannel_interface_1 = __webpack_require__(182);
+const logging = __webpack_require__(78);
 const TRACER_NAME = 'outlier_detection';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -81097,7 +81150,7 @@ exports.setup = setup;
 //# sourceMappingURL=load-balancer-outlier-detection.js.map
 
 /***/ }),
-/* 188 */
+/* 190 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -81119,7 +81172,7 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = void 0;
-const resolver_1 = __webpack_require__(90);
+const resolver_1 = __webpack_require__(92);
 class UdsResolver {
     constructor(target, listener, channelOptions) {
         this.listener = listener;
@@ -81154,7 +81207,7 @@ exports.setup = setup;
 //# sourceMappingURL=resolver-uds.js.map
 
 /***/ }),
-/* 189 */
+/* 191 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -81176,12 +81229,12 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = void 0;
-const net_1 = __webpack_require__(99);
-const constants_1 = __webpack_require__(76);
-const metadata_1 = __webpack_require__(74);
-const resolver_1 = __webpack_require__(90);
-const uri_parser_1 = __webpack_require__(91);
-const logging = __webpack_require__(75);
+const net_1 = __webpack_require__(101);
+const constants_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(77);
+const resolver_1 = __webpack_require__(92);
+const uri_parser_1 = __webpack_require__(93);
+const logging = __webpack_require__(78);
 const TRACER_NAME = 'ip_resolver';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -81265,7 +81318,7 @@ exports.setup = setup;
 //# sourceMappingURL=resolver-ip.js.map
 
 /***/ }),
-/* 190 */
+/* 192 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -81288,11 +81341,11 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.PickFirstLoadBalancer = exports.shuffled = exports.PickFirstLoadBalancingConfig = void 0;
-const load_balancer_1 = __webpack_require__(86);
-const connectivity_state_1 = __webpack_require__(89);
-const picker_1 = __webpack_require__(92);
-const logging = __webpack_require__(75);
-const constants_1 = __webpack_require__(76);
+const load_balancer_1 = __webpack_require__(89);
+const connectivity_state_1 = __webpack_require__(91);
+const picker_1 = __webpack_require__(94);
+const logging = __webpack_require__(78);
+const constants_1 = __webpack_require__(79);
 const TRACER_NAME = 'pick_first';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -81664,7 +81717,7 @@ exports.setup = setup;
 //# sourceMappingURL=load-balancer-pick-first.js.map
 
 /***/ }),
-/* 191 */
+/* 193 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -81687,12 +81740,12 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.RoundRobinLoadBalancer = void 0;
-const load_balancer_1 = __webpack_require__(86);
-const connectivity_state_1 = __webpack_require__(89);
-const picker_1 = __webpack_require__(92);
-const subchannel_address_1 = __webpack_require__(98);
-const logging = __webpack_require__(75);
-const constants_1 = __webpack_require__(76);
+const load_balancer_1 = __webpack_require__(89);
+const connectivity_state_1 = __webpack_require__(91);
+const picker_1 = __webpack_require__(94);
+const subchannel_address_1 = __webpack_require__(100);
+const logging = __webpack_require__(78);
+const constants_1 = __webpack_require__(79);
 const TRACER_NAME = 'round_robin';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -81844,7 +81897,7 @@ exports.setup = setup;
 //# sourceMappingURL=load-balancer-round-robin.js.map
 
 /***/ }),
-/* 192 */
+/* 194 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -81886,9 +81939,9 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OllamaBlockerService = void 0;
 const path = __importStar(__webpack_require__(10));
 const fs = __importStar(__webpack_require__(25));
-const os = __importStar(__webpack_require__(88));
+const os = __importStar(__webpack_require__(61));
 const child_process_1 = __webpack_require__(43);
-const util_1 = __webpack_require__(70);
+const util_1 = __webpack_require__(62);
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 class OllamaBlockerService {
     static instance;
@@ -82246,6 +82299,13 @@ class OllamaBlockerService {
 exports.OllamaBlockerService = OllamaBlockerService;
 
 
+/***/ }),
+/* 195 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("fs/promises");
+
 /***/ })
 /******/ 	]);
 /************************************************************************/
@@ -82274,6 +82334,36 @@ exports.OllamaBlockerService = OllamaBlockerService;
 /******/ 	}
 /******/ 	
 /************************************************************************/
+/******/ 	/* webpack/runtime/create fake namespace object */
+/******/ 	(() => {
+/******/ 		var getProto = Object.getPrototypeOf ? (obj) => (Object.getPrototypeOf(obj)) : (obj) => (obj.__proto__);
+/******/ 		var leafPrototypes;
+/******/ 		// create a fake namespace object
+/******/ 		// mode & 1: value is a module id, require it
+/******/ 		// mode & 2: merge all properties of value into the ns
+/******/ 		// mode & 4: return value when already ns object
+/******/ 		// mode & 16: return value when it's Promise-like
+/******/ 		// mode & 8|1: behave like require
+/******/ 		__webpack_require__.t = function(value, mode) {
+/******/ 			if(mode & 1) value = this(value);
+/******/ 			if(mode & 8) return value;
+/******/ 			if(typeof value === 'object' && value) {
+/******/ 				if((mode & 4) && value.__esModule) return value;
+/******/ 				if((mode & 16) && typeof value.then === 'function') return value;
+/******/ 			}
+/******/ 			var ns = Object.create(null);
+/******/ 			__webpack_require__.r(ns);
+/******/ 			var def = {};
+/******/ 			leafPrototypes = leafPrototypes || [null, getProto({}), getProto([]), getProto(getProto)];
+/******/ 			for(var current = mode & 2 && value; (typeof current == 'object' || typeof current == 'function') && !~leafPrototypes.indexOf(current); current = getProto(current)) {
+/******/ 				Object.getOwnPropertyNames(current).forEach((key) => (def[key] = () => (value[key])));
+/******/ 			}
+/******/ 			def['default'] = () => (value);
+/******/ 			__webpack_require__.d(ns, def);
+/******/ 			return ns;
+/******/ 		};
+/******/ 	})();
+/******/ 	
 /******/ 	/* webpack/runtime/define property getters */
 /******/ 	(() => {
 /******/ 		// define getter functions for harmony exports

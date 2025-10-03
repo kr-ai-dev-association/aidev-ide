@@ -167,7 +167,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         webviewView.onDidDispose(() => {
             console.log('[ChatViewProvider] Chat view disposed');
             this._view = undefined;
+            try { this.llmService.setChatWebview(undefined); } catch { }
         }, null, this.context.subscriptions);
+
+        try { this.llmService.setChatWebview(webviewView.webview); } catch { }
     }
 
     private async openFilePicker(webview: vscode.Webview) {
