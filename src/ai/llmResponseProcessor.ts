@@ -4,7 +4,8 @@ import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { PromptType } from './types'; // Import PromptType
 import { safePostMessage } from '../webview/panelUtils';
-import { executeBashCommandsFromLlmResponse, hasBashCommands } from '../terminal/terminalManager';
+import { executeBashCommandsFromLlmResponse, hasBashCommands, buildFileOpTokens, enqueueCommandsBatch, extractBashCommandsFromLlmResponse } from '../terminal/terminalManager';
+// Removed unused imports and non-existent bridge
 
 // Define a type for file operations
 interface FileOperation {
@@ -443,250 +444,163 @@ export class LlmResponseProcessor {
 
             const autoUpdateEnabled = await this.configurationService.isAutoUpdateEnabled();
 
-            for (const operation of fileOperations) {
-                // Remote SSH 환경을 위한 경로 처리 개선
-                let fileUri: vscode.Uri;
-                let fileNameForDisplay = operation.llmSpecifiedPath;
+            if (!autoUpdateEnabled) {
+                for (const operation of fileOperations) {
+                    // Remote SSH 환경을 위한 경로 처리 개선
+                    let fileUri: vscode.Uri;
+                    let fileNameForDisplay = operation.llmSpecifiedPath;
 
-                // 디버그 로깅 추가
-                console.log(`[Remote SSH Debug] Processing operation: ${operation.type} - ${operation.llmSpecifiedPath}`);
-                console.log(`[Remote SSH Debug] Original absolute path: ${operation.absolutePath}`);
-                console.log(`[Remote SSH Debug] Workspace folders:`, vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
+                    // 디버그 로깅 추가
+                    console.log(`[Remote SSH Debug] Processing operation: ${operation.type} - ${operation.llmSpecifiedPath}`);
+                    console.log(`[Remote SSH Debug] Original absolute path: ${operation.absolutePath}`);
+                    console.log(`[Remote SSH Debug] Workspace folders:`, vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath));
 
-                try {
-                    // Remote SSH 환경을 위한 개선된 경로 처리
-                    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                        const workspaceRoot = vscode.workspace.workspaceFolders[0].uri;
-
-                        // Remote SSH 환경에서 경로 정규화
-                        let normalizedAbsolutePath = operation.absolutePath;
-                        if (!path.isAbsolute(normalizedAbsolutePath)) {
-                            normalizedAbsolutePath = path.resolve(workspaceRoot.fsPath, normalizedAbsolutePath);
-                        }
-
-                        const normalizedWorkspacePath = path.resolve(workspaceRoot.fsPath);
-
-                        console.log(`[Remote SSH Debug] Workspace root: ${workspaceRoot.fsPath}`);
-                        console.log(`[Remote SSH Debug] Normalized workspace path: ${normalizedWorkspacePath}`);
-                        console.log(`[Remote SSH Debug] Original absolute path: ${operation.absolutePath}`);
-                        console.log(`[Remote SSH Debug] Normalized absolute path: ${normalizedAbsolutePath}`);
-
-                        // 워크스페이스 내부 경로인지 확인 (정규화된 경로로 비교)
-                        if (normalizedAbsolutePath.startsWith(normalizedWorkspacePath)) {
-                            fileUri = vscode.Uri.file(normalizedAbsolutePath);
-                            console.log(`[Remote SSH Debug] Using normalized absolute path (within workspace): ${fileUri.fsPath}`);
-                        } else {
-                            // 워크스페이스 외부인 경우 워크스페이스 기준으로 상대 경로 생성
-                            const relativePath = path.relative(normalizedWorkspacePath, normalizedAbsolutePath);
-                            fileUri = vscode.Uri.joinPath(workspaceRoot, relativePath);
-                            console.log(`[Remote SSH Debug] Using relative path (outside workspace): ${fileUri.fsPath}`);
-                        }
-
-                        // Remote SSH 환경에서 URI 스키마 확인
-                        if (workspaceRoot.scheme !== 'file') {
-                            console.log(`[Remote SSH Debug] Remote environment detected, scheme: ${workspaceRoot.scheme}`);
-                            // Remote 환경에서는 워크스페이스 URI 스키마를 유지
-                            fileUri = vscode.Uri.joinPath(workspaceRoot, path.relative(normalizedWorkspacePath, normalizedAbsolutePath));
-                            console.log(`[Remote SSH Debug] Using remote URI: ${fileUri.toString()}`);
-                        }
-                    } else {
-                        // 워크스페이스가 없는 경우 절대 경로 사용
-                        fileUri = vscode.Uri.file(operation.absolutePath);
-                        console.log(`[Remote SSH Debug] No workspace, using absolute path: ${fileUri.fsPath}`);
-                    }
-                } catch (pathError) {
-                    console.error('[Remote SSH Debug] 경로 처리 중 오류:', pathError);
-                    fileUri = vscode.Uri.file(operation.absolutePath);
-                    console.log(`[Remote SSH Debug] Fallback to original path: ${fileUri.fsPath}`);
-                }
-
-                if (autoUpdateEnabled) {
                     try {
-                        console.log(`[Remote SSH Debug] Auto-update enabled, processing ${operation.type} operation`);
-                        console.log(`[Remote SSH Debug] Final file URI: ${fileUri.fsPath}`);
-                        console.log(`[Remote SSH Debug] File URI scheme: ${fileUri.scheme}`);
-                        console.log(`[Remote SSH Debug] File URI authority: ${fileUri.authority}`);
+                        // Remote SSH 환경을 위한 개선된 경로 처리
+                        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                            const workspaceRoot = vscode.workspace.workspaceFolders[0].uri;
 
-                        // Remote SSH 환경에서 파일 작업 전 추가 검증
-                        if (fileUri.scheme !== 'file') {
-                            console.log(`[Remote SSH Debug] Remote URI detected, testing accessibility`);
-                            try {
-                                // 디렉토리 접근성 테스트
-                                const parentDir = vscode.Uri.joinPath(fileUri, '..');
-                                await vscode.workspace.fs.stat(parentDir);
-                                console.log(`[Remote SSH Debug] Parent directory accessible: ${parentDir.toString()}`);
-                            } catch (accessError) {
-                                console.warn(`[Remote SSH Debug] Parent directory not accessible:`, accessError);
-                                // Remote 환경에서 접근 불가능한 경우 경고 메시지
-                                const warningMsg = `Remote SSH 환경에서 파일 경로에 접근할 수 없습니다: ${fileUri.fsPath}`;
-                                this.notificationService.showWarningMessage(`aidev-ide: ${warningMsg}`);
-                            }
-                        }
-
-                        if (operation.type === 'create') {
-                            // 디렉토리 생성 (Remote SSH 환경 고려)
-                            const dirPath = path.dirname(fileUri.fsPath);
-                            const dirUri = vscode.Uri.file(dirPath);
-
-                            console.log(`[Remote SSH Debug] Creating file, directory path: ${dirPath}`);
-
-                            // 디렉토리가 존재하지 않는 경우에만 생성
-                            try {
-                                await vscode.workspace.fs.stat(dirUri);
-                                console.log(`[Remote SSH Debug] Directory already exists: ${dirPath}`);
-                            } catch {
-                                console.log(`[Remote SSH Debug] Creating directory: ${dirPath}`);
-                                await vscode.workspace.fs.createDirectory(dirUri);
-                                console.log(`[Remote SSH Debug] Directory created successfully`);
+                            // Remote SSH 환경에서 경로 정규화
+                            let normalizedAbsolutePath = operation.absolutePath;
+                            if (!path.isAbsolute(normalizedAbsolutePath)) {
+                                normalizedAbsolutePath = path.resolve(workspaceRoot.fsPath, normalizedAbsolutePath);
                             }
 
-                            console.log(`[Remote SSH Debug] Writing file content (${operation.newContent!.length} characters)`);
-                            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
-                            console.log(`[Remote SSH Debug] File written successfully`);
+                            const normalizedWorkspacePath = path.resolve(workspaceRoot.fsPath);
 
-                            const successMsg = `✅ 파일이 자동으로 생성되었습니다: ${fileNameForDisplay}`;
-                            this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
-                            updateSummaryMessages.push(successMsg);
-                        } else if (operation.type === 'modify') {
-                            // 파일 수정 전 기존 파일 존재 여부 확인
-                            console.log(`[Remote SSH Debug] Modifying file, checking if exists: ${fileUri.fsPath}`);
-                            try {
-                                await vscode.workspace.fs.stat(fileUri);
-                                console.log(`[Remote SSH Debug] File exists, proceeding with modification`);
-                                await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
-                                console.log(`[Remote SSH Debug] File modified successfully`);
+                            console.log(`[Remote SSH Debug] Workspace root: ${workspaceRoot.fsPath}`);
+                            console.log(`[Remote SSH Debug] Normalized workspace path: ${normalizedWorkspacePath}`);
+                            console.log(`[Remote SSH Debug] Original absolute path: ${operation.absolutePath}`);
+                            console.log(`[Remote SSH Debug] Normalized absolute path: ${normalizedAbsolutePath}`);
 
-                                const successMsg = `✅ 파일이 자동으로 업데이트되었습니다: ${fileNameForDisplay}`;
-                                this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
-                                updateSummaryMessages.push(successMsg);
-                            } catch (statError) {
-                                // 파일이 존재하지 않는 경우 생성으로 처리
-                                console.log(`[Remote SSH Debug] File doesn't exist, creating instead: ${fileUri.fsPath}`);
-                                const dirPath = path.dirname(fileUri.fsPath);
-                                const dirUri = vscode.Uri.file(dirPath);
-
-                                try {
-                                    await vscode.workspace.fs.stat(dirUri);
-                                    console.log(`[Remote SSH Debug] Directory exists for new file`);
-                                } catch {
-                                    console.log(`[Remote SSH Debug] Creating directory for new file: ${dirPath}`);
-                                    await vscode.workspace.fs.createDirectory(dirUri);
-                                }
-
-                                await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
-                                console.log(`[Remote SSH Debug] New file created successfully`);
-
-                                const successMsg = `✅ 파일이 자동으로 생성되었습니다: ${fileNameForDisplay}`;
-                                this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
-                                updateSummaryMessages.push(successMsg);
+                            // 워크스페이스 내부 경로인지 확인 (정규화된 경로로 비교)
+                            if (normalizedAbsolutePath.startsWith(normalizedWorkspacePath)) {
+                                fileUri = vscode.Uri.file(normalizedAbsolutePath);
+                                console.log(`[Remote SSH Debug] Using normalized absolute path (within workspace): ${fileUri.fsPath}`);
+                            } else {
+                                // 워크스페이스 외부인 경우 워크스페이스 기준으로 상대 경로 생성
+                                const relativePath = path.relative(normalizedWorkspacePath, normalizedAbsolutePath);
+                                fileUri = vscode.Uri.joinPath(workspaceRoot, relativePath);
+                                console.log(`[Remote SSH Debug] Using relative path (outside workspace): ${fileUri.fsPath}`);
                             }
-                        } else if (operation.type === 'delete') {
-                            console.log(`[Remote SSH Debug] Deleting file: ${fileUri.fsPath}`);
-                            await vscode.workspace.fs.delete(fileUri);
-                            console.log(`[Remote SSH Debug] File deleted successfully`);
 
-                            const successMsg = `✅ 파일이 자동으로 삭제되었습니다: ${fileNameForDisplay}`;
-                            this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
-                            updateSummaryMessages.push(successMsg);
+                            // Remote SSH 환경에서 URI 스키마 확인
+                            if (workspaceRoot.scheme !== 'file') {
+                                console.log(`[Remote SSH Debug] Remote environment detected, scheme: ${workspaceRoot.scheme}`);
+                                // Remote 환경에서는 워크스페이스 URI 스키마를 유지
+                                fileUri = vscode.Uri.joinPath(workspaceRoot, path.relative(normalizedWorkspacePath, normalizedAbsolutePath));
+                                console.log(`[Remote SSH Debug] Using remote URI: ${fileUri.toString()}`);
+                            }
+                        } else {
+                            // 워크스페이스가 없는 경우 절대 경로 사용
+                            fileUri = vscode.Uri.file(operation.absolutePath);
+                            console.log(`[Remote SSH Debug] No workspace, using absolute path: ${fileUri.fsPath}`);
                         }
-                    } catch (err: any) {
-                        const operationTypeText = operation.type === 'create' ? '생성' : operation.type === 'modify' ? '업데이트' : '삭제';
-                        const errorMsg = `❌ 파일 자동 ${operationTypeText} 실패 (${fileNameForDisplay}): ${err.message}`;
-                        console.error(`[Remote SSH Debug] 파일 작업 실패 - 경로: ${fileUri.fsPath}, 오류:`, err);
-                        console.error(`[Remote SSH Debug] Error details:`, {
-                            name: err.name,
-                            message: err.message,
-                            code: err.code,
-                            stack: err.stack
-                        });
-                        this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
-                        updateSummaryMessages.push(errorMsg);
-
-                        // Remote SSH 환경에서 권한 문제인 경우 추가 안내
-                        if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
-                            const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
-                            this.notificationService.showErrorMessage(`aidev-ide: ${permissionMsg}`);
-                        } else if (err.message.includes('ENOENT') || err.message.includes('not found')) {
-                            const notFoundMsg = `파일 또는 디렉토리를 찾을 수 없습니다. Remote SSH 환경에서 경로를 확인해주세요.`;
-                            this.notificationService.showErrorMessage(`aidev-ide: ${notFoundMsg}`);
-                        } else if (err.message.includes('ENOTDIR') || err.message.includes('not a directory')) {
-                            const notDirMsg = `디렉토리가 아닙니다. Remote SSH 환경에서 경로 구조를 확인해주세요.`;
-                            this.notificationService.showErrorMessage(`aidev-ide: ${notDirMsg}`);
-                        } else if (err.message.includes('EEXIST') || err.message.includes('already exists')) {
-                            const existsMsg = `파일이 이미 존재합니다. Remote SSH 환경에서 파일 상태를 확인해주세요.`;
-                            this.notificationService.showErrorMessage(`aidev-ide: ${existsMsg}`);
-                        }
-                    }
-                } else {
-                    let userChoice: string | undefined;
-                    if (operation.type === 'create') {
-                        userChoice = await vscode.window.showInformationMessage(
-                            `aidev-ide: AI가 '${fileNameForDisplay}' 새 파일 생성을 제안했습니다. 적용하시겠습니까?`,
-                            { modal: true }, "생성", "취소"
-                        );
-                    } else if (operation.type === 'modify') {
-                        userChoice = await vscode.window.showInformationMessage(
-                            `aidev-ide: AI가 '${fileNameForDisplay}' 파일 수정을 제안했습니다. 적용하시겠습니까? (전체 코드로 대체됩니다)`,
-                            { modal: true }, "적용", "Diff 보기", "취소"
-                        );
-                    } else if (operation.type === 'delete') {
-                        userChoice = await vscode.window.showInformationMessage(
-                            `aidev-ide: AI가 '${fileNameForDisplay}' 파일 삭제를 제안했습니다. 삭제하시겠습니까?`,
-                            { modal: true }, "삭제", "취소"
-                        );
+                    } catch (pathError) {
+                        console.error('[Remote SSH Debug] 경로 처리 중 오류:', pathError);
+                        fileUri = vscode.Uri.file(operation.absolutePath);
+                        console.log(`[Remote SSH Debug] Fallback to original path: ${fileUri.fsPath}`);
                     }
 
-                    if (userChoice === "적용" || userChoice === "생성" || userChoice === "삭제") {
+                    if (autoUpdateEnabled) {
                         try {
+                            console.log(`[Remote SSH Debug] Auto-update enabled, processing ${operation.type} operation`);
+                            console.log(`[Remote SSH Debug] Final file URI: ${fileUri.fsPath}`);
+                            console.log(`[Remote SSH Debug] File URI scheme: ${fileUri.scheme}`);
+                            console.log(`[Remote SSH Debug] File URI authority: ${fileUri.authority}`);
+
+                            // Remote SSH 환경에서 파일 작업 전 추가 검증
+                            if (fileUri.scheme !== 'file') {
+                                console.log(`[Remote SSH Debug] Remote URI detected, testing accessibility`);
+                                try {
+                                    // 디렉토리 접근성 테스트
+                                    const parentDir = vscode.Uri.joinPath(fileUri, '..');
+                                    await vscode.workspace.fs.stat(parentDir);
+                                    console.log(`[Remote SSH Debug] Parent directory accessible: ${parentDir.toString()}`);
+                                } catch (accessError) {
+                                    console.warn(`[Remote SSH Debug] Parent directory not accessible:`, accessError);
+                                    // Remote 환경에서 접근 불가능한 경우 경고 메시지
+                                    const warningMsg = `Remote SSH 환경에서 파일 경로에 접근할 수 없습니다: ${fileUri.fsPath}`;
+                                    this.notificationService.showWarningMessage(`aidev-ide: ${warningMsg}`);
+                                }
+                            }
+
                             if (operation.type === 'create') {
                                 // 디렉토리 생성 (Remote SSH 환경 고려)
                                 const dirPath = path.dirname(fileUri.fsPath);
                                 const dirUri = vscode.Uri.file(dirPath);
 
+                                console.log(`[Remote SSH Debug] Creating file, directory path: ${dirPath}`);
+
+                                // 디렉토리가 존재하지 않는 경우에만 생성
                                 try {
                                     await vscode.workspace.fs.stat(dirUri);
+                                    console.log(`[Remote SSH Debug] Directory already exists: ${dirPath}`);
                                 } catch {
+                                    console.log(`[Remote SSH Debug] Creating directory: ${dirPath}`);
                                     await vscode.workspace.fs.createDirectory(dirUri);
+                                    console.log(`[Remote SSH Debug] Directory created successfully`);
                                 }
 
+                                console.log(`[Remote SSH Debug] Writing file content (${operation.newContent!.length} characters)`);
                                 await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
-                                const successMsg = `✅ 파일이 생성되었습니다: ${fileNameForDisplay}`;
+                                console.log(`[Remote SSH Debug] File written successfully`);
+
+                                const successMsg = `✅ 파일이 자동으로 생성되었습니다: ${fileNameForDisplay}`;
                                 this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
                                 updateSummaryMessages.push(successMsg);
                             } else if (operation.type === 'modify') {
                                 // 파일 수정 전 기존 파일 존재 여부 확인
+                                console.log(`[Remote SSH Debug] Modifying file, checking if exists: ${fileUri.fsPath}`);
                                 try {
                                     await vscode.workspace.fs.stat(fileUri);
+                                    console.log(`[Remote SSH Debug] File exists, proceeding with modification`);
                                     await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
-                                    const successMsg = `✅ 파일이 업데이트되었습니다: ${fileNameForDisplay}`;
+                                    console.log(`[Remote SSH Debug] File modified successfully`);
+
+                                    const successMsg = `✅ 파일이 자동으로 업데이트되었습니다: ${fileNameForDisplay}`;
                                     this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
                                     updateSummaryMessages.push(successMsg);
                                 } catch (statError) {
                                     // 파일이 존재하지 않는 경우 생성으로 처리
+                                    console.log(`[Remote SSH Debug] File doesn't exist, creating instead: ${fileUri.fsPath}`);
                                     const dirPath = path.dirname(fileUri.fsPath);
                                     const dirUri = vscode.Uri.file(dirPath);
 
                                     try {
                                         await vscode.workspace.fs.stat(dirUri);
+                                        console.log(`[Remote SSH Debug] Directory exists for new file`);
                                     } catch {
+                                        console.log(`[Remote SSH Debug] Creating directory for new file: ${dirPath}`);
                                         await vscode.workspace.fs.createDirectory(dirUri);
                                     }
 
                                     await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
-                                    const successMsg = `✅ 파일이 생성되었습니다: ${fileNameForDisplay}`;
+                                    console.log(`[Remote SSH Debug] New file created successfully`);
+
+                                    const successMsg = `✅ 파일이 자동으로 생성되었습니다: ${fileNameForDisplay}`;
                                     this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
                                     updateSummaryMessages.push(successMsg);
                                 }
                             } else if (operation.type === 'delete') {
+                                console.log(`[Remote SSH Debug] Deleting file: ${fileUri.fsPath}`);
                                 await vscode.workspace.fs.delete(fileUri);
-                                const successMsg = `✅ 파일이 삭제되었습니다: ${fileNameForDisplay}`;
+                                console.log(`[Remote SSH Debug] File deleted successfully`);
+
+                                const successMsg = `✅ 파일이 자동으로 삭제되었습니다: ${fileNameForDisplay}`;
                                 this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
                                 updateSummaryMessages.push(successMsg);
                             }
                         } catch (err: any) {
                             const operationTypeText = operation.type === 'create' ? '생성' : operation.type === 'modify' ? '업데이트' : '삭제';
-                            const errorMsg = `❌ 파일 ${operationTypeText} 실패 (${fileNameForDisplay}): ${err.message}`;
-                            console.error(`수동 파일 작업 실패 - 경로: ${fileUri.fsPath}, 오류:`, err);
+                            const errorMsg = `❌ 파일 자동 ${operationTypeText} 실패 (${fileNameForDisplay}): ${err.message}`;
+                            console.error(`[Remote SSH Debug] 파일 작업 실패 - 경로: ${fileUri.fsPath}, 오류:`, err);
+                            console.error(`[Remote SSH Debug] Error details:`, {
+                                name: err.name,
+                                message: err.message,
+                                code: err.code,
+                                stack: err.stack
+                            });
                             this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
                             updateSummaryMessages.push(errorMsg);
 
@@ -705,20 +619,109 @@ export class LlmResponseProcessor {
                                 this.notificationService.showErrorMessage(`aidev-ide: ${existsMsg}`);
                             }
                         }
-                    } else if (userChoice === "Diff 보기" && operation.type === 'modify') {
-                        const tempFileName = `aidev-ide-suggested-${path.basename(operation.absolutePath)}-${Date.now()}${path.extname(operation.absolutePath)}`;
-                        const tempFileUri = vscode.Uri.joinPath(this.context.globalStorageUri, tempFileName);
-                        try {
-                            await vscode.workspace.fs.writeFile(tempFileUri, Buffer.from(operation.newContent!, 'utf8'));
-                            await vscode.commands.executeCommand('vscode.diff', fileUri, tempFileUri, `Original '${fileNameForDisplay}'  vs.  aidev-ide Suggestion`);
-                            updateSummaryMessages.push(`ℹ️ '${fileNameForDisplay}' 변경 제안 Diff를 표시했습니다.`);
-                        } catch (diffError: any) {
-                            this.notificationService.showErrorMessage(`Diff 표시 중 오류: ${diffError.message}`);
-                            updateSummaryMessages.push(`❌ Diff 표시 실패 (${fileNameForDisplay}): ${diffError.message}`);
-                        }
                     } else {
-                        const operationTypeText = operation.type === 'create' ? '생성' : operation.type === 'modify' ? '업데이트' : '삭제';
-                        updateSummaryMessages.push(`ℹ️ 파일 ${operationTypeText}이(가) 취소되었습니다: ${fileNameForDisplay}`);
+                        let userChoice: string | undefined;
+                        if (operation.type === 'create') {
+                            userChoice = await vscode.window.showInformationMessage(
+                                `aidev-ide: AI가 '${fileNameForDisplay}' 새 파일 생성을 제안했습니다. 적용하시겠습니까?`,
+                                { modal: true }, "생성", "취소"
+                            );
+                        } else if (operation.type === 'modify') {
+                            userChoice = await vscode.window.showInformationMessage(
+                                `aidev-ide: AI가 '${fileNameForDisplay}' 파일 수정을 제안했습니다. 적용하시겠습니까? (전체 코드로 대체됩니다)`,
+                                { modal: true }, "적용", "Diff 보기", "취소"
+                            );
+                        } else if (operation.type === 'delete') {
+                            userChoice = await vscode.window.showInformationMessage(
+                                `aidev-ide: AI가 '${fileNameForDisplay}' 파일 삭제를 제안했습니다. 삭제하시겠습니까?`,
+                                { modal: true }, "삭제", "취소"
+                            );
+                        }
+
+                        if (userChoice === "적용" || userChoice === "생성" || userChoice === "삭제") {
+                            try {
+                                if (operation.type === 'create') {
+                                    // 디렉토리 생성 (Remote SSH 환경 고려)
+                                    const dirPath = path.dirname(fileUri.fsPath);
+                                    const dirUri = vscode.Uri.file(dirPath);
+
+                                    try {
+                                        await vscode.workspace.fs.stat(dirUri);
+                                    } catch {
+                                        await vscode.workspace.fs.createDirectory(dirUri);
+                                    }
+
+                                    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
+                                    const successMsg = `✅ 파일이 생성되었습니다: ${fileNameForDisplay}`;
+                                    this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
+                                    updateSummaryMessages.push(successMsg);
+                                } else if (operation.type === 'modify') {
+                                    // 파일 수정 전 기존 파일 존재 여부 확인
+                                    try {
+                                        await vscode.workspace.fs.stat(fileUri);
+                                        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
+                                        const successMsg = `✅ 파일이 업데이트되었습니다: ${fileNameForDisplay}`;
+                                        this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
+                                        updateSummaryMessages.push(successMsg);
+                                    } catch (statError) {
+                                        // 파일이 존재하지 않는 경우 생성으로 처리
+                                        const dirPath = path.dirname(fileUri.fsPath);
+                                        const dirUri = vscode.Uri.file(dirPath);
+
+                                        try {
+                                            await vscode.workspace.fs.stat(dirUri);
+                                        } catch {
+                                            await vscode.workspace.fs.createDirectory(dirUri);
+                                        }
+
+                                        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent!, 'utf8'));
+                                        const successMsg = `✅ 파일이 생성되었습니다: ${fileNameForDisplay}`;
+                                        this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
+                                        updateSummaryMessages.push(successMsg);
+                                    }
+                                } else if (operation.type === 'delete') {
+                                    await vscode.workspace.fs.delete(fileUri);
+                                    const successMsg = `✅ 파일이 삭제되었습니다: ${fileNameForDisplay}`;
+                                    this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
+                                    updateSummaryMessages.push(successMsg);
+                                }
+                            } catch (err: any) {
+                                const operationTypeText = operation.type === 'create' ? '생성' : operation.type === 'modify' ? '업데이트' : '삭제';
+                                const errorMsg = `❌ 파일 ${operationTypeText} 실패 (${fileNameForDisplay}): ${err.message}`;
+                                console.error(`수동 파일 작업 실패 - 경로: ${fileUri.fsPath}, 오류:`, err);
+                                this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
+                                updateSummaryMessages.push(errorMsg);
+
+                                // Remote SSH 환경에서 권한 문제인 경우 추가 안내
+                                if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
+                                    const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
+                                    this.notificationService.showErrorMessage(`aidev-ide: ${permissionMsg}`);
+                                } else if (err.message.includes('ENOENT') || err.message.includes('not found')) {
+                                    const notFoundMsg = `파일 또는 디렉토리를 찾을 수 없습니다. Remote SSH 환경에서 경로를 확인해주세요.`;
+                                    this.notificationService.showErrorMessage(`aidev-ide: ${notFoundMsg}`);
+                                } else if (err.message.includes('ENOTDIR') || err.message.includes('not a directory')) {
+                                    const notDirMsg = `디렉토리가 아닙니다. Remote SSH 환경에서 경로 구조를 확인해주세요.`;
+                                    this.notificationService.showErrorMessage(`aidev-ide: ${notDirMsg}`);
+                                } else if (err.message.includes('EEXIST') || err.message.includes('already exists')) {
+                                    const existsMsg = `파일이 이미 존재합니다. Remote SSH 환경에서 파일 상태를 확인해주세요.`;
+                                    this.notificationService.showErrorMessage(`aidev-ide: ${existsMsg}`);
+                                }
+                            }
+                        } else if (userChoice === "Diff 보기" && operation.type === 'modify') {
+                            const tempFileName = `aidev-ide-suggested-${path.basename(operation.absolutePath)}-${Date.now()}${path.extname(operation.absolutePath)}`;
+                            const tempFileUri = vscode.Uri.joinPath(this.context.globalStorageUri, tempFileName);
+                            try {
+                                await vscode.workspace.fs.writeFile(tempFileUri, Buffer.from(operation.newContent!, 'utf8'));
+                                await vscode.commands.executeCommand('vscode.diff', fileUri, tempFileUri, `Original '${fileNameForDisplay}'  vs.  aidev-ide Suggestion`);
+                                updateSummaryMessages.push(`ℹ️ '${fileNameForDisplay}' 변경 제안 Diff를 표시했습니다.`);
+                            } catch (diffError: any) {
+                                this.notificationService.showErrorMessage(`Diff 표시 중 오류: ${diffError.message}`);
+                                updateSummaryMessages.push(`❌ Diff 표시 실패 (${fileNameForDisplay}): ${diffError.message}`);
+                            }
+                        } else {
+                            const operationTypeText = operation.type === 'create' ? '생성' : operation.type === 'modify' ? '업데이트' : '삭제';
+                            updateSummaryMessages.push(`ℹ️ 파일 ${operationTypeText}이(가) 취소되었습니다: ${fileNameForDisplay}`);
+                        }
                     }
                 }
             }
@@ -729,18 +732,23 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: updateResultMessage });
             }
 
-            // Bash 명령어 실행 처리
-            if (hasBashCommands(llmResponse)) {
+            // 파일 작업 자동 적용 모드라면: 직접 파일 작업을 수행하지 않고, 큐에 적재하여 순차 실행 보장
+            if (autoUpdateEnabled) {
                 try {
-                    const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
-                    if (executedCommands.length > 0) {
-                        const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                    const fileOpTokens = buildFileOpTokens(fileOperations.map(op => ({
+                        type: op.type,
+                        path: op.absolutePath,
+                        content: op.newContent
+                    })));
+                    const bashCommands = extractBashCommandsFromLlmResponse(llmResponse);
+                    const combined = [...fileOpTokens, ...bashCommands];
+                    if (combined.length > 0) {
+                        enqueueCommandsBatch(combined, true);
+                        const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개`;
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: enqueueMsg });
                     }
                 } catch (error: any) {
-                    console.error('[LLM Response Processor] Bash command execution error:', error);
-                    const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                    console.error('[LLM Response Processor] Queue enqueue error:', error);
                 }
             }
 
