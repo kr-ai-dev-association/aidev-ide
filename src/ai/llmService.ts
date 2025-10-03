@@ -38,6 +38,7 @@ export class LlmService {
     private intentDetectionService?: IntentDetectionService;
     private chatWebview?: vscode.Webview;
     private askWebview?: vscode.Webview;
+    private lastErrorHandledAt: number = 0;
 
     constructor(
         storageService: StorageService,
@@ -71,6 +72,38 @@ export class LlmService {
         }
 
         this.intentDetectionService = new IntentDetectionService(ollamaApi);
+
+        // Start terminal monitoring and subscribe for errors
+        try {
+            this.terminalMonitorService.startMonitoring();
+            this.terminalMonitorService.onError(async (evt) => {
+                try {
+                    const now = Date.now();
+                    if (now - this.lastErrorHandledAt < 8000) {
+                        console.log('[LlmService] Skipping terminal error due to cooldown');
+                        return;
+                    }
+                    this.lastErrorHandledAt = now;
+
+                    const target = this.chatWebview || this.askWebview;
+                    if (!target) {
+                        console.log('[LlmService] No webview available to post terminal error');
+                        return;
+                    }
+
+                    const pretty = this.formatErrorForChat(evt);
+                    safePostMessage(target, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: pretty });
+
+                    const shortPrompt = `터미널 에러 해결: ${evt.message}`;
+                    console.log('[LlmService] Auto error fix prompt:', shortPrompt);
+                    await this.handleUserMessageAndRespond(shortPrompt, target, PromptType.CODE_GENERATION);
+                } catch (autoErr) {
+                    console.warn('[LlmService] Auto error handling failed:', autoErr);
+                }
+            });
+        } catch (e) {
+            console.warn('[LlmService] Terminal monitor setup failed:', e);
+        }
     }
 
     public setChatWebview(webview: vscode.Webview | undefined): void { this.chatWebview = webview; }
@@ -80,6 +113,14 @@ export class LlmService {
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
         console.log(`[LlmService] Current model set to: ${modelType}`);
+    }
+
+    private formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
+        const header = `터미널 에러 감지 (${new Date(evt.time).toLocaleString()}):\n소스: ${evt.source}\n메시지: ${evt.message}`;
+        const tail = evt.recentLogs && evt.recentLogs.length > 0
+            ? '\n\n최근 로그 (최대 10줄):\n' + evt.recentLogs.slice(-10).map((l: any) => `- ${l.message || l.rawOutput || ''}`).join('\n')
+            : '';
+        return header + tail;
     }
 
     /**

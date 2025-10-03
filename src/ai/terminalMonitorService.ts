@@ -292,7 +292,7 @@ export class TerminalMonitorService {
 
         console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
 
-        const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(data);
+        const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|^npm\s+error\b|ERROR in|Traceback|panic:|Exit status [1-9]|^exit status [1-9-]|Process exited \(code\s*-?\d+\)|BUILD FAILED|Missing script:|Missing script\s*:\s*"\w+")/i.test(data);
         const level: 'info' | 'warn' | 'error' = isErrorLike ? 'error' : 'info';
 
         console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
