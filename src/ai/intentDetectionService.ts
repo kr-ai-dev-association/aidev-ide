@@ -47,7 +47,7 @@ export class IntentDetectionService {
         documentation_general: 'documentation'
     };
 
-    constructor(private ollamaApi: OllamaApi) {}
+    constructor(private ollamaApi: OllamaApi) { }
 
     public async detectIntent(userQuery: string): Promise<IntentDetectionResult> {
         const keywordScore = this.keywordVote(userQuery);
@@ -139,8 +139,11 @@ export class IntentDetectionService {
 
         const previousModel = this.ollamaApi.getModel();
         const previousEndpoint = this.ollamaApi.getEndpoint();
+        const previousUrl = this.ollamaApi.getApiUrl();
+
         this.ollamaApi.setModel(this.fallbackModelName);
         this.ollamaApi.setEndpoint('/api/generate');
+        this.ollamaApi.setApiUrl('http://localhost:11434');
 
         try {
             const response = await this.ollamaApi.sendMessage(prompt, {});
@@ -151,6 +154,7 @@ export class IntentDetectionService {
         } finally {
             this.ollamaApi.setModel(previousModel);
             this.ollamaApi.setEndpoint(previousEndpoint);
+            this.ollamaApi.setApiUrl(previousUrl);
         }
 
         return null;

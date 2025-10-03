@@ -20,20 +20,20 @@ export class OllamaApi {
         this.endpoint = endpoint || '/api/generate';
     }
 
-    public setApiUrl(apiUrl: string): void {
-        this.apiUrl = apiUrl;
-    }
-
-    public setEndpoint(endpoint: string): void {
-        this.endpoint = endpoint;
-    }
-
     public getApiUrl(): string {
         return this.apiUrl;
     }
 
     public getEndpoint(): string {
         return this.endpoint;
+    }
+
+    public setApiUrl(apiUrl: string): void {
+        this.apiUrl = apiUrl;
+    }
+
+    public setEndpoint(endpoint: string): void {
+        this.endpoint = endpoint;
     }
 
     public setModel(modelName: string): void {
