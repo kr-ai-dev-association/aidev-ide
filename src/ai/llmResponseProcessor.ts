@@ -61,41 +61,34 @@ export class LlmResponseProcessor {
         webview: vscode.Webview,
         promptType: PromptType // Add this parameter
     ): Promise<void> {
-        // GENERAL_ASK 타입일 때는 파일 생성, 수정, 삭제 및 터미널 명령어 실행을 건너뜀
         if (promptType === PromptType.GENERAL_ASK) {
-
             let cleanedResponse = llmResponse;
             let hasWarnings = false;
 
-            // 터미널 명령어가 포함되어 있으면 경고 메시지 표시하고 제거
-            if (hasBashCommands(llmResponse)) {
+            if (hasBashCommands(cleanedResponse)) {
                 const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
                 this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
                 hasWarnings = true;
-
-                // 터미널 명령어 부분 제거
                 cleanedResponse = this.removeBashCommands(cleanedResponse);
             }
 
-            // 파일 생성/수정/삭제 지시어가 포함되어 있으면 경고 메시지 표시하고 제거
-            if (llmResponse.includes("새 파일:") || llmResponse.includes("수정 파일:") || llmResponse.includes("삭제 파일:")) {
+            if (cleanedResponse.includes("새 파일:") || cleanedResponse.includes("수정 파일:") || cleanedResponse.includes("삭제 파일:")) {
                 const warningMsg = "ASK 탭에서는 파일 생성, 수정, 삭제를 할 수 없습니다. CODE 탭을 사용해주세요.";
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
                 this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
                 hasWarnings = true;
-
-                // 파일 작업 지시어 부분 제거
                 cleanedResponse = this.removeFileDirectives(cleanedResponse);
             }
 
-            // 정리된 응답을 웹뷰에 전달
             if (cleanedResponse.trim()) {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: cleanedResponse });
             }
 
             return;
         }
+
+        llmResponse = this.normalizeTerminalCommandBlocks(llmResponse);
 
         const fileOperations: FileOperation[] = [];
 
@@ -876,21 +869,23 @@ export class LlmResponseProcessor {
      * 파일 작업 지시어를 제거합니다.
      */
     private removeFileDirectives(response: string): string {
-        // 새 파일, 수정 파일, 삭제 파일 지시어와 관련 코드 블록 제거
-        let cleaned = response;
+        return response.replace(/(새 파일|수정 파일|삭제 파일):[\s\S]*?(?=\n{2,}|$)/g, '').trim();
+    }
 
-        // 코드 블록이 있는 파일 작업 제거
-        cleaned = cleaned.replace(/(?:##\s*)?(새 파일|수정 파일):\s+[^\r\n]+?(?:\r?\n\s*\r?\n```[^\n]*\r?\n[\s\S]*?\r?\n```)/g, '');
-
-        // 마크다운 파일 작업 제거
-        cleaned = cleaned.replace(/(?:##\s*)?(새 파일|수정 파일):\s+[^\r\n]+\.md\r?\n\s*\r?\n[\s\S]*?(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|$))/gs, '');
-
-        // 삭제 파일 지시어 제거
-        cleaned = cleaned.replace(/삭제 파일:\s+[^\r\n]+(?:\r?\n|$)/g, '');
-
-        // 빈 줄 정리
-        cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n');
-
-        return cleaned.trim();
+    private normalizeTerminalCommandBlocks(response: string): string {
+        const hasMarkedBlock = /```bash[\s\S]*?```/.test(response);
+        if (hasMarkedBlock) {
+            return response;
+        }
+        const commandPatterns = /(npm\s+(install|run\s+\w+)|yarn\s+\w+|pnpm\s+\w+|bun\s+\w+)/gi;
+        let normalized = response;
+        normalized = normalized.replace(commandPatterns, (match) => {
+            return `
+\`\`\`bash
+${match.trim()}
+\`\`\`
+`.trim();
+        });
+        return normalized;
     }
 }

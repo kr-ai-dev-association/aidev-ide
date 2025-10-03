@@ -227,33 +227,63 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
     ): Promise<ActionStep[]> {
         const steps: ActionStep[] = [];
 
-        // 1단계: 분석
-        const analysisStepId = `step_${steps.length + 1}`;
-        steps.push({
-            id: analysisStepId,
-            type: 'analysis',
-            description: '현재 프로젝트 구조 및 포함된 파일들 분석',
-            dependencies: [],
-            expectedOutput: '프로젝트 구조 분석 완료'
-        });
+        const intentSubtype = intent?.subtype;
+        let lastStepId: string | undefined;
 
-        let lastStepId: string | undefined = analysisStepId;
+        if (!intentSubtype || intentSubtype.startsWith('analysis')) {
+            const analysisStepId = `step_${steps.length + 1}`;
+            steps.push({
+                id: analysisStepId,
+                type: 'analysis',
+                description: '현재 프로젝트 구조 및 포함된 파일들 분석',
+                dependencies: [],
+                expectedOutput: '프로젝트 구조 분석 완료'
+            });
+            lastStepId = analysisStepId;
+        }
 
-        // 코드 생성/수정 단계 추가 (필요한 경우)
-        if (/(생성|만들|추가)/.test(userQuery)) {
+        if (intentSubtype === 'code_generate' || intentSubtype === 'code_modify' || /(생성|만들|추가)/.test(userQuery)) {
             const codeGenStepId = `step_${steps.length + 1}`;
             steps.push({
                 id: codeGenStepId,
                 type: 'code_generation',
-                description: '사용자 요청에 따른 코드 생성/수정',
+                description: intentSubtype === 'code_remove' ? '요청된 기능 제거 작업 수행' : '사용자 요청에 따른 코드 생성/수정',
                 dependencies: lastStepId ? [lastStepId] : [],
-                expectedOutput: '코드 생성/수정 완료'
+                expectedOutput: intentSubtype === 'code_remove' ? '요청된 코드 제거 완료' : '코드 생성/수정 완료'
             });
             lastStepId = codeGenStepId;
         }
 
-        // 실행/런 의도 처리
-        if (this.isRunIntent(userQuery)) {
+        if (intentSubtype === 'code_remove') {
+            const removeStepId = `step_${steps.length + 1}`;
+            steps.push({
+                id: removeStepId,
+                type: 'file_operation',
+                description: '요청된 코드 또는 파일 제거',
+                dependencies: lastStepId ? [lastStepId] : [],
+                expectedOutput: '코드 제거 완료'
+            });
+            lastStepId = removeStepId;
+        }
+
+        if (intentSubtype === 'execution_build') {
+            const buildCommandStepId = `step_${steps.length + 1}`;
+            const buildCommands = await this.suggestBuildCommands(projectRoot);
+            if (buildCommands.length > 0) {
+                steps.push({
+                    id: buildCommandStepId,
+                    type: 'terminal_command',
+                    description: `프로젝트 빌드 명령 실행: ${buildCommands.join(' && ')}`,
+                    command: buildCommands.join(' && '),
+                    dependencies: lastStepId ? [lastStepId] : [],
+                    expectedOutput: '빌드 명령 실행 완료',
+                    errorPatterns: ['Error:', 'Failed:', 'Exception:', 'npm ERR!', 'ERROR in', 'ELIFECYCLE']
+                });
+                lastStepId = buildCommandStepId;
+            }
+        }
+
+        if (intentSubtype === 'execution_run' || this.isRunIntent(userQuery)) {
             const runCommands = await this.suggestRunCommands(projectRoot);
             if (runCommands.length > 0) {
                 for (const command of runCommands) {
@@ -274,7 +304,6 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
             }
         }
 
-        // 검증 단계 추가
         const verificationStepId = `step_${steps.length + 1}`;
         steps.push({
             id: verificationStepId,
@@ -286,6 +315,29 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
         });
 
         return steps;
+    }
+
+    private async suggestBuildCommands(projectRoot: string): Promise<string[]> {
+        const commands: string[] = [];
+        const packageJsonPath = path.join(projectRoot, 'package.json');
+        try {
+            const packageUri = vscode.Uri.file(packageJsonPath);
+            const fileData = await vscode.workspace.fs.readFile(packageUri);
+            const packageJson = JSON.parse(Buffer.from(fileData).toString('utf8'));
+            const scripts = packageJson.scripts || {};
+            if (scripts.build) {
+                commands.push('npm run build');
+            }
+            if (scripts['build:prod']) {
+                commands.push('npm run build:prod');
+            }
+        } catch (error) {
+            console.log('[ActionPlannerService] build 명령 확인 실패', error);
+        }
+        if (commands.length === 0) {
+            commands.push('npm install');
+        }
+        return [...new Set(commands)];
     }
 
     private async suggestRunCommands(projectRoot: string): Promise<string[]> {
