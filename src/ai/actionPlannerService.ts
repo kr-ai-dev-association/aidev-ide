@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { NotificationService } from '../services/notificationService';
 import { ConfigurationService } from '../services/configurationService';
+import { IntentDetectionResult, IntentCategory, IntentSubtype } from './intentDetectionService';
 
 export interface ActionStep {
     id: string;
@@ -53,7 +54,8 @@ export class ActionPlannerService {
         userQuery: string,
         conversationHistory: { userQuery: string, aiResponse?: string, timestamp: number }[],
         includedFiles: { name: string, fullPath: string }[],
-        projectRoot: string
+        projectRoot: string,
+        intent?: IntentDetectionResult
     ): Promise<ActionPlan> {
         const planId = `plan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -63,7 +65,7 @@ export class ActionPlannerService {
         console.log(`[ActionPlannerService] 대화 기록: ${conversationHistory.length}개`);
 
         // LLM을 통한 액션 계획 생성
-        const steps = await this.generateActionSteps(userQuery, conversationHistory, includedFiles, projectRoot);
+        const steps = await this.generateActionSteps(userQuery, conversationHistory, includedFiles, projectRoot, intent);
 
         const plan: ActionPlan = {
             id: planId,
@@ -97,7 +99,8 @@ export class ActionPlannerService {
         userQuery: string,
         conversationHistory: { userQuery: string, aiResponse?: string, timestamp: number }[],
         includedFiles: { name: string, fullPath: string }[],
-        projectRoot: string
+        projectRoot: string,
+        intent?: IntentDetectionResult
     ): Promise<ActionStep[]> {
         // 대화 기록 요약
         const historySummary = this.summarizeConversationHistory(conversationHistory);
@@ -116,7 +119,7 @@ export class ActionPlannerService {
 
         // TODO: 실제 LLM 호출 구현
         // 임시로 기본 액션 단계들 반환
-        return await this.generateDefaultActionSteps(userQuery, includedFiles, projectRoot);
+        return await this.generateDefaultActionSteps(userQuery, includedFiles, projectRoot, intent);
     }
 
     /**
@@ -154,7 +157,8 @@ export class ActionPlannerService {
         userQuery: string,
         historySummary: string,
         filesSummary: { name: string, path: string }[],
-        projectRoot: string
+        projectRoot: string,
+        intent?: IntentDetectionResult
     ): string {
         return `
 사용자 질의: "${userQuery}"
@@ -218,7 +222,8 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
     private async generateDefaultActionSteps(
         userQuery: string,
         includedFiles: { name: string, fullPath: string }[],
-        projectRoot: string
+        projectRoot: string,
+        intent?: IntentDetectionResult
     ): Promise<ActionStep[]> {
         const steps: ActionStep[] = [];
 

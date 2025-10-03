@@ -14,6 +14,7 @@ import { ActionPlannerService, ActionPlan } from './actionPlannerService';
 import { TerminalMonitorService } from './terminalMonitorService';
 import { ActionExecutionEngine } from './actionExecutionEngine';
 import { ProjectProfileService, ProjectProfile } from './projectProfileService';
+import { IntentDetectionService, IntentDetectionResult } from './intentDetectionService';
 
 export class LlmService {
     private storageService: StorageService;
@@ -34,6 +35,7 @@ export class LlmService {
     private activePlans: Map<string, ActionPlan> = new Map();
     private projectProfileService?: ProjectProfileService;
     private projectProfile?: ProjectProfile;
+    private intentDetectionService?: IntentDetectionService;
 
     constructor(
         storageService: StorageService,
@@ -65,6 +67,8 @@ export class LlmService {
                 this.projectProfileService = new ProjectProfileService(workspaceFolder.uri.fsPath, extensionContext.globalState);
             }
         }
+
+        this.intentDetectionService = new IntentDetectionService(ollamaApi);
     }
 
     public setCurrentModel(modelType: AiModelType): void {
@@ -133,6 +137,16 @@ export class LlmService {
 
             if (this.projectProfileService) {
                 this.projectProfile = await this.projectProfileService.loadProfile();
+            }
+
+            let intentResult: IntentDetectionResult | undefined;
+            if (this.intentDetectionService) {
+                try {
+                    intentResult = await this.intentDetectionService.detectIntent(userQuery);
+                    console.log('[LlmService] Detected intent:', intentResult);
+                } catch (error) {
+                    console.warn('[LlmService] Intent detection failed:', error);
+                }
             }
 
             // --- 대화 기록 관리 ---
@@ -210,7 +224,8 @@ export class LlmService {
 
             // 시스템 프롬프트 생성
             const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext);
+            const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
+            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
 
             // 사용자 메시지 파트 구성
             const userParts: any[] = [];
@@ -406,6 +421,20 @@ export class LlmService {
         return lines.join('\n');
     }
 
+    private buildIntentContext(intent: IntentDetectionResult): string {
+        const lines: string[] = [];
+        lines.push(`카테고리: ${intent.category}`);
+        lines.push(`세부 유형: ${intent.subtype}`);
+        lines.push(`신뢰도: ${(intent.confidence * 100).toFixed(0)}%`);
+        if (intent.keywords.length > 0) {
+            lines.push(`매칭 키워드: ${intent.keywords.join(', ')}`);
+        }
+        if (intent.reasoning) {
+            lines.push(`근거: ${intent.reasoning}`);
+        }
+        return lines.join('\n');
+    }
+
     /**
      * 실시간 정보 요청을 처리합니다
      */
@@ -423,7 +452,7 @@ export class LlmService {
     /**
      * 시스템 프롬프트를 생성합니다
      */
-    private generateSystemPrompt(promptType: PromptType, codebaseContext: string, realTimeInfo: string, profileContext: string): string {
+    private generateSystemPrompt(promptType: PromptType, codebaseContext: string, realTimeInfo: string, profileContext: string, intentContext: string): string {
         let systemPrompt = '';
 
         // DeepSeek 모델에 대한 특별한 언어 지시사항 추가
@@ -496,6 +525,9 @@ ${codebaseContext}
 프로젝트 프로필:
 ${profileContext}
 
+사용자 의도:
+${intentContext}
+
 실시간 정보:
 ${realTimeInfo}
 
@@ -516,6 +548,9 @@ ${codebaseContext}
 
 프로젝트 프로필:
 ${profileContext}
+
+사용자 의도:
+${intentContext}
 
 실시간 정보:
 ${realTimeInfo}
