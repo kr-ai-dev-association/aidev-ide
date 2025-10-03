@@ -50,7 +50,7 @@ const notificationService_1 = __webpack_require__(8);
 const codebaseContextService_1 = __webpack_require__(9);
 const llmResponseProcessor_1 = __webpack_require__(38);
 const llmService_1 = __webpack_require__(45);
-const ollamaService_1 = __webpack_require__(52);
+const ollamaService_1 = __webpack_require__(53);
 const chatViewProvider_1 = __webpack_require__(57);
 const askViewProvider_1 = __webpack_require__(58); // 새로 추가된 AskViewProvider 임포트
 const terminalManager_1 = __webpack_require__(41);
@@ -13076,14 +13076,15 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlmService = void 0;
 const vscode = __importStar(__webpack_require__(1));
+const externalApiService_1 = __webpack_require__(46);
 const panelUtils_1 = __webpack_require__(40);
-const tokenUtils_1 = __webpack_require__(46);
+const tokenUtils_1 = __webpack_require__(47);
 const types_1 = __webpack_require__(39);
-const actionPlannerService_1 = __webpack_require__(47);
-const terminalMonitorService_1 = __webpack_require__(48);
-const actionExecutionEngine_1 = __webpack_require__(49);
-const projectProfileService_1 = __webpack_require__(50);
-const intentDetectionService_1 = __webpack_require__(51);
+const actionPlannerService_1 = __webpack_require__(48);
+const terminalMonitorService_1 = __webpack_require__(49);
+const actionExecutionEngine_1 = __webpack_require__(50);
+const projectProfileService_1 = __webpack_require__(51);
+const intentDetectionService_1 = __webpack_require__(52);
 class LlmService {
     extensionContext;
     storageService;
@@ -13093,8 +13094,10 @@ class LlmService {
     llmResponseProcessor;
     notificationService;
     configurationService;
+    externalApiService;
     currentCallController = null;
-    currentModelType = types_1.AiModelType.GEMINI;
+    currentModelType = types_1.AiModelType.GEMINI; // 기본값
+    // 액션 플래너 관련 서비스들
     actionPlannerService;
     terminalMonitorService;
     actionExecutionEngine;
@@ -13113,13 +13116,11 @@ class LlmService {
         this.llmResponseProcessor = llmResponseProcessor;
         this.notificationService = notificationService;
         this.configurationService = configurationService;
+        this.externalApiService = new externalApiService_1.ExternalApiService(configurationService);
+        // 액션 플래너 서비스들 초기화
         this.actionPlannerService = new actionPlannerService_1.ActionPlannerService(notificationService, configurationService);
         this.terminalMonitorService = new terminalMonitorService_1.TerminalMonitorService(notificationService);
         this.actionExecutionEngine = new actionExecutionEngine_1.ActionExecutionEngine(notificationService, this.terminalMonitorService);
-        try {
-            this.terminalMonitorService.startMonitoring();
-        }
-        catch { }
         if (extensionContext) {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (workspaceFolder) {
@@ -13135,62 +13136,218 @@ class LlmService {
         this.currentModelType = modelType;
         console.log(`[LlmService] Current model set to: ${modelType}`);
     }
-    getCurrentModel() {
-        return this.currentModelType;
-    }
-    cancelCurrentCall() {
-        if (this.currentCallController) {
-            this.currentCallController.abort();
-            this.currentCallController = null;
-        }
-    }
+    /**
+     * 현재 설정된 모델의 실제 이름을 가져옵니다.
+     * @returns 현재 모델명
+     */
     async getCurrentModelName() {
         try {
             if (this.currentModelType === types_1.AiModelType.GEMINI) {
                 return 'Gemini 2.5 Flash';
             }
-            return await this.ollamaApi.getCurrentModelName();
+            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
+                // Ollama 모델의 경우 실제 모델명을 가져옴
+                return await this.ollamaApi.getCurrentModelName();
+            }
         }
-        catch {
-            return 'Unknown Model';
+        catch (error) {
+            console.warn(`[LlmService] 모델명 가져오기 실패: ${error}`);
+        }
+        // 기본값 반환
+        switch (this.currentModelType) {
+            case types_1.AiModelType.GEMINI:
+                return 'Gemini 2.5 Flash';
+            case types_1.AiModelType.OLLAMA_Gemma:
+                return 'Gemma3:27b';
+            case types_1.AiModelType.OLLAMA_DeepSeek:
+                return 'DeepSeek R1:70B';
+            case types_1.AiModelType.OLLAMA_CodeLlama:
+                return 'CodeLlama 7B';
+            default:
+                return 'Unknown Model';
+        }
+    }
+    getCurrentModel() {
+        return this.currentModelType;
+    }
+    cancelCurrentCall() {
+        console.log(`[ AIDEV-IDE ] Attempting to cancel current ${this.currentModelType} call.`);
+        if (this.currentCallController) {
+            this.currentCallController.abort();
+            this.currentCallController = null;
         }
     }
     async handleUserMessageAndRespond(userQuery, webviewToRespond, promptType, imageData, imageMimeType, selectedFiles) {
         this.currentCallController = new AbortController();
         const abortSignal = this.currentCallController.signal;
         try {
-            // Log model used for this query
-            const modelName = await this.getCurrentModelName();
-            console.log(`[LlmService] Using model: type=${this.currentModelType}, name=${modelName}`);
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'showLoading' });
-            // Minimal passthrough without heavy context to keep compilable
-            const systemPrompt = `개발 도우미.`;
-            const userParts = [{ text: userQuery }];
-            const tokenCheck = (0, tokenUtils_1.checkTokenLimit)(systemPrompt, userParts, this.currentModelType, modelName);
-            (0, tokenUtils_1.logTokenUsage)(systemPrompt, userParts, this.currentModelType);
+            const currentModelNameForLog = await this.getCurrentModelName();
+            console.log(`[LlmService] Using model: type=${this.currentModelType}, name=${currentModelNameForLog}`);
+            if (this.projectProfileService) {
+                this.projectProfile = await this.projectProfileService.loadProfile();
+            }
+            let intentResult;
+            if (this.intentDetectionService) {
+                try {
+                    intentResult = await this.intentDetectionService.detectIntent(userQuery);
+                    console.log('[LlmService] Detected intent:', intentResult);
+                }
+                catch (error) {
+                    console.warn('[LlmService] Intent detection failed:', error);
+                }
+            }
+            // --- 대화 기록 관리 ---
+            const historyKey = promptType === types_1.PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
+            let history = [];
+            if (this.extensionContext) {
+                history = this.extensionContext.globalState.get(historyKey, []);
+            }
+            // --- 최근 5개 대화 context 생성 ---
+            let historyContext = '';
+            if (history.length > 0) {
+                const recentConversations = history.slice(-5); // 최근 5개 대화
+                if (recentConversations.length > 0) {
+                    historyContext = '--- 최근 대화 내역 ---\n' +
+                        recentConversations.map((conv, i) => {
+                            let conversationText = `${i + 1}. 사용자: ${conv.userQuery}`;
+                            if (conv.aiResponse) {
+                                conversationText += `\n   AI: ${conv.aiResponse}`;
+                            }
+                            return conversationText;
+                        }).join('\n\n') + '\n\n';
+                }
+            }
+            // 실시간 정보 요청 처리
+            const realTimeInfo = await this.processRealTimeInfoRequest(userQuery);
+            // 코드베이스 컨텍스트 수집
+            let fileContentsContext = '';
+            let includedFilesForContext = [];
+            if (promptType === types_1.PromptType.CODE_GENERATION) {
+                // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
+                fileContentsContext = relevantContextResult.fileContentsContext;
+                includedFilesForContext = relevantContextResult.includedFilesForContext;
+            }
+            else if (promptType === types_1.PromptType.GENERAL_ASK) {
+                // 새로운 방식: 질의 기반 관련 파일 자동 검색
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
+                fileContentsContext = relevantContextResult.fileContentsContext;
+                includedFilesForContext = relevantContextResult.includedFilesForContext;
+            }
+            // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
+            let selectedFilesContext = "";
+            if (selectedFiles && selectedFiles.length > 0) {
+                for (const filePath of selectedFiles) {
+                    try {
+                        const fileUri = vscode.Uri.file(filePath);
+                        const contentBytes = await vscode.workspace.fs.readFile(fileUri);
+                        const content = Buffer.from(contentBytes).toString('utf8');
+                        const fileName = filePath.split(/[/\\]/).pop() || 'Unknown';
+                        // 선택된 파일을 includedFilesForContext 배열에 추가
+                        includedFilesForContext.push({
+                            name: fileName,
+                            fullPath: filePath
+                        });
+                        selectedFilesContext += `파일명: ${fileName}\n경로: ${filePath}\n코드:\n\`\`\`\n${content}\n\`\`\`\n\n`;
+                    }
+                    catch (error) {
+                        console.error(`Error reading selected file ${filePath}:`, error);
+                        selectedFilesContext += `파일명: ${filePath.split(/[/\\]/).pop() || 'Unknown'}\n경로: ${filePath}\n오류: 파일을 읽을 수 없습니다.\n\n`;
+                    }
+                }
+            }
+            // 선택된 파일 컨텍스트를 기존 컨텍스트에 추가
+            const fullFileContentsContext = selectedFilesContext
+                ? `${fileContentsContext}\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`
+                : fileContentsContext;
+            // 시스템 프롬프트 생성
+            const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
+            const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
+            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
+            // 사용자 메시지 파트 구성
+            const userParts = [];
+            // 대화 기록이 있으면 먼저 추가
+            if (historyContext) {
+                userParts.push({ text: historyContext });
+            }
+            // 현재 질문 추가
+            userParts.push({ text: userQuery });
+            // 이미지가 있는 경우 추가
+            if (imageData && imageMimeType) {
+                // Gemini와 Ollama 모두 이미지 데이터 전달 (Ollama는 멀티모달 모델에서 지원)
+                userParts.push({
+                    inlineData: {
+                        data: imageData,
+                        mimeType: imageMimeType
+                    }
+                });
+            }
+            // 토큰 제한 확인
+            const tokenCheck = (0, tokenUtils_1.checkTokenLimit)(systemPrompt, userParts, this.currentModelType, currentModelNameForLog);
+            (0, tokenUtils_1.logTokenUsage)(systemPrompt, userParts, this.currentModelType, currentModelNameForLog);
             if (tokenCheck.isExceeded) {
-                const msg = tokenCheck.message;
-                this.notificationService.showErrorMessage(`AIDEV-IDE: ${msg}`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: msg });
+                const errorMessage = tokenCheck.message;
+                console.error(`[LlmService] ${errorMessage}`);
+                this.notificationService.showErrorMessage(`AIDEV-IDE: ${errorMessage}`);
+                (0, panelUtils_1.safePostMessage)(webviewToRespond, {
+                    command: 'receiveMessage',
+                    sender: 'AIDEV-IDE',
+                    text: errorMessage
+                });
                 return;
             }
-            let llmResponse = '';
-            const requestOptions = { signal: abortSignal };
+            let llmResponse;
             if (this.currentModelType === types_1.AiModelType.GEMINI) {
+                const requestOptions = { signal: abortSignal };
                 llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
             }
-            else {
+            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
+                // Ollama API에 직접 호출 (selectedFiles는 이미 시스템 프롬프트에 포함됨)
+                const requestOptions = { signal: abortSignal };
                 llmResponse = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
             }
-            await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, [], webviewToRespond, promptType);
+            else {
+                throw new Error(`Unsupported model type: ${this.currentModelType}`);
+            }
+            // 컨텍스트 파일 목록에 선택된 파일들도 포함
+            const allContextFiles = [...includedFilesForContext];
+            if (selectedFiles && selectedFiles.length > 0) {
+                for (const filePath of selectedFiles) {
+                    const fileName = filePath.split(/[/\\]/).pop() || 'Unknown';
+                    allContextFiles.push({ name: fileName, fullPath: filePath });
+                }
+            }
+            // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
+            await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, promptType === types_1.PromptType.CODE_GENERATION ? allContextFiles : [], webviewToRespond, promptType);
+            // --- AI 응답을 대화 기록에 저장 ---
+            if (this.extensionContext && userQuery) {
+                const summarizedResponse = this.summarizeAiResponse(llmResponse);
+                history.push({
+                    userQuery: userQuery,
+                    aiResponse: summarizedResponse,
+                    timestamp: Date.now()
+                });
+                // 최대 5개 대화만 유지
+                if (history.length > 5) {
+                    history = history.slice(-5);
+                }
+                await this.extensionContext.globalState.update(historyKey, history);
+            }
         }
         catch (error) {
-            if (error?.name === 'AbortError') {
+            if (error.name === 'AbortError') {
+                console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
                 (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
             }
             else {
-                this.notificationService.showErrorMessage(`Error: Failed to process request. ${error?.message || error}`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request. ${error?.message || error}` });
+                console.error(`Error in handleUserMessageAndRespond (${this.currentModelType}):`, error);
+                this.notificationService.showErrorMessage(`Error: Failed to process request. ${error.message}`);
+                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `Failed to process request. ${error.message}` });
             }
         }
         finally {
@@ -13198,12 +13355,684 @@ class LlmService {
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'hideLoading' });
         }
     }
+    /**
+     * AI 응답을 요약하여 대화 기록에 저장합니다.
+     * 코드 블록과 긴 설명을 간단히 요약하여 토큰 사용량을 줄입니다.
+     */
+    summarizeAiResponse(response) {
+        // 응답이 너무 짧으면 그대로 반환
+        if (response.length <= 200) {
+            return response;
+        }
+        // 코드 블록 추출
+        const codeBlocks = response.match(/```[\s\S]*?```/g) || [];
+        const hasCodeBlocks = codeBlocks.length > 0;
+        // 파일 작업 지시어 추출
+        const fileOperations = response.match(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g) || [];
+        const hasFileOperations = fileOperations.length > 0;
+        // 요약 생성
+        let summary = '';
+        if (hasFileOperations) {
+            summary += `파일 작업: ${fileOperations.join(', ')}. `;
+        }
+        if (hasCodeBlocks) {
+            summary += `코드 블록 ${codeBlocks.length}개 포함. `;
+        }
+        // 코드 블록과 파일 작업 지시어를 제거한 텍스트에서 첫 2-3문장 추출
+        let textContent = response;
+        textContent = textContent.replace(/```[\s\S]*?```/g, ''); // 코드 블록 제거
+        textContent = textContent.replace(/(새 파일|수정 파일|삭제 파일):\s*[^\n]+/g, ''); // 파일 작업 지시어 제거
+        textContent = textContent.replace(/\n+/g, ' ').trim(); // 줄바꿈 정리
+        // 첫 2-3문장 추출 (마침표 기준)
+        const sentences = textContent.split(/[.!?]+/).filter(s => s.trim().length > 10);
+        const firstSentences = sentences.slice(0, 2).join('. ').trim();
+        if (firstSentences) {
+            summary += firstSentences + '.';
+        }
+        // 요약이 너무 길면 더 줄임
+        if (summary.length > 300) {
+            summary = summary.substring(0, 297) + '...';
+        }
+        return summary || 'AI가 응답을 제공했습니다.';
+    }
+    buildProfileContext(profile) {
+        const lines = [];
+        lines.push(`언어: ${profile.language}`);
+        if (profile.frameworks.length > 0) {
+            const formatted = profile.frameworks
+                .map(f => `${f.framework} (신뢰도 ${(f.confidence * 100).toFixed(0)}%)`)
+                .join(', ');
+            lines.push(`프레임워크: ${formatted}`);
+        }
+        if (profile.packageManager) {
+            lines.push(`패키지 매니저: ${profile.packageManager}`);
+        }
+        if (profile.entryPoints.length > 0) {
+            lines.push(`실행 엔트리포인트: ${profile.entryPoints.slice(0, 5).join(', ')}`);
+        }
+        if (Object.keys(profile.scripts || {}).length > 0) {
+            const highlightedScripts = ['start', 'dev', 'serve', 'build', 'test'];
+            const selected = highlightedScripts
+                .filter(name => profile.scripts[name])
+                .map(name => `${name}: ${profile.scripts[name]}`);
+            if (selected.length > 0) {
+                lines.push('주요 npm 스크립트:');
+                lines.push(...selected.map(script => `- ${script}`));
+            }
+        }
+        return lines.join('\n');
+    }
+    buildIntentContext(intent) {
+        const lines = [];
+        lines.push(`카테고리: ${intent.category}`);
+        lines.push(`세부 유형: ${intent.subtype}`);
+        lines.push(`신뢰도: ${(intent.confidence * 100).toFixed(0)}%`);
+        if (intent.keywords && intent.keywords.length > 0) {
+            lines.push(`매칭 키워드: ${intent.keywords.join(', ')}`);
+        }
+        if (intent.reasoning) {
+            lines.push(`근거: ${intent.reasoning}`);
+        }
+        return lines.join('\n');
+    }
+    /**
+     * 실시간 정보 요청을 처리합니다
+     */
+    async processRealTimeInfoRequest(userQuery) {
+        try {
+            // ExternalApiService를 통해 실시간 정보 요청 처리
+            // 기본적으로 서울 날씨 정보만 포함
+            return await this.externalApiService.getRealTimeSummary('서울');
+        }
+        catch (error) {
+            console.warn('Failed to process real-time info request:', error);
+            return '';
+        }
+    }
+    /**
+     * 시스템 프롬프트를 생성합니다
+     */
+    generateSystemPrompt(promptType, codebaseContext, realTimeInfo, profileContext, intentContext) {
+        let systemPrompt = '';
+        // DeepSeek 모델에 대한 특별한 언어 지시사항 추가
+        const isDeepSeek = this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek;
+        const languageInstruction = isDeepSeek ?
+            '\n\n️중요: 반드시 한국어로만 답변하세요. 중국어, 영어, 일본어 등 다른 언어는 사용하지 마세요. 모든 설명과 응답은 한국어로 작성해주세요.' : '';
+        if (promptType === types_1.PromptType.CODE_GENERATION) {
+            systemPrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+
+주요 지침:
+1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
+2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
+3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
+4. 한글로 설명을 제공하세요.
+5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
+6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
+7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
+8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
+9. 터미널 명령어가 필요한 경우 "bash" 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+
+파일 생성/수정 형식 예시:
+
+코드 파일의 경우:
+새 파일: src/components/Button.jsx
+\`\`\`javascript
+import React from 'react';
+
+function Button({ children, onClick }) {
+  return (
+    <button onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+export default Button;
+\`\`\`
+
+마크다운 파일의 경우:
+새 파일: docs/README.md
+
+# 프로젝트 문서
+
+이 프로젝트는 React 기반의 웹 애플리케이션입니다.
+
+## 기능
+
+- 사용자 인증
+- 데이터 관리
+- 실시간 업데이트
+
+## 설치 방법
+
+\`\`\`bash
+npm install
+npm start
+\`\`\`
+
+터미널 명령어의 경우:
+\`\`\`bash
+npm install
+npm run build
+npm start
+\`\`\`
+
+코드베이스 컨텍스트:
+${codebaseContext}
+
+프로젝트 프로필:
+${profileContext}
+
+사용자 의도:
+${intentContext}
+
+실시간 정보:
+${realTimeInfo}
+
+사용자의 요청에 따라 적절한 코드를 생성하거나 수정해주세요.${languageInstruction}`;
+        }
+        else {
+            systemPrompt = `당신은 전문적인 소프트웨어 개발자이자 기술 전문가입니다. 사용자의 질문에 대해 정확하고 유용한 답변을 제공합니다.
+
+주요 지침:
+1. 기술적 질문에 대해 명확하고 이해하기 쉬운 답변을 제공하세요.
+2. 코드 예제가 필요한 경우 완전하고 실행 가능한 코드를 제공하세요.
+3. 한글로 답변하되, 필요한 경우 영어 용어나 코드는 그대로 사용하세요.
+4. 실시간 정보가 있는 경우 이를 활용하여 답변하세요.
+5. 파일 생성, 수정, 삭제 또는 터미널 명령어 실행은 하지 마세요. 이는 단순 질의 응답 모드입니다.
+6. 첨부된 파일이 있는 경우 해당 파일의 내용을 분석하여 답변하세요.
+
+코드베이스 컨텍스트:
+${codebaseContext}
+
+프로젝트 프로필:
+${profileContext}
+
+사용자 의도:
+${intentContext}
+
+실시간 정보:
+${realTimeInfo}
+
+사용자의 질문에 대해 전문적이고 유용한 답변을 제공해주세요.${languageInstruction}`;
+        }
+        return systemPrompt;
+    }
 }
 exports.LlmService = LlmService;
 
 
 /***/ }),
 /* 46 */
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ExternalApiService = void 0;
+class ExternalApiService {
+    configurationService;
+    constructor(configurationService) {
+        this.configurationService = configurationService;
+    }
+    /**
+     * 날씨 정보를 가져옵니다 (기상청 육상예보 API + 중기예보 API 사용)
+     */
+    async getWeatherData(city) {
+        try {
+            const apiKey = await this.configurationService.getWeatherApiKey();
+            if (!apiKey) {
+                console.warn('Weather API key not configured');
+                return null;
+            }
+            // 도시명을 기상청 육상예보 지역코드로 매핑
+            const cityCodeMap = {
+                '서울': '11B10101',
+                '부산': '11H20201',
+                '대구': '11H10701',
+                '인천': '11B20201',
+                '광주': '11F20501',
+                '대전': '11C20401',
+                '울산': '11H20101',
+                '세종': '11C20404',
+                '수원': '11B20601',
+                '고양': '11B20301',
+                '용인': '11B20602',
+                '창원': '11H20301',
+                '포항': '11H20201',
+                '춘천': '11D10101',
+                '강릉': '11D10201',
+                '청주': '11C10301',
+                '전주': '11F10201',
+                '순천': '11F20401',
+                '목포': '11F20301',
+                '여수': '11F20401',
+                '제주': '11G00201',
+                '백령도': '11A00101'
+            };
+            const regId = cityCodeMap[city] || '11B10101'; // 기본값은 서울
+            // 육상예보 API 사용 (기온 정보 포함)
+            const response = await fetch(`https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getLandFcst?pageNo=1&numOfRows=10&dataType=XML&regId=${regId}&authKey=${apiKey}`);
+            if (!response.ok) {
+                throw new Error(`Weather API error: ${response.status}`);
+            }
+            // XML 응답 파싱
+            const xmlText = await response.text();
+            console.log('Weather API response preview:', xmlText.substring(0, 300));
+            const weatherData = this.parseWeatherXmlResponse(xmlText);
+            if (!weatherData) {
+                throw new Error('No weather data found in XML response');
+            }
+            console.log('Parsed weather data:', weatherData);
+            // 날씨코드를 텍스트로 변환
+            const weatherCodeMap = {
+                'DB01': '맑음',
+                'DB02': '구름조금',
+                'DB03': '구름많음',
+                'DB04': '흐림'
+            };
+            // 강수형태 코드를 텍스트로 변환
+            const precipitationMap = {
+                '0': '없음',
+                '1': '비',
+                '2': '비/눈',
+                '3': '눈',
+                '4': '눈/비'
+            };
+            // 풍향을 16방위로 변환
+            const windDirectionMap = {
+                'N': '북', 'NNE': '북북동', 'NE': '북동', 'ENE': '동북동',
+                'E': '동', 'ESE': '동남동', 'SE': '남동', 'SSE': '남남동',
+                'S': '남', 'SSW': '남남서', 'SW': '남서', 'WSW': '서남서',
+                'W': '서', 'WNW': '서북서', 'NW': '북서', 'NNW': '북북서'
+            };
+            const windDirection = windDirectionMap[weatherData.wd1] || weatherData.wd1 || '알 수 없음';
+            const skyCondition = weatherCodeMap[weatherData.wfCd] || '알 수 없음';
+            const precipitation = precipitationMap[weatherData.rnYn] || '없음';
+            // 기온 처리
+            let temperature = 0;
+            let temperatureText = '정보 없음';
+            if (weatherData.ta && weatherData.ta !== '-99' && weatherData.ta.trim() !== '') {
+                const tempValue = parseFloat(weatherData.ta);
+                if (!isNaN(tempValue)) {
+                    temperature = tempValue;
+                    temperatureText = `${tempValue}°C`;
+                }
+            }
+            // 강수확률 처리
+            let precipitationProbability = '';
+            if (weatherData.rnSt && weatherData.rnSt !== '-99' && weatherData.rnSt.trim() !== '') {
+                const probValue = parseFloat(weatherData.rnSt);
+                if (!isNaN(probValue)) {
+                    precipitationProbability = `${probValue}%`;
+                }
+            }
+            // 풍속 처리 (육상예보 API에서는 풍속 정보가 제한적)
+            let windSpeed = 0;
+            let windSpeedText = '';
+            if (weatherData.wsIt && weatherData.wsIt !== '-99' && weatherData.wsIt.trim() !== '') {
+                // 풍속 강도코드를 텍스트로 변환
+                const windSpeedMap = {
+                    '0': '약함',
+                    '1': '약함',
+                    '2': '보통',
+                    '3': '강함',
+                    '4': '매우강함'
+                };
+                windSpeedText = windSpeedMap[weatherData.wsIt] || '알 수 없음';
+            }
+            // 중기 예보 데이터 가져오기
+            let mediumTermForecast = [];
+            try {
+                const mediumTermData = await this.getMediumTermForecast(regId, apiKey);
+                if (mediumTermData && mediumTermData.length > 0) {
+                    mediumTermForecast = mediumTermData;
+                }
+            }
+            catch (error) {
+                console.warn('Failed to fetch medium-term forecast:', error);
+                // 중기 예보 실패해도 단기 예보는 계속 진행
+            }
+            return {
+                location: city,
+                temperature: temperature,
+                description: weatherData.wf || '날씨 정보 없음',
+                humidity: 0, // 기상청 API에는 습도 정보가 없음
+                windSpeed: windSpeed,
+                windDirection: windDirection,
+                precipitation: precipitation,
+                skyCondition: skyCondition,
+                forecast: weatherData.wf || '예보 정보 없음',
+                temperatureText: temperatureText,
+                precipitationProbability: precipitationProbability,
+                windSpeedText: windSpeedText,
+                waveHeight: '', // 육상예보에는 파고 정보가 없음
+                mediumTermForecast: mediumTermForecast
+            };
+        }
+        catch (error) {
+            console.error('Error fetching weather data:', error);
+            return null;
+        }
+    }
+    /**
+     * 기상청 육상예보 API의 XML 응답을 파싱합니다
+     */
+    parseWeatherXmlResponse(xmlText) {
+        try {
+            // 간단한 XML 파싱 (정규식 사용)
+            const wd1Match = xmlText.match(/<wd1>([^<]+)<\/wd1>/);
+            const wd2Match = xmlText.match(/<wd2>([^<]+)<\/wd2>/);
+            const taMatch = xmlText.match(/<ta>([^<]+)<\/ta>/);
+            const rnStMatch = xmlText.match(/<rnSt>([^<]+)<\/rnSt>/);
+            const wfMatch = xmlText.match(/<wf>([^<]+)<\/wf>/);
+            const wfCdMatch = xmlText.match(/<wfCd>([^<]+)<\/wfCd>/);
+            const rnYnMatch = xmlText.match(/<rnYn>([^<]+)<\/rnYn>/);
+            const wsItMatch = xmlText.match(/<wsIt>([^<]+)<\/wsIt>/);
+            if (!taMatch && !wfMatch) {
+                console.error('No weather data found in XML response');
+                return null;
+            }
+            return {
+                wd1: wd1Match ? wd1Match[1].trim() : '',
+                wd2: wd2Match ? wd2Match[1].trim() : '',
+                ta: taMatch ? taMatch[1].trim() : '',
+                rnSt: rnStMatch ? rnStMatch[1].trim() : '',
+                wf: wfMatch ? wfMatch[1].trim() : '',
+                wfCd: wfCdMatch ? wfCdMatch[1].trim() : '',
+                rnYn: rnYnMatch ? rnYnMatch[1].trim() : '',
+                wsIt: wsItMatch ? wsItMatch[1].trim() : ''
+            };
+        }
+        catch (error) {
+            console.error('Error parsing weather XML response:', error);
+            return null;
+        }
+    }
+    /**
+     * 기상청 중기 예보 데이터를 가져옵니다
+     */
+    async getMediumTermForecast(regId, apiKey) {
+        try {
+            // 현재 날짜 기준으로 내일부터 7일간의 예보 요청
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(today.getDate() + 1);
+            const tmef1 = tomorrow.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+            const tmef2 = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, ''); // 7일 후
+            const response = await fetch(`https://apihub.kma.go.kr/api/typ01/url/fct_afs_wc.php?reg=${regId}&tmef1=${tmef1}&tmef2=${tmef2}&disp=0&help=0&authKey=${apiKey}`);
+            if (!response.ok) {
+                throw new Error(`Medium-term forecast API error: ${response.status}`);
+            }
+            const xmlText = await response.text();
+            console.log('Medium-term forecast API response preview:', xmlText.substring(0, 300));
+            return this.parseMediumTermForecastXml(xmlText);
+        }
+        catch (error) {
+            console.error('Error fetching medium-term forecast:', error);
+            return [];
+        }
+    }
+    /**
+     * 기상청 중기 예보 XML 응답을 파싱합니다
+     */
+    parseMediumTermForecastXml(xmlText) {
+        try {
+            const forecasts = [];
+            // XML에서 각 예보 항목을 추출
+            const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/g);
+            if (!itemMatches) {
+                console.warn('No forecast items found in medium-term forecast XML');
+                return [];
+            }
+            // 하늘상태 코드 매핑
+            const skyCodeMap = {
+                'WB01': '맑음',
+                'WB02': '구름조금',
+                'WB03': '구름많음',
+                'WB04': '흐림'
+            };
+            // 강수 코드 매핑
+            const precipitationCodeMap = {
+                'WB09': '비',
+                'WB11': '비/눈',
+                'WB13': '눈/비',
+                'WB12': '눈'
+            };
+            for (const itemMatch of itemMatches) {
+                // 각 필드 추출
+                const tmStMatch = itemMatch.match(/<TM_ST>([^<]+)<\/TM_ST>/);
+                const tmEdMatch = itemMatch.match(/<TM_ED>([^<]+)<\/TM_ED>/);
+                const skyMatch = itemMatch.match(/<SKY>([^<]+)<\/SKY>/);
+                const preMatch = itemMatch.match(/<PRE>([^<]+)<\/PRE>/);
+                const wfMatch = itemMatch.match(/<WF>([^<]+)<\/WF>/);
+                const rnStMatch = itemMatch.match(/<RN_ST>([^<]+)<\/RN_ST>/);
+                const minMatch = itemMatch.match(/<MIN>([^<]+)<\/MIN>/);
+                const maxMatch = itemMatch.match(/<MAX>([^<]+)<\/MAX>/);
+                if (tmStMatch && tmEdMatch) {
+                    const startDate = tmStMatch[1].substring(0, 8); // YYYYMMDD
+                    const endDate = tmEdMatch[1].substring(0, 8);
+                    // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
+                    const formattedDate = `${startDate.substring(0, 4)}-${startDate.substring(4, 6)}-${startDate.substring(6, 8)}`;
+                    // 최저/최고 기온 처리
+                    let minTemp = 0;
+                    let maxTemp = 0;
+                    if (minMatch && minMatch[1] !== '-99' && minMatch[1].trim() !== '') {
+                        const tempValue = parseFloat(minMatch[1]);
+                        if (!isNaN(tempValue)) {
+                            minTemp = tempValue;
+                        }
+                    }
+                    if (maxMatch && maxMatch[1] !== '-99' && maxMatch[1].trim() !== '') {
+                        const tempValue = parseFloat(maxMatch[1]);
+                        if (!isNaN(tempValue)) {
+                            maxTemp = tempValue;
+                        }
+                    }
+                    // 강수확률 처리
+                    let precipitationProbability = '';
+                    if (rnStMatch && rnStMatch[1] !== '-99' && rnStMatch[1].trim() !== '') {
+                        const probValue = parseFloat(rnStMatch[1]);
+                        if (!isNaN(probValue)) {
+                            precipitationProbability = `${probValue}%`;
+                        }
+                    }
+                    forecasts.push({
+                        date: formattedDate,
+                        minTemp: minTemp,
+                        maxTemp: maxTemp,
+                        skyCondition: skyMatch ? (skyCodeMap[skyMatch[1]] || '알 수 없음') : '알 수 없음',
+                        precipitation: preMatch ? (precipitationCodeMap[preMatch[1]] || '없음') : '없음',
+                        precipitationProbability: precipitationProbability,
+                        forecast: wfMatch ? wfMatch[1].trim() : '예보 정보 없음'
+                    });
+                }
+            }
+            // 날짜순으로 정렬하고 중복 제거 (같은 날짜의 경우 첫 번째 항목만 유지)
+            const uniqueForecasts = forecasts.filter((forecast, index, self) => index === self.findIndex(f => f.date === forecast.date));
+            return uniqueForecasts.sort((a, b) => a.date.localeCompare(b.date));
+        }
+        catch (error) {
+            console.error('Error parsing medium-term forecast XML:', error);
+            return [];
+        }
+    }
+    /**
+     * 뉴스 정보를 가져옵니다 (네이버 뉴스 검색 API 사용)
+     */
+    async getNewsData(query = 'IT', count = 10) {
+        try {
+            const clientId = await this.configurationService.getNewsApiKey();
+            const clientSecret = await this.configurationService.getNewsApiSecret();
+            if (!clientId || !clientSecret) {
+                console.warn('Naver News API credentials not configured');
+                return [];
+            }
+            // 네이버 API는 한 번에 최대 100개까지 요청 가능하지만, 
+            // 실제로는 10-20개 정도가 적절한 응답 시간을 보장
+            const displayCount = Math.min(count, 20);
+            const response = await fetch(`https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(query)}&display=${displayCount}&sort=date`, {
+                headers: {
+                    'X-Naver-Client-Id': clientId,
+                    'X-Naver-Client-Secret': clientSecret
+                }
+            });
+            if (!response.ok) {
+                throw new Error(`Naver News API error: ${response.status}`);
+            }
+            const data = await response.json();
+            return data.items.map((item) => ({
+                title: this.decodeHtmlEntities(item.title),
+                description: this.decodeHtmlEntities(item.description),
+                url: item.link,
+                publishedAt: new Date(item.pubDate).toLocaleString('ko-KR'),
+                source: this.extractSourceFromUrl(item.originallink)
+            }));
+        }
+        catch (error) {
+            console.error('Error fetching news data:', error);
+            return [];
+        }
+    }
+    /**
+     * HTML 엔티티를 디코딩합니다 (네이버 API 응답에서 HTML 태그 제거)
+     */
+    decodeHtmlEntities(text) {
+        return text
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/<[^>]*>/g, '') // HTML 태그 제거
+            .trim();
+    }
+    /**
+     * URL에서 뉴스 소스를 추출합니다
+     */
+    extractSourceFromUrl(url) {
+        try {
+            const urlObj = new URL(url);
+            const hostname = urlObj.hostname;
+            // 주요 뉴스 사이트 매핑
+            const sourceMap = {
+                'news.naver.com': '네이버뉴스',
+                'www.chosun.com': '조선일보',
+                'www.donga.com': '동아일보',
+                'www.hani.co.kr': '한겨레',
+                'www.khan.co.kr': '경향신문',
+                'www.kyunghyang.com': '경향신문',
+                'www.mk.co.kr': '매일경제',
+                'www.hankyung.com': '한국경제',
+                'www.etnews.com': '전자신문',
+                'www.zdnet.co.kr': 'ZDNet Korea',
+                'www.itworld.co.kr': 'ITWorld',
+                'www.ciokorea.com': 'CIO Korea'
+            };
+            return sourceMap[hostname] || hostname.replace('www.', '');
+        }
+        catch {
+            return '알 수 없음';
+        }
+    }
+    /**
+     * 주식 정보를 가져옵니다 (Alpha Vantage API 사용)
+     */
+    async getStockData(symbol) {
+        try {
+            const apiKey = await this.configurationService.getStockApiKey();
+            if (!apiKey) {
+                console.warn('Stock API key not configured');
+                return null;
+            }
+            const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`);
+            if (!response.ok) {
+                throw new Error(`Stock API error: ${response.status}`);
+            }
+            const data = await response.json();
+            const quote = data['Global Quote'];
+            if (!quote) {
+                throw new Error('No stock data found');
+            }
+            return {
+                symbol: quote['01. symbol'],
+                price: parseFloat(quote['05. price']),
+                change: parseFloat(quote['09. change']),
+                changePercent: parseFloat(quote['10. change percent'].replace('%', '')),
+                volume: parseInt(quote['06. volume'])
+            };
+        }
+        catch (error) {
+            console.error('Error fetching stock data:', error);
+            return null;
+        }
+    }
+    /**
+     * 여러 주식 정보를 한 번에 가져옵니다
+     */
+    async getMultipleStockData(symbols) {
+        const stockData = [];
+        for (const symbol of symbols) {
+            const data = await this.getStockData(symbol);
+            if (data) {
+                stockData.push(data);
+            }
+            // API 호출 제한을 위해 잠시 대기
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        return stockData;
+    }
+    /**
+     * 실시간 정보 요약을 생성합니다
+     */
+    async getRealTimeSummary(weatherCity, newsQuery, stockSymbols) {
+        let summary = '## 실시간 정보 요약\n\n';
+        // 날씨 정보
+        if (weatherCity) {
+            const weather = await this.getWeatherData(weatherCity);
+            if (weather) {
+                summary += `### 🌤️ ${weather.location} 날씨\n`;
+                summary += `- 온도: ${weather.temperatureText}\n`;
+                summary += `- 날씨: ${weather.forecast}\n`;
+                summary += `- 하늘상태: ${weather.skyCondition}\n`;
+                summary += `- 강수: ${weather.precipitation}\n`;
+                summary += `- 풍향: ${weather.windDirection}\n\n`;
+            }
+        }
+        // 뉴스 정보
+        if (newsQuery) {
+            const news = await this.getNewsData(newsQuery, 3);
+            if (news.length > 0) {
+                summary += `### 📰 ${newsQuery} 관련 뉴스\n`;
+                news.forEach((item, index) => {
+                    summary += `${index + 1}. **${item.title}**\n`;
+                    summary += `   - ${item.description}\n`;
+                    summary += `   - 출처: ${item.source} (${item.publishedAt})\n\n`;
+                });
+            }
+        }
+        // 주식 정보
+        if (stockSymbols && stockSymbols.length > 0) {
+            const stocks = await this.getMultipleStockData(stockSymbols);
+            if (stocks.length > 0) {
+                summary += `### 📈 주식 정보\n`;
+                stocks.forEach(stock => {
+                    const changeIcon = stock.change >= 0 ? '📈' : '📉';
+                    summary += `- **${stock.symbol}**: $${stock.price.toFixed(2)} `;
+                    summary += `${changeIcon} ${stock.change >= 0 ? '+' : ''}${stock.change.toFixed(2)} `;
+                    summary += `(${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%)\n`;
+                });
+                summary += '\n';
+            }
+        }
+        return summary;
+    }
+}
+exports.ExternalApiService = ExternalApiService;
+
+
+/***/ }),
+/* 47 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -13315,12 +14144,13 @@ function getDefaultModelName(modelType) {
 /**
  * 토큰 사용량을 로그로 출력합니다.
  */
-function logTokenUsage(systemPrompt, userParts, modelType) {
+function logTokenUsage(systemPrompt, userParts, modelType, actualModelName) {
     // 안전 가드: 알 수 없는 모델 타입 대비 (예: 과거 'ollama' 값 등)
     const limits = exports.MODEL_TOKEN_LIMITS[modelType] || exports.MODEL_TOKEN_LIMITS[types_1.AiModelType.OLLAMA_Gemma] || exports.MODEL_TOKEN_LIMITS[types_1.AiModelType.GEMINI];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
-    console.log(`[TokenUtils] ${modelType} 토큰 사용량:`);
+    const label = actualModelName || modelType;
+    console.log(`[TokenUtils] ${label} 토큰 사용량:`);
     console.log(`  - 현재 토큰: ${currentTokens.toLocaleString()}개`);
     console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
     console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
@@ -13334,7 +14164,7 @@ function logTokenUsage(systemPrompt, userParts, modelType) {
 
 
 /***/ }),
-/* 47 */
+/* 48 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -13853,7 +14683,7 @@ exports.ActionPlannerService = ActionPlannerService;
 
 
 /***/ }),
-/* 48 */
+/* 49 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -14377,7 +15207,7 @@ exports.TerminalMonitorService = TerminalMonitorService;
 
 
 /***/ }),
-/* 49 */
+/* 50 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -14740,7 +15570,7 @@ exports.ActionExecutionEngine = ActionExecutionEngine;
 
 
 /***/ }),
-/* 50 */
+/* 51 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -15026,7 +15856,7 @@ exports.ProjectProfileService = ProjectProfileService;
 
 
 /***/ }),
-/* 51 */
+/* 52 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -15193,7 +16023,7 @@ exports.IntentDetectionService = IntentDetectionService;
 
 
 /***/ }),
-/* 52 */
+/* 53 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -15234,10 +16064,10 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OllamaService = exports.OllamaApi = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const http = __importStar(__webpack_require__(53));
-const https = __importStar(__webpack_require__(54));
-const url_1 = __webpack_require__(55);
-const externalApiService_1 = __webpack_require__(56);
+const http = __importStar(__webpack_require__(54));
+const https = __importStar(__webpack_require__(55));
+const url_1 = __webpack_require__(56);
+const externalApiService_1 = __webpack_require__(46);
 const types_1 = __webpack_require__(39);
 class OllamaApi {
     apiUrl;
@@ -15656,494 +16486,25 @@ exports.OllamaService = OllamaService;
 
 
 /***/ }),
-/* 53 */
+/* 54 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("http");
 
 /***/ }),
-/* 54 */
+/* 55 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("https");
 
 /***/ }),
-/* 55 */
+/* 56 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("url");
-
-/***/ }),
-/* 56 */
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ExternalApiService = void 0;
-class ExternalApiService {
-    configurationService;
-    constructor(configurationService) {
-        this.configurationService = configurationService;
-    }
-    /**
-     * 날씨 정보를 가져옵니다 (기상청 육상예보 API + 중기예보 API 사용)
-     */
-    async getWeatherData(city) {
-        try {
-            const apiKey = await this.configurationService.getWeatherApiKey();
-            if (!apiKey) {
-                console.warn('Weather API key not configured');
-                return null;
-            }
-            // 도시명을 기상청 육상예보 지역코드로 매핑
-            const cityCodeMap = {
-                '서울': '11B10101',
-                '부산': '11H20201',
-                '대구': '11H10701',
-                '인천': '11B20201',
-                '광주': '11F20501',
-                '대전': '11C20401',
-                '울산': '11H20101',
-                '세종': '11C20404',
-                '수원': '11B20601',
-                '고양': '11B20301',
-                '용인': '11B20602',
-                '창원': '11H20301',
-                '포항': '11H20201',
-                '춘천': '11D10101',
-                '강릉': '11D10201',
-                '청주': '11C10301',
-                '전주': '11F10201',
-                '순천': '11F20401',
-                '목포': '11F20301',
-                '여수': '11F20401',
-                '제주': '11G00201',
-                '백령도': '11A00101'
-            };
-            const regId = cityCodeMap[city] || '11B10101'; // 기본값은 서울
-            // 육상예보 API 사용 (기온 정보 포함)
-            const response = await fetch(`https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getLandFcst?pageNo=1&numOfRows=10&dataType=XML&regId=${regId}&authKey=${apiKey}`);
-            if (!response.ok) {
-                throw new Error(`Weather API error: ${response.status}`);
-            }
-            // XML 응답 파싱
-            const xmlText = await response.text();
-            console.log('Weather API response preview:', xmlText.substring(0, 300));
-            const weatherData = this.parseWeatherXmlResponse(xmlText);
-            if (!weatherData) {
-                throw new Error('No weather data found in XML response');
-            }
-            console.log('Parsed weather data:', weatherData);
-            // 날씨코드를 텍스트로 변환
-            const weatherCodeMap = {
-                'DB01': '맑음',
-                'DB02': '구름조금',
-                'DB03': '구름많음',
-                'DB04': '흐림'
-            };
-            // 강수형태 코드를 텍스트로 변환
-            const precipitationMap = {
-                '0': '없음',
-                '1': '비',
-                '2': '비/눈',
-                '3': '눈',
-                '4': '눈/비'
-            };
-            // 풍향을 16방위로 변환
-            const windDirectionMap = {
-                'N': '북', 'NNE': '북북동', 'NE': '북동', 'ENE': '동북동',
-                'E': '동', 'ESE': '동남동', 'SE': '남동', 'SSE': '남남동',
-                'S': '남', 'SSW': '남남서', 'SW': '남서', 'WSW': '서남서',
-                'W': '서', 'WNW': '서북서', 'NW': '북서', 'NNW': '북북서'
-            };
-            const windDirection = windDirectionMap[weatherData.wd1] || weatherData.wd1 || '알 수 없음';
-            const skyCondition = weatherCodeMap[weatherData.wfCd] || '알 수 없음';
-            const precipitation = precipitationMap[weatherData.rnYn] || '없음';
-            // 기온 처리
-            let temperature = 0;
-            let temperatureText = '정보 없음';
-            if (weatherData.ta && weatherData.ta !== '-99' && weatherData.ta.trim() !== '') {
-                const tempValue = parseFloat(weatherData.ta);
-                if (!isNaN(tempValue)) {
-                    temperature = tempValue;
-                    temperatureText = `${tempValue}°C`;
-                }
-            }
-            // 강수확률 처리
-            let precipitationProbability = '';
-            if (weatherData.rnSt && weatherData.rnSt !== '-99' && weatherData.rnSt.trim() !== '') {
-                const probValue = parseFloat(weatherData.rnSt);
-                if (!isNaN(probValue)) {
-                    precipitationProbability = `${probValue}%`;
-                }
-            }
-            // 풍속 처리 (육상예보 API에서는 풍속 정보가 제한적)
-            let windSpeed = 0;
-            let windSpeedText = '';
-            if (weatherData.wsIt && weatherData.wsIt !== '-99' && weatherData.wsIt.trim() !== '') {
-                // 풍속 강도코드를 텍스트로 변환
-                const windSpeedMap = {
-                    '0': '약함',
-                    '1': '약함',
-                    '2': '보통',
-                    '3': '강함',
-                    '4': '매우강함'
-                };
-                windSpeedText = windSpeedMap[weatherData.wsIt] || '알 수 없음';
-            }
-            // 중기 예보 데이터 가져오기
-            let mediumTermForecast = [];
-            try {
-                const mediumTermData = await this.getMediumTermForecast(regId, apiKey);
-                if (mediumTermData && mediumTermData.length > 0) {
-                    mediumTermForecast = mediumTermData;
-                }
-            }
-            catch (error) {
-                console.warn('Failed to fetch medium-term forecast:', error);
-                // 중기 예보 실패해도 단기 예보는 계속 진행
-            }
-            return {
-                location: city,
-                temperature: temperature,
-                description: weatherData.wf || '날씨 정보 없음',
-                humidity: 0, // 기상청 API에는 습도 정보가 없음
-                windSpeed: windSpeed,
-                windDirection: windDirection,
-                precipitation: precipitation,
-                skyCondition: skyCondition,
-                forecast: weatherData.wf || '예보 정보 없음',
-                temperatureText: temperatureText,
-                precipitationProbability: precipitationProbability,
-                windSpeedText: windSpeedText,
-                waveHeight: '', // 육상예보에는 파고 정보가 없음
-                mediumTermForecast: mediumTermForecast
-            };
-        }
-        catch (error) {
-            console.error('Error fetching weather data:', error);
-            return null;
-        }
-    }
-    /**
-     * 기상청 육상예보 API의 XML 응답을 파싱합니다
-     */
-    parseWeatherXmlResponse(xmlText) {
-        try {
-            // 간단한 XML 파싱 (정규식 사용)
-            const wd1Match = xmlText.match(/<wd1>([^<]+)<\/wd1>/);
-            const wd2Match = xmlText.match(/<wd2>([^<]+)<\/wd2>/);
-            const taMatch = xmlText.match(/<ta>([^<]+)<\/ta>/);
-            const rnStMatch = xmlText.match(/<rnSt>([^<]+)<\/rnSt>/);
-            const wfMatch = xmlText.match(/<wf>([^<]+)<\/wf>/);
-            const wfCdMatch = xmlText.match(/<wfCd>([^<]+)<\/wfCd>/);
-            const rnYnMatch = xmlText.match(/<rnYn>([^<]+)<\/rnYn>/);
-            const wsItMatch = xmlText.match(/<wsIt>([^<]+)<\/wsIt>/);
-            if (!taMatch && !wfMatch) {
-                console.error('No weather data found in XML response');
-                return null;
-            }
-            return {
-                wd1: wd1Match ? wd1Match[1].trim() : '',
-                wd2: wd2Match ? wd2Match[1].trim() : '',
-                ta: taMatch ? taMatch[1].trim() : '',
-                rnSt: rnStMatch ? rnStMatch[1].trim() : '',
-                wf: wfMatch ? wfMatch[1].trim() : '',
-                wfCd: wfCdMatch ? wfCdMatch[1].trim() : '',
-                rnYn: rnYnMatch ? rnYnMatch[1].trim() : '',
-                wsIt: wsItMatch ? wsItMatch[1].trim() : ''
-            };
-        }
-        catch (error) {
-            console.error('Error parsing weather XML response:', error);
-            return null;
-        }
-    }
-    /**
-     * 기상청 중기 예보 데이터를 가져옵니다
-     */
-    async getMediumTermForecast(regId, apiKey) {
-        try {
-            // 현재 날짜 기준으로 내일부터 7일간의 예보 요청
-            const today = new Date();
-            const tomorrow = new Date(today);
-            tomorrow.setDate(today.getDate() + 1);
-            const tmef1 = tomorrow.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
-            const tmef2 = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, ''); // 7일 후
-            const response = await fetch(`https://apihub.kma.go.kr/api/typ01/url/fct_afs_wc.php?reg=${regId}&tmef1=${tmef1}&tmef2=${tmef2}&disp=0&help=0&authKey=${apiKey}`);
-            if (!response.ok) {
-                throw new Error(`Medium-term forecast API error: ${response.status}`);
-            }
-            const xmlText = await response.text();
-            console.log('Medium-term forecast API response preview:', xmlText.substring(0, 300));
-            return this.parseMediumTermForecastXml(xmlText);
-        }
-        catch (error) {
-            console.error('Error fetching medium-term forecast:', error);
-            return [];
-        }
-    }
-    /**
-     * 기상청 중기 예보 XML 응답을 파싱합니다
-     */
-    parseMediumTermForecastXml(xmlText) {
-        try {
-            const forecasts = [];
-            // XML에서 각 예보 항목을 추출
-            const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/g);
-            if (!itemMatches) {
-                console.warn('No forecast items found in medium-term forecast XML');
-                return [];
-            }
-            // 하늘상태 코드 매핑
-            const skyCodeMap = {
-                'WB01': '맑음',
-                'WB02': '구름조금',
-                'WB03': '구름많음',
-                'WB04': '흐림'
-            };
-            // 강수 코드 매핑
-            const precipitationCodeMap = {
-                'WB09': '비',
-                'WB11': '비/눈',
-                'WB13': '눈/비',
-                'WB12': '눈'
-            };
-            for (const itemMatch of itemMatches) {
-                // 각 필드 추출
-                const tmStMatch = itemMatch.match(/<TM_ST>([^<]+)<\/TM_ST>/);
-                const tmEdMatch = itemMatch.match(/<TM_ED>([^<]+)<\/TM_ED>/);
-                const skyMatch = itemMatch.match(/<SKY>([^<]+)<\/SKY>/);
-                const preMatch = itemMatch.match(/<PRE>([^<]+)<\/PRE>/);
-                const wfMatch = itemMatch.match(/<WF>([^<]+)<\/WF>/);
-                const rnStMatch = itemMatch.match(/<RN_ST>([^<]+)<\/RN_ST>/);
-                const minMatch = itemMatch.match(/<MIN>([^<]+)<\/MIN>/);
-                const maxMatch = itemMatch.match(/<MAX>([^<]+)<\/MAX>/);
-                if (tmStMatch && tmEdMatch) {
-                    const startDate = tmStMatch[1].substring(0, 8); // YYYYMMDD
-                    const endDate = tmEdMatch[1].substring(0, 8);
-                    // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
-                    const formattedDate = `${startDate.substring(0, 4)}-${startDate.substring(4, 6)}-${startDate.substring(6, 8)}`;
-                    // 최저/최고 기온 처리
-                    let minTemp = 0;
-                    let maxTemp = 0;
-                    if (minMatch && minMatch[1] !== '-99' && minMatch[1].trim() !== '') {
-                        const tempValue = parseFloat(minMatch[1]);
-                        if (!isNaN(tempValue)) {
-                            minTemp = tempValue;
-                        }
-                    }
-                    if (maxMatch && maxMatch[1] !== '-99' && maxMatch[1].trim() !== '') {
-                        const tempValue = parseFloat(maxMatch[1]);
-                        if (!isNaN(tempValue)) {
-                            maxTemp = tempValue;
-                        }
-                    }
-                    // 강수확률 처리
-                    let precipitationProbability = '';
-                    if (rnStMatch && rnStMatch[1] !== '-99' && rnStMatch[1].trim() !== '') {
-                        const probValue = parseFloat(rnStMatch[1]);
-                        if (!isNaN(probValue)) {
-                            precipitationProbability = `${probValue}%`;
-                        }
-                    }
-                    forecasts.push({
-                        date: formattedDate,
-                        minTemp: minTemp,
-                        maxTemp: maxTemp,
-                        skyCondition: skyMatch ? (skyCodeMap[skyMatch[1]] || '알 수 없음') : '알 수 없음',
-                        precipitation: preMatch ? (precipitationCodeMap[preMatch[1]] || '없음') : '없음',
-                        precipitationProbability: precipitationProbability,
-                        forecast: wfMatch ? wfMatch[1].trim() : '예보 정보 없음'
-                    });
-                }
-            }
-            // 날짜순으로 정렬하고 중복 제거 (같은 날짜의 경우 첫 번째 항목만 유지)
-            const uniqueForecasts = forecasts.filter((forecast, index, self) => index === self.findIndex(f => f.date === forecast.date));
-            return uniqueForecasts.sort((a, b) => a.date.localeCompare(b.date));
-        }
-        catch (error) {
-            console.error('Error parsing medium-term forecast XML:', error);
-            return [];
-        }
-    }
-    /**
-     * 뉴스 정보를 가져옵니다 (네이버 뉴스 검색 API 사용)
-     */
-    async getNewsData(query = 'IT', count = 10) {
-        try {
-            const clientId = await this.configurationService.getNewsApiKey();
-            const clientSecret = await this.configurationService.getNewsApiSecret();
-            if (!clientId || !clientSecret) {
-                console.warn('Naver News API credentials not configured');
-                return [];
-            }
-            // 네이버 API는 한 번에 최대 100개까지 요청 가능하지만, 
-            // 실제로는 10-20개 정도가 적절한 응답 시간을 보장
-            const displayCount = Math.min(count, 20);
-            const response = await fetch(`https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(query)}&display=${displayCount}&sort=date`, {
-                headers: {
-                    'X-Naver-Client-Id': clientId,
-                    'X-Naver-Client-Secret': clientSecret
-                }
-            });
-            if (!response.ok) {
-                throw new Error(`Naver News API error: ${response.status}`);
-            }
-            const data = await response.json();
-            return data.items.map((item) => ({
-                title: this.decodeHtmlEntities(item.title),
-                description: this.decodeHtmlEntities(item.description),
-                url: item.link,
-                publishedAt: new Date(item.pubDate).toLocaleString('ko-KR'),
-                source: this.extractSourceFromUrl(item.originallink)
-            }));
-        }
-        catch (error) {
-            console.error('Error fetching news data:', error);
-            return [];
-        }
-    }
-    /**
-     * HTML 엔티티를 디코딩합니다 (네이버 API 응답에서 HTML 태그 제거)
-     */
-    decodeHtmlEntities(text) {
-        return text
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/<[^>]*>/g, '') // HTML 태그 제거
-            .trim();
-    }
-    /**
-     * URL에서 뉴스 소스를 추출합니다
-     */
-    extractSourceFromUrl(url) {
-        try {
-            const urlObj = new URL(url);
-            const hostname = urlObj.hostname;
-            // 주요 뉴스 사이트 매핑
-            const sourceMap = {
-                'news.naver.com': '네이버뉴스',
-                'www.chosun.com': '조선일보',
-                'www.donga.com': '동아일보',
-                'www.hani.co.kr': '한겨레',
-                'www.khan.co.kr': '경향신문',
-                'www.kyunghyang.com': '경향신문',
-                'www.mk.co.kr': '매일경제',
-                'www.hankyung.com': '한국경제',
-                'www.etnews.com': '전자신문',
-                'www.zdnet.co.kr': 'ZDNet Korea',
-                'www.itworld.co.kr': 'ITWorld',
-                'www.ciokorea.com': 'CIO Korea'
-            };
-            return sourceMap[hostname] || hostname.replace('www.', '');
-        }
-        catch {
-            return '알 수 없음';
-        }
-    }
-    /**
-     * 주식 정보를 가져옵니다 (Alpha Vantage API 사용)
-     */
-    async getStockData(symbol) {
-        try {
-            const apiKey = await this.configurationService.getStockApiKey();
-            if (!apiKey) {
-                console.warn('Stock API key not configured');
-                return null;
-            }
-            const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`);
-            if (!response.ok) {
-                throw new Error(`Stock API error: ${response.status}`);
-            }
-            const data = await response.json();
-            const quote = data['Global Quote'];
-            if (!quote) {
-                throw new Error('No stock data found');
-            }
-            return {
-                symbol: quote['01. symbol'],
-                price: parseFloat(quote['05. price']),
-                change: parseFloat(quote['09. change']),
-                changePercent: parseFloat(quote['10. change percent'].replace('%', '')),
-                volume: parseInt(quote['06. volume'])
-            };
-        }
-        catch (error) {
-            console.error('Error fetching stock data:', error);
-            return null;
-        }
-    }
-    /**
-     * 여러 주식 정보를 한 번에 가져옵니다
-     */
-    async getMultipleStockData(symbols) {
-        const stockData = [];
-        for (const symbol of symbols) {
-            const data = await this.getStockData(symbol);
-            if (data) {
-                stockData.push(data);
-            }
-            // API 호출 제한을 위해 잠시 대기
-            await new Promise(resolve => setTimeout(resolve, 200));
-        }
-        return stockData;
-    }
-    /**
-     * 실시간 정보 요약을 생성합니다
-     */
-    async getRealTimeSummary(weatherCity, newsQuery, stockSymbols) {
-        let summary = '## 실시간 정보 요약\n\n';
-        // 날씨 정보
-        if (weatherCity) {
-            const weather = await this.getWeatherData(weatherCity);
-            if (weather) {
-                summary += `### 🌤️ ${weather.location} 날씨\n`;
-                summary += `- 온도: ${weather.temperatureText}\n`;
-                summary += `- 날씨: ${weather.forecast}\n`;
-                summary += `- 하늘상태: ${weather.skyCondition}\n`;
-                summary += `- 강수: ${weather.precipitation}\n`;
-                summary += `- 풍향: ${weather.windDirection}\n\n`;
-            }
-        }
-        // 뉴스 정보
-        if (newsQuery) {
-            const news = await this.getNewsData(newsQuery, 3);
-            if (news.length > 0) {
-                summary += `### 📰 ${newsQuery} 관련 뉴스\n`;
-                news.forEach((item, index) => {
-                    summary += `${index + 1}. **${item.title}**\n`;
-                    summary += `   - ${item.description}\n`;
-                    summary += `   - 출처: ${item.source} (${item.publishedAt})\n\n`;
-                });
-            }
-        }
-        // 주식 정보
-        if (stockSymbols && stockSymbols.length > 0) {
-            const stocks = await this.getMultipleStockData(stockSymbols);
-            if (stocks.length > 0) {
-                summary += `### 📈 주식 정보\n`;
-                stocks.forEach(stock => {
-                    const changeIcon = stock.change >= 0 ? '📈' : '📉';
-                    summary += `- **${stock.symbol}**: $${stock.price.toFixed(2)} `;
-                    summary += `${changeIcon} ${stock.change >= 0 ? '+' : ''}${stock.change.toFixed(2)} `;
-                    summary += `(${stock.changePercent >= 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%)\n`;
-                });
-                summary += '\n';
-            }
-        }
-        return summary;
-    }
-}
-exports.ExternalApiService = ExternalApiService;
-
 
 /***/ }),
 /* 57 */
@@ -16663,6 +17024,8 @@ exports.openLicensePanel = openLicensePanel;
 const vscode = __importStar(__webpack_require__(1));
 const panelUtils_1 = __webpack_require__(40);
 const terminalDaemonService_1 = __webpack_require__(60);
+const http = __importStar(__webpack_require__(54));
+const https = __importStar(__webpack_require__(55));
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews = [];
 /**
@@ -16834,6 +17197,45 @@ ollamaBlockerService // OllamaBlockerService 추가
                 console.log('Sending currentApiKeys message:', messageToSend);
                 panel.webview.postMessage(messageToSend);
                 break;
+            case 'getOllamaModels': {
+                try {
+                    const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
+                    const url = new URL('/api/tags', apiUrl);
+                    const models = await new Promise((resolve, reject) => {
+                        const isHttps = url.protocol === 'https:';
+                        const client = isHttps ? https : http;
+                        const req = client.request({
+                            hostname: url.hostname,
+                            port: url.port || (isHttps ? 443 : 80),
+                            path: url.pathname + url.search,
+                            method: 'GET',
+                            headers: { 'Content-Type': 'application/json' }
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => data += chunk);
+                            res.on('end', () => {
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    const list = Array.isArray(parsed?.models)
+                                        ? parsed.models.map((m) => m?.name).filter((n) => typeof n === 'string')
+                                        : [];
+                                    resolve(list);
+                                }
+                                catch (e) {
+                                    reject(e);
+                                }
+                            });
+                        });
+                        req.on('error', reject);
+                        req.end();
+                    });
+                    panel.webview.postMessage({ command: 'ollamaModels', models, apiUrl: apiUrl });
+                }
+                catch (e) {
+                    panel.webview.postMessage({ command: 'ollamaModels', models: [], error: e?.message || String(e) });
+                }
+                break;
+            }
             case 'saveApiKey': // Gemini API 키 저장 케이스 추가
                 const apiKeyToSave = data.apiKey;
                 if (apiKeyToSave && typeof apiKeyToSave === 'string') {
@@ -75614,12 +76016,12 @@ exports.getProxiedConnection = exports.mapProxyName = void 0;
 const logging_1 = __webpack_require__(78);
 const constants_1 = __webpack_require__(79);
 const resolver_1 = __webpack_require__(92);
-const http = __webpack_require__(53);
+const http = __webpack_require__(54);
 const tls = __webpack_require__(85);
 const logging = __webpack_require__(78);
 const subchannel_address_1 = __webpack_require__(100);
 const uri_parser_1 = __webpack_require__(93);
-const url_1 = __webpack_require__(55);
+const url_1 = __webpack_require__(56);
 const resolver_dns_1 = __webpack_require__(167);
 const TRACER_NAME = 'proxy';
 function trace(text) {

@@ -535,19 +535,14 @@
             <div class="api-key-input-group" style="margin-bottom: 15px;">
                 <label for="ollama-model-select" style="margin-right: 10px; font-weight: bold;">Ollama 모델:</label>
                 <select id="ollama-model-select"
-                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;">
-                    <option value="gemma3:27b">Gemma3:27b</option>
-                    <option value="deepseek-r1:70b">DeepSeek R1:70B</option>
-                    <option value="codellama:7b">CodeLlama:7B (NEW)</option>
-                </select>
+                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;"></select>
                 <button id="save-ollama-model-button">모델 저장</button>
             </div>
             <p id="ollama-model-status" class="info-message"></p>
 
             <!-- Ollama API URL 설정 -->
             <div class="api-key-input-group">
-                <input type="text" id="ollama-api-url-input" placeholder="http://localhost:11434"
-                    value="http://localhost:11434">
+                <input type="text" id="ollama-api-url-input" placeholder="http://localhost:11434">
                 <button id="save-ollama-api-url-button">저장</button>
             </div>
             <p id="ollama-api-url-status" class="info-message"></p>

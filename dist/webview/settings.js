@@ -110,6 +110,19 @@ function updateSaveButtonsState() {
       button.style.cursor = 'pointer';
       console.log('Button enabled (always enabled):', button.id);
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -792,6 +805,19 @@ if (languageSelect) {
       console.log('Immediate UI update with existing language data');
       applyLanguage();
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -915,6 +941,19 @@ if (typeof terminalDaemonToggle !== 'undefined' && terminalDaemonToggle) {
     if (terminalDaemonStatus) {
       terminalDaemonStatus.textContent = isChecked ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -979,6 +1018,19 @@ if (saveGeminiApiKeyButton) {
       const pleaseEnterText = languageData['pleaseEnterApiKey'] || 'API 키를 입력해주세요.';
       showStatus(geminiApiKeyStatus, pleaseEnterText, 'error');
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -1004,6 +1056,19 @@ if (saveOllamaApiUrlButton) {
       const pleaseEnterText = languageData['pleaseEnterOllamaApiUrl'] || 'Ollama API URL을 입력해주세요.';
       showStatus(ollamaApiUrlStatus, pleaseEnterText, 'error');
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -1023,6 +1088,19 @@ if (saveOllamaModelButton) {
     } else {
       console.log('No model selected, showing error');
       showStatus(ollamaModelStatus, '모델을 선택해주세요.', 'error');
+    }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
     }
   });
 }
@@ -1044,6 +1122,19 @@ if (saveOllamaEndpointButton) {
       console.log('No endpoint selected, showing error');
       showStatus(ollamaEndpointStatus, '엔드포인트를 선택해주세요.', 'error');
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -1062,6 +1153,19 @@ if (saveBanyaLicenseButton) {
       const pleaseEnterText = languageData['pleaseEnterBanyaLicense'] || '라이센스 시리얼을 입력해주세요.';
       showStatus(banyaLicenseStatus, pleaseEnterText, 'error');
     }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
+    }
   });
 }
 
@@ -1079,6 +1183,19 @@ if (verifyBanyaLicenseButton) {
     } else {
       const pleaseEnterText = languageData['pleaseEnterBanyaLicense'] || '라이센스 시리얼을 입력해주세요.';
       showStatus(banyaLicenseStatus, pleaseEnterText, 'error');
+    }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
     }
   });
 }
@@ -1114,11 +1231,30 @@ if (aiModelSelect) {
     } else if (selectedModel === 'ollama') {
       geminiSettingsSection.classList.add('disabled');
       ollamaSettingsSection.classList.remove('disabled');
+      // Ollama 선택 시 모델 목록 즉시 요청
+      try {
+        loadOllamaModels();
+      } catch (e) {
+        console.warn('loadOllamaModels failed:', e);
+      }
     } else {
       // 모델이 선택되지 않은 경우 기본값(Gemini)으로 설정
       aiModelSelect.value = 'gemini';
       geminiSettingsSection.classList.remove('disabled');
       ollamaSettingsSection.classList.add('disabled');
+    }
+    // 선택 변경 시에도 즉시 저장(자동 저장)
+    try {
+      if (aiModelStatus) {
+        aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+        aiModelStatus.className = 'info-message';
+      }
+      vscode.postMessage({
+        command: 'saveAiModel',
+        model: selectedModel
+      });
+    } catch (e) {
+      console.warn('Failed to autosave AI model:', e);
     }
   });
 }
@@ -1145,6 +1281,27 @@ if (saveAiModelButton) {
 window.addEventListener('message', event => {
   const message = event.data;
   switch (message.command) {
+    case 'ollamaModels':
+      {
+        const sel = document.getElementById('ollama-model-select');
+        if (sel) {
+          sel.innerHTML = '';
+          const def = document.createElement('option');
+          def.value = '';
+          def.textContent = '모델을 선택하세요';
+          sel.appendChild(def);
+          if (Array.isArray(message.models)) {
+            message.models.forEach(name => {
+              const opt = document.createElement('option');
+              opt.value = name;
+              opt.textContent = name;
+              sel.appendChild(opt);
+            });
+          }
+          console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
+        }
+        break;
+      }
     case 'currentSettings':
       console.log('Received currentSettings:', message);
       if (typeof message.autoUpdateEnabled === 'boolean' && autoUpdateToggle) {
@@ -1260,21 +1417,36 @@ window.addEventListener('message', event => {
         const geminiApiKeySetText = message.geminiApiKey ? languageData['geminiApiKeySet'] || 'Gemini API 키가 설정되어 있습니다.' : languageData['geminiApiKeyNotSet'] || 'Gemini API 키가 설정되지 않았습니다.';
         showStatus(geminiApiKeyStatus, geminiApiKeySetText, message.geminiApiKey ? 'success' : 'info');
       }
-      // Ollama API URL 상태 로드
+      // Ollama API URL 상태 로드 (기본값 폴백)
       if (ollamaApiUrlInput && typeof message.ollamaApiUrl === 'string') {
-        ollamaApiUrlInput.value = message.ollamaApiUrl;
+        ollamaApiUrlInput.value = message.ollamaApiUrl || 'http://localhost:11434';
         const ollamaApiUrlSetText = message.ollamaApiUrl ? languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.' : languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.';
         showStatus(ollamaApiUrlStatus, ollamaApiUrlSetText, message.ollamaApiUrl ? 'success' : 'info');
       }
-      // Ollama 엔드포인트 상태 로드
+      // Ollama 엔드포인트 상태 로드 (기본값 폴백)
       if (ollamaEndpointSelect && typeof message.ollamaEndpoint === 'string') {
-        ollamaEndpointSelect.value = message.ollamaEndpoint;
+        ollamaEndpointSelect.value = message.ollamaEndpoint || '/api/generate';
         const ollamaEndpointSetText = message.ollamaEndpoint ? `Ollama 엔드포인트가 설정되어 있습니다: ${message.ollamaEndpoint}` : 'Ollama 엔드포인트가 설정되지 않았습니다.';
         showStatus(ollamaEndpointStatus, ollamaEndpointSetText, message.ollamaEndpoint ? 'success' : 'info');
       }
-      // Ollama 모델 상태 로드
+      // Ollama 모델 상태 로드 (loadOllamaModels 이후 적용)
       if (ollamaModelSelect && typeof message.ollamaModel === 'string') {
-        ollamaModelSelect.value = message.ollamaModel;
+        // 모델 목록이 동적으로 채워진 후 값을 적용하기 위해 약간 지연
+        const desiredModel = message.ollamaModel;
+        setTimeout(() => {
+          const sel = document.getElementById('ollama-model-select');
+          if (sel) {
+            const options = Array.from(sel.options).map(o => o.value);
+            if (!options.includes(desiredModel)) {
+              // 목록에 없다면 앞에 추가
+              const opt = document.createElement('option');
+              opt.value = desiredModel;
+              opt.textContent = desiredModel || '모델을 선택하세요';
+              sel.insertBefore(opt, sel.firstChild);
+            }
+            sel.value = desiredModel || '';
+          }
+        }, 200);
         const ollamaModelSetText = message.ollamaModel ? `Ollama 모델이 설정되어 있습니다: ${message.ollamaModel}` : 'Ollama 모델이 설정되지 않았습니다.';
         showStatus(ollamaModelStatus, ollamaModelSetText, message.ollamaModel ? 'success' : 'info');
       }
@@ -1573,8 +1745,12 @@ document.addEventListener('DOMContentLoaded', () => {
   projectRootStatus.textContent = projectRootLoadingText;
 
   // API 키 상태 요청
+  // API 키 및 현재 AI 모델/설정 로드
   vscode.postMessage({
     command: 'loadApiKeys'
+  });
+  vscode.postMessage({
+    command: 'loadAiModel'
   });
   const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
   showStatus(weatherApiKeyStatus, apiKeysLoadingText, 'info');
@@ -1608,60 +1784,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // isLicenseVerified는 서버에서 전송된 값으로 설정됨
 });
 
-// Ollama 모델 목록을 불러오는 함수
+// Ollama 모델 목록을 확장 호스트에 요청하여 수신
 async function loadOllamaModels() {
-  try {
-    console.log('Ollama 모델 목록 불러오기 시작');
-
-    // Ollama API URL 가져오기
-    const ollamaApiUrl = document.getElementById('ollama-api-url-input')?.value || 'http://localhost:11434';
-
-    // Ollama API에서 모델 목록 가져오기
-    const response = await fetch(`${ollamaApiUrl}/api/tags`);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    console.log('Ollama 모델 목록:', data);
-    if (data.models && Array.isArray(data.models)) {
-      // 기존 옵션들 제거 (첫 번째 옵션 제외)
-      const ollamaModelSelect = document.getElementById('ollama-model-select');
-      if (ollamaModelSelect) {
-        // 기존 옵션들 제거
-        ollamaModelSelect.innerHTML = '';
-
-        // 기본 옵션 추가
-        const defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = '모델을 선택하세요';
-        ollamaModelSelect.appendChild(defaultOption);
-
-        // 로컬에 설치된 모델들 추가
-        data.models.forEach(model => {
-          const option = document.createElement('option');
-          option.value = model.name;
-          option.textContent = model.name;
-          ollamaModelSelect.appendChild(option);
-        });
-        console.log(`Ollama 모델 목록 업데이트 완료: ${data.models.length}개 모델`);
-      }
-    } else {
-      console.warn('Ollama 모델 목록이 비어있습니다.');
-    }
-  } catch (error) {
-    console.error('Ollama 모델 목록 불러오기 실패:', error);
-
-    // 오류 발생 시 기본 모델들로 폴백
-    const ollamaModelSelect = document.getElementById('ollama-model-select');
-    if (ollamaModelSelect) {
-      ollamaModelSelect.innerHTML = `
-                <option value="">모델을 선택하세요</option>
-                <option value="gemma3:27b">Gemma3:27b</option>
-                <option value="deepseek-r1:70b">DeepSeek R1:70B</option>
-                <option value="codellama:7b">CodeLlama:7B</option>
-            `;
-    }
-  }
+  console.log('Ollama 모델 목록 요청 (호스트)');
+  vscode.postMessage({
+    command: 'getOllamaModels'
+  });
 }
 
 // Ollama API URL 변경 시 모델 목록 다시 불러오기
