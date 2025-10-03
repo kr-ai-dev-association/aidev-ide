@@ -49,7 +49,7 @@ const configurationService_1 = __webpack_require__(7);
 const notificationService_1 = __webpack_require__(8);
 const codebaseContextService_1 = __webpack_require__(9);
 const llmResponseProcessor_1 = __webpack_require__(38);
-const llmService_1 = __webpack_require__(42);
+const llmService_1 = __webpack_require__(44);
 const ollamaService_1 = __webpack_require__(50);
 const chatViewProvider_1 = __webpack_require__(54);
 const askViewProvider_1 = __webpack_require__(55); // 새로 추가된 AskViewProvider 임포트
@@ -12592,10 +12592,12 @@ exports.hasBashCommands = hasBashCommands;
 exports.getCommandSequenceStatus = getCommandSequenceStatus;
 exports.stopCommandSequence = stopCommandSequence;
 const vscode = __importStar(__webpack_require__(1));
+const processRunner_1 = __webpack_require__(42);
 let _codePilotTerminal;
 let _isWaitingForInput = false;
 let _pendingCommands = [];
 let _currentCommandIndex = 0;
+let _captureOutputChannel;
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
  */
@@ -12639,6 +12641,25 @@ function isInteractiveCommand(command) {
     ];
     return interactiveCommands.some(interactiveCmd => command.toLowerCase().includes(interactiveCmd.toLowerCase()));
 }
+function isLongRunningDevCommand(command) {
+    const lower = command.toLowerCase();
+    return (/^npm\s+start\b/.test(lower) ||
+        /^yarn\s+start\b/.test(lower) ||
+        /^pnpm\s+start\b/.test(lower) ||
+        /\bvite\b/.test(lower) ||
+        /react-scripts\s+start/.test(lower) ||
+        /next\s+dev/.test(lower));
+}
+function getProjectCwd() {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    return folder?.uri.fsPath;
+}
+function getCaptureOutputChannel() {
+    if (!_captureOutputChannel) {
+        _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Capture');
+    }
+    return _captureOutputChannel;
+}
 /**
  * 대화형 명령어에 대한 기본 응답을 제공합니다.
  */
@@ -12675,29 +12696,52 @@ function getDefaultResponseForCommand(command) {
  * 대화형 명령어를 처리합니다.
  */
 async function handleInteractiveCommand(command) {
-    const terminal = getAidevIdeTerminal();
-    // 터미널이 활성화되어 있지 않으면 활성화
-    if (!terminal.state.isInteractedWith) {
-        terminal.show();
-    }
-    // 명령어 실행
-    terminal.sendText(command);
-    // 대화형 명령어인 경우 기본 응답 제공
-    if (isInteractiveCommand(command)) {
-        const defaultResponse = getDefaultResponseForCommand(command);
-        if (defaultResponse !== null) {
-            // 잠시 대기 후 응답 전송
-            setTimeout(() => {
-                terminal.sendText(defaultResponse);
-                console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
-            }, 2000); // 2초 대기
+    const lower = command.toLowerCase();
+    const shouldUseTerminal = isInteractiveCommand(lower) || isLongRunningDevCommand(lower);
+    if (shouldUseTerminal) {
+        const terminal = getAidevIdeTerminal();
+        if (!terminal.state.isInteractedWith) {
+            terminal.show();
         }
-        // 사용자에게 대화형 명령어임을 알림
-        vscode.window.showInformationMessage(`aidev-ide: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`, { modal: false });
+        terminal.sendText(command);
+        if (isInteractiveCommand(lower)) {
+            const defaultResponse = getDefaultResponseForCommand(command);
+            if (defaultResponse !== null) {
+                setTimeout(() => {
+                    terminal.sendText(defaultResponse);
+                    console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
+                }, 2000);
+            }
+            vscode.window.showInformationMessage(`aidev-ide: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`, { modal: false });
+        }
+        else {
+            vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
+        }
+        console.log(`[TerminalManager] Executed bash command: ${command}`);
+        return;
     }
-    else {
-        // 일반 명령어
-        vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
+    // 캡처 기반 실행 경로 (표준 출력/에러 수집)
+    const channel = getCaptureOutputChannel();
+    const cwd = getProjectCwd();
+    channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
+    const isErrorLike = (text) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(text);
+    const result = await (0, processRunner_1.runCommandCapture)(command, { cwd, shell: true }, (chunk) => {
+        chunk.split(/\r?\n/).forEach(line => {
+            if (!line.trim())
+                return;
+            channel.appendLine(line);
+        });
+    }, (chunk) => {
+        chunk.split(/\r?\n/).forEach(line => {
+            if (!line.trim())
+                return;
+            channel.appendLine(line);
+        });
+    });
+    if (result.code !== 0 || isErrorLike(result.stderr)) {
+        channel.appendLine(`----- Exit code: ${result.code} -----`);
+        channel.show(true);
+        vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
     }
     console.log(`[TerminalManager] Executed bash command: ${command}`);
 }
@@ -12785,6 +12829,62 @@ function stopCommandSequence() {
 
 /***/ }),
 /* 42 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.runCommandCapture = runCommandCapture;
+const child_process_1 = __webpack_require__(43);
+function runCommandCapture(command, options = {}, onData, onErrorData) {
+    const shell = options.shell ?? true;
+    const child = (0, child_process_1.spawn)(command, { cwd: options.cwd, env: options.env, shell });
+    let stdout = '';
+    let stderr = '';
+    const decoder = new TextDecoder();
+    child.stdout?.on('data', (data) => {
+        const text = data.toString('utf8');
+        stdout += text;
+        onData?.(text);
+    });
+    child.stderr?.on('data', (data) => {
+        const text = data.toString('utf8');
+        stderr += text;
+        onErrorData?.(text);
+    });
+    let timeout;
+    if (options.timeoutMs && options.timeoutMs > 0) {
+        timeout = setTimeout(() => {
+            try {
+                child.kill('SIGKILL');
+            }
+            catch { }
+        }, options.timeoutMs);
+    }
+    return new Promise((resolve) => {
+        child.on('close', (code) => {
+            if (timeout)
+                clearTimeout(timeout);
+            resolve({ code, stdout, stderr });
+        });
+        child.on('error', () => {
+            if (timeout)
+                clearTimeout(timeout);
+            resolve({ code: -1, stdout, stderr: stderr || 'Failed to start process' });
+        });
+    });
+}
+
+
+/***/ }),
+/* 43 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("child_process");
+
+/***/ }),
+/* 44 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -12825,13 +12925,13 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlmService = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const externalApiService_1 = __webpack_require__(43);
+const externalApiService_1 = __webpack_require__(45);
 const panelUtils_1 = __webpack_require__(40);
-const tokenUtils_1 = __webpack_require__(44);
+const tokenUtils_1 = __webpack_require__(46);
 const types_1 = __webpack_require__(39);
-const actionPlannerService_1 = __webpack_require__(45);
-const terminalMonitorService_1 = __webpack_require__(46);
-const actionExecutionEngine_1 = __webpack_require__(47);
+const actionPlannerService_1 = __webpack_require__(47);
+const terminalMonitorService_1 = __webpack_require__(48);
+const actionExecutionEngine_1 = __webpack_require__(49);
 class LlmService {
     extensionContext;
     storageService;
@@ -13227,7 +13327,7 @@ exports.LlmService = LlmService;
 
 
 /***/ }),
-/* 43 */
+/* 45 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -13696,7 +13796,7 @@ exports.ExternalApiService = ExternalApiService;
 
 
 /***/ }),
-/* 44 */
+/* 46 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -13827,7 +13927,7 @@ function logTokenUsage(systemPrompt, userParts, modelType) {
 
 
 /***/ }),
-/* 45 */
+/* 47 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -14197,7 +14297,7 @@ exports.ActionPlannerService = ActionPlannerService;
 
 
 /***/ }),
-/* 46 */
+/* 48 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -14660,14 +14760,14 @@ exports.TerminalMonitorService = TerminalMonitorService;
 
 
 /***/ }),
-/* 47 */
+/* 49 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ActionExecutionEngine = void 0;
-const processRunner_1 = __webpack_require__(48);
+const processRunner_1 = __webpack_require__(42);
 class ActionExecutionEngine {
     notificationService;
     terminalMonitor;
@@ -15023,62 +15123,6 @@ exports.ActionExecutionEngine = ActionExecutionEngine;
 
 
 /***/ }),
-/* 48 */
-/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.runCommandCapture = runCommandCapture;
-const child_process_1 = __webpack_require__(49);
-function runCommandCapture(command, options = {}, onData, onErrorData) {
-    const shell = options.shell ?? true;
-    const child = (0, child_process_1.spawn)(command, { cwd: options.cwd, env: options.env, shell });
-    let stdout = '';
-    let stderr = '';
-    const decoder = new TextDecoder();
-    child.stdout?.on('data', (data) => {
-        const text = data.toString('utf8');
-        stdout += text;
-        onData?.(text);
-    });
-    child.stderr?.on('data', (data) => {
-        const text = data.toString('utf8');
-        stderr += text;
-        onErrorData?.(text);
-    });
-    let timeout;
-    if (options.timeoutMs && options.timeoutMs > 0) {
-        timeout = setTimeout(() => {
-            try {
-                child.kill('SIGKILL');
-            }
-            catch { }
-        }, options.timeoutMs);
-    }
-    return new Promise((resolve) => {
-        child.on('close', (code) => {
-            if (timeout)
-                clearTimeout(timeout);
-            resolve({ code, stdout, stderr });
-        });
-        child.on('error', () => {
-            if (timeout)
-                clearTimeout(timeout);
-            resolve({ code: -1, stdout, stderr: stderr || 'Failed to start process' });
-        });
-    });
-}
-
-
-/***/ }),
-/* 49 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("child_process");
-
-/***/ }),
 /* 50 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
@@ -15123,7 +15167,7 @@ const vscode = __importStar(__webpack_require__(1));
 const http = __importStar(__webpack_require__(51));
 const https = __importStar(__webpack_require__(52));
 const url_1 = __webpack_require__(53);
-const externalApiService_1 = __webpack_require__(43);
+const externalApiService_1 = __webpack_require__(45);
 const types_1 = __webpack_require__(39);
 class OllamaApi {
     apiUrl;
@@ -81155,7 +81199,7 @@ exports.OllamaBlockerService = void 0;
 const path = __importStar(__webpack_require__(10));
 const fs = __importStar(__webpack_require__(25));
 const os = __importStar(__webpack_require__(86));
-const child_process_1 = __webpack_require__(49);
+const child_process_1 = __webpack_require__(43);
 const util_1 = __webpack_require__(68);
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 class OllamaBlockerService {
