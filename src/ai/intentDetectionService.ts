@@ -55,26 +55,34 @@ export class IntentDetectionService {
         let reasoning = keywordScore.reasoning;
         let confidence = keywordScore.confidence;
 
+        console.log('[IntentDetectionService] Keyword vote result:', keywordScore);
+
         if (confidence < 0.6) {
             try {
-                const llmResult = await this.queryLLMForIntent(userQuery);
-                if (llmResult) {
-                    bestSubtype = llmResult.subtype;
-                    reasoning = llmResult.reasoning;
-                    confidence = llmResult.confidence;
+                const llmRaw = await this.queryLLMForIntent(userQuery);
+                if (llmRaw) {
+                    bestSubtype = llmRaw.subtype;
+                    reasoning = llmRaw.reasoning;
+                    confidence = llmRaw.confidence;
+                    console.log('[IntentDetectionService] Fallback gemma2 intent result:', llmRaw);
                 }
             } catch (error) {
                 console.warn('[IntentDetectionService] gemma2:2b 의도 판별 실패, 키워드 기반 결과 사용:', error);
             }
         }
 
-        return {
+        const uniqueKeywords = Array.from(new Set(keywordScore.matchedKeywords));
+
+        const result: IntentDetectionResult = {
             category: this.subtypeToCategory[bestSubtype],
             subtype: bestSubtype,
             confidence,
-            keywords: keywordScore.matchedKeywords,
+            keywords: uniqueKeywords,
             reasoning
         };
+
+        console.log('[IntentDetectionService] Final intent result:', result);
+        return result;
     }
 
     private keywordVote(userQuery: string): {
@@ -90,11 +98,16 @@ export class IntentDetectionService {
 
         for (const [subtype, keywords] of Object.entries(this.keywordDictionary) as Array<[IntentSubtype, string[]]>) {
             let score = 0;
+            const matchedForSubtype: string[] = [];
             for (const keyword of keywords) {
                 if (lowerQuery.includes(keyword.toLowerCase())) {
                     score += 1;
                     matchedKeywords.push(keyword);
+                    matchedForSubtype.push(keyword);
                 }
+            }
+            if (matchedForSubtype.length > 0) {
+                console.log(`[IntentDetectionService] Matched keywords for ${subtype}:`, matchedForSubtype);
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -147,6 +160,7 @@ export class IntentDetectionService {
 
         try {
             const response = await this.ollamaApi.sendMessage(prompt, {});
+            console.log('[IntentDetectionService] Fallback gemma2 raw response:', response);
             const parsed = this.safeParseIntentResponse(response);
             if (parsed) {
                 return parsed;
