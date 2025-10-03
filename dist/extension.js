@@ -14271,11 +14271,16 @@ class TerminalMonitorService {
             { pattern: 'ENOENT:', severity: 'medium', description: '파일 또는 디렉토리 없음' },
             { pattern: 'EACCES:', severity: 'medium', description: '권한 거부' },
             { pattern: 'EISDIR:', severity: 'medium', description: '디렉토리 관련 에러' },
+            { pattern: 'ELIFECYCLE', severity: 'high', description: 'npm lifecycle 에러' },
+            { pattern: 'npm ERR!', severity: 'high', description: 'npm 에러' },
+            { pattern: 'error Command failed with exit code', severity: 'high', description: '명령 실패 (Yarn/Pnpm)' },
             // 빌드/컴파일 에러
             { pattern: 'Build failed:', severity: 'critical', description: '빌드 실패' },
             { pattern: 'Compilation failed:', severity: 'critical', description: '컴파일 실패' },
             { pattern: 'Failed to compile:', severity: 'critical', description: '컴파일 실패' },
             { pattern: 'Build error:', severity: 'critical', description: '빌드 에러' },
+            { pattern: 'ERROR in', severity: 'critical', description: '웹팩/빌드 에러' },
+            { pattern: 'Compilation error', severity: 'critical', description: '컴파일 에러' },
             // 테스트 에러
             { pattern: 'Test failed:', severity: 'medium', description: '테스트 실패' },
             { pattern: 'Assertion failed:', severity: 'medium', description: '어설션 실패' },
@@ -14294,7 +14299,18 @@ class TerminalMonitorService {
             { pattern: 'Fatal error:', severity: 'critical', description: '치명적 에러' },
             { pattern: 'Critical error:', severity: 'critical', description: '치명적 에러' },
             { pattern: 'Abort:', severity: 'high', description: '중단' },
-            { pattern: 'Timeout:', severity: 'medium', description: '시간 초과' }
+            { pattern: 'Timeout:', severity: 'medium', description: '시간 초과' },
+            { pattern: 'Traceback', severity: 'high', description: '파이썬 스택 트레이스' },
+            { pattern: 'panic:', severity: 'critical', description: 'Go 패닉' },
+            { pattern: '^fatal:', severity: 'critical', description: 'Git/일반 치명적 에러' },
+            { pattern: 'Exit status [1-9]', severity: 'high', description: '비정상 종료 코드' },
+            { pattern: 'Exception in thread', severity: 'high', description: '자바 예외' },
+            { pattern: 'FAILURE: Build failed with an exception\.', severity: 'critical', description: 'Gradle 빌드 실패' },
+            { pattern: 'BUILD FAILED', severity: 'critical', description: '빌드 실패' },
+            { pattern: 'ModuleNotFoundError', severity: 'high', description: '파이썬 모듈 없음' },
+            { pattern: 'Cannot find module', severity: 'high', description: 'Node 모듈 없음' },
+            { pattern: 'segmentation fault', severity: 'critical', description: '세그멘테이션 폴트' },
+            { pattern: 'Out of memory', severity: 'critical', description: '메모리 부족' }
         ];
         // 정규식 패턴 생성
         this.errorPatterns.forEach(pattern => {
@@ -14456,15 +14472,26 @@ class TerminalMonitorService {
     processTerminalOutput(terminalName, data) {
         if (!this.isMonitoring)
             return;
+        const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(data);
+        const level = isErrorLike ? 'error' : 'info';
         const logEntry = {
             timestamp: Date.now(),
-            level: 'info',
+            level,
             source: 'terminal',
             message: data.trim(),
             rawOutput: data
         };
         this.logEntries.push(logEntry);
-        this.checkForErrors(data);
+        // 출력 채널에도 즉시 기록
+        this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
+        const hasErr = this.checkForErrors(data);
+        if (isErrorLike || hasErr) {
+            // 에러가 감지되면 출력 채널 노출
+            try {
+                this.outputChannel.show(true);
+            }
+            catch { }
+        }
     }
     /**
      * 활성 터미널들의 상태를 확인합니다.
