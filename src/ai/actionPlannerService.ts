@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { NotificationService } from '../services/notificationService';
 import { ConfigurationService } from '../services/configurationService';
 
@@ -55,7 +56,7 @@ export class ActionPlannerService {
         projectRoot: string
     ): Promise<ActionPlan> {
         const planId = `plan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         console.log(`[ActionPlannerService] 액션 플랜 생성 시작: ${planId}`);
         console.log(`[ActionPlannerService] 사용자 질의: "${userQuery}"`);
         console.log(`[ActionPlannerService] 포함된 파일: ${includedFiles.length}개`);
@@ -63,7 +64,7 @@ export class ActionPlannerService {
 
         // LLM을 통한 액션 계획 생성
         const steps = await this.generateActionSteps(userQuery, conversationHistory, includedFiles, projectRoot);
-        
+
         const plan: ActionPlan = {
             id: planId,
             userQuery,
@@ -80,7 +81,7 @@ export class ActionPlannerService {
 
         this.activePlans.set(planId, plan);
         console.log(`[ActionPlannerService] 액션 플랜 생성 완료: ${steps.length}개 단계`);
-        
+
         return plan;
     }
 
@@ -100,7 +101,7 @@ export class ActionPlannerService {
     ): Promise<ActionStep[]> {
         // 대화 기록 요약
         const historySummary = this.summarizeConversationHistory(conversationHistory);
-        
+
         // 포함된 파일 정보 요약
         const filesSummary = includedFiles.map(file => ({
             name: file.name,
@@ -109,13 +110,13 @@ export class ActionPlannerService {
 
         // LLM 프롬프트 구성
         const prompt = this.buildActionPlanningPrompt(userQuery, historySummary, filesSummary, projectRoot);
-        
+
         console.log(`[ActionPlannerService] LLM 프롬프트 생성 완료`);
         console.log(`[ActionPlannerService] 프롬프트 길이: ${prompt.length}자`);
 
         // TODO: 실제 LLM 호출 구현
         // 임시로 기본 액션 단계들 반환
-        return this.generateDefaultActionSteps(userQuery, includedFiles);
+        return await this.generateDefaultActionSteps(userQuery, includedFiles, projectRoot);
     }
 
     /**
@@ -132,8 +133,8 @@ export class ActionPlannerService {
         return recentConversations.map(conv => {
             let summary = `사용자: ${conv.userQuery}`;
             if (conv.aiResponse) {
-                const shortResponse = conv.aiResponse.length > 100 
-                    ? conv.aiResponse.substring(0, 100) + '...' 
+                const shortResponse = conv.aiResponse.length > 100
+                    ? conv.aiResponse.substring(0, 100) + '...'
                     : conv.aiResponse;
                 summary += `\nAI: ${shortResponse}`;
             }
@@ -214,43 +215,115 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      * @param includedFiles 포함된 파일들
      * @returns 기본 액션 단계들
      */
-    private generateDefaultActionSteps(
+    private async generateDefaultActionSteps(
         userQuery: string,
-        includedFiles: { name: string, fullPath: string }[]
-    ): ActionStep[] {
+        includedFiles: { name: string, fullPath: string }[],
+        projectRoot: string
+    ): Promise<ActionStep[]> {
         const steps: ActionStep[] = [];
 
         // 1단계: 분석
+        const analysisStepId = `step_${steps.length + 1}`;
         steps.push({
-            id: 'step_1',
+            id: analysisStepId,
             type: 'analysis',
             description: '현재 프로젝트 구조 및 포함된 파일들 분석',
             dependencies: [],
             expectedOutput: '프로젝트 구조 분석 완료'
         });
 
-        // 2단계: 코드 생성/수정 (필요한 경우)
-        if (userQuery.includes('생성') || userQuery.includes('만들') || userQuery.includes('추가')) {
+        let lastStepId: string | undefined = analysisStepId;
+
+        // 코드 생성/수정 단계 추가 (필요한 경우)
+        if (/(생성|만들|추가)/.test(userQuery)) {
+            const codeGenStepId = `step_${steps.length + 1}`;
             steps.push({
-                id: 'step_2',
+                id: codeGenStepId,
                 type: 'code_generation',
                 description: '사용자 요청에 따른 코드 생성/수정',
-                dependencies: ['step_1'],
+                dependencies: lastStepId ? [lastStepId] : [],
                 expectedOutput: '코드 생성/수정 완료'
             });
+            lastStepId = codeGenStepId;
         }
 
-        // 3단계: 검증
+        // 실행/런 의도 처리
+        if (this.isRunIntent(userQuery)) {
+            const runCommands = await this.suggestRunCommands(projectRoot);
+            if (runCommands.length > 0) {
+                for (const command of runCommands) {
+                    const stepId = `step_${steps.length + 1}`;
+                    steps.push({
+                        id: stepId,
+                        type: 'terminal_command',
+                        description: `프로젝트 실행 명령 실행: ${command}`,
+                        command,
+                        dependencies: lastStepId ? [lastStepId] : [],
+                        expectedOutput: '프로젝트 실행 성공',
+                        errorPatterns: ['Error:', 'Failed:', 'Exception:', 'npm ERR!', 'ERROR in', 'command not found', 'ELIFECYCLE', 'Traceback']
+                    });
+                    lastStepId = stepId;
+                }
+            } else {
+                console.log('[ActionPlannerService] 실행 명령 후보를 찾지 못했습니다.');
+            }
+        }
+
+        // 검증 단계 추가
+        const verificationStepId = `step_${steps.length + 1}`;
         steps.push({
-            id: 'step_3',
+            id: verificationStepId,
             type: 'verification',
-            description: '생성된 코드 검증 및 테스트',
-            dependencies: steps.length > 1 ? ['step_2'] : ['step_1'],
-            expectedOutput: '코드 검증 완료',
-            errorPatterns: ['Error:', 'Failed:', 'Exception:', 'TypeError:', 'ReferenceError:']
+            description: '생성된 결과 검증 및 로그 확인',
+            dependencies: lastStepId ? [lastStepId] : [],
+            expectedOutput: '검증 완료',
+            errorPatterns: ['Error:', 'Failed:', 'Exception:', 'TypeError:', 'ReferenceError:', 'npm ERR!', 'command not found', 'Traceback']
         });
 
         return steps;
+    }
+
+    private async suggestRunCommands(projectRoot: string): Promise<string[]> {
+        const commands: string[] = [];
+        const packageJsonPath = path.join(projectRoot, 'package.json');
+
+        try {
+            const packageUri = vscode.Uri.file(packageJsonPath);
+            const fileData = await vscode.workspace.fs.readFile(packageUri);
+            const packageJson = JSON.parse(Buffer.from(fileData).toString('utf8'));
+            const scripts = packageJson.scripts || {};
+
+            const candidates = ['start', 'dev', 'serve', 'preview'];
+            for (const candidate of candidates) {
+                if (typeof scripts[candidate] === 'string' && scripts[candidate].length > 0) {
+                    commands.push(`npm run ${candidate}`);
+                }
+            }
+
+            if (!scripts.start) {
+                if (typeof scripts.build === 'string') {
+                    commands.push('npm run build');
+                }
+                if (typeof scripts.test === 'string') {
+                    commands.push('npm run test');
+                }
+            }
+        } catch (error) {
+            console.log('[ActionPlannerService] package.json을 읽지 못했습니다. 기본 실행 명령은 제공되지 않습니다.', error);
+        }
+
+        if (commands.length === 0) {
+            commands.push('npm install');
+            commands.push('npm run dev');
+        }
+
+        return [...new Set(commands)];
+    }
+
+    private isRunIntent(userQuery: string): boolean {
+        const lower = userQuery.toLowerCase();
+        const runKeywords = ['실행', 'run', '시작', 'start', '구동', 'launch', '동작', '실행해줘', '실행해'];
+        return runKeywords.some(keyword => lower.includes(keyword));
     }
 
     /**
@@ -275,17 +348,17 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
         try {
             // 액션 실행
             const result = await this.executeActionStep(currentStep, plan);
-            
+
             if (result.success) {
                 plan.currentStepIndex++;
                 plan.lastExecutedAt = Date.now();
-                
+
                 if (plan.currentStepIndex < plan.steps.length) {
                     const nextStep = plan.steps[plan.currentStepIndex];
-                    return { 
-                        success: true, 
+                    return {
+                        success: true,
                         message: `단계 ${currentStep.id} 완료. 다음 단계: ${nextStep.description}`,
-                        nextStep 
+                        nextStep
                     };
                 } else {
                     plan.status = 'completed';
@@ -334,7 +407,7 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      */
     private async executeAnalysisStep(step: ActionStep, plan: ActionPlan): Promise<{ success: boolean; message: string }> {
         console.log(`[ActionPlannerService] 분석 단계 실행: ${step.description}`);
-        
+
         // TODO: 실제 분석 로직 구현
         // 현재는 성공으로 처리
         return { success: true, message: '분석 완료' };
@@ -348,7 +421,7 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      */
     private async executeCodeGenerationStep(step: ActionStep, plan: ActionPlan): Promise<{ success: boolean; message: string }> {
         console.log(`[ActionPlannerService] 코드 생성 단계 실행: ${step.description}`);
-        
+
         // TODO: 실제 코드 생성 로직 구현
         // 현재는 성공으로 처리
         return { success: true, message: '코드 생성 완료' };
@@ -362,7 +435,7 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      */
     private async executeFileOperationStep(step: ActionStep, plan: ActionPlan): Promise<{ success: boolean; message: string }> {
         console.log(`[ActionPlannerService] 파일 작업 단계 실행: ${step.description}`);
-        
+
         // TODO: 실제 파일 작업 로직 구현
         // 현재는 성공으로 처리
         return { success: true, message: '파일 작업 완료' };
@@ -376,7 +449,7 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      */
     private async executeTerminalCommandStep(step: ActionStep, plan: ActionPlan): Promise<{ success: boolean; message: string }> {
         console.log(`[ActionPlannerService] 터미널 명령 단계 실행: ${step.command}`);
-        
+
         if (!step.command) {
             return { success: false, message: '실행할 명령이 없습니다.' };
         }
@@ -398,15 +471,15 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      */
     private async executeVerificationStep(step: ActionStep, plan: ActionPlan): Promise<{ success: boolean; message: string }> {
         console.log(`[ActionPlannerService] 검증 단계 실행: ${step.description}`);
-        
+
         // TODO: 실제 검증 로직 구현
         // 터미널/콘솔 로그에서 에러 패턴 확인
         const hasErrors = await this.checkForErrors(step.errorPatterns || []);
-        
+
         if (hasErrors) {
             return { success: false, message: '검증 중 에러가 발견되었습니다.' };
         }
-        
+
         return { success: true, message: '검증 완료' };
     }
 
