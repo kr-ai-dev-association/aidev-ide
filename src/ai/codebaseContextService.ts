@@ -449,12 +449,31 @@ export class CodebaseContextService {
      */
     private async findRelevantFiles(projectRoot: string, keywords: string[], abortSignal: AbortSignal): Promise<string[]> {
         const relevantFiles: string[] = [];
-        const searchPatterns = [
-            '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
-            '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
-            '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
-            '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
-        ];
+
+        // 프로젝트 타입 감지
+        const isNodeProject = await this.isNodeProject(projectRoot);
+        const isFrontendFramework = await this.isFrontendFramework(projectRoot);
+
+        let searchPatterns: string[];
+
+        if (isNodeProject && isFrontendFramework) {
+            // Node.js 기반 프론트엔드 프레임워크 프로젝트의 경우 제한된 검색
+            console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
+            searchPatterns = [
+                'package.json',
+                'src/**/*.ts', 'src/**/*.js', 'src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue',
+                'src/**/*.css', 'src/**/*.scss', 'src/**/*.sass', 'src/**/*.less', 'src/**/*.html',
+                'src/**/*.json', 'src/**/*.md', 'src/**/*.svelte'
+            ];
+        } else {
+            // 일반적인 검색 패턴
+            searchPatterns = [
+                '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
+                '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
+                '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
+                '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat'
+            ];
+        }
 
         try {
             // 키워드별로 관련 디렉토리와 파일 패턴 생성
@@ -475,13 +494,19 @@ export class CodebaseContextService {
                         if (abortSignal.aborted) break;
 
                         try {
+                            // node_modules 하위 파일 제외
+                            const relativePath = path.relative(projectRoot, filePath);
+                            if (relativePath.includes('node_modules/') || relativePath.startsWith('node_modules/')) {
+                                continue;
+                            }
+
                             // 파일명이나 경로에 키워드가 포함되어 있는지 확인
                             const fileName = path.basename(filePath).toLowerCase();
-                            const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+                            const relativePathLower = relativePath.toLowerCase();
 
                             const isRelevant = keywords.some(keyword =>
                                 fileName.includes(keyword) ||
-                                relativePath.includes(keyword) ||
+                                relativePathLower.includes(keyword) ||
                                 this.isKeywordRelated(filePath, keyword)
                             );
 
@@ -501,7 +526,74 @@ export class CodebaseContextService {
         }
 
         console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
+
+        // 검색된 파일들의 리스트를 디버그 콘솔에 출력
+        if (relevantFiles.length > 0) {
+            console.log('[CodebaseContextService] 검색된 파일 목록:');
+            relevantFiles.forEach((filePath, index) => {
+                const relativePath = path.relative(projectRoot, filePath);
+                console.log(`  ${index + 1}. ${relativePath}`);
+            });
+        }
+
         return relevantFiles;
+    }
+
+    /**
+     * Node.js 프로젝트인지 확인합니다.
+     */
+    private async isNodeProject(projectRoot: string): Promise<boolean> {
+        try {
+            const packageJsonPath = path.join(projectRoot, 'package.json');
+            const fs = await import('fs/promises');
+            await fs.access(packageJsonPath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * 프론트엔드 프레임워크 프로젝트인지 확인합니다.
+     * React, Vue, Angular, Svelte, Next.js, Nuxt.js 등을 감지합니다.
+     */
+    private async isFrontendFramework(projectRoot: string): Promise<boolean> {
+        try {
+            const packageJsonPath = path.join(projectRoot, 'package.json');
+            const fs = await import('fs/promises');
+            const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
+            const packageJson = JSON.parse(packageJsonContent);
+
+            const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+
+            // React 관련
+            const isReact = !!(dependencies.react || dependencies['@vitejs/plugin-react'] || dependencies['react-scripts']);
+
+            // Vue 관련
+            const isVue = !!(dependencies.vue || dependencies['@vitejs/plugin-vue'] || dependencies['vue-cli-service']);
+
+            // Angular 관련
+            const isAngular = !!(dependencies['@angular/core'] || dependencies['@angular/cli']);
+
+            // Svelte 관련
+            const isSvelte = !!(dependencies.svelte || dependencies['@sveltejs/kit'] || dependencies['vite-plugin-svelte']);
+
+            // Next.js 관련
+            const isNext = !!(dependencies.next || dependencies['@next/babel-plugin-react-require']);
+
+            // Nuxt.js 관련
+            const isNuxt = !!(dependencies.nuxt || dependencies['@nuxt/core']);
+
+            // Vite 관련 (다양한 프레임워크와 함께 사용)
+            const isVite = !!(dependencies.vite || dependencies['@vitejs/plugin-react'] || dependencies['@vitejs/plugin-vue']);
+
+            // Webpack 관련 (다양한 프레임워크와 함께 사용)
+            const isWebpack = !!(dependencies.webpack || dependencies['webpack-cli']);
+
+            return isReact || isVue || isAngular || isSvelte || isNext || isNuxt || isVite || isWebpack;
+        } catch {
+            return false;
+        }
     }
 
     /**

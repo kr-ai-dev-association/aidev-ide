@@ -9,6 +9,7 @@ export class ConfigurationService {
     private readonly NEWS_API_KEY = 'newsApiKey';
     private readonly NEWS_API_SECRET = 'newsApiSecret';
     private readonly STOCK_API_KEY = 'stockApiKey';
+    private readonly TERMINAL_DAEMON_ENABLED = 'terminalDaemonEnabled';
 
     constructor() { }
 
@@ -133,5 +134,15 @@ export class ConfigurationService {
     async getLanguage(): Promise<string> {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         return config.get<string>('language', 'ko');
+    }
+
+    public async isTerminalDaemonEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        return config.get<boolean>(this.TERMINAL_DAEMON_ENABLED) || false;
+    }
+
+    public async updateTerminalDaemonEnabled(enabled: boolean): Promise<void> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        await config.update(this.TERMINAL_DAEMON_ENABLED, enabled, vscode.ConfigurationTarget.Global);
     }
 }

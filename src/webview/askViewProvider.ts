@@ -106,7 +106,10 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         webviewView.onDidDispose(() => {
             console.log('[AskViewProvider] Ask view disposed');
             this._view = undefined;
+            try { this.llmService.setAskWebview(undefined); } catch { }
         }, null, this.context.subscriptions);
+
+        try { this.llmService.setAskWebview(webviewView.webview); } catch { }
     }
 
     private async openFilePicker(webview: vscode.Webview) {

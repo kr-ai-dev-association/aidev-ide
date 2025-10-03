@@ -6,6 +6,7 @@ import { NotificationService } from '../services/notificationService'; // 새로
 import { LicenseService } from '../services/licenseService'; // 라이센스 서비스 추가
 import { OllamaBlockerService } from '../services/ollamaBlockerService'; // Ollama Blocker 서비스 추가
 import { createAndSetupWebviewPanel } from './panelUtils';
+import { TerminalDaemonService } from '../services/terminalDaemonService';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -34,8 +35,30 @@ export function openSettingsPanel(
                     panel.webview.postMessage({
                         command: 'currentSettings',
                         autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
-                        projectRoot: await configurationService.getProjectRoot()
+                        projectRoot: await configurationService.getProjectRoot(),
+                        terminalDaemonEnabled: await configurationService.isTerminalDaemonEnabled()
                     });
+                    break;
+                case 'setTerminalDaemonEnabled':
+                    if (typeof data.enabled === 'boolean') {
+                        await configurationService.updateTerminalDaemonEnabled(data.enabled);
+                        try {
+                            const tds = TerminalDaemonService.getInstance(context);
+                            const isInstalled = await tds.isInstalled();
+                            if (!isInstalled) {
+                                await tds.install();
+                            }
+                            if (data.enabled) {
+                                await tds.start();
+                                tds.showLogs();
+                            } else {
+                                await tds.stop();
+                            }
+                        } catch (e) {
+                            console.error('[PanelManager] terminal-daemon 토글 처리 중 오류:', e);
+                        }
+                        panel.webview.postMessage({ command: 'terminalDaemonStatusChanged', enabled: data.enabled });
+                    }
                     break;
                 case 'setAutoUpdate':
                     if (typeof data.enabled === 'boolean') {
@@ -56,28 +79,28 @@ export function openSettingsPanel(
                             canSelectMany: false,
                             openLabel: 'Select Project Root Directory'
                         });
-                        
+
                         if (rootUris && rootUris.length > 0) {
                             const newRootPath = rootUris[0].fsPath;
                             console.log(`[PanelManager] 프로젝트 Root 설정 시도: ${newRootPath}`);
-                            
+
                             try {
                                 await configurationService.updateProjectRoot(newRootPath);
-                                
+
                                 // 설정이 제대로 저장되었는지 확인
                                 const savedRoot = await configurationService.getProjectRoot();
                                 console.log(`[PanelManager] 저장된 프로젝트 Root 확인: ${savedRoot}`);
-                                
+
                                 if (savedRoot === newRootPath) {
-                                    panel.webview.postMessage({ 
-                                        command: 'updatedProjectRoot', 
+                                    panel.webview.postMessage({
+                                        command: 'updatedProjectRoot',
                                         projectRoot: newRootPath,
-                                        success: true 
+                                        success: true
                                     });
                                     console.log(`[PanelManager] 프로젝트 Root 설정 성공: ${newRootPath}`);
                                 } else {
-                                    panel.webview.postMessage({ 
-                                        command: 'updatedProjectRoot', 
+                                    panel.webview.postMessage({
+                                        command: 'updatedProjectRoot',
                                         projectRoot: '',
                                         success: false,
                                         error: '설정 저장에 실패했습니다.'
@@ -86,8 +109,8 @@ export function openSettingsPanel(
                                 }
                             } catch (error) {
                                 console.error(`[PanelManager] 프로젝트 Root 설정 중 오류:`, error);
-                                panel.webview.postMessage({ 
-                                    command: 'updatedProjectRoot', 
+                                panel.webview.postMessage({
+                                    command: 'updatedProjectRoot',
                                     projectRoot: '',
                                     success: false,
                                     error: `설정 저장 중 오류가 발생했습니다: ${error}`
@@ -96,8 +119,8 @@ export function openSettingsPanel(
                         } else {
                             // 사용자가 다이얼로그를 취소한 경우
                             console.log(`[PanelManager] 프로젝트 Root 선택이 취소됨`);
-                            panel.webview.postMessage({ 
-                                command: 'updatedProjectRoot', 
+                            panel.webview.postMessage({
+                                command: 'updatedProjectRoot',
                                 projectRoot: '',
                                 success: false,
                                 error: '프로젝트 Root 선택이 취소되었습니다.'

@@ -206,6 +206,12 @@
           ],
           "description": "aidev-ide UI 언어를 설정합니다. 지원 언어: 한국어(ko), 영어(en), 중국어(zh), 스페인어(es), 독일어(de), 프랑스어(fr), 일본어(ja)",
           "scope": "resource"
+        },
+        "aidevIde.terminalDaemonEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable terminal-daemon to run commands via external PTY daemon and stream logs/errors.",
+          "scope": "resource"
         }
       }
     }

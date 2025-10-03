@@ -16,6 +16,13 @@ export interface ErrorPattern {
     regex?: RegExp;
 }
 
+export interface TerminalErrorEvent {
+    time: number;
+    source: string;
+    message: string;
+    recentLogs: LogEntry[];
+}
+
 export class TerminalMonitorService {
     private notificationService: NotificationService;
     private logEntries: LogEntry[] = [];
@@ -26,6 +33,8 @@ export class TerminalMonitorService {
     private activeTerminals: Set<vscode.Terminal> = new Set();
     private monitoringInterval: NodeJS.Timeout | null = null;
     private lastTerminalCount: number = 0;
+    private onErrorEmitter = new vscode.EventEmitter<TerminalErrorEvent>();
+    public readonly onError = this.onErrorEmitter.event;
 
     constructor(notificationService: NotificationService) {
         this.notificationService = notificationService;
@@ -45,7 +54,7 @@ export class TerminalMonitorService {
             { pattern: 'SyntaxError:', severity: 'critical', description: '문법 에러' },
             { pattern: 'RangeError:', severity: 'medium', description: '범위 에러' },
             { pattern: 'EvalError:', severity: 'high', description: '평가 에러' },
-            
+
             // Node.js 에러
             { pattern: 'Module not found:', severity: 'high', description: '모듈을 찾을 수 없음' },
             { pattern: 'Cannot resolve module:', severity: 'high', description: '모듈 해결 불가' },
@@ -55,7 +64,7 @@ export class TerminalMonitorService {
             { pattern: 'ELIFECYCLE', severity: 'high', description: 'npm lifecycle 에러' },
             { pattern: 'npm ERR!', severity: 'high', description: 'npm 에러' },
             { pattern: 'error Command failed with exit code', severity: 'high', description: '명령 실패 (Yarn/Pnpm)' },
-            
+
             // 빌드/컴파일 에러
             { pattern: 'Build failed:', severity: 'critical', description: '빌드 실패' },
             { pattern: 'Compilation failed:', severity: 'critical', description: '컴파일 실패' },
@@ -63,22 +72,22 @@ export class TerminalMonitorService {
             { pattern: 'Build error:', severity: 'critical', description: '빌드 에러' },
             { pattern: 'ERROR in', severity: 'critical', description: '웹팩/빌드 에러' },
             { pattern: 'Compilation error', severity: 'critical', description: '컴파일 에러' },
-            
+
             // 테스트 에러
             { pattern: 'Test failed:', severity: 'medium', description: '테스트 실패' },
             { pattern: 'Assertion failed:', severity: 'medium', description: '어설션 실패' },
             { pattern: 'Expected:', severity: 'low', description: '예상값 불일치' },
-            
+
             // 네트워크 에러
             { pattern: 'ECONNREFUSED:', severity: 'medium', description: '연결 거부' },
             { pattern: 'ETIMEDOUT:', severity: 'medium', description: '연결 시간 초과' },
             { pattern: 'Network error:', severity: 'medium', description: '네트워크 에러' },
-            
+
             // 파일 시스템 에러
             { pattern: 'File not found:', severity: 'medium', description: '파일 없음' },
             { pattern: 'Permission denied:', severity: 'medium', description: '권한 거부' },
             { pattern: 'Access denied:', severity: 'medium', description: '접근 거부' },
-            
+
             // 일반적인 에러 패턴
             { pattern: 'Failed:', severity: 'medium', description: '실패' },
             { pattern: 'Exception:', severity: 'high', description: '예외 발생' },
@@ -158,18 +167,18 @@ export class TerminalMonitorService {
      */
     public stopMonitoring(): void {
         this.isMonitoring = false;
-        
+
         // 모든 이벤트 리스너 정리
         this.terminalDisposables.forEach(disposable => disposable.dispose());
         this.terminalDisposables = [];
         this.activeTerminals.clear();
-        
+
         // 주기적 모니터링 중지
         if (this.monitoringInterval) {
             clearInterval(this.monitoringInterval);
             this.monitoringInterval = null;
         }
-        
+
         console.log('[TerminalMonitorService] 터미널 모니터링 중지');
     }
 
@@ -179,7 +188,7 @@ export class TerminalMonitorService {
     private startPeriodicMonitoring(): void {
         this.monitoringInterval = setInterval(() => {
             if (!this.isMonitoring) return;
-            
+
             this.checkTerminalChanges();
             this.checkActiveTerminals();
         }, 1000); // 1초마다 확인
@@ -190,7 +199,7 @@ export class TerminalMonitorService {
      */
     private checkTerminalChanges(): void {
         const currentTerminalCount = vscode.window.terminals.length;
-        
+
         if (currentTerminalCount !== this.lastTerminalCount) {
             console.log(`[TerminalMonitorService] 터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
             this.logTerminalEvent('info', 'terminal', `터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
@@ -209,7 +218,7 @@ export class TerminalMonitorService {
             message,
             rawOutput: message
         };
-        
+
         this.logEntries.push(logEntry);
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${level.toUpperCase()}: ${message}`);
     }
@@ -238,7 +247,7 @@ export class TerminalMonitorService {
         if (!this.isMonitoring) return;
 
         console.log(`[TerminalMonitorService] 터미널 모니터링 시작: ${terminal.name}`);
-        
+
         // 터미널 데이터 이벤트 리스너 (VSCode API 제한으로 인해 직접적인 터미널 출력 모니터링은 제한적)
         // 대신 주기적으로 터미널 상태를 확인하는 방식 사용
         this.startTerminalStatusCheck(terminal);
@@ -259,14 +268,14 @@ export class TerminalMonitorService {
             if (terminal.exitStatus !== undefined) {
                 const exitCode = terminal.exitStatus.code;
                 console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
-                
+
                 // 종료 코드가 0이 아니면 에러로 간주
                 if (exitCode !== 0) {
                     const errorMessage = `터미널 '${terminal.name}'이 에러 코드 ${exitCode}로 종료되었습니다.`;
                     this.processTerminalOutput(terminal.name, errorMessage);
                     this.notificationService.showErrorMessage(`터미널 에러: ${errorMessage}`);
                 }
-                
+
                 this.activeTerminals.delete(terminal);
                 clearInterval(checkInterval);
             }
@@ -281,8 +290,12 @@ export class TerminalMonitorService {
     private processTerminalOutput(terminalName: string, data: string): void {
         if (!this.isMonitoring) return;
 
+        console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
+
         const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(data);
         const level: 'info' | 'warn' | 'error' = isErrorLike ? 'error' : 'info';
+
+        console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
 
         const logEntry: LogEntry = {
             timestamp: Date.now(),
@@ -296,9 +309,27 @@ export class TerminalMonitorService {
         // 출력 채널에도 즉시 기록
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
         const hasErr = this.checkForErrors(data);
+        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
+
         if (isErrorLike || hasErr) {
+            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
             // 에러가 감지되면 출력 채널 노출
-            try { this.outputChannel.show(true); } catch {}
+            try { this.outputChannel.show(true); } catch { }
+            try {
+                const recent = this.getRecentErrors(30);
+                console.log(`[TerminalMonitorService] Recent errors:`, recent);
+                this.onErrorEmitter.fire({
+                    time: Date.now(),
+                    source: terminalName,
+                    message: data.trim(),
+                    recentLogs: recent
+                });
+                console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
+            } catch (e) {
+                console.warn('[TerminalMonitorService] onError emit failed:', e);
+            }
+        } else {
+            console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
         }
     }
 
@@ -309,7 +340,7 @@ export class TerminalMonitorService {
      */
     private checkActiveTerminals(): void {
         const currentTerminals = vscode.window.terminals;
-        
+
         // 새로 생성된 터미널 확인
         currentTerminals.forEach(terminal => {
             if (!this.activeTerminals.has(terminal)) {
@@ -362,6 +393,8 @@ export class TerminalMonitorService {
      * @param errors 발견된 에러들
      */
     private handleErrors(errors: { pattern: string; severity: string; description: string }[]): void {
+        console.log(`[TerminalMonitorService] handleErrors called with ${errors.length} errors:`, errors);
+
         const criticalErrors = errors.filter(e => e.severity === 'critical');
         const highErrors = errors.filter(e => e.severity === 'high');
         const mediumErrors = errors.filter(e => e.severity === 'medium');
@@ -370,10 +403,12 @@ export class TerminalMonitorService {
             this.notificationService.showErrorMessage(
                 `치명적 에러 발견: ${criticalErrors.map(e => e.pattern).join(', ')}`
             );
+            try { console.error('[TerminalMonitorService] Critical errors:', criticalErrors); } catch { }
         } else if (highErrors.length > 0) {
             this.notificationService.showWarningMessage(
                 `높은 심각도 에러 발견: ${highErrors.map(e => e.pattern).join(', ')}`
             );
+            try { console.error('[TerminalMonitorService] High severity errors:', highErrors); } catch { }
         } else if (mediumErrors.length > 0) {
             console.log(`[TerminalMonitorService] 중간 심각도 에러: ${mediumErrors.map(e => e.pattern).join(', ')}`);
         }
@@ -383,6 +418,27 @@ export class TerminalMonitorService {
         errors.forEach(error => {
             this.outputChannel.appendLine(`  - ${error.pattern} (${error.severity}): ${error.description}`);
         });
+
+        // Fire onError event for all detected errors
+        if (errors.length > 0) {
+            console.log(`[TerminalMonitorService] Firing onError event with ${errors.length} errors`);
+            try {
+                const recentLogs = this.getRecentErrors(30);
+                const errorEvent: TerminalErrorEvent = {
+                    time: Date.now(),
+                    source: 'terminal',
+                    message: errors.map(e => `${e.pattern}: ${e.description}`).join('; '),
+                    recentLogs: recentLogs
+                };
+                console.log(`[TerminalMonitorService] Error event to fire:`, errorEvent);
+                this.onErrorEmitter.fire(errorEvent);
+                console.log(`[TerminalMonitorService] onError event fired successfully`);
+            } catch (e) {
+                console.warn('[TerminalMonitorService] onError fire failed:', e);
+            }
+        } else {
+            console.log(`[TerminalMonitorService] No errors to fire onError event`);
+        }
     }
 
     /**
@@ -421,6 +477,14 @@ export class TerminalMonitorService {
     }
 
     /**
+     * 최근 에러 로그만 반환합니다.
+     */
+    public getRecentErrors(seconds: number): LogEntry[] {
+        const cutoffTime = Date.now() - (seconds * 1000);
+        return this.logEntries.filter(log => log.timestamp >= cutoffTime && log.level === 'error');
+    }
+
+    /**
      * 모든 로그를 가져옵니다.
      * @returns 로그 엔트리 배열
      */
@@ -449,7 +513,7 @@ export class TerminalMonitorService {
             description,
             regex: new RegExp(pattern, 'i')
         };
-        
+
         this.errorPatterns.push(errorPattern);
         console.log(`[TerminalMonitorService] 에러 패턴 추가: ${pattern} (${severity})`);
     }
@@ -480,7 +544,7 @@ export class TerminalMonitorService {
     public testTerminalMonitoring(): void {
         console.log('[TerminalMonitorService] 터미널 모니터링 테스트 시작');
         this.logTerminalEvent('info', 'terminal', '터미널 모니터링 테스트 시작');
-        
+
         // 현재 터미널 상태 출력
         const terminals = vscode.window.terminals;
         console.log(`[TerminalMonitorService] 현재 터미널 수: ${terminals.length}`);
@@ -488,7 +552,7 @@ export class TerminalMonitorService {
             console.log(`[TerminalMonitorService] 터미널 ${index + 1}: ${terminal.name}`);
             this.logTerminalEvent('info', 'terminal', `터미널 ${index + 1}: ${terminal.name}`);
         });
-        
+
         this.notificationService.showInfoMessage(`터미널 모니터링 테스트 완료. 현재 ${terminals.length}개 터미널 감지됨.`);
     }
 }
