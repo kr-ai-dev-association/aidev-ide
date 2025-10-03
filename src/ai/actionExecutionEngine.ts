@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ActionPlan, ActionStep } from './actionPlannerService';
 import { TerminalMonitorService } from './terminalMonitorService';
+import { runCommandCapture } from '../utils/processRunner';
 import { NotificationService } from '../services/notificationService';
 
 export interface ExecutionResult {
@@ -281,25 +282,30 @@ export class ActionExecutionEngine {
             // 터미널 모니터링 시작
             context.terminalMonitor.startMonitoring();
             
-            // TODO: 실제 터미널 명령 실행 구현
-            // 현재는 시뮬레이션
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // 캡처 기반 명령 실행으로 stdout/stderr를 모니터에 주입
+            const result = await runCommandCapture(
+                step.command,
+                { cwd: context.plan.context.projectRoot, shell: true },
+                chunk => context.terminalMonitor.ingestExternalOutput('process:stdout', chunk),
+                chunk => context.terminalMonitor.ingestExternalOutput('process:stderr', chunk),
+            );
             
             // 에러 패턴 확인
             const hasErrors = context.terminalMonitor.checkForSpecificErrors(step.errorPatterns || []);
             
-            if (hasErrors) {
+            if (hasErrors || result.code !== 0) {
                 return {
                     success: false,
                     message: '터미널 명령 실행 중 에러가 발생했습니다.',
-                    error: 'Terminal command execution failed with errors'
+                    error: result.stderr || 'Terminal command execution failed with errors',
+                    output: result.stdout
                 };
             }
             
             return {
                 success: true,
                 message: '터미널 명령 실행 완료',
-                output: `명령 '${step.command}'이 성공적으로 실행되었습니다.`
+                output: result.stdout || `명령 '${step.command}'이 성공적으로 실행되었습니다.`
             };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);

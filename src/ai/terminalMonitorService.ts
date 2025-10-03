@@ -199,6 +199,22 @@ export class TerminalMonitorService {
     }
 
     /**
+     * 외부에서 캡처한 출력(터미널/프로세스)을 주입합니다.
+     * @param sourceName 출력 소스 이름
+     * @param data 출력 데이터
+     */
+    public ingestExternalOutput(sourceName: string, data: string): void {
+        if (!data) { return; }
+        const normalized = data.replace(/\r\n/g, '\n');
+        const lines = normalized.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.length === 0) { continue; }
+            this.processTerminalOutput(sourceName, trimmed);
+        }
+    }
+
+    /**
      * 특정 터미널을 모니터링합니다.
      * @param terminal 모니터링할 터미널
      */
