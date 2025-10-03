@@ -124,6 +124,16 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Network Resilience**: Node.js HTTP module for reliable local network connections
 - **Webview Safety**: Protected message handling to prevent disposed webview errors
 
+### 🧪 What's New (2025/10/03)
+- **Terminal-Daemon Integration**:
+  - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs
+  - Logs stream to the `AIDEV-IDE Terminal Capture` output channel
+  - Only truly interactive commands open the single reused `aidev-ide Terminal`
+- **Cleaner Output**: PTY ANSI control sequences are stripped so logs render cleanly in Output
+- **Stronger Error Monitoring**: Expanded detection for npm errors (e.g., "Missing script:"), "Exit status X", and "Process exited (code X)", auto-forwarded to chat and LLM for fixes
+- **Smarter Node Context**: For Node.js projects, `package.json` is always included first in the prompt; Node frontend projects search only `package.json` and `src/**` and exclude `node_modules/`. Searched file list is logged to the debug console
+- **CWD Handling**: The effective working directory for command execution prefers `aidevIde.projectRoot` (if set), otherwise uses the workspace root; the chosen CWD is logged with each run
+
 ### 🔐 License Protection System
 - **Banya License Verification**: 
   - Firebase Firestore-based license validation
