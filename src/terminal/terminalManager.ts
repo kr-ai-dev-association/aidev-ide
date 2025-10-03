@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import { runCommandCapture } from '../utils/processRunner';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
 let _pendingCommands: string[] = [];
 let _currentCommandIndex = 0;
+let _captureOutputChannel: vscode.OutputChannel | undefined;
 
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
@@ -53,6 +55,30 @@ function isInteractiveCommand(command: string): boolean {
     );
 }
 
+function isLongRunningDevCommand(command: string): boolean {
+    const lower = command.toLowerCase();
+    return (
+        /^npm\s+start\b/.test(lower) ||
+        /^yarn\s+start\b/.test(lower) ||
+        /^pnpm\s+start\b/.test(lower) ||
+        /\bvite\b/.test(lower) ||
+        /react-scripts\s+start/.test(lower) ||
+        /next\s+dev/.test(lower)
+    );
+}
+
+function getProjectCwd(): string | undefined {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    return folder?.uri.fsPath;
+}
+
+function getCaptureOutputChannel(): vscode.OutputChannel {
+    if (!_captureOutputChannel) {
+        _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Capture');
+    }
+    return _captureOutputChannel;
+}
+
 /**
  * 대화형 명령어에 대한 기본 응답을 제공합니다.
  */
@@ -95,38 +121,64 @@ function getDefaultResponseForCommand(command: string): string | null {
  * 대화형 명령어를 처리합니다.
  */
 async function handleInteractiveCommand(command: string): Promise<void> {
-    const terminal = getAidevIdeTerminal();
-    
-    // 터미널이 활성화되어 있지 않으면 활성화
-    if (!terminal.state.isInteractedWith) {
-        terminal.show();
-    }
-    
-    // 명령어 실행
-    terminal.sendText(command);
-    
-    // 대화형 명령어인 경우 기본 응답 제공
-    if (isInteractiveCommand(command)) {
-        const defaultResponse = getDefaultResponseForCommand(command);
-        
-        if (defaultResponse !== null) {
-            // 잠시 대기 후 응답 전송
-            setTimeout(() => {
-                terminal.sendText(defaultResponse);
-                console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
-            }, 2000); // 2초 대기
+    const lower = command.toLowerCase();
+    const shouldUseTerminal = isInteractiveCommand(lower) || isLongRunningDevCommand(lower);
+
+    if (shouldUseTerminal) {
+        const terminal = getAidevIdeTerminal();
+        if (!terminal.state.isInteractedWith) {
+            terminal.show();
         }
-        
-        // 사용자에게 대화형 명령어임을 알림
-        vscode.window.showInformationMessage(
-            `aidev-ide: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`,
-            { modal: false }
-        );
-    } else {
-        // 일반 명령어
-        vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
+        terminal.sendText(command);
+
+        if (isInteractiveCommand(lower)) {
+            const defaultResponse = getDefaultResponseForCommand(command);
+            if (defaultResponse !== null) {
+                setTimeout(() => {
+                    terminal.sendText(defaultResponse);
+                    console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
+                }, 2000);
+            }
+            vscode.window.showInformationMessage(
+                `aidev-ide: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`,
+                { modal: false }
+            );
+        } else {
+            vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
+        }
+        console.log(`[TerminalManager] Executed bash command: ${command}`);
+        return;
     }
-    
+
+    // 캡처 기반 실행 경로 (표준 출력/에러 수집)
+    const channel = getCaptureOutputChannel();
+    const cwd = getProjectCwd();
+    channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
+
+    const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(text);
+
+    const result = await runCommandCapture(
+        command,
+        { cwd, shell: true },
+        (chunk) => {
+            chunk.split(/\r?\n/).forEach(line => {
+                if (!line.trim()) return;
+                channel.appendLine(line);
+            });
+        },
+        (chunk) => {
+            chunk.split(/\r?\n/).forEach(line => {
+                if (!line.trim()) return;
+                channel.appendLine(line);
+            });
+        }
+    );
+
+    if (result.code !== 0 || isErrorLike(result.stderr)) {
+        channel.appendLine(`----- Exit code: ${result.code} -----`);
+        channel.show(true);
+        vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+    }
     console.log(`[TerminalManager] Executed bash command: ${command}`);
 }
 
