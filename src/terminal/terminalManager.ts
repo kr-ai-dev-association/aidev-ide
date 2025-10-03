@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { runCommandCapture } from '../utils/processRunner';
 import { getTerminalMonitor } from '../ai/monitorBridge';
 
@@ -121,9 +123,40 @@ function getDefaultResponseForCommand(command: string): string | null {
 /**
  * 대화형 명령어를 처리합니다.
  */
-async function handleInteractiveCommand(command: string): Promise<void> {
+function isDangerousCommand(command: string): boolean {
+    const lower = command.toLowerCase().trim();
+    return (
+        /^rm\s+-rf\s+\.\*$/.test(lower) ||
+        /^rm\s+-rf\s+\.\/$/.test(lower) ||
+        /^rm\s+-rf\s+\.\*$/.test(lower) ||
+        /\brm\s+-rf\s+\.\//.test(lower) ||
+        /\brm\s+-rf\s+\*\b/.test(lower) ||
+        /\brimraf\b/.test(lower) ||
+        /\bdel\s+\/s\b/.test(lower)
+    );
+}
+
+function hasPackageJson(cwd: string | undefined): boolean {
+    if (!cwd) return false;
+    try { return fs.existsSync(path.join(cwd, 'package.json')); } catch { return false; }
+}
+
+async function handleInteractiveCommand(command: string): Promise<boolean> {
     const lower = command.toLowerCase();
     const shouldUseTerminal = isInteractiveCommand(lower);
+
+    // 위험 명령어 방지
+    if (isDangerousCommand(lower)) {
+        const answer = await vscode.window.showWarningMessage(
+            `매우 위험한 명령어가 감지되었습니다: "${command}"\n실행 시 현재 작업 디렉토리의 파일이 삭제될 수 있습니다. 계속하시겠습니까?`,
+            { modal: true },
+            '실행', '취소'
+        );
+        if (answer !== '실행') {
+            vscode.window.showInformationMessage('aidev-ide: 위험 명령어 실행이 취소되었습니다.');
+            return false;
+        }
+    }
 
     if (shouldUseTerminal) {
         const terminal = getAidevIdeTerminal();
@@ -148,7 +181,7 @@ async function handleInteractiveCommand(command: string): Promise<void> {
             vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
         }
         console.log(`[TerminalManager] Executed bash command: ${command}`);
-        return;
+        return true;
     }
 
     // 캡처 기반 실행 경로 (표준 출력/에러 수집)
@@ -157,6 +190,17 @@ async function handleInteractiveCommand(command: string): Promise<void> {
     channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
 
     const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(text);
+
+    // npm 관련 선행 조건 체크
+    if (/^npm\s+(install|ci)\b/.test(lower) || /^npm\s+run\b/.test(lower) || /^(yarn|pnpm)\b/.test(lower)) {
+        if (!hasPackageJson(cwd)) {
+            const msg = 'package.json이 존재하지 않아 npm 명령을 실행할 수 없습니다. 먼저 프로젝트 초기화 또는 파일 생성이 필요합니다.';
+            channel.appendLine(msg);
+            vscode.window.showErrorMessage(`aidev-ide: ${msg}`);
+            try { getTerminalMonitor()?.ingestExternalOutput('stderr', msg); } catch { }
+            return false;
+        }
+    }
 
     const result = await runCommandCapture(
         command,
@@ -182,8 +226,10 @@ async function handleInteractiveCommand(command: string): Promise<void> {
         channel.show(true);
         vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
         try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`); } catch { }
+        return false;
     }
     console.log(`[TerminalManager] Executed bash command: ${command}`);
+    return true;
 }
 
 /**
@@ -195,7 +241,11 @@ async function executeCommandSequence(commands: string[]): Promise<void> {
 
     while (_currentCommandIndex < _pendingCommands.length) {
         const command = _pendingCommands[_currentCommandIndex];
-        await handleInteractiveCommand(command);
+        const ok = await handleInteractiveCommand(command);
+        if (!ok) {
+            // 실패 시 시퀀스 중단
+            break;
+        }
 
         // 대화형 명령어인 경우 더 긴 대기 시간
         if (isInteractiveCommand(command)) {
