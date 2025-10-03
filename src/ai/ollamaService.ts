@@ -28,6 +28,14 @@ export class OllamaApi {
         this.endpoint = endpoint;
     }
 
+    public getApiUrl(): string {
+        return this.apiUrl;
+    }
+
+    public getEndpoint(): string {
+        return this.endpoint;
+    }
+
     public setModel(modelName: string): void {
         this.modelName = modelName;
     }
