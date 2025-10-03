@@ -159,6 +159,9 @@ export class IntentDetectionService {
         this.ollamaApi.setApiUrl('http://localhost:11434');
 
         try {
+            console.log('[IntentDetectionService] === INTENT PROMPT START ===');
+            console.log(prompt);
+            console.log('[IntentDetectionService] === INTENT PROMPT END ===');
             const response = await this.ollamaApi.sendMessage(prompt, {});
             console.log('[IntentDetectionService] Fallback gemma2 raw response:', response);
             const parsed = this.safeParseIntentResponse(response);

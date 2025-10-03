@@ -12712,6 +12712,8 @@ exports.hasBashCommands = hasBashCommands;
 exports.getCommandSequenceStatus = getCommandSequenceStatus;
 exports.stopCommandSequence = stopCommandSequence;
 const vscode = __importStar(__webpack_require__(1));
+const fs = __importStar(__webpack_require__(25));
+const path = __importStar(__webpack_require__(10));
 const processRunner_1 = __webpack_require__(42);
 const monitorBridge_1 = __webpack_require__(44);
 let _codePilotTerminal;
@@ -12816,9 +12818,37 @@ function getDefaultResponseForCommand(command) {
 /**
  * 대화형 명령어를 처리합니다.
  */
+function isDangerousCommand(command) {
+    const lower = command.toLowerCase().trim();
+    return (/^rm\s+-rf\s+\.\*$/.test(lower) ||
+        /^rm\s+-rf\s+\.\/$/.test(lower) ||
+        /^rm\s+-rf\s+\.\*$/.test(lower) ||
+        /\brm\s+-rf\s+\.\//.test(lower) ||
+        /\brm\s+-rf\s+\*\b/.test(lower) ||
+        /\brimraf\b/.test(lower) ||
+        /\bdel\s+\/s\b/.test(lower));
+}
+function hasPackageJson(cwd) {
+    if (!cwd)
+        return false;
+    try {
+        return fs.existsSync(path.join(cwd, 'package.json'));
+    }
+    catch {
+        return false;
+    }
+}
 async function handleInteractiveCommand(command) {
     const lower = command.toLowerCase();
     const shouldUseTerminal = isInteractiveCommand(lower);
+    // 위험 명령어 방지
+    if (isDangerousCommand(lower)) {
+        const answer = await vscode.window.showWarningMessage(`매우 위험한 명령어가 감지되었습니다: "${command}"\n실행 시 현재 작업 디렉토리의 파일이 삭제될 수 있습니다. 계속하시겠습니까?`, { modal: true }, '실행', '취소');
+        if (answer !== '실행') {
+            vscode.window.showInformationMessage('aidev-ide: 위험 명령어 실행이 취소되었습니다.');
+            return false;
+        }
+    }
     if (shouldUseTerminal) {
         const terminal = getAidevIdeTerminal();
         if (!terminal.state.isInteractedWith) {
@@ -12839,13 +12869,26 @@ async function handleInteractiveCommand(command) {
             vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
         }
         console.log(`[TerminalManager] Executed bash command: ${command}`);
-        return;
+        return true;
     }
     // 캡처 기반 실행 경로 (표준 출력/에러 수집)
     const channel = getCaptureOutputChannel();
     const cwd = getProjectCwd();
     channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
     const isErrorLike = (text) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED)/i.test(text);
+    // npm 관련 선행 조건 체크
+    if (/^npm\s+(install|ci)\b/.test(lower) || /^npm\s+run\b/.test(lower) || /^(yarn|pnpm)\b/.test(lower)) {
+        if (!hasPackageJson(cwd)) {
+            const msg = 'package.json이 존재하지 않아 npm 명령을 실행할 수 없습니다. 먼저 프로젝트 초기화 또는 파일 생성이 필요합니다.';
+            channel.appendLine(msg);
+            vscode.window.showErrorMessage(`aidev-ide: ${msg}`);
+            try {
+                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', msg);
+            }
+            catch { }
+            return false;
+        }
+    }
     const result = await (0, processRunner_1.runCommandCapture)(command, { cwd, shell: true }, (chunk) => {
         chunk.split(/\r?\n/).forEach(line => {
             if (!line.trim())
@@ -12875,8 +12918,10 @@ async function handleInteractiveCommand(command) {
             (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`);
         }
         catch { }
+        return false;
     }
     console.log(`[TerminalManager] Executed bash command: ${command}`);
+    return true;
 }
 /**
  * 명령어 시퀀스를 순차적으로 실행합니다.
@@ -12886,7 +12931,11 @@ async function executeCommandSequence(commands) {
     _currentCommandIndex = 0;
     while (_currentCommandIndex < _pendingCommands.length) {
         const command = _pendingCommands[_currentCommandIndex];
-        await handleInteractiveCommand(command);
+        const ok = await handleInteractiveCommand(command);
+        if (!ok) {
+            // 실패 시 시퀀스 중단
+            break;
+        }
         // 대화형 명령어인 경우 더 긴 대기 시간
         if (isInteractiveCommand(command)) {
             await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기
@@ -15984,6 +16033,9 @@ class IntentDetectionService {
         this.ollamaApi.setEndpoint('/api/generate');
         this.ollamaApi.setApiUrl('http://localhost:11434');
         try {
+            console.log('[IntentDetectionService] === INTENT PROMPT START ===');
+            console.log(prompt);
+            console.log('[IntentDetectionService] === INTENT PROMPT END ===');
             const response = await this.ollamaApi.sendMessage(prompt, {});
             console.log('[IntentDetectionService] Fallback gemma2 raw response:', response);
             const parsed = this.safeParseIntentResponse(response);
