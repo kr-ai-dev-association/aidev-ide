@@ -26,6 +26,8 @@ export class ProjectProfileService {
         if (existing) {
             return existing;
         }
+
+        return this.refreshProfile();
     }
 
     public async refreshProfile(): Promise<ProjectProfile> {
@@ -59,6 +61,7 @@ export class ProjectProfileService {
             scripts,
             lastScannedAt: Date.now()
         };
+
         return profile;
     }
 
@@ -80,6 +83,9 @@ export class ProjectProfileService {
         }
         if (inputs.pomXml || inputs.buildGradle || inputs.buildGradleKts) {
             this.populateJavaFrameworks(inputs, inputs.frameworks);
+            if (inputs.frameworks.length === 0) {
+                inputs.frameworks.push({ framework: 'Java (Unknown Framework)', confidence: 0.5, evidence: ['Detected Java build file'] });
+            }
             return 'Java';
         }
         return 'Unknown';
