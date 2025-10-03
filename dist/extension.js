@@ -13928,12 +13928,47 @@ function logTokenUsage(systemPrompt, userParts, modelType) {
 
 /***/ }),
 /* 47 */
-/***/ ((__unused_webpack_module, exports) => {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ActionPlannerService = void 0;
+const vscode = __importStar(__webpack_require__(1));
+const path = __importStar(__webpack_require__(10));
 class ActionPlannerService {
     notificationService;
     configurationService;
@@ -13998,7 +14033,7 @@ class ActionPlannerService {
         console.log(`[ActionPlannerService] 프롬프트 길이: ${prompt.length}자`);
         // TODO: 실제 LLM 호출 구현
         // 임시로 기본 액션 단계들 반환
-        return this.generateDefaultActionSteps(userQuery, includedFiles);
+        return await this.generateDefaultActionSteps(userQuery, includedFiles, projectRoot);
     }
     /**
      * 대화 기록을 요약합니다.
@@ -14088,36 +14123,100 @@ ${filesSummary.map(file => `- ${file.name} (${file.path})`).join('\n')}
      * @param includedFiles 포함된 파일들
      * @returns 기본 액션 단계들
      */
-    generateDefaultActionSteps(userQuery, includedFiles) {
+    async generateDefaultActionSteps(userQuery, includedFiles, projectRoot) {
         const steps = [];
         // 1단계: 분석
+        const analysisStepId = `step_${steps.length + 1}`;
         steps.push({
-            id: 'step_1',
+            id: analysisStepId,
             type: 'analysis',
             description: '현재 프로젝트 구조 및 포함된 파일들 분석',
             dependencies: [],
             expectedOutput: '프로젝트 구조 분석 완료'
         });
-        // 2단계: 코드 생성/수정 (필요한 경우)
-        if (userQuery.includes('생성') || userQuery.includes('만들') || userQuery.includes('추가')) {
+        let lastStepId = analysisStepId;
+        // 코드 생성/수정 단계 추가 (필요한 경우)
+        if (/(생성|만들|추가)/.test(userQuery)) {
+            const codeGenStepId = `step_${steps.length + 1}`;
             steps.push({
-                id: 'step_2',
+                id: codeGenStepId,
                 type: 'code_generation',
                 description: '사용자 요청에 따른 코드 생성/수정',
-                dependencies: ['step_1'],
+                dependencies: lastStepId ? [lastStepId] : [],
                 expectedOutput: '코드 생성/수정 완료'
             });
+            lastStepId = codeGenStepId;
         }
-        // 3단계: 검증
+        // 실행/런 의도 처리
+        if (this.isRunIntent(userQuery)) {
+            const runCommands = await this.suggestRunCommands(projectRoot);
+            if (runCommands.length > 0) {
+                for (const command of runCommands) {
+                    const stepId = `step_${steps.length + 1}`;
+                    steps.push({
+                        id: stepId,
+                        type: 'terminal_command',
+                        description: `프로젝트 실행 명령 실행: ${command}`,
+                        command,
+                        dependencies: lastStepId ? [lastStepId] : [],
+                        expectedOutput: '프로젝트 실행 성공',
+                        errorPatterns: ['Error:', 'Failed:', 'Exception:', 'npm ERR!', 'ERROR in', 'command not found', 'ELIFECYCLE', 'Traceback']
+                    });
+                    lastStepId = stepId;
+                }
+            }
+            else {
+                console.log('[ActionPlannerService] 실행 명령 후보를 찾지 못했습니다.');
+            }
+        }
+        // 검증 단계 추가
+        const verificationStepId = `step_${steps.length + 1}`;
         steps.push({
-            id: 'step_3',
+            id: verificationStepId,
             type: 'verification',
-            description: '생성된 코드 검증 및 테스트',
-            dependencies: steps.length > 1 ? ['step_2'] : ['step_1'],
-            expectedOutput: '코드 검증 완료',
-            errorPatterns: ['Error:', 'Failed:', 'Exception:', 'TypeError:', 'ReferenceError:']
+            description: '생성된 결과 검증 및 로그 확인',
+            dependencies: lastStepId ? [lastStepId] : [],
+            expectedOutput: '검증 완료',
+            errorPatterns: ['Error:', 'Failed:', 'Exception:', 'TypeError:', 'ReferenceError:', 'npm ERR!', 'command not found', 'Traceback']
         });
         return steps;
+    }
+    async suggestRunCommands(projectRoot) {
+        const commands = [];
+        const packageJsonPath = path.join(projectRoot, 'package.json');
+        try {
+            const packageUri = vscode.Uri.file(packageJsonPath);
+            const fileData = await vscode.workspace.fs.readFile(packageUri);
+            const packageJson = JSON.parse(Buffer.from(fileData).toString('utf8'));
+            const scripts = packageJson.scripts || {};
+            const candidates = ['start', 'dev', 'serve', 'preview'];
+            for (const candidate of candidates) {
+                if (typeof scripts[candidate] === 'string' && scripts[candidate].length > 0) {
+                    commands.push(`npm run ${candidate}`);
+                }
+            }
+            if (!scripts.start) {
+                if (typeof scripts.build === 'string') {
+                    commands.push('npm run build');
+                }
+                if (typeof scripts.test === 'string') {
+                    commands.push('npm run test');
+                }
+            }
+        }
+        catch (error) {
+            console.log('[ActionPlannerService] package.json을 읽지 못했습니다. 기본 실행 명령은 제공되지 않습니다.', error);
+        }
+        if (commands.length === 0) {
+            commands.push('npm install');
+            commands.push('npm run dev');
+        }
+        return [...new Set(commands)];
+    }
+    isRunIntent(userQuery) {
+        const lower = userQuery.toLowerCase();
+        const runKeywords = ['실행', 'run', '시작', 'start', '구동', 'launch', '동작', '실행해줘', '실행해'];
+        return runKeywords.some(keyword => lower.includes(keyword));
     }
     /**
      * 액션 플랜을 실행합니다.
