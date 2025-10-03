@@ -13,6 +13,7 @@ import { AiModelType, PromptType } from './types';
 import { ActionPlannerService, ActionPlan } from './actionPlannerService';
 import { TerminalMonitorService } from './terminalMonitorService';
 import { ActionExecutionEngine } from './actionExecutionEngine';
+import { ProjectProfileService, ProjectProfile } from './projectProfileService';
 
 export class LlmService {
     private storageService: StorageService;
@@ -31,6 +32,8 @@ export class LlmService {
     private terminalMonitorService: TerminalMonitorService;
     private actionExecutionEngine: ActionExecutionEngine;
     private activePlans: Map<string, ActionPlan> = new Map();
+    private projectProfileService?: ProjectProfileService;
+    private projectProfile?: ProjectProfile;
 
     constructor(
         storageService: StorageService,
@@ -55,6 +58,13 @@ export class LlmService {
         this.actionPlannerService = new ActionPlannerService(notificationService, configurationService);
         this.terminalMonitorService = new TerminalMonitorService(notificationService);
         this.actionExecutionEngine = new ActionExecutionEngine(notificationService, this.terminalMonitorService);
+
+        if (extensionContext) {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (workspaceFolder) {
+                this.projectProfileService = new ProjectProfileService(workspaceFolder.uri.fsPath, extensionContext.globalState);
+            }
+        }
     }
 
     public setCurrentModel(modelType: AiModelType): void {
@@ -120,6 +130,10 @@ export class LlmService {
 
         try {
             safePostMessage(webviewToRespond, { command: 'showLoading' });
+
+            if (this.projectProfileService) {
+                this.projectProfile = await this.projectProfileService.loadProfile();
+            }
 
             // --- 대화 기록 관리 ---
             const historyKey = promptType === PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
@@ -195,7 +209,8 @@ export class LlmService {
 
 
             // 시스템 프롬프트 생성
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo);
+            const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
+            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext);
 
             // 사용자 메시지 파트 구성
             const userParts: any[] = [];
@@ -363,6 +378,34 @@ export class LlmService {
         return summary || 'AI가 응답을 제공했습니다.';
     }
 
+    private buildProfileContext(profile: ProjectProfile): string {
+        const lines: string[] = [];
+        lines.push(`언어: ${profile.language}`);
+        if (profile.frameworks.length > 0) {
+            const formatted = profile.frameworks
+                .map(f => `${f.framework} (신뢰도 ${(f.confidence * 100).toFixed(0)}%)`)
+                .join(', ');
+            lines.push(`프레임워크: ${formatted}`);
+        }
+        if (profile.packageManager) {
+            lines.push(`패키지 매니저: ${profile.packageManager}`);
+        }
+        if (profile.entryPoints.length > 0) {
+            lines.push(`실행 엔트리포인트: ${profile.entryPoints.slice(0, 5).join(', ')}`);
+        }
+        if (Object.keys(profile.scripts || {}).length > 0) {
+            const highlightedScripts = ['start', 'dev', 'serve', 'build', 'test'];
+            const selected = highlightedScripts
+                .filter(name => profile.scripts[name])
+                .map(name => `${name}: ${profile.scripts[name]}`);
+            if (selected.length > 0) {
+                lines.push('주요 npm 스크립트:');
+                lines.push(...selected.map(script => `- ${script}`));
+            }
+        }
+        return lines.join('\n');
+    }
+
     /**
      * 실시간 정보 요청을 처리합니다
      */
@@ -380,7 +423,7 @@ export class LlmService {
     /**
      * 시스템 프롬프트를 생성합니다
      */
-    private generateSystemPrompt(promptType: PromptType, codebaseContext: string, realTimeInfo: string): string {
+    private generateSystemPrompt(promptType: PromptType, codebaseContext: string, realTimeInfo: string, profileContext: string): string {
         let systemPrompt = '';
 
         // DeepSeek 모델에 대한 특별한 언어 지시사항 추가
@@ -450,6 +493,9 @@ npm start
 코드베이스 컨텍스트:
 ${codebaseContext}
 
+프로젝트 프로필:
+${profileContext}
+
 실시간 정보:
 ${realTimeInfo}
 
@@ -467,6 +513,9 @@ ${realTimeInfo}
 
 코드베이스 컨텍스트:
 ${codebaseContext}
+
+프로젝트 프로필:
+${profileContext}
 
 실시간 정보:
 ${realTimeInfo}
