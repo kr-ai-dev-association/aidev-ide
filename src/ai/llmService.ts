@@ -275,6 +275,15 @@ export class LlmService {
                 return;
             }
 
+            // ===== 전송 시작 배너 및 타임스탬프 로그 =====
+            const sendStartedAt = Date.now();
+            console.log('\n********************************************** 전송시작 ************************************************');
+            console.log(`[LlmService] Send Time: ${new Date(sendStartedAt).toISOString()}`);
+            console.log(`[LlmService] Model: type=${this.currentModelType}, name=${currentModelNameForLog}`);
+            console.log('[LlmService] Full System Prompt:\n', systemPrompt);
+            console.log('[LlmService] Full User Parts:\n', userParts.map(p => p.text || '[Image Data]').join('\n'));
+            // end of send banner
+
             let llmResponse: string;
 
             if (this.currentModelType === AiModelType.GEMINI) {
@@ -299,6 +308,16 @@ export class LlmService {
             } else {
                 throw new Error(`Unsupported model type: ${this.currentModelType}`);
             }
+
+            // ===== 전송 완료 배너 및 타임스탬프/소요시간 로그 =====
+            const sendFinishedAt = Date.now();
+            const durationMs = sendFinishedAt - sendStartedAt;
+            console.log('\n********************************************** 전송 완료 ************************************************');
+            console.log(`[LlmService] Receive Time: ${new Date(sendFinishedAt).toISOString()} (Duration: ${durationMs} ms)`);
+            console.log(`[LlmService] Response length: ${llmResponse?.length ?? 0}`);
+            const preview = (llmResponse || '').slice(0, 500);
+            console.log('[LlmService] Response preview:\n', preview, llmResponse && llmResponse.length > 500 ? '\n... (truncated)' : '');
+            // end of receive banner
 
             // 컨텍스트 파일 목록에 선택된 파일들도 포함
             const allContextFiles = [...includedFilesForContext];

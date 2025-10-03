@@ -9,6 +9,11 @@ let _isWaitingForInput = false;
 let _pendingCommands: string[] = [];
 let _currentCommandIndex = 0;
 let _captureOutputChannel: vscode.OutputChannel | undefined;
+let _priorityQueue: string[] = [];
+let _normalQueue: string[] = [];
+let _isProcessingQueue = false;
+let _queuePausedForLongRunning = false;
+const FILE_OP_PREFIX = '__AIDEV_FILE_OP__::';
 
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
@@ -62,11 +67,16 @@ function isLongRunningDevCommand(command: string): boolean {
     const lower = command.toLowerCase();
     return (
         /^npm\s+start\b/.test(lower) ||
-        /^yarn\s+start\b/.test(lower) ||
-        /^pnpm\s+start\b/.test(lower) ||
+        /^npm\s+run\s+(dev|start)\b/.test(lower) ||
+        /^yarn\s+(dev|serve|start)\b/.test(lower) ||
+        /^pnpm\s+(dev|serve|start)\b/.test(lower) ||
+        /^bun\s+(run\s+)?dev\b/.test(lower) ||
         /\bvite\b/.test(lower) ||
         /react-scripts\s+start/.test(lower) ||
-        /next\s+dev/.test(lower)
+        /next\s+dev/.test(lower) ||
+        /nuxt\s+(dev|start)/.test(lower) ||
+        /ng\s+serve/.test(lower) ||
+        /svelte(-kit)?\s+dev/.test(lower)
     );
 }
 
@@ -126,9 +136,9 @@ function getDefaultResponseForCommand(command: string): string | null {
 function isDangerousCommand(command: string): boolean {
     const lower = command.toLowerCase().trim();
     return (
+        /^rm\s+-rf\s+\.$/.test(lower) ||
         /^rm\s+-rf\s+\.\*$/.test(lower) ||
         /^rm\s+-rf\s+\.\/$/.test(lower) ||
-        /^rm\s+-rf\s+\.\*$/.test(lower) ||
         /\brm\s+-rf\s+\.\//.test(lower) ||
         /\brm\s+-rf\s+\*\b/.test(lower) ||
         /\brimraf\b/.test(lower) ||
@@ -143,7 +153,7 @@ function hasPackageJson(cwd: string | undefined): boolean {
 
 async function handleInteractiveCommand(command: string): Promise<boolean> {
     const lower = command.toLowerCase();
-    const shouldUseTerminal = isInteractiveCommand(lower);
+    const shouldUseTerminal = isInteractiveCommand(lower) || isLongRunningDevCommand(lower);
 
     // 위험 명령어 방지
     if (isDangerousCommand(lower)) {
@@ -235,31 +245,109 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
 /**
  * 명령어 시퀀스를 순차적으로 실행합니다.
  */
-async function executeCommandSequence(commands: string[]): Promise<void> {
-    _pendingCommands = [...commands];
-    _currentCommandIndex = 0;
+async function processQueue(): Promise<void> {
+    if (_isProcessingQueue) return;
+    _isProcessingQueue = true;
+    try {
+        while (_priorityQueue.length > 0 || _normalQueue.length > 0) {
+            const command = _priorityQueue.length > 0 ? _priorityQueue.shift()! : _normalQueue.shift()!;
+            _pendingCommands = [command];
+            _currentCommandIndex = 0;
 
-    while (_currentCommandIndex < _pendingCommands.length) {
-        const command = _pendingCommands[_currentCommandIndex];
-        const ok = await handleInteractiveCommand(command);
-        if (!ok) {
-            // 실패 시 시퀀스 중단
-            break;
+            // 파일 작업 토큰인지 확인
+            if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
+                const ok = await executeFileOpFromToken(command);
+                if (!ok) {
+                    break;
+                }
+            } else {
+                const ok = await handleInteractiveCommand(command);
+                if (!ok) {
+                    // 실패 시 즉시 중단 (대기열은 유지)
+                    break;
+                }
+            }
+
+            // 대화형/장기 실행 명령이면 큐를 일시 정지 (사용자 종료 시 재개 가능)
+            if (isInteractiveCommand(command) || isLongRunningDevCommand(command)) {
+                _queuePausedForLongRunning = true;
+                break;
+            }
+
+            // 다음 항목 처리 (완료 후에만 진행) — 불필요한 대기 제거
         }
-
-        // 대화형 명령어인 경우 더 긴 대기 시간
-        if (isInteractiveCommand(command)) {
-            await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기
-        } else {
-            await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
-        }
-
-        _currentCommandIndex++;
+    } finally {
+        _isProcessingQueue = false;
     }
+}
 
-    // 시퀀스 완료 후 상태 초기화
-    _pendingCommands = [];
-    _currentCommandIndex = 0;
+function enqueueCommands(commands: string[], priority = false): void {
+    if (priority) {
+        _priorityQueue = commands.concat(_priorityQueue);
+    } else {
+        _normalQueue = _normalQueue.concat(commands);
+    }
+    if (!_queuePausedForLongRunning) {
+        processQueue();
+    }
+}
+
+async function executeFileOpFromToken(token: string): Promise<boolean> {
+    try {
+        const b64 = token.substring(FILE_OP_PREFIX.length);
+        const decoded = Buffer.from(b64, 'base64').toString('utf8');
+        const payload = JSON.parse(decoded) as { type: 'create' | 'modify' | 'delete'; path: string; content?: string };
+        const uri = vscode.Uri.file(payload.path);
+        const channel = getCaptureOutputChannel();
+        if (payload.type === 'delete') {
+            try {
+                await vscode.workspace.fs.delete(uri);
+                channel.appendLine(`[FILE-OP] deleted: ${payload.path}`);
+            } catch (e: any) {
+                const msg = e?.message || '';
+                if (/ENOENT|not exist|FileNotFound/i.test(msg) || e?.code === 'FileNotFound') {
+                    channel.appendLine(`[FILE-OP] delete skipped (not found): ${payload.path}`);
+                } else {
+                    throw e;
+                }
+            }
+        } else {
+            // ensure directory exists
+            const dir = path.dirname(payload.path);
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(payload.content || '', 'utf8'));
+            channel.appendLine(`[FILE-OP] ${payload.type}: ${payload.path} (${(payload.content || '').length} bytes)`);
+        }
+        return true;
+    } catch (e: any) {
+        const channel = getCaptureOutputChannel();
+        channel.appendLine(`[FILE-OP] failed: ${e?.message || String(e)}`);
+        try { getTerminalMonitor()?.ingestExternalOutput('stderr', `[FILE-OP] failed: ${e?.message || String(e)}`); } catch { }
+        return false;
+    }
+}
+
+export function buildFileOpTokens(ops: { type: 'create' | 'modify' | 'delete'; path: string; content?: string }[]): string[] {
+    return ops.map(op => FILE_OP_PREFIX + Buffer.from(JSON.stringify(op), 'utf8').toString('base64'));
+}
+
+export function enqueueCommandsBatch(commands: string[], priority = false): void {
+    enqueueCommands(commands, priority);
+}
+
+export function extractBashCommandsFromLlmResponse(llmResponse: string): string[] {
+    const commands: string[] = [];
+    const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
+    let match;
+    while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
+        const block = match[1].trim();
+        if (!block) continue;
+        block.split('\n').forEach(cmd => {
+            const c = cmd.trim();
+            if (c) commands.push(c);
+        });
+    }
+    return commands;
 }
 
 /**
@@ -286,9 +374,9 @@ export function executeBashCommandsFromLlmResponse(llmResponse: string): string[
         }
     }
 
-    // 명령어들을 순차적으로 실행
+    // 명령어들을 우선순위 큐에 추가하고 처리 시작
     if (executedCommands.length > 0) {
-        executeCommandSequence(executedCommands);
+        enqueueCommands(executedCommands, true);
     }
 
     return executedCommands;
