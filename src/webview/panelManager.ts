@@ -7,6 +7,8 @@ import { LicenseService } from '../services/licenseService'; // 라이센스 서
 import { OllamaBlockerService } from '../services/ollamaBlockerService'; // Ollama Blocker 서비스 추가
 import { createAndSetupWebviewPanel } from './panelUtils';
 import { TerminalDaemonService } from '../services/terminalDaemonService';
+import * as http from 'http';
+import * as https from 'https';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -186,6 +188,43 @@ export function openSettingsPanel(
                     console.log('Sending currentApiKeys message:', messageToSend);
                     panel.webview.postMessage(messageToSend);
                     break;
+                case 'getOllamaModels': {
+                    try {
+                        const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
+                        const url = new URL('/api/tags', apiUrl);
+
+                        const models = await new Promise<string[]>((resolve, reject) => {
+                            const isHttps = url.protocol === 'https:';
+                            const client = isHttps ? https : http;
+                            const req = client.request({
+                                hostname: url.hostname,
+                                port: url.port || (isHttps ? 443 : 80),
+                                path: url.pathname + url.search,
+                                method: 'GET',
+                                headers: { 'Content-Type': 'application/json' }
+                            }, (res) => {
+                                let data = '';
+                                res.on('data', chunk => data += chunk);
+                                res.on('end', () => {
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        const list: string[] = Array.isArray(parsed?.models)
+                                            ? parsed.models.map((m: any) => m?.name).filter((n: any) => typeof n === 'string')
+                                            : [];
+                                        resolve(list);
+                                    } catch (e) { reject(e); }
+                                });
+                            });
+                            req.on('error', reject);
+                            req.end();
+                        });
+
+                        panel.webview.postMessage({ command: 'ollamaModels', models, apiUrl: apiUrl });
+                    } catch (e: any) {
+                        panel.webview.postMessage({ command: 'ollamaModels', models: [], error: e?.message || String(e) });
+                    }
+                    break;
+                }
                 case 'saveApiKey': // Gemini API 키 저장 케이스 추가
                     const apiKeyToSave = data.apiKey;
                     if (apiKeyToSave && typeof apiKeyToSave === 'string') {

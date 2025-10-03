@@ -121,14 +121,16 @@ function getDefaultModelName(modelType: AiModelType): string {
 export function logTokenUsage(
     systemPrompt: string,
     userParts: any[],
-    modelType: AiModelType
+    modelType: AiModelType,
+    actualModelName?: string
 ): void {
     // 안전 가드: 알 수 없는 모델 타입 대비 (예: 과거 'ollama' 값 등)
     const limits = MODEL_TOKEN_LIMITS[modelType as AiModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA_Gemma] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
 
-    console.log(`[TokenUtils] ${modelType} 토큰 사용량:`);
+    const label = actualModelName || modelType;
+    console.log(`[TokenUtils] ${label} 토큰 사용량:`);
     console.log(`  - 현재 토큰: ${currentTokens.toLocaleString()}개`);
     console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
     console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
