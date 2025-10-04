@@ -2,6 +2,19 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## Version 3.0.0 (2025/10/04) - Terminal Daemon, Send Queue, Error‑first Automation
+
+<details>
+<summary>Terminal-Daemon Integration & Command Routing</summary>
+
+- Added Go-based terminal-daemon integration for non-interactive and long-running dev commands
+- Sequential command execution via Unix domain socket with accurate exit codes
+- Real-time stdout/stderr streaming to VS Code Output channel (`AIDEV-IDE Terminal Capture`)
+- Single `aidev-ide Terminal` reuse; only truly interactive commands open the integrated terminal
+- Effective CWD now prefers `aidevIde.projectRoot`, falling back to workspace root; logged per run
+
+</details>
+
 ## Version 2.5.9 (2025/09/15) - CodeLlama 7B Support Added
 
 <details>
@@ -15,25 +28,13 @@ This document contains the complete release history for aidev-ide VSCode extensi
 
 </details>
 
-## Unreleased (2025/10/03) - Terminal Daemon, Smarter Context, Error Handling
-
-<details>
-<summary>Terminal-Daemon Integration & Command Routing</summary>
-
-- Added Go-based terminal-daemon integration for non-interactive and long-running dev commands
-- Sequential command execution via Unix domain socket with accurate exit codes
-- Real-time stdout/stderr streaming to VS Code Output channel (`AIDEV-IDE Terminal Capture`)
-- Single `aidev-ide Terminal` reuse; only truly interactive commands open the integrated terminal
-- Effective CWD now prefers `aidevIde.projectRoot`, falling back to workspace root; logged per run
-
-</details>
 
 <details>
 <summary>Output Sanitization & Error Monitoring</summary>
 
 - Stripped ANSI/PTY control sequences from logs for clean rendering
 - Expanded error pattern detection: `npm error`, `Missing script:`, `Exit status X`, `Process exited (code X)`
-- Errors are auto-forwarded to chat and used to trigger LLM-based remediation
+- Errors are auto-forwarded to chat and used to trigger LLM-based remediation (with an 8s cooldown to avoid loops)
 
 </details>
 
@@ -43,6 +44,51 @@ This document contains the complete release history for aidev-ide VSCode extensi
 - `package.json` is always included first in prompt context for Node.js projects
 - For Node frontend stacks (React/Vue/Angular/Svelte/Next/Nuxt/Vite/Webpack), search scope limited to `package.json` and `src/**`, explicitly excluding `node_modules/`
 - Logged searched file list to debug console for transparency
+
+</details>
+
+<details>
+<summary>Chat Send Queue & Pending UI</summary>
+
+- Pending send queue for user questions while AI is responding; auto-drains in order after completion
+- Bottom queued items bar with per-item cancel (×); updates layout padding to avoid overlap
+- New questions during in-flight calls are shown immediately in chat, then sent after current response
+- Error prompts always preempt the pending queue (see “Error‑first Orchestration”)
+
+</details>
+
+<details>
+<summary>Error‑first Orchestration</summary>
+
+- File/terminal errors automatically generate a short “fix” prompt that is sent with priority
+- In-flight AI call is silently aborted (no cancel message) to prioritize error remediation
+- Queue processes file operations and bash commands sequentially; delete ENOENT no longer blocks the queue
+
+</details>
+
+<details>
+<summary>Clickable File List in Execution Queue</summary>
+
+- The “🧩 Execution Queue Enqueued” section now lists all created/modified/deleted files
+- Created/modified files are shown as clickable absolute paths; clicking opens the file in the editor
+- Uses an internal link handler to safely open local files from the webview
+
+</details>
+
+<details>
+<summary>LLM Prompt Logging & Timing</summary>
+
+- Added start/finish banners with timestamps around LLM calls
+- Logged full system prompt and user parts to help diagnose latency
+- Codebase context logs are not sent to the model; only used for debugging
+
+</details>
+
+<details>
+<summary>Long‑Running Dev Commands Handling</summary>
+
+- `npm run dev`, `vite`, etc. are treated as long‑running; routed via daemon, not misclassified as failures
+- Removed programmatic npm script pre‑validation; the LLM decides script existence/alternatives
 
 </details>
 

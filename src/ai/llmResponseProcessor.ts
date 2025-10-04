@@ -604,6 +604,14 @@ export class LlmResponseProcessor {
                             this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
                             updateSummaryMessages.push(errorMsg);
 
+                            // 에러 우선 처리: 파일 작업 에러를 즉시 해결하도록 우선 질의 전송 요청
+                            try {
+                                const priorityPrompt = `파일 작업 에러 해결 요청: ${errorMsg}`;
+                                safePostMessage(webview, { command: 'priorityErrorPrompt', text: priorityPrompt });
+                            } catch (postErr) {
+                                console.warn('[LLM Response Processor] Failed to post priorityErrorPrompt:', postErr);
+                            }
+
                             // Remote SSH 환경에서 권한 문제인 경우 추가 안내
                             if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
                                 const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
@@ -692,6 +700,14 @@ export class LlmResponseProcessor {
                                 this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
                                 updateSummaryMessages.push(errorMsg);
 
+                                // 에러 우선 처리: 파일 작업 에러를 즉시 해결하도록 우선 질의 전송 요청
+                                try {
+                                    const priorityPrompt = `파일 작업 에러 해결 요청: ${errorMsg}`;
+                                    safePostMessage(webview, { command: 'priorityErrorPrompt', text: priorityPrompt });
+                                } catch (postErr) {
+                                    console.warn('[LLM Response Processor] Failed to post priorityErrorPrompt (manual mode):', postErr);
+                                }
+
                                 // Remote SSH 환경에서 권한 문제인 경우 추가 안내
                                 if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
                                     const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
@@ -747,7 +763,20 @@ export class LlmResponseProcessor {
                     const combined = [...fileOpTokens, ...bashCommands];
                     if (combined.length > 0) {
                         enqueueCommandsBatch(combined, true);
-                        const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개`;
+
+                        // Build clickable file list (생성/수정: clickable, 삭제: plain)
+                        const fileListLines = fileOperations.map(op => {
+                            const typeLabel = op.type === 'create' ? '생성' : op.type === 'modify' ? '수정' : '삭제';
+                            const displayPath = op.absolutePath; // 절대 경로로 표시
+                            if (op.type === 'delete') {
+                                return `- ${typeLabel}: ${displayPath}`;
+                            }
+                            // Webview 내 보안/정상 동작을 위해 https placeholder 사용, 클릭 시 가로채기
+                            const href = `https://aidev-ide.invalid/open?path=${encodeURIComponent(op.absolutePath)}`;
+                            return `- ${typeLabel}: [${displayPath}](${href})`;
+                        }).join('\n');
+
+                        const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개` + (fileOperations.length > 0 ? `\n${fileListLines}` : '');
                         safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: enqueueMsg });
                     }
                 } catch (error: any) {

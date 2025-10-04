@@ -39,6 +39,7 @@ export class LlmService {
     private chatWebview?: vscode.Webview;
     private askWebview?: vscode.Webview;
     private lastErrorHandledAt: number = 0;
+    private suppressCancelNoticeOnce: boolean = false;
 
     constructor(
         storageService: StorageService,
@@ -90,6 +91,14 @@ export class LlmService {
                         console.log('[LlmService] No webview available to post terminal error');
                         return;
                     }
+
+                    // 에러 처리를 최우선으로 하기 위해, 진행 중인 호출이 있다면 조용히 취소
+                    try {
+                        if (this.currentCallController) {
+                            this.suppressCancelNoticeOnce = true;
+                            this.cancelCurrentCall();
+                        }
+                    } catch { /* noop */ }
 
                     const pretty = this.formatErrorForChat(evt);
                     safePostMessage(target, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: pretty });
@@ -397,7 +406,10 @@ export class LlmService {
         } catch (error: any) {
             if (error.name === 'AbortError') {
                 console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
-                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
+                if (!this.suppressCancelNoticeOnce) {
+                    safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
+                }
+                this.suppressCancelNoticeOnce = false;
             } else {
                 console.error(`Error in handleUserMessageAndRespond (${this.currentModelType}):`, error);
                 this.notificationService.showErrorMessage(`Error: Failed to process request. ${error.message}`);

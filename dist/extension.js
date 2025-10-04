@@ -12249,6 +12249,14 @@ class LlmResponseProcessor {
                             });
                             this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
                             updateSummaryMessages.push(errorMsg);
+                            // 에러 우선 처리: 파일 작업 에러를 즉시 해결하도록 우선 질의 전송 요청
+                            try {
+                                const priorityPrompt = `파일 작업 에러 해결 요청: ${errorMsg}`;
+                                (0, panelUtils_1.safePostMessage)(webview, { command: 'priorityErrorPrompt', text: priorityPrompt });
+                            }
+                            catch (postErr) {
+                                console.warn('[LLM Response Processor] Failed to post priorityErrorPrompt:', postErr);
+                            }
                             // Remote SSH 환경에서 권한 문제인 경우 추가 안내
                             if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
                                 const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
@@ -12334,6 +12342,14 @@ class LlmResponseProcessor {
                                 console.error(`수동 파일 작업 실패 - 경로: ${fileUri.fsPath}, 오류:`, err);
                                 this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
                                 updateSummaryMessages.push(errorMsg);
+                                // 에러 우선 처리: 파일 작업 에러를 즉시 해결하도록 우선 질의 전송 요청
+                                try {
+                                    const priorityPrompt = `파일 작업 에러 해결 요청: ${errorMsg}`;
+                                    (0, panelUtils_1.safePostMessage)(webview, { command: 'priorityErrorPrompt', text: priorityPrompt });
+                                }
+                                catch (postErr) {
+                                    console.warn('[LLM Response Processor] Failed to post priorityErrorPrompt (manual mode):', postErr);
+                                }
                                 // Remote SSH 환경에서 권한 문제인 경우 추가 안내
                                 if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
                                     const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
@@ -12394,7 +12410,17 @@ class LlmResponseProcessor {
                     const combined = [...fileOpTokens, ...bashCommands];
                     if (combined.length > 0) {
                         (0, terminalManager_1.enqueueCommandsBatch)(combined, true);
-                        const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개`;
+                        // Build clickable file list (생성/수정: clickable, 삭제: plain)
+                        const fileListLines = fileOperations.map(op => {
+                            const typeLabel = op.type === 'create' ? '생성' : op.type === 'modify' ? '수정' : '삭제';
+                            const displayPath = op.llmSpecifiedPath || op.absolutePath;
+                            if (op.type === 'delete') {
+                                return `- ${typeLabel}: ${displayPath}`;
+                            }
+                            const href = `aidev-ide://open?path=${encodeURIComponent(op.absolutePath)}`;
+                            return `- ${typeLabel}: [${displayPath}](${href})`;
+                        }).join('\n');
+                        const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개` + (fileOperations.length > 0 ? `\n${fileListLines}` : '');
                         (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: enqueueMsg });
                     }
                 }
@@ -13536,6 +13562,7 @@ class LlmService {
     chatWebview;
     askWebview;
     lastErrorHandledAt = 0;
+    suppressCancelNoticeOnce = false;
     constructor(storageService, geminiApi, ollamaApi, codebaseContextService, llmResponseProcessor, notificationService, configurationService, extensionContext) {
         this.extensionContext = extensionContext;
         this.storageService = storageService;
@@ -13573,6 +13600,14 @@ class LlmService {
                         console.log('[LlmService] No webview available to post terminal error');
                         return;
                     }
+                    // 에러 처리를 최우선으로 하기 위해, 진행 중인 호출이 있다면 조용히 취소
+                    try {
+                        if (this.currentCallController) {
+                            this.suppressCancelNoticeOnce = true;
+                            this.cancelCurrentCall();
+                        }
+                    }
+                    catch { /* noop */ }
                     const pretty = this.formatErrorForChat(evt);
                     (0, panelUtils_1.safePostMessage)(target, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: pretty });
                     const shortPrompt = `터미널 에러 해결: ${evt.message}`;
@@ -13825,7 +13860,10 @@ class LlmService {
         catch (error) {
             if (error.name === 'AbortError') {
                 console.warn(`[AIDEV-IDE] ${this.currentModelType.toUpperCase()} API call was explicitly aborted.`);
-                (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
+                if (!this.suppressCancelNoticeOnce) {
+                    (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
+                }
+                this.suppressCancelNoticeOnce = false;
             }
             else {
                 console.error(`Error in handleUserMessageAndRespond (${this.currentModelType}):`, error);
@@ -17077,6 +17115,33 @@ class ChatViewProvider {
         webviewView.webview.html = (0, panelUtils_1.getHtmlContentWithUris)(this.extensionUri, 'chat', webviewView.webview);
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
+                case 'priorityErrorPrompt': {
+                    try {
+                        const text = typeof data.text === 'string' ? data.text : '';
+                        if (text) {
+                            await this.llmService.handleUserMessageAndRespond(text, webviewView.webview, types_1.PromptType.CODE_GENERATION);
+                        }
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] priorityErrorPrompt failed:', e);
+                    }
+                    break;
+                }
+                case 'openFileInEditor': {
+                    try {
+                        const fsPath = typeof data.path === 'string' ? data.path : '';
+                        if (fsPath) {
+                            const uri = vscode.Uri.file(fsPath);
+                            const doc = await vscode.workspace.openTextDocument(uri);
+                            await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+                        }
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] openFileInEditor failed:', e);
+                        this.notificationService.showErrorMessage('파일을 열 수 없습니다.');
+                    }
+                    break;
+                }
                 case 'sendMessage':
                     // ollama-blocker 방식으로 시리얼 번호 검증
                     const licenseSerial = await this.storageService.getBanyaLicenseSerial();
