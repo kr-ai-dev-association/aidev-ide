@@ -103,6 +103,58 @@
             flex-direction: column;
         }
 
+        /* Pending question queue area */
+        #pending-queue-area {
+            display: none;
+            flex-direction: row;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background-color: var(--vscode-input-background);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            overflow-x: auto;
+        }
+
+        #pending-queue-area.visible {
+            display: flex;
+        }
+
+        .pending-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 12px;
+            background: transparent;
+            color: var(--vscode-foreground);
+            font-size: 12px;
+            white-space: nowrap;
+            max-width: 260px;
+        }
+
+        .pending-item .text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .pending-item .cancel-btn {
+            background: none;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            line-height: 14px;
+            text-align: center;
+            cursor: pointer;
+            color: var(--vscode-foreground);
+            padding: 0;
+        }
+
+        .pending-item .cancel-btn:hover {
+            background: var(--vscode-button-secondary-hoverBackground);
+        }
+
         #chat-input-area {
             display: flex;
             /* <-- 필수: 입력 필드와 버튼 그룹을 가로로 배치 (상위 컨테이너) */
@@ -879,6 +931,8 @@
     </div>
 
     <div class="bottom-fixed-area">
+        <!-- Pending Question Queue Area -->
+        <div id="pending-queue-area" class="hidden"></div>
         <!-- File Selection Area - 입력창과 채팅 출력창 사이로 이동 -->
         <div id="file-selection-area" class="hidden">
             <div id="selected-files-container">

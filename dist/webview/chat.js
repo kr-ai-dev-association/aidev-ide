@@ -11214,6 +11214,21 @@ __webpack_require__.r(__webpack_exports__);
 
 console.log("✅ chat.js loaded");
 const vscode = acquireVsCodeApi();
+
+// Allow custom aidev-ide:// scheme links to survive sanitization
+try {
+  if (dompurify__WEBPACK_IMPORTED_MODULE_0__["default"] && typeof dompurify__WEBPACK_IMPORTED_MODULE_0__["default"].addHook === 'function') {
+    dompurify__WEBPACK_IMPORTED_MODULE_0__["default"].addHook('uponSanitizeAttribute', (node, data) => {
+      if (data.attrName === 'href' && typeof data.attrValue === 'string') {
+        if (data.attrValue.startsWith('aidev-ide://')) {
+          data.keepAttr = true;
+        }
+      }
+    });
+  }
+} catch (e) {
+  console.warn('DOMPurify hook setup failed:', e);
+}
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages'); // 스크롤 컨테이너
@@ -11231,11 +11246,77 @@ const filePickerButton = document.getElementById('file-picker-button');
 
 // 채팅 컨테이너 참조 추가
 const chatContainer = document.getElementById('chat-container');
+const pendingQueueArea = document.getElementById('pending-queue-area');
 let thinkingBubbleElement = null;
 let selectedImageBase64 = null; // Base64 인코딩된 이미지 데이터를 저장할 변수
 let selectedImageMimeType = null; // 이미지 MIME 타입 저장
 let selectedFiles = []; // 선택된 파일 목록
+let loadingDepth = 0; // 중첩 로딩 상태(에러 우선 처리 대비)
+let pendingQuestions = []; // 대기 중 사용자 질문 큐
 
+function generateId() {
+  return 'q_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+function enqueuePendingQuestion(payload) {
+  pendingQuestions.push(payload);
+  updatePendingQueueUI();
+}
+function removePendingQuestionById(id) {
+  pendingQuestions = pendingQuestions.filter(item => item.id !== id);
+  updatePendingQueueUI();
+}
+function updatePendingQueueUI() {
+  if (!pendingQueueArea) return;
+  // 표시/숨김
+  if (pendingQuestions.length > 0) {
+    pendingQueueArea.classList.add('visible');
+  } else {
+    pendingQueueArea.classList.remove('visible');
+  }
+  // 렌더링
+  pendingQueueArea.innerHTML = '';
+  pendingQuestions.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'pending-item';
+    const textSpan = document.createElement('span');
+    textSpan.className = 'text';
+    textSpan.title = item.text || '';
+    textSpan.textContent = (item.text || '').trim() || '(image/files only)';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'cancel-btn';
+    cancelBtn.textContent = '×';
+    cancelBtn.addEventListener('click', () => removePendingQuestionById(item.id));
+    el.appendChild(textSpan);
+    el.appendChild(cancelBtn);
+    pendingQueueArea.appendChild(el);
+  });
+
+  // UI 높이 변경 반영
+  setTimeout(() => updateChatContainerPadding(), 0);
+}
+function sendNextQueuedQuestionIfIdle() {
+  if (loadingDepth > 0) return;
+  if (pendingQuestions.length === 0) return;
+  const next = pendingQuestions.shift();
+  updatePendingQueueUI();
+  // 전송 직전 실제 사용자 메시지를 출력하고 전송
+  doSendUserMessage(next);
+}
+function doSendUserMessage(payload) {
+  const text = payload.text || '';
+  const img = payload.imageData || null;
+  const imgMime = payload.imageMimeType || null;
+  const files = payload.selectedFiles || [];
+  window.displayUserMessage(text, img);
+  window.showLoading();
+  vscode.postMessage({
+    command: 'sendMessage',
+    text: text,
+    imageData: img,
+    imageMimeType: imgMime,
+    selectedFiles: files
+  });
+}
 const md = (0,markdown_it__WEBPACK_IMPORTED_MODULE_2__["default"])({
   html: false,
   linkify: true,
@@ -11342,26 +11423,27 @@ function handleSendMessage() {
   const text = chatInput.value.trimEnd(); // trim() 대신 trimEnd() 사용 (기존 로직 유지)
   if (text || selectedImageBase64 || selectedFiles.length > 0) {
     // 텍스트, 이미지, 또는 선택된 파일이 있을 때만 전송
-    window.displayUserMessage(text, selectedImageBase64); // 이미지 데이터도 함께 전달
-    window.showLoading(); // 로딩 애니메이션 표시
-
-    vscode.postMessage({
-      command: 'sendMessage',
+    const payload = {
+      id: generateId(),
       text: text,
       imageData: selectedImageBase64,
-      // 이미지 데이터 전송
       imageMimeType: selectedImageMimeType,
-      // 이미지 MIME 타입 전송
-      selectedFiles: selectedFiles.map(file => file.path) // 선택된 파일 경로들 전송
-    });
+      selectedFiles: selectedFiles.map(file => file.path)
+    };
+    if (loadingDepth > 0) {
+      // AI 응답 대기 중: 채팅창에 먼저 출력하고, 큐에 적재(전송은 응답 후)
+      window.displayUserMessage(text, selectedImageBase64);
+      enqueuePendingQuestion(payload);
+    } else {
+      // 즉시 전송
+      doSendUserMessage(payload);
+    }
     chatInput.value = '';
     chatInput.style.height = 'auto';
     removeAttachedImage(); // 이미지 전송 후 썸네일 제거
     autoResizeTextarea();
     chatInput.focus();
-
-    // 메시지 전송 후 즉시 스크롤을 thinking 애니메이션으로 이동 (여러 번 시도)
-    scrollToThinkingAnimation();
+    // 스크롤은 showLoading 시 처리됨
   }
 }
 
@@ -11419,20 +11501,28 @@ function updateChatContainerPadding() {
   const bottomFixedArea = document.querySelector('.bottom-fixed-area');
   const fileSelectionArea = document.getElementById('file-selection-area');
   const chatInputArea = document.getElementById('chat-input-area');
+  const pendingArea = document.getElementById('pending-queue-area');
   if (!bottomFixedArea || !chatInputArea) return;
 
   // 파일 선택 영역의 높이 (숨겨져 있으면 0)
   const fileSelectionHeight = fileSelectionArea && !fileSelectionArea.classList.contains('hidden') ? fileSelectionArea.offsetHeight : 0;
 
+  // 대기 큐 영역의 높이 (보이지 않으면 0)
+  let pendingHeight = 0;
+  if (pendingArea) {
+    const isVisible = pendingArea.classList.contains('visible');
+    pendingHeight = isVisible ? pendingArea.offsetHeight : 0;
+  }
+
   // 입력 영역의 높이
   const chatInputHeight = chatInputArea.offsetHeight;
 
   // 전체 하단 고정 영역 높이 계산 (여유 공간 포함)
-  const totalBottomHeight = fileSelectionHeight + chatInputHeight + 20; // 20px 여유 공간
+  const totalBottomHeight = pendingHeight + fileSelectionHeight + chatInputHeight + 20; // 20px 여유 공간
 
   // 채팅 컨테이너의 하단 패딩을 동적으로 설정
   chatContainer.style.paddingBottom = `${totalBottomHeight}px`;
-  console.log(`Bottom area height: ${totalBottomHeight}px (file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
+  console.log(`Bottom area height: ${totalBottomHeight}px (pending: ${pendingHeight}px, file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
 }
 document.addEventListener('DOMContentLoaded', () => {
   if (chatInput) {
@@ -11455,6 +11545,31 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('message', event => {
   const message = event.data;
   switch (message.command) {
+    case 'priorityErrorPrompt':
+      // 확장 측에서 파일 작업/터미널 에러 우선 처리 요청 → 확장으로 전달하여 즉시 LLM 호출
+      if (typeof message.text === 'string' && message.text.trim().length > 0) {
+        vscode.postMessage({
+          command: 'priorityErrorPrompt',
+          text: message.text
+        });
+      }
+      break;
+    case 'showLoading':
+      console.log('Received showLoading command.');
+      loadingDepth++;
+      window.showLoading();
+      break;
+    case 'hideLoading':
+      console.log('Received hideLoading command.');
+      if (loadingDepth > 0) loadingDepth--;
+      window.hideLoading();
+      // 약간의 지연 후, 에러 우선 처리(showLoading 재등장) 기회를 준 뒤 큐 전송
+      setTimeout(() => {
+        if (loadingDepth === 0) {
+          sendNextQueuedQuestionIfIdle();
+        }
+      }, 200);
+      break;
     case 'displayUserMessage':
       console.log('Received command to display user message:', message.text, message.imageData);
       // console.log('Received command to display user message:', message.text, message.imageData);
@@ -11463,14 +11578,6 @@ window.addEventListener('message', event => {
         window.displayUserMessage(message.text, message.imageData);
       }
       break;
-    case 'showLoading':
-      console.log('Received showLoading command.');
-      window.showLoading();
-      break;
-    case 'hideLoading':
-      console.log('Received hideLoading command.');
-      window.hideLoading();
-      break;
     case 'receiveMessage':
       // console.log('Received message from extension:', message.text);
       console.log('Received message from extension:', {
@@ -11478,7 +11585,7 @@ window.addEventListener('message', event => {
         textLength: message.text ? message.text.length : 0,
         textPreview: message.text ? message.text.substring(0, 200) + '...' : 'undefined'
       });
-      window.hideLoading(); // 응답을 받으면 로딩 버블 제거
+      // hideLoading 이벤트에서 처리하므로 여기서는 처리하지 않음
 
       if (message.sender === 'AIDEV-IDE' && message.text !== undefined) {
         console.log('Calling displayCodePilotMessage with text length:', message.text.length);
@@ -11965,6 +12072,34 @@ window.addEventListener('DOMContentLoaded', () => {
     command: 'getLanguage'
   });
 });
+
+// --- Link click interception for opening files from AI messages ---
+if (chatMessages) {
+  chatMessages.addEventListener('click', event => {
+    const target = event.target;
+    if (!target) return;
+    const anchor = target.closest ? target.closest('a') : null;
+    if (!anchor) return;
+    const href = anchor.getAttribute('href');
+    if (!href) return;
+    if (href.startsWith('aidev-ide://open')) {
+      event.preventDefault();
+      try {
+        const query = href.split('?')[1] || '';
+        const params = new URLSearchParams(query);
+        const p = params.get('path');
+        if (p) {
+          vscode.postMessage({
+            command: 'openFileInEditor',
+            path: decodeURIComponent(p)
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to parse aidev-ide link:', href, e);
+      }
+    }
+  });
+}
 })();
 
 /******/ 	return __webpack_exports__;

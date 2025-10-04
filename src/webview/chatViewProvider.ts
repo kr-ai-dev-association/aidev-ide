@@ -43,6 +43,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
+                case 'priorityErrorPrompt': {
+                    try {
+                        const text = typeof data.text === 'string' ? data.text : '';
+                        if (text) {
+                            await this.llmService.handleUserMessageAndRespond(
+                                text,
+                                webviewView.webview,
+                                PromptType.CODE_GENERATION
+                            );
+                        }
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] priorityErrorPrompt failed:', e);
+                    }
+                    break;
+                }
+                case 'openFileInEditor': {
+                    try {
+                        const fsPath = typeof data.path === 'string' ? data.path : '';
+                        if (fsPath) {
+                            const uri = vscode.Uri.file(fsPath);
+                            const doc = await vscode.workspace.openTextDocument(uri);
+                            await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+                        }
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] openFileInEditor failed:', e);
+                        this.notificationService.showErrorMessage('파일을 열 수 없습니다.');
+                    }
+                    break;
+                }
                 case 'sendMessage':
                     // ollama-blocker 방식으로 시리얼 번호 검증
                     const licenseSerial = await this.storageService.getBanyaLicenseSerial();

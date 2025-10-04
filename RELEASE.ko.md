@@ -2,6 +2,84 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## Version 3.0.0 (2025/10/04) - 터미널 데몬, 전송 큐, 에러 우선 자동화
+
+<details>
+<summary>터미널 데몬 통합 & 명령 라우팅</summary>
+
+- 비대화형/장시간 dev 명령을 위한 Go 기반 terminal-daemon 연동
+- Unix 소켓 기반 순차 실행 및 정확한 종료 코드 수집
+- VS Code Output 채널(`AIDEV-IDE Terminal Capture`)로 stdout/stderr 실시간 스트리밍
+- 진짜 대화형 명령만 통합 터미널을 사용, `aidev-ide Terminal` 단일 재사용
+- CWD는 설정의 `aidevIde.projectRoot` 우선, 없으면 워크스페이스 루트 사용
+
+</details>
+
+<details>
+<summary>출력 정제 & 에러 모니터링</summary>
+
+- ANSI/PTY 제어 시퀀스 제거로 깨끗한 로그 표시
+- 에러 패턴 확대: `npm error`, `Missing script:`, `Exit status X`, `Process exited (code X)` 등
+- 에러를 챗에 자동 전송하고 LLM 기반 자동 수정 프롬프트를 트리거(루프 방지 8초 쿨다운)
+
+</details>
+
+<details>
+<summary>Node.js 컨텍스트 수집 개선</summary>
+
+- Node.js 프로젝트에서 `package.json`을 항상 컨텍스트 최상단에 포함
+- 프론트엔드 스택 탐지 시 `package.json`/`src/**` 제한 검색 및 `node_modules/` 제외
+- 검색된 파일 리스트를 디버그 로그로 투명하게 출력
+
+</details>
+
+<details>
+<summary>챗 전송 큐 & 대기 UI</summary>
+
+- AI 응답 대기 중 질문을 대기열에 쌓고, 완료 후 순서대로 자동 전송
+- 하단 대기 큐 바에 항목들이 순서대로 표시되며 각 항목은 x로 개별 취소 가능
+- 진행 중에 입력한 질문은 즉시 챗에 보이고, 현재 응답 종료 후 전송됨
+- 에러 프롬프트는 항상 대기열보다 우선 처리(“에러 우선 오케스트레이션” 참조)
+
+</details>
+
+<details>
+<summary>에러 우선 오케스트레이션</summary>
+
+- 파일/터미널 에러 발생 시 즉시 짧은 “수정” 프롬프트를 우선 전송
+- 진행 중인 AI 호출은 조용히 취소(취소 메시지 노출 없음) 후 에러 수정 우선 처리
+- 큐는 파일 작업 및 bash 명령을 순차 실행하며, 삭제 시 ENOENT는 큐를 중단하지 않음
+
+</details>
+
+<details>
+<summary>실행 큐 섹션의 클릭 가능한 파일 리스트</summary>
+
+- “🧩 실행 큐 적재” 섹션에 생성/수정/삭제 파일 전체 목록 표시
+- 생성/수정 파일은 절대 경로 링크로 표시하며 클릭 시 에디터에서 즉시 열림
+- 웹뷰 내부 링크 핸들러로 안전하게 로컬 파일 열기 지원
+
+</details>
+
+<details>
+<summary>LLM 프롬프트 로깅 & 타이밍</summary>
+
+- LLM 호출 전/후 배너와 타임스탬프 추가
+- 전체 시스템 프롬프트와 사용자 파트 로깅(지연 원인 진단 용이)
+- CodebaseContext 로그는 모델로 보내지 않으며, 디버깅에만 사용
+
+</details>
+
+<details>
+<summary>장시간 dev 명령 처리</summary>
+
+- `npm run dev`, `vite` 등을 장시간 명령으로 분류하여 데몬으로 라우팅, 실패로 오인하지 않음
+- npm 스크립트 사전 검증 제거: 스크립트 존재/대안 여부는 LLM이 결정
+
+</details>
+
+---
+
 ## Version 2.5.9 (2025/09/15) - CodeLlama 7B 지원 추가
 
 <details>
