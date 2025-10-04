@@ -1,0 +1,4 @@
+
+# Ignore sensitive keys
+assets/ollama-blocker/service-account-key.json
+ollama-blocker/service-account-key.json
