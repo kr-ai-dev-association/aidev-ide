@@ -1,0 +1,16 @@
+sequenceDiagram
+    autonumber
+    participant R as LlmResponseProcessor
+    participant T as TerminalManager
+    participant D as TerminalDaemonClient
+    participant X as Terminal Daemon
+    participant O as Output Channel
+
+    R->>T: enqueue(명령)
+    T->>T: isLongRunningDevCommand(cmd) = true
+    T->>T: _queuePausedForLongRunning = true
+    T->>D: run(cmd)
+    D->>X: JSONL 요청
+    X-->>D: 장시간 스트림
+    D->>O: 실시간 로그 기록
+    note over T: 종료/중단 시 큐 재개
