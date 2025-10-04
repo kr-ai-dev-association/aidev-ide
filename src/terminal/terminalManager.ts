@@ -346,6 +346,22 @@ async function processQueue(): Promise<void> {
     try {
         while (_priorityQueue.length > 0 || _normalQueue.length > 0) {
             const command = _priorityQueue.length > 0 ? _priorityQueue.shift()! : _normalQueue.shift()!;
+            try {
+                const channel = getCaptureOutputChannel();
+                const ts = new Date().toLocaleTimeString();
+                if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
+                    try {
+                        const b64 = command.substring(FILE_OP_PREFIX.length);
+                        const decoded = Buffer.from(b64, 'base64').toString('utf8');
+                        const payload = JSON.parse(decoded) as { type: string; path: string; content?: string };
+                        channel.appendLine(`[QUEUE] (${ts}) Dequeue FILE-OP: ${payload.type} ${payload.path} ${payload.content !== undefined ? `(${payload.content.length} bytes)` : ''}`.trim());
+                    } catch (e: any) {
+                        channel.appendLine(`[QUEUE] (${ts}) Dequeue FILE-OP: parse error: ${e?.message || String(e)}`);
+                    }
+                } else {
+                    channel.appendLine(`[QUEUE] (${ts}) Dequeue CMD: ${String(command)}`);
+                }
+            } catch { }
             _pendingCommands = [command];
             _currentCommandIndex = 0;
 
@@ -353,12 +369,14 @@ async function processQueue(): Promise<void> {
             if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
                 const ok = await executeFileOpFromToken(command);
                 if (!ok) {
+                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`); } catch {}
                     break;
                 }
             } else {
                 const ok = await handleInteractiveCommand(command);
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
+                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: command failed or cancelled`); } catch {}
                     break;
                 }
             }
@@ -367,6 +385,7 @@ async function processQueue(): Promise<void> {
             if (isLongRunningDevCommand(command)) {
                 _queuePausedForLongRunning = true;
                 // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
+                try { getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`); } catch {}
                 return;
             }
 
@@ -410,8 +429,13 @@ async function executeFileOpFromToken(token: string): Promise<boolean> {
             // ensure directory exists
             const dir = path.dirname(payload.path);
             await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(payload.content || '', 'utf8'));
-            channel.appendLine(`[FILE-OP] ${payload.type}: ${payload.path} (${(payload.content || '').length} bytes)`);
+            const bytes = (payload.content || '').length;
+            if (payload.content === undefined) {
+                channel.appendLine(`[FILE-OP] skipped: ${payload.type} ${payload.path} (no content provided)`);
+                return false;
+            }
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(payload.content, 'utf8'));
+            channel.appendLine(`[FILE-OP] ${payload.type}: ${payload.path} (${bytes} bytes)`);
         }
         return true;
     } catch (e: any) {
@@ -427,6 +451,44 @@ export function buildFileOpTokens(ops: { type: 'create' | 'modify' | 'delete'; p
 }
 
 export function enqueueCommandsBatch(commands: string[], priority = false): void {
+    try {
+        const channel = getCaptureOutputChannel();
+        const timestamp = new Date().toLocaleString();
+        let fileOps: { type: string; path: string; size?: number }[] = [];
+        const bash: string[] = [];
+
+        for (const c of commands) {
+            if (typeof c === 'string' && c.startsWith(FILE_OP_PREFIX)) {
+                try {
+                    const b64 = c.substring(FILE_OP_PREFIX.length);
+                    const decoded = Buffer.from(b64, 'base64').toString('utf8');
+                    const payload = JSON.parse(decoded) as { type: string; path: string; content?: string };
+                    fileOps.push({ type: payload.type, path: payload.path, size: (payload.content || '').length });
+                } catch (e: any) {
+                    channel.appendLine(`[QUEUE-ENQUEUE] failed to parse file-op token: ${e?.message || String(e)}`);
+                }
+            } else {
+                bash.push(String(c));
+            }
+        }
+
+        channel.appendLine(`\n===== Queue Enqueue (${timestamp}) =====`);
+        channel.appendLine(`Priority: ${priority ? 'yes' : 'no'} | Items: ${commands.length} | fileOps: ${fileOps.length} | bash: ${bash.length}`);
+        if (fileOps.length > 0) {
+            channel.appendLine(`[QUEUE-ENQUEUE] FileOps:`);
+            for (const f of fileOps) {
+                channel.appendLine(`  - ${f.type}: ${f.path} ${typeof f.size === 'number' ? `(${f.size} bytes)` : ''}`.trim());
+            }
+        }
+        if (bash.length > 0) {
+            channel.appendLine(`[QUEUE-ENQUEUE] Bash:`);
+            for (const b of bash.slice(0, 20)) {
+                channel.appendLine(`  - ${b}`);
+            }
+            if (bash.length > 20) channel.appendLine(`  ... (+${bash.length - 20} more)`);
+        }
+    } catch { /* ignore logging errors */ }
+
     enqueueCommands(commands, priority);
 }
 
