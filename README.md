@@ -253,6 +253,41 @@ VSCode base code assistant plugin with LLM and LM support.
    - **News API**: Get Client ID & Secret from [Naver Developers](https://developers.naver.com/)
    - **Stock API**: Get API key from [Alpha Vantage](https://www.alphavantage.co/)
 
+### CLI binaries: PATH and aliases (optional)
+To run bundled binaries directly from your terminal, add PATH entries or aliases in your shell profile (macOS zsh example).
+
+1) Add to PATH (recommended during development)
+
+```bash
+# ~/.zshrc
+export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/ollama-blocker"
+export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/terminal-daemon"
+```
+
+2) Define aliases
+
+```bash
+# ~/.zshrc
+alias ollama-blocker-embedded="/Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded"
+alias terminal-daemon="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon"
+alias terminal-client="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client"
+```
+
+3) System-wide install (optional)
+
+```bash
+sudo cp /Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded /usr/local/bin/
+sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon /usr/local/bin/
+sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client /usr/local/bin/
+sudo chmod +x /usr/local/bin/ollama-blocker-embedded /usr/local/bin/terminal-daemon /usr/local/bin/terminal-client
+```
+
+After updating your profile, apply changes:
+
+```bash
+source ~/.zshrc
+```
+
 ## Testing
 
 ### Unit Tests
