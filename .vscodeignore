@@ -1,0 +1,28 @@
+# Exclude development folders and large/unrelated directories
+.git/**
+.github/**
+.vscode/**
+node_modules/**
+coverage/**
+out/**
+release/**
+mov_gen/**
+Wan2.2/**
+terminal-daemon/**
+ollama-blocker/**
+
+# Exclude sources (we ship bundled dist and webview assets)
+src/**
+**/*.map
+
+# Keep runtime assets
+!dist/**
+!webview/**/*.html
+!webview/locales/**/*.json
+!media/**
+!assets/**
+
+# Exclude secrets
+assets/ollama-blocker/service-account-key.json
+ollama-blocker/service-account-key.json
+service-account-key.json
