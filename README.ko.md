@@ -250,6 +250,41 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
    - **뉴스 API**: [네이버 개발자센터](https://developers.naver.com/)에서 Client ID & Secret 획득
    - **주식 API**: [Alpha Vantage](https://www.alphavantage.co/)에서 API 키 획득
 
+### CLI 바이너리: PATH/alias 설정 (선택)
+번들된 바이너리를 터미널에서 바로 실행하려면, 셸 프로필에 PATH 또는 alias를 추가하세요 (macOS zsh 예시).
+
+1) PATH 추가 (개발 시 권장)
+
+```bash
+# ~/.zshrc
+export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/ollama-blocker"
+export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/terminal-daemon"
+```
+
+2) alias 정의
+
+```bash
+# ~/.zshrc
+alias ollama-blocker-embedded="/Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded"
+alias terminal-daemon="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon"
+alias terminal-client="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client"
+```
+
+3) 시스템 전역 설치 (선택)
+
+```bash
+sudo cp /Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded /usr/local/bin/
+sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon /usr/local/bin/
+sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client /usr/local/bin/
+sudo chmod +x /usr/local/bin/ollama-blocker-embedded /usr/local/bin/terminal-daemon /usr/local/bin/terminal-client
+```
+
+프로필 변경 후 적용:
+
+```bash
+source ~/.zshrc
+```
+
 ## 테스트
 
 ### 단위 테스트
