@@ -21,6 +21,7 @@ src/**
 !webview/locales/**/*.json
 !media/**
 !assets/**
+!assets/terminal-daemon/terminal-client
 
 # Exclude secrets
 assets/ollama-blocker/service-account-key.json
