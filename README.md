@@ -124,7 +124,7 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Network Resilience**: Node.js HTTP module for reliable local network connections
 - **Webview Safety**: Protected message handling to prevent disposed webview errors
 
-### 🧪 What's New (2025/10/03)
+### 🧪 What's New (2025/10/04)
 - **Terminal-Daemon Integration**:
   - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs
   - Logs stream to the `AIDEV-IDE Terminal Capture` output channel
@@ -133,6 +133,22 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Stronger Error Monitoring**: Expanded detection for npm errors (e.g., "Missing script:"), "Exit status X", and "Process exited (code X)", auto-forwarded to chat and LLM for fixes
 - **Smarter Node Context**: For Node.js projects, `package.json` is always included first in the prompt; Node frontend projects search only `package.json` and `src/**` and exclude `node_modules/`. Searched file list is logged to the debug console
 - **CWD Handling**: The effective working directory for command execution prefers `aidevIde.projectRoot` (if set), otherwise uses the workspace root; the chosen CWD is logged with each run
+- **Chat Send Queue & Pending UI**:
+  - New pending send queue buffers user questions while AI is responding and auto-sends them in order once the current response finishes
+  - A bottom queue bar shows pending questions with individual cancel (×); layout auto-adjusts to avoid overlap
+  - New questions typed during an in-flight call are still displayed immediately in the chat for context
+- **Error-first Orchestration**:
+  - File/terminal errors automatically generate a short remediation prompt sent with priority
+  - Any in-flight AI call is silently aborted to prioritize error fixes; delete ENOENT no longer blocks the queue
+- **Clickable File List in Execution Queue**:
+  - The "🧩 Execution Queue Enqueued" section now lists all created/modified/deleted files
+  - Created/modified files are rendered as clickable absolute paths; clicking opens the file in the editor
+- **Full Prompt Logging & Timing**:
+  - Start/finish banners with timestamps wrap LLM calls
+  - Full system prompt and user parts printed to logs to diagnose latency (context logs aren’t sent to the model)
+- **Long-running Dev Command Handling**:
+  - `npm run dev`, `vite`, etc. treated as long-running and routed via the daemon, not misclassified as failures
+  - Removed programmatic npm script pre-validation; the LLM decides script existence/alternatives
 
 ### 🔐 License Protection System
 - **Banya License Verification**: 
@@ -343,11 +359,11 @@ Calling out known issues can help limit users opening duplicate issues against y
 Please see [RELEASE.md](RELEASE.md).
 
 ### Latest Release
-- **Version 2.5.9** (2025/09/15): [Download](release/codepilot-2.5.9.vsix)
-  - Added CodeLlama 7B support via Ollama integration
-  - Improved Ollama model management with unified interface
-  - Enhanced multi-language support (7 languages)
-  - Optimized token management for code generation tasks
+- **Version 3.0.0** (2025/10/04)
+  - Terminal-daemon integration and command routing
+  - Chat send queue with pending UI and per-item cancel
+  - Error-first orchestration and clickable execution-queue file list
+  - Full prompt logging with timestamps; better long-running dev command handling
 
 ### For more information
 I'm seeking individuals to help me grow this source code. Please contact me at: tony@banya.ai
