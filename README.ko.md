@@ -121,7 +121,26 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **네트워크 안정성**: 로컬 네트워크 연결을 위한 Node.js HTTP 모듈 사용
 - **웹뷰 안전성**: disposed 웹뷰 에러 방지를 위한 보호된 메시지 처리
 
-### 🧪 변경 사항 (2025/10/04)
+### 🧪 변경 사항 (2025/01/15)
+
+#### 버전 3.1.0 - 설정 및 Spring 지원 업데이트
+- **Spring 프로젝트 자동 감지**: Spring Boot 프로젝트 자동 감지 및 최적화
+  - Maven/Gradle 빌드 파일 우선순위 (pom.xml, build.gradle, build.gradle.kts)
+  - Spring 특화 파일 패턴 및 디렉토리 구조 인식
+  - Spring 관련 키워드 추출 강화 (controller, service, repository, entity 등)
+- **Ollama 클라우드 모델 인증**: gpt-oss-120b:cloud 모델 인증 지원
+  - 클라우드 모델 선택 시 자동 인증 섹션 표시
+  - 설정 패널에 통합된 ollama auth 기능
+- **설정 패널 개선**: 모델 선택 및 표시 문제 해결
+  - AI 모델 선택 지속성 개선 (Gemini/Ollama)
+  - Ollama 하위 모델 표시 및 선택 수정
+  - 원클릭 프로젝트 root 설정 및 제거
+- **라이브러리 제외 강화**: 포괄적인 라이브러리 디렉토리 필터링
+  - 프레임워크별 라이브러리 경로 (node_modules, target, build, vendor 등)
+  - 빌드 아티팩트 및 의존성 제외로 검색 성능 향상
+  - 실제 프로젝트 코드에 대한 더 나은 컨텍스트 관련성
+
+#### 버전 3.0.0 - 주요 업데이트 (2025/10/04)
 - **터미널 데몬 통합**:
   - 비대화형/장시간 dev 명령을 Go 기반 terminal-daemon으로 실행(Unix 소켓, 정확한 종료 코드, 실시간 로그)
   - 로그는 `AIDEV-IDE Terminal Capture` Output 채널로 스트리밍

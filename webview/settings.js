@@ -1168,6 +1168,56 @@ if (saveOllamaModelButton) {
     });
 }
 
+// Ollama 모델 선택 변경 이벤트 리스너
+if (ollamaModelSelect) {
+    ollamaModelSelect.addEventListener('change', () => {
+        const selectedModel = ollamaModelSelect.value;
+        console.log('Ollama model selected:', selectedModel);
+
+        // gpt-oss-120b:cloud 모델 선택 시 인증 섹션 표시
+        const authSection = document.getElementById('ollama-auth-section');
+        const authStatus = document.getElementById('ollama-auth-status');
+
+        if (selectedModel === 'gpt-oss-120b:cloud') {
+            if (authSection) authSection.style.display = 'flex';
+            if (authStatus) authStatus.style.display = 'block';
+        } else {
+            if (authSection) authSection.style.display = 'none';
+            if (authStatus) authStatus.style.display = 'none';
+        }
+    });
+}
+
+// Ollama 인증 버튼 이벤트 리스너
+const ollamaAuthButton = document.getElementById('ollama-auth-button');
+const ollamaAuthSerial = document.getElementById('ollama-auth-serial');
+const ollamaAuthStatus = document.getElementById('ollama-auth-status');
+
+if (ollamaAuthButton) {
+    ollamaAuthButton.addEventListener('click', () => {
+        const serialNumber = ollamaAuthSerial ? ollamaAuthSerial.value.trim() : '';
+
+        if (!serialNumber) {
+            if (ollamaAuthStatus) {
+                ollamaAuthStatus.textContent = '인증 시리얼 번호를 입력해주세요.';
+                ollamaAuthStatus.className = 'error-message';
+            }
+            return;
+        }
+
+        if (ollamaAuthStatus) {
+            ollamaAuthStatus.textContent = 'Ollama 인증 중...';
+            ollamaAuthStatus.className = 'info-message';
+        }
+
+        // 확장 프로그램에 Ollama 인증 요청
+        vscode.postMessage({
+            command: 'ollamaAuth',
+            serialNumber: serialNumber
+        });
+    });
+}
+
 // Ollama 엔드포인트 저장 이벤트 리스너
 if (saveOllamaEndpointButton) {
     saveOllamaEndpointButton.addEventListener('click', () => {
@@ -1323,6 +1373,9 @@ window.addEventListener('message', event => {
         case 'ollamaModels': {
             const sel = document.getElementById('ollama-model-select');
             if (sel) {
+                // 현재 선택된 모델 저장
+                const currentModel = sel.value;
+
                 sel.innerHTML = '';
                 const def = document.createElement('option');
                 def.value = '';
@@ -1337,6 +1390,12 @@ window.addEventListener('message', event => {
                     });
                 }
                 console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
+
+                // 기존 모델이 있으면 다시 선택
+                if (currentModel && currentModel !== '') {
+                    sel.value = currentModel;
+                    console.log('Restored previous Ollama model selection:', currentModel);
+                }
             }
             break;
         }
@@ -1379,25 +1438,41 @@ window.addEventListener('message', event => {
             break;
         case 'currentAiModel':
             if (aiModelSelect && message.model) {
-                aiModelSelect.value = message.model;
+                console.log('Received current AI model:', message.model);
+
+                // 저장된 모델을 UI 표시용으로 변환
+                let displayModel = message.model;
+                if (message.model === 'ollama-gemma' || message.model === 'ollama-deepseek' ||
+                    message.model === 'ollama-codellama' || message.model === 'ollama-gpt-oss') {
+                    displayModel = 'ollama';
+                } else if (message.model === 'gemini') {
+                    displayModel = 'gemini';
+                }
+
+                console.log('Setting AI model select to:', displayModel);
+                aiModelSelect.value = displayModel;
+
                 // 모델에 따라 섹션 활성화/비활성화
-                if (message.model === 'gemini' || message.model.startsWith('gemini')) {
+                if (displayModel === 'gemini') {
                     geminiSettingsSection.classList.remove('disabled');
                     ollamaSettingsSection.classList.add('disabled');
-                } else if (message.model.startsWith('ollama')) {
+                } else if (displayModel === 'ollama') {
                     geminiSettingsSection.classList.add('disabled');
                     ollamaSettingsSection.classList.remove('disabled');
+                    // Ollama 모델 목록 로드
+                    try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
                 }
             }
             break;
         case 'updatedProjectRoot':
+            console.log('Received updatedProjectRoot message:', message);
             if (message.success === false) {
                 // 설정 실패 또는 취소된 경우
                 const errorText = message.error || '프로젝트 Root 설정에 실패했습니다.';
                 showStatus(projectRootStatus, errorText, 'error');
                 console.error('프로젝트 Root 설정 실패:', errorText);
-            } else if (typeof message.projectRoot === 'string') {
-                // 설정 성공한 경우
+            } else {
+                // 성공한 경우 (success가 true이거나 undefined인 경우)
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootUpdatedText = languageData['projectRootUpdated'] || '프로젝트 Root 업데이트 완료:';
                 const projectRootClearedText = languageData['projectRootCleared'] || '프로젝트 Root가 지워졌습니다.';
@@ -1653,35 +1728,26 @@ window.addEventListener('message', event => {
             const aiModelSaveErrorText = languageData['aiModelSaveError'] || 'AI 모델 저장 실패:';
             showStatus(sourcePathStatus, `${aiModelSaveErrorText} ${message.error}`, 'error');
             break;
-        case 'currentAiModel':
-            if (message.model && aiModelSelect) {
-                // 저장된 모델이 ollama-gemma 또는 ollama-deepseek인 경우 ollama로 변환
-                let displayModel = message.model;
-                if (message.model === 'ollama-gemma' || message.model === 'ollama-deepseek' || message.model === 'ollama-codellama') {
-                    displayModel = 'ollama';
-                }
-
-                aiModelSelect.value = displayModel;
-                // 모델 선택에 따른 UI 업데이트
-                if (displayModel === 'gemini') {
-                    geminiSettingsSection.classList.remove('disabled');
-                    ollamaSettingsSection.classList.add('disabled');
-                } else if (displayModel === 'ollama') {
-                    geminiSettingsSection.classList.add('disabled');
-                    ollamaSettingsSection.classList.remove('disabled');
-                } else {
-                    geminiSettingsSection.classList.add('disabled');
-                    ollamaSettingsSection.classList.add('disabled');
-                }
-            }
-            break;
         case 'currentOllamaModel':
             if (message.model && ollamaModelSelect) {
+                console.log('Received current Ollama model:', message.model);
                 ollamaModelSelect.value = message.model;
                 const ollamaModelSetText = message.model ?
                     `Ollama 모델이 설정되어 있습니다: ${message.model}` :
                     'Ollama 모델이 설정되지 않았습니다.';
                 showStatus(ollamaModelStatus, ollamaModelSetText, message.model ? 'success' : 'info');
+
+                // gpt-oss-120b:cloud 모델인 경우 인증 섹션 표시
+                const authSection = document.getElementById('ollama-auth-section');
+                const authStatus = document.getElementById('ollama-auth-status');
+
+                if (message.model === 'gpt-oss-120b:cloud') {
+                    if (authSection) authSection.style.display = 'flex';
+                    if (authStatus) authStatus.style.display = 'block';
+                } else {
+                    if (authSection) authSection.style.display = 'none';
+                    if (authStatus) authStatus.style.display = 'none';
+                }
             }
             break;
         case 'ollamaModelSaved':
@@ -1689,6 +1755,13 @@ window.addEventListener('message', event => {
             break;
         case 'ollamaModelError':
             showStatus(ollamaModelStatus, `Ollama 모델 저장 실패: ${message.error}`, 'error');
+            break;
+        case 'ollamaAuthResult':
+            if (message.success) {
+                showStatus(ollamaAuthStatus, 'Ollama 인증이 성공했습니다.', 'success');
+            } else {
+                showStatus(ollamaAuthStatus, `Ollama 인증 실패: ${message.message}`, 'error');
+            }
             break;
         case 'languageSaved':
             const languageChangedText = languageData['languageChanged'] || '언어가';

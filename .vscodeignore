@@ -23,7 +23,10 @@ src/**
 !assets/**
 !assets/terminal-daemon/terminal-client
 
-# Exclude secrets
+# Exclude secrets and sensitive files
 assets/ollama-blocker/service-account-key.json
-ollama-blocker/service-account-key.json
-service-account-key.json
+**/service-account-key.json
+**/*service-account-key*
+**/*firebase*
+**/*gcp*
+**/*google*

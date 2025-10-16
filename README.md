@@ -124,7 +124,26 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Network Resilience**: Node.js HTTP module for reliable local network connections
 - **Webview Safety**: Protected message handling to prevent disposed webview errors
 
-### 🧪 What's New (2025/10/04)
+### 🧪 What's New (2025/01/15)
+
+#### Version 3.1.0 - Settings & Spring Support Update
+- **Spring Project Auto-Detection**: Automatic detection and optimization for Spring Boot projects
+  - Maven/Gradle build file prioritization (pom.xml, build.gradle, build.gradle.kts)
+  - Spring-specific file patterns and directory structure recognition
+  - Enhanced keyword extraction for Spring-related queries (controller, service, repository, entity, etc.)
+- **Ollama Cloud Model Authentication**: Support for gpt-oss-120b:cloud model with authentication
+  - Automatic authentication section display when cloud model is selected
+  - Integrated ollama auth functionality in settings panel
+- **Settings Panel Improvements**: Fixed model selection and display issues
+  - Proper AI model selection persistence (Gemini/Ollama)
+  - Correct Ollama sub-model display and selection
+  - One-click project root configuration and removal
+- **Enhanced Library Exclusion**: Comprehensive library directory filtering
+  - Framework-specific library paths (node_modules, target, build, vendor, etc.)
+  - Improved search performance by excluding build artifacts and dependencies
+  - Better context relevance for actual project code
+
+#### Version 3.0.0 - Major Update (2025/10/04)
 - **Terminal-Daemon Integration**:
   - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs
   - Logs stream to the `AIDEV-IDE Terminal Capture` output channel

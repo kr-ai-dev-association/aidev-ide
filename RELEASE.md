@@ -2,6 +2,65 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## Version 3.1.0 (2025/01/15) - Settings & Spring Support Update
+
+<details>
+<summary>Spring Project Auto-Detection & Enhanced Context</summary>
+
+- **Spring Boot Project Detection**: Automatic detection of Spring Boot projects based on:
+  - Maven build files (pom.xml) containing Spring Boot dependencies
+  - Gradle build files (build.gradle, build.gradle.kts) with Spring Boot plugins
+  - Application configuration files (application.properties, application.yml, application.yaml)
+  - Java files with @SpringBootApplication or @SpringBootTest annotations
+- **Build File Prioritization**: Spring projects now prioritize pom.xml, build.gradle, or build.gradle.kts in context
+- **Enhanced Keyword Extraction**: Added Spring-specific keywords (controller, service, repository, entity, config, application)
+- **Spring File Patterns**: Optimized search patterns for Java source files, configuration files, and Spring-specific directories
+
+</details>
+
+<details>
+<summary>Ollama Cloud Model Authentication</summary>
+
+- **gpt-oss-120b:cloud Support**: Added support for Ollama cloud model with authentication
+- **Automatic UI Display**: Authentication section automatically appears when cloud model is selected
+- **Integrated Authentication**: ollama auth functionality integrated into settings panel
+- **Serial Number Input**: User-friendly interface for entering authentication serial numbers
+- **Status Feedback**: Clear success/error messages for authentication attempts
+
+</details>
+
+<details>
+<summary>Settings Panel Improvements</summary>
+
+- **Fixed Model Selection**: Resolved AI model selection persistence issues (Gemini/Ollama)
+- **Correct Sub-Model Display**: Fixed Ollama sub-model display and selection problems
+- **One-Click Project Root**: Improved project root configuration and removal functionality
+- **Enhanced Error Handling**: Better error messages and status feedback for all settings operations
+- **Improved Logging**: Added detailed logging for debugging settings panel issues
+
+</details>
+
+<details>
+<summary>Enhanced Library Exclusion System</summary>
+
+- **Comprehensive Filtering**: Added extensive library directory exclusion patterns:
+  - Node.js: node_modules, .npm, npm-cache
+  - Java/Maven: .m2, target, build, .gradle, gradle
+  - Python: __pycache__, .pytest_cache, venv, env, .venv, .env, site-packages, .pip
+  - .NET: bin, obj, packages, .nuget
+  - Go: vendor, pkg
+  - Rust: target, Cargo.lock
+  - PHP: vendor, composer
+  - Ruby: vendor, bundle, .bundle
+  - General: dist, out, build, .build, coverage, .coverage, logs, .logs, tmp, .tmp, temp, .temp, cache, .cache
+  - IDE: .vscode, .idea, .eclipse, .settings, .project, .classpath
+  - Version Control: .git, .svn, .hg, .bzr
+  - OS: .DS_Store, Thumbs.db, .Spotlight-V100, .Trashes, .fseventsd, .TemporaryItems
+- **Performance Improvement**: Significantly faster file search by excluding build artifacts and dependencies
+- **Better Context Relevance**: Only actual project source code is included in LLM context
+
+</details>
+
 ## Version 3.0.0 (2025/10/04) - Terminal Daemon, Send Queue, Error‑first Automation
 
 <details>

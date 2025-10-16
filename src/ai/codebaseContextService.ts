@@ -17,9 +17,125 @@ export class CodebaseContextService {
         '.lock', '.log', '.tmp', '.temp'                                  // Lock/Log/Temp files
     ];
 
+    private readonly EXCLUDED_LIBRARY_PATHS = [
+        // Node.js 관련 라이브러리 디렉토리
+        'node_modules',
+        '.npm',
+        'npm-cache',
+
+        // Java/Maven 관련 라이브러리 디렉토리
+        '.m2',
+        'target',
+        'build',
+        '.gradle',
+        'gradle',
+
+        // Python 관련 라이브러리 디렉토리
+        '__pycache__',
+        '.pytest_cache',
+        'venv',
+        'env',
+        '.venv',
+        '.env',
+        'site-packages',
+        '.pip',
+
+        // .NET 관련 라이브러리 디렉토리
+        'bin',
+        'obj',
+        'packages',
+        '.nuget',
+
+        // Go 관련 라이브러리 디렉토리
+        'vendor',
+        'pkg',
+
+        // Rust 관련 라이브러리 디렉토리
+        'target',
+        'Cargo.lock',
+
+        // PHP 관련 라이브러리 디렉토리
+        'vendor',
+        'composer',
+
+        // Ruby 관련 라이브러리 디렉토리
+        'vendor',
+        'bundle',
+        '.bundle',
+
+        // 일반적인 빌드/캐시 디렉토리
+        'dist',
+        'out',
+        'build',
+        '.build',
+        'coverage',
+        '.coverage',
+        'logs',
+        '.logs',
+        'tmp',
+        '.tmp',
+        'temp',
+        '.temp',
+        'cache',
+        '.cache',
+
+        // IDE/에디터 관련 디렉토리
+        '.vscode',
+        '.idea',
+        '.eclipse',
+        '.settings',
+        '.project',
+        '.classpath',
+
+        // 버전 관리 관련
+        '.git',
+        '.svn',
+        '.hg',
+        '.bzr',
+
+        // OS 관련 디렉토리
+        '.DS_Store',
+        'Thumbs.db',
+        '.Spotlight-V100',
+        '.Trashes',
+        '.fseventsd',
+        '.TemporaryItems'
+    ];
+
     constructor(configurationService: ConfigurationService, notificationService: NotificationService) {
         this.configurationService = configurationService;
         this.notificationService = notificationService;
+    }
+
+    /**
+     * 파일 경로가 라이브러리 디렉토리에 속하는지 확인합니다.
+     * @param filePath 파일 경로
+     * @param projectRoot 프로젝트 루트 경로
+     * @returns 라이브러리 디렉토리 여부
+     */
+    private isLibraryPath(filePath: string, projectRoot: string): boolean {
+        const relativePath = path.relative(projectRoot, filePath);
+        const pathParts = relativePath.split(path.sep);
+
+        // 경로의 각 부분을 확인하여 라이브러리 디렉토리인지 검사
+        for (const part of pathParts) {
+            if (this.EXCLUDED_LIBRARY_PATHS.includes(part.toLowerCase())) {
+                return true;
+            }
+        }
+
+        // 경로 자체에 라이브러리 디렉토리가 포함되어 있는지 확인
+        const normalizedPath = relativePath.toLowerCase().replace(/\\/g, '/');
+        for (const excludedPath of this.EXCLUDED_LIBRARY_PATHS) {
+            if (normalizedPath.includes(`/${excludedPath}/`) ||
+                normalizedPath.startsWith(`${excludedPath}/`) ||
+                normalizedPath.endsWith(`/${excludedPath}`) ||
+                normalizedPath === excludedPath) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -41,10 +157,73 @@ export class CodebaseContextService {
         const includedPathSet: Set<string> = new Set();
 
         try {
-            // Node.js 프로젝트의 경우 package.json을 최우선으로 포함
+            // 프로젝트 타입별 최우선 파일 포함
             try {
                 const isNode = await this.isNodeProject(projectRoot);
-                if (isNode) {
+                const isSpring = await this.isSpringProject(projectRoot);
+
+                if (isSpring) {
+                    // Spring 프로젝트의 경우 pom.xml 또는 build.gradle을 최우선으로 포함
+                    const pomXmlPath = path.join(projectRoot, 'pom.xml');
+                    const buildGradlePath = path.join(projectRoot, 'build.gradle');
+                    const buildGradleKtsPath = path.join(projectRoot, 'build.gradle.kts');
+
+                    let buildFile = null;
+                    let buildFileName = '';
+
+                    // Maven 프로젝트 우선 확인
+                    try {
+                        const uri = vscode.Uri.file(pomXmlPath);
+                        const stats = await vscode.workspace.fs.stat(uri);
+                        if (stats.type === vscode.FileType.File) {
+                            buildFile = pomXmlPath;
+                            buildFileName = 'pom.xml';
+                        }
+                    } catch {
+                        // pom.xml이 없는 경우
+                    }
+
+                    // Gradle 프로젝트 확인
+                    if (!buildFile) {
+                        try {
+                            const uri = vscode.Uri.file(buildGradlePath);
+                            const stats = await vscode.workspace.fs.stat(uri);
+                            if (stats.type === vscode.FileType.File) {
+                                buildFile = buildGradlePath;
+                                buildFileName = 'build.gradle';
+                            }
+                        } catch {
+                            // build.gradle이 없는 경우
+                        }
+                    }
+
+                    // Gradle Kotlin DSL 확인
+                    if (!buildFile) {
+                        try {
+                            const uri = vscode.Uri.file(buildGradleKtsPath);
+                            const stats = await vscode.workspace.fs.stat(uri);
+                            if (stats.type === vscode.FileType.File) {
+                                buildFile = buildGradleKtsPath;
+                                buildFileName = 'build.gradle.kts';
+                            }
+                        } catch {
+                            // build.gradle.kts가 없는 경우
+                        }
+                    }
+
+                    if (buildFile) {
+                        const contentBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(buildFile));
+                        const content = Buffer.from(contentBytes).toString('utf8');
+                        const nameForContext = this.getPathRelativeToWorkspace(buildFile) || buildFileName;
+                        const fileType = getFileType(buildFile);
+                        fileContentsContext += `\n--- 파일: ${nameForContext} (${fileType}) ---\n${content}\n`;
+                        includedFilesForContext.push({ name: buildFileName, fullPath: buildFile });
+                        includedPathSet.add(buildFile);
+                        currentTotalContentLength += content.length;
+                        console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
+                    }
+                } else if (isNode) {
+                    // Node.js 프로젝트의 경우 package.json을 최우선으로 포함
                     const packageJsonPath = path.join(projectRoot, 'package.json');
                     const uri = vscode.Uri.file(packageJsonPath);
                     const stats = await vscode.workspace.fs.stat(uri);
@@ -61,7 +240,7 @@ export class CodebaseContextService {
                     }
                 }
             } catch (e) {
-                console.warn('[CodebaseContextService] package.json 우선 포함 중 오류:', e);
+                console.warn('[CodebaseContextService] 프로젝트 빌드 파일 우선 포함 중 오류:', e);
             }
 
             // 질의에서 키워드 추출
@@ -77,7 +256,7 @@ export class CodebaseContextService {
             console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
 
             // 토큰 사용량을 고려한 파일 선별
-            const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery);
+            const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
             console.log(`[CodebaseContextService] 토큰 제한 고려하여 ${selectedFiles.length}개 파일 선별`);
 
             // 파일들을 우선순위에 따라 정렬
@@ -198,13 +377,13 @@ export class CodebaseContextService {
             }
 
             // 2. 기술적 키워드 (중간 점수)
-            const techKeywords = ['react', 'vue', 'angular', 'node', 'express', 'typescript', 'javascript', 'python', 'java', 'spring', 'django', 'flask', 'vite', 'webpack', 'babel', 'eslint', 'prettier'];
+            const techKeywords = ['react', 'vue', 'angular', 'node', 'express', 'typescript', 'javascript', 'python', 'java', 'spring', 'springboot', 'boot', 'django', 'flask', 'vite', 'webpack', 'babel', 'eslint', 'prettier', 'maven', 'gradle'];
             if (techKeywords.includes(keyword.toLowerCase())) {
                 score += 5;
             }
 
             // 3. 파일/폴더 관련 키워드 (낮은 점수)
-            const fileKeywords = ['src', 'package', 'config', 'main', 'index', 'app', 'component', 'service', 'util', 'helper'];
+            const fileKeywords = ['src', 'package', 'config', 'main', 'index', 'app', 'component', 'service', 'util', 'helper', 'controller', 'repository', 'entity', 'application', 'resources'];
             if (fileKeywords.includes(keyword.toLowerCase())) {
                 score += 2;
             }
@@ -463,6 +642,18 @@ export class CodebaseContextService {
             keywords.push('java', 'class', 'spring', 'maven', 'gradle');
         }
 
+        if (query.includes('spring') || query.includes('boot')) {
+            keywords.push('spring', 'boot', 'controller', 'service', 'repository', 'entity', 'config', 'application');
+        }
+
+        if (query.includes('maven')) {
+            keywords.push('maven', 'pom', 'dependency', 'plugin');
+        }
+
+        if (query.includes('gradle')) {
+            keywords.push('gradle', 'build', 'dependency', 'plugin');
+        }
+
         // 일반적인 개발 파일명
         keywords.push('index', 'main', 'app', 'server', 'client', 'router', 'controller', 'model', 'view');
 
@@ -482,10 +673,30 @@ export class CodebaseContextService {
         // 프로젝트 타입 감지
         const isNodeProject = await this.isNodeProject(projectRoot);
         const isFrontendFramework = await this.isFrontendFramework(projectRoot);
+        const isSpringProject = await this.isSpringProject(projectRoot);
 
         let searchPatterns: string[];
 
-        if (isNodeProject && isFrontendFramework) {
+        if (isSpringProject) {
+            // Spring Boot 프로젝트의 경우 Java 중심 검색
+            console.log('[CodebaseContextService] Spring Boot 프로젝트 감지 - Java 중심 검색 수행');
+            searchPatterns = [
+                'pom.xml', 'build.gradle', 'build.gradle.kts',
+                'src/main/resources/application.properties',
+                'src/main/resources/application.yml',
+                'src/main/resources/application.yaml',
+                'src/main/java/**/*.java',
+                'src/test/java/**/*.java',
+                'src/main/resources/**/*.xml',
+                'src/main/resources/**/*.yml',
+                'src/main/resources/**/*.yaml',
+                'src/main/resources/**/*.properties',
+                'src/main/resources/**/*.json',
+                'src/main/resources/**/*.sql',
+                'src/main/resources/**/*.md',
+                'src/main/resources/**/*.txt'
+            ];
+        } else if (isNodeProject && isFrontendFramework) {
             // Node.js 기반 프론트엔드 프레임워크 프로젝트의 경우 제한된 검색
             console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
             searchPatterns = [
@@ -523,20 +734,21 @@ export class CodebaseContextService {
                         if (abortSignal.aborted) break;
 
                         try {
-                            // node_modules 하위 파일 제외
-                            const relativePath = path.relative(projectRoot, filePath);
-                            if (relativePath.includes('node_modules/') || relativePath.startsWith('node_modules/')) {
+                            // 라이브러리 디렉토리 파일 제외
+                            if (this.isLibraryPath(filePath, projectRoot)) {
+                                console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${filePath}`);
                                 continue;
                             }
 
                             // 파일명이나 경로에 키워드가 포함되어 있는지 확인
                             const fileName = path.basename(filePath).toLowerCase();
+                            const relativePath = path.relative(projectRoot, filePath);
                             const relativePathLower = relativePath.toLowerCase();
 
                             const isRelevant = keywords.some(keyword =>
                                 fileName.includes(keyword) ||
                                 relativePathLower.includes(keyword) ||
-                                this.isKeywordRelated(filePath, keyword)
+                                this.isKeywordRelated(filePath, keyword, projectRoot)
                             );
 
                             if (isRelevant && !relevantFiles.includes(filePath)) {
@@ -626,6 +838,112 @@ export class CodebaseContextService {
     }
 
     /**
+     * Spring 프로젝트인지 확인합니다.
+     * Maven, Gradle 기반 Spring Boot 프로젝트를 감지합니다.
+     */
+    private async isSpringProject(projectRoot: string): Promise<boolean> {
+        try {
+            const fs = await import('fs/promises');
+
+            // 1. Maven 기반 Spring 프로젝트 감지
+            const pomXmlPath = path.join(projectRoot, 'pom.xml');
+            try {
+                const pomContent = await fs.readFile(pomXmlPath, 'utf-8');
+                const isSpringBoot = pomContent.includes('spring-boot-starter') ||
+                    pomContent.includes('spring-boot-parent') ||
+                    pomContent.includes('org.springframework.boot');
+                if (isSpringBoot) {
+                    console.log('[CodebaseContextService] Maven 기반 Spring Boot 프로젝트 감지');
+                    return true;
+                }
+            } catch {
+                // pom.xml이 없거나 읽을 수 없는 경우
+            }
+
+            // 2. Gradle 기반 Spring 프로젝트 감지
+            const buildGradlePath = path.join(projectRoot, 'build.gradle');
+            const buildGradleKtsPath = path.join(projectRoot, 'build.gradle.kts');
+
+            try {
+                const buildGradleContent = await fs.readFile(buildGradlePath, 'utf-8');
+                const isSpringBoot = buildGradleContent.includes('spring-boot-starter') ||
+                    buildGradleContent.includes('org.springframework.boot') ||
+                    buildGradleContent.includes('spring-boot-gradle-plugin');
+                if (isSpringBoot) {
+                    console.log('[CodebaseContextService] Gradle 기반 Spring Boot 프로젝트 감지');
+                    return true;
+                }
+            } catch {
+                // build.gradle이 없거나 읽을 수 없는 경우
+            }
+
+            try {
+                const buildGradleKtsContent = await fs.readFile(buildGradleKtsPath, 'utf-8');
+                const isSpringBoot = buildGradleKtsContent.includes('spring-boot-starter') ||
+                    buildGradleKtsContent.includes('org.springframework.boot') ||
+                    buildGradleKtsContent.includes('spring-boot-gradle-plugin');
+                if (isSpringBoot) {
+                    console.log('[CodebaseContextService] Gradle Kotlin DSL 기반 Spring Boot 프로젝트 감지');
+                    return true;
+                }
+            } catch {
+                // build.gradle.kts가 없거나 읽을 수 없는 경우
+            }
+
+            // 3. application.properties 또는 application.yml 파일 존재 확인
+            const applicationPropertiesPath = path.join(projectRoot, 'src', 'main', 'resources', 'application.properties');
+            const applicationYmlPath = path.join(projectRoot, 'src', 'main', 'resources', 'application.yml');
+            const applicationYamlPath = path.join(projectRoot, 'src', 'main', 'resources', 'application.yaml');
+
+            try {
+                await fs.access(applicationPropertiesPath);
+                console.log('[CodebaseContextService] application.properties 파일로 Spring 프로젝트 감지');
+                return true;
+            } catch {
+                // application.properties가 없는 경우
+            }
+
+            try {
+                await fs.access(applicationYmlPath);
+                console.log('[CodebaseContextService] application.yml 파일로 Spring 프로젝트 감지');
+                return true;
+            } catch {
+                // application.yml이 없는 경우
+            }
+
+            try {
+                await fs.access(applicationYamlPath);
+                console.log('[CodebaseContextService] application.yaml 파일로 Spring 프로젝트 감지');
+                return true;
+            } catch {
+                // application.yaml이 없는 경우
+            }
+
+            // 4. @SpringBootApplication 어노테이션이 있는 Java 파일 확인
+            const javaFiles = await glob('**/*.java', { cwd: projectRoot, nodir: true });
+            for (const javaFile of javaFiles.slice(0, 10)) { // 최대 10개 파일만 확인
+                try {
+                    const javaFilePath = path.join(projectRoot, javaFile);
+                    const javaContent = await fs.readFile(javaFilePath, 'utf-8');
+                    if (javaContent.includes('@SpringBootApplication') ||
+                        javaContent.includes('@SpringBootTest') ||
+                        javaContent.includes('org.springframework.boot')) {
+                        console.log('[CodebaseContextService] @SpringBootApplication 어노테이션으로 Spring 프로젝트 감지');
+                        return true;
+                    }
+                } catch {
+                    // 파일 읽기 실패 시 계속 진행
+                }
+            }
+
+            return false;
+        } catch (error) {
+            console.warn('[CodebaseContextService] Spring 프로젝트 감지 중 오류:', error);
+            return false;
+        }
+    }
+
+    /**
      * 키워드 기반 검색 패턴을 생성합니다.
      * @param keywords 키워드 배열
      * @returns 생성된 패턴 배열
@@ -667,6 +985,31 @@ export class CodebaseContextService {
                 addedPatterns.add('**/config/**/*');
             }
 
+            if (keyword === 'controller' && !addedPatterns.has('**/controller/**/*')) {
+                patterns.push('**/controller/**/*');
+                addedPatterns.add('**/controller/**/*');
+            }
+
+            if (keyword === 'service' && !addedPatterns.has('**/service/**/*')) {
+                patterns.push('**/service/**/*');
+                addedPatterns.add('**/service/**/*');
+            }
+
+            if (keyword === 'repository' && !addedPatterns.has('**/repository/**/*')) {
+                patterns.push('**/repository/**/*');
+                addedPatterns.add('**/repository/**/*');
+            }
+
+            if (keyword === 'entity' && !addedPatterns.has('**/entity/**/*')) {
+                patterns.push('**/entity/**/*');
+                addedPatterns.add('**/entity/**/*');
+            }
+
+            if (keyword === 'application' && !addedPatterns.has('**/application.*')) {
+                patterns.push('**/application.*');
+                addedPatterns.add('**/application.*');
+            }
+
             // 최대 15개 패턴으로 제한
             if (patterns.length >= 15) {
                 break;
@@ -683,11 +1026,17 @@ export class CodebaseContextService {
      * @param userQuery 사용자 질의
      * @returns 선별된 파일 배열
      */
-    private selectFilesBasedOnTokenLimit(relevantFiles: string[], userQuery: string): string[] {
+    private selectFilesBasedOnTokenLimit(relevantFiles: string[], userQuery: string, projectRoot?: string): string[] {
         // 파일 우선순위 계산
         const fileScores = new Map<string, number>();
 
         for (const filePath of relevantFiles) {
+            // 라이브러리 디렉토리 파일 제외
+            if (projectRoot && this.isLibraryPath(filePath, projectRoot)) {
+                console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외 (선별 단계): ${filePath}`);
+                continue;
+            }
+
             let score = 0;
             const fileName = path.basename(filePath).toLowerCase();
             const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
@@ -698,17 +1047,20 @@ export class CodebaseContextService {
             }
 
             // 2. 중요한 파일들 (높은 점수)
-            if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'webpack.config.js') {
+            if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'webpack.config.js' ||
+                fileName === 'pom.xml' || fileName === 'build.gradle' || fileName === 'build.gradle.kts') {
                 score += 15;
             }
 
             // 3. 소스 코드 파일들 (중간 점수)
-            if (fileName.endsWith('.ts') || fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx')) {
+            if (fileName.endsWith('.ts') || fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx') ||
+                fileName.endsWith('.java')) {
                 score += 10;
             }
 
             // 4. 설정 파일들 (중간 점수)
-            if (fileName.endsWith('.json') || fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
+            if (fileName.endsWith('.json') || fileName.endsWith('.yaml') || fileName.endsWith('.yml') ||
+                fileName.endsWith('.properties') || fileName.endsWith('.xml')) {
                 score += 8;
             }
 
@@ -717,7 +1069,18 @@ export class CodebaseContextService {
                 score += 5;
             }
 
-            // 6. 파일 크기 고려 (작은 파일 우선)
+            // 6. Spring 프로젝트 특별 경로 우선순위
+            if (relativePath.includes('src/main/java') || relativePath.includes('src/main/resources')) {
+                score += 8;
+            }
+            if (relativePath.includes('src/test/java')) {
+                score += 5;
+            }
+            if (fileName === 'application.properties' || fileName === 'application.yml' || fileName === 'application.yaml') {
+                score += 12;
+            }
+
+            // 7. 파일 크기 고려 (작은 파일 우선)
             try {
                 const stats = require('fs').statSync(filePath);
                 if (stats.size < 10000) { // 10KB 미만
@@ -747,9 +1110,15 @@ export class CodebaseContextService {
      * 파일이 키워드와 관련이 있는지 확인합니다.
      * @param filePath 파일 경로
      * @param keyword 키워드
+     * @param projectRoot 프로젝트 루트 경로 (선택사항)
      * @returns 관련성 여부
      */
-    private isKeywordRelated(filePath: string, keyword: string): boolean {
+    private isKeywordRelated(filePath: string, keyword: string, projectRoot?: string): boolean {
+        // 라이브러리 디렉토리 파일은 관련성이 없다고 판단
+        if (projectRoot && this.isLibraryPath(filePath, projectRoot)) {
+            return false;
+        }
+
         const fileName = path.basename(filePath).toLowerCase();
         const relativePath = path.relative(process.cwd(), filePath).toLowerCase();
         const keywordLower = keyword.toLowerCase();
@@ -916,13 +1285,47 @@ export class CodebaseContextService {
                     }
                 } else if (stats.type === vscode.FileType.Directory) {
                     const pattern = path.join(uri.fsPath, '**', '*');
+                    // 라이브러리 디렉토리들을 glob ignore 패턴으로 추가
+                    const ignorePatterns = [
+                        path.join(uri.fsPath, '**/node_modules/**'),
+                        path.join(uri.fsPath, '**/.git/**'),
+                        path.join(uri.fsPath, '**/dist/**'),
+                        path.join(uri.fsPath, '**/out/**'),
+                        path.join(uri.fsPath, '**/target/**'),
+                        path.join(uri.fsPath, '**/build/**'),
+                        path.join(uri.fsPath, '**/.gradle/**'),
+                        path.join(uri.fsPath, '**/gradle/**'),
+                        path.join(uri.fsPath, '**/__pycache__/**'),
+                        path.join(uri.fsPath, '**/venv/**'),
+                        path.join(uri.fsPath, '**/.venv/**'),
+                        path.join(uri.fsPath, '**/vendor/**'),
+                        path.join(uri.fsPath, '**/bin/**'),
+                        path.join(uri.fsPath, '**/obj/**'),
+                        path.join(uri.fsPath, '**/packages/**'),
+                        path.join(uri.fsPath, '**/.nuget/**'),
+                        path.join(uri.fsPath, '**/pkg/**'),
+                        path.join(uri.fsPath, '**/coverage/**'),
+                        path.join(uri.fsPath, '**/.coverage/**'),
+                        path.join(uri.fsPath, '**/logs/**'),
+                        path.join(uri.fsPath, '**/.logs/**'),
+                        path.join(uri.fsPath, '**/tmp/**'),
+                        path.join(uri.fsPath, '**/.tmp/**'),
+                        path.join(uri.fsPath, '**/temp/**'),
+                        path.join(uri.fsPath, '**/.temp/**'),
+                        path.join(uri.fsPath, '**/cache/**'),
+                        path.join(uri.fsPath, '**/.cache/**'),
+                        path.join(uri.fsPath, '**/.vscode/**'),
+                        path.join(uri.fsPath, '**/.idea/**'),
+                        path.join(uri.fsPath, '**/.eclipse/**'),
+                        path.join(uri.fsPath, '**/.settings/**'),
+                        path.join(uri.fsPath, '**/.project'),
+                        path.join(uri.fsPath, '**/.classpath')
+                    ];
+
                     const files = glob.sync(pattern, {
                         nodir: true,
                         dot: false,
-                        ignore: [
-                            path.join(uri.fsPath, '**/node_modules/**'),
-                            path.join(uri.fsPath, '**/.git/**', '**/dist/**', '**/out/**')
-                        ].map(p => p.replace(/\\/g, '/'))
+                        ignore: ignorePatterns.map(p => p.replace(/\\/g, '/'))
                     });
 
                     for (const file of files) {
@@ -930,6 +1333,13 @@ export class CodebaseContextService {
                             this.notificationService.showWarningMessage('컨텍스트 수집이 취소되었습니다.');
                             break;
                         }
+
+                        // 라이브러리 디렉토리 파일 제외
+                        if (this.isLibraryPath(file, uri.fsPath)) {
+                            console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${file}`);
+                            continue;
+                        }
+
                         // Check if file is excluded
                         if (this.EXCLUDED_EXTENSIONS.includes(path.extname(file).toLowerCase())) {
                             console.log(`[CodebaseContextService] Skipping excluded file: ${file}`);

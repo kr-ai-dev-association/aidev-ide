@@ -540,6 +540,15 @@
             </div>
             <p id="ollama-model-status" class="info-message"></p>
 
+            <!-- Ollama 인증 섹션 (gpt-oss-120b:cloud 모델용) -->
+            <div id="ollama-auth-section" class="api-key-input-group" style="margin-bottom: 15px; display: none;">
+                <label for="ollama-auth-serial" style="margin-right: 10px; font-weight: bold;">인증 시리얼:</label>
+                <input type="text" id="ollama-auth-serial" placeholder="Ollama 인증 시리얼 번호를 입력하세요"
+                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;">
+                <button id="ollama-auth-button">인증</button>
+            </div>
+            <p id="ollama-auth-status" class="info-message" style="display: none;"></p>
+
             <!-- Ollama API URL 설정 -->
             <div class="api-key-input-group">
                 <input type="text" id="ollama-api-url-input" placeholder="http://localhost:11434">

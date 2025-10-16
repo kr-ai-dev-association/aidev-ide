@@ -2,6 +2,65 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## Version 3.1.0 (2025/01/15) - 설정 및 Spring 지원 업데이트
+
+<details>
+<summary>Spring 프로젝트 자동 감지 및 컨텍스트 강화</summary>
+
+- **Spring Boot 프로젝트 감지**: 다음 기준으로 Spring Boot 프로젝트 자동 감지:
+  - Spring Boot 의존성을 포함한 Maven 빌드 파일 (pom.xml)
+  - Spring Boot 플러그인이 있는 Gradle 빌드 파일 (build.gradle, build.gradle.kts)
+  - 애플리케이션 설정 파일 (application.properties, application.yml, application.yaml)
+  - @SpringBootApplication 또는 @SpringBootTest 어노테이션이 있는 Java 파일
+- **빌드 파일 우선순위**: Spring 프로젝트에서 pom.xml, build.gradle, build.gradle.kts를 컨텍스트에 우선 포함
+- **키워드 추출 강화**: Spring 관련 키워드 추가 (controller, service, repository, entity, config, application)
+- **Spring 파일 패턴**: Java 소스 파일, 설정 파일, Spring 특화 디렉토리에 최적화된 검색 패턴
+
+</details>
+
+<details>
+<summary>Ollama 클라우드 모델 인증</summary>
+
+- **gpt-oss-120b:cloud 지원**: 인증이 필요한 Ollama 클라우드 모델 지원 추가
+- **자동 UI 표시**: 클라우드 모델 선택 시 인증 섹션이 자동으로 표시됨
+- **통합 인증**: 설정 패널에 ollama auth 기능 통합
+- **시리얼 번호 입력**: 인증 시리얼 번호 입력을 위한 사용자 친화적 인터페이스
+- **상태 피드백**: 인증 시도에 대한 명확한 성공/실패 메시지
+
+</details>
+
+<details>
+<summary>설정 패널 개선</summary>
+
+- **모델 선택 수정**: AI 모델 선택 지속성 문제 해결 (Gemini/Ollama)
+- **하위 모델 표시 수정**: Ollama 하위 모델 표시 및 선택 문제 해결
+- **원클릭 프로젝트 root**: 프로젝트 root 설정 및 제거 기능 개선
+- **에러 처리 강화**: 모든 설정 작업에 대한 더 나은 에러 메시지 및 상태 피드백
+- **로깅 개선**: 설정 패널 문제 디버깅을 위한 상세 로깅 추가
+
+</details>
+
+<details>
+<summary>라이브러리 제외 시스템 강화</summary>
+
+- **포괄적 필터링**: 광범위한 라이브러리 디렉토리 제외 패턴 추가:
+  - Node.js: node_modules, .npm, npm-cache
+  - Java/Maven: .m2, target, build, .gradle, gradle
+  - Python: __pycache__, .pytest_cache, venv, env, .venv, .env, site-packages, .pip
+  - .NET: bin, obj, packages, .nuget
+  - Go: vendor, pkg
+  - Rust: target, Cargo.lock
+  - PHP: vendor, composer
+  - Ruby: vendor, bundle, .bundle
+  - 일반: dist, out, build, .build, coverage, .coverage, logs, .logs, tmp, .tmp, temp, .temp, cache, .cache
+  - IDE: .vscode, .idea, .eclipse, .settings, .project, .classpath
+  - 버전 관리: .git, .svn, .hg, .bzr
+  - OS: .DS_Store, Thumbs.db, .Spotlight-V100, .Trashes, .fseventsd, .TemporaryItems
+- **성능 향상**: 빌드 아티팩트 및 의존성 제외로 파일 검색 속도 대폭 개선
+- **더 나은 컨텍스트 관련성**: 실제 프로젝트 소스 코드만 LLM 컨텍스트에 포함
+
+</details>
+
 ## Version 3.0.0 (2025/10/04) - 터미널 데몬, 전송 큐, 에러 우선 자동화
 
 <details>

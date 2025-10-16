@@ -71,8 +71,38 @@ export function openSettingsPanel(
                 case 'setProjectRoot':
                     if (data.clear) {
                         // 프로젝트 Root 지우기
-                        await configurationService.updateProjectRoot(undefined);
-                        panel.webview.postMessage({ command: 'updatedProjectRoot', projectRoot: '' });
+                        try {
+                            await configurationService.updateProjectRoot(undefined);
+
+                            // 설정이 제대로 삭제되었는지 확인
+                            const savedRoot = await configurationService.getProjectRoot();
+                            console.log(`[PanelManager] 프로젝트 Root 삭제 후 확인: ${savedRoot}`);
+
+                            if (!savedRoot) {
+                                panel.webview.postMessage({
+                                    command: 'updatedProjectRoot',
+                                    projectRoot: '',
+                                    success: true
+                                });
+                                console.log(`[PanelManager] 프로젝트 Root 삭제 성공`);
+                            } else {
+                                panel.webview.postMessage({
+                                    command: 'updatedProjectRoot',
+                                    projectRoot: '',
+                                    success: false,
+                                    error: '프로젝트 Root 삭제에 실패했습니다.'
+                                });
+                                console.error(`[PanelManager] 프로젝트 Root 삭제 실패: 여전히 값이 존재함`);
+                            }
+                        } catch (error) {
+                            console.error(`[PanelManager] 프로젝트 Root 삭제 중 오류:`, error);
+                            panel.webview.postMessage({
+                                command: 'updatedProjectRoot',
+                                projectRoot: '',
+                                success: false,
+                                error: `삭제 중 오류가 발생했습니다: ${error}`
+                            });
+                        }
                     } else {
                         // 프로젝트 Root 선택
                         const rootUris = await vscode.window.showOpenDialog({
@@ -438,11 +468,18 @@ export function openSettingsPanel(
                             // 현재 AI 모델이 Ollama인 경우 AI 모델도 업데이트
                             const currentAiModel = await storageService.getCurrentAiModel();
                             if (currentAiModel === 'ollama-gemma' || currentAiModel === 'ollama-deepseek' || currentAiModel === 'ollama-codellama') {
-                                const newAiModel = ollamaModelToSave === 'deepseek-r1:70b'
-                                    ? 'ollama-deepseek'
-                                    : (ollamaModelToSave && ollamaModelToSave.startsWith('codellama'))
-                                        ? 'ollama-codellama'
-                                        : 'ollama-gemma';
+                                let newAiModel = 'ollama-gemma'; // 기본값
+
+                                if (ollamaModelToSave === 'deepseek-r1:70b') {
+                                    newAiModel = 'ollama-deepseek';
+                                } else if (ollamaModelToSave && ollamaModelToSave.startsWith('codellama')) {
+                                    newAiModel = 'ollama-codellama';
+                                } else if (ollamaModelToSave === 'gpt-oss-120b:cloud') {
+                                    newAiModel = 'ollama-gpt-oss'; // 새로운 모델 타입 추가
+                                } else if (ollamaModelToSave && (ollamaModelToSave.includes('gemma') || ollamaModelToSave.includes('Gemma'))) {
+                                    newAiModel = 'ollama-gemma';
+                                }
+
                                 await storageService.saveCurrentAiModel(newAiModel);
                                 if (llmService) {
                                     llmService.setCurrentModel(newAiModel as any);
@@ -458,6 +495,38 @@ export function openSettingsPanel(
                     } else {
                         panel.webview.postMessage({ command: 'ollamaModelError', error: 'Ollama model empty.' });
                         notificationService.showErrorMessage('Ollama model is empty.');
+                    }
+                    break;
+                case 'ollamaAuth':
+                    const serialNumber = data.serialNumber;
+                    if (serialNumber && typeof serialNumber === 'string' && ollamaBlockerService) {
+                        try {
+                            const result = await ollamaBlockerService.authenticate(serialNumber);
+                            panel.webview.postMessage({
+                                command: 'ollamaAuthResult',
+                                success: result.success,
+                                message: result.message
+                            });
+                            if (result.success) {
+                                notificationService.showInfoMessage('Ollama 인증이 성공했습니다.');
+                            } else {
+                                notificationService.showErrorMessage(`Ollama 인증 실패: ${result.message}`);
+                            }
+                        } catch (error: any) {
+                            console.error('Ollama 인증 중 오류:', error);
+                            panel.webview.postMessage({
+                                command: 'ollamaAuthResult',
+                                success: false,
+                                message: error.message || '알 수 없는 오류가 발생했습니다.'
+                            });
+                            notificationService.showErrorMessage(`Ollama 인증 실패: ${error.message || '알 수 없는 오류가 발생했습니다.'}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({
+                            command: 'ollamaAuthResult',
+                            success: false,
+                            message: '시리얼 번호가 제공되지 않았거나 Ollama Blocker 서비스가 사용할 수 없습니다.'
+                        });
                     }
                     break;
                 case 'loadOllamaModel':
