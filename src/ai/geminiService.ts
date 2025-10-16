@@ -88,7 +88,15 @@ export class GeminiService {
 
             // GENERAL_ASK 타입일 때는 코드 컨텍스트를 포함하지 않음
             if (promptType === PromptType.CODE_GENERATION) {
-                const contextResult = await this.codebaseContextService.getProjectCodebaseContext(abortSignal);
+                // src 파일 업데이트 확인
+                const updatedSrcFiles = await this.codebaseContextService.checkSrcFilesUpdate();
+                if (updatedSrcFiles.length > 0) {
+                    console.log(`[GeminiService] 업데이트된 src 파일들: ${updatedSrcFiles.join(', ')}`);
+                    this.notificationService.showInfoMessage(`최근 업데이트된 src 파일 ${updatedSrcFiles.length}개가 컨텍스트에 포함됩니다.`);
+                }
+
+                // 사용자 쿼리를 포함하여 컨텍스트 수집
+                const contextResult = await this.codebaseContextService.getProjectCodebaseContext(abortSignal, userQuery);
                 fileContentsContext = contextResult.fileContentsContext;
                 includedFilesForContext = contextResult.includedFilesForContext;
             }

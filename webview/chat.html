@@ -476,6 +476,46 @@
             color: var(--vscode-button-foreground);
         }
 
+        .run-bash-button {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            margin-right: 5px;
+            padding: 2px 8px;
+            font-size: 11px;
+            line-height: 1;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+            z-index: 2;
+        }
+
+        .aidev-ide-message-container:hover .run-bash-button,
+        .message-bubble:hover .run-bash-button {
+            opacity: 1;
+        }
+
+        .run-bash-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .run-bash-button:active {
+            background-color: var(--vscode-button-secondary-background);
+            color: var(--vscode-button-secondary-foreground);
+        }
+
+        .bash-button-container {
+            display: flex;
+            justify-content: flex-end;
+            gap: 5px;
+        }
+
         .message-bubble p {
             margin-top: 0;
             margin-bottom: 10px;

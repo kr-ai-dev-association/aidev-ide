@@ -2,7 +2,89 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
-## Version 3.1.0 (2025/01/15) - 설정 및 Spring 지원 업데이트
+## Version 3.2.0 (2025/10/17) - 향상된 컨텍스트 및 파일 처리
+
+<details>
+<summary>스마트 컨텍스트 관리 및 프레임워크 감지</summary>
+
+- **지능형 파일 필터링**: 
+  - 컨텍스트에 `src/` 디렉토리 파일을 자동으로 포함
+  - 사용자 쿼리에서 추출한 키워드를 기반으로 다른 파일 필터링
+  - 일반적인 불용어를 제거하고 관련 용어에 집중
+- **프레임워크 인식 컨텍스트**: 프로젝트 타입 자동 감지 및 관련 설정 파일 포함:
+  - **Node.js**: `package.json`, `package-lock.json`, `tsconfig.json`, 빌드 설정
+  - **Java/Spring**: `pom.xml`, `build.gradle`, `application.properties`, `application.yml`
+  - **Python Django**: `manage.py`, `requirements.txt`, `settings.py`, `urls.py`
+  - **Python Flask**: `app.py`, `flask_app.py`, `requirements.txt`, `config.py`
+  - **Python FastAPI**: `main.py`, `requirements.txt`, `pyproject.toml`
+  - **.NET**: `*.csproj`, `*.sln`, `appsettings.json`
+  - **Go**: `go.mod`, `go.sum`, `main.go`
+  - **Rust**: `Cargo.toml`, `Cargo.lock`, `main.rs`
+  - **PHP**: `composer.json`, `composer.lock`, `index.php`
+  - **Ruby**: `Gemfile`, `Gemfile.lock`, `Rakefile`
+
+</details>
+
+<details>
+<summary>향상된 파일 처리 및 경로 검증</summary>
+
+- **Callout 정리**: 
+  - AI 응답에서 파일 경로의 callout 잔여물 (`*`, `**`, 백틱, 따옴표) 자동 제거
+  - 다양한 마크다운 포맷팅 문제 처리
+  - 원치 않는 문자를 정리하면서 유효한 파일 경로 보존
+- **경로 검증**: 
+  - 위험한 작업을 방지하기 위한 파일 경로 검증
+  - 시스템 디렉토리 (`/etc`, `/usr`, `/var` 등) 접근 차단
+  - 디렉토리 순회 공격 (`../` 패턴) 방지
+  - 파일명 및 경로 길이 제한 적용
+- **긴 응답 처리**: 
+  - 메모리 문제를 방지하기 위해 매우 긴 AI 응답을 청크 단위로 처리
+  - 더 나은 처리를 위해 파일 작업별로 응답 분할
+  - 청킹 중 코드 블록 무결성 유지
+- **개선된 파싱**: 
+  - 파일 작업을 위한 더 나은 정규식 패턴
+  - 파싱 실패에 대한 폴백 메커니즘
+  - 향상된 오류 처리 및 복구
+
+</details>
+
+<details>
+<summary>Bash 명령어 실행 개선</summary>
+
+- **주석 필터링**: 
+  - bash 명령어에서 주석 줄 (`#`) 자동 필터링
+  - bash callout에서 실행 가능한 명령어만 보존
+- **인라인 주석 제거**: 
+  - 명령줄에서 인라인 주석 제거
+  - 따옴표 내용과 이스케이프 문자 보존
+  - 주석이 있는 복잡한 명령 구조 처리
+- **실행 버튼**: 
+  - 채팅 응답의 bash callout에 실행 버튼 추가
+  - CODE 및 ASK 탭 모두에서 사용 가능
+  - 복사 버튼 옆에 배치되어 쉬운 접근
+  - 명령 실행 중 시각적 피드백 제공
+
+</details>
+
+<details>
+<summary>오류 처리 및 복구</summary>
+
+- **우아한 성능 저하**: 
+  - 실패한 작업에 대한 폴백 처리
+  - 하나가 실패해도 다른 파일 처리 계속
+  - 사용자에게 의미 있는 오류 메시지 제공
+- **더 나은 오류 메시지**: 
+  - 파일 작업에 대한 더 설명적인 오류 메시지
+  - 무엇이 잘못되었는지와 이유에 대한 명확한 표시
+  - 일반적인 문제 해결을 위한 제안
+- **메모리 최적화**: 
+  - 대용량 응답의 청크 처리
+  - 처리 청크 간 메모리 정리
+  - 긴 작업 중 메모리 누수 방지
+
+</details>
+
+## Version 3.1.0 (2025/10/15) - 설정 및 Spring 지원 업데이트
 
 <details>
 <summary>Spring 프로젝트 자동 감지 및 컨텍스트 강화</summary>

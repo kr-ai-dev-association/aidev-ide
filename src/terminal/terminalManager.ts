@@ -369,14 +369,14 @@ async function processQueue(): Promise<void> {
             if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
                 const ok = await executeFileOpFromToken(command);
                 if (!ok) {
-                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`); } catch {}
+                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`); } catch { }
                     break;
                 }
             } else {
                 const ok = await handleInteractiveCommand(command);
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
-                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: command failed or cancelled`); } catch {}
+                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: command failed or cancelled`); } catch { }
                     break;
                 }
             }
@@ -385,7 +385,7 @@ async function processQueue(): Promise<void> {
             if (isLongRunningDevCommand(command)) {
                 _queuePausedForLongRunning = true;
                 // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
-                try { getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`); } catch {}
+                try { getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`); } catch { }
                 return;
             }
 
@@ -492,6 +492,50 @@ export function enqueueCommandsBatch(commands: string[], priority = false): void
     enqueueCommands(commands, priority);
 }
 
+/**
+ * 명령어에서 인라인 주석을 제거합니다.
+ * @param command 원본 명령어
+ * @returns 주석이 제거된 명령어
+ */
+function removeInlineComment(command: string): string {
+    // 따옴표 안의 #은 주석이 아니므로 보호
+    let inQuotes = false;
+    let quoteChar = '';
+    let escaped = false;
+
+    for (let i = 0; i < command.length; i++) {
+        const char = command[i];
+
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (!inQuotes && (char === '"' || char === "'")) {
+            inQuotes = true;
+            quoteChar = char;
+            continue;
+        }
+
+        if (inQuotes && char === quoteChar) {
+            inQuotes = false;
+            quoteChar = '';
+            continue;
+        }
+
+        if (!inQuotes && char === '#') {
+            return command.substring(0, i).trim();
+        }
+    }
+
+    return command.trim();
+}
+
 export function extractBashCommandsFromLlmResponse(llmResponse: string): string[] {
     const commands: string[] = [];
     const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
@@ -501,7 +545,14 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
         if (!block) continue;
         block.split('\n').forEach(cmd => {
             const c = cmd.trim();
-            if (c) commands.push(c);
+            // 주석 처리된 줄들(#으로 시작)과 빈 줄들을 제외
+            if (c && !c.startsWith('#')) {
+                // 인라인 주석 제거
+                const cleanCommand = removeInlineComment(c);
+                if (cleanCommand) {
+                    commands.push(cleanCommand);
+                }
+            }
         });
     }
     return commands;
@@ -520,13 +571,15 @@ export function executeBashCommandsFromLlmResponse(llmResponse: string): string[
     while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
         const bashCommands = match[1].trim();
         if (bashCommands) {
-            // 여러 명령어를 개행으로 분리
-            const commands = bashCommands.split('\n').filter(cmd => cmd.trim());
+            // 여러 명령어를 개행으로 분리하고 주석 처리된 줄들 제외
+            const commands = bashCommands.split('\n')
+                .map(cmd => cmd.trim())
+                .filter(cmd => cmd && !cmd.startsWith('#'))
+                .map(cmd => removeInlineComment(cmd))
+                .filter(cmd => cmd); // 빈 명령어 제거
 
             for (const command of commands) {
-                if (command.trim()) {
-                    executedCommands.push(command.trim());
-                }
+                executedCommands.push(command);
             }
         }
     }

@@ -18,6 +18,13 @@ VSCode base code assistant plugin with LLM and LM support.
   - **Gemini 2.5 Pro Flash**: Google's advanced LLM for intelligent code generation and analysis
   - **Ollama Integration**: Local Ollama server integration for offline AI processing
     - **Gemma3:27b**: 128K token limit for code generation and analysis
+- **Smart Context Management**:
+  - **Intelligent File Filtering**: Automatically includes all `src/` directory files and filters other files based on keywords
+  - **Framework-Aware Context**: Automatically detects project type and includes relevant configuration files
+    - Node.js: `package.json`, `tsconfig.json`, build configs
+    - Java/Spring: `pom.xml`, `build.gradle`, application properties
+    - Python Django/Flask/FastAPI: `manage.py`, `requirements.txt`, `main.py`
+    - And more frameworks supported
     - **DeepSeek R1:70B**: 200K token limit with Korean language optimization
     - **CodeLlama 7B**: 8K token limit optimized for code generation and analysis
   - **Dynamic Model Selection**: Switch between cloud and local AI models in settings
@@ -142,6 +149,32 @@ VSCode base code assistant plugin with LLM and LM support.
   - Framework-specific library paths (node_modules, target, build, vendor, etc.)
   - Improved search performance by excluding build artifacts and dependencies
   - Better context relevance for actual project code
+
+#### Version 3.2.0 - Enhanced Context & File Processing (2025/10/17)
+- **Smart Context Management**:
+  - **Intelligent File Filtering**: Automatically includes all `src/` directory files and filters other files based on keywords from user queries
+  - **Framework-Aware Context**: Automatically detects project type and includes relevant configuration files
+    - Node.js: `package.json`, `tsconfig.json`, build configs
+    - Java/Spring: `pom.xml`, `build.gradle`, application properties  
+    - Python Django/Flask/FastAPI: `manage.py`, `requirements.txt`, `main.py`
+    - .NET: `*.csproj`, `appsettings.json`
+    - Go: `go.mod`, `go.sum`
+    - Rust: `Cargo.toml`, `Cargo.lock`
+    - PHP: `composer.json`
+    - Ruby: `Gemfile`
+- **Enhanced File Processing**:
+  - **Callout Cleanup**: Automatically removes callout artifacts (`*`, `**`, backticks, quotes) from file paths
+  - **Path Validation**: Validates file paths to prevent dangerous operations and system directory access
+  - **Long Response Handling**: Processes very long AI responses in chunks to prevent memory issues
+  - **Improved Parsing**: Better regex patterns for file operations with fallback mechanisms
+- **Bash Command Execution**:
+  - **Comment Filtering**: Automatically filters out comment lines (`#`) from bash commands
+  - **Inline Comment Removal**: Removes inline comments from command lines while preserving quoted content
+  - **Run Button**: Added run button for bash callouts in chat responses (CODE and ASK tabs)
+- **Error Handling & Recovery**:
+  - **Graceful Degradation**: Fallback processing for failed operations
+  - **Better Error Messages**: More descriptive error messages for file operations
+  - **Memory Optimization**: Chunked processing for large responses
 
 #### Version 3.0.0 - Major Update (2025/10/04)
 - **Terminal-Daemon Integration**:

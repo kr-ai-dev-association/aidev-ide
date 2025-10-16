@@ -1241,14 +1241,24 @@ export class CodebaseContextService {
 
     /**
      * 프로젝트 코드베이스에서 LLM에 전달할 컨텍스트를 수집합니다.
+     * src 디렉토리는 전체 포함하고, 나머지 파일들은 키워드 기반으로 필터링합니다.
      * @param abortSignal AbortController의 Signal (취소 요청 시 사용)
+     * @param userQuery 사용자 쿼리 (키워드 추출용)
      * @returns { fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }
      */
-    public async getProjectCodebaseContext(abortSignal: AbortSignal): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
+    public async getProjectCodebaseContext(abortSignal: AbortSignal, userQuery?: string): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
         const sourcePathsSetting = await this.configurationService.getSourcePaths();
         let fileContentsContext = "";
         let currentTotalContentLength = 0;
         const includedFilesForContext: { name: string, fullPath: string }[] = [];
+
+        // 프로젝트 타입 감지
+        const projectType = await this.detectProjectType(sourcePathsSetting);
+        console.log(`[CodebaseContextService] 감지된 프로젝트 타입: ${projectType}`);
+
+        // 키워드 추출 (사용자 쿼리에서)
+        const keywords = this.extractKeywords(userQuery || '');
+        console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
 
         for (const sourcePath of sourcePathsSetting) {
             if (abortSignal.aborted) {
@@ -1267,6 +1277,12 @@ export class CodebaseContextService {
                     // Check if file is excluded
                     if (this.EXCLUDED_EXTENSIONS.includes(path.extname(sourcePath).toLowerCase())) {
                         console.log(`[CodebaseContextService] Skipping excluded file: ${sourcePath}`);
+                        continue;
+                    }
+
+                    // src 디렉토리가 아닌 파일은 키워드 기반으로 필터링
+                    if (!this.isSrcFile(sourcePath) && !this.shouldIncludeFile(sourcePath, keywords, projectType)) {
+                        console.log(`[CodebaseContextService] 키워드 필터링으로 제외: ${sourcePath}`);
                         continue;
                     }
 
@@ -1346,6 +1362,12 @@ export class CodebaseContextService {
                             continue;
                         }
 
+                        // src 디렉토리가 아닌 파일은 키워드 기반으로 필터링
+                        if (!this.isSrcFile(file) && !this.shouldIncludeFile(file, keywords, projectType)) {
+                            console.log(`[CodebaseContextService] 키워드 필터링으로 제외: ${file}`);
+                            continue;
+                        }
+
                         if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) break;
                         const fileUri = vscode.Uri.file(file);
                         const contentBytes = await vscode.workspace.fs.readFile(fileUri);
@@ -1375,5 +1397,421 @@ export class CodebaseContextService {
             fileContentsContext += "[정보] 참조할 소스 경로가 설정되지 않았습니다. CodePilot 설정에서 경로를 추가해주세요.\n";
         }
         return { fileContentsContext, includedFilesForContext };
+    }
+
+    /**
+     * 사용자 쿼리에서 키워드를 추출합니다.
+     * @param userQuery 사용자 쿼리
+     * @returns 추출된 키워드 배열
+     */
+    private extractKeywords(userQuery: string): string[] {
+        if (!userQuery || userQuery.trim() === '') {
+            return [];
+        }
+
+        // 일반적인 불용어 제거
+        const stopWords = new Set([
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those',
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+            'my', 'your', 'his', 'her', 'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs',
+            'how', 'what', 'when', 'where', 'why', 'who', 'which', 'whose', 'whom',
+            'please', 'help', 'create', 'make', 'add', 'remove', 'delete', 'update', 'modify', 'change',
+            'file', 'files', 'code', 'function', 'class', 'method', 'variable', 'import', 'export',
+            '한국어', '영어', '코드', '파일', '함수', '클래스', '메서드', '변수', '생성', '추가', '삭제', '수정', '변경'
+        ]);
+
+        // 단어 추출 및 정규화
+        const words = userQuery
+            .toLowerCase()
+            .replace(/[^\w\s가-힣]/g, ' ') // 특수문자 제거, 한글 유지
+            .split(/\s+/)
+            .filter(word => word.length > 2 && !stopWords.has(word))
+            .filter((word, index, array) => array.indexOf(word) === index); // 중복 제거
+
+        return words;
+    }
+
+    /**
+     * 파일이 src 디렉토리에 속하는지 확인합니다.
+     * @param filePath 파일 경로
+     * @returns src 디렉토리 파일 여부
+     */
+    private isSrcFile(filePath: string): boolean {
+        const normalizedPath = filePath.replace(/\\/g, '/');
+        return normalizedPath.includes('/src/') || normalizedPath.endsWith('/src');
+    }
+
+    /**
+     * 프로젝트 타입을 감지합니다.
+     * @param sourcePaths 설정된 소스 경로들
+     * @returns 프로젝트 타입
+     */
+    private async detectProjectType(sourcePaths: string[]): Promise<string> {
+        for (const sourcePath of sourcePaths) {
+            try {
+                const uri = vscode.Uri.file(sourcePath);
+                const stats = await vscode.workspace.fs.stat(uri);
+
+                if (stats.type === vscode.FileType.Directory) {
+                    // Node.js 프로젝트 확인
+                    const packageJsonPath = path.join(sourcePath, 'package.json');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(packageJsonPath));
+                        return 'nodejs';
+                    } catch {
+                        // package.json이 없음
+                    }
+
+                    // Java/Spring 프로젝트 확인
+                    const pomXmlPath = path.join(sourcePath, 'pom.xml');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(pomXmlPath));
+                        return 'java';
+                    } catch {
+                        // pom.xml이 없음
+                    }
+
+                    // Python Django 프로젝트 확인
+                    const managePyPath = path.join(sourcePath, 'manage.py');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(managePyPath));
+                        return 'django';
+                    } catch {
+                        // manage.py가 없음
+                    }
+
+                    // Python Flask 프로젝트 확인
+                    const appPyPath = path.join(sourcePath, 'app.py');
+                    const flaskAppPath = path.join(sourcePath, 'flask_app.py');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(appPyPath));
+                        return 'flask';
+                    } catch {
+                        try {
+                            await vscode.workspace.fs.stat(vscode.Uri.file(flaskAppPath));
+                            return 'flask';
+                        } catch {
+                            // Flask 앱 파일이 없음
+                        }
+                    }
+
+                    // Python FastAPI 프로젝트 확인
+                    const mainPyPath = path.join(sourcePath, 'main.py');
+                    try {
+                        const mainPyUri = vscode.Uri.file(mainPyPath);
+                        await vscode.workspace.fs.stat(mainPyUri);
+                        // main.py 내용을 확인하여 FastAPI인지 체크
+                        const content = await vscode.workspace.fs.readFile(mainPyUri);
+                        const contentStr = Buffer.from(content).toString('utf8');
+                        if (contentStr.includes('FastAPI') || contentStr.includes('from fastapi')) {
+                            return 'fastapi';
+                        }
+                    } catch {
+                        // main.py가 없거나 FastAPI가 아님
+                    }
+
+                    // .NET 프로젝트 확인
+                    const csprojFiles = glob.sync(path.join(sourcePath, '**/*.csproj'), { nodir: true });
+                    if (csprojFiles.length > 0) {
+                        return 'dotnet';
+                    }
+
+                    // Go 프로젝트 확인
+                    const goModPath = path.join(sourcePath, 'go.mod');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(goModPath));
+                        return 'go';
+                    } catch {
+                        // go.mod가 없음
+                    }
+
+                    // Rust 프로젝트 확인
+                    const cargoTomlPath = path.join(sourcePath, 'Cargo.toml');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(cargoTomlPath));
+                        return 'rust';
+                    } catch {
+                        // Cargo.toml이 없음
+                    }
+
+                    // PHP 프로젝트 확인
+                    const composerJsonPath = path.join(sourcePath, 'composer.json');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(composerJsonPath));
+                        return 'php';
+                    } catch {
+                        // composer.json이 없음
+                    }
+
+                    // Ruby 프로젝트 확인
+                    const gemfilePath = path.join(sourcePath, 'Gemfile');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(gemfilePath));
+                        return 'ruby';
+                    } catch {
+                        // Gemfile이 없음
+                    }
+                }
+            } catch (err: any) {
+                console.error(`Error detecting project type for ${sourcePath}:`, err);
+            }
+        }
+        return 'unknown';
+    }
+
+    /**
+     * 파일이 키워드 기반으로 포함되어야 하는지 확인합니다.
+     * @param filePath 파일 경로
+     * @param keywords 키워드 배열
+     * @param projectType 프로젝트 타입
+     * @returns 포함 여부
+     */
+    private shouldIncludeFile(filePath: string, keywords: string[], projectType: string): boolean {
+        const fileName = path.basename(filePath).toLowerCase();
+        const filePathLower = filePath.toLowerCase();
+
+        // 프레임워크별 주요 설정 파일들은 항상 포함
+        if (this.isFrameworkConfigFile(fileName, projectType)) {
+            return true;
+        }
+
+        if (keywords.length === 0) {
+            return false; // 키워드가 없으면 src가 아닌 파일은 제외
+        }
+
+        // 파일명이나 경로에 키워드가 포함되어 있는지 확인
+        for (const keyword of keywords) {
+            if (fileName.includes(keyword) || filePathLower.includes(keyword)) {
+                return true;
+            }
+        }
+
+        // 특정 확장자나 파일명 패턴에 대한 키워드 매칭
+        const extension = path.extname(filePath).toLowerCase();
+        const baseName = path.basename(filePath, extension).toLowerCase();
+
+        // 설정 파일들
+        if (['package.json', 'tsconfig.json', 'webpack.config.js', 'vite.config.js', 'next.config.js'].includes(fileName)) {
+            for (const keyword of keywords) {
+                if (['config', 'package', 'webpack', 'vite', 'next', 'typescript', 'ts'].includes(keyword)) {
+                    return true;
+                }
+            }
+        }
+
+        // README나 문서 파일들
+        if (fileName.includes('readme') || fileName.includes('changelog') || fileName.includes('license')) {
+            for (const keyword of keywords) {
+                if (['readme', 'doc', 'documentation', 'changelog', 'license', '설명', '문서'].includes(keyword)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 프레임워크별 주요 설정 파일인지 확인합니다.
+     * @param fileName 파일명
+     * @param projectType 프로젝트 타입
+     * @returns 프레임워크 설정 파일 여부
+     */
+    private isFrameworkConfigFile(fileName: string, projectType: string): boolean {
+        const frameworkConfigFiles: { [key: string]: string[] } = {
+            'nodejs': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'webpack.config.js',
+                'webpack.config.ts',
+                'vite.config.js',
+                'vite.config.ts',
+                'next.config.js',
+                'next.config.ts',
+                'nuxt.config.js',
+                'nuxt.config.ts',
+                'rollup.config.js',
+                'rollup.config.ts',
+                'babel.config.js',
+                'babel.config.json',
+                '.babelrc',
+                '.babelrc.js',
+                '.babelrc.json',
+                'jest.config.js',
+                'jest.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts'
+            ],
+            'java': [
+                'pom.xml',
+                'build.gradle',
+                'build.gradle.kts',
+                'gradle.properties',
+                'settings.gradle',
+                'settings.gradle.kts',
+                'application.properties',
+                'application.yml',
+                'application.yaml',
+                'bootstrap.properties',
+                'bootstrap.yml',
+                'bootstrap.yaml'
+            ],
+            'django': [
+                'manage.py',
+                'requirements.txt',
+                'requirements-dev.txt',
+                'pyproject.toml',
+                'setup.py',
+                'settings.py',
+                'urls.py',
+                'wsgi.py',
+                'asgi.py',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ],
+            'flask': [
+                'app.py',
+                'flask_app.py',
+                'requirements.txt',
+                'requirements-dev.txt',
+                'pyproject.toml',
+                'setup.py',
+                'config.py',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ],
+            'fastapi': [
+                'main.py',
+                'requirements.txt',
+                'requirements-dev.txt',
+                'pyproject.toml',
+                'setup.py',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ],
+            'dotnet': [
+                '*.csproj',
+                '*.sln',
+                '*.csproj.user',
+                'appsettings.json',
+                'appsettings.Development.json',
+                'appsettings.Production.json',
+                'web.config',
+                'app.config'
+            ],
+            'go': [
+                'go.mod',
+                'go.sum',
+                'main.go',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ],
+            'rust': [
+                'Cargo.toml',
+                'Cargo.lock',
+                'main.rs',
+                'lib.rs',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ],
+            'php': [
+                'composer.json',
+                'composer.lock',
+                'index.php',
+                'config.php',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ],
+            'ruby': [
+                'Gemfile',
+                'Gemfile.lock',
+                'Rakefile',
+                'config.ru',
+                'Dockerfile',
+                'docker-compose.yml',
+                'docker-compose.yaml'
+            ]
+        };
+
+        const configFiles = frameworkConfigFiles[projectType] || [];
+
+        // 정확한 파일명 매칭
+        if (configFiles.includes(fileName)) {
+            return true;
+        }
+
+        // 와일드카드 패턴 매칭 (*.csproj 등)
+        for (const pattern of configFiles) {
+            if (pattern.includes('*')) {
+                const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+                if (regex.test(fileName)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * src 디렉토리의 파일들이 업데이트되었는지 확인합니다.
+     * @returns 업데이트된 파일 목록
+     */
+    public async checkSrcFilesUpdate(): Promise<string[]> {
+        const updatedFiles: string[] = [];
+        const sourcePathsSetting = await this.configurationService.getSourcePaths();
+
+        for (const sourcePath of sourcePathsSetting) {
+            try {
+                const uri = vscode.Uri.file(sourcePath);
+                const stats = await vscode.workspace.fs.stat(uri);
+
+                if (stats.type === vscode.FileType.Directory) {
+                    const pattern = path.join(uri.fsPath, '**', '*');
+                    const ignorePatterns = [
+                        path.join(uri.fsPath, '**/node_modules/**'),
+                        path.join(uri.fsPath, '**/.git/**'),
+                        path.join(uri.fsPath, '**/dist/**'),
+                        path.join(uri.fsPath, '**/out/**'),
+                        path.join(uri.fsPath, '**/target/**'),
+                        path.join(uri.fsPath, '**/build/**')
+                    ];
+
+                    const files = glob.sync(pattern, {
+                        nodir: true,
+                        dot: false,
+                        ignore: ignorePatterns.map(p => p.replace(/\\/g, '/'))
+                    });
+
+                    for (const file of files) {
+                        if (this.isSrcFile(file)) {
+                            // 파일이 수정되었는지 확인 (간단한 방법으로 현재 시간과 비교)
+                            const fileStats = await vscode.workspace.fs.stat(vscode.Uri.file(file));
+                            const now = Date.now();
+                            const fileTime = fileStats.mtime;
+
+                            // 최근 5분 이내에 수정된 파일만 체크
+                            if (now - fileTime < 5 * 60 * 1000) {
+                                updatedFiles.push(file);
+                            }
+                        }
+                    }
+                }
+            } catch (err: any) {
+                console.error(`Error checking src files update for ${sourcePath}:`, err);
+            }
+        }
+
+        return updatedFiles;
     }
 }

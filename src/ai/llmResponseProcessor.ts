@@ -89,6 +89,16 @@ export class LlmResponseProcessor {
             return;
         }
 
+        // 긴 응답에 대한 처리 개선
+        console.log(`[LLM Response Processor] Processing response of length: ${llmResponse.length}`);
+
+        // 응답이 너무 길면 청크 단위로 처리
+        if (llmResponse.length > 50000) { // 50KB 이상
+            console.log('[LLM Response Processor] Response is very long, processing in chunks');
+            await this.processLongResponse(llmResponse, contextFiles, webview, promptType);
+            return;
+        }
+
         llmResponse = this.normalizeTerminalCommandBlocks(llmResponse);
 
         const fileOperations: FileOperation[] = [];
@@ -137,10 +147,17 @@ export class LlmResponseProcessor {
             console.log(`[LLM Response Processor] Found directive: "${originalDirective}", LLM path: "${llmSpecifiedPath}"`);
             console.log(`[LLM Response Processor] Raw match groups:`, match.map((group, index) => `Group ${index}: "${group}"`));
 
-            // 파일명에서 ** 제거 (Ollama 응답에서 발생하는 문제 해결)
-            llmSpecifiedPath = llmSpecifiedPath.replace(/\*\*$/, '');
+            // 파일 경로에서 callout 잔여물 제거 및 검증
+            llmSpecifiedPath = this.cleanFilePath(llmSpecifiedPath);
 
-
+            // 경로 유효성 검증
+            const pathValidation = this.validateFilePath(llmSpecifiedPath);
+            if (!pathValidation.isValid) {
+                const errorMsg = `파일 경로 검증 실패: ${pathValidation.error} (경로: ${llmSpecifiedPath})`;
+                console.error(`[LLM Response Processor] ${errorMsg}`);
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMsg });
+                continue;
+            }
 
             let absolutePath: string | undefined;
             let operationType: 'modify' | 'create' | 'delete';
@@ -208,8 +225,17 @@ export class LlmResponseProcessor {
             let llmSpecifiedPath = match[2].trim();  // e.g., 'docs/README.md'
             const newContent = match[3];
 
-            // 파일명에서 ** 제거 (Ollama 응답에서 발생하는 문제 해결)
-            llmSpecifiedPath = llmSpecifiedPath.replace(/\*\*$/, '');
+            // 파일 경로에서 callout 잔여물 제거 및 검증
+            llmSpecifiedPath = this.cleanFilePath(llmSpecifiedPath);
+
+            // 경로 유효성 검증
+            const pathValidation = this.validateFilePath(llmSpecifiedPath);
+            if (!pathValidation.isValid) {
+                const errorMsg = `마크다운 파일 경로 검증 실패: ${pathValidation.error} (경로: ${llmSpecifiedPath})`;
+                console.error(`[LLM Response Processor] ${errorMsg}`);
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMsg });
+                continue;
+            }
 
             let absolutePath: string | undefined;
             let operationType: 'modify' | 'create' | 'delete';
@@ -928,4 +954,553 @@ ${match.trim()}
         });
         return normalized;
     }
+
+    /**
+     * 파일 경로에서 callout 잔여물을 제거합니다.
+     * @param filePath 원본 파일 경로
+     * @returns 정리된 파일 경로
+     */
+    private cleanFilePath(filePath: string): string {
+        if (!filePath) return filePath;
+
+        let cleanedPath = filePath.trim();
+
+        // callout 잔여물 제거
+        cleanedPath = cleanedPath
+            // 백틱 제거
+            .replace(/^`+|`+$/g, '')
+            // 작은따옴표 제거
+            .replace(/^'+|'+$/g, '')
+            // 큰따옴표 제거
+            .replace(/^"+|"+$/g, '')
+            // 별표 제거
+            .replace(/^\*+|\*+$/g, '')
+            // 언더스코어 제거
+            .replace(/^_+|_+$/g, '')
+            // 대괄호 제거
+            .replace(/^\[+|\]+$/g, '')
+            // 괄호 제거
+            .replace(/^\(+|\)+$/g, '')
+            // 중괄호 제거
+            .replace(/^\{+|\}+$/g, '')
+            // 공백 제거
+            .trim();
+
+        // 경로 구분자 정규화
+        cleanedPath = cleanedPath.replace(/\\/g, '/');
+
+        // 연속된 슬래시 제거
+        cleanedPath = cleanedPath.replace(/\/+/g, '/');
+
+        // 시작과 끝의 슬래시 제거 (루트 경로가 아닌 경우)
+        if (cleanedPath.length > 1) {
+            cleanedPath = cleanedPath.replace(/^\/+|\/+$/g, '');
+        }
+
+        console.log(`[LLM Response Processor] Cleaned file path: "${filePath}" -> "${cleanedPath}"`);
+        return cleanedPath;
+    }
+
+    /**
+     * LLM을 사용하여 파일 경로 파싱을 검증합니다.
+     * @param rawPath 원본 경로
+     * @param operationType 작업 타입
+     * @returns 검증된 경로
+     */
+    private async validatePathWithLLM(rawPath: string, operationType: string): Promise<string> {
+        try {
+            // 설정된 LLM 서비스 가져오기
+            const llmService = this.getConfiguredLLMService();
+            if (!llmService) {
+                console.warn('[LLM Response Processor] No configured LLM service available for path validation');
+                return this.cleanFilePath(rawPath);
+            }
+
+            const validationPrompt = `
+다음은 AI가 생성한 파일 경로입니다. 이 경로에서 불필요한 문자나 기호를 제거하고 올바른 파일 경로만 추출해주세요.
+
+원본 경로: "${rawPath}"
+작업 타입: ${operationType}
+
+다음 규칙을 따라 경로를 정리해주세요:
+1. 백틱(\`), 따옴표('"), 별표(*), 언더스코어(_) 등 불필요한 기호 제거
+2. 올바른 파일 경로 형식으로 변환
+3. 경로 구분자는 슬래시(/) 사용
+4. 파일 확장자는 유지
+
+정리된 경로만 응답해주세요. 다른 설명이나 추가 텍스트는 포함하지 마세요.`;
+
+            const validatedPath = await llmService.validatePath(validationPrompt);
+
+            if (validatedPath && validatedPath.trim()) {
+                const cleanedPath = this.cleanFilePath(validatedPath.trim());
+                console.log(`[LLM Response Processor] LLM validated path: "${rawPath}" -> "${cleanedPath}"`);
+                return cleanedPath;
+            }
+        } catch (error) {
+            console.error('[LLM Response Processor] Error validating path with LLM:', error);
+        }
+
+        // LLM 검증 실패 시 기본 정리 로직 사용
+        return this.cleanFilePath(rawPath);
+    }
+
+    /**
+     * 설정된 LLM 서비스를 가져옵니다.
+     * @returns LLM 서비스 인스턴스
+     */
+    private getConfiguredLLMService(): any {
+        // 설정에서 LLM 서비스 타입 확인
+        const config = vscode.workspace.getConfiguration('aidevIde');
+        const llmProvider = config.get<string>('llmProvider', 'gemini');
+
+        // LLM 서비스 팩토리에서 적절한 서비스 반환
+        // 이 부분은 실제 LLM 서비스 구조에 맞게 구현해야 함
+        try {
+            // 임시로 기본 서비스 반환 (실제 구현 시 수정 필요)
+            return null; // TODO: 실제 LLM 서비스 반환 로직 구현
+        } catch (error) {
+            console.error('[LLM Response Processor] Error getting configured LLM service:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 파일 경로의 유효성을 검증합니다.
+     * @param filePath 파일 경로
+     * @returns 유효성 검증 결과
+     */
+    private validateFilePath(filePath: string): { isValid: boolean; error?: string } {
+        if (!filePath || filePath.trim().length === 0) {
+            return { isValid: false, error: '파일 경로가 비어있습니다.' };
+        }
+
+        // 위험한 경로 패턴 검사
+        const dangerousPatterns = [
+            /\.\./,  // 상위 디렉토리 접근
+            /\/\.\./, // 상위 디렉토리 접근
+            /^\/$/,  // 루트 디렉토리
+            /^\/etc/, // 시스템 디렉토리
+            /^\/usr/, // 시스템 디렉토리
+            /^\/var/, // 시스템 디렉토리
+            /^\/sys/, // 시스템 디렉토리
+            /^\/proc/, // 시스템 디렉토리
+        ];
+
+        for (const pattern of dangerousPatterns) {
+            if (pattern.test(filePath)) {
+                return { isValid: false, error: `위험한 경로 패턴이 감지되었습니다: ${filePath}` };
+            }
+        }
+
+        // 파일명 길이 검사
+        const fileName = filePath.split('/').pop() || '';
+        if (fileName.length > 255) {
+            return { isValid: false, error: '파일명이 너무 깁니다.' };
+        }
+
+        // 경로 길이 검사
+        if (filePath.length > 4096) {
+            return { isValid: false, error: '파일 경로가 너무 깁니다.' };
+        }
+
+        return { isValid: true };
+    }
+
+    /**
+     * 긴 응답을 청크 단위로 처리합니다.
+     * @param llmResponse 긴 LLM 응답
+     * @param contextFiles 컨텍스트 파일들
+     * @param webview 웹뷰
+     * @param promptType 프롬프트 타입
+     */
+    private async processLongResponse(
+        llmResponse: string,
+        contextFiles: { name: string, fullPath: string }[],
+        webview: vscode.Webview,
+        promptType: PromptType
+    ): Promise<void> {
+        try {
+            // 응답을 파일 작업 단위로 분할
+            const fileSections = this.splitResponseByFileOperations(llmResponse);
+
+            console.log(`[LLM Response Processor] Split response into ${fileSections.length} sections`);
+
+            // 각 섹션을 순차적으로 처리
+            for (let i = 0; i < fileSections.length; i++) {
+                const section = fileSections[i];
+                console.log(`[LLM Response Processor] Processing section ${i + 1}/${fileSections.length}`);
+
+                // 각 섹션을 개별적으로 처리
+                await this.processResponseSection(section, contextFiles, webview, promptType);
+
+                // 메모리 정리를 위한 짧은 대기
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // 처리 완료 메시지
+            safePostMessage(webview, {
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: `✅ 긴 응답 처리가 완료되었습니다. (${fileSections.length}개 섹션 처리됨)`
+            });
+
+        } catch (error) {
+            console.error('[LLM Response Processor] Error processing long response:', error);
+            this.notificationService.showErrorMessage('긴 응답 처리 중 오류가 발생했습니다.');
+
+            // 대체 방법으로 전체 응답을 한 번에 처리 시도
+            await this.processResponseWithFallback(llmResponse, contextFiles, webview, promptType);
+        }
+    }
+
+    /**
+     * 응답을 파일 작업 단위로 분할합니다.
+     * @param response LLM 응답
+     * @returns 분할된 섹션들
+     */
+    private splitResponseByFileOperations(response: string): string[] {
+        const sections: string[] = [];
+
+        // 파일 작업 패턴으로 분할
+        const fileOperationPattern = /(?:새 파일|수정 파일|삭제 파일):\s*[^\n]+/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = fileOperationPattern.exec(response)) !== null) {
+            // 이전 섹션 추가
+            if (match.index > lastIndex) {
+                const section = response.substring(lastIndex, match.index).trim();
+                if (section) {
+                    sections.push(section);
+                }
+            }
+            lastIndex = match.index;
+        }
+
+        // 마지막 섹션 추가
+        if (lastIndex < response.length) {
+            const section = response.substring(lastIndex).trim();
+            if (section) {
+                sections.push(section);
+            }
+        }
+
+        // 섹션이 없으면 전체를 하나의 섹션으로 처리
+        if (sections.length === 0) {
+            sections.push(response);
+        }
+
+        return sections;
+    }
+
+    /**
+     * 응답 섹션을 처리합니다.
+     * @param section 응답 섹션
+     * @param contextFiles 컨텍스트 파일들
+     * @param webview 웹뷰
+     * @param promptType 프롬프트 타입
+     */
+    private async processResponseSection(
+        section: string,
+        contextFiles: { name: string, fullPath: string }[],
+        webview: vscode.Webview,
+        promptType: PromptType
+    ): Promise<void> {
+        try {
+            // 섹션이 너무 길면 더 작은 단위로 분할
+            if (section.length > 20000) {
+                const subSections = this.splitSectionBySize(section, 15000);
+                for (const subSection of subSections) {
+                    await this.processResponseSection(subSection, contextFiles, webview, promptType);
+                }
+                return;
+            }
+
+            // 정규화 및 처리
+            const normalizedSection = this.normalizeTerminalCommandBlocks(section);
+            await this.processNormalizedResponse(normalizedSection, contextFiles, webview, promptType);
+
+        } catch (error) {
+            console.error('[LLM Response Processor] Error processing section:', error);
+            // 섹션 처리 실패 시 해당 섹션을 텍스트로만 표시
+            safePostMessage(webview, {
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: `⚠️ 섹션 처리 중 오류 발생:\n${section.substring(0, 500)}${section.length > 500 ? '...' : ''}`
+            });
+        }
+    }
+
+    /**
+     * 섹션을 크기별로 분할합니다.
+     * @param section 섹션
+     * @param maxSize 최대 크기
+     * @returns 분할된 섹션들
+     */
+    private splitSectionBySize(section: string, maxSize: number): string[] {
+        const sections: string[] = [];
+        let currentIndex = 0;
+
+        while (currentIndex < section.length) {
+            let endIndex = currentIndex + maxSize;
+
+            // 코드 블록 중간에서 잘리지 않도록 조정
+            if (endIndex < section.length) {
+                const lastCodeBlock = section.lastIndexOf('```', endIndex);
+                const nextCodeBlock = section.indexOf('```', endIndex);
+
+                if (lastCodeBlock > currentIndex && nextCodeBlock > endIndex) {
+                    // 코드 블록 중간에서 잘리지 않도록 조정
+                    endIndex = lastCodeBlock + 3; // ``` 포함
+                }
+            }
+
+            sections.push(section.substring(currentIndex, endIndex));
+            currentIndex = endIndex;
+        }
+
+        return sections;
+    }
+
+    /**
+     * 정규화된 응답을 처리합니다.
+     * @param normalizedResponse 정규화된 응답
+     * @param contextFiles 컨텍스트 파일들
+     * @param webview 웹뷰
+     * @param promptType 프롬프트 타입
+     */
+    private async processNormalizedResponse(
+        normalizedResponse: string,
+        contextFiles: { name: string, fullPath: string }[],
+        webview: vscode.Webview,
+        promptType: PromptType
+    ): Promise<void> {
+        // 기존 처리 로직을 여기서 재사용
+        // 파일 작업 파싱 및 실행
+        const fileOperations = this.parseFileOperations(normalizedResponse);
+
+        if (fileOperations.length > 0) {
+            await this.executeFileOperations(fileOperations, webview);
+        }
+
+        // 터미널 명령어 처리
+        if (hasBashCommands(normalizedResponse)) {
+            const commands = extractBashCommandsFromLlmResponse(normalizedResponse);
+            if (commands.length > 0) {
+                // enqueueCommandsBatch 함수 import 필요
+                const { enqueueCommandsBatch } = await import('../terminal/terminalManager');
+                enqueueCommandsBatch(commands, false);
+            }
+        }
+    }
+
+    /**
+     * 파일 작업을 파싱합니다.
+     * @param response 응답
+     * @returns 파일 작업 목록
+     */
+    private parseFileOperations(response: string): ParsedFileOperation[] {
+        const fileOperations: ParsedFileOperation[] = [];
+
+        // 개선된 정규식들
+        const codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+        const markdownFileRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명|$))/gs;
+        const deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+
+        let match;
+
+        // 코드 블록이 있는 파일 작업 처리
+        while ((match = codeBlockRegex.exec(response)) !== null) {
+            const operation = match[1].trim();
+            let filePath = match[2].trim();
+            const content = match[3];
+
+            // 파일 경로 정리
+            filePath = this.cleanFilePath(filePath);
+
+            // 경로 유효성 검증
+            const pathValidation = this.validateFilePath(filePath);
+            if (!pathValidation.isValid) {
+                console.error(`[LLM Response Processor] Invalid file path in parseFileOperations: ${pathValidation.error} (${filePath})`);
+                continue;
+            }
+
+            fileOperations.push({
+                type: operation === '새 파일' ? 'create' : 'update',
+                path: filePath,
+                content: content
+            });
+        }
+
+        // 마크다운 파일 처리
+        while ((match = markdownFileRegex.exec(response)) !== null) {
+            const operation = match[1].trim();
+            let filePath = match[2].trim();
+            const content = match[3];
+
+            // 파일 경로 정리
+            filePath = this.cleanFilePath(filePath);
+
+            // 경로 유효성 검증
+            const pathValidation = this.validateFilePath(filePath);
+            if (!pathValidation.isValid) {
+                console.error(`[LLM Response Processor] Invalid markdown file path: ${pathValidation.error} (${filePath})`);
+                continue;
+            }
+
+            fileOperations.push({
+                type: operation === '새 파일' ? 'create' : 'update',
+                path: filePath,
+                content: content
+            });
+        }
+
+        // 삭제 파일 처리
+        while ((match = deleteFileRegex.exec(response)) !== null) {
+            let filePath = match[1].trim();
+
+            // 파일 경로 정리
+            filePath = this.cleanFilePath(filePath);
+
+            // 경로 유효성 검증
+            const pathValidation = this.validateFilePath(filePath);
+            if (!pathValidation.isValid) {
+                console.error(`[LLM Response Processor] Invalid delete file path: ${pathValidation.error} (${filePath})`);
+                continue;
+            }
+
+            fileOperations.push({
+                type: 'delete',
+                path: filePath,
+                content: ''
+            });
+        }
+
+        return fileOperations;
+    }
+
+    /**
+     * 파일 작업을 실행합니다.
+     * @param fileOperations 파일 작업 목록
+     * @param webview 웹뷰
+     */
+    private async executeFileOperations(fileOperations: ParsedFileOperation[], webview: vscode.Webview): Promise<void> {
+        const projectRoot = await this.getProjectRootPath();
+
+        for (const operation of fileOperations) {
+            try {
+                if (operation.type === 'create' || operation.type === 'update') {
+                    await this.createOrUpdateFile(operation.path, operation.content, projectRoot, webview);
+                } else if (operation.type === 'delete') {
+                    await this.deleteFile(operation.path, projectRoot, webview);
+                }
+            } catch (error) {
+                console.error(`[LLM Response Processor] Error executing file operation:`, error);
+                this.notificationService.showErrorMessage(`파일 작업 실행 중 오류: ${operation.path}`);
+            }
+        }
+    }
+
+    /**
+     * 파일을 생성하거나 업데이트합니다.
+     * @param filePath 파일 경로
+     * @param content 파일 내용
+     * @param projectRoot 프로젝트 루트
+     * @param webview 웹뷰
+     */
+    private async createOrUpdateFile(filePath: string, content: string, projectRoot: string | undefined, webview: vscode.Webview): Promise<void> {
+        if (!projectRoot) {
+            throw new Error('프로젝트 루트가 설정되지 않았습니다.');
+        }
+
+        const absolutePath = path.join(projectRoot, filePath);
+        const fileUri = vscode.Uri.file(absolutePath);
+
+        // 디렉토리 생성
+        const dirPath = path.dirname(absolutePath);
+        const dirUri = vscode.Uri.file(dirPath);
+
+        try {
+            await vscode.workspace.fs.stat(dirUri);
+        } catch {
+            await vscode.workspace.fs.createDirectory(dirUri);
+        }
+
+        // 파일 생성 또는 업데이트
+        const contentBytes = Buffer.from(content, 'utf8');
+        await vscode.workspace.fs.writeFile(fileUri, contentBytes);
+
+        // 성공 메시지 전송
+        safePostMessage(webview, {
+            command: 'receiveMessage',
+            sender: 'AIDEV-IDE',
+            text: `✅ 파일 ${filePath}이(가) 성공적으로 생성/업데이트되었습니다.`
+        });
+    }
+
+    /**
+     * 파일을 삭제합니다.
+     * @param filePath 파일 경로
+     * @param projectRoot 프로젝트 루트
+     * @param webview 웹뷰
+     */
+    private async deleteFile(filePath: string, projectRoot: string | undefined, webview: vscode.Webview): Promise<void> {
+        if (!projectRoot) {
+            throw new Error('프로젝트 루트가 설정되지 않았습니다.');
+        }
+
+        const absolutePath = path.join(projectRoot, filePath);
+        const fileUri = vscode.Uri.file(absolutePath);
+
+        try {
+            await vscode.workspace.fs.delete(fileUri);
+            safePostMessage(webview, {
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: `✅ 파일 ${filePath}이(가) 성공적으로 삭제되었습니다.`
+            });
+        } catch (error) {
+            throw new Error(`파일 삭제 실패: ${error}`);
+        }
+    }
+
+    /**
+     * 대체 방법으로 응답을 처리합니다.
+     * @param response 응답
+     * @param contextFiles 컨텍스트 파일들
+     * @param webview 웹뷰
+     * @param promptType 프롬프트 타입
+     */
+    private async processResponseWithFallback(
+        response: string,
+        contextFiles: { name: string, fullPath: string }[],
+        webview: vscode.Webview,
+        promptType: PromptType
+    ): Promise<void> {
+        try {
+            // 간단한 텍스트 처리로 대체
+            const truncatedResponse = response.length > 10000
+                ? response.substring(0, 10000) + '\n\n[응답이 너무 길어 일부만 표시됩니다]'
+                : response;
+
+            safePostMessage(webview, {
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: truncatedResponse
+            });
+
+            this.notificationService.showWarningMessage('긴 응답을 간단한 형태로 처리했습니다.');
+
+        } catch (error) {
+            console.error('[LLM Response Processor] Fallback processing failed:', error);
+            this.notificationService.showErrorMessage('응답 처리에 실패했습니다.');
+        }
+    }
+}
+
+interface ParsedFileOperation {
+    type: 'create' | 'update' | 'delete';
+    path: string;
+    content: string;
 }

@@ -6,6 +6,7 @@ import { PromptType } from '../ai/types'; // LlmService 및 PromptType 임포트
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { StorageService } from '../services/storage';
+import { executeBashCommandsFromLlmResponse } from '../terminal/terminalManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.chatView';
@@ -69,6 +70,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     } catch (e) {
                         console.warn('[ChatViewProvider] openFileInEditor failed:', e);
                         this.notificationService.showErrorMessage('파일을 열 수 없습니다.');
+                    }
+                    break;
+                }
+                case 'executeBashCommands': {
+                    try {
+                        const commands = Array.isArray(data.commands) ? data.commands : [];
+                        if (commands.length > 0) {
+                            // bash 명령어들을 실행
+                            for (const command of commands) {
+                                executeBashCommandsFromLlmResponse(`\`\`\`bash\n${command}\n\`\`\``);
+                            }
+                            this.notificationService.showInfoMessage(`Bash 명령어 ${commands.length}개가 실행되었습니다.`);
+                        }
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] executeBashCommands failed:', e);
+                        this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
                     }
                     break;
                 }

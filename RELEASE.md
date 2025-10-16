@@ -2,7 +2,89 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
-## Version 3.1.0 (2025/01/15) - Settings & Spring Support Update
+## Version 3.2.0 (2025/10/17) - Enhanced Context & File Processing
+
+<details>
+<summary>Smart Context Management & Framework Detection</summary>
+
+- **Intelligent File Filtering**: 
+  - Automatically includes all `src/` directory files in context
+  - Filters other files based on keywords extracted from user queries
+  - Removes common stop words and focuses on relevant terms
+- **Framework-Aware Context**: Automatic project type detection and relevant config file inclusion:
+  - **Node.js**: `package.json`, `package-lock.json`, `tsconfig.json`, build configs
+  - **Java/Spring**: `pom.xml`, `build.gradle`, `application.properties`, `application.yml`
+  - **Python Django**: `manage.py`, `requirements.txt`, `settings.py`, `urls.py`
+  - **Python Flask**: `app.py`, `flask_app.py`, `requirements.txt`, `config.py`
+  - **Python FastAPI**: `main.py`, `requirements.txt`, `pyproject.toml`
+  - **.NET**: `*.csproj`, `*.sln`, `appsettings.json`
+  - **Go**: `go.mod`, `go.sum`, `main.go`
+  - **Rust**: `Cargo.toml`, `Cargo.lock`, `main.rs`
+  - **PHP**: `composer.json`, `composer.lock`, `index.php`
+  - **Ruby**: `Gemfile`, `Gemfile.lock`, `Rakefile`
+
+</details>
+
+<details>
+<summary>Enhanced File Processing & Path Validation</summary>
+
+- **Callout Cleanup**: 
+  - Automatically removes callout artifacts (`*`, `**`, backticks, quotes) from file paths
+  - Handles various markdown formatting issues in AI responses
+  - Preserves valid file paths while cleaning unwanted characters
+- **Path Validation**: 
+  - Validates file paths to prevent dangerous operations
+  - Blocks access to system directories (`/etc`, `/usr`, `/var`, etc.)
+  - Prevents directory traversal attacks (`../` patterns)
+  - Enforces file name and path length limits
+- **Long Response Handling**: 
+  - Processes very long AI responses in chunks to prevent memory issues
+  - Splits responses by file operations for better processing
+  - Maintains code block integrity during chunking
+- **Improved Parsing**: 
+  - Better regex patterns for file operations
+  - Fallback mechanisms for parsing failures
+  - Enhanced error handling and recovery
+
+</details>
+
+<details>
+<summary>Bash Command Execution Improvements</summary>
+
+- **Comment Filtering**: 
+  - Automatically filters out comment lines (`#`) from bash commands
+  - Preserves only executable commands in bash callouts
+- **Inline Comment Removal**: 
+  - Removes inline comments from command lines
+  - Preserves quoted content and escaped characters
+  - Handles complex command structures with comments
+- **Run Button**: 
+  - Added run button for bash callouts in chat responses
+  - Available in both CODE and ASK tabs
+  - Positioned next to copy button for easy access
+  - Provides visual feedback during command execution
+
+</details>
+
+<details>
+<summary>Error Handling & Recovery</summary>
+
+- **Graceful Degradation**: 
+  - Fallback processing for failed operations
+  - Continues processing other files when one fails
+  - Provides meaningful error messages to users
+- **Better Error Messages**: 
+  - More descriptive error messages for file operations
+  - Clear indication of what went wrong and why
+  - Suggestions for resolving common issues
+- **Memory Optimization**: 
+  - Chunked processing for large responses
+  - Memory cleanup between processing chunks
+  - Prevents memory leaks during long operations
+
+</details>
+
+## Version 3.1.0 (2025/10/15) - Settings & Spring Support Update
 
 <details>
 <summary>Spring Project Auto-Detection & Enhanced Context</summary>
