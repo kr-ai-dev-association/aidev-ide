@@ -11373,6 +11373,25 @@ function setProcessingStep(stepName) {
     }
   }
 }
+function updateProcessingStatus(stepName, status) {
+  const statusElement = document.getElementById(`${stepName}-status`);
+  if (statusElement) {
+    statusElement.textContent = status;
+  }
+}
+function resetProcessingStatuses() {
+  const statuses = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+  statuses.forEach(step => {
+    const statusElement = document.getElementById(`${step}-status`);
+    if (statusElement) {
+      if (step === 'intent') {
+        statusElement.textContent = 'Initializing...';
+      } else {
+        statusElement.textContent = 'Waiting...';
+      }
+    }
+  });
+}
 
 // Allow custom aidev-ide:// scheme links to survive sanitization
 try {
@@ -11719,6 +11738,7 @@ window.addEventListener('message', event => {
       loadingDepth++;
       window.showLoading();
       showProcessingSteps();
+      resetProcessingStatuses();
       setProcessingStep('intent');
       break;
     case 'hideLoading':
@@ -11736,6 +11756,11 @@ window.addEventListener('message', event => {
     case 'setProcessingStep':
       if (message.step) {
         setProcessingStep(message.step);
+      }
+      break;
+    case 'updateProcessingStatus':
+      if (message.step && message.status) {
+        updateProcessingStatus(message.step, message.status);
       }
       break;
     case 'displayUserMessage':

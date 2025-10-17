@@ -295,16 +295,14 @@
         .processing-steps {
             position: fixed;
             top: 60px;
-            left: 50%;
-            transform: translateX(-50%);
+            left: 20px;
+            right: 20px;
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-panel-border);
             border-radius: 8px;
             padding: 12px 20px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             z-index: 1000;
-            min-width: 300px;
-            max-width: 500px;
             display: none;
         }
 
@@ -939,42 +937,42 @@
             <div class="step-indicator"></div>
             <div>
                 <div class="step-text">Defining User Intent</div>
-                <div class="step-description">Analyzing user query to understand the request</div>
+                <div class="step-description" id="intent-status">Initializing...</div>
             </div>
         </div>
         <div class="processing-step" data-step="keywords">
             <div class="step-indicator"></div>
             <div>
                 <div class="step-text">Selecting Keywords</div>
-                <div class="step-description">Extracting relevant keywords for context</div>
+                <div class="step-description" id="keywords-status">Waiting...</div>
             </div>
         </div>
         <div class="processing-step" data-step="analyzing">
             <div class="step-indicator"></div>
             <div>
                 <div class="step-text">Analyzing Code</div>
-                <div class="step-description">Gathering and analyzing relevant code files</div>
+                <div class="step-description" id="analyzing-status">Waiting...</div>
             </div>
         </div>
         <div class="processing-step" data-step="assembling">
             <div class="step-indicator"></div>
             <div>
                 <div class="step-text">Assembling Answer</div>
-                <div class="step-description">Generating comprehensive response</div>
+                <div class="step-description" id="assembling-status">Waiting...</div>
             </div>
         </div>
         <div class="processing-step" data-step="parsing">
             <div class="step-indicator"></div>
             <div>
                 <div class="step-text">Parsing Markdown</div>
-                <div class="step-description">Processing response format and structure</div>
+                <div class="step-description" id="parsing-status">Waiting...</div>
             </div>
         </div>
         <div class="processing-step" data-step="printing">
             <div class="step-indicator"></div>
             <div>
                 <div class="step-text">Preparing to Print</div>
-                <div class="step-description">Finalizing output for display</div>
+                <div class="step-description" id="printing-status">Waiting...</div>
             </div>
         </div>
     </div>
