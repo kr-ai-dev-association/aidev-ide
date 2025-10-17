@@ -37,23 +37,40 @@ const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
 const saveGeminiApiKeyButton = document.getElementById('save-gemini-api-key-button');
 const geminiApiKeyStatus = document.getElementById('gemini-api-key-status');
 
-// Ollama API URL 관련 요소들
-const ollamaApiUrlInput = document.getElementById('ollama-api-url-input');
-const saveOllamaApiUrlButton = document.getElementById('save-ollama-api-url-button');
-const ollamaApiUrlStatus = document.getElementById('ollama-api-url-status');
+// Ollama 서버 타입 관련 요소들
+const ollamaServerTypeSelect = document.getElementById('ollama-server-type-select');
+const saveOllamaServerTypeButton = document.getElementById('save-ollama-server-type-button');
+const ollamaServerTypeStatus = document.getElementById('ollama-server-type-status');
 
-// Ollama 엔드포인트 관련 요소들
-const ollamaEndpointSelect = document.getElementById('ollama-endpoint-select');
-const saveOllamaEndpointButton = document.getElementById('save-ollama-endpoint-button');
-const ollamaEndpointStatus = document.getElementById('ollama-endpoint-status');
+// 로컬 Ollama API URL 관련 요소들
+const localOllamaApiUrlInput = document.getElementById('local-ollama-api-url-input');
+const saveLocalOllamaApiUrlButton = document.getElementById('save-local-ollama-api-url-button');
+const localOllamaApiUrlStatus = document.getElementById('local-ollama-api-url-status');
+
+// 로컬 Ollama 엔드포인트 관련 요소들
+const localOllamaEndpointSelect = document.getElementById('local-ollama-endpoint-select');
+const saveLocalOllamaEndpointButton = document.getElementById('save-local-ollama-endpoint-button');
+const localOllamaEndpointStatus = document.getElementById('local-ollama-endpoint-status');
+
+// 원격 서버 모델명 관련 요소들
+const remoteOllamaModelInput = document.getElementById('remote-ollama-model-input');
+const saveRemoteOllamaModelButton = document.getElementById('save-remote-ollama-model-button');
+const remoteOllamaModelStatus = document.getElementById('remote-ollama-model-status');
+
+// 원격 서버 API URL 관련 요소들
+const remoteOllamaApiUrlInput = document.getElementById('remote-ollama-api-url-input');
+const saveRemoteOllamaApiUrlButton = document.getElementById('save-remote-ollama-api-url-button');
+const remoteOllamaApiUrlStatus = document.getElementById('remote-ollama-api-url-status');
+
+// 원격 서버 엔드포인트 관련 요소들
+const remoteOllamaEndpointSelect = document.getElementById('remote-ollama-endpoint-select');
+const saveRemoteOllamaEndpointButton = document.getElementById('save-remote-ollama-endpoint-button');
+const remoteOllamaEndpointStatus = document.getElementById('remote-ollama-endpoint-status');
 
 // Ollama 모델 선택 관련 요소들
 const ollamaModelSelect = document.getElementById('ollama-model-select');
 const saveOllamaModelButton = document.getElementById('save-ollama-model-button');
 const ollamaModelStatus = document.getElementById('ollama-model-status');
-// Terminal Daemon 토글
-const terminalDaemonToggle = document.getElementById('terminal-daemon-toggle');
-const terminalDaemonStatus = document.getElementById('terminal-daemon-status');
 
 // AIDEV 시리얼 번호 관련 요소들
 const banyaLicenseSerialInput = document.getElementById('banya-license-serial-input');
@@ -70,7 +87,8 @@ const aiModelStatus = document.getElementById('ai-model-status');
 const sourcePathStatus = document.getElementById('source-path-status');
 const sourcePathsList = document.getElementById('source-paths-list');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
-const ollamaSettingsSection = document.getElementById('ollama-settings-section');
+const localOllamaSettingsSection = document.getElementById('local-ollama-settings-section');
+const remoteOllamaSettingsSection = document.getElementById('remote-ollama-settings-section');
 
 // 시리얼 번호 검증 상태 추적
 let isLicenseVerified = false;
@@ -88,8 +106,12 @@ function updateSaveButtonsState() {
 
     // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
     const alwaysEnabledButtons = [
-        saveOllamaApiUrlButton,
-        saveOllamaEndpointButton
+        saveLocalOllamaApiUrlButton,
+        saveLocalOllamaEndpointButton,
+        saveRemoteOllamaModelButton,
+        saveRemoteOllamaApiUrlButton,
+        saveRemoteOllamaEndpointButton,
+        saveOllamaServerTypeButton
     ];
 
     // console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
@@ -1034,28 +1056,24 @@ if (autoUpdateToggle) {
     });
 }
 
-// 이벤트 리스너: terminal-daemon 토글
-if (typeof terminalDaemonToggle !== 'undefined' && terminalDaemonToggle) {
-    terminalDaemonToggle.addEventListener('change', () => {
-        const isChecked = terminalDaemonToggle.checked;
-        vscode.postMessage({ command: 'setTerminalDaemonEnabled', enabled: isChecked });
-        if (terminalDaemonStatus) {
-            terminalDaemonStatus.textContent = isChecked ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
-        }
-        // 선택 변경 시에도 즉시 저장(자동 저장)
-        try {
-            if (aiModelStatus) {
-                aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
-                aiModelStatus.className = 'info-message';
-            }
-            if (aiModelSelect && aiModelSelect.value) {
-                const selectedModel = aiModelSelect.value;
-                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
-            }
-        } catch (e) {
-            console.warn('Failed to autosave AI model:', e);
+// Ollama 서버 타입 선택 이벤트 리스너
+if (ollamaServerTypeSelect) {
+    ollamaServerTypeSelect.addEventListener('change', () => {
+        const selectedType = ollamaServerTypeSelect.value;
+
+        // 선택된 타입에 따라 섹션 표시/숨김
+        if (selectedType === 'local') {
+            localOllamaSettingsSection.style.display = 'block';
+            remoteOllamaSettingsSection.style.display = 'none';
+        } else if (selectedType === 'remote') {
+            localOllamaSettingsSection.style.display = 'none';
+            remoteOllamaSettingsSection.style.display = 'block';
         }
 
+        // 서버 타입 저장
+        vscode.postMessage({ command: 'saveOllamaServerType', serverType: selectedType });
+        const savingText = 'Ollama 서버 타입 저장 중...';
+        showStatus(ollamaServerTypeStatus, savingText, 'info');
     });
 }
 
@@ -1125,39 +1143,47 @@ if (saveGeminiApiKeyButton) {
     });
 }
 
-// Ollama API URL 저장 이벤트 리스너
-if (saveOllamaApiUrlButton) {
-    saveOllamaApiUrlButton.addEventListener('click', () => {
-        const apiUrl = ollamaApiUrlInput.value.trim();
+// 로컬 Ollama API URL 저장 이벤트 리스너
+if (saveLocalOllamaApiUrlButton) {
+    saveLocalOllamaApiUrlButton.addEventListener('click', () => {
+        const apiUrl = localOllamaApiUrlInput.value.trim();
         if (apiUrl) {
             // URL 유효성 검사
             try {
                 new URL(apiUrl);
-                vscode.postMessage({ command: 'saveOllamaApiUrl', apiUrl: apiUrl });
-                const savingText = languageData['ollamaApiUrlSaving'] || 'Ollama API URL 저장 중...';
-                showStatus(ollamaApiUrlStatus, savingText, 'info');
+                vscode.postMessage({ command: 'saveLocalOllamaApiUrl', apiUrl: apiUrl });
+                const savingText = languageData['ollamaApiUrlSaving'] || '로컬 Ollama API URL 저장 중...';
+                showStatus(localOllamaApiUrlStatus, savingText, 'info');
             } catch (error) {
                 const invalidUrlText = languageData['invalidUrlFormat'] || '올바른 URL 형식을 입력해주세요. (예: http://localhost:11434)';
-                showStatus(ollamaApiUrlStatus, invalidUrlText, 'error');
+                showStatus(localOllamaApiUrlStatus, invalidUrlText, 'error');
             }
         } else {
-            const pleaseEnterText = languageData['pleaseEnterOllamaApiUrl'] || 'Ollama API URL을 입력해주세요.';
-            showStatus(ollamaApiUrlStatus, pleaseEnterText, 'error');
+            const pleaseEnterText = languageData['pleaseEnterOllamaApiUrl'] || '로컬 Ollama API URL을 입력해주세요.';
+            showStatus(localOllamaApiUrlStatus, pleaseEnterText, 'error');
         }
-        // 선택 변경 시에도 즉시 저장(자동 저장)
-        try {
-            if (aiModelStatus) {
-                aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
-                aiModelStatus.className = 'info-message';
-            }
-            if (aiModelSelect && aiModelSelect.value) {
-                const selectedModel = aiModelSelect.value;
-                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
-            }
-        } catch (e) {
-            console.warn('Failed to autosave AI model:', e);
-        }
+    });
+}
 
+// 원격 서버 Ollama API URL 저장 이벤트 리스너
+if (saveRemoteOllamaApiUrlButton) {
+    saveRemoteOllamaApiUrlButton.addEventListener('click', () => {
+        const apiUrl = remoteOllamaApiUrlInput.value.trim();
+        if (apiUrl) {
+            // URL 유효성 검사
+            try {
+                new URL(apiUrl);
+                vscode.postMessage({ command: 'saveRemoteOllamaApiUrl', apiUrl: apiUrl });
+                const savingText = languageData['ollamaApiUrlSaving'] || '원격 서버 API URL 저장 중...';
+                showStatus(remoteOllamaApiUrlStatus, savingText, 'info');
+            } catch (error) {
+                const invalidUrlText = languageData['invalidUrlFormat'] || '올바른 URL 형식을 입력해주세요. (예: http://192.168.1.100:11434)';
+                showStatus(remoteOllamaApiUrlStatus, invalidUrlText, 'error');
+            }
+        } else {
+            const pleaseEnterText = languageData['pleaseEnterOllamaApiUrl'] || '원격 서버 API URL을 입력해주세요.';
+            showStatus(remoteOllamaApiUrlStatus, pleaseEnterText, 'error');
+        }
     });
 }
 
@@ -1242,34 +1268,45 @@ if (ollamaAuthButton) {
     });
 }
 
-// Ollama 엔드포인트 저장 이벤트 리스너
-if (saveOllamaEndpointButton) {
-    saveOllamaEndpointButton.addEventListener('click', () => {
-        const endpoint = ollamaEndpointSelect.value;
-        // console.log('Ollama endpoint save button clicked, selected endpoint:', endpoint);
+// 로컬 Ollama 엔드포인트 저장 이벤트 리스너
+if (saveLocalOllamaEndpointButton) {
+    saveLocalOllamaEndpointButton.addEventListener('click', () => {
+        const endpoint = localOllamaEndpointSelect.value;
         if (endpoint) {
-            // console.log('Sending saveOllamaEndpoint command to extension with endpoint:', endpoint);
-            vscode.postMessage({ command: 'saveOllamaEndpoint', endpoint: endpoint });
-            const savingText = 'Ollama 엔드포인트 저장 중...';
-            showStatus(ollamaEndpointStatus, savingText, 'info');
+            vscode.postMessage({ command: 'saveLocalOllamaEndpoint', endpoint: endpoint });
+            const savingText = '로컬 Ollama 엔드포인트 저장 중...';
+            showStatus(localOllamaEndpointStatus, savingText, 'info');
         } else {
-            // console.log('No endpoint selected, showing error');
-            showStatus(ollamaEndpointStatus, '엔드포인트를 선택해주세요.', 'error');
+            showStatus(localOllamaEndpointStatus, '엔드포인트를 선택해주세요.', 'error');
         }
-        // 선택 변경 시에도 즉시 저장(자동 저장)
-        try {
-            if (aiModelStatus) {
-                aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
-                aiModelStatus.className = 'info-message';
-            }
-            if (aiModelSelect && aiModelSelect.value) {
-                const selectedModel = aiModelSelect.value;
-                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
-            }
-        } catch (e) {
-            console.warn('Failed to autosave AI model:', e);
-        }
+    });
+}
 
+// 원격 서버 Ollama 엔드포인트 저장 이벤트 리스너
+if (saveRemoteOllamaEndpointButton) {
+    saveRemoteOllamaEndpointButton.addEventListener('click', () => {
+        const endpoint = remoteOllamaEndpointSelect.value;
+        if (endpoint) {
+            vscode.postMessage({ command: 'saveRemoteOllamaEndpoint', endpoint: endpoint });
+            const savingText = '원격 서버 엔드포인트 저장 중...';
+            showStatus(remoteOllamaEndpointStatus, savingText, 'info');
+        } else {
+            showStatus(remoteOllamaEndpointStatus, '엔드포인트를 선택해주세요.', 'error');
+        }
+    });
+}
+
+// 원격 서버 모델명 저장 이벤트 리스너
+if (saveRemoteOllamaModelButton) {
+    saveRemoteOllamaModelButton.addEventListener('click', () => {
+        const model = remoteOllamaModelInput.value.trim();
+        if (model) {
+            vscode.postMessage({ command: 'saveRemoteOllamaModel', model: model });
+            const savingText = '원격 서버 모델명 저장 중...';
+            showStatus(remoteOllamaModelStatus, savingText, 'info');
+        } else {
+            showStatus(remoteOllamaModelStatus, '모델명을 입력해주세요.', 'error');
+        }
     });
 }
 
@@ -1356,17 +1393,19 @@ if (aiModelSelect) {
         // 선택된 모델에 따라 설정 섹션 활성화/비활성화
         if (selectedModel === 'gemini') {
             geminiSettingsSection.classList.remove('disabled');
-            ollamaSettingsSection.classList.add('disabled');
+            localOllamaSettingsSection.classList.add('disabled');
+            remoteOllamaSettingsSection.classList.add('disabled');
         } else if (selectedModel === 'ollama') {
             geminiSettingsSection.classList.add('disabled');
-            ollamaSettingsSection.classList.remove('disabled');
+            localOllamaSettingsSection.classList.remove('disabled');
             // Ollama 선택 시 모델 목록 즉시 요청
             try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
         } else {
             // 모델이 선택되지 않은 경우 기본값(Gemini)으로 설정
             aiModelSelect.value = 'gemini';
             geminiSettingsSection.classList.remove('disabled');
-            ollamaSettingsSection.classList.add('disabled');
+            localOllamaSettingsSection.classList.add('disabled');
+            remoteOllamaSettingsSection.classList.add('disabled');
         }
         // 선택 변경 시에도 즉시 저장(자동 저장)
         try {
@@ -1447,10 +1486,6 @@ window.addEventListener('message', event => {
                 showStatus(autoUpdateStatus, statusText, 'success');
                 autoUpdateStatus.textContent = `${currentText} ${statusText}`;
             }
-            if (typeof message.terminalDaemonEnabled === 'boolean' && terminalDaemonToggle) {
-                terminalDaemonToggle.checked = message.terminalDaemonEnabled;
-                if (terminalDaemonStatus) terminalDaemonStatus.textContent = message.terminalDaemonEnabled ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
-            }
             if (typeof message.projectRoot === 'string') {
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootLoadedText = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';
@@ -1491,10 +1526,11 @@ window.addEventListener('message', event => {
                 // 모델에 따라 섹션 활성화/비활성화
                 if (displayModel === 'gemini') {
                     geminiSettingsSection.classList.remove('disabled');
-                    ollamaSettingsSection.classList.add('disabled');
+                    localOllamaSettingsSection.classList.add('disabled');
+                    remoteOllamaSettingsSection.classList.add('disabled');
                 } else if (displayModel === 'ollama') {
                     geminiSettingsSection.classList.add('disabled');
-                    ollamaSettingsSection.classList.remove('disabled');
+                    localOllamaSettingsSection.classList.remove('disabled');
                     // Ollama 모델 목록 로드
                     try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
                 }
@@ -1527,11 +1563,6 @@ window.addEventListener('message', event => {
                 const statusText = `${autoUpdateChangedText} ${message.enabled ? enabledText : disabledText}.`;
                 showStatus(autoUpdateStatus, statusText, 'success');
                 autoUpdateStatus.textContent = `${currentText} ${statusText}`;
-            }
-            break;
-        case 'terminalDaemonStatusChanged':
-            if (terminalDaemonStatus && typeof message.enabled === 'boolean') {
-                terminalDaemonStatus.textContent = message.enabled ? 'terminal-daemon 사용함' : 'terminal-daemon 사용 안 함';
             }
             break;
         case 'projectRootError':
@@ -1576,21 +1607,62 @@ window.addEventListener('message', event => {
                     (languageData['geminiApiKeyNotSet'] || 'Gemini API 키가 설정되지 않았습니다.');
                 showStatus(geminiApiKeyStatus, geminiApiKeySetText, message.geminiApiKey ? 'success' : 'info');
             }
-            // Ollama API URL 상태 로드 (기본값 폴백)
-            if (ollamaApiUrlInput && typeof message.ollamaApiUrl === 'string') {
-                ollamaApiUrlInput.value = message.ollamaApiUrl || 'http://localhost:11434';
-                const ollamaApiUrlSetText = message.ollamaApiUrl ?
-                    (languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.') :
-                    (languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.');
-                showStatus(ollamaApiUrlStatus, ollamaApiUrlSetText, message.ollamaApiUrl ? 'success' : 'info');
+            // 로컬 Ollama API URL 상태 로드 (기본값 폴백)
+            if (localOllamaApiUrlInput && typeof message.localOllamaApiUrl === 'string') {
+                localOllamaApiUrlInput.value = message.localOllamaApiUrl || 'http://localhost:11434';
+                const localOllamaApiUrlSetText = message.localOllamaApiUrl ?
+                    (languageData['ollamaApiUrlSet'] || '로컬 Ollama API URL이 설정되어 있습니다.') :
+                    (languageData['ollamaApiUrlNotSet'] || '로컬 Ollama API URL이 설정되지 않았습니다.');
+                showStatus(localOllamaApiUrlStatus, localOllamaApiUrlSetText, message.localOllamaApiUrl ? 'success' : 'info');
             }
-            // Ollama 엔드포인트 상태 로드 (기본값 폴백)
-            if (ollamaEndpointSelect && typeof message.ollamaEndpoint === 'string') {
-                ollamaEndpointSelect.value = message.ollamaEndpoint || '/api/generate';
-                const ollamaEndpointSetText = message.ollamaEndpoint ?
-                    `Ollama 엔드포인트가 설정되어 있습니다: ${message.ollamaEndpoint}` :
-                    'Ollama 엔드포인트가 설정되지 않았습니다.';
-                showStatus(ollamaEndpointStatus, ollamaEndpointSetText, message.ollamaEndpoint ? 'success' : 'info');
+            // 로컬 Ollama 엔드포인트 상태 로드 (기본값 폴백)
+            if (localOllamaEndpointSelect && typeof message.localOllamaEndpoint === 'string') {
+                localOllamaEndpointSelect.value = message.localOllamaEndpoint || '/api/generate';
+                const localOllamaEndpointSetText = message.localOllamaEndpoint ?
+                    `로컬 Ollama 엔드포인트가 설정되어 있습니다: ${message.localOllamaEndpoint}` :
+                    '로컬 Ollama 엔드포인트가 설정되지 않았습니다.';
+                showStatus(localOllamaEndpointStatus, localOllamaEndpointSetText, message.localOllamaEndpoint ? 'success' : 'info');
+            }
+            // 원격 서버 API URL 상태 로드
+            if (remoteOllamaApiUrlInput && typeof message.remoteOllamaApiUrl === 'string') {
+                remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || '';
+                const remoteOllamaApiUrlSetText = message.remoteOllamaApiUrl ?
+                    '원격 서버 API URL이 설정되어 있습니다.' :
+                    '원격 서버 API URL이 설정되지 않았습니다.';
+                showStatus(remoteOllamaApiUrlStatus, remoteOllamaApiUrlSetText, message.remoteOllamaApiUrl ? 'success' : 'info');
+            }
+            // 원격 서버 엔드포인트 상태 로드
+            if (remoteOllamaEndpointSelect && typeof message.remoteOllamaEndpoint === 'string') {
+                remoteOllamaEndpointSelect.value = message.remoteOllamaEndpoint || '/api/generate';
+                const remoteOllamaEndpointSetText = message.remoteOllamaEndpoint ?
+                    `원격 서버 엔드포인트가 설정되어 있습니다: ${message.remoteOllamaEndpoint}` :
+                    '원격 서버 엔드포인트가 설정되지 않았습니다.';
+                showStatus(remoteOllamaEndpointStatus, remoteOllamaEndpointSetText, message.remoteOllamaEndpoint ? 'success' : 'info');
+            }
+            // 원격 서버 모델명 상태 로드
+            if (remoteOllamaModelInput && typeof message.remoteOllamaModel === 'string') {
+                remoteOllamaModelInput.value = message.remoteOllamaModel || '';
+                const remoteOllamaModelSetText = message.remoteOllamaModel ?
+                    `원격 서버 모델명이 설정되어 있습니다: ${message.remoteOllamaModel}` :
+                    '원격 서버 모델명이 설정되지 않았습니다.';
+                showStatus(remoteOllamaModelStatus, remoteOllamaModelSetText, message.remoteOllamaModel ? 'success' : 'info');
+            }
+            // Ollama 서버 타입 상태 로드
+            if (ollamaServerTypeSelect && typeof message.ollamaServerType === 'string') {
+                ollamaServerTypeSelect.value = message.ollamaServerType || 'local';
+                const ollamaServerTypeSetText = message.ollamaServerType ?
+                    `Ollama 서버 타입이 설정되어 있습니다: ${message.ollamaServerType === 'local' ? '로컬 머신' : '원격 서버'}` :
+                    'Ollama 서버 타입이 설정되지 않았습니다.';
+                showStatus(ollamaServerTypeStatus, ollamaServerTypeSetText, message.ollamaServerType ? 'success' : 'info');
+                
+                // 서버 타입에 따라 섹션 표시/숨김
+                if (message.ollamaServerType === 'local') {
+                    localOllamaSettingsSection.style.display = 'block';
+                    remoteOllamaSettingsSection.style.display = 'none';
+                } else if (message.ollamaServerType === 'remote') {
+                    localOllamaSettingsSection.style.display = 'none';
+                    remoteOllamaSettingsSection.style.display = 'block';
+                }
             }
             // Ollama 모델 상태 로드 (loadOllamaModels 이후 적용)
             if (ollamaModelSelect && typeof message.ollamaModel === 'string') {
@@ -1701,20 +1773,46 @@ window.addEventListener('message', event => {
             const geminiApiKeyErrorText = languageData['geminiApiKeyError'] || 'Gemini API 키 저장 실패:';
             showStatus(geminiApiKeyStatus, `${geminiApiKeyErrorText} ${message.error}`, 'error');
             break;
-        case 'ollamaApiUrlSaved':
-            const ollamaApiUrlSavedText = languageData['ollamaApiUrlSaved'] || 'Ollama API URL이 저장되었습니다.';
-            showStatus(ollamaApiUrlStatus, ollamaApiUrlSavedText, 'success');
-            ollamaApiUrlInput.value = '';
+        case 'localOllamaApiUrlSaved':
+            const localOllamaApiUrlSavedText = languageData['ollamaApiUrlSaved'] || '로컬 Ollama API URL이 저장되었습니다.';
+            showStatus(localOllamaApiUrlStatus, localOllamaApiUrlSavedText, 'success');
+            localOllamaApiUrlInput.value = '';
             break;
-        case 'ollamaApiUrlError':
-            const ollamaApiUrlErrorText = languageData['ollamaApiUrlError'] || 'Ollama API URL 저장 실패:';
-            showStatus(ollamaApiUrlStatus, `${ollamaApiUrlErrorText} ${message.error}`, 'error');
+        case 'localOllamaApiUrlError':
+            const localOllamaApiUrlErrorText = languageData['ollamaApiUrlError'] || '로컬 Ollama API URL 저장 실패:';
+            showStatus(localOllamaApiUrlStatus, `${localOllamaApiUrlErrorText} ${message.error}`, 'error');
             break;
-        case 'ollamaEndpointSaved':
-            showStatus(ollamaEndpointStatus, 'Ollama 엔드포인트가 저장되었습니다.', 'success');
+        case 'localOllamaEndpointSaved':
+            showStatus(localOllamaEndpointStatus, '로컬 Ollama 엔드포인트가 저장되었습니다.', 'success');
             break;
-        case 'ollamaEndpointError':
-            showStatus(ollamaEndpointStatus, `Ollama 엔드포인트 저장 실패: ${message.error}`, 'error');
+        case 'localOllamaEndpointError':
+            showStatus(localOllamaEndpointStatus, `로컬 Ollama 엔드포인트 저장 실패: ${message.error}`, 'error');
+            break;
+        case 'remoteOllamaApiUrlSaved':
+            showStatus(remoteOllamaApiUrlStatus, '원격 서버 API URL이 저장되었습니다.', 'success');
+            remoteOllamaApiUrlInput.value = '';
+            break;
+        case 'remoteOllamaApiUrlError':
+            showStatus(remoteOllamaApiUrlStatus, `원격 서버 API URL 저장 실패: ${message.error}`, 'error');
+            break;
+        case 'remoteOllamaEndpointSaved':
+            showStatus(remoteOllamaEndpointStatus, '원격 서버 엔드포인트가 저장되었습니다.', 'success');
+            break;
+        case 'remoteOllamaEndpointError':
+            showStatus(remoteOllamaEndpointStatus, `원격 서버 엔드포인트 저장 실패: ${message.error}`, 'error');
+            break;
+        case 'remoteOllamaModelSaved':
+            showStatus(remoteOllamaModelStatus, '원격 서버 모델명이 저장되었습니다.', 'success');
+            remoteOllamaModelInput.value = '';
+            break;
+        case 'remoteOllamaModelError':
+            showStatus(remoteOllamaModelStatus, `원격 서버 모델명 저장 실패: ${message.error}`, 'error');
+            break;
+        case 'ollamaServerTypeSaved':
+            showStatus(ollamaServerTypeStatus, 'Ollama 서버 타입이 저장되었습니다.', 'success');
+            break;
+        case 'ollamaServerTypeError':
+            showStatus(ollamaServerTypeStatus, `Ollama 서버 타입 저장 실패: ${message.error}`, 'error');
             break;
         case 'banyaLicenseSaved':
             const banyaLicenseSavedText = languageData['banyaLicenseSaved'] || 'Banya 라이센스가 저장되었습니다.';
@@ -1952,7 +2050,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
     if (geminiSettingsSection) geminiSettingsSection.classList.remove('disabled');
-    if (ollamaSettingsSection) ollamaSettingsSection.classList.add('disabled');
+    if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+    if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
 
     // 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
     // isLicenseVerified는 서버에서 전송된 값으로 설정됨
@@ -1964,15 +2063,15 @@ async function loadOllamaModels() {
     vscode.postMessage({ command: 'getOllamaModels' });
 }
 
-// Ollama API URL 변경 시 모델 목록 다시 불러오기
-if (ollamaApiUrlInput) {
-    ollamaApiUrlInput.addEventListener('change', () => {
-        // console.log('Ollama API URL 변경됨, 모델 목록 다시 불러오기');
+// 로컬 Ollama API URL 변경 시 모델 목록 다시 불러오기
+if (localOllamaApiUrlInput) {
+    localOllamaApiUrlInput.addEventListener('change', () => {
+        // console.log('로컬 Ollama API URL 변경됨, 모델 목록 다시 불러오기');
         loadOllamaModels();
     });
 
-    ollamaApiUrlInput.addEventListener('blur', () => {
-        // console.log('Ollama API URL 입력 완료, 모델 목록 다시 불러오기');
+    localOllamaApiUrlInput.addEventListener('blur', () => {
+        // console.log('로컬 Ollama API URL 입력 완료, 모델 목록 다시 불러오기');
         loadOllamaModels();
     });
 }
