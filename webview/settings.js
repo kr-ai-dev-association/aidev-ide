@@ -1654,7 +1654,7 @@ window.addEventListener('message', event => {
                     `Ollama 서버 타입이 설정되어 있습니다: ${message.ollamaServerType === 'local' ? '로컬 머신' : '원격 서버'}` :
                     'Ollama 서버 타입이 설정되지 않았습니다.';
                 showStatus(ollamaServerTypeStatus, ollamaServerTypeSetText, message.ollamaServerType ? 'success' : 'info');
-                
+
                 // 서버 타입에 따라 섹션 표시/숨김
                 if (message.ollamaServerType === 'local') {
                     localOllamaSettingsSection.style.display = 'block';
