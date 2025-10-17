@@ -1,5 +1,5 @@
 // VS Code API 초기화
-const vscode = acquireVsCodeApi();
+const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null;
 
 // 클립보드 복사 기능을 위한 헬퍼 함수
 // Webview에서는 navigator.clipboard 사용 가능
@@ -7,7 +7,7 @@ async function copyToClipboard(text) {
     try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(text);
-            console.log('Code copied to clipboard!');
+            // console.log('Code copied to clipboard!');
             return true; // 성공
         } else {
             console.warn('Clipboard API not available.');
@@ -107,15 +107,17 @@ function attachRunButtonListener(button, codeElement) {
         const commands = extractBashCommands(bashCode);
 
         if (commands.length === 0) {
-            console.log('No valid bash commands found');
+            // console.log('No valid bash commands found');
             return;
         }
 
         // VS Code API를 통해 확장에 명령어 실행 요청
-        vscode.postMessage({
-            command: 'executeBashCommands',
-            commands: commands
-        });
+        if (vscode) {
+            vscode.postMessage({
+                command: 'executeBashCommands',
+                commands: commands
+            });
+        }
 
         // 버튼 피드백
         const originalText = button.textContent;
@@ -217,7 +219,7 @@ export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워
         }
     });
 
-    console.log(`[codeCopy.js] Added copy buttons to ${codeBlockContainers.length} code block containers and ${preElements.length} legacy pre elements.`);
+    // console.log(`[codeCopy.js] Added copy buttons to ${codeBlockContainers.length} code block containers and ${preElements.length} legacy pre elements.`);
 }
 
 

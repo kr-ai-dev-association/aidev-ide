@@ -2,9 +2,9 @@ import DOMPurify from 'dompurify';
 import { addCopyButtonsToCodeBlocks } from './codeCopy.js';
 import markdownit from 'markdown-it';
 
-console.log("✅ ask.js loaded");
+// console.log("✅ ask.js loaded");
 
-const vscode = acquireVsCodeApi();
+const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null;
 
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
@@ -106,7 +106,7 @@ const md = markdownit({
 // 파일 선택 관련 함수들
 function addSelectedFile(filePath, fileName) {
     if (selectedFiles.some(file => file.path === filePath)) {
-        console.log('File already selected:', filePath);
+        // console.log('File already selected:', filePath);
         return;
     }
 
@@ -193,8 +193,10 @@ if (cleanHistoryButton) {
 // Cancel 버튼 클릭 이벤트 리스너
 if (cancelButton) {
     cancelButton.addEventListener('click', () => {
-        console.log('Cancel button clicked. Sending cancel command to extension.');
-        vscode.postMessage({ command: 'cancelGeminiCall' });
+        // console.log('Cancel button clicked. Sending cancel command to extension.');
+        if (vscode) {
+            vscode.postMessage({ command: 'cancelGeminiCall' });
+        }
         window.hideLoading();
     });
 }
@@ -207,7 +209,9 @@ if (removeImageButton) {
 // 파일 선택 버튼 클릭 이벤트 리스너
 if (filePickerButton) {
     filePickerButton.addEventListener('click', () => {
-        vscode.postMessage({ command: 'openFilePicker' });
+        if (vscode) {
+            vscode.postMessage({ command: 'openFilePicker' });
+        }
     });
 }
 
@@ -271,13 +275,15 @@ function handleSendMessage() {
         window.displayUserMessage(text, selectedImageBase64);
         window.showLoading();
 
-        vscode.postMessage({
-            command: 'sendMessage',
-            text: text,
-            imageData: selectedImageBase64,
-            imageMimeType: selectedImageMimeType,
-            selectedFiles: selectedFiles.map(file => file.path) // 선택된 파일 경로들 전달
-        });
+        if (vscode) {
+            vscode.postMessage({
+                command: 'sendMessage',
+                text: text,
+                imageData: selectedImageBase64,
+                imageMimeType: selectedImageMimeType,
+                selectedFiles: selectedFiles.map(file => file.path) // 선택된 파일 경로들 전달
+            });
+        }
 
         chatInput.value = '';
         chatInput.style.height = 'auto';
@@ -361,7 +367,7 @@ function updateChatContainerPadding() {
     // 채팅 컨테이너의 하단 패딩을 동적으로 설정
     chatContainer.style.paddingBottom = `${totalBottomHeight}px`;
 
-    console.log(`Bottom area height: ${totalBottomHeight}px (language: ${languageAreaHeight}px, input: ${chatInputHeight}px)`);
+    // console.log(`Bottom area height: ${totalBottomHeight}px (language: ${languageAreaHeight}px, input: ${chatInputHeight}px)`);
 }
 
 window.addEventListener('message', event => {
@@ -369,37 +375,37 @@ window.addEventListener('message', event => {
 
     switch (message.command) {
         case 'displayUserMessage':
-            console.log('Received command to display user message:', message.text, message.imageData);
+            // console.log('Received command to display user message:', message.text, message.imageData);
             if (message.text !== undefined || message.imageData !== undefined) {
                 window.displayUserMessage(message.text, message.imageData);
             }
             break;
 
         case 'showLoading':
-            console.log('Received showLoading command.');
+            // console.log('Received showLoading command.');
             window.showLoading();
             break;
         case 'hideLoading':
-            console.log('Received hideLoading command.');
+            // console.log('Received hideLoading command.');
             window.hideLoading();
             break;
 
         case 'receiveMessage':
-            console.log('Received message from extension:', {
-                sender: message.sender,
-                textLength: message.text ? message.text.length : 0,
-                textPreview: message.text ? message.text.substring(0, 200) + '...' : 'undefined'
-            });
+            // console.log('Received message from extension:', {
+            //     sender: message.sender,
+            //     textLength: message.text ? message.text.length : 0,
+            //     textPreview: message.text ? message.text.substring(0, 200) + '...' : 'undefined'
+            // });
             window.hideLoading();
 
             if (message.sender === 'AIDEV-IDE' && message.text !== undefined) {
-                console.log('Calling displayCodePilotMessage with text length:', message.text.length);
+                // console.log('Calling displayCodePilotMessage with text length:', message.text.length);
                 window.displayCodePilotMessage(message.text);
             }
             break;
 
         case 'openPanel':
-            console.log(`Received open panel command from extension: ${message.panel}`);
+            // console.log(`Received open panel command from extension: ${message.panel}`);
             break;
         // case 'languageChanged':
         //     console.log(`Language changed to: ${message.language}`);
@@ -576,7 +582,7 @@ function handleCleanHistory() {
             chatMessages.removeChild(chatMessages.firstChild);
         }
         thinkingBubbleElement = null;
-        console.log('Chat history cleared.');
+        // console.log('Chat history cleared.');
     }
     if (cleanHistoryButton) {
         cleanHistoryButton.disabled = false;
@@ -588,12 +594,12 @@ function handleCleanHistory() {
 
 // AIDEV-IDE 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
 function displayCodePilotMessage(markdownText) {
-    console.log('displayCodePilotMessage called with text length:', markdownText.length);
+    // console.log('displayCodePilotMessage called with text length:', markdownText.length);
     if (!chatMessages) {
         console.error('chatMessages element not found!');
         return;
     }
-    console.log('chatMessages element found, creating message container...');
+    // console.log('chatMessages element found, creating message container...');
 
     const messageContainer = document.createElement('div');
     messageContainer.classList.add('aidev-ide-message-container');

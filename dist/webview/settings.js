@@ -70,6 +70,7 @@ const banyaLicenseStatus = document.getElementById('banya-license-status');
 const aiModelSelect = document.getElementById('ai-model-select');
 const saveAiModelButton = document.getElementById('save-ai-model-button');
 const aiModelStatus = document.getElementById('ai-model-status');
+const sourcePathStatus = document.getElementById('source-path-status');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
 const ollamaSettingsSection = document.getElementById('ollama-settings-section');
 
@@ -83,7 +84,8 @@ function updateSaveButtonsState() {
 
   // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
   const alwaysEnabledButtons = [saveOllamaApiUrlButton, saveOllamaEndpointButton];
-  console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
+
+  // console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
 
   // 시리얼 번호 검증이 필요한 버튼들 처리
   licenseRequiredButtons.forEach(button => {
@@ -92,12 +94,12 @@ function updateSaveButtonsState() {
         button.disabled = false;
         button.style.opacity = '1';
         button.style.cursor = 'pointer';
-        console.log('Button enabled (license required):', button.id);
+        // console.log('Button enabled (license required):', button.id);
       } else {
         button.disabled = true;
         button.style.opacity = '0.5';
         button.style.cursor = 'not-allowed';
-        console.log('Button disabled (license required):', button.id);
+        // console.log('Button disabled (license required):', button.id);
       }
     }
   });
@@ -108,7 +110,7 @@ function updateSaveButtonsState() {
       button.disabled = false;
       button.style.opacity = '1';
       button.style.cursor = 'pointer';
-      console.log('Button enabled (always enabled):', button.id);
+      // console.log('Button enabled (always enabled):', button.id);
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
     try {
@@ -116,10 +118,13 @@ function updateSaveButtonsState() {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -172,7 +177,7 @@ let currentLanguage = 'ko'; // 기본값
 let languageData = {};
 async function loadLanguage(lang) {
   try {
-    console.log('Requesting language data from extension:', lang);
+    // console.log('Requesting language data from extension:', lang);
     // 확장 프로그램에 언어 데이터 요청
     vscode.postMessage({
       command: 'getLanguageData',
@@ -183,48 +188,48 @@ async function loadLanguage(lang) {
   }
 }
 function applyLanguage() {
-  console.log('Applying language:', currentLanguage, languageData);
+  // console.log('Applying language:', currentLanguage, languageData);
 
   // 타이틀
   const settingsTitle = document.getElementById('settings-title');
   if (settingsTitle && languageData['settingsTitle']) {
     settingsTitle.textContent = languageData['settingsTitle'];
-    console.log('Updated settings title:', languageData['settingsTitle']);
+    // console.log('Updated settings title:', languageData['settingsTitle']);
   }
 
   // 언어 라벨
   const languageLabel = document.getElementById('language-label');
   if (languageLabel && languageData['languageLabel']) {
     languageLabel.textContent = languageData['languageLabel'];
-    console.log('Updated language label:', languageData['languageLabel']);
+    // console.log('Updated language label:', languageData['languageLabel']);
   }
 
   // 언어 저장 버튼
   const saveLanguageButton = document.getElementById('save-language-button');
   if (saveLanguageButton && languageData['saveButton']) {
     saveLanguageButton.textContent = languageData['saveButton'];
-    console.log('Updated save language button:', languageData['saveButton']);
+    // console.log('Updated save language button:', languageData['saveButton']);
   }
 
   // API 키 섹션 타이틀
   const apiKeySectionTitle = document.getElementById('api-key-section-title');
   if (apiKeySectionTitle && languageData['apiKeySectionTitle']) {
     apiKeySectionTitle.textContent = languageData['apiKeySectionTitle'];
-    console.log('Updated API key section title:', languageData['apiKeySectionTitle']);
+    // console.log('Updated API key section title:', languageData['apiKeySectionTitle']);
   }
 
   // Gemini API 키 라벨
   const geminiApiKeyLabel = document.getElementById('gemini-api-key-label');
   if (geminiApiKeyLabel && languageData['geminiApiKeyLabel']) {
     geminiApiKeyLabel.textContent = languageData['geminiApiKeyLabel'];
-    console.log('Updated Gemini API key label:', languageData['geminiApiKeyLabel']);
+    // console.log('Updated Gemini API key label:', languageData['geminiApiKeyLabel']);
   }
 
   // Gemini API 설명 (기존 변수 사용)
   const geminiApiDescriptionForLabel = document.querySelector('#gemini-api-key-label + p');
   if (geminiApiDescriptionForLabel && languageData['geminiApiDescription']) {
     geminiApiDescriptionForLabel.textContent = languageData['geminiApiDescription'];
-    console.log('Updated Gemini API description:', languageData['geminiApiDescription']);
+    // console.log('Updated Gemini API description:', languageData['geminiApiDescription']);
   }
 
   // Gemini API 등록 방법 (기존 변수 사용)
@@ -239,14 +244,14 @@ function applyLanguage() {
     } else {
       geminiApiRegistrationMethodForLabel.textContent = languageData['geminiApiRegistrationMethod'];
     }
-    console.log('Updated Gemini API registration method:', languageData['geminiApiRegistrationMethod']);
+    // console.log('Updated Gemini API registration method:', languageData['geminiApiRegistrationMethod']);
   }
 
   // Gemini 저장 버튼
   const saveGeminiApiKeyButton = document.getElementById('save-gemini-api-key-button');
   if (saveGeminiApiKeyButton && languageData['saveGeminiApiKeyButton']) {
     saveGeminiApiKeyButton.textContent = languageData['saveGeminiApiKeyButton'];
-    console.log('Updated Gemini save button:', languageData['saveGeminiApiKeyButton']);
+    // console.log('Updated Gemini save button:', languageData['saveGeminiApiKeyButton']);
   }
 
   // Gemini 저장 상태 - 현재 상태에 따라 업데이트
@@ -264,14 +269,14 @@ function applyLanguage() {
   const weatherApiKeyLabel = document.getElementById('weather-api-key-label');
   if (weatherApiKeyLabel && languageData['weatherApiKeyLabel']) {
     weatherApiKeyLabel.textContent = languageData['weatherApiKeyLabel'];
-    console.log('Updated weather API key label:', languageData['weatherApiKeyLabel']);
+    // console.log('Updated weather API key label:', languageData['weatherApiKeyLabel']);
   }
 
   // Weather API 설명
   const weatherApiDescription = document.querySelector('#weather-api-key-label + p');
   if (weatherApiDescription && languageData['weatherApiDescription']) {
     weatherApiDescription.textContent = languageData['weatherApiDescription'];
-    console.log('Updated weather API description:', languageData['weatherApiDescription']);
+    // console.log('Updated weather API description:', languageData['weatherApiDescription']);
   }
 
   // Weather API 등록 방법
@@ -286,21 +291,21 @@ function applyLanguage() {
     } else {
       weatherApiRegistrationMethod.textContent = languageData['weatherApiRegistrationMethod'];
     }
-    console.log('Updated weather API registration method:', languageData['weatherApiRegistrationMethod']);
+    // console.log('Updated weather API registration method:', languageData['weatherApiRegistrationMethod']);
   }
 
   // News API 키 라벨
   const newsApiKeyLabel = document.getElementById('news-api-key-label');
   if (newsApiKeyLabel && languageData['newsApiKeyLabel']) {
     newsApiKeyLabel.textContent = languageData['newsApiKeyLabel'];
-    console.log('Updated news API key label:', languageData['newsApiKeyLabel']);
+    // console.log('Updated news API key label:', languageData['newsApiKeyLabel']);
   }
 
   // News API 설명
   const newsApiDescription = document.querySelector('#news-api-key-label + p');
   if (newsApiDescription && languageData['newsApiDescription']) {
     newsApiDescription.textContent = languageData['newsApiDescription'];
-    console.log('Updated news API description:', languageData['newsApiDescription']);
+    // console.log('Updated news API description:', languageData['newsApiDescription']);
   }
 
   // News API 등록 방법
@@ -315,21 +320,21 @@ function applyLanguage() {
     } else {
       newsApiRegistrationMethod.textContent = languageData['newsApiRegistrationMethod'];
     }
-    console.log('Updated news API registration method:', languageData['newsApiRegistrationMethod']);
+    // console.log('Updated news API registration method:', languageData['newsApiRegistrationMethod']);
   }
 
   // Stock API 키 라벨
   const stockApiKeyLabel = document.getElementById('stock-api-key-label');
   if (stockApiKeyLabel && languageData['stockApiKeyLabel']) {
     stockApiKeyLabel.textContent = languageData['stockApiKeyLabel'];
-    console.log('Updated stock API key label:', languageData['stockApiKeyLabel']);
+    // console.log('Updated stock API key label:', languageData['stockApiKeyLabel']);
   }
 
   // Stock API 설명
   const stockApiDescription = document.querySelector('#stock-api-key-label + p');
   if (stockApiDescription && languageData['stockApiDescription']) {
     stockApiDescription.textContent = languageData['stockApiDescription'];
-    console.log('Updated stock API description:', languageData['stockApiDescription']);
+    // console.log('Updated stock API description:', languageData['stockApiDescription']);
   }
 
   // Stock API 등록 방법
@@ -344,14 +349,14 @@ function applyLanguage() {
     } else {
       stockApiRegistrationMethod.textContent = languageData['stockApiRegistrationMethod'];
     }
-    console.log('Updated stock API registration method:', languageData['stockApiRegistrationMethod']);
+    // console.log('Updated stock API registration method:', languageData['stockApiRegistrationMethod']);
   }
 
   // 공통 저장 버튼들
   document.querySelectorAll('.save-button').forEach(btn => {
     if (languageData['saveButton']) {
       btn.textContent = languageData['saveButton'];
-      console.log('Updated save button:', languageData['saveButton']);
+      // console.log('Updated save button:', languageData['saveButton']);
     }
   });
 
@@ -359,68 +364,68 @@ function applyLanguage() {
   const projectRootLabel = document.getElementById('project-root-label');
   if (projectRootLabel && languageData['projectRootLabel']) {
     projectRootLabel.textContent = languageData['projectRootLabel'];
-    console.log('Updated project root label:', languageData['projectRootLabel']);
+    // console.log('Updated project root label:', languageData['projectRootLabel']);
   }
 
   // 프로젝트 루트 설명
   const projectRootDescription = document.getElementById('project-root-description');
   if (projectRootDescription && languageData['projectRootDescription']) {
     projectRootDescription.textContent = languageData['projectRootDescription'];
-    console.log('Updated project root description:', languageData['projectRootDescription']);
+    // console.log('Updated project root description:', languageData['projectRootDescription']);
   }
 
   // 소스 경로 라벨
   const sourcePathLabel = document.getElementById('source-path-label');
   if (sourcePathLabel && languageData['sourcePathLabel']) {
     sourcePathLabel.textContent = languageData['sourcePathLabel'];
-    console.log('Updated source path label:', languageData['sourcePathLabel']);
+    // console.log('Updated source path label:', languageData['sourcePathLabel']);
   }
 
   // 소스 경로 추가 버튼
   const addSourcePathButton = document.getElementById('add-source-path-button');
   if (addSourcePathButton && languageData['addSourcePathButton']) {
     addSourcePathButton.textContent = languageData['addSourcePathButton'];
-    console.log('Updated add source path button:', languageData['addSourcePathButton']);
+    // console.log('Updated add source path button:', languageData['addSourcePathButton']);
   }
 
   // 자동 파일 업데이트 라벨
   const autoUpdateLabel = document.getElementById('auto-update-label');
   if (autoUpdateLabel && languageData['autoUpdateLabel']) {
     autoUpdateLabel.textContent = languageData['autoUpdateLabel'];
-    console.log('Updated auto update label:', languageData['autoUpdateLabel']);
+    // console.log('Updated auto update label:', languageData['autoUpdateLabel']);
   }
 
   // 자동 파일 업데이트 on/off
   const autoUpdateOn = document.getElementById('auto-update-on');
   if (autoUpdateOn && languageData['autoUpdateOn']) {
     autoUpdateOn.textContent = languageData['autoUpdateOn'];
-    console.log('Updated auto update on:', languageData['autoUpdateOn']);
+    // console.log('Updated auto update on:', languageData['autoUpdateOn']);
   }
   const autoUpdateOff = document.getElementById('auto-update-off');
   if (autoUpdateOff && languageData['autoUpdateOff']) {
     autoUpdateOff.textContent = languageData['autoUpdateOff'];
-    console.log('Updated auto update off:', languageData['autoUpdateOff']);
+    // console.log('Updated auto update off:', languageData['autoUpdateOff']);
   }
 
   // 자동 파일 업데이트 활성화 텍스트
   const autoUpdateEnabledText = document.getElementById('auto-update-enabled-text');
   if (autoUpdateEnabledText && languageData['autoUpdateEnabled']) {
     autoUpdateEnabledText.textContent = languageData['autoUpdateEnabled'];
-    console.log('Updated auto update enabled text:', languageData['autoUpdateEnabled']);
+    // console.log('Updated auto update enabled text:', languageData['autoUpdateEnabled']);
   }
 
   // 외부 API 키 설정 제목
   const externalApiKeysTitle = document.getElementById('external-api-keys-title');
   if (externalApiKeysTitle && languageData['externalApiKeysTitle']) {
     externalApiKeysTitle.textContent = languageData['externalApiKeysTitle'];
-    console.log('Updated external API keys title:', languageData['externalApiKeysTitle']);
+    // console.log('Updated external API keys title:', languageData['externalApiKeysTitle']);
   }
 
   // 프로젝트 Root 선택 버튼
   const selectProjectRootButton = document.getElementById('select-project-root-button');
   if (selectProjectRootButton && languageData['addSourcePathButton']) {
     selectProjectRootButton.textContent = languageData['addSourcePathButton'];
-    console.log('Updated select project root button:', languageData['addSourcePathButton']);
+    // console.log('Updated select project root button:', languageData['addSourcePathButton']);
   }
 
   // 기타 설명 텍스트들 (p 태그들) - 더 정확한 매칭으로 개선
@@ -525,7 +530,7 @@ function applyLanguage() {
   const geminiApiDescription = document.querySelector('#api-key-section-title + p');
   if (geminiApiDescription && languageData['geminiApiDescription']) {
     geminiApiDescription.textContent = languageData['geminiApiDescription'];
-    console.log('Updated Gemini API description:', languageData['geminiApiDescription']);
+    // console.log('Updated Gemini API description:', languageData['geminiApiDescription']);
   }
 
   // Gemini API 등록 방법
@@ -540,98 +545,98 @@ function applyLanguage() {
     } else {
       geminiApiRegistrationMethod.textContent = languageData['geminiApiRegistrationMethod'];
     }
-    console.log('Updated Gemini API registration method:', languageData['geminiApiRegistrationMethod']);
+    // console.log('Updated Gemini API registration method:', languageData['geminiApiRegistrationMethod']);
   }
 
   // AI 모델 설정 제목
   const aiModelSettingsTitle = document.getElementById('api-key-section-title');
   if (aiModelSettingsTitle && languageData['aiModelSettingsTitle']) {
     aiModelSettingsTitle.textContent = languageData['aiModelSettingsTitle'];
-    console.log('Updated AI model settings title:', languageData['aiModelSettingsTitle']);
+    // console.log('Updated AI model settings title:', languageData['aiModelSettingsTitle']);
   }
 
   // Ollama API 라벨
   const ollamaApiLabel = document.getElementById('ollama-api-label');
   if (ollamaApiLabel && languageData['ollamaApiLabel']) {
     ollamaApiLabel.textContent = languageData['ollamaApiLabel'];
-    console.log('Updated Ollama API label:', languageData['ollamaApiLabel']);
+    // console.log('Updated Ollama API label:', languageData['ollamaApiLabel']);
   }
 
   // Ollama API 설명
   const ollamaApiDescription = document.querySelector('#ollama-api-label + p');
   if (ollamaApiDescription && languageData['ollamaApiDescription']) {
     ollamaApiDescription.textContent = languageData['ollamaApiDescription'];
-    console.log('Updated Ollama API description:', languageData['ollamaApiDescription']);
+    // console.log('Updated Ollama API description:', languageData['ollamaApiDescription']);
   }
 
   // Ollama API 설정 방법
   const ollamaApiSetupMethod = document.querySelector('#ollama-api-label + p + p');
   if (ollamaApiSetupMethod && languageData['ollamaApiSetupMethod']) {
     ollamaApiSetupMethod.textContent = languageData['ollamaApiSetupMethod'];
-    console.log('Updated Ollama API setup method:', languageData['ollamaApiSetupMethod']);
+    // console.log('Updated Ollama API setup method:', languageData['ollamaApiSetupMethod']);
   }
 
   // Ollama 저장 버튼
   const saveOllamaApiUrlButton = document.getElementById('save-ollama-api-url-button');
   if (saveOllamaApiUrlButton && languageData['saveOllamaApiUrlButton']) {
     saveOllamaApiUrlButton.textContent = languageData['saveOllamaApiUrlButton'];
-    console.log('Updated Ollama save button:', languageData['saveOllamaApiUrlButton']);
+    // console.log('Updated Ollama save button:', languageData['saveOllamaApiUrlButton']);
   }
 
   // Banya 라이센스 제목
   const banyaLicenseTitle = document.getElementById('banya-license-title');
   if (banyaLicenseTitle && languageData['banyaLicenseTitle']) {
     banyaLicenseTitle.textContent = languageData['banyaLicenseTitle'];
-    console.log('Updated Banya license title:', languageData['banyaLicenseTitle']);
+    // console.log('Updated Banya license title:', languageData['banyaLicenseTitle']);
   }
 
   // Banya 라이센스 설명
   const banyaLicenseDescription = document.querySelector('#banya-license-title + p');
   if (banyaLicenseDescription && languageData['banyaLicenseDescription']) {
     banyaLicenseDescription.textContent = languageData['banyaLicenseDescription'];
-    console.log('Updated Banya license description:', languageData['banyaLicenseDescription']);
+    // console.log('Updated Banya license description:', languageData['banyaLicenseDescription']);
   }
 
   // Banya 라이센스 라벨
   const banyaLicenseLabel = document.getElementById('banya-license-label');
   if (banyaLicenseLabel && languageData['banyaLicenseLabel']) {
     banyaLicenseLabel.textContent = languageData['banyaLicenseLabel'];
-    console.log('Updated Banya license label:', languageData['banyaLicenseLabel']);
+    // console.log('Updated Banya license label:', languageData['banyaLicenseLabel']);
   }
 
   // Banya 라이센스 설명 (섹션 내)
   const banyaLicenseSectionDescription = document.querySelector('#banya-license-label + p');
   if (banyaLicenseSectionDescription && languageData['banyaLicenseSectionDescription']) {
     banyaLicenseSectionDescription.textContent = languageData['banyaLicenseSectionDescription'];
-    console.log('Updated Banya license section description:', languageData['banyaLicenseSectionDescription']);
+    // console.log('Updated Banya license section description:', languageData['banyaLicenseSectionDescription']);
   }
 
   // Banya 라이센스 저장 버튼
   const saveBanyaLicenseButton = document.getElementById('save-banya-license-button');
   if (saveBanyaLicenseButton && languageData['saveBanyaLicenseButton']) {
     saveBanyaLicenseButton.textContent = languageData['saveBanyaLicenseButton'];
-    console.log('Updated Banya license save button:', languageData['saveBanyaLicenseButton']);
+    // console.log('Updated Banya license save button:', languageData['saveBanyaLicenseButton']);
   }
 
   // Banya 라이센스 검증 버튼
   const verifyBanyaLicenseButton = document.getElementById('verify-banya-license-button');
   if (verifyBanyaLicenseButton && languageData['verifyButton']) {
     verifyBanyaLicenseButton.textContent = languageData['verifyButton'];
-    console.log('Updated Banya license verify button:', languageData['verifyButton']);
+    // console.log('Updated Banya license verify button:', languageData['verifyButton']);
   }
 
   // Banya 라이센스 삭제 버튼
   const deleteBanyaLicenseButton = document.getElementById('delete-banya-license-button');
   if (deleteBanyaLicenseButton && languageData['deleteBanyaLicenseButton']) {
     deleteBanyaLicenseButton.textContent = languageData['deleteBanyaLicenseButton'];
-    console.log('Updated Banya license delete button:', languageData['deleteBanyaLicenseButton']);
+    // console.log('Updated Banya license delete button:', languageData['deleteBanyaLicenseButton']);
   }
 
   // Banya 라이센스 입력 필드 placeholder
   const banyaLicenseSerialInput = document.getElementById('banya-license-serial-input');
   if (banyaLicenseSerialInput && languageData['pleaseEnterBanyaLicense']) {
     banyaLicenseSerialInput.placeholder = languageData['pleaseEnterBanyaLicense'];
-    console.log('Updated Banya license input placeholder:', languageData['pleaseEnterBanyaLicense']);
+    // console.log('Updated Banya license input placeholder:', languageData['pleaseEnterBanyaLicense']);
   }
 
   // Banya 라이센스 상태 메시지 업데이트
@@ -649,7 +654,7 @@ function applyLanguage() {
   const aiModelSelectLabel = document.getElementById('ai-model-select-label');
   if (aiModelSelectLabel && languageData['aiModelSelectLabel']) {
     aiModelSelectLabel.innerHTML = `<b>${languageData['aiModelSelectLabel']}</b>`;
-    console.log('Updated AI model select label:', languageData['aiModelSelectLabel']);
+    // console.log('Updated AI model select label:', languageData['aiModelSelectLabel']);
   }
 
   // AI 모델 선택 옵션들
@@ -670,25 +675,25 @@ function applyLanguage() {
   // Ollama API URL 라벨 (기존 변수 사용)
   if (ollamaApiLabel && languageData['ollamaApiLabel']) {
     ollamaApiLabel.textContent = languageData['ollamaApiLabel'];
-    console.log('Updated Ollama API label:', languageData['ollamaApiLabel']);
+    // console.log('Updated Ollama API label:', languageData['ollamaApiLabel']);
   }
 
   // Ollama API 설명 (기존 변수 사용)
   if (ollamaApiDescription && languageData['ollamaApiDescription']) {
     ollamaApiDescription.textContent = languageData['ollamaApiDescription'];
-    console.log('Updated Ollama API description:', languageData['ollamaApiDescription']);
+    // console.log('Updated Ollama API description:', languageData['ollamaApiDescription']);
   }
 
   // Ollama API 설정 방법 (기존 변수 사용)
   if (ollamaApiSetupMethod && languageData['ollamaApiSetupMethod']) {
     ollamaApiSetupMethod.textContent = languageData['ollamaApiSetupMethod'];
-    console.log('Updated Ollama API setup method:', languageData['ollamaApiSetupMethod']);
+    // console.log('Updated Ollama API setup method:', languageData['ollamaApiSetupMethod']);
   }
 
   // Ollama API URL 저장 버튼 (기존 변수 사용)
   if (saveOllamaApiUrlButton && languageData['saveOllamaApiUrlButton']) {
     saveOllamaApiUrlButton.textContent = languageData['saveOllamaApiUrlButton'];
-    console.log('Updated Ollama API URL save button:', languageData['saveOllamaApiUrlButton']);
+    // console.log('Updated Ollama API URL save button:', languageData['saveOllamaApiUrlButton']);
   }
 
   // 모든 placeholder 업데이트
@@ -811,10 +816,13 @@ if (languageSelect) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -947,10 +955,13 @@ if (typeof terminalDaemonToggle !== 'undefined' && terminalDaemonToggle) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1024,10 +1035,13 @@ if (saveGeminiApiKeyButton) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1062,10 +1076,13 @@ if (saveOllamaApiUrlButton) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1076,9 +1093,9 @@ if (saveOllamaApiUrlButton) {
 if (saveOllamaModelButton) {
   saveOllamaModelButton.addEventListener('click', () => {
     const model = ollamaModelSelect.value;
-    console.log('Ollama model save button clicked, selected model:', model);
+    // console.log('Ollama model save button clicked, selected model:', model);
     if (model) {
-      console.log('Sending saveOllamaModel command to extension with model:', model);
+      // console.log('Sending saveOllamaModel command to extension with model:', model);
       vscode.postMessage({
         command: 'saveOllamaModel',
         model: model
@@ -1086,7 +1103,7 @@ if (saveOllamaModelButton) {
       const savingText = 'Ollama 모델 저장 중...';
       showStatus(ollamaModelStatus, savingText, 'info');
     } else {
-      console.log('No model selected, showing error');
+      // console.log('No model selected, showing error');
       showStatus(ollamaModelStatus, '모델을 선택해주세요.', 'error');
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
@@ -1095,10 +1112,13 @@ if (saveOllamaModelButton) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1109,7 +1129,7 @@ if (saveOllamaModelButton) {
 if (ollamaModelSelect) {
   ollamaModelSelect.addEventListener('change', () => {
     const selectedModel = ollamaModelSelect.value;
-    console.log('Ollama model selected:', selectedModel);
+    // console.log('Ollama model selected:', selectedModel);
 
     // gpt-oss-120b:cloud 모델 선택 시 인증 섹션 표시
     const authSection = document.getElementById('ollama-auth-section');
@@ -1155,9 +1175,9 @@ if (ollamaAuthButton) {
 if (saveOllamaEndpointButton) {
   saveOllamaEndpointButton.addEventListener('click', () => {
     const endpoint = ollamaEndpointSelect.value;
-    console.log('Ollama endpoint save button clicked, selected endpoint:', endpoint);
+    // console.log('Ollama endpoint save button clicked, selected endpoint:', endpoint);
     if (endpoint) {
-      console.log('Sending saveOllamaEndpoint command to extension with endpoint:', endpoint);
+      // console.log('Sending saveOllamaEndpoint command to extension with endpoint:', endpoint);
       vscode.postMessage({
         command: 'saveOllamaEndpoint',
         endpoint: endpoint
@@ -1165,7 +1185,7 @@ if (saveOllamaEndpointButton) {
       const savingText = 'Ollama 엔드포인트 저장 중...';
       showStatus(ollamaEndpointStatus, savingText, 'info');
     } else {
-      console.log('No endpoint selected, showing error');
+      // console.log('No endpoint selected, showing error');
       showStatus(ollamaEndpointStatus, '엔드포인트를 선택해주세요.', 'error');
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
@@ -1174,10 +1194,13 @@ if (saveOllamaEndpointButton) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1205,10 +1228,13 @@ if (saveBanyaLicenseButton) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1236,10 +1262,13 @@ if (verifyBanyaLicenseButton) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1268,7 +1297,7 @@ if (banyaLicenseSerialInput) {
 if (aiModelSelect) {
   aiModelSelect.addEventListener('change', () => {
     const selectedModel = aiModelSelect.value;
-    console.log('AI model selected:', selectedModel);
+    // console.log('AI model selected:', selectedModel);
 
     // 선택된 모델에 따라 설정 섹션 활성화/비활성화
     if (selectedModel === 'gemini') {
@@ -1295,10 +1324,13 @@ if (aiModelSelect) {
         aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
         aiModelStatus.className = 'info-message';
       }
-      vscode.postMessage({
-        command: 'saveAiModel',
-        model: selectedModel
-      });
+      if (aiModelSelect && aiModelSelect.value) {
+        const selectedModel = aiModelSelect.value;
+        vscode.postMessage({
+          command: 'saveAiModel',
+          model: selectedModel
+        });
+      }
     } catch (e) {
       console.warn('Failed to autosave AI model:', e);
     }
@@ -1309,7 +1341,8 @@ if (aiModelSelect) {
 if (saveAiModelButton) {
   saveAiModelButton.addEventListener('click', () => {
     const selectedModel = aiModelSelect.value;
-    console.log('AI model save button clicked, selected model:', selectedModel);
+    // console.log('AI model save button clicked, selected model:', selectedModel);
+
     if (aiModelStatus) {
       aiModelStatus.textContent = 'AI 모델 저장 중...';
       aiModelStatus.className = 'info-message';
@@ -1346,12 +1379,12 @@ window.addEventListener('message', event => {
               sel.appendChild(opt);
             });
           }
-          console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
+          // console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
 
           // 기존 모델이 있으면 다시 선택
           if (currentModel && currentModel !== '') {
             sel.value = currentModel;
-            console.log('Restored previous Ollama model selection:', currentModel);
+            // console.log('Restored previous Ollama model selection:', currentModel);
           }
         }
         break;
@@ -1395,7 +1428,7 @@ window.addEventListener('message', event => {
       break;
     case 'currentAiModel':
       if (aiModelSelect && message.model) {
-        console.log('Received current AI model:', message.model);
+        // console.log('Received current AI model:', message.model);
 
         // 저장된 모델을 UI 표시용으로 변환
         let displayModel = message.model;
@@ -1404,7 +1437,8 @@ window.addEventListener('message', event => {
         } else if (message.model === 'gemini') {
           displayModel = 'gemini';
         }
-        console.log('Setting AI model select to:', displayModel);
+
+        // console.log('Setting AI model select to:', displayModel);
         aiModelSelect.value = displayModel;
 
         // 모델에 따라 섹션 활성화/비활성화
@@ -1664,7 +1698,7 @@ window.addEventListener('message', event => {
       break;
     case 'currentOllamaModel':
       if (message.model && ollamaModelSelect) {
-        console.log('Received current Ollama model:', message.model);
+        // console.log('Received current Ollama model:', message.model);
         ollamaModelSelect.value = message.model;
         const ollamaModelSetText = message.model ? `Ollama 모델이 설정되어 있습니다: ${message.model}` : 'Ollama 모델이 설정되지 않았습니다.';
         showStatus(ollamaModelStatus, ollamaModelSetText, message.model ? 'success' : 'info');
@@ -1738,7 +1772,7 @@ window.addEventListener('message', event => {
         // 언어 선택 드롭다운 값 업데이트
         if (languageSelect) {
           languageSelect.value = currentLanguage;
-          console.log('Updated language select value to:', currentLanguage);
+          // console.log('Updated language select value to:', currentLanguage);
         }
 
         // 즉시 언어 적용
@@ -1849,7 +1883,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Ollama 모델 목록을 확장 호스트에 요청하여 수신
 async function loadOllamaModels() {
-  console.log('Ollama 모델 목록 요청 (호스트)');
+  // console.log('Ollama 모델 목록 요청 (호스트)');
   vscode.postMessage({
     command: 'getOllamaModels'
   });
@@ -1858,11 +1892,11 @@ async function loadOllamaModels() {
 // Ollama API URL 변경 시 모델 목록 다시 불러오기
 if (ollamaApiUrlInput) {
   ollamaApiUrlInput.addEventListener('change', () => {
-    console.log('Ollama API URL 변경됨, 모델 목록 다시 불러오기');
+    // console.log('Ollama API URL 변경됨, 모델 목록 다시 불러오기');
     loadOllamaModels();
   });
   ollamaApiUrlInput.addEventListener('blur', () => {
-    console.log('Ollama API URL 입력 완료, 모델 목록 다시 불러오기');
+    // console.log('Ollama API URL 입력 완료, 모델 목록 다시 불러오기');
     loadOllamaModels();
   });
 }
