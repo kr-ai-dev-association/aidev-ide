@@ -1822,6 +1822,9 @@ document.addEventListener('DOMContentLoaded', () => {
   vscode.postMessage({
     command: 'loadAiModel'
   });
+  vscode.postMessage({
+    command: 'loadOllamaModel'
+  });
   const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
   showStatus(weatherApiKeyStatus, apiKeysLoadingText, 'info');
   showStatus(newsApiKeyStatus, apiKeysLoadingText, 'info');
@@ -1832,16 +1835,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨
   // 여기서는 초기화만 하고, 실제 업데이트는 서버 응답 후에 수행
-
-  // AI 모델 설정 요청
-  vscode.postMessage({
-    command: 'loadAiModel'
-  });
-
-  // Ollama 모델 설정 요청
-  vscode.postMessage({
-    command: 'loadOllamaModel'
-  });
 
   // Ollama 모델 목록 불러오기
   loadOllamaModels();
