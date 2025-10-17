@@ -1,1 +1,264 @@
-!function(e,t){if("object"==typeof exports&&"object"==typeof module)module.exports=t();else if("function"==typeof define&&define.amd)define([],t);else{var o=t();for(var n in o)("object"==typeof exports?exports:e)[n]=o[n]}}(self,()=>(()=>{"use strict";var e={d:(t,o)=>{for(var n in o)e.o(o,n)&&!e.o(t,n)&&Object.defineProperty(t,n,{enumerable:!0,get:o[n]})},o:(e,t)=>Object.prototype.hasOwnProperty.call(e,t),r:e=>{"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})}},t={};function o(){const e=document.createElement("button");return e.classList.add("copy-code-button"),e.textContent="Copy",e.title="Copy code to clipboard",e}function n(e){let t=!1,o="",n=!1;for(let c=0;c<e.length;c++){const r=e[c];if(n)n=!1;else if("\\"!==r)if(t||'"'!==r&&"'"!==r){if(t&&r===o)t=!1,o="";else if(!t&&"#"===r)return e.substring(0,c).trim()}else t=!0,o=r;else n=!0}return e.trim()}function c(e,t){e.addEventListener("click",async()=>{const o=t.textContent||"",n=await async function(e){try{return navigator.clipboard&&navigator.clipboard.writeText?(await navigator.clipboard.writeText(e),console.log("Code copied to clipboard!"),!0):(console.warn("Clipboard API not available."),!1)}catch(e){return console.error("Failed to copy code:",e),!1}}(o),c=e.textContent;e.textContent=n?"Copied!":"Failed!",setTimeout(()=>{e.textContent=c},2e3)})}function r(e){if(!e)return;const t=e.querySelectorAll(".code-block-container");t.forEach(e=>{const t=e.querySelector("code");if(t){const r=e.querySelector(".code-language"),s=r&&"bash"===r.textContent.toLowerCase(),i=document.createElement("div");i.classList.add("bash-button-container");const a=o();if(i.appendChild(a),s){const e=function(){const e=document.createElement("button");return e.classList.add("run-bash-button"),e.textContent="Run",e.title="Run bash commands",e}();i.appendChild(e),function(e,t){e.addEventListener("click",async()=>{const o=function(e){const t=[],o=e.split("\n");for(const e of o){const o=e.trim();if(o&&!o.startsWith("#")){const e=n(o);e&&t.push(e)}}return t}(t.textContent||"");if(0===o.length)return void console.log("No valid bash commands found");"undefined"!=typeof vscode&&vscode.postMessage({command:"executeBashCommands",commands:o});const c=e.textContent;e.textContent="Running...",e.disabled=!0,setTimeout(()=>{e.textContent=c,e.disabled=!1},2e3)})}(e,t)}e.insertAdjacentElement("afterend",i),c(a,t)}});const r=e.querySelectorAll("pre:not(.code-block-container pre)");r.forEach(e=>{if(e.closest(".code-block-container"))return;const t=e.querySelector("code");if(t){const n=o();e.insertAdjacentElement("afterend",n),c(n,t)}}),console.log(`[codeCopy.js] Added copy buttons to ${t.length} code block containers and ${r.length} legacy pre elements.`)}return e.r(t),e.d(t,{addCopyButtonsToCodeBlocks:()=>r}),t})());
+(function webpackUniversalModuleDefinition(root, factory) {
+	if(typeof exports === 'object' && typeof module === 'object')
+		module.exports = factory();
+	else if(typeof define === 'function' && define.amd)
+		define([], factory);
+	else {
+		var a = factory();
+		for(var i in a) (typeof exports === 'object' ? exports : root)[i] = a[i];
+	}
+})(self, () => {
+return /******/ (() => { // webpackBootstrap
+/******/ 	"use strict";
+/******/ 	// The require scope
+/******/ 	var __webpack_require__ = {};
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__webpack_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/make namespace object */
+/******/ 	(() => {
+/******/ 		// define __esModule on exports
+/******/ 		__webpack_require__.r = (exports) => {
+/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 			}
+/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+var __webpack_exports__ = {};
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   addCopyButtonsToCodeBlocks: () => (/* binding */ addCopyButtonsToCodeBlocks)
+/* harmony export */ });
+// 클립보드 복사 기능을 위한 헬퍼 함수
+// Webview에서는 navigator.clipboard 사용 가능
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      console.log('Code copied to clipboard!');
+      return true; // 성공
+    } else {
+      console.warn('Clipboard API not available.');
+      // Fallback 방법 (document.execCommand('copy'))은 보안상 권장되지 않아 생략
+      return false; // 실패
+    }
+  } catch (err) {
+    console.error('Failed to copy code:', err);
+    return false; // 실패
+  }
+}
+
+// 복사 버튼을 생성하는 헬퍼 함수
+function createCopyButton() {
+  const button = document.createElement('button');
+  button.classList.add('copy-code-button');
+  button.textContent = 'Copy'; // 버튼 텍스트
+  button.title = 'Copy code to clipboard'; // 툴팁
+
+  return button;
+}
+
+// Run 버튼을 생성하는 헬퍼 함수
+function createRunButton() {
+  const button = document.createElement('button');
+  button.classList.add('run-bash-button');
+  button.textContent = 'Run'; // 버튼 텍스트
+  button.title = 'Run bash commands'; // 툴팁
+
+  return button;
+}
+
+// 명령어에서 인라인 주석을 제거하는 함수
+function removeInlineComment(command) {
+  // 따옴표 안의 #은 주석이 아니므로 보호
+  let inQuotes = false;
+  let quoteChar = '';
+  let escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (!inQuotes && (char === '"' || char === "'")) {
+      inQuotes = true;
+      quoteChar = char;
+      continue;
+    }
+    if (inQuotes && char === quoteChar) {
+      inQuotes = false;
+      quoteChar = '';
+      continue;
+    }
+    if (!inQuotes && char === '#') {
+      return command.substring(0, i).trim();
+    }
+  }
+  return command.trim();
+}
+
+// bash 명령어를 추출하고 정리하는 함수
+function extractBashCommands(bashCode) {
+  const commands = [];
+  const lines = bashCode.split('\n');
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    // 주석 처리된 줄들(#으로 시작)과 빈 줄들을 제외
+    if (trimmedLine && !trimmedLine.startsWith('#')) {
+      // 인라인 주석 제거
+      const cleanCommand = removeInlineComment(trimmedLine);
+      if (cleanCommand) {
+        commands.push(cleanCommand);
+      }
+    }
+  }
+  return commands;
+}
+
+// Run 버튼에 이벤트 리스너를 등록하는 함수
+function attachRunButtonListener(button, codeElement) {
+  button.addEventListener('click', async () => {
+    const bashCode = codeElement.textContent || '';
+    const commands = extractBashCommands(bashCode);
+    if (commands.length === 0) {
+      console.log('No valid bash commands found');
+      return;
+    }
+
+    // VS Code API를 통해 확장에 명령어 실행 요청
+    if (typeof vscode !== 'undefined') {
+      vscode.postMessage({
+        command: 'executeBashCommands',
+        commands: commands
+      });
+    }
+
+    // 버튼 피드백
+    const originalText = button.textContent;
+    button.textContent = 'Running...';
+    button.disabled = true;
+    setTimeout(() => {
+      button.textContent = originalText;
+      button.disabled = false;
+    }, 2000);
+  });
+}
+
+// 단일 복사 버튼에 이벤트 리스너를 등록하는 함수
+// 클릭된 버튼과 해당 코드 엘리먼트를 연결합니다.
+function attachCopyButtonListener(button, codeElement) {
+  button.addEventListener('click', async () => {
+    const codeText = codeElement.textContent || '';
+    const success = await copyToClipboard(codeText);
+
+    // 복사 성공/실패 시 버튼 텍스트 변경 피드백
+    const originalText = button.textContent;
+    if (success) {
+      button.textContent = 'Copied!';
+    } else {
+      button.textContent = 'Failed!';
+    }
+    setTimeout(() => {
+      button.textContent = originalText;
+    }, 2000); // 2초 후 복원
+
+    // TODO: VS Code API를 통해 사용자에게 알림 표시 고려 (선택 사항)
+    // 웹뷰에서 확장으로 메시지를 보내 알림 표시를 요청하는 방식 사용
+    // 예: vscode.postMessage({ command: 'showInfoNotification', message: 'Code copied!' });
+  });
+}
+
+// CodePilot 메시지 버블 내부에서 코드 블록을 찾아 복사 버튼과 run 버튼을 추가하는 메인 함수
+// 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
+// 인자로 CodePilot 메시지의 bubbleElement (DOM 요소)를 받습니다.
+function addCopyButtonsToCodeBlocks(bubbleElement) {
+  // <-- export 키워드 유지
+  if (!bubbleElement) return;
+
+  // 새로운 코드 블록 컨테이너 구조에서 복사 버튼과 run 버튼 추가
+  const codeBlockContainers = bubbleElement.querySelectorAll('.code-block-container');
+  codeBlockContainers.forEach(container => {
+    // 코드 컨테이너 내부의 code 요소를 찾습니다
+    const codeElement = container.querySelector('code');
+    if (codeElement) {
+      // 언어 라벨 확인 (bash인지 체크)
+      const languageLabel = container.querySelector('.code-language');
+      const isBash = languageLabel && languageLabel.textContent.toLowerCase() === 'bash';
+
+      // 버튼 컨테이너 생성
+      const buttonContainer = document.createElement('div');
+      buttonContainer.classList.add('bash-button-container');
+
+      // 복사 버튼 생성
+      const copyButton = createCopyButton();
+      buttonContainer.appendChild(copyButton);
+
+      // bash인 경우 run 버튼도 추가
+      if (isBash) {
+        const runButton = createRunButton();
+        buttonContainer.appendChild(runButton);
+        attachRunButtonListener(runButton, codeElement);
+      }
+
+      // 버튼 컨테이너를 코드 블록 컨테이너 바로 뒤에 삽입
+      container.insertAdjacentElement('afterend', buttonContainer);
+
+      // 복사 버튼에 클릭 이벤트 리스너 등록
+      attachCopyButtonListener(copyButton, codeElement);
+    }
+  });
+
+  // 기존 구조의 pre 요소들도 처리 (하지만 중복 방지를 위해 이미 처리된 컨테이너는 제외)
+  const preElements = bubbleElement.querySelectorAll('pre:not(.code-block-container pre)');
+  preElements.forEach(preElement => {
+    // 이미 코드 블록 컨테이너의 자식인 경우 건너뛰기
+    if (preElement.closest('.code-block-container')) {
+      return;
+    }
+
+    // <pre> 태그 안에 <code> 태그가 있는지 확인
+    const codeElement = preElement.querySelector('code');
+    if (codeElement) {
+      // 복사 버튼 생성
+      const copyButton = createCopyButton();
+
+      // 버튼을 <pre> 요소 바로 뒤(형제)로 삽입합니다.
+      preElement.insertAdjacentElement('afterend', copyButton);
+
+      // 새로 생성된 버튼에 클릭 이벤트 리스너 등록
+      attachCopyButtonListener(copyButton, codeElement);
+    }
+  });
+  console.log(`[codeCopy.js] Added copy buttons to ${codeBlockContainers.length} code block containers and ${preElements.length} legacy pre elements.`);
+}
+
+// TODO: 필요하다면 이 파일에서 VS Code API와 통신하는 함수 추가 (예: 알림 표시 요청)
+// 현재는 attachCopyButtonListener 내부에서 직접 navigator.clipboard를 사용하므로 필요 없을 수 있습니다.
+/******/ 	return __webpack_exports__;
+/******/ })()
+;
+});
+//# sourceMappingURL=codeCopy.js.map
