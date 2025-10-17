@@ -54,7 +54,7 @@ export class StorageService {
      */
     async saveOllamaApiUrl(apiUrl: string): Promise<void> {
         await this.secretStorage.store(OLLAMA_API_URL_SECRET_KEY, apiUrl);
-        console.log('Ollama API URL saved to SecretStorage.');
+        // console.log('Ollama API URL saved to SecretStorage.');
     }
 
     /**
@@ -85,7 +85,7 @@ export class StorageService {
      */
     async saveOllamaEndpoint(endpoint: string): Promise<void> {
         await this.secretStorage.store(OLLAMA_ENDPOINT_SECRET_KEY, endpoint);
-        console.log('Ollama API endpoint saved to SecretStorage.');
+        // console.log('Ollama API endpoint saved to SecretStorage.');
     }
 
     /**
@@ -117,7 +117,7 @@ export class StorageService {
      */
     async saveOllamaModel(model: string): Promise<void> {
         await this.secretStorage.store(OLLAMA_MODEL_SECRET_KEY, model);
-        console.log('Ollama model saved to SecretStorage.');
+        // console.log('Ollama model saved to SecretStorage.');
     }
 
     /**
@@ -149,7 +149,7 @@ export class StorageService {
      */
     async saveCurrentAiModel(model: string): Promise<void> {
         await this.secretStorage.store(CURRENT_AI_MODEL_SECRET_KEY, model);
-        console.log('Current AI model saved to SecretStorage.');
+        // console.log('Current AI model saved to SecretStorage.');
     }
 
     /**

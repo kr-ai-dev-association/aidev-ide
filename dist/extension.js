@@ -403,7 +403,7 @@ class StorageService {
      */
     async saveOllamaApiUrl(apiUrl) {
         await this.secretStorage.store(OLLAMA_API_URL_SECRET_KEY, apiUrl);
-        console.log('Ollama API URL saved to SecretStorage.');
+        // console.log('Ollama API URL saved to SecretStorage.');
     }
     /**
      * SecretStorage에서 저장된 Ollama API URL을 불러옵니다.
@@ -432,7 +432,7 @@ class StorageService {
      */
     async saveOllamaEndpoint(endpoint) {
         await this.secretStorage.store(OLLAMA_ENDPOINT_SECRET_KEY, endpoint);
-        console.log('Ollama API endpoint saved to SecretStorage.');
+        // console.log('Ollama API endpoint saved to SecretStorage.');
     }
     /**
      * SecretStorage에서 저장된 Ollama API 엔드포인트를 불러옵니다.
@@ -462,7 +462,7 @@ class StorageService {
      */
     async saveOllamaModel(model) {
         await this.secretStorage.store(OLLAMA_MODEL_SECRET_KEY, model);
-        console.log('Ollama model saved to SecretStorage.');
+        // console.log('Ollama model saved to SecretStorage.');
     }
     /**
      * SecretStorage에서 저장된 Ollama 모델을 불러옵니다.
@@ -492,7 +492,7 @@ class StorageService {
      */
     async saveCurrentAiModel(model) {
         await this.secretStorage.store(CURRENT_AI_MODEL_SECRET_KEY, model);
-        console.log('Current AI model saved to SecretStorage.');
+        // console.log('Current AI model saved to SecretStorage.');
     }
     /**
      * SecretStorage에서 저장된 현재 AI 모델을 불러옵니다.
@@ -14008,9 +14008,9 @@ function createAndSetupWebviewPanel(extensionUri, contextForSubs, panelTypeSuffi
     panel.webview.html = getHtmlContentWithUris(extensionUri, htmlFileName, panel.webview);
     panel.onDidDispose(() => { }, undefined, contextForSubs.subscriptions);
     if (onDidReceiveMessage) {
-        console.log(`[PanelUtils] Setting up message handler for ${panelTypeSuffix} panel`);
+        // console.log(`[PanelUtils] Setting up message handler for ${panelTypeSuffix} panel`);
         panel.webview.onDidReceiveMessage(async (data) => {
-            console.log(`[PanelUtils] Received message in ${panelTypeSuffix} panel:`, data.command, data);
+            // console.log(`[PanelUtils] Received message in ${panelTypeSuffix} panel:`, data.command, data);
             await onDidReceiveMessage(data, panel);
         }, undefined, contextForSubs.subscriptions);
     }
@@ -14962,10 +14962,17 @@ class LlmService {
     externalApiService;
     currentCallController = null;
     currentModelType = types_1.AiModelType.GEMINI; // 기본값
+    currentPanel = null;
     // 액션 플래너 관련 서비스들
     actionPlannerService;
     terminalMonitorService;
     actionExecutionEngine;
+    // 처리 단계 전송 함수
+    sendProcessingStep(step) {
+        if (this.currentPanel) {
+            (0, panelUtils_1.safePostMessage)(this.currentPanel.webview, { command: 'setProcessingStep', step });
+        }
+    }
     activePlans = new Map();
     projectProfileService;
     projectProfile;
@@ -15098,6 +15105,9 @@ class LlmService {
         this.currentCallController = new AbortController();
         const abortSignal = this.currentCallController.signal;
         try {
+            // webviewToRespond를 currentPanel로 설정 (sendProcessingStep에서 사용)
+            // webviewToRespond는 Webview이므로, 이를 WebviewPanel로 래핑
+            this.currentPanel = { webview: webviewToRespond };
             (0, panelUtils_1.safePostMessage)(webviewToRespond, { command: 'showLoading' });
             const currentModelNameForLog = await this.getCurrentModelName();
             console.log(`[LlmService] Using model: type=${this.currentModelType}, name=${currentModelNameForLog}`);
@@ -15107,6 +15117,7 @@ class LlmService {
             let intentResult;
             if (this.intentDetectionService) {
                 try {
+                    this.sendProcessingStep('intent');
                     intentResult = await this.intentDetectionService.detectIntent(userQuery);
                     console.log('[LlmService] Detected intent:', intentResult);
                 }
@@ -15142,12 +15153,14 @@ class LlmService {
             let includedFilesForContext = [];
             if (promptType === types_1.PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
+                this.sendProcessingStep('keywords');
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
             else if (promptType === types_1.PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
+                this.sendProcessingStep('keywords');
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
@@ -15155,6 +15168,7 @@ class LlmService {
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
             let selectedFilesContext = "";
             if (selectedFiles && selectedFiles.length > 0) {
+                this.sendProcessingStep('analyzing');
                 for (const filePath of selectedFiles) {
                     try {
                         const fileUri = vscode.Uri.file(filePath);
@@ -15223,13 +15237,15 @@ class LlmService {
             console.log('[LlmService] Full User Parts:\n', userParts.map(p => p.text || '[Image Data]').join('\n'));
             // end of send banner
             let llmResponse;
+            this.sendProcessingStep('assembling');
             if (this.currentModelType === types_1.AiModelType.GEMINI) {
                 const requestOptions = { signal: abortSignal };
                 llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
             }
             else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
                 this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
+                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_GPT_OSS) {
                 // Ollama API에 직접 호출 (selectedFiles는 이미 시스템 프롬프트에 포함됨)
                 const requestOptions = { signal: abortSignal };
                 llmResponse = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
@@ -15255,7 +15271,9 @@ class LlmService {
                 }
             }
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
+            this.sendProcessingStep('parsing');
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, promptType === types_1.PromptType.CODE_GENERATION ? allContextFiles : [], webviewToRespond, promptType);
+            this.sendProcessingStep('printing');
             // --- AI 응답을 대화 기록에 저장 ---
             if (this.extensionContext && userQuery) {
                 const summarizedResponse = this.summarizeAiResponse(llmResponse);
@@ -19050,7 +19068,7 @@ llmService, // LlmService 추가
 ollamaBlockerService // OllamaBlockerService 추가
 ) {
     const panel = (0, panelUtils_1.createAndSetupWebviewPanel)(extensionUri, context, 'settings', 'AIDEV-IDE Settings', 'settings', viewColumn, async (data, panel) => {
-        console.log('Settings panel received message:', data.command, data);
+        // console.log('Settings panel received message:', data.command, data);
         switch (data.command) {
             case 'initSettings':
                 panel.webview.postMessage({
@@ -19208,11 +19226,11 @@ ollamaBlockerService // OllamaBlockerService 추가
                 let isLicenseVerified = false;
                 if (validBanyaLicenseSerial) {
                     try {
-                        console.log('Verifying license:', validBanyaLicenseSerial);
+                        // console.log('Verifying license:', validBanyaLicenseSerial);
                         const verificationResult = await licenseService.verifyLicense(validBanyaLicenseSerial);
                         isLicenseVerified = verificationResult.success;
-                        console.log('License verification result:', verificationResult);
-                        console.log('isLicenseVerified set to:', isLicenseVerified);
+                        // console.log('License verification result:', verificationResult);
+                        // console.log('isLicenseVerified set to:', isLicenseVerified);
                     }
                     catch (error) {
                         console.error('License verification failed:', error);
@@ -19235,7 +19253,7 @@ ollamaBlockerService // OllamaBlockerService 추가
                     banyaLicenseSerial: validBanyaLicenseSerial, // 검증된 Banya 라이센스만 전송
                     isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
                 };
-                console.log('Sending currentApiKeys message:', messageToSend);
+                // console.log('Sending currentApiKeys message:', messageToSend);
                 panel.webview.postMessage(messageToSend);
                 break;
             case 'getOllamaModels': {
@@ -19320,15 +19338,15 @@ ollamaBlockerService // OllamaBlockerService 추가
                 break;
             case 'saveOllamaEndpoint':
                 const ollamaEndpointToSave = data.endpoint;
-                console.log('Received saveOllamaEndpoint command with endpoint:', ollamaEndpointToSave);
+                // console.log('Received saveOllamaEndpoint command with endpoint:', ollamaEndpointToSave);
                 if (ollamaEndpointToSave && typeof ollamaEndpointToSave === 'string') {
                     try {
-                        console.log('Saving Ollama endpoint to storage:', ollamaEndpointToSave);
+                        // console.log('Saving Ollama endpoint to storage:', ollamaEndpointToSave);
                         await storageService.saveOllamaEndpoint(ollamaEndpointToSave);
-                        console.log('Ollama endpoint saved successfully');
+                        // console.log('Ollama endpoint saved successfully');
                         // OllamaApi 인스턴스의 엔드포인트도 업데이트
                         if (ollamaApi && typeof ollamaApi.setEndpoint === 'function') {
-                            console.log('Updating OllamaApi instance endpoint');
+                            // console.log('Updating OllamaApi instance endpoint');
                             ollamaApi.setEndpoint(ollamaEndpointToSave);
                         }
                         else {
@@ -19449,7 +19467,7 @@ ollamaBlockerService // OllamaBlockerService 추가
                         let modelToSave = aiModelToSave;
                         if (aiModelToSave === 'ollama') {
                             const currentOllamaModel = await storageService.getOllamaModel();
-                            console.log('Current Ollama model for mapping:', currentOllamaModel);
+                            // console.log('Current Ollama model for mapping:', currentOllamaModel);
                             if (currentOllamaModel === 'deepseek-r1:70b') {
                                 modelToSave = 'ollama-deepseek';
                             }

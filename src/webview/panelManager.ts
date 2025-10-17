@@ -31,7 +31,7 @@ export function openSettingsPanel(
 ) {
     const panel = createAndSetupWebviewPanel(extensionUri, context, 'settings', 'AIDEV-IDE Settings', 'settings', viewColumn,
         async (data, panel) => {
-            console.log('Settings panel received message:', data.command, data);
+            // console.log('Settings panel received message:', data.command, data);
             switch (data.command) {
                 case 'initSettings':
                     panel.webview.postMessage({
@@ -189,11 +189,11 @@ export function openSettingsPanel(
                     let isLicenseVerified = false;
                     if (validBanyaLicenseSerial) {
                         try {
-                            console.log('Verifying license:', validBanyaLicenseSerial);
+                            // console.log('Verifying license:', validBanyaLicenseSerial);
                             const verificationResult = await licenseService.verifyLicense(validBanyaLicenseSerial);
                             isLicenseVerified = verificationResult.success;
-                            console.log('License verification result:', verificationResult);
-                            console.log('isLicenseVerified set to:', isLicenseVerified);
+                            // console.log('License verification result:', verificationResult);
+                            // console.log('isLicenseVerified set to:', isLicenseVerified);
                         } catch (error) {
                             console.error('License verification failed:', error);
                             isLicenseVerified = false;
@@ -215,7 +215,7 @@ export function openSettingsPanel(
                         banyaLicenseSerial: validBanyaLicenseSerial, // 검증된 Banya 라이센스만 전송
                         isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
                     };
-                    console.log('Sending currentApiKeys message:', messageToSend);
+                    // console.log('Sending currentApiKeys message:', messageToSend);
                     panel.webview.postMessage(messageToSend);
                     break;
                 case 'getOllamaModels': {
@@ -294,16 +294,16 @@ export function openSettingsPanel(
                     break;
                 case 'saveOllamaEndpoint':
                     const ollamaEndpointToSave = data.endpoint;
-                    console.log('Received saveOllamaEndpoint command with endpoint:', ollamaEndpointToSave);
+                    // console.log('Received saveOllamaEndpoint command with endpoint:', ollamaEndpointToSave);
                     if (ollamaEndpointToSave && typeof ollamaEndpointToSave === 'string') {
                         try {
-                            console.log('Saving Ollama endpoint to storage:', ollamaEndpointToSave);
+                            // console.log('Saving Ollama endpoint to storage:', ollamaEndpointToSave);
                             await storageService.saveOllamaEndpoint(ollamaEndpointToSave);
-                            console.log('Ollama endpoint saved successfully');
+                            // console.log('Ollama endpoint saved successfully');
 
                             // OllamaApi 인스턴스의 엔드포인트도 업데이트
                             if (ollamaApi && typeof ollamaApi.setEndpoint === 'function') {
-                                console.log('Updating OllamaApi instance endpoint');
+                                // console.log('Updating OllamaApi instance endpoint');
                                 ollamaApi.setEndpoint(ollamaEndpointToSave);
                             } else {
                                 console.log('OllamaApi instance not available or setEndpoint method not found');
@@ -415,7 +415,7 @@ export function openSettingsPanel(
                             let modelToSave = aiModelToSave;
                             if (aiModelToSave === 'ollama') {
                                 const currentOllamaModel = await storageService.getOllamaModel();
-                                console.log('Current Ollama model for mapping:', currentOllamaModel);
+                                // console.log('Current Ollama model for mapping:', currentOllamaModel);
 
                                 if (currentOllamaModel === 'deepseek-r1:70b') {
                                     modelToSave = 'ollama-deepseek';

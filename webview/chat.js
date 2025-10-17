@@ -3,13 +3,55 @@ import { addCopyButtonsToCodeBlocks } from './codeCopy.js';
 import markdownit from 'markdown-it';
 
 
-console.log("✅ chat.js loaded");
+// console.log("✅ chat.js loaded");
 
 // VS Code API를 전역으로 획득 (codeCopy.js와 공유)
 if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
     window.vscode = acquireVsCodeApi();
 }
 const vscode = window.vscode || null;
+
+// 처리 단계 제어 함수들
+function showProcessingSteps() {
+    const processingSteps = document.getElementById('processing-steps');
+    if (processingSteps) {
+        processingSteps.style.display = 'block';
+    }
+}
+
+function hideProcessingSteps() {
+    const processingSteps = document.getElementById('processing-steps');
+    if (processingSteps) {
+        processingSteps.style.display = 'none';
+    }
+}
+
+function setProcessingStep(stepName) {
+    const processingSteps = document.getElementById('processing-steps');
+    if (!processingSteps) return;
+
+    // 모든 단계를 비활성화
+    const allSteps = processingSteps.querySelectorAll('.processing-step');
+    allSteps.forEach(step => {
+        step.classList.remove('active', 'completed');
+    });
+
+    // 현재 단계를 활성화
+    const currentStep = processingSteps.querySelector(`[data-step="${stepName}"]`);
+    if (currentStep) {
+        currentStep.classList.add('active');
+    }
+
+    // 이전 단계들을 완료로 표시
+    const stepOrder = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+    const currentIndex = stepOrder.indexOf(stepName);
+    for (let i = 0; i < currentIndex; i++) {
+        const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);
+        if (prevStep) {
+            prevStep.classList.add('completed');
+        }
+    }
+}
 
 
 // Allow custom aidev-ide:// scheme links to survive sanitization
@@ -341,7 +383,7 @@ function updateChatContainerPadding() {
     // 채팅 컨테이너의 하단 패딩을 동적으로 설정
     chatContainer.style.paddingBottom = `${totalBottomHeight}px`;
 
-    console.log(`Bottom area height: ${totalBottomHeight}px (pending: ${pendingHeight}px, file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
+    // console.log(`Bottom area height: ${totalBottomHeight}px (pending: ${pendingHeight}px, file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -377,17 +419,25 @@ window.addEventListener('message', event => {
             console.log('Received showLoading command.');
             loadingDepth++;
             window.showLoading();
+            showProcessingSteps();
+            setProcessingStep('intent');
             break;
         case 'hideLoading':
             console.log('Received hideLoading command.');
             if (loadingDepth > 0) loadingDepth--;
             window.hideLoading();
+            hideProcessingSteps();
             // 약간의 지연 후, 에러 우선 처리(showLoading 재등장) 기회를 준 뒤 큐 전송
             setTimeout(() => {
                 if (loadingDepth === 0) {
                     sendNextQueuedQuestionIfIdle();
                 }
             }, 200);
+            break;
+        case 'setProcessingStep':
+            if (message.step) {
+                setProcessingStep(message.step);
+            }
             break;
         case 'displayUserMessage':
             console.log('Received command to display user message:', message.text, message.imageData);
@@ -836,7 +886,7 @@ let languageData = {};
 
 async function loadLanguage(lang) {
     try {
-        console.log('Requesting language data from extension:', lang);
+        // console.log('Requesting language data from extension:', lang);
         // 확장 프로그램에 언어 데이터 요청
         vscode.postMessage({ command: 'getLanguageData', language: lang });
     } catch (e) {

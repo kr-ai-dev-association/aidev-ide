@@ -1581,14 +1581,14 @@ window.addEventListener('message', event => {
       // 라이선스 검증 상태 처리
       if (typeof message.isLicenseVerified === 'boolean') {
         isLicenseVerified = message.isLicenseVerified;
-        console.log('License verification status received:', isLicenseVerified);
+        // console.log('License verification status received:', isLicenseVerified);
       } else {
         console.log('No license verification status received, message:', message);
       }
 
       // API 키 로드 완료 후 저장 버튼 상태 재확인
       setTimeout(() => {
-        console.log('Final button state update after API keys load, isLicenseVerified:', isLicenseVerified);
+        // console.log('Final button state update after API keys load, isLicenseVerified:', isLicenseVerified);
         updateSaveButtonsState();
         updateLicenseButtonsState();
       }, 100);
@@ -1747,7 +1747,7 @@ window.addEventListener('message', event => {
         currentLanguage = message.language;
         if (languageSelect) {
           languageSelect.value = currentLanguage;
-          console.log('Set language select value to:', currentLanguage);
+          // console.log('Set language select value to:', currentLanguage);
         }
         loadLanguage(currentLanguage);
       }
@@ -1781,33 +1781,33 @@ window.addEventListener('message', event => {
         }
 
         // 즉시 언어 적용
-        console.log('Applying language immediately');
+        // console.log('Applying language immediately');
         applyLanguage();
 
         // 강제로 모든 UI 요소 업데이트 (여러 번 실행)
         setTimeout(() => {
-          console.log('Forcing UI refresh after language change (1st)');
+          // console.log('Forcing UI refresh after language change (1st)');
           applyLanguage();
         }, 50);
         setTimeout(() => {
-          console.log('Forcing UI refresh after language change (2nd)');
+          // console.log('Forcing UI refresh after language change (2nd)');
           applyLanguage();
         }, 200);
         setTimeout(() => {
-          console.log('Forcing UI refresh after language change (3rd)');
+          // console.log('Forcing UI refresh after language change (3rd)');
           applyLanguage();
         }, 500);
 
         // 추가 강제 업데이트
         setTimeout(() => {
-          console.log('Final UI refresh after language change');
+          // console.log('Final UI refresh after language change');
           applyLanguage();
         }, 1000);
 
         // 디버깅: 프로젝트 Root 표시 업데이트 확인
         if (projectRootPathDisplay) {
-          console.log('Project root display current text:', projectRootPathDisplay.textContent);
-          console.log('No project root set translation:', languageData['noProjectRootSet']);
+          // console.log('Project root display current text:', projectRootPathDisplay.textContent);
+          // console.log('No project root set translation:', languageData['noProjectRootSet']);
         }
 
         // 언어 변경 후 즉시 모든 상태 메시지 업데이트

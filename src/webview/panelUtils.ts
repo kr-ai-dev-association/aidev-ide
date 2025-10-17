@@ -107,9 +107,9 @@ export function createAndSetupWebviewPanel(
     panel.webview.html = getHtmlContentWithUris(extensionUri, htmlFileName, panel.webview);
     panel.onDidDispose(() => { /* 정리 */ }, undefined, contextForSubs.subscriptions);
     if (onDidReceiveMessage) {
-        console.log(`[PanelUtils] Setting up message handler for ${panelTypeSuffix} panel`);
+        // console.log(`[PanelUtils] Setting up message handler for ${panelTypeSuffix} panel`);
         panel.webview.onDidReceiveMessage(async (data) => { 
-            console.log(`[PanelUtils] Received message in ${panelTypeSuffix} panel:`, data.command, data);
+            // console.log(`[PanelUtils] Received message in ${panelTypeSuffix} panel:`, data.command, data);
             await onDidReceiveMessage(data, panel); 
         }, undefined, contextForSubs.subscriptions);
     } else {

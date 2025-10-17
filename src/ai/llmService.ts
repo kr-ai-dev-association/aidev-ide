@@ -27,11 +27,19 @@ export class LlmService {
     private externalApiService: ExternalApiService;
     private currentCallController: AbortController | null = null;
     private currentModelType: AiModelType = AiModelType.GEMINI; // 기본값
+    private currentPanel: vscode.WebviewPanel | null = null;
 
     // 액션 플래너 관련 서비스들
     private actionPlannerService: ActionPlannerService;
     private terminalMonitorService: TerminalMonitorService;
     private actionExecutionEngine: ActionExecutionEngine;
+
+    // 처리 단계 전송 함수
+    private sendProcessingStep(step: string) {
+        if (this.currentPanel) {
+            safePostMessage(this.currentPanel.webview, { command: 'setProcessingStep', step });
+        }
+    }
     private activePlans: Map<string, ActionPlan> = new Map();
     private projectProfileService?: ProjectProfileService;
     private projectProfile?: ProjectProfile;
@@ -192,6 +200,9 @@ export class LlmService {
         const abortSignal = this.currentCallController.signal;
 
         try {
+            // webviewToRespond를 currentPanel로 설정 (sendProcessingStep에서 사용)
+            // webviewToRespond는 Webview이므로, 이를 WebviewPanel로 래핑
+            this.currentPanel = { webview: webviewToRespond } as vscode.WebviewPanel;
             safePostMessage(webviewToRespond, { command: 'showLoading' });
             const currentModelNameForLog = await this.getCurrentModelName();
             console.log(`[LlmService] Using model: type=${this.currentModelType}, name=${currentModelNameForLog}`);
@@ -203,6 +214,7 @@ export class LlmService {
             let intentResult: IntentDetectionResult | undefined;
             if (this.intentDetectionService) {
                 try {
+                    this.sendProcessingStep('intent');
                     intentResult = await this.intentDetectionService.detectIntent(userQuery);
                     console.log('[LlmService] Detected intent:', intentResult);
                 } catch (error) {
@@ -242,11 +254,13 @@ export class LlmService {
 
             if (promptType === PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
+                this.sendProcessingStep('keywords');
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             } else if (promptType === PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
+                this.sendProcessingStep('keywords');
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
@@ -255,6 +269,7 @@ export class LlmService {
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
             let selectedFilesContext = "";
             if (selectedFiles && selectedFiles.length > 0) {
+                this.sendProcessingStep('analyzing');
                 for (const filePath of selectedFiles) {
                     try {
                         const fileUri = vscode.Uri.file(filePath);
@@ -339,6 +354,7 @@ export class LlmService {
 
             let llmResponse: string;
 
+            this.sendProcessingStep('assembling');
             if (this.currentModelType === AiModelType.GEMINI) {
                 const requestOptions = { signal: abortSignal };
                 llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(
@@ -349,7 +365,8 @@ export class LlmService {
             } else if (
                 this.currentModelType === AiModelType.OLLAMA_Gemma ||
                 this.currentModelType === AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === AiModelType.OLLAMA_CodeLlama
+                this.currentModelType === AiModelType.OLLAMA_CodeLlama ||
+                this.currentModelType === AiModelType.OLLAMA_GPT_OSS
             ) {
                 // Ollama API에 직접 호출 (selectedFiles는 이미 시스템 프롬프트에 포함됨)
                 const requestOptions = { signal: abortSignal };
@@ -382,12 +399,14 @@ export class LlmService {
             }
 
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
+            this.sendProcessingStep('parsing');
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(
                 llmResponse,
                 promptType === PromptType.CODE_GENERATION ? allContextFiles : [],
                 webviewToRespond,
                 promptType
             );
+            this.sendProcessingStep('printing');
 
             // --- AI 응답을 대화 기록에 저장 ---
             if (this.extensionContext && userQuery) {

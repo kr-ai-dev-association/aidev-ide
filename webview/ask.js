@@ -10,6 +10,48 @@ if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefin
 }
 const vscode = window.vscode || null;
 
+// 처리 단계 제어 함수들
+function showProcessingSteps() {
+    const processingSteps = document.getElementById('processing-steps');
+    if (processingSteps) {
+        processingSteps.style.display = 'block';
+    }
+}
+
+function hideProcessingSteps() {
+    const processingSteps = document.getElementById('processing-steps');
+    if (processingSteps) {
+        processingSteps.style.display = 'none';
+    }
+}
+
+function setProcessingStep(stepName) {
+    const processingSteps = document.getElementById('processing-steps');
+    if (!processingSteps) return;
+
+    // 모든 단계를 비활성화
+    const allSteps = processingSteps.querySelectorAll('.processing-step');
+    allSteps.forEach(step => {
+        step.classList.remove('active', 'completed');
+    });
+
+    // 현재 단계를 활성화
+    const currentStep = processingSteps.querySelector(`[data-step="${stepName}"]`);
+    if (currentStep) {
+        currentStep.classList.add('active');
+    }
+
+    // 이전 단계들을 완료로 표시
+    const stepOrder = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+    const currentIndex = stepOrder.indexOf(stepName);
+    for (let i = 0; i < currentIndex; i++) {
+        const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);
+        if (prevStep) {
+            prevStep.classList.add('completed');
+        }
+    }
+}
+
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages');
@@ -388,10 +430,18 @@ window.addEventListener('message', event => {
         case 'showLoading':
             // console.log('Received showLoading command.');
             window.showLoading();
+            showProcessingSteps();
+            setProcessingStep('intent');
             break;
         case 'hideLoading':
             // console.log('Received hideLoading command.');
             window.hideLoading();
+            hideProcessingSteps();
+            break;
+        case 'setProcessingStep':
+            if (message.step) {
+                setProcessingStep(message.step);
+            }
             break;
 
         case 'receiveMessage':
