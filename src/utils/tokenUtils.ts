@@ -137,10 +137,10 @@ export function logTokenUsage(
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
 
     const label = actualModelName || modelType;
-    console.log(`[TokenUtils] ${label} 토큰 사용량:`);
-    console.log(`  - 현재 토큰: ${currentTokens.toLocaleString()}개`);
-    console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
-    console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
+    // console.log(`[TokenUtils] ${label} 토큰 사용량:`);
+    // console.log(`  - 현재 토큰: ${currentTokens.toLocaleString()}개`);
+    // console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
+    // console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
 
     if (usagePercentage > 80) {
         console.warn(`[TokenUtils] ⚠️ 토큰 사용률이 높습니다: ${usagePercentage.toFixed(1)}%`);
@@ -149,4 +149,26 @@ export function logTokenUsage(
     if (currentTokens > limits.maxInputTokens) {
         console.error(`[TokenUtils] ❌ 토큰 제한 초과: ${currentTokens.toLocaleString()} > ${limits.maxInputTokens.toLocaleString()}`);
     }
+}
+
+/**
+ * 텍스트의 대략적인 토큰 수를 계산합니다.
+ * 대부분의 토큰화 모델에서 1 토큰 ≈ 4 문자 (영어 기준) 또는 1-2 문자 (한국어 기준)
+ * @param text 토큰 수를 계산할 텍스트
+ * @returns 대략적인 토큰 수
+ */
+export function estimateTokens(text: string): number {
+    if (!text) return 0;
+
+    // 한국어와 영어를 구분하여 계산
+    const koreanChars = (text.match(/[가-힣]/g) || []).length;
+    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+    const otherChars = text.length - koreanChars - englishChars;
+
+    // 한국어: 1-2 문자당 1 토큰, 영어: 4 문자당 1 토큰, 기타: 3 문자당 1 토큰
+    const koreanTokens = Math.ceil(koreanChars / 1.5);
+    const englishTokens = Math.ceil(englishChars / 4);
+    const otherTokens = Math.ceil(otherChars / 3);
+
+    return koreanTokens + englishTokens + otherTokens;
 }

@@ -12,11 +12,12 @@ import { AiModelType } from './ai/types';
 import { OllamaApi } from './ai/ollamaService';
 import { ChatViewProvider } from './webview/chatViewProvider';
 import { AskViewProvider } from './webview/askViewProvider'; // 새로 추가된 AskViewProvider 임포트
-import { getAidevIdeTerminal } from './terminal/terminalManager';
+import { getAidevIdeTerminal, setTerminalMonitorService } from './terminal/terminalManager';
 import { openSettingsPanel, openLicensePanel } from './webview/panelManager';
 import { LicenseService } from './services/licenseService';
 import { OllamaBlockerService } from './services/ollamaBlockerService';
 import { TerminalDaemonService } from './services/terminalDaemonService';
+import { TerminalMonitorService } from './ai/terminalMonitorService';
 
 // 전역 변수
 let storageService: StorageService;
@@ -94,30 +95,15 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // terminal-daemon 자동 시작 (설정이 활성화된 경우)
+    // 현재 VS Code 터미널 API를 직접 사용하므로 터미널 데몬은 비활성화됨
     try {
         const enabled = await configurationService.isTerminalDaemonEnabled();
         if (enabled) {
-            try {
-                const installed = await terminalDaemonService.isInstalled();
-                if (!installed) {
-                    await terminalDaemonService.install();
-                }
-                const status = await terminalDaemonService.getStatus();
-                if (!status.running) {
-                    const res = await terminalDaemonService.start();
-                    // console.log('terminal-daemon start:', res.message);
-                    terminalDaemonService.showLogs();
-                } else {
-                    console.log('terminal-daemon already running.');
-                }
-            } catch (err) {
-                console.error('terminal-daemon start error:', err);
-            }
-        } else {
-            console.log('terminal-daemon disabled by settings');
+            // 터미널 데몬 관련 로직은 현재 비활성화됨 (VS Code 터미널 API 직접 사용)
+            // console.log('[Extension] Terminal-daemon disabled - using VS Code terminal API directly');
         }
     } catch (error) {
-        console.error('terminal-daemon 자동 시작 중 오류:', error);
+        console.error('terminal-daemon 설정 확인 중 오류:', error);
     }
 
     const initialApiKey = await storageService.getApiKey();
@@ -168,6 +154,16 @@ export async function activate(context: vscode.ExtensionContext) {
     if (currentAiModel) {
         llmService.setCurrentModel(currentAiModel as AiModelType);
     }
+
+    // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
+
+    // 터미널 모니터링 서비스 초기화 및 LLM 서비스 설정
+    const terminalMonitorService = new TerminalMonitorService(notificationService);
+    terminalMonitorService.setLlmService(llmService);
+    terminalMonitorService.startMonitoring();
+    
+    // 터미널 매니저에 모니터링 서비스 설정
+    setTerminalMonitorService(terminalMonitorService);
 
     // ChatViewProvider 인스턴스 생성 및 등록 (CODE 탭)
     const chatViewProvider = new ChatViewProvider(

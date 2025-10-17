@@ -4,10 +4,12 @@ import { glob } from 'glob';
 import { getFileType } from '../utils/fileUtils';
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
+import { LlmKeywordSelectionService, ProjectContext } from './llmKeywordSelectionService';
 
 export class CodebaseContextService {
     private configurationService: ConfigurationService;
     private notificationService: NotificationService;
+    private llmKeywordSelectionService: LlmKeywordSelectionService | null = null;
     private readonly MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
     private readonly EXCLUDED_EXTENSIONS = [
         '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico', // Images
@@ -108,6 +110,13 @@ export class CodebaseContextService {
     }
 
     /**
+     * LLM 키워드 선택 서비스를 설정합니다.
+     */
+    public setLlmKeywordSelectionService(llmKeywordSelectionService: LlmKeywordSelectionService) {
+        this.llmKeywordSelectionService = llmKeywordSelectionService;
+    }
+
+    /**
      * 파일 경로가 라이브러리 디렉토리에 속하는지 확인합니다.
      * @param filePath 파일 경로
      * @param projectRoot 프로젝트 루트 경로
@@ -144,7 +153,7 @@ export class CodebaseContextService {
      * @param abortSignal 취소 신호
      * @returns 파일 컨텍스트와 포함된 파일 목록
      */
-    public async getRelevantFilesContext(userQuery: string, abortSignal: AbortSignal, conversationHistory?: { userQuery: string, aiResponse?: string, timestamp: number }[], intentResult?: { category: string; subtype: string; confidence: number }): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
+    public async getRelevantFilesContext(userQuery: string, abortSignal: AbortSignal, conversationHistory?: { userQuery: string, aiResponse?: string, timestamp: number }[], intentResult?: { category: string; subtype: string; confidence: number }): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[], extractedKeywords?: string[], selectedKeywords?: { keywords: string[]; reasoning: string; confidence: number } }> {
         // 의도 분석 결과 확인 - 코드 관련 질문이 아닌 경우 파일 컨텍스트 제외
         if (intentResult && !this.isCodeRelatedIntent(intentResult)) {
             console.log(`[CodebaseContextService] 코드 관련 질문이 아니므로 파일 컨텍스트 제외. 의도: ${intentResult.category}/${intentResult.subtype}`);
@@ -227,8 +236,279 @@ export class CodebaseContextService {
                         includedPathSet.add(buildFile);
                         currentTotalContentLength += content.length;
                         // console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
+
+                        // Spring Boot 프로젝트의 기본 파일들 포함
+                        const springFiles = [
+                            'src/main/java/**/Application.java',
+                            'src/main/java/**/Application.kt',
+                            'src/main/resources/application.properties',
+                            'src/main/resources/application.yml',
+                            'src/main/resources/application.yaml',
+                            'src/main/resources/static/index.html',
+                            'src/main/resources/templates/index.html',
+                            'src/test/java/**/ApplicationTests.java',
+                            'src/test/java/**/ApplicationTests.kt'
+                        ];
+
+                        // Spring Boot 메인 애플리케이션 클래스 찾기
+                        try {
+                            const javaFiles = glob.sync(path.join(projectRoot, 'src/main/java/**/*Application.java'), { nodir: true });
+                            const kotlinFiles = glob.sync(path.join(projectRoot, 'src/main/java/**/*Application.kt'), { nodir: true });
+                            const mainFiles = [...javaFiles, ...kotlinFiles].slice(0, 3); // 최대 3개
+
+                            for (const mainFile of mainFiles) {
+                                const relativePath = path.relative(projectRoot, mainFile);
+                                const fileUri = vscode.Uri.file(mainFile);
+                                const fileStats = await vscode.workspace.fs.stat(fileUri);
+                                if (fileStats.type === vscode.FileType.File && !includedPathSet.has(mainFile)) {
+                                    const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+                                    const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+                                    const fileType = getFileType(mainFile);
+
+                                    fileContentsContext += `\n--- 파일: ${relativePath} (${fileType}) ---\n${fileContent}\n`;
+                                    includedFilesForContext.push({ name: relativePath, fullPath: mainFile });
+                                    includedPathSet.add(mainFile);
+                                    currentTotalContentLength += fileContent.length;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('[CodebaseContextService] Spring Boot 메인 클래스 검색 실패:', e);
+                        }
+
+                        // 설정 파일들 포함
+                        const configFiles = [
+                            'src/main/resources/application.properties',
+                            'src/main/resources/application.yml',
+                            'src/main/resources/application.yaml'
+                        ];
+
+                        for (const configFile of configFiles) {
+                            const filePath = path.join(projectRoot, configFile);
+                            try {
+                                const fileUri = vscode.Uri.file(filePath);
+                                const fileStats = await vscode.workspace.fs.stat(fileUri);
+                                if (fileStats.type === vscode.FileType.File && !includedPathSet.has(filePath)) {
+                                    const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+                                    const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+                                    const relativeName = this.getPathRelativeToWorkspace(filePath) || configFile;
+                                    const fileType = getFileType(filePath);
+
+                                    fileContentsContext += `\n--- 파일: ${relativeName} (${fileType}) ---\n${fileContent}\n`;
+                                    includedFilesForContext.push({ name: configFile, fullPath: filePath });
+                                    includedPathSet.add(filePath);
+                                    currentTotalContentLength += fileContent.length;
+                                }
+                            } catch {
+                                // 파일이 존재하지 않음
+                            }
+                        }
+
+                        console.log(`[CodebaseContextService] Spring Boot 프로젝트 기본 파일들 포함 완료`);
                     }
-                } else if (isNode) {
+                } else {
+                    // Python 프로젝트들 확인
+                    const projectType = await this.detectProjectType([projectRoot]);
+                    console.log(`[CodebaseContextService] 감지된 프로젝트 타입: ${projectType}`);
+
+                    if (projectType === 'django') {
+                        const djangoFiles = [
+                            'manage.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'settings.py',
+                            'urls.py',
+                            'wsgi.py',
+                            'asgi.py',
+                            'apps.py',
+                            'models.py',
+                            'views.py',
+                            'forms.py',
+                            'admin.py',
+                            'tests.py'
+                        ];
+                        await this.includeProjectFiles(djangoFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Django 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'flask') {
+                        const flaskFiles = [
+                            'app.py',
+                            'flask_app.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'config.py',
+                            'models.py',
+                            'views.py',
+                            'forms.py',
+                            'templates/index.html',
+                            'static/css/style.css',
+                            'static/js/main.js'
+                        ];
+                        await this.includeProjectFiles(flaskFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Flask 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'fastapi') {
+                        const fastapiFiles = [
+                            'main.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'app.py',
+                            'models.py',
+                            'schemas.py',
+                            'database.py',
+                            'config.py',
+                            'routers/__init__.py',
+                            'routers/api.py'
+                        ];
+                        await this.includeProjectFiles(fastapiFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] FastAPI 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'python') {
+                        const pythonFiles = [
+                            'main.py',
+                            'app.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'setup.py',
+                            'config.py',
+                            'models.py',
+                            'utils.py'
+                        ];
+                        await this.includeProjectFiles(pythonFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Python 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'dotnet') {
+                        const dotnetFiles = [
+                            'Program.cs',
+                            'Startup.cs',
+                            'appsettings.json',
+                            'appsettings.Development.json',
+                            'Controllers/HomeController.cs',
+                            'Models/HomeViewModel.cs',
+                            'Views/Home/Index.cshtml',
+                            'wwwroot/css/site.css',
+                            'wwwroot/js/site.js'
+                        ];
+                        await this.includeProjectFiles(dotnetFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] .NET 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'go') {
+                        const goFiles = [
+                            'main.go',
+                            'go.mod',
+                            'go.sum',
+                            'cmd/main.go',
+                            'internal/app/app.go',
+                            'internal/config/config.go',
+                            'internal/handlers/handlers.go',
+                            'internal/models/models.go'
+                        ];
+                        await this.includeProjectFiles(goFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Go 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'rust') {
+                        const rustFiles = [
+                            'Cargo.toml',
+                            'Cargo.lock',
+                            'src/main.rs',
+                            'src/lib.rs',
+                            'src/bin/main.rs',
+                            'examples/example.rs',
+                            'tests/integration_test.rs'
+                        ];
+                        await this.includeProjectFiles(rustFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Rust 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'php') {
+                        const phpFiles = [
+                            'composer.json',
+                            'composer.lock',
+                            'index.php',
+                            'config/app.php',
+                            'config/database.php',
+                            'app/Http/Controllers/Controller.php',
+                            'app/Models/Model.php',
+                            'resources/views/welcome.blade.php',
+                            'public/css/app.css',
+                            'public/js/app.js'
+                        ];
+                        await this.includeProjectFiles(phpFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] PHP 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'ruby') {
+                        const rubyFiles = [
+                            'Gemfile',
+                            'Gemfile.lock',
+                            'config.ru',
+                            'app.rb',
+                            'config/application.rb',
+                            'config/routes.rb',
+                            'app/controllers/application_controller.rb',
+                            'app/models/application_record.rb',
+                            'app/views/layouts/application.html.erb',
+                            'app/assets/stylesheets/application.css',
+                            'app/assets/javascripts/application.js'
+                        ];
+                        await this.includeProjectFiles(rubyFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Ruby 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'ios') {
+                        const iosFiles = [
+                            'Info.plist',
+                            'AppDelegate.swift',
+                            'AppDelegate.m',
+                            'SceneDelegate.swift',
+                            'ViewController.swift',
+                            'ViewController.m',
+                            'Main.storyboard',
+                            'LaunchScreen.storyboard',
+                            'Assets.xcassets/Contents.json',
+                            'Base.lproj/LaunchScreen.storyboard'
+                        ];
+                        await this.includeProjectFiles(iosFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] iOS 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'android') {
+                        const androidFiles = [
+                            'app/build.gradle',
+                            'build.gradle',
+                            'settings.gradle',
+                            'gradle.properties',
+                            'app/src/main/AndroidManifest.xml',
+                            'app/src/main/java/**/MainActivity.java',
+                            'app/src/main/java/**/MainActivity.kt',
+                            'app/src/main/res/layout/activity_main.xml',
+                            'app/src/main/res/values/strings.xml',
+                            'app/src/main/res/values/colors.xml',
+                            'app/src/main/res/values/styles.xml'
+                        ];
+                        await this.includeProjectFiles(androidFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Android 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'flutter') {
+                        const flutterFiles = [
+                            'pubspec.yaml',
+                            'lib/main.dart',
+                            'lib/app.dart',
+                            'lib/screens/home_screen.dart',
+                            'lib/widgets/custom_widget.dart',
+                            'lib/models/data_model.dart',
+                            'lib/services/api_service.dart',
+                            'android/app/build.gradle',
+                            'ios/Runner/Info.plist',
+                            'test/widget_test.dart'
+                        ];
+                        await this.includeProjectFiles(flutterFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Flutter 프로젝트 기본 파일들 포함 완료`);
+                    } else if (projectType === 'react-native') {
+                        const reactNativeFiles = [
+                            'package.json',
+                            'index.js',
+                            'App.js',
+                            'App.tsx',
+                            'src/App.js',
+                            'src/App.tsx',
+                            'android/app/build.gradle',
+                            'android/app/src/main/AndroidManifest.xml',
+                            'ios/App/AppDelegate.m',
+                            'ios/App/Info.plist',
+                            'metro.config.js',
+                            'babel.config.js'
+                        ];
+                        await this.includeProjectFiles(reactNativeFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] React Native 프로젝트 기본 파일들 포함 완료`);
+                    }
+                }
+
+                if (isNode) {
                     // Node.js 프로젝트의 경우 package.json을 최우선으로 포함
                     const packageJsonPath = path.join(projectRoot, 'package.json');
                     const uri = vscode.Uri.file(packageJsonPath);
@@ -243,6 +523,87 @@ export class CodebaseContextService {
                         includedPathSet.add(packageJsonPath);
                         currentTotalContentLength += content.length;
                         // console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
+
+                        // Node.js 기반 프로젝트의 기본 파일들 포함
+                        try {
+                            const packageJson = JSON.parse(content);
+                            const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+
+                            // React 프로젝트
+                            if (dependencies.react || dependencies['@vitejs/plugin-react'] || dependencies['react-scripts']) {
+                                const reactFiles = [
+                                    'src/App.js', 'src/App.jsx', 'src/App.ts', 'src/App.tsx',
+                                    'src/index.js', 'src/index.jsx', 'src/index.ts', 'src/index.tsx',
+                                    'src/main.js', 'src/main.jsx', 'src/main.ts', 'src/main.tsx',
+                                    'src/App.css', 'src/index.css',
+                                    'vite.config.js', 'vite.config.ts',
+                                    'index.html'
+                                ];
+                                await this.includeProjectFiles(reactFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] React 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Vue 프로젝트
+                            else if (dependencies.vue || dependencies['@vue/cli-service']) {
+                                const vueFiles = [
+                                    'src/App.vue', 'src/main.js', 'src/main.ts',
+                                    'src/components/HelloWorld.vue',
+                                    'public/index.html', 'vue.config.js',
+                                    'vite.config.js', 'vite.config.ts'
+                                ];
+                                await this.includeProjectFiles(vueFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Vue 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Angular 프로젝트
+                            else if (dependencies['@angular/core'] || dependencies['@angular/cli']) {
+                                const angularFiles = [
+                                    'src/app/app.component.ts', 'src/app/app.component.html', 'src/app/app.component.css',
+                                    'src/app/app.module.ts', 'src/main.ts', 'src/index.html',
+                                    'angular.json', 'tsconfig.json'
+                                ];
+                                await this.includeProjectFiles(angularFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Angular 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Next.js 프로젝트
+                            else if (dependencies.next) {
+                                const nextFiles = [
+                                    'pages/index.js', 'pages/index.tsx', 'pages/_app.js', 'pages/_app.tsx',
+                                    'app/page.js', 'app/page.tsx', 'app/layout.js', 'app/layout.tsx',
+                                    'next.config.js', 'next.config.ts'
+                                ];
+                                await this.includeProjectFiles(nextFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Next.js 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Nuxt.js 프로젝트
+                            else if (dependencies.nuxt) {
+                                const nuxtFiles = [
+                                    'pages/index.vue', 'layouts/default.vue', 'components/HelloWorld.vue',
+                                    'nuxt.config.js', 'nuxt.config.ts'
+                                ];
+                                await this.includeProjectFiles(nuxtFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Nuxt.js 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Svelte 프로젝트
+                            else if (dependencies.svelte) {
+                                const svelteFiles = [
+                                    'src/App.svelte', 'src/main.js', 'src/main.ts',
+                                    'public/index.html', 'vite.config.js', 'vite.config.ts'
+                                ];
+                                await this.includeProjectFiles(svelteFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Svelte 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // 일반 Node.js 프로젝트
+                            else {
+                                const nodeFiles = [
+                                    'src/index.js', 'src/index.ts', 'src/app.js', 'src/app.ts',
+                                    'index.js', 'index.ts', 'app.js', 'app.ts',
+                                    'server.js', 'server.ts'
+                                ];
+                                await this.includeProjectFiles(nodeFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Node.js 프로젝트 기본 파일들 포함 완료`);
+                            }
+                        } catch (e) {
+                            console.warn('[CodebaseContextService] package.json 파싱 실패:', e);
+                        }
                     }
                 }
             } catch (e) {
@@ -257,8 +618,12 @@ export class CodebaseContextService {
             const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
             // console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
 
-            // 프로젝트 루트에서 관련 파일들 검색
-            const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
+            // LLM을 통한 키워드 선택
+            const selectedKeywords = await this.selectKeywordsWithLLM(userQuery, expandedKeywords, projectRoot);
+            console.log(`[CodebaseContextService] LLM이 선택한 키워드: ${selectedKeywords.keywords.join(', ')} (신뢰도: ${(selectedKeywords.confidence * 100).toFixed(1)}%)`);
+
+            // 선택된 키워드를 사용하여 관련 파일들 검색
+            const relevantFiles = await this.findRelevantFiles(projectRoot, selectedKeywords.keywords, abortSignal);
             // console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
 
             // 토큰 사용량을 고려한 파일 선별
@@ -316,13 +681,133 @@ export class CodebaseContextService {
             }
 
             // console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
-            return { fileContentsContext, includedFilesForContext };
+            return {
+                fileContentsContext,
+                includedFilesForContext,
+                extractedKeywords: selectedKeywords.keywords,
+                selectedKeywords: selectedKeywords
+            };
 
         } catch (error) {
             console.error('[CodebaseContextService] 관련 파일 검색 중 오류:', error);
             this.notificationService.showErrorMessage('관련 파일 검색 중 오류가 발생했습니다.');
             return { fileContentsContext: '', includedFilesForContext: [] };
         }
+    }
+
+    /**
+     * LLM을 통한 키워드 선택
+     * @param userQuery 사용자 질의
+     * @param keywords 키워드 목록
+     * @param projectRoot 프로젝트 루트
+     * @returns 선택된 키워드와 추론 과정
+     */
+    private async selectKeywordsWithLLM(
+        userQuery: string,
+        keywords: string[],
+        projectRoot: string
+    ): Promise<{ keywords: string[]; reasoning: string; confidence: number }> {
+        try {
+            if (!this.llmKeywordSelectionService) {
+                console.warn('[CodebaseContextService] LLM 키워드 선택 서비스가 설정되지 않음, 기본 키워드 사용');
+                return {
+                    keywords: keywords.slice(0, 5),
+                    reasoning: 'LLM 서비스 미설정으로 기본 키워드 사용',
+                    confidence: 0.3
+                };
+            }
+
+            // 프로젝트 컨텍스트 수집
+            const projectContext = await this.collectProjectContext(projectRoot);
+
+            // LLM을 통한 키워드 선택
+            const result = await this.llmKeywordSelectionService.selectKeywordsWithLLM(
+                userQuery,
+                projectContext,
+                keywords
+            );
+
+            return result;
+
+        } catch (error) {
+            console.warn('[CodebaseContextService] LLM 키워드 선택 실패, 기본 키워드 사용:', error);
+            // 실패 시 기본 키워드 반환
+            return {
+                keywords: keywords.slice(0, 5),
+                reasoning: 'LLM 키워드 선택 실패로 기본 키워드 사용',
+                confidence: 0.3
+            };
+        }
+    }
+
+    /**
+     * 프로젝트 컨텍스트를 수집합니다.
+     * @param projectRoot 프로젝트 루트
+     * @returns 프로젝트 컨텍스트
+     */
+    private async collectProjectContext(projectRoot: string): Promise<ProjectContext> {
+        const fileNames: string[] = [];
+        const directoryNames: string[] = [];
+
+        try {
+            // 프로젝트 타입 감지
+            const projectType = await this.detectProjectType([projectRoot]);
+
+            // 파일명과 디렉토리명 수집
+            const files = await glob('**/*', {
+                cwd: projectRoot,
+                ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**']
+            }) as string[];
+
+            for (const file of files.slice(0, 100)) { // 최대 100개 파일만
+                const fileName = path.basename(file);
+                const dirName = path.dirname(file);
+
+                if (fileName && fileName !== '.') {
+                    fileNames.push(fileName);
+                }
+
+                if (dirName && dirName !== '.' && !directoryNames.includes(dirName)) {
+                    directoryNames.push(dirName);
+                }
+            }
+
+            return {
+                framework: projectType,
+                projectType: this.getProjectTypeFromFramework(projectType),
+                fileNames: [...new Set(fileNames)],
+                directoryNames: [...new Set(directoryNames)]
+            };
+
+        } catch (error) {
+            console.warn('[CodebaseContextService] 프로젝트 컨텍스트 수집 실패:', error);
+            return {
+                framework: 'unknown',
+                projectType: 'unknown',
+                fileNames: [],
+                directoryNames: []
+            };
+        }
+    }
+
+    /**
+     * 프레임워크에서 프로젝트 타입을 추론합니다.
+     */
+    private getProjectTypeFromFramework(framework: string): string {
+        const typeMap: { [key: string]: string } = {
+            'react': 'web',
+            'vue': 'web',
+            'angular': 'web',
+            'next': 'web',
+            'spring': 'api',
+            'django': 'web',
+            'flask': 'web',
+            'fastapi': 'api',
+            'express': 'api',
+            'node': 'api'
+        };
+
+        return typeMap[framework.toLowerCase()] || 'unknown';
     }
 
     /**
@@ -1468,23 +1953,125 @@ export class CodebaseContextService {
     }
 
     /**
+     * 파일이 존재하는지 확인합니다.
+     * @param filePath 파일 경로
+     * @returns 파일 존재 여부
+     */
+    private async fileExists(filePath: string): Promise<boolean> {
+        try {
+            const uri = vscode.Uri.file(filePath);
+            const stats = await vscode.workspace.fs.stat(uri);
+            return stats.type === vscode.FileType.File;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * 프로젝트 타입별 기본 파일들을 컨텍스트에 포함합니다.
+     * @param fileNames 포함할 파일명 배열
+     * @param projectRoot 프로젝트 루트 경로
+     * @param fileContentsContext 파일 컨텍스트 문자열 (참조로 전달)
+     * @param includedFilesForContext 포함된 파일 목록 (참조로 전달)
+     * @param includedPathSet 포함된 경로 집합 (참조로 전달)
+     * @param currentTotalContentLength 현재 총 컨텐츠 길이 (참조로 전달)
+     */
+    private async includeProjectFiles(
+        fileNames: string[],
+        projectRoot: string,
+        fileContentsContext: string,
+        includedFilesForContext: { name: string, fullPath: string }[],
+        includedPathSet: Set<string>,
+        currentTotalContentLength: number
+    ): Promise<void> {
+        for (const fileName of fileNames) {
+            const filePath = path.join(projectRoot, fileName);
+            try {
+                const fileUri = vscode.Uri.file(filePath);
+                const fileStats = await vscode.workspace.fs.stat(fileUri);
+                if (fileStats.type === vscode.FileType.File && !includedPathSet.has(filePath)) {
+                    const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+                    const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+                    const relativeName = this.getPathRelativeToWorkspace(filePath) || fileName;
+                    const fileType = getFileType(filePath);
+
+                    fileContentsContext += `\n--- 파일: ${relativeName} (${fileType}) ---\n${fileContent}\n`;
+                    includedFilesForContext.push({ name: fileName, fullPath: filePath });
+                    includedPathSet.add(filePath);
+                    currentTotalContentLength += fileContent.length;
+
+                    // 토큰 제한 확인
+                    if (currentTotalContentLength > this.MAX_TOTAL_CONTENT_LENGTH) {
+                        console.log(`[CodebaseContextService] 프로젝트 기본 파일 포함 중 토큰 제한 도달: ${currentTotalContentLength}`);
+                        break;
+                    }
+                }
+            } catch {
+                // 파일이 존재하지 않음
+            }
+        }
+    }
+
+    /**
      * 프로젝트 타입을 감지합니다.
      * @param sourcePaths 설정된 소스 경로들
+     * @param llmDetectedType LLM이 감지한 프로젝트 타입 (선택사항)
      * @returns 프로젝트 타입
      */
-    private async detectProjectType(sourcePaths: string[]): Promise<string> {
+    public async detectProjectType(sourcePaths: string[], llmDetectedType?: string): Promise<string> {
+        // LLM이 감지한 프로젝트 타입이 있으면 우선 사용
+        if (llmDetectedType && llmDetectedType !== 'unknown') {
+            console.log(`[CodebaseContextService] LLM 감지 프로젝트 타입 사용: ${llmDetectedType}`);
+            return llmDetectedType;
+        }
+        // console.log(`[CodebaseContextService] 프로젝트 타입 감지 시작: ${sourcePaths.join(', ')}`);
+
         for (const sourcePath of sourcePaths) {
             try {
                 const uri = vscode.Uri.file(sourcePath);
                 const stats = await vscode.workspace.fs.stat(uri);
 
                 if (stats.type === vscode.FileType.Directory) {
+                    // console.log(`[CodebaseContextService] 디렉토리 확인: ${sourcePath}`);
                     // Node.js 프로젝트 확인
                     const packageJsonPath = path.join(sourcePath, 'package.json');
                     try {
                         await vscode.workspace.fs.stat(vscode.Uri.file(packageJsonPath));
-                        return 'nodejs';
+                        console.log(`[CodebaseContextService] package.json 발견: ${packageJsonPath}`);
+
+                        // package.json 내용을 읽어서 React 프로젝트인지 확인
+                        try {
+                            const packageJsonContent = await vscode.workspace.fs.readFile(vscode.Uri.file(packageJsonPath));
+                            const packageJson = JSON.parse(packageJsonContent.toString());
+
+                            // React 관련 의존성 확인
+                            const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+                            console.log(`[CodebaseContextService] 의존성 확인:`, Object.keys(dependencies));
+
+                            if (dependencies.react || dependencies['@vitejs/plugin-react'] || dependencies['react-scripts']) {
+                                // Vite + React 조합인지 확인
+                                if (dependencies.vite || dependencies['@vitejs/plugin-react']) {
+                                    console.log(`[CodebaseContextService] React + Vite 프로젝트 감지`);
+                                    return 'react-vite';
+                                }
+                                console.log(`[CodebaseContextService] React 프로젝트 감지`);
+                                return 'react';
+                            }
+
+                            // Vite 프로젝트 확인 (React가 아닌 경우)
+                            if (dependencies.vite || packageJson.devDependencies?.vite) {
+                                console.log(`[CodebaseContextService] Vite 프로젝트 감지`);
+                                return 'vite';
+                            }
+
+                            console.log(`[CodebaseContextService] 일반 Node.js 프로젝트 감지`);
+                            return 'nodejs';
+                        } catch (e) {
+                            console.log(`[CodebaseContextService] package.json 파싱 실패:`, e);
+                            return 'nodejs';
+                        }
                     } catch {
+                        // console.log(`[CodebaseContextService] package.json 없음: ${packageJsonPath}`);
                         // package.json이 없음
                     }
 
@@ -1497,43 +2084,42 @@ export class CodebaseContextService {
                         // pom.xml이 없음
                     }
 
-                    // Python Django 프로젝트 확인
-                    const managePyPath = path.join(sourcePath, 'manage.py');
-                    try {
-                        await vscode.workspace.fs.stat(vscode.Uri.file(managePyPath));
-                        return 'django';
-                    } catch {
-                        // manage.py가 없음
-                    }
+                    // Python 프로젝트 확인 (requirements.txt 또는 pyproject.toml 존재)
+                    const requirementsPath = path.join(sourcePath, 'requirements.txt');
+                    const pyprojectPath = path.join(sourcePath, 'pyproject.toml');
+                    const hasPythonProject = await this.fileExists(requirementsPath) || await this.fileExists(pyprojectPath);
 
-                    // Python Flask 프로젝트 확인
-                    const appPyPath = path.join(sourcePath, 'app.py');
-                    const flaskAppPath = path.join(sourcePath, 'flask_app.py');
-                    try {
-                        await vscode.workspace.fs.stat(vscode.Uri.file(appPyPath));
-                        return 'flask';
-                    } catch {
-                        try {
-                            await vscode.workspace.fs.stat(vscode.Uri.file(flaskAppPath));
+                    if (hasPythonProject) {
+                        // Python Django 프로젝트 확인
+                        const managePyPath = path.join(sourcePath, 'manage.py');
+                        if (await this.fileExists(managePyPath)) {
+                            return 'django';
+                        }
+
+                        // Python Flask 프로젝트 확인
+                        const appPyPath = path.join(sourcePath, 'app.py');
+                        const flaskAppPath = path.join(sourcePath, 'flask_app.py');
+                        if (await this.fileExists(appPyPath) || await this.fileExists(flaskAppPath)) {
                             return 'flask';
-                        } catch {
-                            // Flask 앱 파일이 없음
                         }
-                    }
 
-                    // Python FastAPI 프로젝트 확인
-                    const mainPyPath = path.join(sourcePath, 'main.py');
-                    try {
-                        const mainPyUri = vscode.Uri.file(mainPyPath);
-                        await vscode.workspace.fs.stat(mainPyUri);
-                        // main.py 내용을 확인하여 FastAPI인지 체크
-                        const content = await vscode.workspace.fs.readFile(mainPyUri);
-                        const contentStr = Buffer.from(content).toString('utf8');
-                        if (contentStr.includes('FastAPI') || contentStr.includes('from fastapi')) {
-                            return 'fastapi';
+                        // Python FastAPI 프로젝트 확인
+                        const mainPyPath = path.join(sourcePath, 'main.py');
+                        if (await this.fileExists(mainPyPath)) {
+                            try {
+                                const mainPyUri = vscode.Uri.file(mainPyPath);
+                                const content = await vscode.workspace.fs.readFile(mainPyUri);
+                                const contentStr = Buffer.from(content).toString('utf8');
+                                if (contentStr.includes('FastAPI') || contentStr.includes('from fastapi')) {
+                                    return 'fastapi';
+                                }
+                            } catch {
+                                // 파일 읽기 실패
+                            }
                         }
-                    } catch {
-                        // main.py가 없거나 FastAPI가 아님
+
+                        // 일반 Python 프로젝트
+                        return 'python';
                     }
 
                     // .NET 프로젝트 확인
@@ -1576,6 +2162,45 @@ export class CodebaseContextService {
                         return 'ruby';
                     } catch {
                         // Gemfile이 없음
+                    }
+
+                    // iOS 프로젝트 확인
+                    const xcodeprojFiles = glob.sync(path.join(sourcePath, '**/*.xcodeproj'), { nodir: true });
+                    const xcworkspaceFiles = glob.sync(path.join(sourcePath, '**/*.xcworkspace'), { nodir: true });
+                    if (xcodeprojFiles.length > 0 || xcworkspaceFiles.length > 0) {
+                        return 'ios';
+                    }
+
+                    // Android 프로젝트 확인
+                    const buildGradleFiles = glob.sync(path.join(sourcePath, '**/build.gradle'), { nodir: true });
+                    const androidManifestFiles = glob.sync(path.join(sourcePath, '**/AndroidManifest.xml'), { nodir: true });
+                    if (buildGradleFiles.length > 0 || androidManifestFiles.length > 0) {
+                        return 'android';
+                    }
+
+                    // Flutter 프로젝트 확인
+                    const pubspecPath = path.join(sourcePath, 'pubspec.yaml');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(pubspecPath));
+                        return 'flutter';
+                    } catch {
+                        // pubspec.yaml이 없음
+                    }
+
+                    // React Native 프로젝트 확인
+                    const reactNativePackageJsonPath = path.join(sourcePath, 'package.json');
+                    try {
+                        const reactNativePackageJsonUri = vscode.Uri.file(reactNativePackageJsonPath);
+                        await vscode.workspace.fs.stat(reactNativePackageJsonUri);
+                        const content = await vscode.workspace.fs.readFile(reactNativePackageJsonUri);
+                        const contentStr = Buffer.from(content).toString('utf8');
+                        const packageJson = JSON.parse(contentStr);
+                        const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+                        if (dependencies['react-native'] || dependencies['@react-native-community/cli']) {
+                            return 'react-native';
+                        }
+                    } catch {
+                        // package.json이 없거나 React Native가 아님
                     }
                 }
             } catch (err: any) {
@@ -1669,6 +2294,176 @@ export class CodebaseContextService {
                 'jest.config.ts',
                 'vitest.config.js',
                 'vitest.config.ts'
+            ],
+            'react': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'webpack.config.js',
+                'webpack.config.ts',
+                'vite.config.js',
+                'vite.config.ts',
+                'next.config.js',
+                'next.config.ts',
+                'babel.config.js',
+                'babel.config.json',
+                '.babelrc',
+                '.babelrc.js',
+                '.babelrc.json',
+                'jest.config.js',
+                'jest.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts',
+                // React 기본 파일들
+                'src/App.js',
+                'src/App.jsx',
+                'src/App.ts',
+                'src/App.tsx',
+                'src/App.css',
+                'src/App.scss',
+                'src/index.js',
+                'src/index.jsx',
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.css',
+                'src/index.scss',
+                'src/main.js',
+                'src/main.jsx',
+                'src/main.ts',
+                'src/main.tsx',
+                'public/index.html',
+                'index.html'
+            ],
+            'vite': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vite.config.js',
+                'vite.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts',
+                // Vite 기본 파일들
+                'src/App.js',
+                'src/App.jsx',
+                'src/App.ts',
+                'src/App.tsx',
+                'src/App.css',
+                'src/App.scss',
+                'src/index.js',
+                'src/index.jsx',
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.css',
+                'src/index.scss',
+                'src/main.js',
+                'src/main.jsx',
+                'src/main.ts',
+                'src/main.tsx',
+                'public/index.html',
+                'index.html'
+            ],
+            'react-vite': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vite.config.js',
+                'vite.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts',
+                // React + Vite 기본 파일들
+                'src/App.js',
+                'src/App.jsx',
+                'src/App.ts',
+                'src/App.tsx',
+                'src/App.css',
+                'src/App.scss',
+                'src/index.js',
+                'src/index.jsx',
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.css',
+                'src/index.scss',
+                'src/main.js',
+                'src/main.jsx',
+                'src/main.ts',
+                'src/main.tsx',
+                'public/index.html',
+                'index.html'
+            ],
+            'vue': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vue.config.js',
+                'vue.config.ts',
+                'vite.config.js',
+                'vite.config.ts',
+                // Vue 기본 파일들
+                'src/App.vue',
+                'src/main.js',
+                'src/main.ts',
+                'src/components/HelloWorld.vue',
+                'public/index.html'
+            ],
+            'angular': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'angular.json',
+                // Angular 기본 파일들
+                'src/app/app.component.ts',
+                'src/app/app.component.html',
+                'src/app/app.component.css',
+                'src/app/app.module.ts',
+                'src/main.ts',
+                'src/index.html'
+            ],
+            'next': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'next.config.js',
+                'next.config.ts',
+                // Next.js 기본 파일들
+                'pages/index.js',
+                'pages/index.tsx',
+                'pages/_app.js',
+                'pages/_app.tsx',
+                'app/page.js',
+                'app/page.tsx',
+                'app/layout.js',
+                'app/layout.tsx'
+            ],
+            'nuxt': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'nuxt.config.js',
+                'nuxt.config.ts',
+                // Nuxt.js 기본 파일들
+                'pages/index.vue',
+                'layouts/default.vue',
+                'components/HelloWorld.vue'
+            ],
+            'svelte': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vite.config.js',
+                'vite.config.ts',
+                // Svelte 기본 파일들
+                'src/App.svelte',
+                'src/main.js',
+                'src/main.ts',
+                'public/index.html'
             ],
             'java': [
                 'pom.xml',

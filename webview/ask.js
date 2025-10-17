@@ -52,6 +52,51 @@ function setProcessingStep(stepName) {
     }
 }
 
+function updateProcessingStatus(stepName, status) {
+    const statusElement = document.getElementById(`${stepName}-status`);
+    if (statusElement) {
+        statusElement.textContent = status;
+    }
+}
+
+function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
+    const chatMessages = document.getElementById('chatMessages');
+    if (!chatMessages) return;
+
+    const errorCorrectionDiv = document.createElement('div');
+    errorCorrectionDiv.className = 'error-correction-message';
+    errorCorrectionDiv.innerHTML = `
+        <div class="error-correction-header">
+            🔧 명령어 오류 수정 (시도 ${retryCount}/3)
+        </div>
+        <div class="error-correction-content">
+            <div class="original-command">
+                <strong>실패한 명령어:</strong> <code>${originalCommand}</code>
+            </div>
+            <div class="corrected-command">
+                <strong>수정된 명령어:</strong> <code>${correctedCommand}</code>
+            </div>
+        </div>
+    `;
+
+    chatMessages.appendChild(errorCorrectionDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function resetProcessingStatuses() {
+    const statuses = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+    statuses.forEach(step => {
+        const statusElement = document.getElementById(`${step}-status`);
+        if (statusElement) {
+            if (step === 'intent') {
+                statusElement.textContent = 'Initializing...';
+            } else {
+                statusElement.textContent = 'Waiting...';
+            }
+        }
+    });
+}
+
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages');
@@ -431,6 +476,7 @@ window.addEventListener('message', event => {
             // console.log('Received showLoading command.');
             window.showLoading();
             showProcessingSteps();
+            resetProcessingStatuses();
             setProcessingStep('intent');
             break;
         case 'hideLoading':
@@ -442,6 +488,15 @@ window.addEventListener('message', event => {
             if (message.step) {
                 setProcessingStep(message.step);
             }
+            break;
+        case 'updateProcessingStatus':
+            if (message.step && message.status) {
+                updateProcessingStatus(message.step, message.status);
+            }
+            break;
+        case 'showErrorCorrection':
+            console.log('Received error correction message:', message);
+            showErrorCorrection(message.originalCommand, message.correctedCommand, message.retryCount);
             break;
 
         case 'receiveMessage':

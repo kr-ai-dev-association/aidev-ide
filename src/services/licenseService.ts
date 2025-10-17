@@ -15,7 +15,7 @@ let db: any;
 try {
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
-  console.log('Firebase 초기화 성공');
+  // console.log('Firebase 초기화 성공');
 } catch (error) {
   console.error('Firebase 초기화 실패:', error);
 }

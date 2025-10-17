@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { StorageService } from '../services/storage';
 import { CodebaseContextService } from './codebaseContextService';
+import { LlmKeywordSelectionService } from './llmKeywordSelectionService';
 import { LlmResponseProcessor } from './llmResponseProcessor';
 import { NotificationService } from '../services/notificationService';
 import { ConfigurationService } from '../services/configurationService';
@@ -8,7 +9,7 @@ import { ExternalApiService } from './externalApiService';
 import { safePostMessage } from '../webview/panelUtils';
 import { GeminiApi } from './gemini';
 import { OllamaApi } from './ollamaService';
-import { checkTokenLimit, logTokenUsage } from '../utils/tokenUtils';
+import { checkTokenLimit, logTokenUsage, estimateTokens } from '../utils/tokenUtils';
 import { AiModelType, PromptType } from './types';
 import { ActionPlannerService, ActionPlan } from './actionPlannerService';
 import { TerminalMonitorService } from './terminalMonitorService';
@@ -21,6 +22,7 @@ export class LlmService {
     private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
     private codebaseContextService: CodebaseContextService;
+    private llmKeywordSelectionService: LlmKeywordSelectionService;
     private llmResponseProcessor: LlmResponseProcessor;
     private notificationService: NotificationService;
     private configurationService: ConfigurationService;
@@ -38,6 +40,13 @@ export class LlmService {
     private sendProcessingStep(step: string) {
         if (this.currentPanel) {
             safePostMessage(this.currentPanel.webview, { command: 'setProcessingStep', step });
+        }
+    }
+
+    // 처리 상태 업데이트 함수
+    private sendProcessingStatus(step: string, status: string) {
+        if (this.currentPanel) {
+            safePostMessage(this.currentPanel.webview, { command: 'updateProcessingStatus', step, status });
         }
     }
     private activePlans: Map<string, ActionPlan> = new Map();
@@ -67,6 +76,10 @@ export class LlmService {
         this.notificationService = notificationService;
         this.configurationService = configurationService;
         this.externalApiService = new ExternalApiService(configurationService);
+
+        // LLM 키워드 선택 서비스 초기화
+        this.llmKeywordSelectionService = new LlmKeywordSelectionService(this);
+        this.codebaseContextService.setLlmKeywordSelectionService(this.llmKeywordSelectionService);
 
         // 액션 플래너 서비스들 초기화
         this.actionPlannerService = new ActionPlannerService(notificationService, configurationService);
@@ -129,7 +142,7 @@ export class LlmService {
 
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
-        console.log(`[LlmService] Current model set to: ${modelType}`);
+        // console.log(`[LlmService] Current model set to: ${modelType}`);
     }
 
     private formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
@@ -215,10 +228,49 @@ export class LlmService {
             if (this.intentDetectionService) {
                 try {
                     this.sendProcessingStep('intent');
+                    this.sendProcessingStatus('intent', `Analyzing user query: "${userQuery.substring(0, 50)}${userQuery.length > 50 ? '...' : ''}"`);
+
+                    // 프로젝트 타입 감지 및 출력 (파일 기반 + LLM 기반)
+                    let projectTypeInfo = '';
+                    let detectedProjectType = 'unknown';
+
+                    if (this.codebaseContextService) {
+                        try {
+                            const projectRoot = await this.configurationService.getProjectRoot();
+                            if (projectRoot) {
+                                // 1. LLM 기반 프로젝트 타입 감지 (질의어 분석)
+                                const llmBasedProjectType = await this.detectProjectTypeFromQuery(userQuery);
+                                console.log(`[LlmService] LLM 기반 프로젝트 타입: ${llmBasedProjectType}`);
+
+                                // 2. 파일 기반 프로젝트 타입 감지 (LLM 결과를 전달)
+                                const finalProjectType = await this.codebaseContextService.detectProjectType([projectRoot], llmBasedProjectType);
+                                console.log(`[LlmService] 최종 프로젝트 타입: ${finalProjectType}`);
+
+                                detectedProjectType = finalProjectType;
+
+                                projectTypeInfo = ` | Project Type: ${detectedProjectType}`;
+                                this.sendProcessingStatus('intent', `Detected project type: ${detectedProjectType} (LLM: ${llmBasedProjectType})`);
+                            }
+                        } catch (error) {
+                            console.warn('[LlmService] Failed to detect project type during intent analysis:', error);
+                        }
+                    }
+
                     intentResult = await this.intentDetectionService.detectIntent(userQuery);
                     console.log('[LlmService] Detected intent:', intentResult);
+                    if (intentResult) {
+                        const confidence = Math.round(intentResult.confidence * 100);
+                        const reasoning = intentResult.reasoning || 'No reasoning provided';
+                        this.sendProcessingStatus('intent', `Intent: ${intentResult.category}/${intentResult.subtype} (${confidence}%)${projectTypeInfo} - ${reasoning.substring(0, 100)}${reasoning.length > 100 ? '...' : ''}`);
+                        // Debug Console 로그를 활용한 추가 정보
+                        console.log(`[LlmService] Intent analysis result: ${intentResult.category}/${intentResult.subtype} with ${confidence}% confidence${projectTypeInfo}`);
+                    } else {
+                        this.sendProcessingStatus('intent', `Intent analysis completed - No specific intent detected${projectTypeInfo}`);
+                        console.log('[LlmService] No specific intent detected from user query');
+                    }
                 } catch (error) {
                     console.warn('[LlmService] Intent detection failed:', error);
+                    this.sendProcessingStatus('intent', 'Intent analysis failed, using default behavior');
                 }
             }
 
@@ -255,22 +307,56 @@ export class LlmService {
             if (promptType === PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
                 this.sendProcessingStep('keywords');
+                this.sendProcessingStatus('keywords', `Extracting keywords from query: "${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}"`);
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
+
+                if (relevantContextResult.selectedKeywords) {
+                    const keywordsStr = relevantContextResult.selectedKeywords.keywords.join(', ');
+                    const confidence = (relevantContextResult.selectedKeywords.confidence * 100).toFixed(1);
+                    const fileNames = includedFilesForContext.slice(0, 3).map(f => f.name).join(', ');
+                    const moreFiles = includedFilesForContext.length > 3 ? ` (+${includedFilesForContext.length - 3} more)` : '';
+
+                    this.sendProcessingStatus('keywords', `LLM 선택: ${keywordsStr} (${confidence}%) → ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
+                    // Debug Console 로그를 활용한 추가 정보
+                    console.log(`[LlmService] LLM selected keywords: ${keywordsStr} (confidence: ${confidence}%, reasoning: ${relevantContextResult.selectedKeywords.reasoning})`);
+                    console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
+                } else if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
+                    const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
+                    const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
+                    this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                    // Debug Console 로그를 활용한 추가 정보
+                    console.log(`[LlmService] Extracted ${relevantContextResult.extractedKeywords.length} keywords: ${relevantContextResult.extractedKeywords.join(', ')}`);
+                    console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                } else {
+                    this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                    console.log(`[LlmService] No keywords extracted, but found ${includedFilesForContext.length} files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                }
             } else if (promptType === PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
                 this.sendProcessingStep('keywords');
+                this.sendProcessingStatus('keywords', 'Extracting keywords from query...');
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
+
+                if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
+                    const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
+                    const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
+                    this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files`);
+                } else {
+                    this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files`);
+                }
             }
 
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
             let selectedFilesContext = "";
             if (selectedFiles && selectedFiles.length > 0) {
                 this.sendProcessingStep('analyzing');
-                for (const filePath of selectedFiles) {
+                this.sendProcessingStatus('analyzing', `Reading ${selectedFiles.length} selected files...`);
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const filePath = selectedFiles[i];
                     try {
                         const fileUri = vscode.Uri.file(filePath);
                         const contentBytes = await vscode.workspace.fs.readFile(fileUri);
@@ -284,11 +370,24 @@ export class LlmService {
                         });
 
                         selectedFilesContext += `파일명: ${fileName}\n경로: ${filePath}\n코드:\n\`\`\`\n${content}\n\`\`\`\n\n`;
+
+                        // 진행 상황 업데이트
+                        this.sendProcessingStatus('analyzing', `Reading file ${i + 1}/${selectedFiles.length}: ${fileName} (${content.length.toLocaleString()} chars)`);
+                        // Debug Console 로그를 활용한 추가 정보
+                        console.log(`[LlmService] Reading selected file ${i + 1}/${selectedFiles.length}: ${fileName} (${content.length.toLocaleString()} characters)`);
                     } catch (error) {
                         console.error(`Error reading selected file ${filePath}:`, error);
                         selectedFilesContext += `파일명: ${filePath.split(/[/\\]/).pop() || 'Unknown'}\n경로: ${filePath}\n오류: 파일을 읽을 수 없습니다.\n\n`;
                     }
                 }
+            } else if (includedFilesForContext.length > 0) {
+                // 자동으로 찾은 파일들 표시
+                this.sendProcessingStep('analyzing');
+                const fileNames = includedFilesForContext.slice(0, 5).map(f => f.name).join(', ');
+                const moreFiles = includedFilesForContext.length > 5 ? ` (+${includedFilesForContext.length - 5} more)` : '';
+                this.sendProcessingStatus('analyzing', `Analyzing ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
+                // Debug Console 로그를 활용한 추가 정보
+                console.log(`[LlmService] Analyzing ${includedFilesForContext.length} automatically found files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
             }
 
             // 선택된 파일 컨텍스트를 기존 컨텍스트에 추가
@@ -301,7 +400,22 @@ export class LlmService {
             // 시스템 프롬프트 생성
             const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
             const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
+
+            // 프로젝트 타입 정보 추가
+            let projectTypeContext = '';
+            if (this.codebaseContextService) {
+                try {
+                    const projectRoot = await this.configurationService.getProjectRoot();
+                    if (projectRoot) {
+                        const projectType = await this.codebaseContextService.detectProjectType([projectRoot]);
+                        projectTypeContext = `\n프로젝트 타입: ${projectType}`;
+                    }
+                } catch (error) {
+                    console.warn('[LlmService] Failed to detect project type:', error);
+                }
+            }
+
+            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext + projectTypeContext, intentContext);
 
             // 사용자 메시지 파트 구성
             const userParts: any[] = [];
@@ -355,6 +469,12 @@ export class LlmService {
             let llmResponse: string;
 
             this.sendProcessingStep('assembling');
+            const totalContextLength = systemPrompt.length + userParts.reduce((sum, part) => sum + (part.text?.length || 0), 0);
+            const estimatedTokens = estimateTokens(systemPrompt + userParts.map(part => part.text || '').join(''));
+            this.sendProcessingStatus('assembling', `Generating with ${currentModelNameForLog} (${totalContextLength.toLocaleString()} chars, ~${estimatedTokens.toLocaleString()} tokens)...`);
+            // Debug Console 로그를 활용한 추가 정보
+            console.log(`[LlmService] Assembling response with ${currentModelNameForLog}: ${totalContextLength.toLocaleString()} characters (~${estimatedTokens.toLocaleString()} tokens)`);
+            console.log(`[LlmService] System prompt length: ${systemPrompt.length.toLocaleString()} chars, User parts: ${userParts.length} parts`);
             if (this.currentModelType === AiModelType.GEMINI) {
                 const requestOptions = { signal: abortSignal };
                 llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(
@@ -378,6 +498,11 @@ export class LlmService {
             } else {
                 throw new Error(`Unsupported model type: ${this.currentModelType}`);
             }
+            const outputTokens = estimateTokens(llmResponse);
+            this.sendProcessingStatus('assembling', `Generated ${llmResponse.length.toLocaleString()} chars (~${outputTokens.toLocaleString()} tokens) response`);
+            // Debug Console 로그를 활용한 추가 정보
+            console.log(`[LlmService] Response generated: ${llmResponse.length.toLocaleString()} characters (~${outputTokens.toLocaleString()} tokens)`);
+            console.log(`[LlmService] Response preview: ${llmResponse.substring(0, 100)}${llmResponse.length > 100 ? '...' : ''}`);
 
             // ===== 전송 완료 배너 및 타임스탬프/소요시간 로그 =====
             const sendFinishedAt = Date.now();
@@ -400,13 +525,17 @@ export class LlmService {
 
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
             this.sendProcessingStep('parsing');
+            this.sendProcessingStatus('parsing', 'Processing response format...');
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(
                 llmResponse,
                 promptType === PromptType.CODE_GENERATION ? allContextFiles : [],
                 webviewToRespond,
-                promptType
+                promptType,
+                (status: string) => this.sendProcessingStatus('parsing', status)
             );
+            this.sendProcessingStatus('parsing', 'Response processed successfully');
             this.sendProcessingStep('printing');
+            this.sendProcessingStatus('printing', 'Preparing final output...');
 
             // --- AI 응답을 대화 기록에 저장 ---
             if (this.extensionContext && userQuery) {
@@ -574,6 +703,7 @@ export class LlmService {
 7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
 8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
 9. 터미널 명령어가 필요한 경우 "bash" 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요. (devDependencies에 설치된 vite는 npx로 실행해야 함)
 
 파일 생성/수정 형식 예시:
 
@@ -613,11 +743,12 @@ npm install
 npm start
 \`\`\`
 
-터미널 명령어의 경우:
+터미널 명령어의 경우 (Vite 프로젝트):
 \`\`\`bash
 npm install
+npm run dev
 npm run build
-npm start
+npm run preview
 \`\`\`
 
 코드베이스 컨텍스트:
@@ -660,5 +791,123 @@ ${realTimeInfo}
         }
 
         return systemPrompt;
+    }
+
+    /**
+     * 사용자 질의어에서 프로젝트 타입을 LLM으로 감지합니다.
+     */
+    private async detectProjectTypeFromQuery(userQuery: string): Promise<string> {
+        try {
+            const projectTypePrompt = `다음 사용자 요청을 분석하여 프로젝트 타입을 감지하세요.
+
+지원하는 프로젝트 타입:
+- react: React 프로젝트
+- react-vite: React + Vite 프로젝트
+- vue: Vue.js 프로젝트
+- angular: Angular 프로젝트
+- next: Next.js 프로젝트
+- nuxt: Nuxt.js 프로젝트
+- svelte: Svelte 프로젝트
+- nodejs: 일반 Node.js 프로젝트
+- django: Django (Python) 프로젝트
+- flask: Flask (Python) 프로젝트
+- fastapi: FastAPI (Python) 프로젝트
+- python: 일반 Python 프로젝트
+- java: Java/Spring 프로젝트
+- dotnet: .NET 프로젝트
+- go: Go 프로젝트
+- rust: Rust 프로젝트
+- php: PHP 프로젝트
+- ruby: Ruby 프로젝트
+- ios: iOS 프로젝트
+- android: Android 프로젝트
+- flutter: Flutter 프로젝트
+- react-native: React Native 프로젝트
+- unknown: 감지할 수 없음
+
+출력 형식 (JSON):
+{
+  "projectType": "react-vite",
+  "confidence": 0.9,
+  "reasoning": "사용자가 'react javascript 템플릿으로 vite 프로젝트 생성'이라고 요청했으므로 React + Vite 프로젝트입니다."
+}
+
+사용자 요청: "${userQuery}"`;
+
+            let response: string;
+
+            if (this.currentModelType === AiModelType.GEMINI) {
+                response = await this.geminiApi.sendMessage(projectTypePrompt, undefined, { signal: this.currentCallController?.signal });
+            } else if (this.currentModelType === AiModelType.OLLAMA_Gemma || this.currentModelType === AiModelType.OLLAMA_DeepSeek || this.currentModelType === AiModelType.OLLAMA_CodeLlama || this.currentModelType === AiModelType.OLLAMA_GPT_OSS) {
+                response = await this.ollamaApi.sendMessage(projectTypePrompt, { signal: this.currentCallController?.signal });
+            } else {
+                return 'unknown';
+            }
+
+            console.log(`[LlmService] LLM 프로젝트 타입 감지 응답: ${response}`);
+
+            // JSON 응답 파싱
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const result = JSON.parse(jsonMatch[0]);
+                if (result.projectType && result.confidence > 0.5) {
+                    console.log(`[LlmService] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${result.confidence})`);
+                    return result.projectType;
+                }
+            }
+
+            // JSON 파싱 실패 시 키워드 기반 감지
+            const lowerQuery = userQuery.toLowerCase();
+            if (lowerQuery.includes('react') && lowerQuery.includes('vite')) return 'react-vite';
+            if (lowerQuery.includes('react')) return 'react';
+            if (lowerQuery.includes('vue')) return 'vue';
+            if (lowerQuery.includes('angular')) return 'angular';
+            if (lowerQuery.includes('next')) return 'next';
+            if (lowerQuery.includes('nuxt')) return 'nuxt';
+            if (lowerQuery.includes('svelte')) return 'svelte';
+            if (lowerQuery.includes('django')) return 'django';
+            if (lowerQuery.includes('flask')) return 'flask';
+            if (lowerQuery.includes('fastapi')) return 'fastapi';
+            if (lowerQuery.includes('python')) return 'python';
+            if (lowerQuery.includes('spring') || lowerQuery.includes('java')) return 'java';
+            if (lowerQuery.includes('.net') || lowerQuery.includes('c#')) return 'dotnet';
+            if (lowerQuery.includes('go ') || lowerQuery.includes('golang')) return 'go';
+            if (lowerQuery.includes('rust')) return 'rust';
+            if (lowerQuery.includes('php')) return 'php';
+            if (lowerQuery.includes('ruby')) return 'ruby';
+            if (lowerQuery.includes('ios')) return 'ios';
+            if (lowerQuery.includes('android')) return 'android';
+            if (lowerQuery.includes('flutter')) return 'flutter';
+            if (lowerQuery.includes('react-native')) return 'react-native';
+            if (lowerQuery.includes('node') || lowerQuery.includes('javascript') || lowerQuery.includes('typescript')) return 'nodejs';
+
+            return 'unknown';
+        } catch (error) {
+            console.warn('[LlmService] LLM 프로젝트 타입 감지 실패:', error);
+            return 'unknown';
+        }
+    }
+
+    /**
+     * 명령어 오류 수정을 위한 LLM 메시지 전송
+     */
+    public async sendMessageForErrorCorrection(prompt: string): Promise<string> {
+        try {
+            let response: string;
+
+            if (this.currentModelType === AiModelType.GEMINI) {
+                response = await this.geminiApi.sendMessage(prompt, undefined, { signal: this.currentCallController?.signal });
+            } else if (this.currentModelType === AiModelType.OLLAMA_Gemma || this.currentModelType === AiModelType.OLLAMA_DeepSeek || this.currentModelType === AiModelType.OLLAMA_CodeLlama || this.currentModelType === AiModelType.OLLAMA_GPT_OSS) {
+                response = await this.ollamaApi.sendMessage(prompt, { signal: this.currentCallController?.signal });
+            } else {
+                throw new Error('지원하지 않는 모델 타입');
+            }
+
+            console.log(`[LlmService] 오류 수정 응답: ${response}`);
+            return response;
+        } catch (error) {
+            console.error('[LlmService] 오류 수정 메시지 전송 실패:', error);
+            throw error;
+        }
     }
 }

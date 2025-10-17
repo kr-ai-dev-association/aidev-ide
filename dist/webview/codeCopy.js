@@ -147,19 +147,25 @@ function extractBashCommands(bashCode) {
 // Run 버튼에 이벤트 리스너를 등록하는 함수
 function attachRunButtonListener(button, codeElement) {
   button.addEventListener('click', async () => {
+    console.log('[codeCopy.js] Run button clicked');
     const bashCode = codeElement.textContent || '';
+    console.log('[codeCopy.js] Bash code:', bashCode);
     const commands = extractBashCommands(bashCode);
+    console.log('[codeCopy.js] Extracted commands:', commands);
     if (commands.length === 0) {
-      // console.log('No valid bash commands found');
+      console.log('[codeCopy.js] No valid bash commands found');
       return;
     }
 
     // VS Code API를 통해 확장에 명령어 실행 요청
     if (vscode) {
+      console.log('[codeCopy.js] Sending executeBashCommands message:', commands);
       vscode.postMessage({
         command: 'executeBashCommands',
         commands: commands
       });
+    } else {
+      console.error('[codeCopy.js] VS Code API not available');
     }
 
     // 버튼 피드백

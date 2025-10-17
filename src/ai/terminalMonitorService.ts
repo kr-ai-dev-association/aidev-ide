@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { NotificationService } from '../services/notificationService';
+import { LlmService } from './llmService';
 
 export interface LogEntry {
     timestamp: number;
@@ -23,6 +24,14 @@ export interface TerminalErrorEvent {
     recentLogs: LogEntry[];
 }
 
+export interface CommandErrorContext {
+    command: string;
+    errorOutput: string;
+    workingDirectory: string;
+    timestamp: number;
+    terminalName: string;
+}
+
 export class TerminalMonitorService {
     private notificationService: NotificationService;
     private logEntries: LogEntry[] = [];
@@ -36,10 +45,33 @@ export class TerminalMonitorService {
     private onErrorEmitter = new vscode.EventEmitter<TerminalErrorEvent>();
     public readonly onError = this.onErrorEmitter.event;
 
+    // 오류 수정 관련 속성
+    private llmService: LlmService | undefined = undefined;
+    private errorRetryCount = 0;
+    private readonly MAX_ERROR_RETRIES = 3;
+    private recentCommands: Map<string, CommandErrorContext> = new Map();
+    private autoCorrectionEnabled = true;
+
     constructor(notificationService: NotificationService) {
         this.notificationService = notificationService;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Monitor');
         this.initializeErrorPatterns();
+    }
+
+    /**
+     * LLM 서비스를 설정합니다.
+     */
+    public setLlmService(llmService: LlmService): void {
+        this.llmService = llmService;
+        console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
+    }
+
+    /**
+     * 자동 오류 수정 기능을 활성화/비활성화합니다.
+     */
+    public setAutoCorrectionEnabled(enabled: boolean): void {
+        this.autoCorrectionEnabled = enabled;
+        console.log(`[TerminalMonitorService] 자동 오류 수정 ${enabled ? '활성화' : '비활성화'}`);
     }
 
     /**
@@ -163,6 +195,21 @@ export class TerminalMonitorService {
     }
 
     /**
+     * 외부에서 터미널 출력을 주입받습니다.
+     * 이 메서드는 terminalManager에서 호출됩니다.
+     */
+    public ingestExternalOutput(source: string, data: string): void {
+        if (!this.isMonitoring) return;
+
+        console.log(`[TerminalMonitorService] 외부 출력 수신: ${source} - ${data.substring(0, 100)}...`);
+        
+        // 터미널 이름 추출 (source에서)
+        const terminalName = source.includes(':') ? source.split(':')[0] : 'external';
+        
+        this.processTerminalOutput(terminalName, data);
+    }
+
+    /**
      * 터미널 모니터링을 중지합니다.
      */
     public stopMonitoring(): void {
@@ -223,21 +270,6 @@ export class TerminalMonitorService {
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${level.toUpperCase()}: ${message}`);
     }
 
-    /**
-     * 외부에서 캡처한 출력(터미널/프로세스)을 주입합니다.
-     * @param sourceName 출력 소스 이름
-     * @param data 출력 데이터
-     */
-    public ingestExternalOutput(sourceName: string, data: string): void {
-        if (!data) { return; }
-        const normalized = data.replace(/\r\n/g, '\n');
-        const lines = normalized.split('\n');
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.length === 0) { continue; }
-            this.processTerminalOutput(sourceName, trimmed);
-        }
-    }
 
     /**
      * 특정 터미널을 모니터링합니다.
@@ -325,6 +357,11 @@ export class TerminalMonitorService {
                     recentLogs: recent
                 });
                 console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
+
+                // 자동 오류 수정 시도
+                if (this.autoCorrectionEnabled && this.llmService) {
+                    this.attemptAutoCorrection(terminalName, data.trim(), recent);
+                }
             } catch (e) {
                 console.warn('[TerminalMonitorService] onError emit failed:', e);
             }
@@ -554,5 +591,179 @@ export class TerminalMonitorService {
         });
 
         this.notificationService.showInfoMessage(`터미널 모니터링 테스트 완료. 현재 ${terminals.length}개 터미널 감지됨.`);
+    }
+
+    /**
+     * 자동 오류 수정을 시도합니다.
+     */
+    private async attemptAutoCorrection(terminalName: string, errorMessage: string, recentLogs: LogEntry[]): Promise<void> {
+        if (!this.llmService || !this.autoCorrectionEnabled) {
+            return;
+        }
+
+        try {
+            // 최근 명령어 추출
+            const recentCommand = this.extractRecentCommand(recentLogs);
+            if (!recentCommand) {
+                console.log('[TerminalMonitorService] 최근 명령어를 찾을 수 없음');
+                return;
+            }
+
+            // 중복 수정 시도 방지
+            const commandKey = `${terminalName}:${recentCommand}`;
+            if (this.recentCommands.has(commandKey)) {
+                const lastAttempt = this.recentCommands.get(commandKey)!;
+                if (Date.now() - lastAttempt.timestamp < 30000) { // 30초 내 중복 방지
+                    console.log('[TerminalMonitorService] 최근에 이미 수정 시도한 명령어');
+                    return;
+                }
+            }
+
+            // 재시도 횟수 확인
+            if (this.errorRetryCount >= this.MAX_ERROR_RETRIES) {
+                console.log('[TerminalMonitorService] 최대 재시도 횟수 초과');
+                this.errorRetryCount = 0;
+                return;
+            }
+
+            this.errorRetryCount++;
+            console.log(`[TerminalMonitorService] 오류 수정 시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES}`);
+
+            // LLM에게 오류 수정 요청
+            const correctedCommand = await this.getCorrectedCommandFromLlm(recentCommand, errorMessage, terminalName);
+            if (!correctedCommand) {
+                console.log('[TerminalMonitorService] LLM에서 수정된 명령어를 받지 못함');
+                return;
+            }
+
+            // 수정된 명령어 저장
+            this.recentCommands.set(commandKey, {
+                command: recentCommand,
+                errorOutput: errorMessage,
+                workingDirectory: process.cwd(),
+                timestamp: Date.now(),
+                terminalName
+            });
+
+            // 수정된 명령어 실행
+            await this.executeCorrectedCommand(terminalName, correctedCommand);
+
+        } catch (error) {
+            console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
+        }
+    }
+
+    /**
+     * 최근 로그에서 명령어를 추출합니다.
+     */
+    private extractRecentCommand(recentLogs: LogEntry[]): string | null {
+        // 최근 로그에서 명령어 패턴 찾기
+        for (let i = recentLogs.length - 1; i >= 0; i--) {
+            const log = recentLogs[i];
+            const message = log.message;
+
+            // 일반적인 명령어 패턴들
+            const commandPatterns = [
+                /^npm\s+(install|run|start|build|test|dev)/,
+                /^yarn\s+(install|add|start|build|test|dev)/,
+                /^git\s+(clone|pull|push|commit|add)/,
+                /^docker\s+(build|run|start|stop)/,
+                /^python\s+/,
+                /^node\s+/,
+                /^npm\s+run\s+(\w+)/,
+                /^cd\s+/,
+                /^mkdir\s+/,
+                /^rm\s+/,
+                /^cp\s+/,
+                /^mv\s+/
+            ];
+
+            for (const pattern of commandPatterns) {
+                if (pattern.test(message)) {
+                    return message.trim();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * LLM에게 오류 수정을 요청합니다.
+     */
+    private async getCorrectedCommandFromLlm(failedCommand: string, errorOutput: string, terminalName: string): Promise<string | null> {
+        if (!this.llmService) {
+            return null;
+        }
+
+        try {
+            const errorCorrectionPrompt = `다음 명령어가 터미널에서 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
+
+실행된 명령어: ${failedCommand}
+터미널: ${terminalName}
+오류 출력:
+${errorOutput}
+
+수정된 명령어를 JSON 형식으로 응답해주세요:
+{
+  "correctedCommand": "수정된 명령어",
+  "reasoning": "수정 이유"
+}`;
+
+            const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+
+            // JSON 응답 파싱
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.correctedCommand) {
+                    console.log(`[TerminalMonitorService] LLM 수정 제안: ${parsed.correctedCommand}`);
+                    console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
+                    return parsed.correctedCommand;
+                }
+            }
+        } catch (error) {
+            console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
+        }
+
+        return null;
+    }
+
+    /**
+     * 수정된 명령어를 실행합니다.
+     */
+    private async executeCorrectedCommand(terminalName: string, correctedCommand: string): Promise<void> {
+        try {
+            // 터미널 찾기
+            const terminal = vscode.window.terminals.find(t => t.name === terminalName);
+            if (!terminal) {
+                console.log(`[TerminalMonitorService] 터미널을 찾을 수 없음: ${terminalName}`);
+                return;
+            }
+
+            // 수정된 명령어 실행
+            terminal.sendText(correctedCommand);
+
+            // 사용자에게 알림
+            this.notificationService.showInfoMessage(
+                `🔧 자동 오류 수정: ${correctedCommand}`
+            );
+
+            // OUTPUT 채널에 로그
+            this.outputChannel.appendLine(`[${new Date().toISOString()}] 자동 오류 수정 실행: ${correctedCommand}`);
+
+            console.log(`[TerminalMonitorService] 수정된 명령어 실행: ${correctedCommand}`);
+
+        } catch (error) {
+            console.error('[TerminalMonitorService] 수정된 명령어 실행 실패:', error);
+        }
+    }
+
+    /**
+     * 오류 재시도 횟수를 리셋합니다.
+     */
+    public resetErrorRetryCount(): void {
+        this.errorRetryCount = 0;
+        this.recentCommands.clear();
+        console.log('[TerminalMonitorService] 오류 재시도 횟수 리셋');
     }
 }

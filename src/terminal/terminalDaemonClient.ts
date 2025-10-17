@@ -39,6 +39,7 @@ export class TerminalDaemonClient {
             };
 
             socket.on('connect', () => {
+                console.log(`[TerminalDaemonClient] Connected to daemon, sending command: ${options.command}`);
                 send({
                     type: 'run',
                     id: options.id,
@@ -58,24 +59,29 @@ export class TerminalDaemonClient {
                     if (!line.trim()) continue;
                     try {
                         const msg = JSON.parse(line) as DaemonResponse;
+                        console.log(`[TerminalDaemonClient] Received message:`, msg);
                         if (msg.type === 'log' && msg.stream && msg.chunk !== undefined) {
                             onLog(msg.stream, msg.chunk);
                         } else if (msg.type === 'exit') {
+                            console.log(`[TerminalDaemonClient] Command exited with code: ${msg.code}`);
                             if (!exitResolved) {
                                 exitResolved = true;
                                 socket.end();
                                 resolve({ exitCode: msg.code ?? 0 });
                             }
                         } else if (msg.type === 'error') {
+                            console.log(`[TerminalDaemonClient] Daemon error: ${msg.error}`);
                             onLog('stderr', msg.error || 'daemon error');
                         }
-                    } catch {
+                    } catch (e) {
+                        console.log(`[TerminalDaemonClient] Failed to parse message: ${line}`, e);
                         onLog('stderr', line);
                     }
                 }
             });
 
             socket.on('error', (err) => {
+                console.log(`[TerminalDaemonClient] Socket error:`, err);
                 if (!exitResolved) {
                     exitResolved = true;
                     reject(err);

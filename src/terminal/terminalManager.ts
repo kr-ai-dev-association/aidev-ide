@@ -3,8 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { runCommandCapture } from '../utils/processRunner';
 import { getTerminalMonitor } from '../ai/monitorBridge';
-import { TerminalDaemonClient } from './terminalDaemonClient';
+import { TerminalMonitorService } from '../ai/terminalMonitorService';
 import { ConfigurationService } from '../services/configurationService';
+import { LlmService } from '../ai/llmService';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
@@ -15,8 +16,31 @@ let _priorityQueue: string[] = [];
 let _normalQueue: string[] = [];
 let _isProcessingQueue = false;
 let _queuePausedForLongRunning = false;
+let _currentWorkingDirectory: string | undefined = undefined;
 const FILE_OP_PREFIX = '__AIDEV_FILE_OP__::';
-const _daemonClient = new TerminalDaemonClient();
+
+// 오류 수정 시스템 관련 변수들
+let _llmService: LlmService | undefined = undefined;
+let _errorRetryCount = 0;
+const MAX_ERROR_RETRIES = 3;
+let _currentWebview: vscode.Webview | undefined = undefined;
+let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
+
+/**
+ * 오류 수정 시스템을 위한 LLM 서비스와 웹뷰를 설정합니다.
+ */
+export function setErrorCorrectionServices(llmService: LlmService, webview: vscode.Webview): void {
+    _llmService = llmService;
+    _currentWebview = webview;
+}
+
+/**
+ * 터미널 모니터링 서비스를 설정합니다.
+ */
+export function setTerminalMonitorService(terminalMonitorService: TerminalMonitorService): void {
+    _terminalMonitorService = terminalMonitorService;
+    console.log('[TerminalManager] 터미널 모니터링 서비스 설정 완료');
+}
 
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
@@ -111,7 +135,7 @@ async function getEffectiveCwd(): Promise<string | undefined> {
 
 function getCaptureOutputChannel(): vscode.OutputChannel {
     if (!_captureOutputChannel) {
-        _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Capture');
+        _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal');
     }
     return _captureOutputChannel;
 }
@@ -212,9 +236,26 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         }
     }
 
-    const cwd = await getEffectiveCwd();
+    // cd 명령어 감지 및 작업 디렉토리 업데이트
+    if (command.toLowerCase().trim().startsWith('cd ')) {
+        const targetDir = command.substring(3).trim();
+        if (targetDir) {
+            _currentWorkingDirectory = targetDir;
+            // console.log(`[TerminalManager] Updated working directory to: ${_currentWorkingDirectory}`);
+        }
+    }
+
+    // 현재 작업 디렉토리를 프로젝트 루트로 설정 (잘못된 cwd 방지)
+    const effectiveCwd = await getEffectiveCwd();
+    const cwd = _currentWorkingDirectory && _currentWorkingDirectory !== 'bank-app-front' ? _currentWorkingDirectory : effectiveCwd;
 
     if (shouldUseTerminal) {
+        const channel = getCaptureOutputChannel();
+        channel.appendLine(`\n===== Executing in VS Code Terminal: ${command} (${new Date().toLocaleString()}) =====`);
+        channel.appendLine(`CWD: ${cwd || '(not set)'}`);
+        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+
         const terminal = getAidevIdeTerminal();
         if (!terminal.state.isInteractedWith) {
             terminal.show();
@@ -226,7 +267,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
             if (defaultResponse !== null) {
                 setTimeout(() => {
                     terminal.sendText(defaultResponse);
-                    console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
+                    // console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
                 }, 2000);
             }
             vscode.window.showInformationMessage(
@@ -236,7 +277,11 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         } else {
             vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
         }
-        console.log(`[TerminalManager] Executed bash command: ${command}`);
+
+        channel.appendLine(`----- Command Sent to VS Code Terminal -----`);
+        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+        // console.log(`[TerminalManager] Executed bash command: ${command}`);
         return true;
     }
 
@@ -244,6 +289,8 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
     const channel = getCaptureOutputChannel();
     channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
     channel.appendLine(`CWD: ${cwd || '(not set)'}`);
+    channel.appendLine(`Command: ${command}`);
+    channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
     const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i.test(text);
 
@@ -252,58 +299,167 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
 
     try {
         const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        console.log(`[TerminalManager] Starting via daemon. id=${id}, cwd=${cwd || '(not set)'}, cmd="${command}"`);
-        const runPromise = _daemonClient.run(
-            { id, command, cwd },
-            (stream, chunk) => {
-                const lines = chunk.replace(/\r\n/g, '\n').split('\n');
-                for (const line of lines) {
-                    const cleaned = sanitizeOutput(line).trim();
-                    if (!cleaned) continue;
-                    channel.appendLine(cleaned);
-                    try { getTerminalMonitor()?.ingestExternalOutput(stream, cleaned); } catch { }
+        console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${command}"`);
+        channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${command}`);
+        channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
+
+        // VS Code 터미널을 사용하여 명령어 실행
+        const terminal = getAidevIdeTerminal();
+
+        // 작업 디렉토리 설정
+        if (cwd) {
+            terminal.sendText(`cd "${cwd}"`);
+        }
+
+        // 명령어 실행
+        terminal.sendText(command);
+
+        // 터미널을 보여주고 포커스
+        terminal.show(true);
+
+        // VS Code 터미널에서는 직접적인 출력 캡처가 어려우므로
+        // processRunner를 사용하여 출력을 캡처
+        const runPromise = runCommandCapture(
+            command, 
+            { cwd },
+            // stdout 콜백
+            (data: string) => {
+                if (_terminalMonitorService) {
+                    _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stdout`, data);
                 }
-                if (stream === 'stderr') { stderrAgg += chunk + '\n'; }
-                else { stdoutAgg += chunk + '\n'; }
+            },
+            // stderr 콜백
+            (data: string) => {
+                if (_terminalMonitorService) {
+                    _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stderr`, data);
+                }
             }
         );
 
         if (isDevLong) {
             // 장기 실행은 즉시 반환하여 큐를 일시정지하도록 함 (processQueue에서 처리)
-            runPromise.then((res) => {
-                if (res.exitCode !== 0) {
-                    const msg = `Exit status ${res.exitCode}: ${command}`;
+            runPromise.then(async (res) => {
+                if (res.code !== 0) {
+                    const msg = `Exit status ${res.code}: ${command}`;
+                    channel.appendLine(`----- Long-running Command Failed -----`);
+                    channel.appendLine(`Command: ${command}`);
+                    channel.appendLine(`Exit code: ${res.code}`);
+                    channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+                    if (res.stderr) {
+                        channel.appendLine(`Stderr: ${res.stderr}`);
+                    }
                     try { getTerminalMonitor()?.ingestExternalOutput('stderr', msg); } catch { }
-                    channel.appendLine(msg);
                     channel.show(true);
+
+                    // Long-running 명령어에서도 오류 수정 시도
+                    const errorOutput = `Exit code: ${res.code}\nStderr: ${res.stderr || ''}\nStdout: ${res.stdout || ''}`;
+                    const retrySuccess = await handleCommandError(
+                        command,
+                        errorOutput,
+                        cwd || '',
+                        async (correctedCommand: string) => {
+                            // 수정된 명령어로 재시도
+                            channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
+                            await handleInteractiveCommand(correctedCommand);
+                        }
+                    );
+
+                    if (!retrySuccess) {
+                        vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${command})`);
+                    }
                 } else {
-                    try { getTerminalMonitor()?.ingestExternalOutput('stdout', `Process exited (code ${res.exitCode}): ${command}`); } catch { }
+                    channel.appendLine(`----- Long-running Command Completed -----`);
+                    channel.appendLine(`Command: ${command}`);
+                    channel.appendLine(`Exit code: ${res.code}`);
+                    channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+                    if (res.stdout) {
+                        channel.appendLine(`Output: ${res.stdout}`);
+                    }
+                    try { getTerminalMonitor()?.ingestExternalOutput('stdout', `Process exited (code ${res.code}): ${command}`); } catch { }
                 }
-            }).catch((err) => {
+            }).catch(async (err) => {
+                channel.appendLine(`----- Long-running Command Error -----`);
+                channel.appendLine(`Command: ${command}`);
+                channel.appendLine(`Error: ${err?.message || String(err)}`);
+                channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
                 try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Process error: ${err?.message || String(err)}`); } catch { }
+
+                // Long-running 명령어에서도 오류 수정 시도
+                const errorOutput = `Process error: ${err?.message || String(err)}`;
+                const retrySuccess = await handleCommandError(
+                    command,
+                    errorOutput,
+                    cwd || '',
+                    async (correctedCommand: string) => {
+                        // 수정된 명령어로 재시도
+                        channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
+                        await handleInteractiveCommand(correctedCommand);
+                    }
+                );
+
+                if (!retrySuccess) {
+                    vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${command})`);
+                }
             });
-            console.log(`[TerminalManager] Started long-running via daemon: ${command}`);
+            channel.appendLine(`----- Long-running Command Started -----`);
+            channel.appendLine(`Command: ${command}`);
+            channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+            console.log(`[TerminalManager] Started long-running via VS Code terminal: ${command}`);
             try { channel.show(true); } catch { }
             return true;
         }
 
         const result = await runPromise;
 
-        if (result.exitCode !== 0 || isErrorLike(stderrAgg)) {
-            channel.appendLine(`----- Exit code: ${result.exitCode} -----`);
+        if (result.code !== 0 || isErrorLike(result.stderr || '')) {
+            channel.appendLine(`----- Command Failed -----`);
+            channel.appendLine(`Command: ${command}`);
+            channel.appendLine(`Exit code: ${result.code}`);
+            channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+            if (result.stderr) {
+                channel.appendLine(`Stderr: ${result.stderr}`);
+            }
             try {
-                getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.exitCode}): ${command}`);
-                getTerminalMonitor()?.ingestExternalOutput('stderr', `Exit status ${result.exitCode}`);
+                getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`);
+                getTerminalMonitor()?.ingestExternalOutput('stderr', `Exit status ${result.code}`);
             } catch { }
             channel.show(true);
-            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
-            return false;
+
+            // 오류 수정 시도
+            const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
+            const retrySuccess = await handleCommandError(
+                command,
+                errorOutput,
+                cwd || '',
+                async (correctedCommand: string) => {
+                    // 수정된 명령어로 재시도
+                    channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
+                    await handleInteractiveCommand(correctedCommand);
+                }
+            );
+
+            if (!retrySuccess) {
+                vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+                return false;
+            }
+
+            return true;
         }
-        console.log(`[TerminalManager] Executed via daemon: ${command}`);
+
+        channel.appendLine(`----- Command Completed Successfully -----`);
+        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Exit code: ${result.code}`);
+        channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+        if (result.stdout) {
+            channel.appendLine(`Output: ${result.stdout}`);
+        }
+        console.log(`[TerminalManager] Executed via VS Code terminal: ${command}`);
         return true;
     } catch (e: any) {
-        // 데몬 실패 시 캡처 기반으로 폴백
-        channel.appendLine(`[WARN] terminal-daemon 사용 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
+        // VS Code 터미널 실행 실패 시 캡처 기반으로 폴백
+        channel.appendLine(`[WARN] VS Code 터미널 실행 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
+        channel.appendLine(`[ERROR] Execution error details: ${JSON.stringify(e)}`);
+        console.error(`[TerminalManager] VS Code terminal execution failed:`, e);
         const result = await runCommandCapture(
             command,
             { cwd, shell: true },
@@ -313,6 +469,10 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
                     if (!cleaned) return;
                     channel.appendLine(cleaned);
                     try { getTerminalMonitor()?.ingestExternalOutput('stdout', cleaned); } catch { }
+                    // 터미널 모니터링 서비스에도 전달
+                    if (_terminalMonitorService) {
+                        _terminalMonitorService.ingestExternalOutput('fallback:stdout', cleaned);
+                    }
                 });
             },
             (chunk) => {
@@ -321,6 +481,10 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
                     if (!cleaned) return;
                     channel.appendLine(cleaned);
                     try { getTerminalMonitor()?.ingestExternalOutput('stderr', cleaned); } catch { }
+                    // 터미널 모니터링 서비스에도 전달
+                    if (_terminalMonitorService) {
+                        _terminalMonitorService.ingestExternalOutput('fallback:stderr', cleaned);
+                    }
                 });
             }
         );
@@ -586,7 +750,9 @@ export function executeBashCommandsFromLlmResponse(llmResponse: string): string[
 
     // 명령어들을 우선순위 큐에 추가하고 처리 시작
     if (executedCommands.length > 0) {
-        enqueueCommands(executedCommands, true);
+        // 작업 디렉토리를 초기화하여 잘못된 cwd 방지
+        resetWorkingDirectory();
+        enqueueCommandsBatch(executedCommands, true);
     }
 
     return executedCommands;
@@ -616,6 +782,117 @@ export function getCommandSequenceStatus(): { isRunning: boolean; currentIndex: 
         currentIndex: _currentCommandIndex,
         totalCommands: _pendingCommands.length
     };
+}
+
+/**
+ * 현재 작업 디렉토리를 초기화합니다.
+ */
+export function resetWorkingDirectory(): void {
+    _currentWorkingDirectory = undefined;
+}
+
+/**
+ * 명령어 실행 오류를 LLM에게 전송하여 수정된 명령어를 받아옵니다.
+ */
+async function getCorrectedCommand(failedCommand: string, errorOutput: string, cwd: string): Promise<string | null> {
+    if (!_llmService || !_currentWebview) {
+        console.log('[TerminalManager] LLM 서비스 또는 웹뷰가 설정되지 않음');
+        return null;
+    }
+
+    try {
+        const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
+
+실행된 명령어: ${failedCommand}
+작업 디렉토리: ${cwd}
+오류 출력:
+${errorOutput}
+
+수정된 명령어를 JSON 형식으로 응답해주세요:
+{
+  "correctedCommand": "수정된 명령어",
+  "reasoning": "수정 이유",
+  "confidence": 0.8
+}
+
+만약 명령어를 수정할 수 없다면:
+{
+  "correctedCommand": null,
+  "reasoning": "수정 불가능한 이유",
+  "confidence": 0.0
+}`;
+
+        console.log('[TerminalManager] LLM에게 오류 수정 요청 전송');
+
+        // LLM 서비스를 통해 응답 받기
+        const response = await _llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+
+        // JSON 응답 파싱
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            if (result.correctedCommand && result.confidence > 0.5) {
+                console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
+                return result.correctedCommand;
+            }
+        }
+
+        console.log('[TerminalManager] LLM 오류 수정 실패 또는 신뢰도 부족');
+        return null;
+    } catch (error) {
+        console.error('[TerminalManager] LLM 오류 수정 중 예외 발생:', error);
+        return null;
+    }
+}
+
+/**
+ * 명령어 실행 오류를 처리하고 수정된 명령어로 재시도합니다.
+ */
+export async function handleCommandError(
+    failedCommand: string,
+    errorOutput: string,
+    cwd: string,
+    onRetry: (correctedCommand: string) => Promise<void>
+): Promise<boolean> {
+    if (_errorRetryCount >= MAX_ERROR_RETRIES) {
+        console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
+        _errorRetryCount = 0;
+        return false;
+    }
+
+    _errorRetryCount++;
+    console.log(`[TerminalManager] 오류 수정 시도 ${_errorRetryCount}/${MAX_ERROR_RETRIES}`);
+
+    const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
+
+    if (correctedCommand) {
+        console.log(`[TerminalManager] 수정된 명령어로 재시도: ${correctedCommand}`);
+
+        // 웹뷰에 오류 수정 상태 전송
+        if (_currentWebview) {
+            _currentWebview.postMessage({
+                command: 'showErrorCorrection',
+                originalCommand: failedCommand,
+                correctedCommand: correctedCommand,
+                retryCount: _errorRetryCount
+            });
+        }
+
+        // 수정된 명령어로 재시도
+        await onRetry(correctedCommand);
+        return true;
+    } else {
+        console.log('[TerminalManager] 명령어 수정 불가능');
+        _errorRetryCount = 0;
+        return false;
+    }
+}
+
+/**
+ * 오류 수정 카운터를 초기화합니다.
+ */
+export function resetErrorRetryCount(): void {
+    _errorRetryCount = 0;
 }
 
 /**

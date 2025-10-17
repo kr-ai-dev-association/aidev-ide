@@ -228,7 +228,10 @@
     "test": "vscode-test"
   },
   "dependencies": {
-    "firebase": "^10.7.0"
+    "@tensorflow/tfjs-node": "^4.22.0",
+    "evaluate": "^1.0.2",
+    "firebase": "^10.7.0",
+    "korean-text-analytics": "^0.0.7"
   },
   "devDependencies": {
     "@babel/core": "^7.27.3",
@@ -244,10 +247,10 @@
     "babel-loader": "^10.0.0",
     "dompurify": "^3.2.6",
     "eslint": "^9.25.1",
+    "markdown-it": "^14.1.0",
     "ts-loader": "^9.5.2",
     "typescript": "^5.8.3",
     "webpack": "^5.99.7",
-    "webpack-cli": "^6.0.1",
-    "markdown-it": "^14.1.0"
+    "webpack-cli": "^6.0.1"
   }
 }

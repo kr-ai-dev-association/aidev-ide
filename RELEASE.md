@@ -2,6 +2,92 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## Version 3.2.1 (2025/10/17) - Terminal Auto-Error Correction & DIFF Processing
+
+<details>
+<summary>Terminal Auto-Error Correction System</summary>
+
+- **Real-time Error Detection**: 
+  - Monitors terminal output for command execution errors
+  - Detects npm, git, docker, python, and other common command failures
+  - Supports both VS Code integrated terminal and direct command execution
+- **LLM-based Error Correction**: 
+  - Automatically sends error details to LLM for correction suggestions
+  - Analyzes error patterns and provides intelligent fixes
+  - JSON-formatted response parsing for corrected commands
+- **Auto-retry with Corrected Commands**: 
+  - Automatically executes corrected commands with retry limits (max 3 attempts)
+  - Prevents infinite retry loops with cooldown periods
+  - User notification system for error correction progress
+- **Smart Error Pattern Recognition**: 
+  - Comprehensive error pattern matching for various command types
+  - Handles syntax errors, missing dependencies, permission issues
+  - Supports both interactive and long-running command error correction
+
+</details>
+
+<details>
+<summary>DIFF Callout Processing</summary>
+
+- **DIFF Format Support**: 
+  - Processes ````diff` callouts in LLM responses
+  - Parses standard diff format with file paths and line changes
+  - Supports add (+), remove (-), and context ( ) line operations
+- **Smart File Modification**: 
+  - Applies only the changes specified in DIFF format to existing files
+  - Preserves existing content while applying targeted modifications
+  - Handles complex multi-line changes and hunks
+- **Context-aware Path Resolution**: 
+  - Resolves file paths using project context and attached files
+  - Supports both relative and absolute path resolution
+  - Validates file paths before applying changes
+
+</details>
+
+<details>
+<summary>Enhanced Project Type Detection</summary>
+
+- **LLM-based Detection**: 
+  - Uses LLM to detect project type from user queries
+  - Analyzes user intent and project requirements
+  - Provides confidence scores for detection accuracy
+- **Hybrid Detection System**: 
+  - Combines LLM-based and file-based project type detection
+  - Prioritizes LLM detection with file-based fallback
+  - Supports 24+ project types and frameworks
+- **Extended Framework Support**: 
+  - Added support for Vue, Angular, Next.js, Nuxt.js, Svelte
+  - Django, Flask, FastAPI, .NET, Go, Rust, PHP, Ruby
+  - iOS, Android, Flutter, React Native
+- **Default File Inclusion**: 
+  - Automatically includes framework-specific essential files in context
+  - Ensures proper project structure recognition
+  - Improves AI response accuracy for framework-specific tasks
+
+</details>
+
+<details>
+<summary>Processing Steps Visualization</summary>
+
+- **Real-time Step Display**: 
+  - Shows LLM processing steps with animated progress indicators
+  - Visual feedback for each processing phase
+  - Responsive UI that adapts to different screen sizes
+- **Detailed Step Information**: 
+  - Displays intent analysis results and confidence scores
+  - Shows keyword selection and file analysis progress
+  - Real-time response generation status
+- **Debug Console Integration**: 
+  - Provides detailed debugging information for each processing step
+  - Logs project type detection, keyword extraction, and file selection
+  - Comprehensive error tracking and resolution logging
+- **Token Usage Display**: 
+  - Shows input token count during response assembly
+  - Real-time token usage monitoring
+  - Helps optimize context size and performance
+
+</details>
+
 ## Version 3.2.0 (2025/10/17) - Enhanced Context & File Processing
 
 <details>

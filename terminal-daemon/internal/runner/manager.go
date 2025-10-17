@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creack/pty"
-
 	"github.com/tony/gocatcher/terminal-daemon/internal/logs"
 	"github.com/tony/gocatcher/terminal-daemon/internal/types"
 )
@@ -23,6 +20,32 @@ var (
 	ErrCommandExists   = errors.New("command already running")
 	ErrCommandNotFound = errors.New("command not found")
 )
+
+// outputWriter는 명령어 출력을 캡처하고 전송하는 io.Writer 구현체
+type outputWriter struct {
+	send   func(types.Response)
+	id     string
+	stream string
+	buffer *logs.Buffer
+}
+
+func (w *outputWriter) Write(p []byte) (n int, err error) {
+	if w.buffer == nil {
+		w.buffer = logs.NewBuffer(500)
+	}
+
+	chunk := string(p)
+	w.buffer.Append(w.stream, chunk)
+
+	w.send(types.Response{
+		Type:   types.ResponseTypeLog,
+		ID:     w.id,
+		Stream: w.stream,
+		Chunk:  chunk,
+	})
+
+	return len(p), nil
+}
 
 type Manager struct {
 	mu       sync.Mutex
@@ -33,7 +56,6 @@ type commandState struct {
 	id     string
 	cancel context.CancelFunc
 	cmd    *exec.Cmd
-	buffer *logs.Buffer
 	send   func(types.Response)
 	done   chan struct{}
 }
@@ -69,8 +91,11 @@ func (m *Manager) Start(parent context.Context, req types.Request, send func(typ
 	}
 	cmd.Env = mergeEnv(req.Env)
 
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
+	// pty 대신 직접 exec 사용 (더 안정적)
+	cmd.Stdout = &outputWriter{send: send, id: req.ID, stream: types.StreamStdout}
+	cmd.Stderr = &outputWriter{send: send, id: req.ID, stream: types.StreamStderr}
+
+	if err := cmd.Start(); err != nil {
 		cancel()
 		return fmt.Errorf("start command: %w", err)
 	}
@@ -79,7 +104,6 @@ func (m *Manager) Start(parent context.Context, req types.Request, send func(typ
 		id:     req.ID,
 		cancel: cancel,
 		cmd:    cmd,
-		buffer: logs.NewBuffer(500),
 		send:   send,
 		done:   make(chan struct{}),
 	}
@@ -88,7 +112,6 @@ func (m *Manager) Start(parent context.Context, req types.Request, send func(typ
 	m.commands[req.ID] = state
 	m.mu.Unlock()
 
-	go m.streamOutput(req.ID, ptmx, state)
 	go m.waitExit(req.ID, state)
 
 	return nil
@@ -114,34 +137,8 @@ func (m *Manager) Stop(id string) error {
 }
 
 func (m *Manager) Logs(id string) []types.LogEntry {
-	state, ok := m.getState(id)
-	if !ok {
-		return nil
-	}
-	return state.buffer.Snapshot()
-}
-
-func (m *Manager) streamOutput(id string, ptmx *os.File, state *commandState) {
-	defer func() { _ = ptmx.Close() }()
-
-	reader := bufio.NewReader(ptmx)
-	buf := make([]byte, 4096)
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			chunk := string(buf[:n])
-			state.buffer.Append(types.StreamStdout, chunk)
-			m.safeSend(state.send, types.Response{
-				Type:   types.ResponseTypeLog,
-				ID:     id,
-				Stream: types.StreamStdout,
-				Chunk:  chunk,
-			})
-		}
-		if err != nil {
-			return
-		}
-	}
+	// outputWriter에서 buffer를 관리하므로 여기서는 빈 배열 반환
+	return []types.LogEntry{}
 }
 
 func (m *Manager) waitExit(id string, state *commandState) {
@@ -151,7 +148,6 @@ func (m *Manager) waitExit(id string, state *commandState) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 			chunk := exitErr.Error()
-			state.buffer.Append(types.StreamStderr, chunk)
 			m.safeSend(state.send, types.Response{
 				Type:   types.ResponseTypeLog,
 				ID:     id,
@@ -194,6 +190,16 @@ func shellCommand(cmd string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		return "cmd.exe", []string{"/c", cmd}
 	}
+
+	// macOS/Linux에서 사용 가능한 셸을 순서대로 시도
+	shells := []string{"/bin/bash", "/bin/zsh", "/bin/sh"}
+	for _, shell := range shells {
+		if _, err := os.Stat(shell); err == nil {
+			return shell, []string{"-c", cmd}
+		}
+	}
+
+	// 기본값으로 /bin/sh 사용 (존재하지 않으면 시스템에서 오류 발생)
 	return "/bin/sh", []string{"-c", cmd}
 }
 

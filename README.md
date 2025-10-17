@@ -176,6 +176,30 @@ VSCode base code assistant plugin with LLM and LM support.
   - **Better Error Messages**: More descriptive error messages for file operations
   - **Memory Optimization**: Chunked processing for large responses
 
+#### Version 3.2.1 - Terminal Auto-Error Correction & DIFF Processing (2025/10/17)
+- **Terminal Auto-Error Correction System**:
+  - **Real-time Error Detection**: Monitors terminal output for command execution errors
+  - **LLM-based Error Correction**: Automatically sends error details to LLM for correction suggestions
+  - **Auto-retry with Corrected Commands**: Automatically executes corrected commands with retry limits
+  - **Smart Error Pattern Recognition**: Detects npm, git, docker, python, and other common command errors
+  - **User Notification**: Shows error correction progress and results in real-time
+  - **Terminal Integration**: Works with both VS Code integrated terminal and direct command execution
+- **DIFF Callout Processing**:
+  - **DIFF Format Support**: Processes ````diff` callouts in LLM responses
+  - **Smart File Modification**: Applies only the changes specified in DIFF format to existing files
+  - **Context-aware Path Resolution**: Resolves file paths using project context and attached files
+  - **Preserves Existing Content**: Only modifies the specific lines mentioned in DIFF, preserving other content
+- **Enhanced Project Type Detection**:
+  - **LLM-based Detection**: Uses LLM to detect project type from user queries
+  - **Hybrid Detection System**: Combines LLM-based and file-based project type detection
+  - **Extended Framework Support**: Added support for Vue, Angular, Next.js, Nuxt.js, Svelte, Django, Flask, FastAPI, .NET, Go, Rust, PHP, Ruby, iOS, Android, Flutter, React Native
+  - **Default File Inclusion**: Automatically includes framework-specific essential files in context
+- **Processing Steps Visualization**:
+  - **Real-time Step Display**: Shows LLM processing steps with animated progress indicators
+  - **Detailed Step Information**: Displays intent analysis, keyword selection, file analysis, and response generation progress
+  - **Debug Console Integration**: Provides detailed debugging information for each processing step
+  - **Token Usage Display**: Shows input token count during response assembly
+
 #### Version 3.0.0 - Major Update (2025/10/04)
 - **Terminal-Daemon Integration**:
   - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs

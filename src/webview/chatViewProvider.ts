@@ -6,7 +6,7 @@ import { PromptType } from '../ai/types'; // LlmService 및 PromptType 임포트
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { StorageService } from '../services/storage';
-import { executeBashCommandsFromLlmResponse } from '../terminal/terminalManager';
+import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices } from '../terminal/terminalManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.chatView';
@@ -42,6 +42,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         };
         webviewView.webview.html = getHtmlContentWithUris(this.extensionUri, 'chat', webviewView.webview);
 
+        // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
+        setErrorCorrectionServices(this.llmService, webviewView.webview);
+
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
                 case 'priorityErrorPrompt': {
@@ -75,13 +78,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }
                 case 'executeBashCommands': {
                     try {
+                        // console.log('[ChatViewProvider] Received executeBashCommands message:', data);
                         const commands = Array.isArray(data.commands) ? data.commands : [];
+                        // console.log('[ChatViewProvider] Commands to execute:', commands);
                         if (commands.length > 0) {
                             // bash 명령어들을 실행
                             for (const command of commands) {
+                                // console.log('[ChatViewProvider] Executing command:', command);
                                 executeBashCommandsFromLlmResponse(`\`\`\`bash\n${command}\n\`\`\``);
                             }
                             this.notificationService.showInfoMessage(`Bash 명령어 ${commands.length}개가 실행되었습니다.`);
+                        } else {
+                            // console.log('[ChatViewProvider] No commands to execute');
                         }
                     } catch (e) {
                         console.warn('[ChatViewProvider] executeBashCommands failed:', e);

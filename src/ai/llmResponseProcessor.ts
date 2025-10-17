@@ -60,12 +60,16 @@ export class LlmResponseProcessor {
         llmResponse: string,
         contextFiles: { name: string, fullPath: string }[],
         webview: vscode.Webview,
-        promptType: PromptType // Add this parameter
+        promptType: PromptType, // Add this parameter
+        statusCallback?: (status: string) => void // Add status callback
     ): Promise<void> {
+        statusCallback?.('Analyzing response structure...');
+
         if (promptType === PromptType.GENERAL_ASK) {
             let cleanedResponse = llmResponse;
             let hasWarnings = false;
 
+            statusCallback?.('Checking for restricted operations in ASK tab...');
             if (hasBashCommands(cleanedResponse)) {
                 const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
@@ -90,18 +94,21 @@ export class LlmResponseProcessor {
         }
 
         // 긴 응답에 대한 처리 개선
-        console.log(`[LLM Response Processor] Processing response of length: ${llmResponse.length}`);
+        // console.log(`[LLM Response Processor] Processing response of length: ${llmResponse.length}`);
+        statusCallback?.(`Processing ${llmResponse.length.toLocaleString()} character response...`);
 
         // 응답이 너무 길면 청크 단위로 처리
         if (llmResponse.length > 50000) { // 50KB 이상
-            console.log('[LLM Response Processor] Response is very long, processing in chunks');
-            await this.processLongResponse(llmResponse, contextFiles, webview, promptType);
+            // console.log('[LLM Response Processor] Response is very long, processing in chunks');
+            statusCallback?.('Response too long, splitting into chunks...');
+            await this.processLongResponse(llmResponse, contextFiles, webview, promptType, statusCallback);
             return;
         }
 
         llmResponse = this.normalizeTerminalCommandBlocks(llmResponse);
 
         const fileOperations: FileOperation[] = [];
+        statusCallback?.('Parsing file operations...');
 
         // Updated regex to capture the directive (group 1), the path (group 2), and the content (group 3)
         // 수정: 파일 경로를 더 정확하게 파싱하도록 정규식 개선
@@ -120,14 +127,31 @@ export class LlmResponseProcessor {
         // 삭제 파일을 위한 별도 정규식 (코드 블록이 없음)
         const deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
 
+        // DIFF callout을 위한 정규식
+        const diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+
         let match;
         let updateSummaryMessages: string[] = [];
 
         const projectRoot = await this.getProjectRootPath();
 
         // 디버깅을 위한 로그 추가
-        console.log(`[LLM Response Processor] Response contains "새 파일:": ${llmResponse.includes("새 파일:")}`);
-        console.log(`[LLM Response Processor] Response contains ".md": ${llmResponse.includes(".md")}`);
+        // console.log(`[LLM Response Processor] Response contains "새 파일:": ${llmResponse.includes("새 파일:")}`);
+        // console.log(`[LLM Response Processor] Response contains ".md": ${llmResponse.includes(".md")}`);
+
+        // 파일 작업 검색
+        const hasFileOps = llmResponse.includes("새 파일:") || llmResponse.includes("수정 파일:") || llmResponse.includes("삭제 파일:");
+        const hasBashOps = hasBashCommands(llmResponse);
+        const hasDiffOps = llmResponse.includes("```diff");
+
+        if (hasFileOps) {
+            statusCallback?.('Found file operations, parsing...');
+            // console.log(`[LLM Response Processor] File operations detected in response`);
+        }
+        if (hasBashOps) {
+            statusCallback?.('Found bash commands, parsing...');
+            // console.log(`[LLM Response Processor] Bash commands detected in response`);
+        }
 
         // 새 파일 생성을 위한 프로젝트 루트가 없으면 경고
         if (!projectRoot && llmResponse.includes("새 파일:")) {
@@ -138,14 +162,21 @@ export class LlmResponseProcessor {
 
 
         // 코드 블록이 있는 파일 작업 처리 (생성, 수정)
+        let fileOpCount = 0;
         while ((match = codeBlockRegex.exec(llmResponse)) !== null) {
+            fileOpCount++;
             // Updated to correctly access captured groups
             const originalDirective = match[1].trim(); // "수정 파일" or "새 파일"
             let llmSpecifiedPath = match[2].trim();  // e.g., 'src/components/Button.tsx'
             const newContent = match[3];
 
-            console.log(`[LLM Response Processor] Found directive: "${originalDirective}", LLM path: "${llmSpecifiedPath}"`);
-            console.log(`[LLM Response Processor] Raw match groups:`, match.map((group, index) => `Group ${index}: "${group}"`));
+            // console.log(`[LLM Response Processor] Found directive: "${originalDirective}", LLM path: "${llmSpecifiedPath}"`);
+            // console.log(`[LLM Response Processor] Raw match groups:`, match.map((group, index) => `Group ${index}: "${group}"`));
+
+            statusCallback?.(`Processing file operation ${fileOpCount}: ${originalDirective} ${llmSpecifiedPath}`);
+
+            // Debug Console 로그를 활용한 추가 정보
+            // console.log(`[LLM Response Processor] Processing file operation ${fileOpCount}: ${originalDirective} ${llmSpecifiedPath} (content: ${newContent.length.toLocaleString()} chars)`);
 
             // 파일 경로에서 callout 잔여물 제거 및 검증
             llmSpecifiedPath = this.cleanFilePath(llmSpecifiedPath);
@@ -211,19 +242,21 @@ export class LlmResponseProcessor {
 
 
         // 마크다운 파일 작업 처리 (코드 블록 없이 마크다운 내용 직접 포함)
-        console.log(`[LLM Response Processor] Starting markdown file processing...`);
+        // console.log(`[LLM Response Processor] Starting markdown file processing...`);
 
         let markdownMatchCount = 0;
 
         // 첫 번째 정규식 시도
         while ((match = markdownFileRegex.exec(llmResponse)) !== null) {
             markdownMatchCount++;
-            console.log(`[LLM Response Processor] Found markdown directive (regex1): "${match[1]}", LLM path: "${match[2]}"`);
-            console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
+            // console.log(`[LLM Response Processor] Found markdown directive (regex1): "${match[1]}", LLM path: "${match[2]}"`);
+            // console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
 
             const originalDirective = match[1].trim(); // "수정 파일" or "새 파일"
             let llmSpecifiedPath = match[2].trim();  // e.g., 'docs/README.md'
             const newContent = match[3];
+
+            statusCallback?.(`Processing markdown file: ${originalDirective} ${llmSpecifiedPath}`);
 
             // 파일 경로에서 callout 잔여물 제거 및 검증
             llmSpecifiedPath = this.cleanFilePath(llmSpecifiedPath);
@@ -286,11 +319,11 @@ export class LlmResponseProcessor {
 
         // 첫 번째 정규식이 실패한 경우 두 번째 정규식 시도
         if (markdownMatchCount === 0) {
-            console.log(`[LLM Response Processor] First regex failed, trying simple regex...`);
+            // console.log(`[LLM Response Processor] First regex failed, trying simple regex...`);
             while ((match = simpleMarkdownRegex.exec(llmResponse)) !== null) {
                 markdownMatchCount++;
-                console.log(`[LLM Response Processor] Found markdown directive (regex2): "${match[1]}", LLM path: "${match[2]}"`);
-                console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
+                // console.log(`[LLM Response Processor] Found markdown directive (regex2): "${match[1]}", LLM path: "${match[2]}"`);
+                // console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
 
                 const originalDirective = match[1].trim(); // "수정 파일" or "새 파일"
                 let llmSpecifiedPath = match[2].trim();  // e.g., 'docs/README.md'
@@ -349,7 +382,7 @@ export class LlmResponseProcessor {
 
         // 두 번째 정규식도 실패한 경우 세 번째 정규식 시도
         if (markdownMatchCount === 0) {
-            console.log(`[LLM Response Processor] Second regex failed, trying fallback regex...`);
+            // console.log(`[LLM Response Processor] Second regex failed, trying fallback regex...`);
             while ((match = fallbackMarkdownRegex.exec(llmResponse)) !== null) {
                 markdownMatchCount++;
                 console.log(`[LLM Response Processor] Found markdown directive (regex3): "${match[1]}", LLM path: "${match[2]}"`);
@@ -410,13 +443,15 @@ export class LlmResponseProcessor {
             }
         }
 
-        console.log(`[LLM Response Processor] Found ${markdownMatchCount} markdown file operations`);
+        // console.log(`[LLM Response Processor] Found ${markdownMatchCount} markdown file operations`);
 
 
         // 삭제 파일 작업 처리
         while ((match = deleteFileRegex.exec(llmResponse)) !== null) {
             const llmSpecifiedPath = match[1].trim();  // e.g., 'src/old/obsolete.ts'
             // console.log(`[LLM Response Processor] Found delete directive for: "${llmSpecifiedPath}"`);
+
+            statusCallback?.(`Processing delete file: ${llmSpecifiedPath}`);
 
             let absolutePath: string | undefined;
 
@@ -443,6 +478,12 @@ export class LlmResponseProcessor {
             }
         }
 
+        // DIFF callout 처리
+        if (hasDiffOps) {
+            statusCallback?.('Found DIFF callouts, processing...');
+            await this.processDiffCallouts(llmResponse, contextFiles, projectRoot, fileOperations, updateSummaryMessages, statusCallback);
+        }
+
         // 작업 요약 추출 및 표시
         const workSummary = this.extractWorkSummary(llmResponse);
         const workDescription = this.extractWorkDescription(llmResponse);
@@ -463,15 +504,18 @@ export class LlmResponseProcessor {
 
 
         // 파일 작업이 있는 경우에만 추가 처리
-        console.log(`[LLM Response Processor] Found ${fileOperations.length} file operations:`, fileOperations.map(op => `${op.type}: ${op.llmSpecifiedPath}`));
+        // console.log(`[LLM Response Processor] Found ${fileOperations.length} file operations:`, fileOperations.map(op => `${op.type}: ${op.llmSpecifiedPath}`));
         if (fileOperations.length > 0) {
+            statusCallback?.(`Found ${fileOperations.length} file operations, executing...`);
             // thinking 애니메이션을 먼저 제거
             safePostMessage(webview, { command: 'hideLoading' });
 
             const autoUpdateEnabled = await this.configurationService.isAutoUpdateEnabled();
 
             if (!autoUpdateEnabled) {
-                for (const operation of fileOperations) {
+                for (let i = 0; i < fileOperations.length; i++) {
+                    const operation = fileOperations[i];
+                    statusCallback?.(`Executing file operation ${i + 1}/${fileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
                     // Remote SSH 환경을 위한 경로 처리 개선
                     let fileUri: vscode.Uri;
                     let fileNameForDisplay = operation.llmSpecifiedPath;
@@ -829,9 +873,11 @@ export class LlmResponseProcessor {
 
             // Bash 명령어 실행 처리
             if (hasBashCommands(llmResponse)) {
+                statusCallback?.('Parsing bash commands...');
                 try {
                     const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
                     if (executedCommands.length > 0) {
+                        statusCallback?.(`Found ${executedCommands.length} bash commands`);
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
                         safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
@@ -997,7 +1043,7 @@ ${match.trim()}
             cleanedPath = cleanedPath.replace(/^\/+|\/+$/g, '');
         }
 
-        console.log(`[LLM Response Processor] Cleaned file path: "${filePath}" -> "${cleanedPath}"`);
+        // console.log(`[LLM Response Processor] Cleaned file path: "${filePath}" -> "${cleanedPath}"`);
         return cleanedPath;
     }
 
@@ -1118,7 +1164,8 @@ ${match.trim()}
         llmResponse: string,
         contextFiles: { name: string, fullPath: string }[],
         webview: vscode.Webview,
-        promptType: PromptType
+        promptType: PromptType,
+        statusCallback?: (status: string) => void
     ): Promise<void> {
         try {
             // 응답을 파일 작업 단위로 분할
@@ -1132,7 +1179,7 @@ ${match.trim()}
                 console.log(`[LLM Response Processor] Processing section ${i + 1}/${fileSections.length}`);
 
                 // 각 섹션을 개별적으로 처리
-                await this.processResponseSection(section, contextFiles, webview, promptType);
+                await this.processResponseSection(section, contextFiles, webview, promptType, statusCallback);
 
                 // 메모리 정리를 위한 짧은 대기
                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -1205,21 +1252,22 @@ ${match.trim()}
         section: string,
         contextFiles: { name: string, fullPath: string }[],
         webview: vscode.Webview,
-        promptType: PromptType
+        promptType: PromptType,
+        statusCallback?: (status: string) => void
     ): Promise<void> {
         try {
             // 섹션이 너무 길면 더 작은 단위로 분할
             if (section.length > 20000) {
                 const subSections = this.splitSectionBySize(section, 15000);
                 for (const subSection of subSections) {
-                    await this.processResponseSection(subSection, contextFiles, webview, promptType);
+                    await this.processResponseSection(subSection, contextFiles, webview, promptType, statusCallback);
                 }
                 return;
             }
 
             // 정규화 및 처리
             const normalizedSection = this.normalizeTerminalCommandBlocks(section);
-            await this.processNormalizedResponse(normalizedSection, contextFiles, webview, promptType);
+            await this.processNormalizedResponse(normalizedSection, contextFiles, webview, promptType, statusCallback);
 
         } catch (error) {
             console.error('[LLM Response Processor] Error processing section:', error);
@@ -1274,14 +1322,16 @@ ${match.trim()}
         normalizedResponse: string,
         contextFiles: { name: string, fullPath: string }[],
         webview: vscode.Webview,
-        promptType: PromptType
+        promptType: PromptType,
+        statusCallback?: (status: string) => void
     ): Promise<void> {
         // 기존 처리 로직을 여기서 재사용
         // 파일 작업 파싱 및 실행
         const fileOperations = this.parseFileOperations(normalizedResponse);
 
         if (fileOperations.length > 0) {
-            await this.executeFileOperations(fileOperations, webview);
+            statusCallback?.(`Executing ${fileOperations.length} file operations...`);
+            await this.executeFileOperations(fileOperations, webview, statusCallback);
         }
 
         // 터미널 명령어 처리
@@ -1300,8 +1350,8 @@ ${match.trim()}
      * @param response 응답
      * @returns 파일 작업 목록
      */
-    private parseFileOperations(response: string): ParsedFileOperation[] {
-        const fileOperations: ParsedFileOperation[] = [];
+    private parseFileOperations(response: string): FileOperation[] {
+        const fileOperations: FileOperation[] = [];
 
         // 개선된 정규식들
         const codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
@@ -1327,9 +1377,11 @@ ${match.trim()}
             }
 
             fileOperations.push({
-                type: operation === '새 파일' ? 'create' : 'update',
-                path: filePath,
-                content: content
+                type: operation === '새 파일' ? 'create' : 'modify',
+                originalDirective: operation,
+                llmSpecifiedPath: filePath,
+                absolutePath: filePath, // 임시로 동일하게 설정
+                newContent: content
             });
         }
 
@@ -1350,9 +1402,11 @@ ${match.trim()}
             }
 
             fileOperations.push({
-                type: operation === '새 파일' ? 'create' : 'update',
-                path: filePath,
-                content: content
+                type: operation === '새 파일' ? 'create' : 'modify',
+                originalDirective: operation,
+                llmSpecifiedPath: filePath,
+                absolutePath: filePath, // 임시로 동일하게 설정
+                newContent: content
             });
         }
 
@@ -1372,8 +1426,9 @@ ${match.trim()}
 
             fileOperations.push({
                 type: 'delete',
-                path: filePath,
-                content: ''
+                originalDirective: '삭제 파일',
+                llmSpecifiedPath: filePath,
+                absolutePath: filePath // 임시로 동일하게 설정
             });
         }
 
@@ -1385,19 +1440,21 @@ ${match.trim()}
      * @param fileOperations 파일 작업 목록
      * @param webview 웹뷰
      */
-    private async executeFileOperations(fileOperations: ParsedFileOperation[], webview: vscode.Webview): Promise<void> {
+    private async executeFileOperations(fileOperations: FileOperation[], webview: vscode.Webview, statusCallback?: (status: string) => void): Promise<void> {
         const projectRoot = await this.getProjectRootPath();
 
-        for (const operation of fileOperations) {
+        for (let i = 0; i < fileOperations.length; i++) {
+            const operation = fileOperations[i];
+            statusCallback?.(`Executing file operation ${i + 1}/${fileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
             try {
-                if (operation.type === 'create' || operation.type === 'update') {
-                    await this.createOrUpdateFile(operation.path, operation.content, projectRoot, webview);
+                if (operation.type === 'create' || operation.type === 'modify') {
+                    await this.createOrUpdateFile(operation.absolutePath, operation.newContent || '', projectRoot, webview);
                 } else if (operation.type === 'delete') {
-                    await this.deleteFile(operation.path, projectRoot, webview);
+                    await this.deleteFile(operation.absolutePath, projectRoot, webview);
                 }
             } catch (error) {
                 console.error(`[LLM Response Processor] Error executing file operation:`, error);
-                this.notificationService.showErrorMessage(`파일 작업 실행 중 오류: ${operation.path}`);
+                this.notificationService.showErrorMessage(`파일 작업 실행 중 오류: ${operation.llmSpecifiedPath}`);
             }
         }
     }
@@ -1497,10 +1554,218 @@ ${match.trim()}
             this.notificationService.showErrorMessage('응답 처리에 실패했습니다.');
         }
     }
-}
 
-interface ParsedFileOperation {
-    type: 'create' | 'update' | 'delete';
-    path: string;
-    content: string;
+    /**
+     * DIFF callout을 처리하여 기존 파일에 변경사항을 적용합니다.
+     */
+    private async processDiffCallouts(
+        llmResponse: string,
+        contextFiles: any[],
+        projectRoot: string | undefined,
+        fileOperations: FileOperation[],
+        updateSummaryMessages: string[],
+        statusCallback?: (status: string) => void
+    ): Promise<void> {
+        const diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        let match;
+        let diffCount = 0;
+
+        while ((match = diffCalloutRegex.exec(llmResponse)) !== null) {
+            diffCount++;
+            const diffContent = match[1];
+            statusCallback?.(`Processing DIFF callout ${diffCount}...`);
+
+            try {
+                // DIFF 내용에서 파일 경로와 변경사항 추출
+                const diffResult = this.parseDiffContent(diffContent);
+                if (!diffResult) {
+                    console.warn(`[LLM Response Processor] Failed to parse DIFF callout ${diffCount}`);
+                    continue;
+                }
+
+                const { filePath, changes } = diffResult;
+
+                // 파일 경로를 절대 경로로 변환
+                let absolutePath: string | undefined;
+
+                if (contextFiles.length > 0) {
+                    // 컨텍스트 파일에서 매칭되는 파일 찾기
+                    const matchedFile = contextFiles.find((f: { name: string, fullPath: string }) => {
+                        const fileName = filePath.split(/[/\\]/).pop() || filePath;
+                        return f.name === fileName || f.name === filePath || f.fullPath.endsWith(filePath);
+                    });
+
+                    if (matchedFile) {
+                        absolutePath = matchedFile.fullPath;
+                    }
+                }
+
+                if (!absolutePath && projectRoot) {
+                    absolutePath = path.join(projectRoot, filePath);
+                }
+
+                if (!absolutePath) {
+                    const warnMsg = `경고: DIFF callout에서 파일 '${filePath}'의 경로를 찾을 수 없습니다.`;
+                    console.warn(`[LLM Response Processor] ${warnMsg}`);
+                    updateSummaryMessages.push(`⚠️ ${warnMsg}`);
+                    continue;
+                }
+
+                // 기존 파일 내용 읽기
+                const existingContent = await this.readFileContent(absolutePath);
+                if (existingContent === null) {
+                    const warnMsg = `경고: DIFF 적용 대상 파일 '${filePath}'을 읽을 수 없습니다.`;
+                    console.warn(`[LLM Response Processor] ${warnMsg}`);
+                    updateSummaryMessages.push(`⚠️ ${warnMsg}`);
+                    continue;
+                }
+
+                // DIFF 변경사항을 기존 파일에 적용
+                const newContent = this.applyDiffChanges(existingContent, changes);
+                if (newContent === null) {
+                    const warnMsg = `경고: DIFF 변경사항을 파일 '${filePath}'에 적용할 수 없습니다.`;
+                    console.warn(`[LLM Response Processor] ${warnMsg}`);
+                    updateSummaryMessages.push(`⚠️ ${warnMsg}`);
+                    continue;
+                }
+
+                // 파일 작업에 추가
+                fileOperations.push({
+                    type: 'modify',
+                    originalDirective: 'DIFF 수정',
+                    llmSpecifiedPath: filePath,
+                    absolutePath,
+                    newContent
+                });
+
+                updateSummaryMessages.push(`✅ DIFF 적용: ${filePath}`);
+
+            } catch (error) {
+                console.error(`[LLM Response Processor] Error processing DIFF callout ${diffCount}:`, error);
+                updateSummaryMessages.push(`❌ DIFF 처리 실패 (callout ${diffCount}): ${error}`);
+            }
+        }
+
+        if (diffCount > 0) {
+            console.log(`[LLM Response Processor] Processed ${diffCount} DIFF callouts`);
+        }
+    }
+
+    /**
+     * DIFF 내용을 파싱하여 파일 경로와 변경사항을 추출합니다.
+     */
+    private parseDiffContent(diffContent: string): { filePath: string, changes: any[] } | null {
+        try {
+            const lines = diffContent.split('\n');
+            let filePath = '';
+            const changes: any[] = [];
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+
+                // 파일 경로 추출 (--- 또는 +++ 라인에서)
+                if (trimmedLine.startsWith('---') || trimmedLine.startsWith('+++')) {
+                    const pathMatch = trimmedLine.match(/^(---|\+\+\+)\s+(.+)$/);
+                    if (pathMatch && pathMatch[2] && pathMatch[2] !== '/dev/null') {
+                        filePath = pathMatch[2].replace(/^a\//, '').replace(/^b\//, '');
+                    }
+                }
+
+                // 변경사항 추출
+                if (trimmedLine.startsWith('@@')) {
+                    // 헝크 헤더
+                    changes.push({ type: 'hunk', content: line });
+                } else if (trimmedLine.startsWith('+') && !trimmedLine.startsWith('+++')) {
+                    // 추가된 라인
+                    changes.push({ type: 'add', content: line.substring(1) });
+                } else if (trimmedLine.startsWith('-') && !trimmedLine.startsWith('---')) {
+                    // 삭제된 라인
+                    changes.push({ type: 'remove', content: line.substring(1) });
+                } else if (trimmedLine.startsWith(' ')) {
+                    // 컨텍스트 라인
+                    changes.push({ type: 'context', content: line.substring(1) });
+                }
+            }
+
+            if (!filePath) {
+                return null;
+            }
+
+            return { filePath, changes };
+        } catch (error) {
+            console.error('[LLM Response Processor] Error parsing DIFF content:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 파일 내용을 읽습니다.
+     */
+    private async readFileContent(filePath: string): Promise<string | null> {
+        try {
+            const uri = vscode.Uri.file(filePath);
+            const content = await vscode.workspace.fs.readFile(uri);
+            return Buffer.from(content).toString('utf-8');
+        } catch (error) {
+            console.error(`[LLM Response Processor] Error reading file ${filePath}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * DIFF 변경사항을 기존 파일 내용에 적용합니다.
+     */
+    private applyDiffChanges(existingContent: string, changes: any[]): string | null {
+        try {
+            const lines = existingContent.split('\n');
+            let result: string[] = [];
+            let lineIndex = 0;
+
+            for (const change of changes) {
+                if (change.type === 'hunk') {
+                    // 헝크 헤더에서 라인 번호 정보 추출
+                    const hunkMatch = change.content.match(/@@\s*-(\d+)(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@/);
+                    if (hunkMatch) {
+                        const oldStart = parseInt(hunkMatch[1]) - 1; // 0-based index
+                        const newStart = parseInt(hunkMatch[2]) - 1; // 0-based index
+
+                        // 이전 컨텍스트 라인들을 결과에 추가
+                        while (lineIndex < oldStart && lineIndex < lines.length) {
+                            result.push(lines[lineIndex]);
+                            lineIndex++;
+                        }
+                    }
+                } else if (change.type === 'context') {
+                    // 컨텍스트 라인 - 기존 파일에서 해당 라인을 찾아서 추가
+                    if (lineIndex < lines.length && lines[lineIndex] === change.content) {
+                        result.push(lines[lineIndex]);
+                        lineIndex++;
+                    } else {
+                        // 컨텍스트 라인을 찾을 수 없음 - 단순히 추가
+                        result.push(change.content);
+                    }
+                } else if (change.type === 'remove') {
+                    // 삭제된 라인 - 기존 파일에서 해당 라인을 건너뛰기
+                    if (lineIndex < lines.length && lines[lineIndex] === change.content) {
+                        lineIndex++;
+                    }
+                    // 삭제된 라인이 기존 파일에 없어도 계속 진행
+                } else if (change.type === 'add') {
+                    // 추가된 라인 - 결과에 추가
+                    result.push(change.content);
+                }
+            }
+
+            // 남은 기존 라인들을 결과에 추가
+            while (lineIndex < lines.length) {
+                result.push(lines[lineIndex]);
+                lineIndex++;
+            }
+
+            return result.join('\n');
+        } catch (error) {
+            console.error('[LLM Response Processor] Error applying DIFF changes:', error);
+            return null;
+        }
+    }
 }

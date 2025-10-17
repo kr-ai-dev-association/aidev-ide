@@ -36,7 +36,12 @@ body {
 }
 
 /* Typography */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
     color: var(--vscode-textLink-foreground);
     margin: 0 0 10px 0;
 }
@@ -91,7 +96,9 @@ button:disabled {
 }
 
 /* Input fields */
-input[type="text"], input[type="password"], textarea {
+input[type="text"],
+input[type="password"],
+textarea {
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
     background-color: var(--vscode-input-background);
@@ -104,7 +111,9 @@ input[type="text"], input[type="password"], textarea {
     box-sizing: border-box;
 }
 
-input[type="text"]:focus, input[type="password"]:focus, textarea:focus {
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus {
     border-color: var(--vscode-focusBorder);
 }
 
@@ -148,7 +157,9 @@ input[type="text"]:focus, input[type="password"]:focus, textarea:focus {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Code blocks */
@@ -248,4 +259,58 @@ pre code {
 
 .p-20 {
     padding: 20px;
-} 
+}
+
+/* 오류 수정 메시지 스타일 */
+.error-correction-message {
+    background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin: 10px 0;
+    padding: 15px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.error-correction-header {
+    font-weight: bold;
+    color: #fbb6ce;
+    margin-bottom: 10px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.error-correction-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.original-command,
+.corrected-command {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.original-command strong {
+    color: #fc8181;
+    font-size: 12px;
+}
+
+.corrected-command strong {
+    color: #68d391;
+    font-size: 12px;
+}
+
+.original-command code,
+.corrected-command code {
+    background: #1a202c;
+    color: #e2e8f0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    border: 1px solid #2d3748;
+}

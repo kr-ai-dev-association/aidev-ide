@@ -10,9 +10,12 @@ const execAsync = promisify(exec);
 export class TerminalDaemonService {
     private static instance: TerminalDaemonService;
     private extensionContext: vscode.ExtensionContext;
-    private processRef: ChildProcessWithoutNullStreams | null = null;
+    private processRef: any = null;
     private socketPath: string = path.join(os.tmpdir(), 'terminal-daemon.sock');
     private outputChannel: vscode.OutputChannel;
+    private healthCheckInterval: NodeJS.Timeout | null = null;
+    private startTimeout: NodeJS.Timeout | null = null;
+    private isStarting: boolean = false;
 
     private constructor(context: vscode.ExtensionContext) {
         this.extensionContext = context;
@@ -56,53 +59,76 @@ export class TerminalDaemonService {
     }
 
     public async start(): Promise<{ success: boolean; message: string }> {
+        // 터미널 데몬을 사용하지 않고 VS Code 터미널 API를 직접 사용
+        return { success: true, message: 'VS Code 터미널 API를 직접 사용합니다 (터미널 데몬 비활성화됨)' };
+    }
+
+
+    private cleanup(): void {
+        this.isStarting = false;
+
+        if (this.startTimeout) {
+            clearTimeout(this.startTimeout);
+            this.startTimeout = null;
+        }
+
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+            this.healthCheckInterval = null;
+        }
+
         if (this.processRef) {
-            return { success: false, message: 'terminal-daemon 이미 실행 중' };
-        }
-        const p = this.getDaemonPath();
-        if (!fs.existsSync(p)) {
-            return { success: false, message: `바이너리를 찾을 수 없음: ${p}` };
-        }
-        // 기존 소켓 제거
-        try { fs.unlinkSync(this.socketPath); } catch { }
-        this.outputChannel.appendLine(`[INFO] Starting terminal-daemon: ${p} --socket ${this.socketPath}`);
-        const child = spawn(p, ['--socket', this.socketPath], { cwd: os.tmpdir() });
-        this.processRef = child;
-
-        child.stdout.on('data', (data: Buffer) => {
-            const text = data.toString();
-            this.outputChannel.appendLine(`[STDOUT] ${text.trimEnd()}`);
-            console.log('[TerminalDaemonService] daemon stdout:', text);
-        });
-
-        child.stderr.on('data', (data: Buffer) => {
-            const text = data.toString();
-            this.outputChannel.appendLine(`[STDERR] ${text.trimEnd()}`);
-            console.error('[TerminalDaemonService] daemon stderr:', text);
-            this.outputChannel.show(true);
-        });
-
-        child.on('close', (code: number) => {
-            this.outputChannel.appendLine(`[INFO] terminal-daemon exited with code ${code}`);
+            try {
+                this.processRef.kill('SIGTERM');
+            } catch (error) {
+                console.warn('[TerminalDaemonService] Failed to kill process:', error);
+            }
             this.processRef = null;
-        });
+        }
 
-        child.on('error', (err: Error) => {
-            this.outputChannel.appendLine(`[ERROR] Failed to start terminal-daemon: ${err.message}`);
-            console.error('[TerminalDaemonService] daemon error:', err);
-            this.outputChannel.show(true);
-        });
+        // 소켓 파일 정리
+        try {
+            if (fs.existsSync(this.socketPath)) {
+                fs.unlinkSync(this.socketPath);
+            }
+        } catch (error) {
+            console.warn('[TerminalDaemonService] Failed to remove socket:', error);
+        }
+    }
 
-        return { success: true, message: 'terminal-daemon 시작됨' };
+    private startHealthCheck(): void {
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+        }
+
+        this.healthCheckInterval = setInterval(() => {
+            if (!this.processRef || this.processRef.killed) {
+                this.outputChannel.appendLine(`[WARN] terminal-daemon process not running, attempting restart`);
+                console.warn('[TerminalDaemonService] Process not running, attempting restart');
+                this.cleanup();
+                this.start().catch(error => {
+                    console.error('[TerminalDaemonService] Auto-restart failed:', error);
+                });
+                return;
+            }
+
+            // 소켓 파일 존재 확인
+            if (!fs.existsSync(this.socketPath)) {
+                this.outputChannel.appendLine(`[WARN] terminal-daemon socket missing, attempting restart`);
+                console.warn('[TerminalDaemonService] Socket missing, attempting restart');
+                this.cleanup();
+                this.start().catch(error => {
+                    console.error('[TerminalDaemonService] Auto-restart failed:', error);
+                });
+            }
+        }, 30000); // 30초마다 체크
     }
 
     public async stop(): Promise<{ success: boolean; message: string }> {
-        if (!this.processRef) {
+        if (!this.processRef && !this.isStarting) {
             return { success: false, message: 'terminal-daemon 실행 중이 아님' };
         }
-        this.processRef.kill();
-        this.processRef = null;
-        try { fs.unlinkSync(this.socketPath); } catch { }
+        this.cleanup();
         this.outputChannel.appendLine('[INFO] terminal-daemon stopped');
         return { success: true, message: 'terminal-daemon 중지됨' };
     }

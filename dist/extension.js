@@ -49,15 +49,16 @@ const configurationService_1 = __webpack_require__(7);
 const notificationService_1 = __webpack_require__(8);
 const codebaseContextService_1 = __webpack_require__(9);
 const llmResponseProcessor_1 = __webpack_require__(38);
-const llmService_1 = __webpack_require__(48);
-const ollamaService_1 = __webpack_require__(56);
-const chatViewProvider_1 = __webpack_require__(60);
-const askViewProvider_1 = __webpack_require__(61); // 새로 추가된 AskViewProvider 임포트
+const llmService_1 = __webpack_require__(45);
+const ollamaService_1 = __webpack_require__(54);
+const chatViewProvider_1 = __webpack_require__(58);
+const askViewProvider_1 = __webpack_require__(59); // 새로 추가된 AskViewProvider 임포트
 const terminalManager_1 = __webpack_require__(41);
-const panelManager_1 = __webpack_require__(62);
-const licenseService_1 = __webpack_require__(65);
+const panelManager_1 = __webpack_require__(60);
+const licenseService_1 = __webpack_require__(64);
 const ollamaBlockerService_1 = __webpack_require__(195);
-const terminalDaemonService_1 = __webpack_require__(63);
+const terminalDaemonService_1 = __webpack_require__(61);
+const terminalMonitorService_1 = __webpack_require__(50);
 // 전역 변수
 let storageService;
 let geminiApi;
@@ -135,34 +136,16 @@ async function activate(context) {
         console.error('ollama-blocker 자동 시작 중 오류:', error);
     }
     // terminal-daemon 자동 시작 (설정이 활성화된 경우)
+    // 현재 VS Code 터미널 API를 직접 사용하므로 터미널 데몬은 비활성화됨
     try {
         const enabled = await configurationService.isTerminalDaemonEnabled();
         if (enabled) {
-            try {
-                const installed = await terminalDaemonService.isInstalled();
-                if (!installed) {
-                    await terminalDaemonService.install();
-                }
-                const status = await terminalDaemonService.getStatus();
-                if (!status.running) {
-                    const res = await terminalDaemonService.start();
-                    // console.log('terminal-daemon start:', res.message);
-                    terminalDaemonService.showLogs();
-                }
-                else {
-                    console.log('terminal-daemon already running.');
-                }
-            }
-            catch (err) {
-                console.error('terminal-daemon start error:', err);
-            }
-        }
-        else {
-            console.log('terminal-daemon disabled by settings');
+            // 터미널 데몬 관련 로직은 현재 비활성화됨 (VS Code 터미널 API 직접 사용)
+            // console.log('[Extension] Terminal-daemon disabled - using VS Code terminal API directly');
         }
     }
     catch (error) {
-        console.error('terminal-daemon 자동 시작 중 오류:', error);
+        console.error('terminal-daemon 설정 확인 중 오류:', error);
     }
     const initialApiKey = await storageService.getApiKey();
     if (!initialApiKey || initialApiKey.trim() === '') {
@@ -205,6 +188,13 @@ async function activate(context) {
     if (currentAiModel) {
         llmService.setCurrentModel(currentAiModel);
     }
+    // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
+    // 터미널 모니터링 서비스 초기화 및 LLM 서비스 설정
+    const terminalMonitorService = new terminalMonitorService_1.TerminalMonitorService(notificationService);
+    terminalMonitorService.setLlmService(llmService);
+    terminalMonitorService.startMonitoring();
+    // 터미널 매니저에 모니터링 서비스 설정
+    (0, terminalManager_1.setTerminalMonitorService)(terminalMonitorService);
     // ChatViewProvider 인스턴스 생성 및 등록 (CODE 탭)
     const chatViewProvider = new chatViewProvider_1.ChatViewProvider(context.extensionUri, context, llmService, (viewColumn) => (0, panelManager_1.openSettingsPanel)(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService), (viewColumn) => (0, panelManager_1.openLicensePanel)(context.extensionUri, context, viewColumn, storageService, geminiApi, notificationService, configurationService), configurationService, notificationService, storageService);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(chatViewProvider_1.ChatViewProvider.viewType, chatViewProvider, {
@@ -2363,18 +2353,18 @@ class ConfigurationService {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         // If path is undefined, save an empty string to clear the setting.
         // VS Code stores empty strings, not `undefined` for string settings.
-        const valueToSave = path || '';
+        const valueToSave = path ? path.replace(/\/$/, '') : ''; // 끝의 슬래시 제거
         console.log(`[ConfigurationService] 프로젝트 Root 설정 시도: "${valueToSave}"`);
         await config.update(this.PROJECT_ROOT_KEY, valueToSave, vscode.ConfigurationTarget.Global);
         // VSCode 설정 저장이 비동기적으로 처리되므로 잠시 대기
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
         // 설정이 제대로 저장되었는지 확인 (여러 번 시도)
         let savedValue = config.get(this.PROJECT_ROOT_KEY);
         console.log(`[ConfigurationService] 저장된 프로젝트 Root 값 (첫 번째 확인): "${savedValue}"`);
-        // 첫 번째 확인에서 실패하면 추가로 2번 더 시도
+        // 첫 번째 확인에서 실패하면 추가로 3번 더 시도
         if (savedValue !== valueToSave) {
-            for (let i = 0; i < 2; i++) {
-                await new Promise(resolve => setTimeout(resolve, 200));
+            for (let i = 0; i < 3; i++) {
+                await new Promise(resolve => setTimeout(resolve, 300));
                 savedValue = config.get(this.PROJECT_ROOT_KEY);
                 console.log(`[ConfigurationService] 저장된 프로젝트 Root 값 (${i + 2}번째 확인): "${savedValue}"`);
                 if (savedValue === valueToSave) {
@@ -2382,10 +2372,17 @@ class ConfigurationService {
                 }
             }
         }
-        if (savedValue !== valueToSave) {
-            throw new Error(`프로젝트 Root 설정 저장 실패: 예상값 "${valueToSave}", 실제값 "${savedValue}"`);
+        // 경로 정규화 후 비교 (슬래시 정규화)
+        const normalizedSaved = savedValue ? savedValue.replace(/\/$/, '') : '';
+        const normalizedExpected = valueToSave ? valueToSave.replace(/\/$/, '') : '';
+        if (normalizedSaved !== normalizedExpected) {
+            console.warn(`[ConfigurationService] 프로젝트 Root 설정 불일치: 예상값 "${normalizedExpected}", 실제값 "${normalizedSaved}"`);
+            // 오류를 던지지 않고 경고만 출력하고 계속 진행
+            console.log(`[ConfigurationService] 프로젝트 Root 설정을 계속 진행합니다: "${savedValue || 'undefined'}"`);
         }
-        console.log(`[ConfigurationService] 프로젝트 Root 설정 성공: "${savedValue}"`);
+        else {
+            console.log(`[ConfigurationService] 프로젝트 Root 설정 성공: "${savedValue}"`);
+        }
     }
     // 외부 API 키 관리 메서드들
     async getWeatherApiKey() {
@@ -2562,6 +2559,7 @@ const fileUtils_1 = __webpack_require__(37);
 class CodebaseContextService {
     configurationService;
     notificationService;
+    llmKeywordSelectionService = null;
     MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
     EXCLUDED_EXTENSIONS = [
         '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico', // Images
@@ -2646,6 +2644,12 @@ class CodebaseContextService {
     constructor(configurationService, notificationService) {
         this.configurationService = configurationService;
         this.notificationService = notificationService;
+    }
+    /**
+     * LLM 키워드 선택 서비스를 설정합니다.
+     */
+    setLlmKeywordSelectionService(llmKeywordSelectionService) {
+        this.llmKeywordSelectionService = llmKeywordSelectionService;
     }
     /**
      * 파일 경로가 라이브러리 디렉토리에 속하는지 확인합니다.
@@ -2757,9 +2761,284 @@ class CodebaseContextService {
                         includedPathSet.add(buildFile);
                         currentTotalContentLength += content.length;
                         // console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
+                        // Spring Boot 프로젝트의 기본 파일들 포함
+                        const springFiles = [
+                            'src/main/java/**/Application.java',
+                            'src/main/java/**/Application.kt',
+                            'src/main/resources/application.properties',
+                            'src/main/resources/application.yml',
+                            'src/main/resources/application.yaml',
+                            'src/main/resources/static/index.html',
+                            'src/main/resources/templates/index.html',
+                            'src/test/java/**/ApplicationTests.java',
+                            'src/test/java/**/ApplicationTests.kt'
+                        ];
+                        // Spring Boot 메인 애플리케이션 클래스 찾기
+                        try {
+                            const javaFiles = glob_1.glob.sync(path.join(projectRoot, 'src/main/java/**/*Application.java'), { nodir: true });
+                            const kotlinFiles = glob_1.glob.sync(path.join(projectRoot, 'src/main/java/**/*Application.kt'), { nodir: true });
+                            const mainFiles = [...javaFiles, ...kotlinFiles].slice(0, 3); // 최대 3개
+                            for (const mainFile of mainFiles) {
+                                const relativePath = path.relative(projectRoot, mainFile);
+                                const fileUri = vscode.Uri.file(mainFile);
+                                const fileStats = await vscode.workspace.fs.stat(fileUri);
+                                if (fileStats.type === vscode.FileType.File && !includedPathSet.has(mainFile)) {
+                                    const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+                                    const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+                                    const fileType = (0, fileUtils_1.getFileType)(mainFile);
+                                    fileContentsContext += `\n--- 파일: ${relativePath} (${fileType}) ---\n${fileContent}\n`;
+                                    includedFilesForContext.push({ name: relativePath, fullPath: mainFile });
+                                    includedPathSet.add(mainFile);
+                                    currentTotalContentLength += fileContent.length;
+                                }
+                            }
+                        }
+                        catch (e) {
+                            console.warn('[CodebaseContextService] Spring Boot 메인 클래스 검색 실패:', e);
+                        }
+                        // 설정 파일들 포함
+                        const configFiles = [
+                            'src/main/resources/application.properties',
+                            'src/main/resources/application.yml',
+                            'src/main/resources/application.yaml'
+                        ];
+                        for (const configFile of configFiles) {
+                            const filePath = path.join(projectRoot, configFile);
+                            try {
+                                const fileUri = vscode.Uri.file(filePath);
+                                const fileStats = await vscode.workspace.fs.stat(fileUri);
+                                if (fileStats.type === vscode.FileType.File && !includedPathSet.has(filePath)) {
+                                    const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+                                    const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+                                    const relativeName = this.getPathRelativeToWorkspace(filePath) || configFile;
+                                    const fileType = (0, fileUtils_1.getFileType)(filePath);
+                                    fileContentsContext += `\n--- 파일: ${relativeName} (${fileType}) ---\n${fileContent}\n`;
+                                    includedFilesForContext.push({ name: configFile, fullPath: filePath });
+                                    includedPathSet.add(filePath);
+                                    currentTotalContentLength += fileContent.length;
+                                }
+                            }
+                            catch {
+                                // 파일이 존재하지 않음
+                            }
+                        }
+                        console.log(`[CodebaseContextService] Spring Boot 프로젝트 기본 파일들 포함 완료`);
                     }
                 }
-                else if (isNode) {
+                else {
+                    // Python 프로젝트들 확인
+                    const projectType = await this.detectProjectType([projectRoot]);
+                    console.log(`[CodebaseContextService] 감지된 프로젝트 타입: ${projectType}`);
+                    if (projectType === 'django') {
+                        const djangoFiles = [
+                            'manage.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'settings.py',
+                            'urls.py',
+                            'wsgi.py',
+                            'asgi.py',
+                            'apps.py',
+                            'models.py',
+                            'views.py',
+                            'forms.py',
+                            'admin.py',
+                            'tests.py'
+                        ];
+                        await this.includeProjectFiles(djangoFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Django 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'flask') {
+                        const flaskFiles = [
+                            'app.py',
+                            'flask_app.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'config.py',
+                            'models.py',
+                            'views.py',
+                            'forms.py',
+                            'templates/index.html',
+                            'static/css/style.css',
+                            'static/js/main.js'
+                        ];
+                        await this.includeProjectFiles(flaskFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Flask 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'fastapi') {
+                        const fastapiFiles = [
+                            'main.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'app.py',
+                            'models.py',
+                            'schemas.py',
+                            'database.py',
+                            'config.py',
+                            'routers/__init__.py',
+                            'routers/api.py'
+                        ];
+                        await this.includeProjectFiles(fastapiFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] FastAPI 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'python') {
+                        const pythonFiles = [
+                            'main.py',
+                            'app.py',
+                            'requirements.txt',
+                            'pyproject.toml',
+                            'setup.py',
+                            'config.py',
+                            'models.py',
+                            'utils.py'
+                        ];
+                        await this.includeProjectFiles(pythonFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Python 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'dotnet') {
+                        const dotnetFiles = [
+                            'Program.cs',
+                            'Startup.cs',
+                            'appsettings.json',
+                            'appsettings.Development.json',
+                            'Controllers/HomeController.cs',
+                            'Models/HomeViewModel.cs',
+                            'Views/Home/Index.cshtml',
+                            'wwwroot/css/site.css',
+                            'wwwroot/js/site.js'
+                        ];
+                        await this.includeProjectFiles(dotnetFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] .NET 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'go') {
+                        const goFiles = [
+                            'main.go',
+                            'go.mod',
+                            'go.sum',
+                            'cmd/main.go',
+                            'internal/app/app.go',
+                            'internal/config/config.go',
+                            'internal/handlers/handlers.go',
+                            'internal/models/models.go'
+                        ];
+                        await this.includeProjectFiles(goFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Go 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'rust') {
+                        const rustFiles = [
+                            'Cargo.toml',
+                            'Cargo.lock',
+                            'src/main.rs',
+                            'src/lib.rs',
+                            'src/bin/main.rs',
+                            'examples/example.rs',
+                            'tests/integration_test.rs'
+                        ];
+                        await this.includeProjectFiles(rustFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Rust 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'php') {
+                        const phpFiles = [
+                            'composer.json',
+                            'composer.lock',
+                            'index.php',
+                            'config/app.php',
+                            'config/database.php',
+                            'app/Http/Controllers/Controller.php',
+                            'app/Models/Model.php',
+                            'resources/views/welcome.blade.php',
+                            'public/css/app.css',
+                            'public/js/app.js'
+                        ];
+                        await this.includeProjectFiles(phpFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] PHP 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'ruby') {
+                        const rubyFiles = [
+                            'Gemfile',
+                            'Gemfile.lock',
+                            'config.ru',
+                            'app.rb',
+                            'config/application.rb',
+                            'config/routes.rb',
+                            'app/controllers/application_controller.rb',
+                            'app/models/application_record.rb',
+                            'app/views/layouts/application.html.erb',
+                            'app/assets/stylesheets/application.css',
+                            'app/assets/javascripts/application.js'
+                        ];
+                        await this.includeProjectFiles(rubyFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Ruby 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'ios') {
+                        const iosFiles = [
+                            'Info.plist',
+                            'AppDelegate.swift',
+                            'AppDelegate.m',
+                            'SceneDelegate.swift',
+                            'ViewController.swift',
+                            'ViewController.m',
+                            'Main.storyboard',
+                            'LaunchScreen.storyboard',
+                            'Assets.xcassets/Contents.json',
+                            'Base.lproj/LaunchScreen.storyboard'
+                        ];
+                        await this.includeProjectFiles(iosFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] iOS 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'android') {
+                        const androidFiles = [
+                            'app/build.gradle',
+                            'build.gradle',
+                            'settings.gradle',
+                            'gradle.properties',
+                            'app/src/main/AndroidManifest.xml',
+                            'app/src/main/java/**/MainActivity.java',
+                            'app/src/main/java/**/MainActivity.kt',
+                            'app/src/main/res/layout/activity_main.xml',
+                            'app/src/main/res/values/strings.xml',
+                            'app/src/main/res/values/colors.xml',
+                            'app/src/main/res/values/styles.xml'
+                        ];
+                        await this.includeProjectFiles(androidFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Android 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'flutter') {
+                        const flutterFiles = [
+                            'pubspec.yaml',
+                            'lib/main.dart',
+                            'lib/app.dart',
+                            'lib/screens/home_screen.dart',
+                            'lib/widgets/custom_widget.dart',
+                            'lib/models/data_model.dart',
+                            'lib/services/api_service.dart',
+                            'android/app/build.gradle',
+                            'ios/Runner/Info.plist',
+                            'test/widget_test.dart'
+                        ];
+                        await this.includeProjectFiles(flutterFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] Flutter 프로젝트 기본 파일들 포함 완료`);
+                    }
+                    else if (projectType === 'react-native') {
+                        const reactNativeFiles = [
+                            'package.json',
+                            'index.js',
+                            'App.js',
+                            'App.tsx',
+                            'src/App.js',
+                            'src/App.tsx',
+                            'android/app/build.gradle',
+                            'android/app/src/main/AndroidManifest.xml',
+                            'ios/App/AppDelegate.m',
+                            'ios/App/Info.plist',
+                            'metro.config.js',
+                            'babel.config.js'
+                        ];
+                        await this.includeProjectFiles(reactNativeFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                        console.log(`[CodebaseContextService] React Native 프로젝트 기본 파일들 포함 완료`);
+                    }
+                }
+                if (isNode) {
                     // Node.js 프로젝트의 경우 package.json을 최우선으로 포함
                     const packageJsonPath = path.join(projectRoot, 'package.json');
                     const uri = vscode.Uri.file(packageJsonPath);
@@ -2774,6 +3053,86 @@ class CodebaseContextService {
                         includedPathSet.add(packageJsonPath);
                         currentTotalContentLength += content.length;
                         // console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
+                        // Node.js 기반 프로젝트의 기본 파일들 포함
+                        try {
+                            const packageJson = JSON.parse(content);
+                            const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+                            // React 프로젝트
+                            if (dependencies.react || dependencies['@vitejs/plugin-react'] || dependencies['react-scripts']) {
+                                const reactFiles = [
+                                    'src/App.js', 'src/App.jsx', 'src/App.ts', 'src/App.tsx',
+                                    'src/index.js', 'src/index.jsx', 'src/index.ts', 'src/index.tsx',
+                                    'src/main.js', 'src/main.jsx', 'src/main.ts', 'src/main.tsx',
+                                    'src/App.css', 'src/index.css',
+                                    'vite.config.js', 'vite.config.ts',
+                                    'index.html'
+                                ];
+                                await this.includeProjectFiles(reactFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] React 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Vue 프로젝트
+                            else if (dependencies.vue || dependencies['@vue/cli-service']) {
+                                const vueFiles = [
+                                    'src/App.vue', 'src/main.js', 'src/main.ts',
+                                    'src/components/HelloWorld.vue',
+                                    'public/index.html', 'vue.config.js',
+                                    'vite.config.js', 'vite.config.ts'
+                                ];
+                                await this.includeProjectFiles(vueFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Vue 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Angular 프로젝트
+                            else if (dependencies['@angular/core'] || dependencies['@angular/cli']) {
+                                const angularFiles = [
+                                    'src/app/app.component.ts', 'src/app/app.component.html', 'src/app/app.component.css',
+                                    'src/app/app.module.ts', 'src/main.ts', 'src/index.html',
+                                    'angular.json', 'tsconfig.json'
+                                ];
+                                await this.includeProjectFiles(angularFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Angular 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Next.js 프로젝트
+                            else if (dependencies.next) {
+                                const nextFiles = [
+                                    'pages/index.js', 'pages/index.tsx', 'pages/_app.js', 'pages/_app.tsx',
+                                    'app/page.js', 'app/page.tsx', 'app/layout.js', 'app/layout.tsx',
+                                    'next.config.js', 'next.config.ts'
+                                ];
+                                await this.includeProjectFiles(nextFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Next.js 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Nuxt.js 프로젝트
+                            else if (dependencies.nuxt) {
+                                const nuxtFiles = [
+                                    'pages/index.vue', 'layouts/default.vue', 'components/HelloWorld.vue',
+                                    'nuxt.config.js', 'nuxt.config.ts'
+                                ];
+                                await this.includeProjectFiles(nuxtFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Nuxt.js 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // Svelte 프로젝트
+                            else if (dependencies.svelte) {
+                                const svelteFiles = [
+                                    'src/App.svelte', 'src/main.js', 'src/main.ts',
+                                    'public/index.html', 'vite.config.js', 'vite.config.ts'
+                                ];
+                                await this.includeProjectFiles(svelteFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Svelte 프로젝트 기본 파일들 포함 완료`);
+                            }
+                            // 일반 Node.js 프로젝트
+                            else {
+                                const nodeFiles = [
+                                    'src/index.js', 'src/index.ts', 'src/app.js', 'src/app.ts',
+                                    'index.js', 'index.ts', 'app.js', 'app.ts',
+                                    'server.js', 'server.ts'
+                                ];
+                                await this.includeProjectFiles(nodeFiles, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength);
+                                console.log(`[CodebaseContextService] Node.js 프로젝트 기본 파일들 포함 완료`);
+                            }
+                        }
+                        catch (e) {
+                            console.warn('[CodebaseContextService] package.json 파싱 실패:', e);
+                        }
                     }
                 }
             }
@@ -2786,8 +3145,11 @@ class CodebaseContextService {
             // 대화 기록을 활용한 키워드 확장
             const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
             // console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
-            // 프로젝트 루트에서 관련 파일들 검색
-            const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
+            // LLM을 통한 키워드 선택
+            const selectedKeywords = await this.selectKeywordsWithLLM(userQuery, expandedKeywords, projectRoot);
+            console.log(`[CodebaseContextService] LLM이 선택한 키워드: ${selectedKeywords.keywords.join(', ')} (신뢰도: ${(selectedKeywords.confidence * 100).toFixed(1)}%)`);
+            // 선택된 키워드를 사용하여 관련 파일들 검색
+            const relevantFiles = await this.findRelevantFiles(projectRoot, selectedKeywords.keywords, abortSignal);
             // console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
             // 토큰 사용량을 고려한 파일 선별
             const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
@@ -2835,13 +3197,112 @@ class CodebaseContextService {
                 }
             }
             // console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
-            return { fileContentsContext, includedFilesForContext };
+            return {
+                fileContentsContext,
+                includedFilesForContext,
+                extractedKeywords: selectedKeywords.keywords,
+                selectedKeywords: selectedKeywords
+            };
         }
         catch (error) {
             console.error('[CodebaseContextService] 관련 파일 검색 중 오류:', error);
             this.notificationService.showErrorMessage('관련 파일 검색 중 오류가 발생했습니다.');
             return { fileContentsContext: '', includedFilesForContext: [] };
         }
+    }
+    /**
+     * LLM을 통한 키워드 선택
+     * @param userQuery 사용자 질의
+     * @param keywords 키워드 목록
+     * @param projectRoot 프로젝트 루트
+     * @returns 선택된 키워드와 추론 과정
+     */
+    async selectKeywordsWithLLM(userQuery, keywords, projectRoot) {
+        try {
+            if (!this.llmKeywordSelectionService) {
+                console.warn('[CodebaseContextService] LLM 키워드 선택 서비스가 설정되지 않음, 기본 키워드 사용');
+                return {
+                    keywords: keywords.slice(0, 5),
+                    reasoning: 'LLM 서비스 미설정으로 기본 키워드 사용',
+                    confidence: 0.3
+                };
+            }
+            // 프로젝트 컨텍스트 수집
+            const projectContext = await this.collectProjectContext(projectRoot);
+            // LLM을 통한 키워드 선택
+            const result = await this.llmKeywordSelectionService.selectKeywordsWithLLM(userQuery, projectContext, keywords);
+            return result;
+        }
+        catch (error) {
+            console.warn('[CodebaseContextService] LLM 키워드 선택 실패, 기본 키워드 사용:', error);
+            // 실패 시 기본 키워드 반환
+            return {
+                keywords: keywords.slice(0, 5),
+                reasoning: 'LLM 키워드 선택 실패로 기본 키워드 사용',
+                confidence: 0.3
+            };
+        }
+    }
+    /**
+     * 프로젝트 컨텍스트를 수집합니다.
+     * @param projectRoot 프로젝트 루트
+     * @returns 프로젝트 컨텍스트
+     */
+    async collectProjectContext(projectRoot) {
+        const fileNames = [];
+        const directoryNames = [];
+        try {
+            // 프로젝트 타입 감지
+            const projectType = await this.detectProjectType([projectRoot]);
+            // 파일명과 디렉토리명 수집
+            const files = await (0, glob_1.glob)('**/*', {
+                cwd: projectRoot,
+                ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**']
+            });
+            for (const file of files.slice(0, 100)) { // 최대 100개 파일만
+                const fileName = path.basename(file);
+                const dirName = path.dirname(file);
+                if (fileName && fileName !== '.') {
+                    fileNames.push(fileName);
+                }
+                if (dirName && dirName !== '.' && !directoryNames.includes(dirName)) {
+                    directoryNames.push(dirName);
+                }
+            }
+            return {
+                framework: projectType,
+                projectType: this.getProjectTypeFromFramework(projectType),
+                fileNames: [...new Set(fileNames)],
+                directoryNames: [...new Set(directoryNames)]
+            };
+        }
+        catch (error) {
+            console.warn('[CodebaseContextService] 프로젝트 컨텍스트 수집 실패:', error);
+            return {
+                framework: 'unknown',
+                projectType: 'unknown',
+                fileNames: [],
+                directoryNames: []
+            };
+        }
+    }
+    /**
+     * 프레임워크에서 프로젝트 타입을 추론합니다.
+     */
+    getProjectTypeFromFramework(framework) {
+        const typeMap = {
+            'react': 'web',
+            'vue': 'web',
+            'angular': 'web',
+            'next': 'web',
+            'spring': 'api',
+            'django': 'web',
+            'flask': 'web',
+            'fastapi': 'api',
+            'express': 'api',
+            'node': 'api'
+        };
+        return typeMap[framework.toLowerCase()] || 'unknown';
     }
     /**
      * 사용자 질의에서 키워드를 추출합니다.
@@ -3844,23 +4305,111 @@ class CodebaseContextService {
         return normalizedPath.includes('/src/') || normalizedPath.endsWith('/src');
     }
     /**
+     * 파일이 존재하는지 확인합니다.
+     * @param filePath 파일 경로
+     * @returns 파일 존재 여부
+     */
+    async fileExists(filePath) {
+        try {
+            const uri = vscode.Uri.file(filePath);
+            const stats = await vscode.workspace.fs.stat(uri);
+            return stats.type === vscode.FileType.File;
+        }
+        catch {
+            return false;
+        }
+    }
+    /**
+     * 프로젝트 타입별 기본 파일들을 컨텍스트에 포함합니다.
+     * @param fileNames 포함할 파일명 배열
+     * @param projectRoot 프로젝트 루트 경로
+     * @param fileContentsContext 파일 컨텍스트 문자열 (참조로 전달)
+     * @param includedFilesForContext 포함된 파일 목록 (참조로 전달)
+     * @param includedPathSet 포함된 경로 집합 (참조로 전달)
+     * @param currentTotalContentLength 현재 총 컨텐츠 길이 (참조로 전달)
+     */
+    async includeProjectFiles(fileNames, projectRoot, fileContentsContext, includedFilesForContext, includedPathSet, currentTotalContentLength) {
+        for (const fileName of fileNames) {
+            const filePath = path.join(projectRoot, fileName);
+            try {
+                const fileUri = vscode.Uri.file(filePath);
+                const fileStats = await vscode.workspace.fs.stat(fileUri);
+                if (fileStats.type === vscode.FileType.File && !includedPathSet.has(filePath)) {
+                    const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+                    const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+                    const relativeName = this.getPathRelativeToWorkspace(filePath) || fileName;
+                    const fileType = (0, fileUtils_1.getFileType)(filePath);
+                    fileContentsContext += `\n--- 파일: ${relativeName} (${fileType}) ---\n${fileContent}\n`;
+                    includedFilesForContext.push({ name: fileName, fullPath: filePath });
+                    includedPathSet.add(filePath);
+                    currentTotalContentLength += fileContent.length;
+                    // 토큰 제한 확인
+                    if (currentTotalContentLength > this.MAX_TOTAL_CONTENT_LENGTH) {
+                        console.log(`[CodebaseContextService] 프로젝트 기본 파일 포함 중 토큰 제한 도달: ${currentTotalContentLength}`);
+                        break;
+                    }
+                }
+            }
+            catch {
+                // 파일이 존재하지 않음
+            }
+        }
+    }
+    /**
      * 프로젝트 타입을 감지합니다.
      * @param sourcePaths 설정된 소스 경로들
+     * @param llmDetectedType LLM이 감지한 프로젝트 타입 (선택사항)
      * @returns 프로젝트 타입
      */
-    async detectProjectType(sourcePaths) {
+    async detectProjectType(sourcePaths, llmDetectedType) {
+        // LLM이 감지한 프로젝트 타입이 있으면 우선 사용
+        if (llmDetectedType && llmDetectedType !== 'unknown') {
+            console.log(`[CodebaseContextService] LLM 감지 프로젝트 타입 사용: ${llmDetectedType}`);
+            return llmDetectedType;
+        }
+        // console.log(`[CodebaseContextService] 프로젝트 타입 감지 시작: ${sourcePaths.join(', ')}`);
         for (const sourcePath of sourcePaths) {
             try {
                 const uri = vscode.Uri.file(sourcePath);
                 const stats = await vscode.workspace.fs.stat(uri);
                 if (stats.type === vscode.FileType.Directory) {
+                    // console.log(`[CodebaseContextService] 디렉토리 확인: ${sourcePath}`);
                     // Node.js 프로젝트 확인
                     const packageJsonPath = path.join(sourcePath, 'package.json');
                     try {
                         await vscode.workspace.fs.stat(vscode.Uri.file(packageJsonPath));
-                        return 'nodejs';
+                        console.log(`[CodebaseContextService] package.json 발견: ${packageJsonPath}`);
+                        // package.json 내용을 읽어서 React 프로젝트인지 확인
+                        try {
+                            const packageJsonContent = await vscode.workspace.fs.readFile(vscode.Uri.file(packageJsonPath));
+                            const packageJson = JSON.parse(packageJsonContent.toString());
+                            // React 관련 의존성 확인
+                            const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+                            console.log(`[CodebaseContextService] 의존성 확인:`, Object.keys(dependencies));
+                            if (dependencies.react || dependencies['@vitejs/plugin-react'] || dependencies['react-scripts']) {
+                                // Vite + React 조합인지 확인
+                                if (dependencies.vite || dependencies['@vitejs/plugin-react']) {
+                                    console.log(`[CodebaseContextService] React + Vite 프로젝트 감지`);
+                                    return 'react-vite';
+                                }
+                                console.log(`[CodebaseContextService] React 프로젝트 감지`);
+                                return 'react';
+                            }
+                            // Vite 프로젝트 확인 (React가 아닌 경우)
+                            if (dependencies.vite || packageJson.devDependencies?.vite) {
+                                console.log(`[CodebaseContextService] Vite 프로젝트 감지`);
+                                return 'vite';
+                            }
+                            console.log(`[CodebaseContextService] 일반 Node.js 프로젝트 감지`);
+                            return 'nodejs';
+                        }
+                        catch (e) {
+                            console.log(`[CodebaseContextService] package.json 파싱 실패:`, e);
+                            return 'nodejs';
+                        }
                     }
                     catch {
+                        // console.log(`[CodebaseContextService] package.json 없음: ${packageJsonPath}`);
                         // package.json이 없음
                     }
                     // Java/Spring 프로젝트 확인
@@ -3872,45 +4421,39 @@ class CodebaseContextService {
                     catch {
                         // pom.xml이 없음
                     }
-                    // Python Django 프로젝트 확인
-                    const managePyPath = path.join(sourcePath, 'manage.py');
-                    try {
-                        await vscode.workspace.fs.stat(vscode.Uri.file(managePyPath));
-                        return 'django';
-                    }
-                    catch {
-                        // manage.py가 없음
-                    }
-                    // Python Flask 프로젝트 확인
-                    const appPyPath = path.join(sourcePath, 'app.py');
-                    const flaskAppPath = path.join(sourcePath, 'flask_app.py');
-                    try {
-                        await vscode.workspace.fs.stat(vscode.Uri.file(appPyPath));
-                        return 'flask';
-                    }
-                    catch {
-                        try {
-                            await vscode.workspace.fs.stat(vscode.Uri.file(flaskAppPath));
+                    // Python 프로젝트 확인 (requirements.txt 또는 pyproject.toml 존재)
+                    const requirementsPath = path.join(sourcePath, 'requirements.txt');
+                    const pyprojectPath = path.join(sourcePath, 'pyproject.toml');
+                    const hasPythonProject = await this.fileExists(requirementsPath) || await this.fileExists(pyprojectPath);
+                    if (hasPythonProject) {
+                        // Python Django 프로젝트 확인
+                        const managePyPath = path.join(sourcePath, 'manage.py');
+                        if (await this.fileExists(managePyPath)) {
+                            return 'django';
+                        }
+                        // Python Flask 프로젝트 확인
+                        const appPyPath = path.join(sourcePath, 'app.py');
+                        const flaskAppPath = path.join(sourcePath, 'flask_app.py');
+                        if (await this.fileExists(appPyPath) || await this.fileExists(flaskAppPath)) {
                             return 'flask';
                         }
-                        catch {
-                            // Flask 앱 파일이 없음
+                        // Python FastAPI 프로젝트 확인
+                        const mainPyPath = path.join(sourcePath, 'main.py');
+                        if (await this.fileExists(mainPyPath)) {
+                            try {
+                                const mainPyUri = vscode.Uri.file(mainPyPath);
+                                const content = await vscode.workspace.fs.readFile(mainPyUri);
+                                const contentStr = Buffer.from(content).toString('utf8');
+                                if (contentStr.includes('FastAPI') || contentStr.includes('from fastapi')) {
+                                    return 'fastapi';
+                                }
+                            }
+                            catch {
+                                // 파일 읽기 실패
+                            }
                         }
-                    }
-                    // Python FastAPI 프로젝트 확인
-                    const mainPyPath = path.join(sourcePath, 'main.py');
-                    try {
-                        const mainPyUri = vscode.Uri.file(mainPyPath);
-                        await vscode.workspace.fs.stat(mainPyUri);
-                        // main.py 내용을 확인하여 FastAPI인지 체크
-                        const content = await vscode.workspace.fs.readFile(mainPyUri);
-                        const contentStr = Buffer.from(content).toString('utf8');
-                        if (contentStr.includes('FastAPI') || contentStr.includes('from fastapi')) {
-                            return 'fastapi';
-                        }
-                    }
-                    catch {
-                        // main.py가 없거나 FastAPI가 아님
+                        // 일반 Python 프로젝트
+                        return 'python';
                     }
                     // .NET 프로젝트 확인
                     const csprojFiles = glob_1.glob.sync(path.join(sourcePath, '**/*.csproj'), { nodir: true });
@@ -3952,6 +4495,43 @@ class CodebaseContextService {
                     }
                     catch {
                         // Gemfile이 없음
+                    }
+                    // iOS 프로젝트 확인
+                    const xcodeprojFiles = glob_1.glob.sync(path.join(sourcePath, '**/*.xcodeproj'), { nodir: true });
+                    const xcworkspaceFiles = glob_1.glob.sync(path.join(sourcePath, '**/*.xcworkspace'), { nodir: true });
+                    if (xcodeprojFiles.length > 0 || xcworkspaceFiles.length > 0) {
+                        return 'ios';
+                    }
+                    // Android 프로젝트 확인
+                    const buildGradleFiles = glob_1.glob.sync(path.join(sourcePath, '**/build.gradle'), { nodir: true });
+                    const androidManifestFiles = glob_1.glob.sync(path.join(sourcePath, '**/AndroidManifest.xml'), { nodir: true });
+                    if (buildGradleFiles.length > 0 || androidManifestFiles.length > 0) {
+                        return 'android';
+                    }
+                    // Flutter 프로젝트 확인
+                    const pubspecPath = path.join(sourcePath, 'pubspec.yaml');
+                    try {
+                        await vscode.workspace.fs.stat(vscode.Uri.file(pubspecPath));
+                        return 'flutter';
+                    }
+                    catch {
+                        // pubspec.yaml이 없음
+                    }
+                    // React Native 프로젝트 확인
+                    const reactNativePackageJsonPath = path.join(sourcePath, 'package.json');
+                    try {
+                        const reactNativePackageJsonUri = vscode.Uri.file(reactNativePackageJsonPath);
+                        await vscode.workspace.fs.stat(reactNativePackageJsonUri);
+                        const content = await vscode.workspace.fs.readFile(reactNativePackageJsonUri);
+                        const contentStr = Buffer.from(content).toString('utf8');
+                        const packageJson = JSON.parse(contentStr);
+                        const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+                        if (dependencies['react-native'] || dependencies['@react-native-community/cli']) {
+                            return 'react-native';
+                        }
+                    }
+                    catch {
+                        // package.json이 없거나 React Native가 아님
                     }
                 }
             }
@@ -4037,6 +4617,176 @@ class CodebaseContextService {
                 'jest.config.ts',
                 'vitest.config.js',
                 'vitest.config.ts'
+            ],
+            'react': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'webpack.config.js',
+                'webpack.config.ts',
+                'vite.config.js',
+                'vite.config.ts',
+                'next.config.js',
+                'next.config.ts',
+                'babel.config.js',
+                'babel.config.json',
+                '.babelrc',
+                '.babelrc.js',
+                '.babelrc.json',
+                'jest.config.js',
+                'jest.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts',
+                // React 기본 파일들
+                'src/App.js',
+                'src/App.jsx',
+                'src/App.ts',
+                'src/App.tsx',
+                'src/App.css',
+                'src/App.scss',
+                'src/index.js',
+                'src/index.jsx',
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.css',
+                'src/index.scss',
+                'src/main.js',
+                'src/main.jsx',
+                'src/main.ts',
+                'src/main.tsx',
+                'public/index.html',
+                'index.html'
+            ],
+            'vite': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vite.config.js',
+                'vite.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts',
+                // Vite 기본 파일들
+                'src/App.js',
+                'src/App.jsx',
+                'src/App.ts',
+                'src/App.tsx',
+                'src/App.css',
+                'src/App.scss',
+                'src/index.js',
+                'src/index.jsx',
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.css',
+                'src/index.scss',
+                'src/main.js',
+                'src/main.jsx',
+                'src/main.ts',
+                'src/main.tsx',
+                'public/index.html',
+                'index.html'
+            ],
+            'react-vite': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vite.config.js',
+                'vite.config.ts',
+                'vitest.config.js',
+                'vitest.config.ts',
+                // React + Vite 기본 파일들
+                'src/App.js',
+                'src/App.jsx',
+                'src/App.ts',
+                'src/App.tsx',
+                'src/App.css',
+                'src/App.scss',
+                'src/index.js',
+                'src/index.jsx',
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.css',
+                'src/index.scss',
+                'src/main.js',
+                'src/main.jsx',
+                'src/main.ts',
+                'src/main.tsx',
+                'public/index.html',
+                'index.html'
+            ],
+            'vue': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vue.config.js',
+                'vue.config.ts',
+                'vite.config.js',
+                'vite.config.ts',
+                // Vue 기본 파일들
+                'src/App.vue',
+                'src/main.js',
+                'src/main.ts',
+                'src/components/HelloWorld.vue',
+                'public/index.html'
+            ],
+            'angular': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'angular.json',
+                // Angular 기본 파일들
+                'src/app/app.component.ts',
+                'src/app/app.component.html',
+                'src/app/app.component.css',
+                'src/app/app.module.ts',
+                'src/main.ts',
+                'src/index.html'
+            ],
+            'next': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'next.config.js',
+                'next.config.ts',
+                // Next.js 기본 파일들
+                'pages/index.js',
+                'pages/index.tsx',
+                'pages/_app.js',
+                'pages/_app.tsx',
+                'app/page.js',
+                'app/page.tsx',
+                'app/layout.js',
+                'app/layout.tsx'
+            ],
+            'nuxt': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'nuxt.config.js',
+                'nuxt.config.ts',
+                // Nuxt.js 기본 파일들
+                'pages/index.vue',
+                'layouts/default.vue',
+                'components/HelloWorld.vue'
+            ],
+            'svelte': [
+                'package.json',
+                'package-lock.json',
+                'yarn.lock',
+                'tsconfig.json',
+                'vite.config.js',
+                'vite.config.ts',
+                // Svelte 기본 파일들
+                'src/App.svelte',
+                'src/main.js',
+                'src/main.ts',
+                'public/index.html'
             ],
             'java': [
                 'pom.xml',
@@ -12572,11 +13322,14 @@ class LlmResponseProcessor {
      * @param webview 웹뷰에 메시지를 보낼 수 있는 Webview 객체
      * @param promptType 현재 프롬프트의 타입 (CODE_GENERATION 또는 GENERAL_ASK)
      */
-    async processLlmResponseAndApplyUpdates(llmResponse, contextFiles, webview, promptType // Add this parameter
+    async processLlmResponseAndApplyUpdates(llmResponse, contextFiles, webview, promptType, // Add this parameter
+    statusCallback // Add status callback
     ) {
+        statusCallback?.('Analyzing response structure...');
         if (promptType === types_1.PromptType.GENERAL_ASK) {
             let cleanedResponse = llmResponse;
             let hasWarnings = false;
+            statusCallback?.('Checking for restricted operations in ASK tab...');
             if ((0, terminalManager_1.hasBashCommands)(cleanedResponse)) {
                 const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
                 (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
@@ -12597,15 +13350,18 @@ class LlmResponseProcessor {
             return;
         }
         // 긴 응답에 대한 처리 개선
-        console.log(`[LLM Response Processor] Processing response of length: ${llmResponse.length}`);
+        // console.log(`[LLM Response Processor] Processing response of length: ${llmResponse.length}`);
+        statusCallback?.(`Processing ${llmResponse.length.toLocaleString()} character response...`);
         // 응답이 너무 길면 청크 단위로 처리
         if (llmResponse.length > 50000) { // 50KB 이상
-            console.log('[LLM Response Processor] Response is very long, processing in chunks');
-            await this.processLongResponse(llmResponse, contextFiles, webview, promptType);
+            // console.log('[LLM Response Processor] Response is very long, processing in chunks');
+            statusCallback?.('Response too long, splitting into chunks...');
+            await this.processLongResponse(llmResponse, contextFiles, webview, promptType, statusCallback);
             return;
         }
         llmResponse = this.normalizeTerminalCommandBlocks(llmResponse);
         const fileOperations = [];
+        statusCallback?.('Parsing file operations...');
         // Updated regex to capture the directive (group 1), the path (group 2), and the content (group 3)
         // 수정: 파일 경로를 더 정확하게 파싱하도록 정규식 개선
         // 파일 경로는 directive 다음에 오는 텍스트에서 코드 블록 시작 전까지 추출
@@ -12618,12 +13374,26 @@ class LlmResponseProcessor {
         const fallbackMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*)/gs;
         // 삭제 파일을 위한 별도 정규식 (코드 블록이 없음)
         const deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+        // DIFF callout을 위한 정규식
+        const diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
         let match;
         let updateSummaryMessages = [];
         const projectRoot = await this.getProjectRootPath();
         // 디버깅을 위한 로그 추가
-        console.log(`[LLM Response Processor] Response contains "새 파일:": ${llmResponse.includes("새 파일:")}`);
-        console.log(`[LLM Response Processor] Response contains ".md": ${llmResponse.includes(".md")}`);
+        // console.log(`[LLM Response Processor] Response contains "새 파일:": ${llmResponse.includes("새 파일:")}`);
+        // console.log(`[LLM Response Processor] Response contains ".md": ${llmResponse.includes(".md")}`);
+        // 파일 작업 검색
+        const hasFileOps = llmResponse.includes("새 파일:") || llmResponse.includes("수정 파일:") || llmResponse.includes("삭제 파일:");
+        const hasBashOps = (0, terminalManager_1.hasBashCommands)(llmResponse);
+        const hasDiffOps = llmResponse.includes("```diff");
+        if (hasFileOps) {
+            statusCallback?.('Found file operations, parsing...');
+            // console.log(`[LLM Response Processor] File operations detected in response`);
+        }
+        if (hasBashOps) {
+            statusCallback?.('Found bash commands, parsing...');
+            // console.log(`[LLM Response Processor] Bash commands detected in response`);
+        }
         // 새 파일 생성을 위한 프로젝트 루트가 없으면 경고
         if (!projectRoot && llmResponse.includes("새 파일:")) {
             this.notificationService.showErrorMessage("새 파일 생성을 위해 프로젝트 루트 경로를 찾을 수 없습니다. aidev-ide 설정에서 'Project Root'를 설정하거나, 워크스페이스를 여십시오.");
@@ -12631,13 +13401,18 @@ class LlmResponseProcessor {
             // 여기서 return하지 않고, 아래 루프에서 새 파일 생성을 건너뛰도록 처리
         }
         // 코드 블록이 있는 파일 작업 처리 (생성, 수정)
+        let fileOpCount = 0;
         while ((match = codeBlockRegex.exec(llmResponse)) !== null) {
+            fileOpCount++;
             // Updated to correctly access captured groups
             const originalDirective = match[1].trim(); // "수정 파일" or "새 파일"
             let llmSpecifiedPath = match[2].trim(); // e.g., 'src/components/Button.tsx'
             const newContent = match[3];
-            console.log(`[LLM Response Processor] Found directive: "${originalDirective}", LLM path: "${llmSpecifiedPath}"`);
-            console.log(`[LLM Response Processor] Raw match groups:`, match.map((group, index) => `Group ${index}: "${group}"`));
+            // console.log(`[LLM Response Processor] Found directive: "${originalDirective}", LLM path: "${llmSpecifiedPath}"`);
+            // console.log(`[LLM Response Processor] Raw match groups:`, match.map((group, index) => `Group ${index}: "${group}"`));
+            statusCallback?.(`Processing file operation ${fileOpCount}: ${originalDirective} ${llmSpecifiedPath}`);
+            // Debug Console 로그를 활용한 추가 정보
+            // console.log(`[LLM Response Processor] Processing file operation ${fileOpCount}: ${originalDirective} ${llmSpecifiedPath} (content: ${newContent.length.toLocaleString()} chars)`);
             // 파일 경로에서 callout 잔여물 제거 및 검증
             llmSpecifiedPath = this.cleanFilePath(llmSpecifiedPath);
             // 경로 유효성 검증
@@ -12699,16 +13474,17 @@ class LlmResponseProcessor {
             }
         }
         // 마크다운 파일 작업 처리 (코드 블록 없이 마크다운 내용 직접 포함)
-        console.log(`[LLM Response Processor] Starting markdown file processing...`);
+        // console.log(`[LLM Response Processor] Starting markdown file processing...`);
         let markdownMatchCount = 0;
         // 첫 번째 정규식 시도
         while ((match = markdownFileRegex.exec(llmResponse)) !== null) {
             markdownMatchCount++;
-            console.log(`[LLM Response Processor] Found markdown directive (regex1): "${match[1]}", LLM path: "${match[2]}"`);
-            console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
+            // console.log(`[LLM Response Processor] Found markdown directive (regex1): "${match[1]}", LLM path: "${match[2]}"`);
+            // console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
             const originalDirective = match[1].trim(); // "수정 파일" or "새 파일"
             let llmSpecifiedPath = match[2].trim(); // e.g., 'docs/README.md'
             const newContent = match[3];
+            statusCallback?.(`Processing markdown file: ${originalDirective} ${llmSpecifiedPath}`);
             // 파일 경로에서 callout 잔여물 제거 및 검증
             llmSpecifiedPath = this.cleanFilePath(llmSpecifiedPath);
             // 경로 유효성 검증
@@ -12768,11 +13544,11 @@ class LlmResponseProcessor {
         }
         // 첫 번째 정규식이 실패한 경우 두 번째 정규식 시도
         if (markdownMatchCount === 0) {
-            console.log(`[LLM Response Processor] First regex failed, trying simple regex...`);
+            // console.log(`[LLM Response Processor] First regex failed, trying simple regex...`);
             while ((match = simpleMarkdownRegex.exec(llmResponse)) !== null) {
                 markdownMatchCount++;
-                console.log(`[LLM Response Processor] Found markdown directive (regex2): "${match[1]}", LLM path: "${match[2]}"`);
-                console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
+                // console.log(`[LLM Response Processor] Found markdown directive (regex2): "${match[1]}", LLM path: "${match[2]}"`);
+                // console.log(`[LLM Response Processor] Markdown content length: ${match[3]?.length || 0}`);
                 const originalDirective = match[1].trim(); // "수정 파일" or "새 파일"
                 let llmSpecifiedPath = match[2].trim(); // e.g., 'docs/README.md'
                 const newContent = match[3];
@@ -12828,7 +13604,7 @@ class LlmResponseProcessor {
         }
         // 두 번째 정규식도 실패한 경우 세 번째 정규식 시도
         if (markdownMatchCount === 0) {
-            console.log(`[LLM Response Processor] Second regex failed, trying fallback regex...`);
+            // console.log(`[LLM Response Processor] Second regex failed, trying fallback regex...`);
             while ((match = fallbackMarkdownRegex.exec(llmResponse)) !== null) {
                 markdownMatchCount++;
                 console.log(`[LLM Response Processor] Found markdown directive (regex3): "${match[1]}", LLM path: "${match[2]}"`);
@@ -12886,11 +13662,12 @@ class LlmResponseProcessor {
                 }
             }
         }
-        console.log(`[LLM Response Processor] Found ${markdownMatchCount} markdown file operations`);
+        // console.log(`[LLM Response Processor] Found ${markdownMatchCount} markdown file operations`);
         // 삭제 파일 작업 처리
         while ((match = deleteFileRegex.exec(llmResponse)) !== null) {
             const llmSpecifiedPath = match[1].trim(); // e.g., 'src/old/obsolete.ts'
             // console.log(`[LLM Response Processor] Found delete directive for: "${llmSpecifiedPath}"`);
+            statusCallback?.(`Processing delete file: ${llmSpecifiedPath}`);
             let absolutePath;
             if (projectRoot) {
                 absolutePath = path.join(projectRoot, llmSpecifiedPath);
@@ -12914,6 +13691,11 @@ class LlmResponseProcessor {
                 });
             }
         }
+        // DIFF callout 처리
+        if (hasDiffOps) {
+            statusCallback?.('Found DIFF callouts, processing...');
+            await this.processDiffCallouts(llmResponse, contextFiles, projectRoot, fileOperations, updateSummaryMessages, statusCallback);
+        }
         // 작업 요약 추출 및 표시
         const workSummary = this.extractWorkSummary(llmResponse);
         const workDescription = this.extractWorkDescription(llmResponse);
@@ -12928,13 +13710,16 @@ class LlmResponseProcessor {
         }
         (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: initialWebviewResponse });
         // 파일 작업이 있는 경우에만 추가 처리
-        console.log(`[LLM Response Processor] Found ${fileOperations.length} file operations:`, fileOperations.map(op => `${op.type}: ${op.llmSpecifiedPath}`));
+        // console.log(`[LLM Response Processor] Found ${fileOperations.length} file operations:`, fileOperations.map(op => `${op.type}: ${op.llmSpecifiedPath}`));
         if (fileOperations.length > 0) {
+            statusCallback?.(`Found ${fileOperations.length} file operations, executing...`);
             // thinking 애니메이션을 먼저 제거
             (0, panelUtils_1.safePostMessage)(webview, { command: 'hideLoading' });
             const autoUpdateEnabled = await this.configurationService.isAutoUpdateEnabled();
             if (!autoUpdateEnabled) {
-                for (const operation of fileOperations) {
+                for (let i = 0; i < fileOperations.length; i++) {
+                    const operation = fileOperations[i];
+                    statusCallback?.(`Executing file operation ${i + 1}/${fileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
                     // Remote SSH 환경을 위한 경로 처리 개선
                     let fileUri;
                     let fileNameForDisplay = operation.llmSpecifiedPath;
@@ -13280,9 +14065,11 @@ class LlmResponseProcessor {
             (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
             // Bash 명령어 실행 처리
             if ((0, terminalManager_1.hasBashCommands)(llmResponse)) {
+                statusCallback?.('Parsing bash commands...');
                 try {
                     const executedCommands = (0, terminalManager_1.executeBashCommandsFromLlmResponse)(llmResponse);
                     if (executedCommands.length > 0) {
+                        statusCallback?.(`Found ${executedCommands.length} bash commands`);
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
                         (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                     }
@@ -13427,7 +14214,7 @@ ${match.trim()}
         if (cleanedPath.length > 1) {
             cleanedPath = cleanedPath.replace(/^\/+|\/+$/g, '');
         }
-        console.log(`[LLM Response Processor] Cleaned file path: "${filePath}" -> "${cleanedPath}"`);
+        // console.log(`[LLM Response Processor] Cleaned file path: "${filePath}" -> "${cleanedPath}"`);
         return cleanedPath;
     }
     /**
@@ -13532,7 +14319,7 @@ ${match.trim()}
      * @param webview 웹뷰
      * @param promptType 프롬프트 타입
      */
-    async processLongResponse(llmResponse, contextFiles, webview, promptType) {
+    async processLongResponse(llmResponse, contextFiles, webview, promptType, statusCallback) {
         try {
             // 응답을 파일 작업 단위로 분할
             const fileSections = this.splitResponseByFileOperations(llmResponse);
@@ -13542,7 +14329,7 @@ ${match.trim()}
                 const section = fileSections[i];
                 console.log(`[LLM Response Processor] Processing section ${i + 1}/${fileSections.length}`);
                 // 각 섹션을 개별적으로 처리
-                await this.processResponseSection(section, contextFiles, webview, promptType);
+                await this.processResponseSection(section, contextFiles, webview, promptType, statusCallback);
                 // 메모리 정리를 위한 짧은 대기
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
@@ -13601,19 +14388,19 @@ ${match.trim()}
      * @param webview 웹뷰
      * @param promptType 프롬프트 타입
      */
-    async processResponseSection(section, contextFiles, webview, promptType) {
+    async processResponseSection(section, contextFiles, webview, promptType, statusCallback) {
         try {
             // 섹션이 너무 길면 더 작은 단위로 분할
             if (section.length > 20000) {
                 const subSections = this.splitSectionBySize(section, 15000);
                 for (const subSection of subSections) {
-                    await this.processResponseSection(subSection, contextFiles, webview, promptType);
+                    await this.processResponseSection(subSection, contextFiles, webview, promptType, statusCallback);
                 }
                 return;
             }
             // 정규화 및 처리
             const normalizedSection = this.normalizeTerminalCommandBlocks(section);
-            await this.processNormalizedResponse(normalizedSection, contextFiles, webview, promptType);
+            await this.processNormalizedResponse(normalizedSection, contextFiles, webview, promptType, statusCallback);
         }
         catch (error) {
             console.error('[LLM Response Processor] Error processing section:', error);
@@ -13657,12 +14444,13 @@ ${match.trim()}
      * @param webview 웹뷰
      * @param promptType 프롬프트 타입
      */
-    async processNormalizedResponse(normalizedResponse, contextFiles, webview, promptType) {
+    async processNormalizedResponse(normalizedResponse, contextFiles, webview, promptType, statusCallback) {
         // 기존 처리 로직을 여기서 재사용
         // 파일 작업 파싱 및 실행
         const fileOperations = this.parseFileOperations(normalizedResponse);
         if (fileOperations.length > 0) {
-            await this.executeFileOperations(fileOperations, webview);
+            statusCallback?.(`Executing ${fileOperations.length} file operations...`);
+            await this.executeFileOperations(fileOperations, webview, statusCallback);
         }
         // 터미널 명령어 처리
         if ((0, terminalManager_1.hasBashCommands)(normalizedResponse)) {
@@ -13700,9 +14488,11 @@ ${match.trim()}
                 continue;
             }
             fileOperations.push({
-                type: operation === '새 파일' ? 'create' : 'update',
-                path: filePath,
-                content: content
+                type: operation === '새 파일' ? 'create' : 'modify',
+                originalDirective: operation,
+                llmSpecifiedPath: filePath,
+                absolutePath: filePath, // 임시로 동일하게 설정
+                newContent: content
             });
         }
         // 마크다운 파일 처리
@@ -13719,9 +14509,11 @@ ${match.trim()}
                 continue;
             }
             fileOperations.push({
-                type: operation === '새 파일' ? 'create' : 'update',
-                path: filePath,
-                content: content
+                type: operation === '새 파일' ? 'create' : 'modify',
+                originalDirective: operation,
+                llmSpecifiedPath: filePath,
+                absolutePath: filePath, // 임시로 동일하게 설정
+                newContent: content
             });
         }
         // 삭제 파일 처리
@@ -13737,8 +14529,9 @@ ${match.trim()}
             }
             fileOperations.push({
                 type: 'delete',
-                path: filePath,
-                content: ''
+                originalDirective: '삭제 파일',
+                llmSpecifiedPath: filePath,
+                absolutePath: filePath // 임시로 동일하게 설정
             });
         }
         return fileOperations;
@@ -13748,20 +14541,22 @@ ${match.trim()}
      * @param fileOperations 파일 작업 목록
      * @param webview 웹뷰
      */
-    async executeFileOperations(fileOperations, webview) {
+    async executeFileOperations(fileOperations, webview, statusCallback) {
         const projectRoot = await this.getProjectRootPath();
-        for (const operation of fileOperations) {
+        for (let i = 0; i < fileOperations.length; i++) {
+            const operation = fileOperations[i];
+            statusCallback?.(`Executing file operation ${i + 1}/${fileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
             try {
-                if (operation.type === 'create' || operation.type === 'update') {
-                    await this.createOrUpdateFile(operation.path, operation.content, projectRoot, webview);
+                if (operation.type === 'create' || operation.type === 'modify') {
+                    await this.createOrUpdateFile(operation.absolutePath, operation.newContent || '', projectRoot, webview);
                 }
                 else if (operation.type === 'delete') {
-                    await this.deleteFile(operation.path, projectRoot, webview);
+                    await this.deleteFile(operation.absolutePath, projectRoot, webview);
                 }
             }
             catch (error) {
                 console.error(`[LLM Response Processor] Error executing file operation:`, error);
-                this.notificationService.showErrorMessage(`파일 작업 실행 중 오류: ${operation.path}`);
+                this.notificationService.showErrorMessage(`파일 작업 실행 중 오류: ${operation.llmSpecifiedPath}`);
             }
         }
     }
@@ -13844,6 +14639,197 @@ ${match.trim()}
         catch (error) {
             console.error('[LLM Response Processor] Fallback processing failed:', error);
             this.notificationService.showErrorMessage('응답 처리에 실패했습니다.');
+        }
+    }
+    /**
+     * DIFF callout을 처리하여 기존 파일에 변경사항을 적용합니다.
+     */
+    async processDiffCallouts(llmResponse, contextFiles, projectRoot, fileOperations, updateSummaryMessages, statusCallback) {
+        const diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        let match;
+        let diffCount = 0;
+        while ((match = diffCalloutRegex.exec(llmResponse)) !== null) {
+            diffCount++;
+            const diffContent = match[1];
+            statusCallback?.(`Processing DIFF callout ${diffCount}...`);
+            try {
+                // DIFF 내용에서 파일 경로와 변경사항 추출
+                const diffResult = this.parseDiffContent(diffContent);
+                if (!diffResult) {
+                    console.warn(`[LLM Response Processor] Failed to parse DIFF callout ${diffCount}`);
+                    continue;
+                }
+                const { filePath, changes } = diffResult;
+                // 파일 경로를 절대 경로로 변환
+                let absolutePath;
+                if (contextFiles.length > 0) {
+                    // 컨텍스트 파일에서 매칭되는 파일 찾기
+                    const matchedFile = contextFiles.find((f) => {
+                        const fileName = filePath.split(/[/\\]/).pop() || filePath;
+                        return f.name === fileName || f.name === filePath || f.fullPath.endsWith(filePath);
+                    });
+                    if (matchedFile) {
+                        absolutePath = matchedFile.fullPath;
+                    }
+                }
+                if (!absolutePath && projectRoot) {
+                    absolutePath = path.join(projectRoot, filePath);
+                }
+                if (!absolutePath) {
+                    const warnMsg = `경고: DIFF callout에서 파일 '${filePath}'의 경로를 찾을 수 없습니다.`;
+                    console.warn(`[LLM Response Processor] ${warnMsg}`);
+                    updateSummaryMessages.push(`⚠️ ${warnMsg}`);
+                    continue;
+                }
+                // 기존 파일 내용 읽기
+                const existingContent = await this.readFileContent(absolutePath);
+                if (existingContent === null) {
+                    const warnMsg = `경고: DIFF 적용 대상 파일 '${filePath}'을 읽을 수 없습니다.`;
+                    console.warn(`[LLM Response Processor] ${warnMsg}`);
+                    updateSummaryMessages.push(`⚠️ ${warnMsg}`);
+                    continue;
+                }
+                // DIFF 변경사항을 기존 파일에 적용
+                const newContent = this.applyDiffChanges(existingContent, changes);
+                if (newContent === null) {
+                    const warnMsg = `경고: DIFF 변경사항을 파일 '${filePath}'에 적용할 수 없습니다.`;
+                    console.warn(`[LLM Response Processor] ${warnMsg}`);
+                    updateSummaryMessages.push(`⚠️ ${warnMsg}`);
+                    continue;
+                }
+                // 파일 작업에 추가
+                fileOperations.push({
+                    type: 'modify',
+                    originalDirective: 'DIFF 수정',
+                    llmSpecifiedPath: filePath,
+                    absolutePath,
+                    newContent
+                });
+                updateSummaryMessages.push(`✅ DIFF 적용: ${filePath}`);
+            }
+            catch (error) {
+                console.error(`[LLM Response Processor] Error processing DIFF callout ${diffCount}:`, error);
+                updateSummaryMessages.push(`❌ DIFF 처리 실패 (callout ${diffCount}): ${error}`);
+            }
+        }
+        if (diffCount > 0) {
+            console.log(`[LLM Response Processor] Processed ${diffCount} DIFF callouts`);
+        }
+    }
+    /**
+     * DIFF 내용을 파싱하여 파일 경로와 변경사항을 추출합니다.
+     */
+    parseDiffContent(diffContent) {
+        try {
+            const lines = diffContent.split('\n');
+            let filePath = '';
+            const changes = [];
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                // 파일 경로 추출 (--- 또는 +++ 라인에서)
+                if (trimmedLine.startsWith('---') || trimmedLine.startsWith('+++')) {
+                    const pathMatch = trimmedLine.match(/^(---|\+\+\+)\s+(.+)$/);
+                    if (pathMatch && pathMatch[2] && pathMatch[2] !== '/dev/null') {
+                        filePath = pathMatch[2].replace(/^a\//, '').replace(/^b\//, '');
+                    }
+                }
+                // 변경사항 추출
+                if (trimmedLine.startsWith('@@')) {
+                    // 헝크 헤더
+                    changes.push({ type: 'hunk', content: line });
+                }
+                else if (trimmedLine.startsWith('+') && !trimmedLine.startsWith('+++')) {
+                    // 추가된 라인
+                    changes.push({ type: 'add', content: line.substring(1) });
+                }
+                else if (trimmedLine.startsWith('-') && !trimmedLine.startsWith('---')) {
+                    // 삭제된 라인
+                    changes.push({ type: 'remove', content: line.substring(1) });
+                }
+                else if (trimmedLine.startsWith(' ')) {
+                    // 컨텍스트 라인
+                    changes.push({ type: 'context', content: line.substring(1) });
+                }
+            }
+            if (!filePath) {
+                return null;
+            }
+            return { filePath, changes };
+        }
+        catch (error) {
+            console.error('[LLM Response Processor] Error parsing DIFF content:', error);
+            return null;
+        }
+    }
+    /**
+     * 파일 내용을 읽습니다.
+     */
+    async readFileContent(filePath) {
+        try {
+            const uri = vscode.Uri.file(filePath);
+            const content = await vscode.workspace.fs.readFile(uri);
+            return Buffer.from(content).toString('utf-8');
+        }
+        catch (error) {
+            console.error(`[LLM Response Processor] Error reading file ${filePath}:`, error);
+            return null;
+        }
+    }
+    /**
+     * DIFF 변경사항을 기존 파일 내용에 적용합니다.
+     */
+    applyDiffChanges(existingContent, changes) {
+        try {
+            const lines = existingContent.split('\n');
+            let result = [];
+            let lineIndex = 0;
+            for (const change of changes) {
+                if (change.type === 'hunk') {
+                    // 헝크 헤더에서 라인 번호 정보 추출
+                    const hunkMatch = change.content.match(/@@\s*-(\d+)(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@/);
+                    if (hunkMatch) {
+                        const oldStart = parseInt(hunkMatch[1]) - 1; // 0-based index
+                        const newStart = parseInt(hunkMatch[2]) - 1; // 0-based index
+                        // 이전 컨텍스트 라인들을 결과에 추가
+                        while (lineIndex < oldStart && lineIndex < lines.length) {
+                            result.push(lines[lineIndex]);
+                            lineIndex++;
+                        }
+                    }
+                }
+                else if (change.type === 'context') {
+                    // 컨텍스트 라인 - 기존 파일에서 해당 라인을 찾아서 추가
+                    if (lineIndex < lines.length && lines[lineIndex] === change.content) {
+                        result.push(lines[lineIndex]);
+                        lineIndex++;
+                    }
+                    else {
+                        // 컨텍스트 라인을 찾을 수 없음 - 단순히 추가
+                        result.push(change.content);
+                    }
+                }
+                else if (change.type === 'remove') {
+                    // 삭제된 라인 - 기존 파일에서 해당 라인을 건너뛰기
+                    if (lineIndex < lines.length && lines[lineIndex] === change.content) {
+                        lineIndex++;
+                    }
+                    // 삭제된 라인이 기존 파일에 없어도 계속 진행
+                }
+                else if (change.type === 'add') {
+                    // 추가된 라인 - 결과에 추가
+                    result.push(change.content);
+                }
+            }
+            // 남은 기존 라인들을 결과에 추가
+            while (lineIndex < lines.length) {
+                result.push(lines[lineIndex]);
+                lineIndex++;
+            }
+            return result.join('\n');
+        }
+        catch (error) {
+            console.error('[LLM Response Processor] Error applying DIFF changes:', error);
+            return null;
         }
     }
 }
@@ -14062,6 +15048,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.setErrorCorrectionServices = setErrorCorrectionServices;
+exports.setTerminalMonitorService = setTerminalMonitorService;
 exports.getAidevIdeTerminal = getAidevIdeTerminal;
 exports.buildFileOpTokens = buildFileOpTokens;
 exports.enqueueCommandsBatch = enqueueCommandsBatch;
@@ -14070,13 +15058,15 @@ exports.executeBashCommandsFromLlmResponse = executeBashCommandsFromLlmResponse;
 exports.executeBashCommand = executeBashCommand;
 exports.hasBashCommands = hasBashCommands;
 exports.getCommandSequenceStatus = getCommandSequenceStatus;
+exports.resetWorkingDirectory = resetWorkingDirectory;
+exports.handleCommandError = handleCommandError;
+exports.resetErrorRetryCount = resetErrorRetryCount;
 exports.stopCommandSequence = stopCommandSequence;
 const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(25));
 const path = __importStar(__webpack_require__(10));
 const processRunner_1 = __webpack_require__(42);
 const monitorBridge_1 = __webpack_require__(44);
-const terminalDaemonClient_1 = __webpack_require__(45);
 const configurationService_1 = __webpack_require__(7);
 let _codePilotTerminal;
 let _isWaitingForInput = false;
@@ -14087,8 +15077,28 @@ let _priorityQueue = [];
 let _normalQueue = [];
 let _isProcessingQueue = false;
 let _queuePausedForLongRunning = false;
+let _currentWorkingDirectory = undefined;
 const FILE_OP_PREFIX = '__AIDEV_FILE_OP__::';
-const _daemonClient = new terminalDaemonClient_1.TerminalDaemonClient();
+// 오류 수정 시스템 관련 변수들
+let _llmService = undefined;
+let _errorRetryCount = 0;
+const MAX_ERROR_RETRIES = 3;
+let _currentWebview = undefined;
+let _terminalMonitorService = undefined;
+/**
+ * 오류 수정 시스템을 위한 LLM 서비스와 웹뷰를 설정합니다.
+ */
+function setErrorCorrectionServices(llmService, webview) {
+    _llmService = llmService;
+    _currentWebview = webview;
+}
+/**
+ * 터미널 모니터링 서비스를 설정합니다.
+ */
+function setTerminalMonitorService(terminalMonitorService) {
+    _terminalMonitorService = terminalMonitorService;
+    console.log('[TerminalManager] 터미널 모니터링 서비스 설정 완료');
+}
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
  */
@@ -14175,7 +15185,7 @@ async function getEffectiveCwd() {
 }
 function getCaptureOutputChannel() {
     if (!_captureOutputChannel) {
-        _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Capture');
+        _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal');
     }
     return _captureOutputChannel;
 }
@@ -14264,8 +15274,23 @@ async function handleInteractiveCommand(command) {
             return false;
         }
     }
-    const cwd = await getEffectiveCwd();
+    // cd 명령어 감지 및 작업 디렉토리 업데이트
+    if (command.toLowerCase().trim().startsWith('cd ')) {
+        const targetDir = command.substring(3).trim();
+        if (targetDir) {
+            _currentWorkingDirectory = targetDir;
+            // console.log(`[TerminalManager] Updated working directory to: ${_currentWorkingDirectory}`);
+        }
+    }
+    // 현재 작업 디렉토리를 프로젝트 루트로 설정 (잘못된 cwd 방지)
+    const effectiveCwd = await getEffectiveCwd();
+    const cwd = _currentWorkingDirectory && _currentWorkingDirectory !== 'bank-app-front' ? _currentWorkingDirectory : effectiveCwd;
     if (shouldUseTerminal) {
+        const channel = getCaptureOutputChannel();
+        channel.appendLine(`\n===== Executing in VS Code Terminal: ${command} (${new Date().toLocaleString()}) =====`);
+        channel.appendLine(`CWD: ${cwd || '(not set)'}`);
+        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
         const terminal = getAidevIdeTerminal();
         if (!terminal.state.isInteractedWith) {
             terminal.show();
@@ -14276,7 +15301,7 @@ async function handleInteractiveCommand(command) {
             if (defaultResponse !== null) {
                 setTimeout(() => {
                     terminal.sendText(defaultResponse);
-                    console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
+                    // console.log(`[TerminalManager] Sent default response for interactive command: ${defaultResponse}`);
                 }, 2000);
             }
             vscode.window.showInformationMessage(`aidev-ide: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`, { modal: false });
@@ -14284,63 +15309,116 @@ async function handleInteractiveCommand(command) {
         else {
             vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
         }
-        console.log(`[TerminalManager] Executed bash command: ${command}`);
+        channel.appendLine(`----- Command Sent to VS Code Terminal -----`);
+        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+        // console.log(`[TerminalManager] Executed bash command: ${command}`);
         return true;
     }
     // 기본 경로: terminal-daemon 경유 실행 (비대화형)
     const channel = getCaptureOutputChannel();
     channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
     channel.appendLine(`CWD: ${cwd || '(not set)'}`);
+    channel.appendLine(`Command: ${command}`);
+    channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
     const isErrorLike = (text) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i.test(text);
     let stderrAgg = '';
     let stdoutAgg = '';
     try {
         const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        console.log(`[TerminalManager] Starting via daemon. id=${id}, cwd=${cwd || '(not set)'}, cmd="${command}"`);
-        const runPromise = _daemonClient.run({ id, command, cwd }, (stream, chunk) => {
-            const lines = chunk.replace(/\r\n/g, '\n').split('\n');
-            for (const line of lines) {
-                const cleaned = sanitizeOutput(line).trim();
-                if (!cleaned)
-                    continue;
-                channel.appendLine(cleaned);
-                try {
-                    (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput(stream, cleaned);
-                }
-                catch { }
+        console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${command}"`);
+        channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${command}`);
+        channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
+        // VS Code 터미널을 사용하여 명령어 실행
+        const terminal = getAidevIdeTerminal();
+        // 작업 디렉토리 설정
+        if (cwd) {
+            terminal.sendText(`cd "${cwd}"`);
+        }
+        // 명령어 실행
+        terminal.sendText(command);
+        // 터미널을 보여주고 포커스
+        terminal.show(true);
+        // VS Code 터미널에서는 직접적인 출력 캡처가 어려우므로
+        // processRunner를 사용하여 출력을 캡처
+        const runPromise = (0, processRunner_1.runCommandCapture)(command, { cwd }, 
+        // stdout 콜백
+        (data) => {
+            if (_terminalMonitorService) {
+                _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stdout`, data);
             }
-            if (stream === 'stderr') {
-                stderrAgg += chunk + '\n';
-            }
-            else {
-                stdoutAgg += chunk + '\n';
+        }, 
+        // stderr 콜백
+        (data) => {
+            if (_terminalMonitorService) {
+                _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stderr`, data);
             }
         });
         if (isDevLong) {
             // 장기 실행은 즉시 반환하여 큐를 일시정지하도록 함 (processQueue에서 처리)
-            runPromise.then((res) => {
-                if (res.exitCode !== 0) {
-                    const msg = `Exit status ${res.exitCode}: ${command}`;
+            runPromise.then(async (res) => {
+                if (res.code !== 0) {
+                    const msg = `Exit status ${res.code}: ${command}`;
+                    channel.appendLine(`----- Long-running Command Failed -----`);
+                    channel.appendLine(`Command: ${command}`);
+                    channel.appendLine(`Exit code: ${res.code}`);
+                    channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+                    if (res.stderr) {
+                        channel.appendLine(`Stderr: ${res.stderr}`);
+                    }
                     try {
                         (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', msg);
                     }
                     catch { }
-                    channel.appendLine(msg);
                     channel.show(true);
+                    // Long-running 명령어에서도 오류 수정 시도
+                    const errorOutput = `Exit code: ${res.code}\nStderr: ${res.stderr || ''}\nStdout: ${res.stdout || ''}`;
+                    const retrySuccess = await handleCommandError(command, errorOutput, cwd || '', async (correctedCommand) => {
+                        // 수정된 명령어로 재시도
+                        channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
+                        await handleInteractiveCommand(correctedCommand);
+                    });
+                    if (!retrySuccess) {
+                        vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${command})`);
+                    }
                 }
                 else {
+                    channel.appendLine(`----- Long-running Command Completed -----`);
+                    channel.appendLine(`Command: ${command}`);
+                    channel.appendLine(`Exit code: ${res.code}`);
+                    channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+                    if (res.stdout) {
+                        channel.appendLine(`Output: ${res.stdout}`);
+                    }
                     try {
-                        (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stdout', `Process exited (code ${res.exitCode}): ${command}`);
+                        (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stdout', `Process exited (code ${res.code}): ${command}`);
                     }
                     catch { }
                 }
-            }).catch((err) => {
+            }).catch(async (err) => {
+                channel.appendLine(`----- Long-running Command Error -----`);
+                channel.appendLine(`Command: ${command}`);
+                channel.appendLine(`Error: ${err?.message || String(err)}`);
+                channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
                 try {
                     (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Process error: ${err?.message || String(err)}`);
                 }
                 catch { }
+                // Long-running 명령어에서도 오류 수정 시도
+                const errorOutput = `Process error: ${err?.message || String(err)}`;
+                const retrySuccess = await handleCommandError(command, errorOutput, cwd || '', async (correctedCommand) => {
+                    // 수정된 명령어로 재시도
+                    channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
+                    await handleInteractiveCommand(correctedCommand);
+                });
+                if (!retrySuccess) {
+                    vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${command})`);
+                }
             });
-            console.log(`[TerminalManager] Started long-running via daemon: ${command}`);
+            channel.appendLine(`----- Long-running Command Started -----`);
+            channel.appendLine(`Command: ${command}`);
+            channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+            console.log(`[TerminalManager] Started long-running via VS Code terminal: ${command}`);
             try {
                 channel.show(true);
             }
@@ -14348,23 +15426,48 @@ async function handleInteractiveCommand(command) {
             return true;
         }
         const result = await runPromise;
-        if (result.exitCode !== 0 || isErrorLike(stderrAgg)) {
-            channel.appendLine(`----- Exit code: ${result.exitCode} -----`);
+        if (result.code !== 0 || isErrorLike(result.stderr || '')) {
+            channel.appendLine(`----- Command Failed -----`);
+            channel.appendLine(`Command: ${command}`);
+            channel.appendLine(`Exit code: ${result.code}`);
+            channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+            if (result.stderr) {
+                channel.appendLine(`Stderr: ${result.stderr}`);
+            }
             try {
-                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Command failed (exit ${result.exitCode}): ${command}`);
-                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Exit status ${result.exitCode}`);
+                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`);
+                (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', `Exit status ${result.code}`);
             }
             catch { }
             channel.show(true);
-            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
-            return false;
+            // 오류 수정 시도
+            const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
+            const retrySuccess = await handleCommandError(command, errorOutput, cwd || '', async (correctedCommand) => {
+                // 수정된 명령어로 재시도
+                channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
+                await handleInteractiveCommand(correctedCommand);
+            });
+            if (!retrySuccess) {
+                vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+                return false;
+            }
+            return true;
         }
-        console.log(`[TerminalManager] Executed via daemon: ${command}`);
+        channel.appendLine(`----- Command Completed Successfully -----`);
+        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Exit code: ${result.code}`);
+        channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
+        if (result.stdout) {
+            channel.appendLine(`Output: ${result.stdout}`);
+        }
+        console.log(`[TerminalManager] Executed via VS Code terminal: ${command}`);
         return true;
     }
     catch (e) {
-        // 데몬 실패 시 캡처 기반으로 폴백
-        channel.appendLine(`[WARN] terminal-daemon 사용 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
+        // VS Code 터미널 실행 실패 시 캡처 기반으로 폴백
+        channel.appendLine(`[WARN] VS Code 터미널 실행 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
+        channel.appendLine(`[ERROR] Execution error details: ${JSON.stringify(e)}`);
+        console.error(`[TerminalManager] VS Code terminal execution failed:`, e);
         const result = await (0, processRunner_1.runCommandCapture)(command, { cwd, shell: true }, (chunk) => {
             chunk.split(/\r?\n/).forEach(line => {
                 const cleaned = sanitizeOutput(line).trim();
@@ -14375,6 +15478,10 @@ async function handleInteractiveCommand(command) {
                     (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stdout', cleaned);
                 }
                 catch { }
+                // 터미널 모니터링 서비스에도 전달
+                if (_terminalMonitorService) {
+                    _terminalMonitorService.ingestExternalOutput('fallback:stdout', cleaned);
+                }
             });
         }, (chunk) => {
             chunk.split(/\r?\n/).forEach(line => {
@@ -14386,6 +15493,10 @@ async function handleInteractiveCommand(command) {
                     (0, monitorBridge_1.getTerminalMonitor)()?.ingestExternalOutput('stderr', cleaned);
                 }
                 catch { }
+                // 터미널 모니터링 서비스에도 전달
+                if (_terminalMonitorService) {
+                    _terminalMonitorService.ingestExternalOutput('fallback:stderr', cleaned);
+                }
             });
         });
         if (result.code !== 0 || isErrorLike(result.stderr)) {
@@ -14655,7 +15766,9 @@ function executeBashCommandsFromLlmResponse(llmResponse) {
     }
     // 명령어들을 우선순위 큐에 추가하고 처리 시작
     if (executedCommands.length > 0) {
-        enqueueCommands(executedCommands, true);
+        // 작업 디렉토리를 초기화하여 잘못된 cwd 방지
+        resetWorkingDirectory();
+        enqueueCommandsBatch(executedCommands, true);
     }
     return executedCommands;
 }
@@ -14681,6 +15794,100 @@ function getCommandSequenceStatus() {
         currentIndex: _currentCommandIndex,
         totalCommands: _pendingCommands.length
     };
+}
+/**
+ * 현재 작업 디렉토리를 초기화합니다.
+ */
+function resetWorkingDirectory() {
+    _currentWorkingDirectory = undefined;
+}
+/**
+ * 명령어 실행 오류를 LLM에게 전송하여 수정된 명령어를 받아옵니다.
+ */
+async function getCorrectedCommand(failedCommand, errorOutput, cwd) {
+    if (!_llmService || !_currentWebview) {
+        console.log('[TerminalManager] LLM 서비스 또는 웹뷰가 설정되지 않음');
+        return null;
+    }
+    try {
+        const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
+
+실행된 명령어: ${failedCommand}
+작업 디렉토리: ${cwd}
+오류 출력:
+${errorOutput}
+
+수정된 명령어를 JSON 형식으로 응답해주세요:
+{
+  "correctedCommand": "수정된 명령어",
+  "reasoning": "수정 이유",
+  "confidence": 0.8
+}
+
+만약 명령어를 수정할 수 없다면:
+{
+  "correctedCommand": null,
+  "reasoning": "수정 불가능한 이유",
+  "confidence": 0.0
+}`;
+        console.log('[TerminalManager] LLM에게 오류 수정 요청 전송');
+        // LLM 서비스를 통해 응답 받기
+        const response = await _llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+        // JSON 응답 파싱
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            if (result.correctedCommand && result.confidence > 0.5) {
+                console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
+                return result.correctedCommand;
+            }
+        }
+        console.log('[TerminalManager] LLM 오류 수정 실패 또는 신뢰도 부족');
+        return null;
+    }
+    catch (error) {
+        console.error('[TerminalManager] LLM 오류 수정 중 예외 발생:', error);
+        return null;
+    }
+}
+/**
+ * 명령어 실행 오류를 처리하고 수정된 명령어로 재시도합니다.
+ */
+async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
+    if (_errorRetryCount >= MAX_ERROR_RETRIES) {
+        console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
+        _errorRetryCount = 0;
+        return false;
+    }
+    _errorRetryCount++;
+    console.log(`[TerminalManager] 오류 수정 시도 ${_errorRetryCount}/${MAX_ERROR_RETRIES}`);
+    const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
+    if (correctedCommand) {
+        console.log(`[TerminalManager] 수정된 명령어로 재시도: ${correctedCommand}`);
+        // 웹뷰에 오류 수정 상태 전송
+        if (_currentWebview) {
+            _currentWebview.postMessage({
+                command: 'showErrorCorrection',
+                originalCommand: failedCommand,
+                correctedCommand: correctedCommand,
+                retryCount: _errorRetryCount
+            });
+        }
+        // 수정된 명령어로 재시도
+        await onRetry(correctedCommand);
+        return true;
+    }
+    else {
+        console.log('[TerminalManager] 명령어 수정 불가능');
+        _errorRetryCount = 0;
+        return false;
+    }
+}
+/**
+ * 오류 수정 카운터를 초기화합니다.
+ */
+function resetErrorRetryCount() {
+    _errorRetryCount = 0;
 }
 /**
  * 실행 중인 명령어 시퀀스를 중단합니다.
@@ -14807,155 +16014,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.TerminalDaemonClient = void 0;
-const net = __importStar(__webpack_require__(46));
-const os = __importStar(__webpack_require__(47));
-const path = __importStar(__webpack_require__(10));
-class TerminalDaemonClient {
-    socketPath;
-    constructor(socketPath) {
-        this.socketPath = socketPath || path.join(os.tmpdir(), 'terminal-daemon.sock');
-    }
-    async run(options, onLog) {
-        return new Promise((resolve, reject) => {
-            const socket = net.createConnection(this.socketPath);
-            let exitResolved = false;
-            const send = (obj) => {
-                try {
-                    socket.write(JSON.stringify(obj) + '\n');
-                }
-                catch (e) {
-                    // ignore
-                }
-            };
-            socket.on('connect', () => {
-                send({
-                    type: 'run',
-                    id: options.id,
-                    command: options.command,
-                    cwd: options.cwd,
-                    env: options.env
-                });
-            });
-            let buffer = '';
-            socket.on('data', (chunk) => {
-                buffer += chunk.toString('utf8');
-                let idx;
-                while ((idx = buffer.indexOf('\n')) >= 0) {
-                    const line = buffer.slice(0, idx);
-                    buffer = buffer.slice(idx + 1);
-                    if (!line.trim())
-                        continue;
-                    try {
-                        const msg = JSON.parse(line);
-                        if (msg.type === 'log' && msg.stream && msg.chunk !== undefined) {
-                            onLog(msg.stream, msg.chunk);
-                        }
-                        else if (msg.type === 'exit') {
-                            if (!exitResolved) {
-                                exitResolved = true;
-                                socket.end();
-                                resolve({ exitCode: msg.code ?? 0 });
-                            }
-                        }
-                        else if (msg.type === 'error') {
-                            onLog('stderr', msg.error || 'daemon error');
-                        }
-                    }
-                    catch {
-                        onLog('stderr', line);
-                    }
-                }
-            });
-            socket.on('error', (err) => {
-                if (!exitResolved) {
-                    exitResolved = true;
-                    reject(err);
-                }
-            });
-            socket.on('close', () => {
-                if (!exitResolved) {
-                    exitResolved = true;
-                    resolve({ exitCode: -1 });
-                }
-            });
-        });
-    }
-}
-exports.TerminalDaemonClient = TerminalDaemonClient;
-
-
-/***/ }),
-/* 46 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("net");
-
-/***/ }),
-/* 47 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("os");
-
-/***/ }),
-/* 48 */
-/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlmService = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const externalApiService_1 = __webpack_require__(49);
+const llmKeywordSelectionService_1 = __webpack_require__(46);
+const externalApiService_1 = __webpack_require__(47);
 const panelUtils_1 = __webpack_require__(40);
-const tokenUtils_1 = __webpack_require__(50);
+const tokenUtils_1 = __webpack_require__(48);
 const types_1 = __webpack_require__(39);
-const actionPlannerService_1 = __webpack_require__(51);
-const terminalMonitorService_1 = __webpack_require__(52);
-const actionExecutionEngine_1 = __webpack_require__(53);
-const projectProfileService_1 = __webpack_require__(54);
-const intentDetectionService_1 = __webpack_require__(55);
+const actionPlannerService_1 = __webpack_require__(49);
+const terminalMonitorService_1 = __webpack_require__(50);
+const actionExecutionEngine_1 = __webpack_require__(51);
+const projectProfileService_1 = __webpack_require__(52);
+const intentDetectionService_1 = __webpack_require__(53);
 class LlmService {
     extensionContext;
     storageService;
     geminiApi;
     ollamaApi;
     codebaseContextService;
+    llmKeywordSelectionService;
     llmResponseProcessor;
     notificationService;
     configurationService;
@@ -14971,6 +16048,12 @@ class LlmService {
     sendProcessingStep(step) {
         if (this.currentPanel) {
             (0, panelUtils_1.safePostMessage)(this.currentPanel.webview, { command: 'setProcessingStep', step });
+        }
+    }
+    // 처리 상태 업데이트 함수
+    sendProcessingStatus(step, status) {
+        if (this.currentPanel) {
+            (0, panelUtils_1.safePostMessage)(this.currentPanel.webview, { command: 'updateProcessingStatus', step, status });
         }
     }
     activePlans = new Map();
@@ -14991,6 +16074,9 @@ class LlmService {
         this.notificationService = notificationService;
         this.configurationService = configurationService;
         this.externalApiService = new externalApiService_1.ExternalApiService(configurationService);
+        // LLM 키워드 선택 서비스 초기화
+        this.llmKeywordSelectionService = new llmKeywordSelectionService_1.LlmKeywordSelectionService(this);
+        this.codebaseContextService.setLlmKeywordSelectionService(this.llmKeywordSelectionService);
         // 액션 플래너 서비스들 초기화
         this.actionPlannerService = new actionPlannerService_1.ActionPlannerService(notificationService, configurationService);
         this.terminalMonitorService = new terminalMonitorService_1.TerminalMonitorService(notificationService);
@@ -15046,7 +16132,7 @@ class LlmService {
     getTerminalMonitorService() { return this.terminalMonitorService; }
     setCurrentModel(modelType) {
         this.currentModelType = modelType;
-        console.log(`[LlmService] Current model set to: ${modelType}`);
+        // console.log(`[LlmService] Current model set to: ${modelType}`);
     }
     formatErrorForChat(evt) {
         const header = `터미널 에러 감지 (${new Date(evt.time).toLocaleString()}):\n소스: ${evt.source}\n메시지: ${evt.message}`;
@@ -15118,11 +16204,46 @@ class LlmService {
             if (this.intentDetectionService) {
                 try {
                     this.sendProcessingStep('intent');
+                    this.sendProcessingStatus('intent', `Analyzing user query: "${userQuery.substring(0, 50)}${userQuery.length > 50 ? '...' : ''}"`);
+                    // 프로젝트 타입 감지 및 출력 (파일 기반 + LLM 기반)
+                    let projectTypeInfo = '';
+                    let detectedProjectType = 'unknown';
+                    if (this.codebaseContextService) {
+                        try {
+                            const projectRoot = await this.configurationService.getProjectRoot();
+                            if (projectRoot) {
+                                // 1. LLM 기반 프로젝트 타입 감지 (질의어 분석)
+                                const llmBasedProjectType = await this.detectProjectTypeFromQuery(userQuery);
+                                console.log(`[LlmService] LLM 기반 프로젝트 타입: ${llmBasedProjectType}`);
+                                // 2. 파일 기반 프로젝트 타입 감지 (LLM 결과를 전달)
+                                const finalProjectType = await this.codebaseContextService.detectProjectType([projectRoot], llmBasedProjectType);
+                                console.log(`[LlmService] 최종 프로젝트 타입: ${finalProjectType}`);
+                                detectedProjectType = finalProjectType;
+                                projectTypeInfo = ` | Project Type: ${detectedProjectType}`;
+                                this.sendProcessingStatus('intent', `Detected project type: ${detectedProjectType} (LLM: ${llmBasedProjectType})`);
+                            }
+                        }
+                        catch (error) {
+                            console.warn('[LlmService] Failed to detect project type during intent analysis:', error);
+                        }
+                    }
                     intentResult = await this.intentDetectionService.detectIntent(userQuery);
                     console.log('[LlmService] Detected intent:', intentResult);
+                    if (intentResult) {
+                        const confidence = Math.round(intentResult.confidence * 100);
+                        const reasoning = intentResult.reasoning || 'No reasoning provided';
+                        this.sendProcessingStatus('intent', `Intent: ${intentResult.category}/${intentResult.subtype} (${confidence}%)${projectTypeInfo} - ${reasoning.substring(0, 100)}${reasoning.length > 100 ? '...' : ''}`);
+                        // Debug Console 로그를 활용한 추가 정보
+                        console.log(`[LlmService] Intent analysis result: ${intentResult.category}/${intentResult.subtype} with ${confidence}% confidence${projectTypeInfo}`);
+                    }
+                    else {
+                        this.sendProcessingStatus('intent', `Intent analysis completed - No specific intent detected${projectTypeInfo}`);
+                        console.log('[LlmService] No specific intent detected from user query');
+                    }
                 }
                 catch (error) {
                     console.warn('[LlmService] Intent detection failed:', error);
+                    this.sendProcessingStatus('intent', 'Intent analysis failed, using default behavior');
                 }
             }
             // --- 대화 기록 관리 ---
@@ -15154,22 +16275,56 @@ class LlmService {
             if (promptType === types_1.PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
                 this.sendProcessingStep('keywords');
+                this.sendProcessingStatus('keywords', `Extracting keywords from query: "${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}"`);
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
+                if (relevantContextResult.selectedKeywords) {
+                    const keywordsStr = relevantContextResult.selectedKeywords.keywords.join(', ');
+                    const confidence = (relevantContextResult.selectedKeywords.confidence * 100).toFixed(1);
+                    const fileNames = includedFilesForContext.slice(0, 3).map(f => f.name).join(', ');
+                    const moreFiles = includedFilesForContext.length > 3 ? ` (+${includedFilesForContext.length - 3} more)` : '';
+                    this.sendProcessingStatus('keywords', `LLM 선택: ${keywordsStr} (${confidence}%) → ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
+                    // Debug Console 로그를 활용한 추가 정보
+                    console.log(`[LlmService] LLM selected keywords: ${keywordsStr} (confidence: ${confidence}%, reasoning: ${relevantContextResult.selectedKeywords.reasoning})`);
+                    console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
+                }
+                else if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
+                    const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
+                    const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
+                    this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                    // Debug Console 로그를 활용한 추가 정보
+                    console.log(`[LlmService] Extracted ${relevantContextResult.extractedKeywords.length} keywords: ${relevantContextResult.extractedKeywords.join(', ')}`);
+                    console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                }
+                else {
+                    this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                    console.log(`[LlmService] No keywords extracted, but found ${includedFilesForContext.length} files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                }
             }
             else if (promptType === types_1.PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
                 this.sendProcessingStep('keywords');
+                this.sendProcessingStatus('keywords', 'Extracting keywords from query...');
                 const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
+                if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
+                    const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
+                    const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
+                    this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files`);
+                }
+                else {
+                    this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files`);
+                }
             }
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
             let selectedFilesContext = "";
             if (selectedFiles && selectedFiles.length > 0) {
                 this.sendProcessingStep('analyzing');
-                for (const filePath of selectedFiles) {
+                this.sendProcessingStatus('analyzing', `Reading ${selectedFiles.length} selected files...`);
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const filePath = selectedFiles[i];
                     try {
                         const fileUri = vscode.Uri.file(filePath);
                         const contentBytes = await vscode.workspace.fs.readFile(fileUri);
@@ -15181,12 +16336,25 @@ class LlmService {
                             fullPath: filePath
                         });
                         selectedFilesContext += `파일명: ${fileName}\n경로: ${filePath}\n코드:\n\`\`\`\n${content}\n\`\`\`\n\n`;
+                        // 진행 상황 업데이트
+                        this.sendProcessingStatus('analyzing', `Reading file ${i + 1}/${selectedFiles.length}: ${fileName} (${content.length.toLocaleString()} chars)`);
+                        // Debug Console 로그를 활용한 추가 정보
+                        console.log(`[LlmService] Reading selected file ${i + 1}/${selectedFiles.length}: ${fileName} (${content.length.toLocaleString()} characters)`);
                     }
                     catch (error) {
                         console.error(`Error reading selected file ${filePath}:`, error);
                         selectedFilesContext += `파일명: ${filePath.split(/[/\\]/).pop() || 'Unknown'}\n경로: ${filePath}\n오류: 파일을 읽을 수 없습니다.\n\n`;
                     }
                 }
+            }
+            else if (includedFilesForContext.length > 0) {
+                // 자동으로 찾은 파일들 표시
+                this.sendProcessingStep('analyzing');
+                const fileNames = includedFilesForContext.slice(0, 5).map(f => f.name).join(', ');
+                const moreFiles = includedFilesForContext.length > 5 ? ` (+${includedFilesForContext.length - 5} more)` : '';
+                this.sendProcessingStatus('analyzing', `Analyzing ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
+                // Debug Console 로그를 활용한 추가 정보
+                console.log(`[LlmService] Analyzing ${includedFilesForContext.length} automatically found files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
             }
             // 선택된 파일 컨텍스트를 기존 컨텍스트에 추가
             const fullFileContentsContext = selectedFilesContext
@@ -15195,7 +16363,21 @@ class LlmService {
             // 시스템 프롬프트 생성
             const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
             const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
+            // 프로젝트 타입 정보 추가
+            let projectTypeContext = '';
+            if (this.codebaseContextService) {
+                try {
+                    const projectRoot = await this.configurationService.getProjectRoot();
+                    if (projectRoot) {
+                        const projectType = await this.codebaseContextService.detectProjectType([projectRoot]);
+                        projectTypeContext = `\n프로젝트 타입: ${projectType}`;
+                    }
+                }
+                catch (error) {
+                    console.warn('[LlmService] Failed to detect project type:', error);
+                }
+            }
+            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext + projectTypeContext, intentContext);
             // 사용자 메시지 파트 구성
             const userParts = [];
             // 대화 기록이 있으면 먼저 추가
@@ -15238,6 +16420,12 @@ class LlmService {
             // end of send banner
             let llmResponse;
             this.sendProcessingStep('assembling');
+            const totalContextLength = systemPrompt.length + userParts.reduce((sum, part) => sum + (part.text?.length || 0), 0);
+            const estimatedTokens = (0, tokenUtils_1.estimateTokens)(systemPrompt + userParts.map(part => part.text || '').join(''));
+            this.sendProcessingStatus('assembling', `Generating with ${currentModelNameForLog} (${totalContextLength.toLocaleString()} chars, ~${estimatedTokens.toLocaleString()} tokens)...`);
+            // Debug Console 로그를 활용한 추가 정보
+            console.log(`[LlmService] Assembling response with ${currentModelNameForLog}: ${totalContextLength.toLocaleString()} characters (~${estimatedTokens.toLocaleString()} tokens)`);
+            console.log(`[LlmService] System prompt length: ${systemPrompt.length.toLocaleString()} chars, User parts: ${userParts.length} parts`);
             if (this.currentModelType === types_1.AiModelType.GEMINI) {
                 const requestOptions = { signal: abortSignal };
                 llmResponse = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, userParts, requestOptions);
@@ -15253,6 +16441,11 @@ class LlmService {
             else {
                 throw new Error(`Unsupported model type: ${this.currentModelType}`);
             }
+            const outputTokens = (0, tokenUtils_1.estimateTokens)(llmResponse);
+            this.sendProcessingStatus('assembling', `Generated ${llmResponse.length.toLocaleString()} chars (~${outputTokens.toLocaleString()} tokens) response`);
+            // Debug Console 로그를 활용한 추가 정보
+            console.log(`[LlmService] Response generated: ${llmResponse.length.toLocaleString()} characters (~${outputTokens.toLocaleString()} tokens)`);
+            console.log(`[LlmService] Response preview: ${llmResponse.substring(0, 100)}${llmResponse.length > 100 ? '...' : ''}`);
             // ===== 전송 완료 배너 및 타임스탬프/소요시간 로그 =====
             const sendFinishedAt = Date.now();
             const durationMs = sendFinishedAt - sendStartedAt;
@@ -15272,8 +16465,11 @@ class LlmService {
             }
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
             this.sendProcessingStep('parsing');
-            await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, promptType === types_1.PromptType.CODE_GENERATION ? allContextFiles : [], webviewToRespond, promptType);
+            this.sendProcessingStatus('parsing', 'Processing response format...');
+            await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(llmResponse, promptType === types_1.PromptType.CODE_GENERATION ? allContextFiles : [], webviewToRespond, promptType, (status) => this.sendProcessingStatus('parsing', status));
+            this.sendProcessingStatus('parsing', 'Response processed successfully');
             this.sendProcessingStep('printing');
+            this.sendProcessingStatus('printing', 'Preparing final output...');
             // --- AI 응답을 대화 기록에 저장 ---
             if (this.extensionContext && userQuery) {
                 const summarizedResponse = this.summarizeAiResponse(llmResponse);
@@ -15424,6 +16620,7 @@ class LlmService {
 7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
 8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
 9. 터미널 명령어가 필요한 경우 "bash" 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요. (devDependencies에 설치된 vite는 npx로 실행해야 함)
 
 파일 생성/수정 형식 예시:
 
@@ -15463,11 +16660,12 @@ npm install
 npm start
 \`\`\`
 
-터미널 명령어의 경우:
+터미널 명령어의 경우 (Vite 프로젝트):
 \`\`\`bash
 npm install
+npm run dev
 npm run build
-npm start
+npm run preview
 \`\`\`
 
 코드베이스 컨텍스트:
@@ -15511,12 +16709,276 @@ ${realTimeInfo}
         }
         return systemPrompt;
     }
+    /**
+     * 사용자 질의어에서 프로젝트 타입을 LLM으로 감지합니다.
+     */
+    async detectProjectTypeFromQuery(userQuery) {
+        try {
+            const projectTypePrompt = `다음 사용자 요청을 분석하여 프로젝트 타입을 감지하세요.
+
+지원하는 프로젝트 타입:
+- react: React 프로젝트
+- react-vite: React + Vite 프로젝트
+- vue: Vue.js 프로젝트
+- angular: Angular 프로젝트
+- next: Next.js 프로젝트
+- nuxt: Nuxt.js 프로젝트
+- svelte: Svelte 프로젝트
+- nodejs: 일반 Node.js 프로젝트
+- django: Django (Python) 프로젝트
+- flask: Flask (Python) 프로젝트
+- fastapi: FastAPI (Python) 프로젝트
+- python: 일반 Python 프로젝트
+- java: Java/Spring 프로젝트
+- dotnet: .NET 프로젝트
+- go: Go 프로젝트
+- rust: Rust 프로젝트
+- php: PHP 프로젝트
+- ruby: Ruby 프로젝트
+- ios: iOS 프로젝트
+- android: Android 프로젝트
+- flutter: Flutter 프로젝트
+- react-native: React Native 프로젝트
+- unknown: 감지할 수 없음
+
+출력 형식 (JSON):
+{
+  "projectType": "react-vite",
+  "confidence": 0.9,
+  "reasoning": "사용자가 'react javascript 템플릿으로 vite 프로젝트 생성'이라고 요청했으므로 React + Vite 프로젝트입니다."
+}
+
+사용자 요청: "${userQuery}"`;
+            let response;
+            if (this.currentModelType === types_1.AiModelType.GEMINI) {
+                response = await this.geminiApi.sendMessage(projectTypePrompt, undefined, { signal: this.currentCallController?.signal });
+            }
+            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma || this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek || this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama || this.currentModelType === types_1.AiModelType.OLLAMA_GPT_OSS) {
+                response = await this.ollamaApi.sendMessage(projectTypePrompt, { signal: this.currentCallController?.signal });
+            }
+            else {
+                return 'unknown';
+            }
+            console.log(`[LlmService] LLM 프로젝트 타입 감지 응답: ${response}`);
+            // JSON 응답 파싱
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const result = JSON.parse(jsonMatch[0]);
+                if (result.projectType && result.confidence > 0.5) {
+                    console.log(`[LlmService] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${result.confidence})`);
+                    return result.projectType;
+                }
+            }
+            // JSON 파싱 실패 시 키워드 기반 감지
+            const lowerQuery = userQuery.toLowerCase();
+            if (lowerQuery.includes('react') && lowerQuery.includes('vite'))
+                return 'react-vite';
+            if (lowerQuery.includes('react'))
+                return 'react';
+            if (lowerQuery.includes('vue'))
+                return 'vue';
+            if (lowerQuery.includes('angular'))
+                return 'angular';
+            if (lowerQuery.includes('next'))
+                return 'next';
+            if (lowerQuery.includes('nuxt'))
+                return 'nuxt';
+            if (lowerQuery.includes('svelte'))
+                return 'svelte';
+            if (lowerQuery.includes('django'))
+                return 'django';
+            if (lowerQuery.includes('flask'))
+                return 'flask';
+            if (lowerQuery.includes('fastapi'))
+                return 'fastapi';
+            if (lowerQuery.includes('python'))
+                return 'python';
+            if (lowerQuery.includes('spring') || lowerQuery.includes('java'))
+                return 'java';
+            if (lowerQuery.includes('.net') || lowerQuery.includes('c#'))
+                return 'dotnet';
+            if (lowerQuery.includes('go ') || lowerQuery.includes('golang'))
+                return 'go';
+            if (lowerQuery.includes('rust'))
+                return 'rust';
+            if (lowerQuery.includes('php'))
+                return 'php';
+            if (lowerQuery.includes('ruby'))
+                return 'ruby';
+            if (lowerQuery.includes('ios'))
+                return 'ios';
+            if (lowerQuery.includes('android'))
+                return 'android';
+            if (lowerQuery.includes('flutter'))
+                return 'flutter';
+            if (lowerQuery.includes('react-native'))
+                return 'react-native';
+            if (lowerQuery.includes('node') || lowerQuery.includes('javascript') || lowerQuery.includes('typescript'))
+                return 'nodejs';
+            return 'unknown';
+        }
+        catch (error) {
+            console.warn('[LlmService] LLM 프로젝트 타입 감지 실패:', error);
+            return 'unknown';
+        }
+    }
+    /**
+     * 명령어 오류 수정을 위한 LLM 메시지 전송
+     */
+    async sendMessageForErrorCorrection(prompt) {
+        try {
+            let response;
+            if (this.currentModelType === types_1.AiModelType.GEMINI) {
+                response = await this.geminiApi.sendMessage(prompt, undefined, { signal: this.currentCallController?.signal });
+            }
+            else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma || this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek || this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama || this.currentModelType === types_1.AiModelType.OLLAMA_GPT_OSS) {
+                response = await this.ollamaApi.sendMessage(prompt, { signal: this.currentCallController?.signal });
+            }
+            else {
+                throw new Error('지원하지 않는 모델 타입');
+            }
+            console.log(`[LlmService] 오류 수정 응답: ${response}`);
+            return response;
+        }
+        catch (error) {
+            console.error('[LlmService] 오류 수정 메시지 전송 실패:', error);
+            throw error;
+        }
+    }
 }
 exports.LlmService = LlmService;
 
 
 /***/ }),
-/* 49 */
+/* 46 */
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.LlmKeywordSelectionService = void 0;
+class LlmKeywordSelectionService {
+    llmService;
+    constructor(llmService) {
+        this.llmService = llmService;
+    }
+    /**
+     * LLM을 사용하여 사용자 질의에서 관련 키워드를 선택합니다.
+     * @param userQuery 사용자의 질의
+     * @param projectContext 프로젝트 컨텍스트
+     * @param availableKeywords 사용 가능한 키워드 목록
+     * @returns 선택된 키워드와 추론 과정
+     */
+    async selectKeywordsWithLLM(userQuery, projectContext, availableKeywords) {
+        try {
+            const systemPrompt = this.createSystemPrompt(projectContext, availableKeywords);
+            const userPrompt = this.createUserPrompt(userQuery);
+            // LLM 호출 (현재 모델 사용)
+            const response = await this.callCurrentLLM(systemPrompt, userPrompt, availableKeywords);
+            // 응답 파싱
+            return this.parseKeywordSelectionResponse(response);
+        }
+        catch (error) {
+            console.warn('[LlmKeywordSelectionService] LLM 키워드 선택 실패:', error);
+            // 실패 시 기본 키워드 선택
+            return this.getFallbackKeywords(userQuery, availableKeywords);
+        }
+    }
+    /**
+     * 시스템 프롬프트를 생성합니다.
+     */
+    createSystemPrompt(projectContext, availableKeywords) {
+        return `당신은 코드 분석 전문가입니다. 사용자의 질의를 분석하여 가장 관련성이 높은 키워드들을 선택해야 합니다.
+
+프로젝트 정보:
+- 프레임워크: ${projectContext.framework}
+- 프로젝트 타입: ${projectContext.projectType}
+- 주요 파일명: ${projectContext.fileNames.slice(0, 10).join(', ')}
+- 주요 디렉토리: ${projectContext.directoryNames.slice(0, 10).join(', ')}
+
+사용 가능한 키워드 목록:
+${availableKeywords.map((keyword, index) => `${index + 1}. ${keyword}`).join('\n')}
+
+다음 JSON 형식으로 응답해주세요:
+{
+  "keywords": ["선택된_키워드1", "선택된_키워드2", "선택된_키워드3"],
+  "reasoning": "키워드 선택 이유를 간단히 설명",
+  "confidence": 0.85
+}
+
+선택 기준:
+1. 사용자 질의와 직접적으로 관련된 키워드 우선
+2. 프로젝트 컨텍스트와 일치하는 키워드 우선
+3. 최대 5개까지만 선택
+4. confidence는 0.0-1.0 사이의 값으로 설정`;
+    }
+    /**
+     * 사용자 프롬프트를 생성합니다.
+     */
+    createUserPrompt(userQuery) {
+        return `사용자 질의: "${userQuery}"
+
+위 질의를 분석하여 가장 관련성이 높은 키워드들을 선택해주세요.`;
+    }
+    /**
+     * LLM 응답을 파싱합니다.
+     */
+    parseKeywordSelectionResponse(response) {
+        try {
+            // JSON 블록 추출
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                throw new Error('JSON 형식을 찾을 수 없습니다.');
+            }
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+                reasoning: parsed.reasoning || '키워드 선택 완료',
+                confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5
+            };
+        }
+        catch (error) {
+            console.warn('[LlmKeywordSelectionService] 응답 파싱 실패:', error);
+            return this.getFallbackKeywords('', []);
+        }
+    }
+    /**
+     * 현재 설정된 LLM을 호출합니다.
+     */
+    async callCurrentLLM(systemPrompt, userPrompt, availableKeywords) {
+        // LlmService의 현재 모델을 사용하여 호출
+        // 이는 간단한 구현이며, 실제로는 LlmService의 내부 메서드를 사용해야 합니다
+        try {
+            // 임시로 기본 응답 반환 (실제 구현에서는 LlmService의 메서드 호출)
+            return JSON.stringify({
+                keywords: availableKeywords.slice(0, 3),
+                reasoning: "LLM 키워드 선택 (임시 구현)",
+                confidence: 0.7
+            });
+        }
+        catch (error) {
+            throw new Error(`LLM 호출 실패: ${error}`);
+        }
+    }
+    /**
+     * 실패 시 사용할 기본 키워드 선택
+     */
+    getFallbackKeywords(userQuery, availableKeywords) {
+        // 간단한 키워드 매칭
+        const queryWords = userQuery.toLowerCase().split(/\s+/);
+        const matchedKeywords = availableKeywords.filter(keyword => queryWords.some(word => keyword.toLowerCase().includes(word) || word.includes(keyword.toLowerCase())));
+        return {
+            keywords: matchedKeywords.slice(0, 5),
+            reasoning: '기본 키워드 매칭 사용',
+            confidence: 0.3
+        };
+    }
+}
+exports.LlmKeywordSelectionService = LlmKeywordSelectionService;
+
+
+/***/ }),
+/* 47 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -15985,7 +17447,7 @@ exports.ExternalApiService = ExternalApiService;
 
 
 /***/ }),
-/* 50 */
+/* 48 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -15996,6 +17458,7 @@ exports.estimateTokenCount = estimateTokenCount;
 exports.calculateTotalTokens = calculateTotalTokens;
 exports.checkTokenLimit = checkTokenLimit;
 exports.logTokenUsage = logTokenUsage;
+exports.estimateTokens = estimateTokens;
 const types_1 = __webpack_require__(39);
 // 모델별 토큰 제한
 exports.MODEL_TOKEN_LIMITS = {
@@ -16110,10 +17573,10 @@ function logTokenUsage(systemPrompt, userParts, modelType, actualModelName) {
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
     const label = actualModelName || modelType;
-    console.log(`[TokenUtils] ${label} 토큰 사용량:`);
-    console.log(`  - 현재 토큰: ${currentTokens.toLocaleString()}개`);
-    console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
-    console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
+    // console.log(`[TokenUtils] ${label} 토큰 사용량:`);
+    // console.log(`  - 현재 토큰: ${currentTokens.toLocaleString()}개`);
+    // console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
+    // console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
     if (usagePercentage > 80) {
         console.warn(`[TokenUtils] ⚠️ 토큰 사용률이 높습니다: ${usagePercentage.toFixed(1)}%`);
     }
@@ -16121,10 +17584,29 @@ function logTokenUsage(systemPrompt, userParts, modelType, actualModelName) {
         console.error(`[TokenUtils] ❌ 토큰 제한 초과: ${currentTokens.toLocaleString()} > ${limits.maxInputTokens.toLocaleString()}`);
     }
 }
+/**
+ * 텍스트의 대략적인 토큰 수를 계산합니다.
+ * 대부분의 토큰화 모델에서 1 토큰 ≈ 4 문자 (영어 기준) 또는 1-2 문자 (한국어 기준)
+ * @param text 토큰 수를 계산할 텍스트
+ * @returns 대략적인 토큰 수
+ */
+function estimateTokens(text) {
+    if (!text)
+        return 0;
+    // 한국어와 영어를 구분하여 계산
+    const koreanChars = (text.match(/[가-힣]/g) || []).length;
+    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+    const otherChars = text.length - koreanChars - englishChars;
+    // 한국어: 1-2 문자당 1 토큰, 영어: 4 문자당 1 토큰, 기타: 3 문자당 1 토큰
+    const koreanTokens = Math.ceil(koreanChars / 1.5);
+    const englishTokens = Math.ceil(englishChars / 4);
+    const otherTokens = Math.ceil(otherChars / 3);
+    return koreanTokens + englishTokens + otherTokens;
+}
 
 
 /***/ }),
-/* 51 */
+/* 49 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -16643,7 +18125,7 @@ exports.ActionPlannerService = ActionPlannerService;
 
 
 /***/ }),
-/* 52 */
+/* 50 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -16696,10 +18178,30 @@ class TerminalMonitorService {
     lastTerminalCount = 0;
     onErrorEmitter = new vscode.EventEmitter();
     onError = this.onErrorEmitter.event;
+    // 오류 수정 관련 속성
+    llmService = undefined;
+    errorRetryCount = 0;
+    MAX_ERROR_RETRIES = 3;
+    recentCommands = new Map();
+    autoCorrectionEnabled = true;
     constructor(notificationService) {
         this.notificationService = notificationService;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Monitor');
         this.initializeErrorPatterns();
+    }
+    /**
+     * LLM 서비스를 설정합니다.
+     */
+    setLlmService(llmService) {
+        this.llmService = llmService;
+        console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
+    }
+    /**
+     * 자동 오류 수정 기능을 활성화/비활성화합니다.
+     */
+    setAutoCorrectionEnabled(enabled) {
+        this.autoCorrectionEnabled = enabled;
+        console.log(`[TerminalMonitorService] 자동 오류 수정 ${enabled ? '활성화' : '비활성화'}`);
     }
     /**
      * 에러 패턴을 초기화합니다.
@@ -16805,6 +18307,18 @@ class TerminalMonitorService {
         this.startPeriodicMonitoring();
     }
     /**
+     * 외부에서 터미널 출력을 주입받습니다.
+     * 이 메서드는 terminalManager에서 호출됩니다.
+     */
+    ingestExternalOutput(source, data) {
+        if (!this.isMonitoring)
+            return;
+        console.log(`[TerminalMonitorService] 외부 출력 수신: ${source} - ${data.substring(0, 100)}...`);
+        // 터미널 이름 추출 (source에서)
+        const terminalName = source.includes(':') ? source.split(':')[0] : 'external';
+        this.processTerminalOutput(terminalName, data);
+    }
+    /**
      * 터미널 모니터링을 중지합니다.
      */
     stopMonitoring() {
@@ -16855,25 +18369,6 @@ class TerminalMonitorService {
         };
         this.logEntries.push(logEntry);
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${level.toUpperCase()}: ${message}`);
-    }
-    /**
-     * 외부에서 캡처한 출력(터미널/프로세스)을 주입합니다.
-     * @param sourceName 출력 소스 이름
-     * @param data 출력 데이터
-     */
-    ingestExternalOutput(sourceName, data) {
-        if (!data) {
-            return;
-        }
-        const normalized = data.replace(/\r\n/g, '\n');
-        const lines = normalized.split('\n');
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.length === 0) {
-                continue;
-            }
-            this.processTerminalOutput(sourceName, trimmed);
-        }
     }
     /**
      * 특정 터미널을 모니터링합니다.
@@ -16953,6 +18448,10 @@ class TerminalMonitorService {
                     recentLogs: recent
                 });
                 console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
+                // 자동 오류 수정 시도
+                if (this.autoCorrectionEnabled && this.llmService) {
+                    this.attemptAutoCorrection(terminalName, data.trim(), recent);
+                }
             }
             catch (e) {
                 console.warn('[TerminalMonitorService] onError emit failed:', e);
@@ -17162,12 +18661,163 @@ class TerminalMonitorService {
         });
         this.notificationService.showInfoMessage(`터미널 모니터링 테스트 완료. 현재 ${terminals.length}개 터미널 감지됨.`);
     }
+    /**
+     * 자동 오류 수정을 시도합니다.
+     */
+    async attemptAutoCorrection(terminalName, errorMessage, recentLogs) {
+        if (!this.llmService || !this.autoCorrectionEnabled) {
+            return;
+        }
+        try {
+            // 최근 명령어 추출
+            const recentCommand = this.extractRecentCommand(recentLogs);
+            if (!recentCommand) {
+                console.log('[TerminalMonitorService] 최근 명령어를 찾을 수 없음');
+                return;
+            }
+            // 중복 수정 시도 방지
+            const commandKey = `${terminalName}:${recentCommand}`;
+            if (this.recentCommands.has(commandKey)) {
+                const lastAttempt = this.recentCommands.get(commandKey);
+                if (Date.now() - lastAttempt.timestamp < 30000) { // 30초 내 중복 방지
+                    console.log('[TerminalMonitorService] 최근에 이미 수정 시도한 명령어');
+                    return;
+                }
+            }
+            // 재시도 횟수 확인
+            if (this.errorRetryCount >= this.MAX_ERROR_RETRIES) {
+                console.log('[TerminalMonitorService] 최대 재시도 횟수 초과');
+                this.errorRetryCount = 0;
+                return;
+            }
+            this.errorRetryCount++;
+            console.log(`[TerminalMonitorService] 오류 수정 시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES}`);
+            // LLM에게 오류 수정 요청
+            const correctedCommand = await this.getCorrectedCommandFromLlm(recentCommand, errorMessage, terminalName);
+            if (!correctedCommand) {
+                console.log('[TerminalMonitorService] LLM에서 수정된 명령어를 받지 못함');
+                return;
+            }
+            // 수정된 명령어 저장
+            this.recentCommands.set(commandKey, {
+                command: recentCommand,
+                errorOutput: errorMessage,
+                workingDirectory: process.cwd(),
+                timestamp: Date.now(),
+                terminalName
+            });
+            // 수정된 명령어 실행
+            await this.executeCorrectedCommand(terminalName, correctedCommand);
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
+        }
+    }
+    /**
+     * 최근 로그에서 명령어를 추출합니다.
+     */
+    extractRecentCommand(recentLogs) {
+        // 최근 로그에서 명령어 패턴 찾기
+        for (let i = recentLogs.length - 1; i >= 0; i--) {
+            const log = recentLogs[i];
+            const message = log.message;
+            // 일반적인 명령어 패턴들
+            const commandPatterns = [
+                /^npm\s+(install|run|start|build|test|dev)/,
+                /^yarn\s+(install|add|start|build|test|dev)/,
+                /^git\s+(clone|pull|push|commit|add)/,
+                /^docker\s+(build|run|start|stop)/,
+                /^python\s+/,
+                /^node\s+/,
+                /^npm\s+run\s+(\w+)/,
+                /^cd\s+/,
+                /^mkdir\s+/,
+                /^rm\s+/,
+                /^cp\s+/,
+                /^mv\s+/
+            ];
+            for (const pattern of commandPatterns) {
+                if (pattern.test(message)) {
+                    return message.trim();
+                }
+            }
+        }
+        return null;
+    }
+    /**
+     * LLM에게 오류 수정을 요청합니다.
+     */
+    async getCorrectedCommandFromLlm(failedCommand, errorOutput, terminalName) {
+        if (!this.llmService) {
+            return null;
+        }
+        try {
+            const errorCorrectionPrompt = `다음 명령어가 터미널에서 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
+
+실행된 명령어: ${failedCommand}
+터미널: ${terminalName}
+오류 출력:
+${errorOutput}
+
+수정된 명령어를 JSON 형식으로 응답해주세요:
+{
+  "correctedCommand": "수정된 명령어",
+  "reasoning": "수정 이유"
+}`;
+            const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+            // JSON 응답 파싱
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.correctedCommand) {
+                    console.log(`[TerminalMonitorService] LLM 수정 제안: ${parsed.correctedCommand}`);
+                    console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
+                    return parsed.correctedCommand;
+                }
+            }
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
+        }
+        return null;
+    }
+    /**
+     * 수정된 명령어를 실행합니다.
+     */
+    async executeCorrectedCommand(terminalName, correctedCommand) {
+        try {
+            // 터미널 찾기
+            const terminal = vscode.window.terminals.find(t => t.name === terminalName);
+            if (!terminal) {
+                console.log(`[TerminalMonitorService] 터미널을 찾을 수 없음: ${terminalName}`);
+                return;
+            }
+            // 수정된 명령어 실행
+            terminal.sendText(correctedCommand);
+            // 사용자에게 알림
+            this.notificationService.showInfoMessage(`🔧 자동 오류 수정: ${correctedCommand}`);
+            // OUTPUT 채널에 로그
+            this.outputChannel.appendLine(`[${new Date().toISOString()}] 자동 오류 수정 실행: ${correctedCommand}`);
+            console.log(`[TerminalMonitorService] 수정된 명령어 실행: ${correctedCommand}`);
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] 수정된 명령어 실행 실패:', error);
+        }
+    }
+    /**
+     * 오류 재시도 횟수를 리셋합니다.
+     */
+    resetErrorRetryCount() {
+        this.errorRetryCount = 0;
+        this.recentCommands.clear();
+        console.log('[TerminalMonitorService] 오류 재시도 횟수 리셋');
+    }
 }
 exports.TerminalMonitorService = TerminalMonitorService;
 
 
 /***/ }),
-/* 53 */
+/* 51 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -17530,7 +19180,7 @@ exports.ActionExecutionEngine = ActionExecutionEngine;
 
 
 /***/ }),
-/* 54 */
+/* 52 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -17816,7 +19466,7 @@ exports.ProjectProfileService = ProjectProfileService;
 
 
 /***/ }),
-/* 55 */
+/* 53 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -17986,7 +19636,7 @@ exports.IntentDetectionService = IntentDetectionService;
 
 
 /***/ }),
-/* 56 */
+/* 54 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -18027,10 +19677,10 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OllamaService = exports.OllamaApi = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const http = __importStar(__webpack_require__(57));
-const https = __importStar(__webpack_require__(58));
-const url_1 = __webpack_require__(59);
-const externalApiService_1 = __webpack_require__(49);
+const http = __importStar(__webpack_require__(55));
+const https = __importStar(__webpack_require__(56));
+const url_1 = __webpack_require__(57);
+const externalApiService_1 = __webpack_require__(47);
 const types_1 = __webpack_require__(39);
 class OllamaApi {
     apiUrl;
@@ -18452,28 +20102,28 @@ exports.OllamaService = OllamaService;
 
 
 /***/ }),
-/* 57 */
+/* 55 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("http");
 
 /***/ }),
-/* 58 */
+/* 56 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("https");
 
 /***/ }),
-/* 59 */
+/* 57 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("url");
 
 /***/ }),
-/* 60 */
+/* 58 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -18556,6 +20206,8 @@ class ChatViewProvider {
             ]
         };
         webviewView.webview.html = (0, panelUtils_1.getHtmlContentWithUris)(this.extensionUri, 'chat', webviewView.webview);
+        // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
+        (0, terminalManager_1.setErrorCorrectionServices)(this.llmService, webviewView.webview);
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
                 case 'priorityErrorPrompt': {
@@ -18587,13 +20239,19 @@ class ChatViewProvider {
                 }
                 case 'executeBashCommands': {
                     try {
+                        // console.log('[ChatViewProvider] Received executeBashCommands message:', data);
                         const commands = Array.isArray(data.commands) ? data.commands : [];
+                        // console.log('[ChatViewProvider] Commands to execute:', commands);
                         if (commands.length > 0) {
                             // bash 명령어들을 실행
                             for (const command of commands) {
+                                // console.log('[ChatViewProvider] Executing command:', command);
                                 (0, terminalManager_1.executeBashCommandsFromLlmResponse)(`\`\`\`bash\n${command}\n\`\`\``);
                             }
                             this.notificationService.showInfoMessage(`Bash 명령어 ${commands.length}개가 실행되었습니다.`);
+                        }
+                        else {
+                            // console.log('[ChatViewProvider] No commands to execute');
                         }
                     }
                     catch (e) {
@@ -18626,7 +20284,7 @@ class ChatViewProvider {
                         return;
                     }
                     // 시리얼 번호 검증 (ollama-blocker 방식)
-                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 65))).LicenseService();
+                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 64))).LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
@@ -18787,7 +20445,7 @@ exports.ChatViewProvider = ChatViewProvider;
 
 
 /***/ }),
-/* 61 */
+/* 59 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -18868,6 +20526,8 @@ class AskViewProvider {
         };
         // ASK 탭은 ask.html을 사용
         webviewView.webview.html = (0, panelUtils_1.getHtmlContentWithUris)(this.extensionUri, 'ask', webviewView.webview);
+        // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
+        (0, terminalManager_1.setErrorCorrectionServices)(this.llmService, webviewView.webview);
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
                 case 'sendMessage':
@@ -18894,7 +20554,7 @@ class AskViewProvider {
                         return;
                     }
                     // 시리얼 번호 검증 (ollama-blocker 방식)
-                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 65))).LicenseService();
+                    const licenseService = new (await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 64))).LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
@@ -19009,7 +20669,7 @@ exports.AskViewProvider = AskViewProvider;
 
 
 /***/ }),
-/* 62 */
+/* 60 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -19052,9 +20712,9 @@ exports.openSettingsPanel = openSettingsPanel;
 exports.openLicensePanel = openLicensePanel;
 const vscode = __importStar(__webpack_require__(1));
 const panelUtils_1 = __webpack_require__(40);
-const terminalDaemonService_1 = __webpack_require__(63);
-const http = __importStar(__webpack_require__(57));
-const https = __importStar(__webpack_require__(58));
+const terminalDaemonService_1 = __webpack_require__(61);
+const http = __importStar(__webpack_require__(55));
+const https = __importStar(__webpack_require__(56));
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews = [];
 /**
@@ -19815,7 +21475,7 @@ configurationService // ConfigurationService 주입
 
 
 /***/ }),
-/* 63 */
+/* 61 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -19858,9 +21518,9 @@ exports.TerminalDaemonService = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const path = __importStar(__webpack_require__(10));
 const fs = __importStar(__webpack_require__(25));
-const os = __importStar(__webpack_require__(47));
+const os = __importStar(__webpack_require__(62));
 const child_process_1 = __webpack_require__(43);
-const util_1 = __webpack_require__(64);
+const util_1 = __webpack_require__(63);
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 class TerminalDaemonService {
     static instance;
@@ -19868,6 +21528,9 @@ class TerminalDaemonService {
     processRef = null;
     socketPath = path.join(os.tmpdir(), 'terminal-daemon.sock');
     outputChannel;
+    healthCheckInterval = null;
+    startTimeout = null;
+    isStarting = false;
     constructor(context) {
         this.extensionContext = context;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Daemon');
@@ -19907,53 +21570,68 @@ class TerminalDaemonService {
         return { success: true, message: 'terminal-daemon 설치 완료' };
     }
     async start() {
+        // 터미널 데몬을 사용하지 않고 VS Code 터미널 API를 직접 사용
+        return { success: true, message: 'VS Code 터미널 API를 직접 사용합니다 (터미널 데몬 비활성화됨)' };
+    }
+    cleanup() {
+        this.isStarting = false;
+        if (this.startTimeout) {
+            clearTimeout(this.startTimeout);
+            this.startTimeout = null;
+        }
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+            this.healthCheckInterval = null;
+        }
         if (this.processRef) {
-            return { success: false, message: 'terminal-daemon 이미 실행 중' };
-        }
-        const p = this.getDaemonPath();
-        if (!fs.existsSync(p)) {
-            return { success: false, message: `바이너리를 찾을 수 없음: ${p}` };
-        }
-        // 기존 소켓 제거
-        try {
-            fs.unlinkSync(this.socketPath);
-        }
-        catch { }
-        this.outputChannel.appendLine(`[INFO] Starting terminal-daemon: ${p} --socket ${this.socketPath}`);
-        const child = (0, child_process_1.spawn)(p, ['--socket', this.socketPath], { cwd: os.tmpdir() });
-        this.processRef = child;
-        child.stdout.on('data', (data) => {
-            const text = data.toString();
-            this.outputChannel.appendLine(`[STDOUT] ${text.trimEnd()}`);
-            console.log('[TerminalDaemonService] daemon stdout:', text);
-        });
-        child.stderr.on('data', (data) => {
-            const text = data.toString();
-            this.outputChannel.appendLine(`[STDERR] ${text.trimEnd()}`);
-            console.error('[TerminalDaemonService] daemon stderr:', text);
-            this.outputChannel.show(true);
-        });
-        child.on('close', (code) => {
-            this.outputChannel.appendLine(`[INFO] terminal-daemon exited with code ${code}`);
+            try {
+                this.processRef.kill('SIGTERM');
+            }
+            catch (error) {
+                console.warn('[TerminalDaemonService] Failed to kill process:', error);
+            }
             this.processRef = null;
-        });
-        child.on('error', (err) => {
-            this.outputChannel.appendLine(`[ERROR] Failed to start terminal-daemon: ${err.message}`);
-            console.error('[TerminalDaemonService] daemon error:', err);
-            this.outputChannel.show(true);
-        });
-        return { success: true, message: 'terminal-daemon 시작됨' };
+        }
+        // 소켓 파일 정리
+        try {
+            if (fs.existsSync(this.socketPath)) {
+                fs.unlinkSync(this.socketPath);
+            }
+        }
+        catch (error) {
+            console.warn('[TerminalDaemonService] Failed to remove socket:', error);
+        }
+    }
+    startHealthCheck() {
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+        }
+        this.healthCheckInterval = setInterval(() => {
+            if (!this.processRef || this.processRef.killed) {
+                this.outputChannel.appendLine(`[WARN] terminal-daemon process not running, attempting restart`);
+                console.warn('[TerminalDaemonService] Process not running, attempting restart');
+                this.cleanup();
+                this.start().catch(error => {
+                    console.error('[TerminalDaemonService] Auto-restart failed:', error);
+                });
+                return;
+            }
+            // 소켓 파일 존재 확인
+            if (!fs.existsSync(this.socketPath)) {
+                this.outputChannel.appendLine(`[WARN] terminal-daemon socket missing, attempting restart`);
+                console.warn('[TerminalDaemonService] Socket missing, attempting restart');
+                this.cleanup();
+                this.start().catch(error => {
+                    console.error('[TerminalDaemonService] Auto-restart failed:', error);
+                });
+            }
+        }, 30000); // 30초마다 체크
     }
     async stop() {
-        if (!this.processRef) {
+        if (!this.processRef && !this.isStarting) {
             return { success: false, message: 'terminal-daemon 실행 중이 아님' };
         }
-        this.processRef.kill();
-        this.processRef = null;
-        try {
-            fs.unlinkSync(this.socketPath);
-        }
-        catch { }
+        this.cleanup();
         this.outputChannel.appendLine('[INFO] terminal-daemon stopped');
         return { success: true, message: 'terminal-daemon 중지됨' };
     }
@@ -19970,22 +21648,29 @@ exports.TerminalDaemonService = TerminalDaemonService;
 
 
 /***/ }),
-/* 64 */
+/* 62 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 63 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("util");
 
 /***/ }),
-/* 65 */
+/* 64 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LicenseService = void 0;
-const app_1 = __webpack_require__(66);
-const firestore_1 = __webpack_require__(74);
+const app_1 = __webpack_require__(65);
+const firestore_1 = __webpack_require__(73);
 // Firebase 설정 (ollama-blocker와 동일한 프로젝트)
 const firebaseConfig = {
     projectId: "aidev-ass"
@@ -19996,7 +21681,7 @@ let db;
 try {
     app = (0, app_1.initializeApp)(firebaseConfig);
     db = (0, firestore_1.getFirestore)(app);
-    console.log('Firebase 초기화 성공');
+    // console.log('Firebase 초기화 성공');
 }
 catch (error) {
     console.error('Firebase 초기화 실패:', error);
@@ -20140,7 +21825,7 @@ exports.LicenseService = LicenseService;
 
 
 /***/ }),
-/* 66 */
+/* 65 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -20148,7 +21833,7 @@ exports.LicenseService = LicenseService;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var app = __webpack_require__(67);
+var app = __webpack_require__(66);
 
 var name = "firebase";
 var version = "10.14.1";
@@ -20181,7 +21866,7 @@ Object.keys(app).forEach(function (k) {
 
 
 /***/ }),
-/* 67 */
+/* 66 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -20189,11 +21874,11 @@ Object.keys(app).forEach(function (k) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var component = __webpack_require__(68);
-var tslib = __webpack_require__(69);
-var logger$1 = __webpack_require__(71);
-var util = __webpack_require__(70);
-var idb = __webpack_require__(72);
+var component = __webpack_require__(67);
+var tslib = __webpack_require__(68);
+var logger$1 = __webpack_require__(70);
+var util = __webpack_require__(69);
+var idb = __webpack_require__(71);
 
 /**
  * @license
@@ -21574,7 +23259,7 @@ exports.setLogLevel = setLogLevel;
 
 
 /***/ }),
-/* 68 */
+/* 67 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -21582,8 +23267,8 @@ exports.setLogLevel = setLogLevel;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var tslib = __webpack_require__(69);
-var util = __webpack_require__(70);
+var tslib = __webpack_require__(68);
+var util = __webpack_require__(69);
 
 /**
  * Component for service name T, e.g. `auth`, `auth-internal`
@@ -22047,7 +23732,7 @@ exports.Provider = Provider;
 
 
 /***/ }),
-/* 69 */
+/* 68 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -22491,7 +24176,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 
 
 /***/ }),
-/* 70 */
+/* 69 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -22499,7 +24184,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var tslib = __webpack_require__(69);
+var tslib = __webpack_require__(68);
 
 /**
  * @license
@@ -24717,7 +26402,7 @@ exports.validateNamespace = validateNamespace;
 
 
 /***/ }),
-/* 71 */
+/* 70 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -24725,7 +26410,7 @@ exports.validateNamespace = validateNamespace;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var tslib = __webpack_require__(69);
+var tslib = __webpack_require__(68);
 
 /**
  * @license
@@ -24996,7 +26681,7 @@ exports.setUserLogHandler = setUserLogHandler;
 
 
 /***/ }),
-/* 72 */
+/* 71 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -25007,7 +26692,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   unwrap: () => (/* reexport safe */ _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__.u),
 /* harmony export */   wrap: () => (/* reexport safe */ _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__.w)
 /* harmony export */ });
-/* harmony import */ var _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(73);
+/* harmony import */ var _wrap_idb_value_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(72);
 
 
 
@@ -25106,7 +26791,7 @@ function getMethod(target, prop) {
 
 
 /***/ }),
-/* 73 */
+/* 72 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -25306,7 +26991,7 @@ const unwrap = (value) => reverseTransformCache.get(value);
 
 
 /***/ }),
-/* 74 */
+/* 73 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -25314,7 +26999,7 @@ const unwrap = (value) => reverseTransformCache.get(value);
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var firestore = __webpack_require__(75);
+var firestore = __webpack_require__(74);
 
 
 
@@ -25328,7 +27013,7 @@ Object.keys(firestore).forEach(function (k) {
 
 
 /***/ }),
-/* 75 */
+/* 74 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -25336,14 +27021,14 @@ Object.keys(firestore).forEach(function (k) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 
-var app = __webpack_require__(67);
-var component = __webpack_require__(68);
-var logger = __webpack_require__(71);
-var util$1 = __webpack_require__(64);
-var util = __webpack_require__(70);
+var app = __webpack_require__(66);
+var component = __webpack_require__(67);
+var logger = __webpack_require__(70);
+var util$1 = __webpack_require__(63);
+var util = __webpack_require__(69);
 var crypto = __webpack_require__(4);
-var bloomBlob = __webpack_require__(76);
-var grpc = __webpack_require__(77);
+var bloomBlob = __webpack_require__(75);
+var grpc = __webpack_require__(76);
 var protoLoader = __webpack_require__(112);
 
 function _interopNamespace(e) {
@@ -58042,7 +59727,7 @@ exports.writeBatch = writeBatch;
 
 
 /***/ }),
-/* 76 */
+/* 75 */
 /***/ ((module) => {
 
 /** @license
@@ -58079,7 +59764,7 @@ h.xor=function(f){for(var a=Math.max(this.g.length,f.g.length),c=[],d=0;d<a;d++)
 
 
 /***/ }),
-/* 77 */
+/* 76 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58102,28 +59787,28 @@ h.xor=function(f){for(var a=Math.max(this.g.length,f.g.length),c=[],d=0;d<a;d++)
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.experimental = exports.addAdminServicesToServer = exports.getChannelzHandlers = exports.getChannelzServiceDefinition = exports.InterceptorConfigurationError = exports.InterceptingCall = exports.RequesterBuilder = exports.ListenerBuilder = exports.StatusBuilder = exports.getClientChannel = exports.ServerCredentials = exports.Server = exports.setLogVerbosity = exports.setLogger = exports.load = exports.loadObject = exports.CallCredentials = exports.ChannelCredentials = exports.waitForClientReady = exports.closeClient = exports.Channel = exports.makeGenericClientConstructor = exports.makeClientConstructor = exports.loadPackageDefinition = exports.Client = exports.compressionAlgorithms = exports.propagate = exports.connectivityState = exports.status = exports.logVerbosity = exports.Metadata = exports.credentials = void 0;
-const call_credentials_1 = __webpack_require__(78);
+const call_credentials_1 = __webpack_require__(77);
 Object.defineProperty(exports, "CallCredentials", ({ enumerable: true, get: function () { return call_credentials_1.CallCredentials; } }));
-const channel_1 = __webpack_require__(85);
+const channel_1 = __webpack_require__(84);
 Object.defineProperty(exports, "Channel", ({ enumerable: true, get: function () { return channel_1.ChannelImplementation; } }));
 const compression_algorithms_1 = __webpack_require__(176);
 Object.defineProperty(exports, "compressionAlgorithms", ({ enumerable: true, get: function () { return compression_algorithms_1.CompressionAlgorithms; } }));
-const connectivity_state_1 = __webpack_require__(93);
+const connectivity_state_1 = __webpack_require__(92);
 Object.defineProperty(exports, "connectivityState", ({ enumerable: true, get: function () { return connectivity_state_1.ConnectivityState; } }));
-const channel_credentials_1 = __webpack_require__(86);
+const channel_credentials_1 = __webpack_require__(85);
 Object.defineProperty(exports, "ChannelCredentials", ({ enumerable: true, get: function () { return channel_credentials_1.ChannelCredentials; } }));
 const client_1 = __webpack_require__(106);
 Object.defineProperty(exports, "Client", ({ enumerable: true, get: function () { return client_1.Client; } }));
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 Object.defineProperty(exports, "logVerbosity", ({ enumerable: true, get: function () { return constants_1.LogVerbosity; } }));
 Object.defineProperty(exports, "status", ({ enumerable: true, get: function () { return constants_1.Status; } }));
 Object.defineProperty(exports, "propagate", ({ enumerable: true, get: function () { return constants_1.Propagate; } }));
-const logging = __webpack_require__(80);
+const logging = __webpack_require__(79);
 const make_client_1 = __webpack_require__(105);
 Object.defineProperty(exports, "loadPackageDefinition", ({ enumerable: true, get: function () { return make_client_1.loadPackageDefinition; } }));
 Object.defineProperty(exports, "makeClientConstructor", ({ enumerable: true, get: function () { return make_client_1.makeClientConstructor; } }));
 Object.defineProperty(exports, "makeGenericClientConstructor", ({ enumerable: true, get: function () { return make_client_1.makeClientConstructor; } }));
-const metadata_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(78);
 Object.defineProperty(exports, "Metadata", ({ enumerable: true, get: function () { return metadata_1.Metadata; } }));
 const server_1 = __webpack_require__(184);
 Object.defineProperty(exports, "Server", ({ enumerable: true, get: function () { return server_1.Server; } }));
@@ -58225,7 +59910,7 @@ const channelz = __webpack_require__(103);
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 78 */
+/* 77 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58248,7 +59933,7 @@ const channelz = __webpack_require__(103);
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CallCredentials = void 0;
-const metadata_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(78);
 function isCurrentOauth2Client(client) {
     return ('getRequestHeaders' in client &&
         typeof client.getRequestHeaders === 'function');
@@ -58384,7 +60069,7 @@ class EmptyCallCredentials extends CallCredentials {
 //# sourceMappingURL=call-credentials.js.map
 
 /***/ }),
-/* 79 */
+/* 78 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58407,9 +60092,9 @@ class EmptyCallCredentials extends CallCredentials {
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Metadata = void 0;
-const logging_1 = __webpack_require__(80);
-const constants_1 = __webpack_require__(81);
-const error_1 = __webpack_require__(84);
+const logging_1 = __webpack_require__(79);
+const constants_1 = __webpack_require__(80);
+const error_1 = __webpack_require__(83);
 const LEGAL_KEY_REGEX = /^[0-9a-z_.-]+$/;
 const LEGAL_NON_BINARY_VALUE_REGEX = /^[ -~]*$/;
 function isLegalKey(key) {
@@ -58639,7 +60324,7 @@ const bufToString = (val) => {
 //# sourceMappingURL=metadata.js.map
 
 /***/ }),
-/* 80 */
+/* 79 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58663,9 +60348,9 @@ const bufToString = (val) => {
 var _a, _b, _c, _d;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.isTracerEnabled = exports.trace = exports.log = exports.setLoggerVerbosity = exports.setLogger = exports.getLogger = void 0;
-const constants_1 = __webpack_require__(81);
-const process_1 = __webpack_require__(82);
-const clientVersion = (__webpack_require__(83).version);
+const constants_1 = __webpack_require__(80);
+const process_1 = __webpack_require__(81);
+const clientVersion = (__webpack_require__(82).version);
 const DEFAULT_LOGGER = {
     error: (message, ...optionalParams) => {
         console.error('E ' + message, ...optionalParams);
@@ -58759,7 +60444,7 @@ exports.isTracerEnabled = isTracerEnabled;
 //# sourceMappingURL=logging.js.map
 
 /***/ }),
-/* 81 */
+/* 80 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -58829,21 +60514,21 @@ exports.DEFAULT_MAX_RECEIVE_MESSAGE_LENGTH = 4 * 1024 * 1024;
 //# sourceMappingURL=constants.js.map
 
 /***/ }),
-/* 82 */
+/* 81 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("process");
 
 /***/ }),
-/* 83 */
+/* 82 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"name":"@grpc/grpc-js","version":"1.9.15","description":"gRPC Library for Node - pure JS implementation","homepage":"https://grpc.io/","repository":"https://github.com/grpc/grpc-node/tree/master/packages/grpc-js","main":"build/src/index.js","engines":{"node":"^8.13.0 || >=10.10.0"},"keywords":[],"author":{"name":"Google Inc."},"types":"build/src/index.d.ts","license":"Apache-2.0","devDependencies":{"@types/gulp":"^4.0.6","@types/gulp-mocha":"0.0.32","@types/lodash":"^4.14.186","@types/mocha":"^5.2.6","@types/ncp":"^2.0.1","@types/pify":"^3.0.2","@types/semver":"^7.3.9","@typescript-eslint/eslint-plugin":"^5.59.11","@typescript-eslint/parser":"^5.59.11","@typescript-eslint/typescript-estree":"^5.59.11","clang-format":"^1.0.55","eslint":"^8.42.0","eslint-config-prettier":"^8.8.0","eslint-plugin-node":"^11.1.0","eslint-plugin-prettier":"^4.2.1","execa":"^2.0.3","gulp":"^4.0.2","gulp-mocha":"^6.0.0","lodash":"^4.17.4","madge":"^5.0.1","mocha-jenkins-reporter":"^0.4.1","ncp":"^2.0.0","pify":"^4.0.1","prettier":"^2.8.8","rimraf":"^3.0.2","semver":"^7.3.5","ts-node":"^10.9.1","typescript":"^5.1.3"},"contributors":[{"name":"Google Inc."}],"scripts":{"build":"npm run compile","clean":"rimraf ./build","compile":"tsc -p .","format":"clang-format -i -style=\\"{Language: JavaScript, BasedOnStyle: Google, ColumnLimit: 80}\\" src/*.ts test/*.ts","lint":"eslint src/*.ts test/*.ts","prepare":"npm run generate-types && npm run compile","test":"gulp test","check":"npm run lint","fix":"eslint --fix src/*.ts test/*.ts","pretest":"npm run generate-types && npm run generate-test-types && npm run compile","posttest":"npm run check && madge -c ./build/src","generate-types":"proto-loader-gen-types --keepCase --longs String --enums String --defaults --oneofs --includeComments --includeDirs proto/ --include-dirs test/fixtures/ -O src/generated/ --grpcLib ../index channelz.proto","generate-test-types":"proto-loader-gen-types --keepCase --longs String --enums String --defaults --oneofs --includeComments --include-dirs test/fixtures/ -O test/generated/ --grpcLib ../../src/index test_service.proto"},"dependencies":{"@grpc/proto-loader":"^0.7.8","@types/node":">=12.12.47"},"files":["src/**/*.ts","build/src/**/*.{js,d.ts,js.map}","proto/*.proto","LICENSE","deps/envoy-api/envoy/api/v2/**/*.proto","deps/envoy-api/envoy/config/**/*.proto","deps/envoy-api/envoy/service/**/*.proto","deps/envoy-api/envoy/type/**/*.proto","deps/udpa/udpa/**/*.proto","deps/googleapis/google/api/*.proto","deps/googleapis/google/rpc/*.proto","deps/protoc-gen-validate/validate/**/*.proto"]}');
 
 /***/ }),
-/* 84 */
+/* 83 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -58890,7 +60575,7 @@ exports.getErrorCode = getErrorCode;
 //# sourceMappingURL=error.js.map
 
 /***/ }),
-/* 85 */
+/* 84 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58913,8 +60598,8 @@ exports.getErrorCode = getErrorCode;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChannelImplementation = void 0;
-const channel_credentials_1 = __webpack_require__(86);
-const internal_channel_1 = __webpack_require__(89);
+const channel_credentials_1 = __webpack_require__(85);
+const internal_channel_1 = __webpack_require__(88);
 class ChannelImplementation {
     constructor(target, credentials, options) {
         if (typeof target !== 'string') {
@@ -58964,7 +60649,7 @@ exports.ChannelImplementation = ChannelImplementation;
 //# sourceMappingURL=channel.js.map
 
 /***/ }),
-/* 86 */
+/* 85 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -58987,9 +60672,9 @@ exports.ChannelImplementation = ChannelImplementation;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChannelCredentials = void 0;
-const tls_1 = __webpack_require__(87);
-const call_credentials_1 = __webpack_require__(78);
-const tls_helpers_1 = __webpack_require__(88);
+const tls_1 = __webpack_require__(86);
+const call_credentials_1 = __webpack_require__(77);
+const tls_helpers_1 = __webpack_require__(87);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function verifyIsBufferOrNull(obj, friendlyName) {
     if (obj && !(obj instanceof Buffer)) {
@@ -59147,14 +60832,14 @@ class ComposedChannelCredentialsImpl extends ChannelCredentials {
 //# sourceMappingURL=channel-credentials.js.map
 
 /***/ }),
-/* 87 */
+/* 86 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tls");
 
 /***/ }),
-/* 88 */
+/* 87 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -59194,7 +60879,7 @@ exports.getDefaultRootsData = getDefaultRootsData;
 //# sourceMappingURL=tls-helpers.js.map
 
 /***/ }),
-/* 89 */
+/* 88 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -59217,18 +60902,18 @@ exports.getDefaultRootsData = getDefaultRootsData;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.InternalChannel = void 0;
-const channel_credentials_1 = __webpack_require__(86);
-const resolving_load_balancer_1 = __webpack_require__(90);
-const subchannel_pool_1 = __webpack_require__(99);
-const picker_1 = __webpack_require__(96);
-const constants_1 = __webpack_require__(81);
+const channel_credentials_1 = __webpack_require__(85);
+const resolving_load_balancer_1 = __webpack_require__(89);
+const subchannel_pool_1 = __webpack_require__(98);
+const picker_1 = __webpack_require__(95);
+const constants_1 = __webpack_require__(80);
 const filter_stack_1 = __webpack_require__(173);
 const compression_filter_1 = __webpack_require__(174);
-const resolver_1 = __webpack_require__(94);
-const logging_1 = __webpack_require__(80);
+const resolver_1 = __webpack_require__(93);
+const logging_1 = __webpack_require__(79);
 const http_proxy_1 = __webpack_require__(167);
-const uri_parser_1 = __webpack_require__(95);
-const connectivity_state_1 = __webpack_require__(93);
+const uri_parser_1 = __webpack_require__(94);
+const connectivity_state_1 = __webpack_require__(92);
 const channelz_1 = __webpack_require__(103);
 const load_balancing_call_1 = __webpack_require__(178);
 const deadline_1 = __webpack_require__(179);
@@ -59733,7 +61418,7 @@ exports.InternalChannel = InternalChannel;
 //# sourceMappingURL=internal-channel.js.map
 
 /***/ }),
-/* 90 */
+/* 89 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -59756,18 +61441,18 @@ exports.InternalChannel = InternalChannel;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ResolvingLoadBalancer = void 0;
-const load_balancer_1 = __webpack_require__(91);
-const service_config_1 = __webpack_require__(92);
-const connectivity_state_1 = __webpack_require__(93);
-const resolver_1 = __webpack_require__(94);
-const picker_1 = __webpack_require__(96);
-const backoff_timeout_1 = __webpack_require__(97);
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
-const logging = __webpack_require__(80);
-const constants_2 = __webpack_require__(81);
-const uri_parser_1 = __webpack_require__(95);
-const load_balancer_child_handler_1 = __webpack_require__(98);
+const load_balancer_1 = __webpack_require__(90);
+const service_config_1 = __webpack_require__(91);
+const connectivity_state_1 = __webpack_require__(92);
+const resolver_1 = __webpack_require__(93);
+const picker_1 = __webpack_require__(95);
+const backoff_timeout_1 = __webpack_require__(96);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
+const logging = __webpack_require__(79);
+const constants_2 = __webpack_require__(80);
+const uri_parser_1 = __webpack_require__(94);
+const load_balancer_child_handler_1 = __webpack_require__(97);
 const TRACER_NAME = 'resolving_load_balancer';
 function trace(text) {
     logging.trace(constants_2.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -60043,7 +61728,7 @@ exports.ResolvingLoadBalancer = ResolvingLoadBalancer;
 //# sourceMappingURL=resolving-load-balancer.js.map
 
 /***/ }),
-/* 91 */
+/* 90 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -60152,7 +61837,7 @@ exports.validateLoadBalancingConfig = validateLoadBalancingConfig;
 //# sourceMappingURL=load-balancer.js.map
 
 /***/ }),
-/* 92 */
+/* 91 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60184,9 +61869,9 @@ exports.extractAndSelectServiceConfig = exports.validateServiceConfig = exports.
 /* The any type is purposely used here. All functions validate their input at
  * runtime */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const os = __webpack_require__(47);
-const constants_1 = __webpack_require__(81);
-const load_balancer_1 = __webpack_require__(91);
+const os = __webpack_require__(62);
+const constants_1 = __webpack_require__(80);
+const load_balancer_1 = __webpack_require__(90);
 /**
  * Recognizes a number with up to 9 digits after the decimal point, followed by
  * an "s", representing a number of seconds.
@@ -60575,7 +62260,7 @@ exports.extractAndSelectServiceConfig = extractAndSelectServiceConfig;
 //# sourceMappingURL=service-config.js.map
 
 /***/ }),
-/* 93 */
+/* 92 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -60609,7 +62294,7 @@ var ConnectivityState;
 //# sourceMappingURL=connectivity-state.js.map
 
 /***/ }),
-/* 94 */
+/* 93 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60632,7 +62317,7 @@ var ConnectivityState;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.mapUriDefaultScheme = exports.getDefaultAuthority = exports.createResolver = exports.registerDefaultScheme = exports.registerResolver = void 0;
-const uri_parser_1 = __webpack_require__(95);
+const uri_parser_1 = __webpack_require__(94);
 const registeredResolvers = {};
 let defaultScheme = null;
 /**
@@ -60703,7 +62388,7 @@ exports.mapUriDefaultScheme = mapUriDefaultScheme;
 //# sourceMappingURL=resolver.js.map
 
 /***/ }),
-/* 95 */
+/* 94 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -60820,7 +62505,7 @@ exports.uriToString = uriToString;
 //# sourceMappingURL=uri-parser.js.map
 
 /***/ }),
-/* 96 */
+/* 95 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -60843,8 +62528,8 @@ exports.uriToString = uriToString;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.QueuePicker = exports.UnavailablePicker = exports.PickResultType = void 0;
-const metadata_1 = __webpack_require__(79);
-const constants_1 = __webpack_require__(81);
+const metadata_1 = __webpack_require__(78);
+const constants_1 = __webpack_require__(80);
 var PickResultType;
 (function (PickResultType) {
     PickResultType[PickResultType["COMPLETE"] = 0] = "COMPLETE";
@@ -60904,7 +62589,7 @@ exports.QueuePicker = QueuePicker;
 //# sourceMappingURL=picker.js.map
 
 /***/ }),
-/* 97 */
+/* 96 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -61084,7 +62769,7 @@ exports.BackoffTimeout = BackoffTimeout;
 //# sourceMappingURL=backoff-timeout.js.map
 
 /***/ }),
-/* 98 */
+/* 97 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -61107,8 +62792,8 @@ exports.BackoffTimeout = BackoffTimeout;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChildLoadBalancerHandler = void 0;
-const load_balancer_1 = __webpack_require__(91);
-const connectivity_state_1 = __webpack_require__(93);
+const load_balancer_1 = __webpack_require__(90);
+const connectivity_state_1 = __webpack_require__(92);
 const TYPE_NAME = 'child_load_balancer_helper';
 class ChildLoadBalancerHandler {
     constructor(channelControlHelper) {
@@ -61241,7 +62926,7 @@ exports.ChildLoadBalancerHandler = ChildLoadBalancerHandler;
 //# sourceMappingURL=load-balancer-child-handler.js.map
 
 /***/ }),
-/* 99 */
+/* 98 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -61264,10 +62949,10 @@ exports.ChildLoadBalancerHandler = ChildLoadBalancerHandler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getSubchannelPool = exports.SubchannelPool = void 0;
-const channel_options_1 = __webpack_require__(100);
-const subchannel_1 = __webpack_require__(101);
-const subchannel_address_1 = __webpack_require__(102);
-const uri_parser_1 = __webpack_require__(95);
+const channel_options_1 = __webpack_require__(99);
+const subchannel_1 = __webpack_require__(100);
+const subchannel_address_1 = __webpack_require__(101);
+const uri_parser_1 = __webpack_require__(94);
 const transport_1 = __webpack_require__(165);
 // 10 seconds in milliseconds. This value is arbitrary.
 /**
@@ -61384,7 +63069,7 @@ exports.getSubchannelPool = getSubchannelPool;
 //# sourceMappingURL=subchannel-pool.js.map
 
 /***/ }),
-/* 100 */
+/* 99 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -61459,7 +63144,7 @@ exports.channelOptionsEqual = channelOptionsEqual;
 //# sourceMappingURL=channel-options.js.map
 
 /***/ }),
-/* 101 */
+/* 100 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -61482,12 +63167,12 @@ exports.channelOptionsEqual = channelOptionsEqual;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Subchannel = void 0;
-const connectivity_state_1 = __webpack_require__(93);
-const backoff_timeout_1 = __webpack_require__(97);
-const logging = __webpack_require__(80);
-const constants_1 = __webpack_require__(81);
-const uri_parser_1 = __webpack_require__(95);
-const subchannel_address_1 = __webpack_require__(102);
+const connectivity_state_1 = __webpack_require__(92);
+const backoff_timeout_1 = __webpack_require__(96);
+const logging = __webpack_require__(79);
+const constants_1 = __webpack_require__(80);
+const uri_parser_1 = __webpack_require__(94);
+const subchannel_address_1 = __webpack_require__(101);
 const channelz_1 = __webpack_require__(103);
 const TRACER_NAME = 'subchannel';
 /* setInterval and setTimeout only accept signed 32 bit integers. JS doesn't
@@ -61818,7 +63503,7 @@ exports.Subchannel = Subchannel;
 //# sourceMappingURL=subchannel.js.map
 
 /***/ }),
-/* 102 */
+/* 101 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -61841,7 +63526,7 @@ exports.Subchannel = Subchannel;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.stringToSubchannelAddress = exports.subchannelAddressToString = exports.subchannelAddressEqual = exports.isTcpSubchannelAddress = void 0;
-const net_1 = __webpack_require__(46);
+const net_1 = __webpack_require__(102);
 function isTcpSubchannelAddress(address) {
     return 'port' in address;
 }
@@ -61890,6 +63575,13 @@ exports.stringToSubchannelAddress = stringToSubchannelAddress;
 //# sourceMappingURL=subchannel-address.js.map
 
 /***/ }),
+/* 102 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("net");
+
+/***/ }),
 /* 103 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
@@ -61913,10 +63605,10 @@ exports.stringToSubchannelAddress = stringToSubchannelAddress;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.getChannelzServiceDefinition = exports.getChannelzHandlers = exports.unregisterChannelzRef = exports.registerChannelzSocket = exports.registerChannelzServer = exports.registerChannelzSubchannel = exports.registerChannelzChannel = exports.ChannelzCallTracker = exports.ChannelzChildrenTracker = exports.ChannelzTrace = void 0;
-const net_1 = __webpack_require__(46);
-const connectivity_state_1 = __webpack_require__(93);
-const constants_1 = __webpack_require__(81);
-const subchannel_address_1 = __webpack_require__(102);
+const net_1 = __webpack_require__(102);
+const connectivity_state_1 = __webpack_require__(92);
+const constants_1 = __webpack_require__(80);
+const subchannel_address_1 = __webpack_require__(101);
 const admin_1 = __webpack_require__(104);
 const make_client_1 = __webpack_require__(105);
 function channelRefToMessage(ref) {
@@ -62743,10 +64435,10 @@ exports.loadPackageDefinition = loadPackageDefinition;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Client = void 0;
 const call_1 = __webpack_require__(107);
-const channel_1 = __webpack_require__(85);
-const connectivity_state_1 = __webpack_require__(93);
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
+const channel_1 = __webpack_require__(84);
+const connectivity_state_1 = __webpack_require__(92);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
 const client_interceptors_1 = __webpack_require__(110);
 const CHANNEL_SYMBOL = Symbol();
 const INTERCEPTOR_SYMBOL = Symbol();
@@ -63181,7 +64873,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ClientDuplexStreamImpl = exports.ClientWritableStreamImpl = exports.ClientReadableStreamImpl = exports.ClientUnaryCallImpl = exports.callErrorFromStatus = void 0;
 const events_1 = __webpack_require__(108);
 const stream_1 = __webpack_require__(109);
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 /**
  * Construct a ServiceError from a StatusObject. This function exists primarily
  * as an attempt to make the error stack trace clearly communicate that the
@@ -63335,10 +65027,10 @@ module.exports = require("stream");
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getInterceptingCall = exports.InterceptingCall = exports.RequesterBuilder = exports.ListenerBuilder = exports.InterceptorConfigurationError = void 0;
-const metadata_1 = __webpack_require__(79);
+const metadata_1 = __webpack_require__(78);
 const call_interface_1 = __webpack_require__(111);
-const constants_1 = __webpack_require__(81);
-const error_1 = __webpack_require__(84);
+const constants_1 = __webpack_require__(80);
+const error_1 = __webpack_require__(83);
 /**
  * Error class associated with passing both interceptors and interceptor
  * providers to a client constructor or as call options.
@@ -77448,20 +79140,20 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;// GENERATED FIL
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Http2SubchannelConnector = void 0;
 const http2 = __webpack_require__(166);
-const tls_1 = __webpack_require__(87);
+const tls_1 = __webpack_require__(86);
 const channelz_1 = __webpack_require__(103);
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 const http_proxy_1 = __webpack_require__(167);
-const logging = __webpack_require__(80);
-const resolver_1 = __webpack_require__(94);
-const subchannel_address_1 = __webpack_require__(102);
-const uri_parser_1 = __webpack_require__(95);
-const net = __webpack_require__(46);
+const logging = __webpack_require__(79);
+const resolver_1 = __webpack_require__(93);
+const subchannel_address_1 = __webpack_require__(101);
+const uri_parser_1 = __webpack_require__(94);
+const net = __webpack_require__(102);
 const subchannel_call_1 = __webpack_require__(170);
 const call_number_1 = __webpack_require__(172);
 const TRACER_NAME = 'transport';
 const FLOW_CONTROL_TRACER_NAME = 'transport_flowctrl';
-const clientVersion = (__webpack_require__(83).version);
+const clientVersion = (__webpack_require__(82).version);
 const { HTTP2_HEADER_AUTHORITY, HTTP2_HEADER_CONTENT_TYPE, HTTP2_HEADER_METHOD, HTTP2_HEADER_PATH, HTTP2_HEADER_TE, HTTP2_HEADER_USER_AGENT, } = http2.constants;
 const KEEPALIVE_TIMEOUT_MS = 20000;
 const tooManyPingsData = Buffer.from('too_many_pings', 'ascii');
@@ -78104,15 +79796,15 @@ module.exports = require("http2");
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getProxiedConnection = exports.mapProxyName = void 0;
-const logging_1 = __webpack_require__(80);
-const constants_1 = __webpack_require__(81);
-const resolver_1 = __webpack_require__(94);
-const http = __webpack_require__(57);
-const tls = __webpack_require__(87);
-const logging = __webpack_require__(80);
-const subchannel_address_1 = __webpack_require__(102);
-const uri_parser_1 = __webpack_require__(95);
-const url_1 = __webpack_require__(59);
+const logging_1 = __webpack_require__(79);
+const constants_1 = __webpack_require__(80);
+const resolver_1 = __webpack_require__(93);
+const http = __webpack_require__(55);
+const tls = __webpack_require__(86);
+const logging = __webpack_require__(79);
+const subchannel_address_1 = __webpack_require__(101);
+const uri_parser_1 = __webpack_require__(94);
+const url_1 = __webpack_require__(57);
 const resolver_dns_1 = __webpack_require__(168);
 const TRACER_NAME = 'proxy';
 function trace(text) {
@@ -78369,17 +80061,17 @@ exports.getProxiedConnection = getProxiedConnection;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.DEFAULT_PORT = void 0;
-const resolver_1 = __webpack_require__(94);
+const resolver_1 = __webpack_require__(93);
 const dns = __webpack_require__(169);
-const util = __webpack_require__(64);
-const service_config_1 = __webpack_require__(92);
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
-const logging = __webpack_require__(80);
-const constants_2 = __webpack_require__(81);
-const uri_parser_1 = __webpack_require__(95);
-const net_1 = __webpack_require__(46);
-const backoff_timeout_1 = __webpack_require__(97);
+const util = __webpack_require__(63);
+const service_config_1 = __webpack_require__(91);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
+const logging = __webpack_require__(79);
+const constants_2 = __webpack_require__(80);
+const uri_parser_1 = __webpack_require__(94);
+const net_1 = __webpack_require__(102);
+const backoff_timeout_1 = __webpack_require__(96);
 const TRACER_NAME = 'dns_resolver';
 function trace(text) {
     logging.trace(constants_2.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -78712,12 +80404,12 @@ module.exports = require("dns");
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Http2SubchannelCall = void 0;
 const http2 = __webpack_require__(166);
-const os = __webpack_require__(47);
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
+const os = __webpack_require__(62);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
 const stream_decoder_1 = __webpack_require__(171);
-const logging = __webpack_require__(80);
-const constants_2 = __webpack_require__(81);
+const logging = __webpack_require__(79);
+const constants_2 = __webpack_require__(80);
 const TRACER_NAME = 'subchannel_call';
 /**
  * Should do approximately the same thing as util.getSystemErrorName but the
@@ -79414,9 +81106,9 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CompressionFilterFactory = exports.CompressionFilter = void 0;
 const zlib = __webpack_require__(175);
 const compression_algorithms_1 = __webpack_require__(176);
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 const filter_1 = __webpack_require__(177);
-const logging = __webpack_require__(80);
+const logging = __webpack_require__(79);
 const isCompressionAlgorithmKey = (key) => {
     return (typeof key === 'number' && typeof compression_algorithms_1.CompressionAlgorithms[key] === 'string');
 };
@@ -79789,13 +81481,13 @@ exports.BaseFilter = BaseFilter;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LoadBalancingCall = void 0;
-const connectivity_state_1 = __webpack_require__(93);
-const constants_1 = __webpack_require__(81);
+const connectivity_state_1 = __webpack_require__(92);
+const constants_1 = __webpack_require__(80);
 const deadline_1 = __webpack_require__(179);
-const metadata_1 = __webpack_require__(79);
-const picker_1 = __webpack_require__(96);
-const uri_parser_1 = __webpack_require__(95);
-const logging = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
+const picker_1 = __webpack_require__(95);
+const uri_parser_1 = __webpack_require__(94);
+const logging = __webpack_require__(79);
 const control_plane_status_1 = __webpack_require__(180);
 const http2 = __webpack_require__(166);
 const TRACER_NAME = 'load_balancing_call';
@@ -80168,7 +81860,7 @@ exports.deadlineToString = deadlineToString;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.restrictControlPlaneStatusCode = void 0;
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 const INAPPROPRIATE_CONTROL_PLANE_CODES = [
     constants_1.Status.OK,
     constants_1.Status.INVALID_ARGUMENT,
@@ -80217,10 +81909,10 @@ exports.restrictControlPlaneStatusCode = restrictControlPlaneStatusCode;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ResolvingCall = void 0;
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 const deadline_1 = __webpack_require__(179);
-const metadata_1 = __webpack_require__(79);
-const logging = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
+const logging = __webpack_require__(79);
 const control_plane_status_1 = __webpack_require__(180);
 const TRACER_NAME = 'resolving_call';
 class ResolvingCall {
@@ -80496,9 +82188,9 @@ exports.ResolvingCall = ResolvingCall;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.RetryingCall = exports.MessageBufferTracker = exports.RetryThrottler = void 0;
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
-const logging = __webpack_require__(80);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
+const logging = __webpack_require__(79);
 const TRACER_NAME = 'retrying_call';
 class RetryThrottler {
     constructor(maxTokens, tokenRatio, previousRetryThrottler) {
@@ -81207,13 +82899,13 @@ exports.BaseSubchannelWrapper = BaseSubchannelWrapper;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Server = void 0;
 const http2 = __webpack_require__(166);
-const constants_1 = __webpack_require__(81);
+const constants_1 = __webpack_require__(80);
 const server_call_1 = __webpack_require__(185);
 const server_credentials_1 = __webpack_require__(186);
-const resolver_1 = __webpack_require__(94);
-const logging = __webpack_require__(80);
-const subchannel_address_1 = __webpack_require__(102);
-const uri_parser_1 = __webpack_require__(95);
+const resolver_1 = __webpack_require__(93);
+const logging = __webpack_require__(79);
+const subchannel_address_1 = __webpack_require__(101);
+const uri_parser_1 = __webpack_require__(94);
 const channelz_1 = __webpack_require__(103);
 const UNLIMITED_CONNECTION_AGE_MS = ~(1 << 31);
 const KEEPALIVE_MAX_TIME_MS = ~(1 << 31);
@@ -82108,11 +83800,11 @@ const events_1 = __webpack_require__(108);
 const http2 = __webpack_require__(166);
 const stream_1 = __webpack_require__(109);
 const zlib = __webpack_require__(175);
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
 const stream_decoder_1 = __webpack_require__(171);
-const logging = __webpack_require__(80);
-const error_1 = __webpack_require__(84);
+const logging = __webpack_require__(79);
+const error_1 = __webpack_require__(83);
 const TRACER_NAME = 'server_call';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -82805,7 +84497,7 @@ function handleExpiredDeadline(call) {
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ServerCredentials = void 0;
-const tls_helpers_1 = __webpack_require__(88);
+const tls_helpers_1 = __webpack_require__(87);
 class ServerCredentials {
     static createInsecure() {
         return new InsecureServerCredentials();
@@ -82950,28 +84642,28 @@ exports.StatusBuilder = StatusBuilder;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OutlierDetectionLoadBalancingConfig = exports.BaseSubchannelWrapper = exports.registerAdminService = exports.FilterStackFactory = exports.BaseFilter = exports.PickResultType = exports.QueuePicker = exports.UnavailablePicker = exports.ChildLoadBalancerHandler = exports.subchannelAddressToString = exports.validateLoadBalancingConfig = exports.getFirstUsableConfig = exports.registerLoadBalancerType = exports.createChildChannelControlHelper = exports.BackoffTimeout = exports.durationToMs = exports.uriToString = exports.createResolver = exports.registerResolver = exports.log = exports.trace = void 0;
-var logging_1 = __webpack_require__(80);
+var logging_1 = __webpack_require__(79);
 Object.defineProperty(exports, "trace", ({ enumerable: true, get: function () { return logging_1.trace; } }));
 Object.defineProperty(exports, "log", ({ enumerable: true, get: function () { return logging_1.log; } }));
-var resolver_1 = __webpack_require__(94);
+var resolver_1 = __webpack_require__(93);
 Object.defineProperty(exports, "registerResolver", ({ enumerable: true, get: function () { return resolver_1.registerResolver; } }));
 Object.defineProperty(exports, "createResolver", ({ enumerable: true, get: function () { return resolver_1.createResolver; } }));
-var uri_parser_1 = __webpack_require__(95);
+var uri_parser_1 = __webpack_require__(94);
 Object.defineProperty(exports, "uriToString", ({ enumerable: true, get: function () { return uri_parser_1.uriToString; } }));
 var duration_1 = __webpack_require__(189);
 Object.defineProperty(exports, "durationToMs", ({ enumerable: true, get: function () { return duration_1.durationToMs; } }));
-var backoff_timeout_1 = __webpack_require__(97);
+var backoff_timeout_1 = __webpack_require__(96);
 Object.defineProperty(exports, "BackoffTimeout", ({ enumerable: true, get: function () { return backoff_timeout_1.BackoffTimeout; } }));
-var load_balancer_1 = __webpack_require__(91);
+var load_balancer_1 = __webpack_require__(90);
 Object.defineProperty(exports, "createChildChannelControlHelper", ({ enumerable: true, get: function () { return load_balancer_1.createChildChannelControlHelper; } }));
 Object.defineProperty(exports, "registerLoadBalancerType", ({ enumerable: true, get: function () { return load_balancer_1.registerLoadBalancerType; } }));
 Object.defineProperty(exports, "getFirstUsableConfig", ({ enumerable: true, get: function () { return load_balancer_1.getFirstUsableConfig; } }));
 Object.defineProperty(exports, "validateLoadBalancingConfig", ({ enumerable: true, get: function () { return load_balancer_1.validateLoadBalancingConfig; } }));
-var subchannel_address_1 = __webpack_require__(102);
+var subchannel_address_1 = __webpack_require__(101);
 Object.defineProperty(exports, "subchannelAddressToString", ({ enumerable: true, get: function () { return subchannel_address_1.subchannelAddressToString; } }));
-var load_balancer_child_handler_1 = __webpack_require__(98);
+var load_balancer_child_handler_1 = __webpack_require__(97);
 Object.defineProperty(exports, "ChildLoadBalancerHandler", ({ enumerable: true, get: function () { return load_balancer_child_handler_1.ChildLoadBalancerHandler; } }));
-var picker_1 = __webpack_require__(96);
+var picker_1 = __webpack_require__(95);
 Object.defineProperty(exports, "UnavailablePicker", ({ enumerable: true, get: function () { return picker_1.UnavailablePicker; } }));
 Object.defineProperty(exports, "QueuePicker", ({ enumerable: true, get: function () { return picker_1.QueuePicker; } }));
 Object.defineProperty(exports, "PickResultType", ({ enumerable: true, get: function () { return picker_1.PickResultType; } }));
@@ -83053,16 +84745,16 @@ exports.isDuration = isDuration;
 var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.OutlierDetectionLoadBalancer = exports.OutlierDetectionLoadBalancingConfig = void 0;
-const connectivity_state_1 = __webpack_require__(93);
-const constants_1 = __webpack_require__(81);
+const connectivity_state_1 = __webpack_require__(92);
+const constants_1 = __webpack_require__(80);
 const duration_1 = __webpack_require__(189);
 const experimental_1 = __webpack_require__(188);
-const load_balancer_1 = __webpack_require__(91);
-const load_balancer_child_handler_1 = __webpack_require__(98);
-const picker_1 = __webpack_require__(96);
-const subchannel_address_1 = __webpack_require__(102);
+const load_balancer_1 = __webpack_require__(90);
+const load_balancer_child_handler_1 = __webpack_require__(97);
+const picker_1 = __webpack_require__(95);
+const subchannel_address_1 = __webpack_require__(101);
 const subchannel_interface_1 = __webpack_require__(183);
-const logging = __webpack_require__(80);
+const logging = __webpack_require__(79);
 const TRACER_NAME = 'outlier_detection';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -83665,7 +85357,7 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = void 0;
-const resolver_1 = __webpack_require__(94);
+const resolver_1 = __webpack_require__(93);
 class UdsResolver {
     constructor(target, listener, channelOptions) {
         this.listener = listener;
@@ -83722,12 +85414,12 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = void 0;
-const net_1 = __webpack_require__(46);
-const constants_1 = __webpack_require__(81);
-const metadata_1 = __webpack_require__(79);
-const resolver_1 = __webpack_require__(94);
-const uri_parser_1 = __webpack_require__(95);
-const logging = __webpack_require__(80);
+const net_1 = __webpack_require__(102);
+const constants_1 = __webpack_require__(80);
+const metadata_1 = __webpack_require__(78);
+const resolver_1 = __webpack_require__(93);
+const uri_parser_1 = __webpack_require__(94);
+const logging = __webpack_require__(79);
 const TRACER_NAME = 'ip_resolver';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -83834,11 +85526,11 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.PickFirstLoadBalancer = exports.shuffled = exports.PickFirstLoadBalancingConfig = void 0;
-const load_balancer_1 = __webpack_require__(91);
-const connectivity_state_1 = __webpack_require__(93);
-const picker_1 = __webpack_require__(96);
-const logging = __webpack_require__(80);
-const constants_1 = __webpack_require__(81);
+const load_balancer_1 = __webpack_require__(90);
+const connectivity_state_1 = __webpack_require__(92);
+const picker_1 = __webpack_require__(95);
+const logging = __webpack_require__(79);
+const constants_1 = __webpack_require__(80);
 const TRACER_NAME = 'pick_first';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -84233,12 +85925,12 @@ exports.setup = setup;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setup = exports.RoundRobinLoadBalancer = void 0;
-const load_balancer_1 = __webpack_require__(91);
-const connectivity_state_1 = __webpack_require__(93);
-const picker_1 = __webpack_require__(96);
-const subchannel_address_1 = __webpack_require__(102);
-const logging = __webpack_require__(80);
-const constants_1 = __webpack_require__(81);
+const load_balancer_1 = __webpack_require__(90);
+const connectivity_state_1 = __webpack_require__(92);
+const picker_1 = __webpack_require__(95);
+const subchannel_address_1 = __webpack_require__(101);
+const logging = __webpack_require__(79);
+const constants_1 = __webpack_require__(80);
 const TRACER_NAME = 'round_robin';
 function trace(text) {
     logging.trace(constants_1.LogVerbosity.DEBUG, TRACER_NAME, text);
@@ -84432,9 +86124,9 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OllamaBlockerService = void 0;
 const path = __importStar(__webpack_require__(10));
 const fs = __importStar(__webpack_require__(25));
-const os = __importStar(__webpack_require__(47));
+const os = __importStar(__webpack_require__(62));
 const child_process_1 = __webpack_require__(43);
-const util_1 = __webpack_require__(64);
+const util_1 = __webpack_require__(63);
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 class OllamaBlockerService {
     static instance;
