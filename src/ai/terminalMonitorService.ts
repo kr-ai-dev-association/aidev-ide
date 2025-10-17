@@ -130,12 +130,12 @@ export class TerminalMonitorService {
         this.isMonitoring = true;
         this.logEntries = [];
         this.lastTerminalCount = vscode.window.terminals.length;
-        console.log('[TerminalMonitorService] 터미널 모니터링 시작');
+        // console.log('[TerminalMonitorService] 터미널 모니터링 시작');
 
         // 터미널 생성 이벤트 리스너
         this.terminalDisposables.push(
             vscode.window.onDidOpenTerminal((terminal) => {
-                console.log(`[TerminalMonitorService] 터미널 생성됨: ${terminal.name}`);
+                // console.log(`[TerminalMonitorService] 터미널 생성됨: ${terminal.name}`);
                 this.activeTerminals.add(terminal);
                 this.monitorTerminal(terminal);
                 this.logTerminalEvent('info', 'terminal', `터미널 생성됨: ${terminal.name}`);
@@ -246,7 +246,7 @@ export class TerminalMonitorService {
     private monitorTerminal(terminal: vscode.Terminal): void {
         if (!this.isMonitoring) return;
 
-        console.log(`[TerminalMonitorService] 터미널 모니터링 시작: ${terminal.name}`);
+        // console.log(`[TerminalMonitorService] 터미널 모니터링 시작: ${terminal.name}`);
 
         // 터미널 데이터 이벤트 리스너 (VSCode API 제한으로 인해 직접적인 터미널 출력 모니터링은 제한적)
         // 대신 주기적으로 터미널 상태를 확인하는 방식 사용

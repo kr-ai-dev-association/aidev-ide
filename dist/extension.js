@@ -329,7 +329,7 @@ async function activate(context) {
             vscode.window.showErrorMessage(`터미널 모니터링 테스트 오류: ${error}`);
         }
     }));
-    console.log('aidev-ide activated and commands registered.');
+    // console.log('aidev-ide activated and commands registered.');
 }
 function deactivate() {
     // 터미널 정리
@@ -412,7 +412,7 @@ class StorageService {
     async getOllamaApiUrl() {
         const apiUrl = await this.secretStorage.get(OLLAMA_API_URL_SECRET_KEY);
         if (apiUrl) {
-            console.log('Ollama API URL loaded from SecretStorage.');
+            // console.log('Ollama API URL loaded from SecretStorage.');
         }
         else {
             console.log('No Ollama API URL found in SecretStorage.');
@@ -441,7 +441,7 @@ class StorageService {
     async getOllamaEndpoint() {
         const endpoint = await this.secretStorage.get(OLLAMA_ENDPOINT_SECRET_KEY);
         if (endpoint) {
-            console.log('Ollama API endpoint loaded from SecretStorage.');
+            // console.log('Ollama API endpoint loaded from SecretStorage.');
             return endpoint;
         }
         else {
@@ -471,7 +471,7 @@ class StorageService {
     async getOllamaModel() {
         const model = await this.secretStorage.get(OLLAMA_MODEL_SECRET_KEY);
         if (model) {
-            console.log('Ollama model loaded from SecretStorage.');
+            // console.log('Ollama model loaded from SecretStorage.');
             return model;
         }
         else {
@@ -501,7 +501,7 @@ class StorageService {
     async getCurrentAiModel() {
         const model = await this.secretStorage.get(CURRENT_AI_MODEL_SECRET_KEY);
         if (model) {
-            console.log('Current AI model loaded from SecretStorage.');
+            // console.log('Current AI model loaded from SecretStorage.');
         }
         else {
             console.log('No current AI model found in SecretStorage.');
@@ -735,7 +735,7 @@ class GeminiApi {
                 model: this.MODEL_NAME,
                 safetySettings: this.defaultSafetySettings,
             });
-            console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            // console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
         }
         catch (error) {
             console.error('Error initializing AIDEV-IDE API:', error);
@@ -3440,7 +3440,7 @@ class CodebaseContextService {
                 break;
             }
         }
-        console.log(`[CodebaseContextService] 생성된 키워드 패턴 (${patterns.length}개): ${patterns.join(', ')}`);
+        // console.log(`[CodebaseContextService] 생성된 키워드 패턴 (${patterns.length}개): ${patterns.join(', ')}`);
         return patterns;
     }
     /**
@@ -3514,7 +3514,7 @@ class CodebaseContextService {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 20)
             .map(([filePath]) => filePath);
-        console.log(`[CodebaseContextService] 파일 우선순위 점수:`, Array.from(fileScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10));
+        // console.log(`[CodebaseContextService] 파일 우선순위 점수:`, Array.from(fileScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10));
         return sortedFiles;
     }
     /**
@@ -13955,7 +13955,7 @@ function getHtmlContentWithUris(extensionUri, htmlFileName, webview) {
     const nonce = getNonce();
     try {
         htmlContent = fs.readFileSync(htmlFilePathOnDisk.fsPath, 'utf8');
-        console.log(`[HTML Loader] Read ${htmlFileName}.html. Length: ${htmlContent.length}`);
+        // console.log(`[HTML Loader] Read ${htmlFileName}.html. Length: ${htmlContent.length}`);
         const commonStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'styles.css'));
         const specificStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', `${htmlFileName}.css`));
         htmlContent = htmlContent
@@ -16763,10 +16763,10 @@ class TerminalMonitorService {
         this.isMonitoring = true;
         this.logEntries = [];
         this.lastTerminalCount = vscode.window.terminals.length;
-        console.log('[TerminalMonitorService] 터미널 모니터링 시작');
+        // console.log('[TerminalMonitorService] 터미널 모니터링 시작');
         // 터미널 생성 이벤트 리스너
         this.terminalDisposables.push(vscode.window.onDidOpenTerminal((terminal) => {
-            console.log(`[TerminalMonitorService] 터미널 생성됨: ${terminal.name}`);
+            // console.log(`[TerminalMonitorService] 터미널 생성됨: ${terminal.name}`);
             this.activeTerminals.add(terminal);
             this.monitorTerminal(terminal);
             this.logTerminalEvent('info', 'terminal', `터미널 생성됨: ${terminal.name}`);
@@ -16864,7 +16864,7 @@ class TerminalMonitorService {
     monitorTerminal(terminal) {
         if (!this.isMonitoring)
             return;
-        console.log(`[TerminalMonitorService] 터미널 모니터링 시작: ${terminal.name}`);
+        // console.log(`[TerminalMonitorService] 터미널 모니터링 시작: ${terminal.name}`);
         // 터미널 데이터 이벤트 리스너 (VSCode API 제한으로 인해 직접적인 터미널 출력 모니터링은 제한적)
         // 대신 주기적으로 터미널 상태를 확인하는 방식 사용
         this.startTerminalStatusCheck(terminal);
@@ -84448,7 +84448,7 @@ class OllamaBlockerService {
         }
         // 릴리스 모드 파일이 존재하는지 확인
         if (fs.existsSync(releasePath)) {
-            console.log('릴리스 모드 ollama-blocker 사용');
+            // console.log('릴리스 모드 ollama-blocker 사용');
             return releasePath;
         }
         // 기본적으로 릴리스 경로 반환 (에러 메시지용)
@@ -84462,8 +84462,8 @@ class OllamaBlockerService {
         // 디버그 모드에서는 현재 프로젝트의 ollama-blocker 디렉토리 사용
         const debugPath = path.join(this.extensionContext.extensionPath, '..', 'ollama-blocker', 'service-account-key.json');
         const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'ollama-blocker', 'service-account-key.json');
-        console.log('서비스 계정 키 디버그 경로:', debugPath);
-        console.log('서비스 계정 키 릴리스 경로:', releasePath);
+        // console.log('서비스 계정 키 디버그 경로:', debugPath);
+        // console.log('서비스 계정 키 릴리스 경로:', releasePath);
         // 디버그 모드 파일이 존재하는지 확인
         if (fs.existsSync(debugPath)) {
             console.log('디버그 모드 서비스 계정 키 사용');
@@ -84471,7 +84471,7 @@ class OllamaBlockerService {
         }
         // 릴리스 모드 파일이 존재하는지 확인
         if (fs.existsSync(releasePath)) {
-            console.log('릴리스 모드 서비스 계정 키 사용');
+            // console.log('릴리스 모드 서비스 계정 키 사용');
             return releasePath;
         }
         // 기본적으로 릴리스 경로 반환 (에러 메시지용)

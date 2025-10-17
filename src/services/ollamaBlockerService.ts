@@ -43,7 +43,7 @@ export class OllamaBlockerService {
 
         // 릴리스 모드 파일이 존재하는지 확인
         if (fs.existsSync(releasePath)) {
-            console.log('릴리스 모드 ollama-blocker 사용');
+            // console.log('릴리스 모드 ollama-blocker 사용');
             return releasePath;
         }
 
@@ -60,8 +60,8 @@ export class OllamaBlockerService {
         const debugPath = path.join(this.extensionContext.extensionPath, '..', 'ollama-blocker', 'service-account-key.json');
         const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'ollama-blocker', 'service-account-key.json');
 
-        console.log('서비스 계정 키 디버그 경로:', debugPath);
-        console.log('서비스 계정 키 릴리스 경로:', releasePath);
+        // console.log('서비스 계정 키 디버그 경로:', debugPath);
+        // console.log('서비스 계정 키 릴리스 경로:', releasePath);
 
         // 디버그 모드 파일이 존재하는지 확인
         if (fs.existsSync(debugPath)) {
@@ -71,7 +71,7 @@ export class OllamaBlockerService {
 
         // 릴리스 모드 파일이 존재하는지 확인
         if (fs.existsSync(releasePath)) {
-            console.log('릴리스 모드 서비스 계정 키 사용');
+            // console.log('릴리스 모드 서비스 계정 키 사용');
             return releasePath;
         }
 

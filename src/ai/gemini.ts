@@ -45,7 +45,7 @@ export class GeminiApi {
                 model: this.MODEL_NAME,
                 safetySettings: this.defaultSafetySettings,
             });
-            console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            // console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
         } catch (error) {
             console.error('Error initializing AIDEV-IDE API:', error);
             this.genAI = undefined;

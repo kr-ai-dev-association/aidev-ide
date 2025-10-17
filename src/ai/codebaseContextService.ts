@@ -1022,7 +1022,7 @@ export class CodebaseContextService {
             }
         }
 
-        console.log(`[CodebaseContextService] 생성된 키워드 패턴 (${patterns.length}개): ${patterns.join(', ')}`);
+        // console.log(`[CodebaseContextService] 생성된 키워드 패턴 (${patterns.length}개): ${patterns.join(', ')}`);
         return patterns;
     }
 
@@ -1107,7 +1107,7 @@ export class CodebaseContextService {
             .slice(0, 20)
             .map(([filePath]) => filePath);
 
-        console.log(`[CodebaseContextService] 파일 우선순위 점수:`, Array.from(fileScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10));
+        // console.log(`[CodebaseContextService] 파일 우선순위 점수:`, Array.from(fileScores.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10));
 
         return sortedFiles;
     }

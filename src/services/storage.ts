@@ -64,7 +64,7 @@ export class StorageService {
     async getOllamaApiUrl(): Promise<string | undefined> {
         const apiUrl = await this.secretStorage.get(OLLAMA_API_URL_SECRET_KEY);
         if (apiUrl) {
-            console.log('Ollama API URL loaded from SecretStorage.');
+            // console.log('Ollama API URL loaded from SecretStorage.');
         } else {
             console.log('No Ollama API URL found in SecretStorage.');
         }
@@ -95,7 +95,7 @@ export class StorageService {
     async getOllamaEndpoint(): Promise<string> {
         const endpoint = await this.secretStorage.get(OLLAMA_ENDPOINT_SECRET_KEY);
         if (endpoint) {
-            console.log('Ollama API endpoint loaded from SecretStorage.');
+            // console.log('Ollama API endpoint loaded from SecretStorage.');
             return endpoint;
         } else {
             console.log('No Ollama API endpoint found in SecretStorage, using default.');
@@ -127,7 +127,7 @@ export class StorageService {
     async getOllamaModel(): Promise<string> {
         const model = await this.secretStorage.get(OLLAMA_MODEL_SECRET_KEY);
         if (model) {
-            console.log('Ollama model loaded from SecretStorage.');
+            // console.log('Ollama model loaded from SecretStorage.');
             return model;
         } else {
             console.log('No Ollama model found in SecretStorage, using default.');
@@ -159,7 +159,7 @@ export class StorageService {
     async getCurrentAiModel(): Promise<string | undefined> {
         const model = await this.secretStorage.get(CURRENT_AI_MODEL_SECRET_KEY);
         if (model) {
-            console.log('Current AI model loaded from SecretStorage.');
+            // console.log('Current AI model loaded from SecretStorage.');
         } else {
             console.log('No current AI model found in SecretStorage.');
         }

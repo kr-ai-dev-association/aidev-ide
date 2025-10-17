@@ -40,7 +40,7 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
 
     try {
         htmlContent = fs.readFileSync(htmlFilePathOnDisk.fsPath, 'utf8');
-        console.log(`[HTML Loader] Read ${htmlFileName}.html. Length: ${htmlContent.length}`);
+        // console.log(`[HTML Loader] Read ${htmlFileName}.html. Length: ${htmlContent.length}`);
 
         const commonStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'styles.css'));
         const specificStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', `${htmlFileName}.css`));

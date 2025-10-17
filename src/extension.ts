@@ -319,7 +319,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
-    console.log('aidev-ide activated and commands registered.');
+    // console.log('aidev-ide activated and commands registered.');
 }
 
 export function deactivate() {
