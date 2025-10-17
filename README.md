@@ -39,6 +39,22 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.1 - Enhanced Settings UI & Configuration Management**
+
+#### **Improved Ollama Configuration**
+- **Local Ollama Section**: Dedicated section for local machine Ollama configurations
+- **Remote Server Section**: New section for remote Ollama server configurations
+- **Server Type Toggle**: Easy switching between local and remote server types
+- **Flexible Model Configuration**: 
+  - Local: Automatic model detection from Ollama server
+  - Remote: Manual model name input (e.g., `gemma3:27b`)
+- **Enhanced User Experience**: Cleaner, more intuitive settings interface
+
+#### **Streamlined Interface**
+- **Removed Terminal Daemon**: Eliminated unnecessary Terminal Daemon configuration
+- **Better Organization**: Clear separation between local and remote configurations
+- **Consistent Styling**: Unified design language across all settings sections
+
 ### 🚀 **NEW in v4.0 - Revolutionary Terminal Auto-Error Correction System**
 
 #### **Real-Time Terminal Monitoring & Error Detection**
@@ -255,6 +271,13 @@ VSCode base code assistant plugin with LLM and LM support.
   - **Memory Optimization**: Chunked processing for large responses
 
 #### Version 3.2.1 - Terminal Auto-Error Correction & DIFF Processing (2025/10/17)
+
+#### 🚀 **Version 4.1.0 - Enhanced Settings UI & Configuration Management (2025/10/18)**
+- **Enhanced Ollama Configuration**: Separate sections for local and remote Ollama configurations
+- **Server Type Toggle**: Easy switching between local machine and remote server types
+- **Streamlined Interface**: Removed Terminal Daemon configuration for cleaner UI
+- **Better Organization**: Clear separation between local and remote configurations
+- **Consistent Styling**: Unified design language across all settings sections
 
 #### 🚀 **Version 4.0.0 - Revolutionary AI-Powered Development Experience (2025/10/18)**
 

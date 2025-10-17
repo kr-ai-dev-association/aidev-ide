@@ -2,6 +2,33 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.1.0 (2025/10/18) - Enhanced Settings UI & Configuration Management
+
+<details>
+<summary>🎯 Enhanced Settings UI & Configuration Management</summary>
+
+### **Improved Ollama Configuration**
+- **Local Ollama Section**: Dedicated section for local machine Ollama configurations
+- **Remote Server Section**: New section for remote Ollama server configurations  
+- **Server Type Toggle**: Easy switching between local and remote server types
+- **Flexible Model Configuration**:
+  - Local: Automatic model detection from Ollama server
+  - Remote: Manual model name input (e.g., `gemma3:27b`)
+- **Enhanced User Experience**: Cleaner, more intuitive settings interface
+
+### **Streamlined Interface**
+- **Removed Terminal Daemon**: Eliminated unnecessary Terminal Daemon configuration
+- **Better Organization**: Clear separation between local and remote configurations
+- **Consistent Styling**: Unified design language across all settings sections
+
+### **Technical Improvements**
+- **Separate Storage**: Independent configuration storage for local and remote settings
+- **Smart UI Switching**: Automatic section visibility based on server type selection
+- **Improved Event Handling**: Enhanced JavaScript event listeners for better responsiveness
+- **Better Error Handling**: More robust error handling for configuration changes
+
+</details>
+
 ## 🚀 Version 4.0.0 (2025/10/18) - Revolutionary AI-Powered Development Experience
 
 <details>
