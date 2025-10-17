@@ -1,3 +1,6 @@
+// VS Code API 초기화
+const vscode = acquireVsCodeApi();
+
 // 클립보드 복사 기능을 위한 헬퍼 함수
 // Webview에서는 navigator.clipboard 사용 가능
 async function copyToClipboard(text) {
@@ -109,12 +112,10 @@ function attachRunButtonListener(button, codeElement) {
         }
 
         // VS Code API를 통해 확장에 명령어 실행 요청
-        if (typeof vscode !== 'undefined') {
-            vscode.postMessage({
-                command: 'executeBashCommands',
-                commands: commands
-            });
-        }
+        vscode.postMessage({
+            command: 'executeBashCommands',
+            commands: commands
+        });
 
         // 버튼 피드백
         const originalText = button.textContent;
