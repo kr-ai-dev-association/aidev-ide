@@ -31,9 +31,9 @@ export class OllamaBlockerService {
         const debugPath = path.join(this.extensionContext.extensionPath, '..', 'ollama-blocker', 'ollama-blocker-embedded');
         const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'ollama-blocker', 'ollama-blocker-embedded');
 
-        console.log('ollama-blocker 디버그 경로:', debugPath);
-        console.log('ollama-blocker 릴리스 경로:', releasePath);
-        console.log('extensionPath:', this.extensionContext.extensionPath);
+        // console.log('ollama-blocker 디버그 경로:', debugPath);
+        // console.log('ollama-blocker 릴리스 경로:', releasePath);
+        // console.log('extensionPath:', this.extensionContext.extensionPath);
 
         // 디버그 모드 파일이 존재하는지 확인
         if (fs.existsSync(debugPath)) {

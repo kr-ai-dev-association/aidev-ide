@@ -22,6 +22,11 @@ export const MODEL_TOKEN_LIMITS = {
         maxInputTokens: 8192,   // 보수적 기본값 (CodeLlama 7B)
         maxOutputTokens: 8192,
         maxTotalTokens: 8192
+    },
+    [AiModelType.OLLAMA_GPT_OSS]: {
+        maxInputTokens: 500000,  // GPT-OSS 120B Cloud의 입력 토큰 제한 (더 큰 값으로 설정)
+        maxOutputTokens: 500000, // GPT-OSS 120B Cloud의 출력 토큰 제한
+        maxTotalTokens: 500000   // GPT-OSS 120B Cloud의 총 토큰 제한
     }
 };
 
@@ -110,6 +115,8 @@ function getDefaultModelName(modelType: AiModelType): string {
             return 'DeepSeek R1:70B';
         case AiModelType.OLLAMA_CodeLlama:
             return 'CodeLlama 7B';
+        case AiModelType.OLLAMA_GPT_OSS:
+            return 'GPT-OSS 120B Cloud';
         default:
             return 'Unknown Model';
     }

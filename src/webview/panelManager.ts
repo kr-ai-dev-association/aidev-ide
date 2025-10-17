@@ -421,6 +421,8 @@ export function openSettingsPanel(
                                     modelToSave = 'ollama-deepseek';
                                 } else if (currentOllamaModel && currentOllamaModel.startsWith('codellama')) {
                                     modelToSave = 'ollama-codellama';
+                                } else if (currentOllamaModel === 'gpt-oss:120b-cloud' || currentOllamaModel === 'gpt-oss-120b:cloud') {
+                                    modelToSave = 'ollama-gpt-oss';
                                 } else if (currentOllamaModel && (currentOllamaModel.includes('gemma') || currentOllamaModel.includes('Gemma'))) {
                                     modelToSave = 'ollama-gemma';
                                 } else {
@@ -474,7 +476,7 @@ export function openSettingsPanel(
                                     newAiModel = 'ollama-deepseek';
                                 } else if (ollamaModelToSave && ollamaModelToSave.startsWith('codellama')) {
                                     newAiModel = 'ollama-codellama';
-                                } else if (ollamaModelToSave === 'gpt-oss-120b:cloud') {
+                                } else if (ollamaModelToSave === 'gpt-oss-120b:cloud' || ollamaModelToSave === 'gpt-oss:120b-cloud') {
                                     newAiModel = 'ollama-gpt-oss'; // 새로운 모델 타입 추가
                                 } else if (ollamaModelToSave && (ollamaModelToSave.includes('gemma') || ollamaModelToSave.includes('Gemma'))) {
                                     newAiModel = 'ollama-gemma';

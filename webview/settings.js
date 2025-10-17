@@ -1,5 +1,9 @@
 // settings.js
-const vscode = acquireVsCodeApi();
+// VS Code API를 전역으로 획득
+if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
+    window.vscode = acquireVsCodeApi();
+}
+const vscode = window.vscode || null;
 
 // DOM 요소 참조
 
@@ -64,6 +68,7 @@ const aiModelSelect = document.getElementById('ai-model-select');
 const saveAiModelButton = document.getElementById('save-ai-model-button');
 const aiModelStatus = document.getElementById('ai-model-status');
 const sourcePathStatus = document.getElementById('source-path-status');
+const sourcePathsList = document.getElementById('source-paths-list');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
 const ollamaSettingsSection = document.getElementById('ollama-settings-section');
 
@@ -1431,7 +1436,7 @@ window.addEventListener('message', event => {
             break;
         }
         case 'currentSettings':
-            console.log('Received currentSettings:', message);
+            // console.log('Received currentSettings:', message);
             if (typeof message.autoUpdateEnabled === 'boolean' && autoUpdateToggle) {
                 autoUpdateToggle.checked = message.autoUpdateEnabled;
                 const autoUpdateChangedText = languageData['autoUpdateChanged'] || '자동 업데이트';
@@ -1496,7 +1501,7 @@ window.addEventListener('message', event => {
             }
             break;
         case 'updatedProjectRoot':
-            console.log('Received updatedProjectRoot message:', message);
+            // console.log('Received updatedProjectRoot message:', message);
             if (message.success === false) {
                 // 설정 실패 또는 취소된 경우
                 const errorText = message.error || '프로젝트 Root 설정에 실패했습니다.';
@@ -1829,8 +1834,8 @@ window.addEventListener('message', event => {
             break;
         case 'languageDataReceived':
             if (message.language && message.data) {
-                console.log('Received language data for:', message.language);
-                console.log('Language data keys:', Object.keys(message.data));
+                // console.log('Received language data for:', message.language);
+                // console.log('Language data keys:', Object.keys(message.data));
                 languageData = message.data;
                 currentLanguage = message.language;
                 sessionStorage.setItem('aidev-ideLang', message.language);

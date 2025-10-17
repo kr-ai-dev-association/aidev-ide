@@ -32,7 +32,7 @@ let ollamaBlockerService: OllamaBlockerService;
 let terminalDaemonService: TerminalDaemonService;
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Congratulations, aidev-ide is now active!');
+    // console.log('Congratulations, aidev-ide is now active!');
 
     // 서비스 초기화 (순서 중요: 의존성 주입)
     storageService = new StorageService(context.secrets);
@@ -63,7 +63,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // 시리얼 번호 확인
         const licenseSerial = await storageService.getBanyaLicenseSerial();
         if (licenseSerial && licenseSerial.trim() !== '') {
-            console.log('시리얼 번호가 저장되어 있습니다. ollama-blocker를 시작하지 않습니다.');
+            // console.log('시리얼 번호가 저장되어 있습니다. ollama-blocker를 시작하지 않습니다.');
         } else {
             console.log('ollama-blocker 자동 시작 중...');
 
@@ -105,7 +105,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const status = await terminalDaemonService.getStatus();
                 if (!status.running) {
                     const res = await terminalDaemonService.start();
-                    console.log('terminal-daemon start:', res.message);
+                    // console.log('terminal-daemon start:', res.message);
                     terminalDaemonService.showLogs();
                 } else {
                     console.log('terminal-daemon already running.');
@@ -158,6 +158,8 @@ export async function activate(context: vscode.ExtensionContext) {
             currentAiModel = 'ollama-deepseek';
         } else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) {
             currentAiModel = 'ollama-codellama';
+        } else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud') {
+            currentAiModel = 'ollama-gpt-oss';
         } else {
             currentAiModel = 'ollama-gemma';
         }

@@ -33,7 +33,7 @@ export class StorageService {
     async getApiKey(): Promise<string | undefined> {
         const apiKey = await this.secretStorage.get(API_KEY_SECRET_KEY);
         if (apiKey) {
-            console.log('API Key loaded from SecretStorage.');
+            // console.log('API Key loaded from SecretStorage.');
         } else {
             console.log('No API Key found in SecretStorage.');
         }
@@ -195,7 +195,7 @@ export class StorageService {
                 // 암호화된 형식인지 확인
                 if (CryptoUtils.isEncrypted(encryptedSerial)) {
                     const decryptedSerial = CryptoUtils.decrypt(encryptedSerial);
-                    console.log('Banya license serial decrypted and loaded from SecretStorage.');
+                    // console.log('Banya license serial decrypted and loaded from SecretStorage.');
                     return decryptedSerial;
                 } else {
                     // 기존 암호화되지 않은 형식인 경우 그대로 반환 (하위 호환성)

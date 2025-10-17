@@ -63,6 +63,8 @@ export class OllamaApi {
             return 128000; // Gemma3:27b의 토큰 제한
         } else if (this.modelName.includes('codellama')) {
             return 8192; // CodeLlama 7B 보수적 기본값
+        } else if (this.modelName.includes('gpt-oss') || this.modelName.includes('120b-cloud') || this.modelName === 'gpt-oss:120b-cloud') {
+            return 500000; // GPT-OSS 120B Cloud의 토큰 제한
         } else {
             return 128000; // 기본값
         }

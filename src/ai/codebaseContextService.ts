@@ -144,7 +144,13 @@ export class CodebaseContextService {
      * @param abortSignal 취소 신호
      * @returns 파일 컨텍스트와 포함된 파일 목록
      */
-    public async getRelevantFilesContext(userQuery: string, abortSignal: AbortSignal, conversationHistory?: { userQuery: string, aiResponse?: string, timestamp: number }[]): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
+    public async getRelevantFilesContext(userQuery: string, abortSignal: AbortSignal, conversationHistory?: { userQuery: string, aiResponse?: string, timestamp: number }[], intentResult?: { category: string; subtype: string; confidence: number }): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
+        // 의도 분석 결과 확인 - 코드 관련 질문이 아닌 경우 파일 컨텍스트 제외
+        if (intentResult && !this.isCodeRelatedIntent(intentResult)) {
+            console.log(`[CodebaseContextService] 코드 관련 질문이 아니므로 파일 컨텍스트 제외. 의도: ${intentResult.category}/${intentResult.subtype}`);
+            return { fileContentsContext: "", includedFilesForContext: [] };
+        }
+
         const projectRoot = await this.configurationService.getProjectRoot();
         if (!projectRoot) {
             this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았습니다. 설정에서 프로젝트 루트를 지정해주세요.');
@@ -220,7 +226,7 @@ export class CodebaseContextService {
                         includedFilesForContext.push({ name: buildFileName, fullPath: buildFile });
                         includedPathSet.add(buildFile);
                         currentTotalContentLength += content.length;
-                        console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
+                        // console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
                     }
                 } else if (isNode) {
                     // Node.js 프로젝트의 경우 package.json을 최우선으로 포함
@@ -236,7 +242,7 @@ export class CodebaseContextService {
                         includedFilesForContext.push({ name: 'package.json', fullPath: packageJsonPath });
                         includedPathSet.add(packageJsonPath);
                         currentTotalContentLength += content.length;
-                        console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
+                        // console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
                     }
                 }
             } catch (e) {
@@ -245,19 +251,19 @@ export class CodebaseContextService {
 
             // 질의에서 키워드 추출
             const keywords = this.extractKeywordsFromQuery(userQuery);
-            console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
+            // console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
 
             // 대화 기록을 활용한 키워드 확장
             const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
-            console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
+            // console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
 
             // 프로젝트 루트에서 관련 파일들 검색
             const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
-            console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
+            // console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
 
             // 토큰 사용량을 고려한 파일 선별
             const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
-            console.log(`[CodebaseContextService] 토큰 제한 고려하여 ${selectedFiles.length}개 파일 선별`);
+            // console.log(`[CodebaseContextService] 토큰 제한 고려하여 ${selectedFiles.length}개 파일 선별`);
 
             // 파일들을 우선순위에 따라 정렬
             const sortedFiles = this.prioritizeFiles(selectedFiles, expandedKeywords);
@@ -309,7 +315,7 @@ export class CodebaseContextService {
                 }
             }
 
-            console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
+            // console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
             return { fileContentsContext, includedFilesForContext };
 
         } catch (error) {
@@ -349,11 +355,11 @@ export class CodebaseContextService {
         // 키워드 우선순위 기반 필터링 및 중복 제거
         const prioritizedKeywords = this.prioritizeKeywords(allKeywords, userQuery);
 
-        console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
-        console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
-        console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
-        console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
-        console.log(`[CodebaseContextService] 최종 키워드: ${prioritizedKeywords.join(', ')}`);
+        // console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
+        // console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
+        // console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
+        // console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
+        // console.log(`[CodebaseContextService] 최종 키워드: ${prioritizedKeywords.join(', ')}`);
 
         return prioritizedKeywords;
     }
@@ -409,7 +415,7 @@ export class CodebaseContextService {
             .slice(0, 10)
             .map(([keyword]) => keyword);
 
-        console.log(`[CodebaseContextService] 키워드 우선순위 점수:`, Array.from(keywordScores.entries()).sort((a, b) => b[1] - a[1]));
+        // console.log(`[CodebaseContextService] 키워드 우선순위 점수:`, Array.from(keywordScores.entries()).sort((a, b) => b[1] - a[1]));
 
         return sortedKeywords;
     }
@@ -679,7 +685,7 @@ export class CodebaseContextService {
 
         if (isSpringProject) {
             // Spring Boot 프로젝트의 경우 Java 중심 검색
-            console.log('[CodebaseContextService] Spring Boot 프로젝트 감지 - Java 중심 검색 수행');
+            // console.log('[CodebaseContextService] Spring Boot 프로젝트 감지 - Java 중심 검색 수행');
             searchPatterns = [
                 'pom.xml', 'build.gradle', 'build.gradle.kts',
                 'src/main/resources/application.properties',
@@ -698,7 +704,7 @@ export class CodebaseContextService {
             ];
         } else if (isNodeProject && isFrontendFramework) {
             // Node.js 기반 프론트엔드 프레임워크 프로젝트의 경우 제한된 검색
-            console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
+            // console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
             searchPatterns = [
                 'package.json',
                 'src/**/*.ts', 'src/**/*.js', 'src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue',
@@ -718,7 +724,7 @@ export class CodebaseContextService {
         try {
             // 키워드별로 관련 디렉토리와 파일 패턴 생성
             const keywordPatterns = this.generateKeywordPatterns(keywords);
-            console.log(`[CodebaseContextService] 생성된 키워드 패턴: ${keywordPatterns.join(', ')}`);
+            // console.log(`[CodebaseContextService] 생성된 키워드 패턴: ${keywordPatterns.join(', ')}`);
 
             // 모든 검색 패턴과 키워드 패턴을 결합
             const allPatterns = [...searchPatterns, ...keywordPatterns];
@@ -736,7 +742,7 @@ export class CodebaseContextService {
                         try {
                             // 라이브러리 디렉토리 파일 제외
                             if (this.isLibraryPath(filePath, projectRoot)) {
-                                console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${filePath}`);
+                                // console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${filePath}`);
                                 continue;
                             }
 
@@ -766,16 +772,16 @@ export class CodebaseContextService {
             console.error('[CodebaseContextService] 파일 검색 중 오류:', error);
         }
 
-        console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
+        // console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
 
         // 검색된 파일들의 리스트를 디버그 콘솔에 출력
-        if (relevantFiles.length > 0) {
-            console.log('[CodebaseContextService] 검색된 파일 목록:');
-            relevantFiles.forEach((filePath, index) => {
-                const relativePath = path.relative(projectRoot, filePath);
-                console.log(`  ${index + 1}. ${relativePath}`);
-            });
-        }
+        // if (relevantFiles.length > 0) {
+        //     console.log('[CodebaseContextService] 검색된 파일 목록:');
+        //     relevantFiles.forEach((filePath, index) => {
+        //         const relativePath = path.relative(projectRoot, filePath);
+        //         console.log(`  ${index + 1}. ${relativePath}`);
+        //     });
+        // }
 
         return relevantFiles;
     }
@@ -853,7 +859,7 @@ export class CodebaseContextService {
                     pomContent.includes('spring-boot-parent') ||
                     pomContent.includes('org.springframework.boot');
                 if (isSpringBoot) {
-                    console.log('[CodebaseContextService] Maven 기반 Spring Boot 프로젝트 감지');
+                    // console.log('[CodebaseContextService] Maven 기반 Spring Boot 프로젝트 감지');
                     return true;
                 }
             } catch {
@@ -870,7 +876,7 @@ export class CodebaseContextService {
                     buildGradleContent.includes('org.springframework.boot') ||
                     buildGradleContent.includes('spring-boot-gradle-plugin');
                 if (isSpringBoot) {
-                    console.log('[CodebaseContextService] Gradle 기반 Spring Boot 프로젝트 감지');
+                    // console.log('[CodebaseContextService] Gradle 기반 Spring Boot 프로젝트 감지');
                     return true;
                 }
             } catch {
@@ -883,7 +889,7 @@ export class CodebaseContextService {
                     buildGradleKtsContent.includes('org.springframework.boot') ||
                     buildGradleKtsContent.includes('spring-boot-gradle-plugin');
                 if (isSpringBoot) {
-                    console.log('[CodebaseContextService] Gradle Kotlin DSL 기반 Spring Boot 프로젝트 감지');
+                    // console.log('[CodebaseContextService] Gradle Kotlin DSL 기반 Spring Boot 프로젝트 감지');
                     return true;
                 }
             } catch {
@@ -897,7 +903,7 @@ export class CodebaseContextService {
 
             try {
                 await fs.access(applicationPropertiesPath);
-                console.log('[CodebaseContextService] application.properties 파일로 Spring 프로젝트 감지');
+                // console.log('[CodebaseContextService] application.properties 파일로 Spring 프로젝트 감지');
                 return true;
             } catch {
                 // application.properties가 없는 경우
@@ -905,7 +911,7 @@ export class CodebaseContextService {
 
             try {
                 await fs.access(applicationYmlPath);
-                console.log('[CodebaseContextService] application.yml 파일로 Spring 프로젝트 감지');
+                // console.log('[CodebaseContextService] application.yml 파일로 Spring 프로젝트 감지');
                 return true;
             } catch {
                 // application.yml이 없는 경우
@@ -913,7 +919,7 @@ export class CodebaseContextService {
 
             try {
                 await fs.access(applicationYamlPath);
-                console.log('[CodebaseContextService] application.yaml 파일로 Spring 프로젝트 감지');
+                // console.log('[CodebaseContextService] application.yaml 파일로 Spring 프로젝트 감지');
                 return true;
             } catch {
                 // application.yaml이 없는 경우
@@ -1033,7 +1039,7 @@ export class CodebaseContextService {
         for (const filePath of relevantFiles) {
             // 라이브러리 디렉토리 파일 제외
             if (projectRoot && this.isLibraryPath(filePath, projectRoot)) {
-                console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외 (선별 단계): ${filePath}`);
+                // console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외 (선별 단계): ${filePath}`);
                 continue;
             }
 
@@ -1240,17 +1246,35 @@ export class CodebaseContextService {
     }
 
     /**
+     * 의도가 코드 관련인지 확인합니다.
+     * @param intentResult 의도 분석 결과
+     * @returns 코드 관련 의도인지 여부
+     */
+    private isCodeRelatedIntent(intentResult: { category: string; subtype: string; confidence: number }): boolean {
+        // 코드, 실행, 분석 카테고리는 파일 컨텍스트가 필요
+        const codeRelatedCategories = ['code', 'execution', 'analysis'];
+        return codeRelatedCategories.includes(intentResult.category);
+    }
+
+    /**
      * 프로젝트 코드베이스에서 LLM에 전달할 컨텍스트를 수집합니다.
      * src 디렉토리는 전체 포함하고, 나머지 파일들은 키워드 기반으로 필터링합니다.
      * @param abortSignal AbortController의 Signal (취소 요청 시 사용)
      * @param userQuery 사용자 쿼리 (키워드 추출용)
+     * @param intentResult 의도 분석 결과 (파일 컨텍스트 포함 여부 결정용)
      * @returns { fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }
      */
-    public async getProjectCodebaseContext(abortSignal: AbortSignal, userQuery?: string): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
+    public async getProjectCodebaseContext(abortSignal: AbortSignal, userQuery?: string, intentResult?: { category: string; subtype: string; confidence: number }): Promise<{ fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }> {
         const sourcePathsSetting = await this.configurationService.getSourcePaths();
         let fileContentsContext = "";
         let currentTotalContentLength = 0;
         const includedFilesForContext: { name: string, fullPath: string }[] = [];
+
+        // 의도 분석 결과 확인 - 코드 관련 질문이 아닌 경우 파일 컨텍스트 제외
+        if (intentResult && !this.isCodeRelatedIntent(intentResult)) {
+            console.log(`[CodebaseContextService] 코드 관련 질문이 아니므로 파일 컨텍스트 제외. 의도: ${intentResult.category}/${intentResult.subtype}`);
+            return { fileContentsContext: "", includedFilesForContext: [] };
+        }
 
         // 프로젝트 타입 감지
         const projectType = await this.detectProjectType(sourcePathsSetting);
@@ -1352,7 +1376,7 @@ export class CodebaseContextService {
 
                         // 라이브러리 디렉토리 파일 제외
                         if (this.isLibraryPath(file, uri.fsPath)) {
-                            console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${file}`);
+                            // console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${file}`);
                             continue;
                         }
 

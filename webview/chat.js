@@ -5,7 +5,11 @@ import markdownit from 'markdown-it';
 
 console.log("✅ chat.js loaded");
 
-const vscode = acquireVsCodeApi();
+// VS Code API를 전역으로 획득 (codeCopy.js와 공유)
+if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
+    window.vscode = acquireVsCodeApi();
+}
+const vscode = window.vscode || null;
 
 
 // Allow custom aidev-ide:// scheme links to survive sanitization

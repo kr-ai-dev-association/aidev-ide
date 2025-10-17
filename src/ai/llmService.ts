@@ -142,7 +142,8 @@ export class LlmService {
                 return 'Gemini 2.5 Flash';
             } else if (this.currentModelType === AiModelType.OLLAMA_Gemma ||
                 this.currentModelType === AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === AiModelType.OLLAMA_CodeLlama) {
+                this.currentModelType === AiModelType.OLLAMA_CodeLlama ||
+                this.currentModelType === AiModelType.OLLAMA_GPT_OSS) {
                 // Ollama 모델의 경우 실제 모델명을 가져옴
                 return await this.ollamaApi.getCurrentModelName();
             }
@@ -160,6 +161,8 @@ export class LlmService {
                 return 'DeepSeek R1:70B';
             case AiModelType.OLLAMA_CodeLlama:
                 return 'CodeLlama 7B';
+            case AiModelType.OLLAMA_GPT_OSS:
+                return 'GPT-OSS 120B Cloud';
             default:
                 return 'Unknown Model';
         }
@@ -239,12 +242,12 @@ export class LlmService {
 
             if (promptType === PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             } else if (promptType === PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }

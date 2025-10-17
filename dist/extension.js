@@ -71,7 +71,7 @@ let licenseService;
 let ollamaBlockerService;
 let terminalDaemonService;
 async function activate(context) {
-    console.log('Congratulations, aidev-ide is now active!');
+    // console.log('Congratulations, aidev-ide is now active!');
     // 서비스 초기화 (순서 중요: 의존성 주입)
     storageService = new storage_1.StorageService(context.secrets);
     notificationService = new notificationService_1.NotificationService();
@@ -101,7 +101,7 @@ async function activate(context) {
         // 시리얼 번호 확인
         const licenseSerial = await storageService.getBanyaLicenseSerial();
         if (licenseSerial && licenseSerial.trim() !== '') {
-            console.log('시리얼 번호가 저장되어 있습니다. ollama-blocker를 시작하지 않습니다.');
+            // console.log('시리얼 번호가 저장되어 있습니다. ollama-blocker를 시작하지 않습니다.');
         }
         else {
             console.log('ollama-blocker 자동 시작 중...');
@@ -146,7 +146,7 @@ async function activate(context) {
                 const status = await terminalDaemonService.getStatus();
                 if (!status.running) {
                     const res = await terminalDaemonService.start();
-                    console.log('terminal-daemon start:', res.message);
+                    // console.log('terminal-daemon start:', res.message);
                     terminalDaemonService.showLogs();
                 }
                 else {
@@ -193,6 +193,9 @@ async function activate(context) {
         }
         else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) {
             currentAiModel = 'ollama-codellama';
+        }
+        else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud') {
+            currentAiModel = 'ollama-gpt-oss';
         }
         else {
             currentAiModel = 'ollama-gemma';
@@ -380,7 +383,7 @@ class StorageService {
     async getApiKey() {
         const apiKey = await this.secretStorage.get(API_KEY_SECRET_KEY);
         if (apiKey) {
-            console.log('API Key loaded from SecretStorage.');
+            // console.log('API Key loaded from SecretStorage.');
         }
         else {
             console.log('No API Key found in SecretStorage.');
@@ -532,7 +535,7 @@ class StorageService {
                 // 암호화된 형식인지 확인
                 if (cryptoUtils_1.CryptoUtils.isEncrypted(encryptedSerial)) {
                     const decryptedSerial = cryptoUtils_1.CryptoUtils.decrypt(encryptedSerial);
-                    console.log('Banya license serial decrypted and loaded from SecretStorage.');
+                    // console.log('Banya license serial decrypted and loaded from SecretStorage.');
                     return decryptedSerial;
                 }
                 else {
@@ -2677,7 +2680,12 @@ class CodebaseContextService {
      * @param abortSignal 취소 신호
      * @returns 파일 컨텍스트와 포함된 파일 목록
      */
-    async getRelevantFilesContext(userQuery, abortSignal, conversationHistory) {
+    async getRelevantFilesContext(userQuery, abortSignal, conversationHistory, intentResult) {
+        // 의도 분석 결과 확인 - 코드 관련 질문이 아닌 경우 파일 컨텍스트 제외
+        if (intentResult && !this.isCodeRelatedIntent(intentResult)) {
+            console.log(`[CodebaseContextService] 코드 관련 질문이 아니므로 파일 컨텍스트 제외. 의도: ${intentResult.category}/${intentResult.subtype}`);
+            return { fileContentsContext: "", includedFilesForContext: [] };
+        }
         const projectRoot = await this.configurationService.getProjectRoot();
         if (!projectRoot) {
             this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았습니다. 설정에서 프로젝트 루트를 지정해주세요.');
@@ -2748,7 +2756,7 @@ class CodebaseContextService {
                         includedFilesForContext.push({ name: buildFileName, fullPath: buildFile });
                         includedPathSet.add(buildFile);
                         currentTotalContentLength += content.length;
-                        console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
+                        // console.log(`[CodebaseContextService] ${buildFileName}을 컨텍스트에 최우선 포함`);
                     }
                 }
                 else if (isNode) {
@@ -2765,7 +2773,7 @@ class CodebaseContextService {
                         includedFilesForContext.push({ name: 'package.json', fullPath: packageJsonPath });
                         includedPathSet.add(packageJsonPath);
                         currentTotalContentLength += content.length;
-                        console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
+                        // console.log('[CodebaseContextService] package.json을 컨텍스트에 최우선 포함');
                     }
                 }
             }
@@ -2774,16 +2782,16 @@ class CodebaseContextService {
             }
             // 질의에서 키워드 추출
             const keywords = this.extractKeywordsFromQuery(userQuery);
-            console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
+            // console.log(`[CodebaseContextService] 추출된 키워드: ${keywords.join(', ')}`);
             // 대화 기록을 활용한 키워드 확장
             const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
-            console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
+            // console.log(`[CodebaseContextService] 대화 기록 기반 확장 키워드: ${expandedKeywords.join(', ')}`);
             // 프로젝트 루트에서 관련 파일들 검색
             const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
-            console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
+            // console.log(`[CodebaseContextService] 관련 파일 ${relevantFiles.length}개 발견`);
             // 토큰 사용량을 고려한 파일 선별
             const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
-            console.log(`[CodebaseContextService] 토큰 제한 고려하여 ${selectedFiles.length}개 파일 선별`);
+            // console.log(`[CodebaseContextService] 토큰 제한 고려하여 ${selectedFiles.length}개 파일 선별`);
             // 파일들을 우선순위에 따라 정렬
             const sortedFiles = this.prioritizeFiles(selectedFiles, expandedKeywords);
             // 파일 내용을 컨텍스트에 추가
@@ -2826,7 +2834,7 @@ class CodebaseContextService {
                     console.warn(`[CodebaseContextService] 파일 읽기 실패: ${filePath}`, error);
                 }
             }
-            console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
+            // console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
             return { fileContentsContext, includedFilesForContext };
         }
         catch (error) {
@@ -2859,11 +2867,11 @@ class CodebaseContextService {
         const allKeywords = [...koreanStems, ...englishWords, ...developmentKeywords];
         // 키워드 우선순위 기반 필터링 및 중복 제거
         const prioritizedKeywords = this.prioritizeKeywords(allKeywords, userQuery);
-        console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
-        console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
-        console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
-        console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
-        console.log(`[CodebaseContextService] 최종 키워드: ${prioritizedKeywords.join(', ')}`);
+        // console.log(`[CodebaseContextService] 원본 질의: "${userQuery}"`);
+        // console.log(`[CodebaseContextService] 한국어 어간: ${koreanStems.join(', ')}`);
+        // console.log(`[CodebaseContextService] 영어 단어: ${englishWords.join(', ')}`);
+        // console.log(`[CodebaseContextService] 개발 키워드: ${developmentKeywords.join(', ')}`);
+        // console.log(`[CodebaseContextService] 최종 키워드: ${prioritizedKeywords.join(', ')}`);
         return prioritizedKeywords;
     }
     /**
@@ -2909,7 +2917,7 @@ class CodebaseContextService {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10)
             .map(([keyword]) => keyword);
-        console.log(`[CodebaseContextService] 키워드 우선순위 점수:`, Array.from(keywordScores.entries()).sort((a, b) => b[1] - a[1]));
+        // console.log(`[CodebaseContextService] 키워드 우선순위 점수:`, Array.from(keywordScores.entries()).sort((a, b) => b[1] - a[1]));
         return sortedKeywords;
     }
     /**
@@ -3129,7 +3137,7 @@ class CodebaseContextService {
         let searchPatterns;
         if (isSpringProject) {
             // Spring Boot 프로젝트의 경우 Java 중심 검색
-            console.log('[CodebaseContextService] Spring Boot 프로젝트 감지 - Java 중심 검색 수행');
+            // console.log('[CodebaseContextService] Spring Boot 프로젝트 감지 - Java 중심 검색 수행');
             searchPatterns = [
                 'pom.xml', 'build.gradle', 'build.gradle.kts',
                 'src/main/resources/application.properties',
@@ -3149,7 +3157,7 @@ class CodebaseContextService {
         }
         else if (isNodeProject && isFrontendFramework) {
             // Node.js 기반 프론트엔드 프레임워크 프로젝트의 경우 제한된 검색
-            console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
+            // console.log('[CodebaseContextService] Node.js 기반 프론트엔드 프레임워크 프로젝트 감지 - 제한된 검색 수행');
             searchPatterns = [
                 'package.json',
                 'src/**/*.ts', 'src/**/*.js', 'src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue',
@@ -3169,7 +3177,7 @@ class CodebaseContextService {
         try {
             // 키워드별로 관련 디렉토리와 파일 패턴 생성
             const keywordPatterns = this.generateKeywordPatterns(keywords);
-            console.log(`[CodebaseContextService] 생성된 키워드 패턴: ${keywordPatterns.join(', ')}`);
+            // console.log(`[CodebaseContextService] 생성된 키워드 패턴: ${keywordPatterns.join(', ')}`);
             // 모든 검색 패턴과 키워드 패턴을 결합
             const allPatterns = [...searchPatterns, ...keywordPatterns];
             for (const pattern of allPatterns) {
@@ -3184,7 +3192,7 @@ class CodebaseContextService {
                         try {
                             // 라이브러리 디렉토리 파일 제외
                             if (this.isLibraryPath(filePath, projectRoot)) {
-                                console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${filePath}`);
+                                // console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${filePath}`);
                                 continue;
                             }
                             // 파일명이나 경로에 키워드가 포함되어 있는지 확인
@@ -3211,15 +3219,15 @@ class CodebaseContextService {
         catch (error) {
             console.error('[CodebaseContextService] 파일 검색 중 오류:', error);
         }
-        console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
+        // console.log(`[CodebaseContextService] 총 ${relevantFiles.length}개 파일 발견`);
         // 검색된 파일들의 리스트를 디버그 콘솔에 출력
-        if (relevantFiles.length > 0) {
-            console.log('[CodebaseContextService] 검색된 파일 목록:');
-            relevantFiles.forEach((filePath, index) => {
-                const relativePath = path.relative(projectRoot, filePath);
-                console.log(`  ${index + 1}. ${relativePath}`);
-            });
-        }
+        // if (relevantFiles.length > 0) {
+        //     console.log('[CodebaseContextService] 검색된 파일 목록:');
+        //     relevantFiles.forEach((filePath, index) => {
+        //         const relativePath = path.relative(projectRoot, filePath);
+        //         console.log(`  ${index + 1}. ${relativePath}`);
+        //     });
+        // }
         return relevantFiles;
     }
     /**
@@ -3284,7 +3292,7 @@ class CodebaseContextService {
                     pomContent.includes('spring-boot-parent') ||
                     pomContent.includes('org.springframework.boot');
                 if (isSpringBoot) {
-                    console.log('[CodebaseContextService] Maven 기반 Spring Boot 프로젝트 감지');
+                    // console.log('[CodebaseContextService] Maven 기반 Spring Boot 프로젝트 감지');
                     return true;
                 }
             }
@@ -3300,7 +3308,7 @@ class CodebaseContextService {
                     buildGradleContent.includes('org.springframework.boot') ||
                     buildGradleContent.includes('spring-boot-gradle-plugin');
                 if (isSpringBoot) {
-                    console.log('[CodebaseContextService] Gradle 기반 Spring Boot 프로젝트 감지');
+                    // console.log('[CodebaseContextService] Gradle 기반 Spring Boot 프로젝트 감지');
                     return true;
                 }
             }
@@ -3313,7 +3321,7 @@ class CodebaseContextService {
                     buildGradleKtsContent.includes('org.springframework.boot') ||
                     buildGradleKtsContent.includes('spring-boot-gradle-plugin');
                 if (isSpringBoot) {
-                    console.log('[CodebaseContextService] Gradle Kotlin DSL 기반 Spring Boot 프로젝트 감지');
+                    // console.log('[CodebaseContextService] Gradle Kotlin DSL 기반 Spring Boot 프로젝트 감지');
                     return true;
                 }
             }
@@ -3326,7 +3334,7 @@ class CodebaseContextService {
             const applicationYamlPath = path.join(projectRoot, 'src', 'main', 'resources', 'application.yaml');
             try {
                 await fs.access(applicationPropertiesPath);
-                console.log('[CodebaseContextService] application.properties 파일로 Spring 프로젝트 감지');
+                // console.log('[CodebaseContextService] application.properties 파일로 Spring 프로젝트 감지');
                 return true;
             }
             catch {
@@ -3334,7 +3342,7 @@ class CodebaseContextService {
             }
             try {
                 await fs.access(applicationYmlPath);
-                console.log('[CodebaseContextService] application.yml 파일로 Spring 프로젝트 감지');
+                // console.log('[CodebaseContextService] application.yml 파일로 Spring 프로젝트 감지');
                 return true;
             }
             catch {
@@ -3342,7 +3350,7 @@ class CodebaseContextService {
             }
             try {
                 await fs.access(applicationYamlPath);
-                console.log('[CodebaseContextService] application.yaml 파일로 Spring 프로젝트 감지');
+                // console.log('[CodebaseContextService] application.yaml 파일로 Spring 프로젝트 감지');
                 return true;
             }
             catch {
@@ -3447,7 +3455,7 @@ class CodebaseContextService {
         for (const filePath of relevantFiles) {
             // 라이브러리 디렉토리 파일 제외
             if (projectRoot && this.isLibraryPath(filePath, projectRoot)) {
-                console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외 (선별 단계): ${filePath}`);
+                // console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외 (선별 단계): ${filePath}`);
                 continue;
             }
             let score = 0;
@@ -3633,17 +3641,33 @@ class CodebaseContextService {
         }
     }
     /**
+     * 의도가 코드 관련인지 확인합니다.
+     * @param intentResult 의도 분석 결과
+     * @returns 코드 관련 의도인지 여부
+     */
+    isCodeRelatedIntent(intentResult) {
+        // 코드, 실행, 분석 카테고리는 파일 컨텍스트가 필요
+        const codeRelatedCategories = ['code', 'execution', 'analysis'];
+        return codeRelatedCategories.includes(intentResult.category);
+    }
+    /**
      * 프로젝트 코드베이스에서 LLM에 전달할 컨텍스트를 수집합니다.
      * src 디렉토리는 전체 포함하고, 나머지 파일들은 키워드 기반으로 필터링합니다.
      * @param abortSignal AbortController의 Signal (취소 요청 시 사용)
      * @param userQuery 사용자 쿼리 (키워드 추출용)
+     * @param intentResult 의도 분석 결과 (파일 컨텍스트 포함 여부 결정용)
      * @returns { fileContentsContext: string, includedFilesForContext: { name: string, fullPath: string }[] }
      */
-    async getProjectCodebaseContext(abortSignal, userQuery) {
+    async getProjectCodebaseContext(abortSignal, userQuery, intentResult) {
         const sourcePathsSetting = await this.configurationService.getSourcePaths();
         let fileContentsContext = "";
         let currentTotalContentLength = 0;
         const includedFilesForContext = [];
+        // 의도 분석 결과 확인 - 코드 관련 질문이 아닌 경우 파일 컨텍스트 제외
+        if (intentResult && !this.isCodeRelatedIntent(intentResult)) {
+            console.log(`[CodebaseContextService] 코드 관련 질문이 아니므로 파일 컨텍스트 제외. 의도: ${intentResult.category}/${intentResult.subtype}`);
+            return { fileContentsContext: "", includedFilesForContext: [] };
+        }
         // 프로젝트 타입 감지
         const projectType = await this.detectProjectType(sourcePathsSetting);
         console.log(`[CodebaseContextService] 감지된 프로젝트 타입: ${projectType}`);
@@ -3736,7 +3760,7 @@ class CodebaseContextService {
                         }
                         // 라이브러리 디렉토리 파일 제외
                         if (this.isLibraryPath(file, uri.fsPath)) {
-                            console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${file}`);
+                            // console.log(`[CodebaseContextService] 라이브러리 디렉토리 파일 제외: ${file}`);
                             continue;
                         }
                         // Check if file is excluded
@@ -13840,6 +13864,7 @@ var AiModelType;
     AiModelType["OLLAMA_Gemma"] = "ollama-gemma";
     AiModelType["OLLAMA_DeepSeek"] = "ollama-deepseek";
     AiModelType["OLLAMA_CodeLlama"] = "ollama-codellama";
+    AiModelType["OLLAMA_GPT_OSS"] = "ollama-gpt-oss";
 })(AiModelType || (exports.AiModelType = AiModelType = {}));
 var PromptType;
 (function (PromptType) {
@@ -15034,7 +15059,8 @@ class LlmService {
             }
             else if (this.currentModelType === types_1.AiModelType.OLLAMA_Gemma ||
                 this.currentModelType === types_1.AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama) {
+                this.currentModelType === types_1.AiModelType.OLLAMA_CodeLlama ||
+                this.currentModelType === types_1.AiModelType.OLLAMA_GPT_OSS) {
                 // Ollama 모델의 경우 실제 모델명을 가져옴
                 return await this.ollamaApi.getCurrentModelName();
             }
@@ -15052,6 +15078,8 @@ class LlmService {
                 return 'DeepSeek R1:70B';
             case types_1.AiModelType.OLLAMA_CodeLlama:
                 return 'CodeLlama 7B';
+            case types_1.AiModelType.OLLAMA_GPT_OSS:
+                return 'GPT-OSS 120B Cloud';
             default:
                 return 'Unknown Model';
         }
@@ -15114,13 +15142,13 @@ class LlmService {
             let includedFilesForContext = [];
             if (promptType === types_1.PromptType.CODE_GENERATION) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
             else if (promptType === types_1.PromptType.GENERAL_ASK) {
                 // 새로운 방식: 질의 기반 관련 파일 자동 검색
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history);
+                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
                 fileContentsContext = relevantContextResult.fileContentsContext;
                 includedFilesForContext = relevantContextResult.includedFilesForContext;
             }
@@ -15972,6 +16000,11 @@ exports.MODEL_TOKEN_LIMITS = {
         maxInputTokens: 8192, // 보수적 기본값 (CodeLlama 7B)
         maxOutputTokens: 8192,
         maxTotalTokens: 8192
+    },
+    [types_1.AiModelType.OLLAMA_GPT_OSS]: {
+        maxInputTokens: 500000, // GPT-OSS 120B Cloud의 입력 토큰 제한 (더 큰 값으로 설정)
+        maxOutputTokens: 500000, // GPT-OSS 120B Cloud의 출력 토큰 제한
+        maxTotalTokens: 500000 // GPT-OSS 120B Cloud의 총 토큰 제한
     }
 };
 /**
@@ -16044,6 +16077,8 @@ function getDefaultModelName(modelType) {
             return 'DeepSeek R1:70B';
         case types_1.AiModelType.OLLAMA_CodeLlama:
             return 'CodeLlama 7B';
+        case types_1.AiModelType.OLLAMA_GPT_OSS:
+            return 'GPT-OSS 120B Cloud';
         default:
             return 'Unknown Model';
     }
@@ -18026,6 +18061,9 @@ class OllamaApi {
         else if (this.modelName.includes('codellama')) {
             return 8192; // CodeLlama 7B 보수적 기본값
         }
+        else if (this.modelName.includes('gpt-oss') || this.modelName.includes('120b-cloud') || this.modelName === 'gpt-oss:120b-cloud') {
+            return 500000; // GPT-OSS 120B Cloud의 토큰 제한
+        }
         else {
             return 128000; // 기본값
         }
@@ -19418,6 +19456,9 @@ ollamaBlockerService // OllamaBlockerService 추가
                             else if (currentOllamaModel && currentOllamaModel.startsWith('codellama')) {
                                 modelToSave = 'ollama-codellama';
                             }
+                            else if (currentOllamaModel === 'gpt-oss:120b-cloud' || currentOllamaModel === 'gpt-oss-120b:cloud') {
+                                modelToSave = 'ollama-gpt-oss';
+                            }
                             else if (currentOllamaModel && (currentOllamaModel.includes('gemma') || currentOllamaModel.includes('Gemma'))) {
                                 modelToSave = 'ollama-gemma';
                             }
@@ -19474,7 +19515,7 @@ ollamaBlockerService // OllamaBlockerService 추가
                             else if (ollamaModelToSave && ollamaModelToSave.startsWith('codellama')) {
                                 newAiModel = 'ollama-codellama';
                             }
-                            else if (ollamaModelToSave === 'gpt-oss-120b:cloud') {
+                            else if (ollamaModelToSave === 'gpt-oss-120b:cloud' || ollamaModelToSave === 'gpt-oss:120b-cloud') {
                                 newAiModel = 'ollama-gpt-oss'; // 새로운 모델 타입 추가
                             }
                             else if (ollamaModelToSave && (ollamaModelToSave.includes('gemma') || ollamaModelToSave.includes('Gemma'))) {
@@ -84397,9 +84438,9 @@ class OllamaBlockerService {
         // 디버그 모드에서는 현재 프로젝트의 ollama-blocker 디렉토리 사용
         const debugPath = path.join(this.extensionContext.extensionPath, '..', 'ollama-blocker', 'ollama-blocker-embedded');
         const releasePath = path.join(this.extensionContext.extensionPath, 'assets', 'ollama-blocker', 'ollama-blocker-embedded');
-        console.log('ollama-blocker 디버그 경로:', debugPath);
-        console.log('ollama-blocker 릴리스 경로:', releasePath);
-        console.log('extensionPath:', this.extensionContext.extensionPath);
+        // console.log('ollama-blocker 디버그 경로:', debugPath);
+        // console.log('ollama-blocker 릴리스 경로:', releasePath);
+        // console.log('extensionPath:', this.extensionContext.extensionPath);
         // 디버그 모드 파일이 존재하는지 확인
         if (fs.existsSync(debugPath)) {
             console.log('디버그 모드 ollama-blocker 사용');

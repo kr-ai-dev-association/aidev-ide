@@ -1,5 +1,8 @@
-// VS Code API 초기화
-const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null;
+// VS Code API를 전역으로 획득 (ask.js와 공유)
+if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
+    window.vscode = acquireVsCodeApi();
+}
+const vscode = window.vscode || null;
 
 // 클립보드 복사 기능을 위한 헬퍼 함수
 // Webview에서는 navigator.clipboard 사용 가능

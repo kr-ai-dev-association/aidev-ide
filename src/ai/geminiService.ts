@@ -95,7 +95,7 @@ export class GeminiService {
                     this.notificationService.showInfoMessage(`최근 업데이트된 src 파일 ${updatedSrcFiles.length}개가 컨텍스트에 포함됩니다.`);
                 }
 
-                // 사용자 쿼리를 포함하여 컨텍스트 수집
+                // 사용자 쿼리를 포함하여 컨텍스트 수집 (의도 분석 결과는 전달하지 않음 - geminiService에서는 별도 의도 분석 없음)
                 const contextResult = await this.codebaseContextService.getProjectCodebaseContext(abortSignal, userQuery);
                 fileContentsContext = contextResult.fileContentsContext;
                 includedFilesForContext = contextResult.includedFilesForContext;

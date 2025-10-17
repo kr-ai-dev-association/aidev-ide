@@ -4,7 +4,11 @@ import markdownit from 'markdown-it';
 
 // console.log("✅ ask.js loaded");
 
-const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null;
+// VS Code API를 전역으로 획득 (codeCopy.js와 공유)
+if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
+    window.vscode = acquireVsCodeApi();
+}
+const vscode = window.vscode || null;
 
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
