@@ -249,18 +249,36 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
     const effectiveCwd = await getEffectiveCwd();
     const cwd = _currentWorkingDirectory && _currentWorkingDirectory !== 'bank-app-front' ? _currentWorkingDirectory : effectiveCwd;
 
+    // 명령어에서 cd 부분 제거 (이미 처리됨)
+    let cleanCommand = command;
+    if (command.toLowerCase().trim().startsWith('cd ')) {
+        const andIndex = command.indexOf('&&');
+        if (andIndex !== -1) {
+            cleanCommand = command.substring(andIndex + 2).trim();
+        } else {
+            // cd 명령어만 있는 경우
+            cleanCommand = '';
+        }
+    }
+
+    // cd 명령어만 있는 경우 처리
+    if (cleanCommand === '') {
+        console.log(`[TerminalManager] cd 명령어만 실행됨: ${command}`);
+        return true;
+    }
+
     if (shouldUseTerminal) {
         const channel = getCaptureOutputChannel();
-        channel.appendLine(`\n===== Executing in VS Code Terminal: ${command} (${new Date().toLocaleString()}) =====`);
+        channel.appendLine(`\n===== Executing in VS Code Terminal: ${cleanCommand} (${new Date().toLocaleString()}) =====`);
         channel.appendLine(`CWD: ${cwd || '(not set)'}`);
-        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Command: ${cleanCommand}`);
         channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
         const terminal = getAidevIdeTerminal();
         if (!terminal.state.isInteractedWith) {
             terminal.show();
         }
-        terminal.sendText(command);
+        terminal.sendText(cleanCommand);
 
         if (isInteractiveCommand(lower)) {
             const defaultResponse = getDefaultResponseForCommand(command);
@@ -279,7 +297,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         }
 
         channel.appendLine(`----- Command Sent to VS Code Terminal -----`);
-        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Command: ${cleanCommand}`);
         channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
         // console.log(`[TerminalManager] Executed bash command: ${command}`);
         return true;
@@ -287,9 +305,9 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
 
     // 기본 경로: terminal-daemon 경유 실행 (비대화형)
     const channel = getCaptureOutputChannel();
-    channel.appendLine(`\n===== Executing: ${command} (${new Date().toLocaleString()}) =====`);
+    channel.appendLine(`\n===== Executing: ${cleanCommand} (${new Date().toLocaleString()}) =====`);
     channel.appendLine(`CWD: ${cwd || '(not set)'}`);
-    channel.appendLine(`Command: ${command}`);
+    channel.appendLine(`Command: ${cleanCommand}`);
     channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
     const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i.test(text);
@@ -299,8 +317,8 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
 
     try {
         const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${command}"`);
-        channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${command}`);
+        console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${cleanCommand}"`);
+        channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${cleanCommand}`);
         channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
 
         // VS Code 터미널을 사용하여 명령어 실행
@@ -312,7 +330,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         }
 
         // 명령어 실행
-        terminal.sendText(command);
+        terminal.sendText(cleanCommand);
 
         // 터미널을 보여주고 포커스
         terminal.show(true);
@@ -320,7 +338,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         // VS Code 터미널에서는 직접적인 출력 캡처가 어려우므로
         // processRunner를 사용하여 출력을 캡처
         const runPromise = runCommandCapture(
-            command, 
+            cleanCommand,
             { cwd },
             // stdout 콜백
             (data: string) => {
@@ -340,9 +358,9 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
             // 장기 실행은 즉시 반환하여 큐를 일시정지하도록 함 (processQueue에서 처리)
             runPromise.then(async (res) => {
                 if (res.code !== 0) {
-                    const msg = `Exit status ${res.code}: ${command}`;
+                    const msg = `Exit status ${res.code}: ${cleanCommand}`;
                     channel.appendLine(`----- Long-running Command Failed -----`);
-                    channel.appendLine(`Command: ${command}`);
+                    channel.appendLine(`Command: ${cleanCommand}`);
                     channel.appendLine(`Exit code: ${res.code}`);
                     channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
                     if (res.stderr) {
@@ -354,7 +372,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
                     // Long-running 명령어에서도 오류 수정 시도
                     const errorOutput = `Exit code: ${res.code}\nStderr: ${res.stderr || ''}\nStdout: ${res.stdout || ''}`;
                     const retrySuccess = await handleCommandError(
-                        command,
+                        cleanCommand,
                         errorOutput,
                         cwd || '',
                         async (correctedCommand: string) => {
@@ -365,21 +383,21 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
                     );
 
                     if (!retrySuccess) {
-                        vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${command})`);
+                        vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${cleanCommand})`);
                     }
                 } else {
                     channel.appendLine(`----- Long-running Command Completed -----`);
-                    channel.appendLine(`Command: ${command}`);
+                    channel.appendLine(`Command: ${cleanCommand}`);
                     channel.appendLine(`Exit code: ${res.code}`);
                     channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
                     if (res.stdout) {
                         channel.appendLine(`Output: ${res.stdout}`);
                     }
-                    try { getTerminalMonitor()?.ingestExternalOutput('stdout', `Process exited (code ${res.code}): ${command}`); } catch { }
+                    try { getTerminalMonitor()?.ingestExternalOutput('stdout', `Process exited (code ${res.code}): ${cleanCommand}`); } catch { }
                 }
             }).catch(async (err) => {
                 channel.appendLine(`----- Long-running Command Error -----`);
-                channel.appendLine(`Command: ${command}`);
+                channel.appendLine(`Command: ${cleanCommand}`);
                 channel.appendLine(`Error: ${err?.message || String(err)}`);
                 channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
                 try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Process error: ${err?.message || String(err)}`); } catch { }
@@ -387,7 +405,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
                 // Long-running 명령어에서도 오류 수정 시도
                 const errorOutput = `Process error: ${err?.message || String(err)}`;
                 const retrySuccess = await handleCommandError(
-                    command,
+                    cleanCommand,
                     errorOutput,
                     cwd || '',
                     async (correctedCommand: string) => {
@@ -398,13 +416,13 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
                 );
 
                 if (!retrySuccess) {
-                    vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${command})`);
+                    vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${cleanCommand})`);
                 }
             });
             channel.appendLine(`----- Long-running Command Started -----`);
-            channel.appendLine(`Command: ${command}`);
+            channel.appendLine(`Command: ${cleanCommand}`);
             channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
-            console.log(`[TerminalManager] Started long-running via VS Code terminal: ${command}`);
+            console.log(`[TerminalManager] Started long-running via VS Code terminal: ${cleanCommand}`);
             try { channel.show(true); } catch { }
             return true;
         }
@@ -413,14 +431,14 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
 
         if (result.code !== 0 || isErrorLike(result.stderr || '')) {
             channel.appendLine(`----- Command Failed -----`);
-            channel.appendLine(`Command: ${command}`);
+            channel.appendLine(`Command: ${cleanCommand}`);
             channel.appendLine(`Exit code: ${result.code}`);
             channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
             if (result.stderr) {
                 channel.appendLine(`Stderr: ${result.stderr}`);
             }
             try {
-                getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`);
+                getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${cleanCommand}`);
                 getTerminalMonitor()?.ingestExternalOutput('stderr', `Exit status ${result.code}`);
             } catch { }
             channel.show(true);
@@ -428,7 +446,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
             // 오류 수정 시도
             const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
             const retrySuccess = await handleCommandError(
-                command,
+                cleanCommand,
                 errorOutput,
                 cwd || '',
                 async (correctedCommand: string) => {
@@ -439,7 +457,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
             );
 
             if (!retrySuccess) {
-                vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
+                vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${cleanCommand})`);
                 return false;
             }
 
@@ -447,13 +465,13 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         }
 
         channel.appendLine(`----- Command Completed Successfully -----`);
-        channel.appendLine(`Command: ${command}`);
+        channel.appendLine(`Command: ${cleanCommand}`);
         channel.appendLine(`Exit code: ${result.code}`);
         channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
         if (result.stdout) {
             channel.appendLine(`Output: ${result.stdout}`);
         }
-        console.log(`[TerminalManager] Executed via VS Code terminal: ${command}`);
+        console.log(`[TerminalManager] Executed via VS Code terminal: ${cleanCommand}`);
         return true;
     } catch (e: any) {
         // VS Code 터미널 실행 실패 시 캡처 기반으로 폴백
@@ -461,7 +479,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         channel.appendLine(`[ERROR] Execution error details: ${JSON.stringify(e)}`);
         console.error(`[TerminalManager] VS Code terminal execution failed:`, e);
         const result = await runCommandCapture(
-            command,
+            cleanCommand,
             { cwd, shell: true },
             (chunk) => {
                 chunk.split(/\r?\n/).forEach(line => {
@@ -492,11 +510,11 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         if (result.code !== 0 || isErrorLike(result.stderr)) {
             channel.appendLine(`----- Exit code: ${result.code} -----`);
             channel.show(true);
-            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${command})`);
-            try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${command}`); } catch { }
+            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${cleanCommand})`);
+            try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${cleanCommand}`); } catch { }
             return false;
         }
-        console.log(`[TerminalManager] Executed locally (fallback): ${command}`);
+        console.log(`[TerminalManager] Executed locally (fallback): ${cleanCommand}`);
         return true;
     }
 }

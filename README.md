@@ -17,9 +17,16 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Multi-Model AI Support**: 
   - **Gemini 2.5 Pro Flash**: Google's advanced LLM for intelligent code generation and analysis
   - **Ollama Integration**: Local Ollama server integration for offline AI processing
-    - **Gemma3:27b**: 128K token limit for code generation and analysis
-    - **DeepSeek R1:70B**: 200K token limit with Korean language optimization
-    - **CodeLlama 7B**: 8K token limit optimized for code generation and analysis
+    - **gpt-oss:120b-cloud**: 120B parameter model for advanced reasoning and code generation
+    - **gemma3:27b**: 27B parameter model with 128K token limit for code generation and analysis
+    - **llama3.1:8b**: 8B parameter model optimized for general-purpose tasks
+    - **llama3.2:3b**: 3B parameter model for lightweight, fast inference
+    - **codellama:7b**: 7B parameter model specialized for code generation and analysis
+    - **gemma2:2b**: 2B parameter model for quick responses and basic tasks
+    - **banya-llama31-lora-merged:latest**: Custom fine-tuned model for specialized tasks
+    - **banya-helper-3b:latest**: Custom helper model optimized for development assistance
+    - **banya-l31-base:latest**: Custom base model for foundational AI tasks
+    - **HammerAI/llama-3-lexi-uncensored:8b-q5_K_M**: Uncensored model for unrestricted AI interactions
 - **Smart Context Management**:
   - **Intelligent File Filtering**: Automatically includes all `src/` directory files and filters other files based on keywords
   - **Framework-Aware Context**: Automatically detects project type and includes relevant configuration files
@@ -37,18 +44,72 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Local AI Processing**: Full offline capability with Ollama integration
 
 ### 🚀 **NEW in v4.0 - Revolutionary Terminal Auto-Error Correction System**
-- **Real-Time Error Detection**: Automatically monitors terminal output and detects errors in real-time
-- **LLM-Powered Error Correction**: Uses AI to analyze errors and suggest corrected commands
-- **Auto-Retry with Smart Logic**: Automatically retries failed commands with intelligent corrections
-- **Comprehensive Error Pattern Recognition**: Supports 50+ error patterns including:
-  - **Maven/Java**: Build failures, compilation errors, JAVA_HOME issues, version conflicts
-  - **Node.js/npm**: Package installation failures, dependency conflicts, esbuild errors
-  - **Python**: Import errors, virtual environment issues, package conflicts
-  - **Docker**: Container build failures, image pull errors, network issues
-  - **Git**: Merge conflicts, authentication failures, branch issues
-- **Smart Retry Management**: Prevents infinite loops with intelligent retry limits and cooldown periods
-- **User Notification System**: Real-time notifications for error detection and correction attempts
-- **Terminal Integration**: Seamlessly integrates with VS Code's built-in terminal API
+
+#### **Real-Time Terminal Monitoring & Error Detection**
+- **Continuous Terminal Watching**: Monitors all terminal output in real-time using VS Code's terminal API
+- **Intelligent Error Pattern Recognition**: Detects 50+ error patterns across multiple technologies
+- **Context-Aware Error Analysis**: Analyzes error context including command history and project structure
+- **Multi-Language Support**: Handles errors from various programming languages and build tools
+
+#### **LLM-Powered Error Correction**
+- **AI-Driven Error Analysis**: Uses local or cloud LLM to analyze error patterns and suggest corrections
+- **Intelligent Command Generation**: Generates corrected commands based on error context and best practices
+- **Learning from Context**: Considers project type, dependencies, and environment for accurate corrections
+- **Multiple Correction Strategies**: Provides various correction approaches for complex errors
+
+#### **Smart Auto-Retry System**
+- **Automatic Command Retry**: Automatically executes corrected commands with intelligent retry logic
+- **Retry Limit Management**: Prevents infinite loops with configurable retry limits (default: 3 attempts)
+- **Cooldown Periods**: Implements smart cooldown periods to prevent rapid retry attempts
+- **Success/Failure Tracking**: Tracks retry success rates and learns from previous attempts
+
+#### **Comprehensive Error Pattern Support**
+- **Maven/Java Ecosystem**:
+  - Build failures (`BUILD FAILURE`, `MojoExecutionException`)
+  - Compilation errors (`No compiler is provided`, `COMPILATION ERROR`)
+  - JAVA_HOME configuration issues
+  - Spring Boot version conflicts and startup failures
+  - JAR file access problems and version compatibility issues
+- **Node.js/npm Ecosystem**:
+  - Package installation failures (`npm error code`, `ENOTEMPTY`)
+  - Dependency conflicts and esbuild errors
+  - Module resolution issues (`ERR_MODULE_NOT_FOUND`)
+  - Vite configuration and startup problems
+- **Python Ecosystem**:
+  - Import errors and virtual environment issues
+  - Package conflicts and dependency resolution
+  - Python version compatibility problems
+- **Docker & Containerization**:
+  - Container build failures and image pull errors
+  - Network connectivity issues
+  - Port conflicts and resource allocation problems
+- **Git & Version Control**:
+  - Merge conflicts and authentication failures
+  - Branch management issues
+  - Repository access and permission problems
+
+#### **Advanced Terminal Integration**
+- **VS Code Terminal API Integration**: Seamlessly works with VS Code's built-in terminal
+- **Cross-Platform Support**: Works on Windows, macOS, and Linux
+- **Terminal Session Management**: Handles multiple terminal sessions and command history
+- **Real-Time Output Processing**: Processes terminal output as it's generated
+
+#### **Terminal Watching & Monitoring Features**
+- **Continuous Background Monitoring**: Runs in the background to monitor all terminal activity
+- **Command Execution Tracking**: Tracks command execution status and output
+- **Error Detection Pipeline**: Real-time error detection with immediate response
+- **User Notification System**: 
+  - Real-time notifications for error detection
+  - Progress updates for correction attempts
+  - Success/failure feedback for retry operations
+- **Terminal Output Analysis**: 
+  - Parses terminal output for error patterns
+  - Extracts relevant error information
+  - Maintains command context and history
+- **Smart Intervention**: 
+  - Only intervenes when actual errors are detected
+  - Respects user workflow and doesn't interrupt normal operations
+  - Provides optional manual override for auto-correction
 
 ### 🔧 **NEW in v4.0 - Advanced DIFF Processing**
 - **DIFF Callout Support**: Automatically processes DIFF format code blocks in AI responses

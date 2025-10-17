@@ -161,7 +161,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const terminalMonitorService = new TerminalMonitorService(notificationService);
     terminalMonitorService.setLlmService(llmService);
     terminalMonitorService.startMonitoring();
-    
+
     // 터미널 매니저에 모니터링 서비스 설정
     setTerminalMonitorService(terminalMonitorService);
 

@@ -30,6 +30,7 @@ export interface CommandErrorContext {
     workingDirectory: string;
     timestamp: number;
     terminalName: string;
+    retryCount: number;
 }
 
 export class TerminalMonitorService {
@@ -90,12 +91,25 @@ export class TerminalMonitorService {
             // Node.js 에러
             { pattern: 'Module not found:', severity: 'high', description: '모듈을 찾을 수 없음' },
             { pattern: 'Cannot resolve module:', severity: 'high', description: '모듈 해결 불가' },
+            { pattern: 'Cannot find package', severity: 'high', description: '패키지를 찾을 수 없음' },
             { pattern: 'ENOENT:', severity: 'medium', description: '파일 또는 디렉토리 없음' },
             { pattern: 'EACCES:', severity: 'medium', description: '권한 거부' },
             { pattern: 'EISDIR:', severity: 'medium', description: '디렉토리 관련 에러' },
+            { pattern: 'ENOTEMPTY:', severity: 'medium', description: '디렉토리가 비어있지 않음' },
             { pattern: 'ELIFECYCLE', severity: 'high', description: 'npm lifecycle 에러' },
             { pattern: 'npm ERR!', severity: 'high', description: 'npm 에러' },
+            { pattern: 'npm error code', severity: 'high', description: 'npm 오류 코드' },
             { pattern: 'error Command failed with exit code', severity: 'high', description: '명령 실패 (Yarn/Pnpm)' },
+
+            // esbuild 관련 오류
+            { pattern: 'SyntaxError: Invalid or unexpected token', severity: 'critical', description: 'esbuild 바이너리 손상' },
+            { pattern: 'esbuild.*SyntaxError', severity: 'critical', description: 'esbuild 문법 오류' },
+            { pattern: 'esbuild.*command failed', severity: 'high', description: 'esbuild 명령 실패' },
+
+            // Vite 관련 오류
+            { pattern: 'failed to load config from.*vite.config.js', severity: 'high', description: 'Vite 설정 로드 실패' },
+            { pattern: 'Cannot find package.*vite.*imported from', severity: 'high', description: 'Vite 패키지 누락' },
+            { pattern: 'ERR_MODULE_NOT_FOUND.*vite', severity: 'high', description: 'Vite 모듈을 찾을 수 없음' },
 
             // 빌드/컴파일 에러
             { pattern: 'Build failed:', severity: 'critical', description: '빌드 실패' },
@@ -104,6 +118,42 @@ export class TerminalMonitorService {
             { pattern: 'Build error:', severity: 'critical', description: '빌드 에러' },
             { pattern: 'ERROR in', severity: 'critical', description: '웹팩/빌드 에러' },
             { pattern: 'Compilation error', severity: 'critical', description: '컴파일 에러' },
+            { pattern: 'COMPILATION ERROR', severity: 'critical', description: 'Java 컴파일 오류' },
+            { pattern: 'No compiler is provided in this environment', severity: 'critical', description: 'Java 컴파일러 누락 (JRE 대신 JDK 필요)' },
+            { pattern: 'Perhaps you are running on a JRE rather than a JDK', severity: 'high', description: 'JRE 대신 JDK 필요' },
+
+            // Maven 관련 오류
+            { pattern: 'BUILD FAILURE', severity: 'critical', description: 'Maven 빌드 실패' },
+            { pattern: 'Failed to execute goal', severity: 'critical', description: 'Maven 목표 실행 실패' },
+            { pattern: 'MojoExecutionException', severity: 'critical', description: 'Maven 플러그인 실행 예외' },
+            { pattern: 'MojoFailureException', severity: 'critical', description: 'Maven 플러그인 실행 실패' },
+            { pattern: 'PluginExecutionException', severity: 'critical', description: 'Maven 플러그인 실행 예외' },
+            { pattern: 'ProjectBuildingException', severity: 'critical', description: 'Maven 프로젝트 빌드 예외' },
+            { pattern: 'Application finished with exit code: 1', severity: 'critical', description: '애플리케이션 비정상 종료' },
+            { pattern: 'must be a valid version but is.*spring-boot.version', severity: 'high', description: 'Spring Boot 버전 변수 오류' },
+            { pattern: 'zip file is empty', severity: 'critical', description: '빈 ZIP 파일 오류' },
+
+            // Spring Boot 관련 오류
+            { pattern: 'APPLICATION FAILED TO START', severity: 'critical', description: 'Spring Boot 애플리케이션 시작 실패' },
+            { pattern: 'Web server failed to start', severity: 'critical', description: '웹 서버 시작 실패' },
+            { pattern: 'Port.*was already in use', severity: 'high', description: '포트가 이미 사용 중' },
+            { pattern: 'Failed to start bean.*webServerStartStop', severity: 'critical', description: '웹 서버 빈 시작 실패' },
+            { pattern: 'ApplicationContextException', severity: 'critical', description: 'Spring 컨텍스트 예외' },
+
+            // Java 환경 설정 오류
+            { pattern: 'JAVA_HOME environment variable is not defined correctly', severity: 'critical', description: 'JAVA_HOME 환경 변수 설정 오류' },
+            { pattern: 'this environment variable is needed to run this program', severity: 'high', description: '필수 환경 변수 누락' },
+            { pattern: 'UnsupportedClassVersionError', severity: 'critical', description: 'Java 버전 호환성 오류' },
+            { pattern: 'has been compiled by a more recent version of the Java Runtime', severity: 'critical', description: 'Java 버전 불일치 (높은 버전으로 컴파일됨)' },
+            { pattern: 'this version of the Java Runtime only recognizes class file versions up to', severity: 'high', description: 'Java 런타임 버전이 낮음' },
+
+            // 터미널 세션 간 환경 변수 유지 문제
+            { pattern: 'export.*JAVA_HOME.*&&.*mvn', severity: 'medium', description: '터미널 세션 간 환경 변수 유지 문제' },
+
+            // 네트워크 연결 오류
+            { pattern: 'Failed to connect to.*port.*after.*ms', severity: 'medium', description: '서버 연결 실패' },
+            { pattern: 'Couldn\'t connect to server', severity: 'medium', description: '서버 연결 불가' },
+            { pattern: 'Unable to access jarfile', severity: 'high', description: 'JAR 파일 접근 불가' },
 
             // 테스트 에러
             { pattern: 'Test failed:', severity: 'medium', description: '테스트 실패' },
@@ -202,10 +252,10 @@ export class TerminalMonitorService {
         if (!this.isMonitoring) return;
 
         console.log(`[TerminalMonitorService] 외부 출력 수신: ${source} - ${data.substring(0, 100)}...`);
-        
+
         // 터미널 이름 추출 (source에서)
         const terminalName = source.includes(':') ? source.split(':')[0] : 'external';
-        
+
         this.processTerminalOutput(terminalName, data);
     }
 
@@ -609,19 +659,28 @@ export class TerminalMonitorService {
                 return;
             }
 
-            // 중복 수정 시도 방지
+            // 중복 수정 시도 방지 (명령어별로 개별 관리)
             const commandKey = `${terminalName}:${recentCommand}`;
             if (this.recentCommands.has(commandKey)) {
                 const lastAttempt = this.recentCommands.get(commandKey)!;
-                if (Date.now() - lastAttempt.timestamp < 30000) { // 30초 내 중복 방지
-                    console.log('[TerminalMonitorService] 최근에 이미 수정 시도한 명령어');
+                const timeSinceLastAttempt = Date.now() - lastAttempt.timestamp;
+
+                // 30초 내 중복 방지
+                if (timeSinceLastAttempt < 30000) {
+                    console.log(`[TerminalMonitorService] 최근에 이미 수정 시도한 명령어 (${Math.round(timeSinceLastAttempt / 1000)}초 전)`);
+                    return;
+                }
+
+                // 같은 명령어에 대한 재시도 횟수 확인
+                if (lastAttempt.retryCount >= this.MAX_ERROR_RETRIES) {
+                    console.log(`[TerminalMonitorService] 명령어 '${recentCommand}'에 대한 최대 재시도 횟수 초과`);
                     return;
                 }
             }
 
-            // 재시도 횟수 확인
-            if (this.errorRetryCount >= this.MAX_ERROR_RETRIES) {
-                console.log('[TerminalMonitorService] 최대 재시도 횟수 초과');
+            // 전역 재시도 횟수 확인 (모든 명령어 합계)
+            if (this.errorRetryCount >= this.MAX_ERROR_RETRIES * 2) {
+                console.log('[TerminalMonitorService] 전역 최대 재시도 횟수 초과');
                 this.errorRetryCount = 0;
                 return;
             }
@@ -636,13 +695,17 @@ export class TerminalMonitorService {
                 return;
             }
 
-            // 수정된 명령어 저장
+            // 수정된 명령어 저장 (재시도 횟수 업데이트)
+            const existingContext = this.recentCommands.get(commandKey);
+            const retryCount = existingContext ? existingContext.retryCount + 1 : 1;
+
             this.recentCommands.set(commandKey, {
                 command: recentCommand,
                 errorOutput: errorMessage,
                 workingDirectory: process.cwd(),
                 timestamp: Date.now(),
-                terminalName
+                terminalName,
+                retryCount
             });
 
             // 수정된 명령어 실행
@@ -696,6 +759,47 @@ export class TerminalMonitorService {
         }
 
         try {
+            // 오류 유형에 따른 특화된 가이드라인 생성
+            let specificGuidance = '';
+
+            if (errorOutput.includes('esbuild') && errorOutput.includes('SyntaxError')) {
+                specificGuidance = 'esbuild 바이너리가 손상된 것 같습니다. node_modules를 완전히 삭제하고 재설치하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('ENOTEMPTY')) {
+                specificGuidance = '디렉토리가 비어있지 않아서 삭제할 수 없습니다. 강제 삭제 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('Cannot find package') && errorOutput.includes('vite')) {
+                specificGuidance = 'vite 패키지가 누락되었습니다. 의존성을 재설치하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('npm error code')) {
+                specificGuidance = 'npm 설치 중 오류가 발생했습니다. 캐시를 정리하고 재설치하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('ERR_MODULE_NOT_FOUND')) {
+                specificGuidance = '모듈을 찾을 수 없습니다. 의존성을 재설치하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('failed to load config from') && errorOutput.includes('vite.config.js')) {
+                specificGuidance = 'vite 설정 파일을 로드할 수 없습니다. 의존성을 재설치하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('Port') && errorOutput.includes('was already in use')) {
+                specificGuidance = '포트가 이미 사용 중입니다. 다른 포트를 사용하거나 기존 프로세스를 종료하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('BUILD FAILURE') || errorOutput.includes('Failed to execute goal')) {
+                specificGuidance = 'Maven 빌드가 실패했습니다. 의존성을 정리하고 재빌드하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('APPLICATION FAILED TO START')) {
+                specificGuidance = 'Spring Boot 애플리케이션이 시작에 실패했습니다. 설정을 확인하고 재시작하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('No compiler is provided in this environment') || errorOutput.includes('Perhaps you are running on a JRE rather than a JDK')) {
+                specificGuidance = 'Java 컴파일러가 누락되었습니다. 터미널 세션 간 환경 변수가 유지되지 않는 문제입니다. 각 명령어마다 JAVA_HOME을 설정하거나 영구적으로 설정하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('JAVA_HOME environment variable is not defined correctly')) {
+                specificGuidance = 'JAVA_HOME 환경 변수가 올바르게 설정되지 않았습니다. 터미널 세션 간 환경 변수 유지 문제입니다. 각 명령어마다 JAVA_HOME을 설정하거나 영구적으로 설정하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('must be a valid version but is') && errorOutput.includes('spring-boot.version')) {
+                specificGuidance = 'Spring Boot 버전 변수가 올바르게 설정되지 않았습니다. 명시적인 버전을 지정하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('ProjectBuildingException') || errorOutput.includes('MojoFailureException')) {
+                specificGuidance = 'Maven 프로젝트 빌드에 실패했습니다. POM 파일을 확인하고 의존성을 정리하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('Failed to connect to') && errorOutput.includes('port')) {
+                specificGuidance = '서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하고, 실행되지 않았다면 먼저 서버를 시작하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('Unable to access jarfile')) {
+                specificGuidance = 'JAR 파일에 접근할 수 없습니다. 먼저 프로젝트를 빌드하여 JAR 파일을 생성하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('zip file is empty')) {
+                specificGuidance = 'ZIP 파일이 비어있습니다. Maven 빌드 과정에서 문제가 발생했습니다. 의존성을 정리하고 재빌드하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('UnsupportedClassVersionError') || errorOutput.includes('has been compiled by a more recent version')) {
+                specificGuidance = 'Java 버전 호환성 문제입니다. 빌드에 사용한 Java 버전과 실행에 사용한 Java 버전이 다릅니다. 같은 Java 버전으로 빌드하고 실행하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('PluginExecutionException')) {
+                specificGuidance = 'Maven 플러그인 실행에 실패했습니다. 플러그인 설정을 확인하고 의존성을 정리한 후 재빌드하는 명령어를 제안해주세요.';
+            }
+
             const errorCorrectionPrompt = `다음 명령어가 터미널에서 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
@@ -703,11 +807,15 @@ export class TerminalMonitorService {
 오류 출력:
 ${errorOutput}
 
+${specificGuidance}
+
 수정된 명령어를 JSON 형식으로 응답해주세요:
 {
   "correctedCommand": "수정된 명령어",
   "reasoning": "수정 이유"
-}`;
+}
+
+명령어는 &&로 연결하여 순차적으로 실행되도록 해주세요.`;
 
             const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
 
