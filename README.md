@@ -18,6 +18,8 @@ VSCode base code assistant plugin with LLM and LM support.
   - **Gemini 2.5 Pro Flash**: Google's advanced LLM for intelligent code generation and analysis
   - **Ollama Integration**: Local Ollama server integration for offline AI processing
     - **Gemma3:27b**: 128K token limit for code generation and analysis
+    - **DeepSeek R1:70B**: 200K token limit with Korean language optimization
+    - **CodeLlama 7B**: 8K token limit optimized for code generation and analysis
 - **Smart Context Management**:
   - **Intelligent File Filtering**: Automatically includes all `src/` directory files and filters other files based on keywords
   - **Framework-Aware Context**: Automatically detects project type and includes relevant configuration files
@@ -25,8 +27,6 @@ VSCode base code assistant plugin with LLM and LM support.
     - Java/Spring: `pom.xml`, `build.gradle`, application properties
     - Python Django/Flask/FastAPI: `manage.py`, `requirements.txt`, `main.py`
     - And more frameworks supported
-    - **DeepSeek R1:70B**: 200K token limit with Korean language optimization
-    - **CodeLlama 7B**: 8K token limit optimized for code generation and analysis
   - **Dynamic Model Selection**: Switch between cloud and local AI models in settings
   - **Intuitive UI**: Simplified model selection (Gemini vs Ollama) with specific model selection below
 - **Dual-Mode Interface**: 
@@ -35,6 +35,27 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Context-Aware Responses**: Analyzes your project structure and existing code for relevant suggestions
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
+
+### 🚀 **NEW in v4.0 - Revolutionary Terminal Auto-Error Correction System**
+- **Real-Time Error Detection**: Automatically monitors terminal output and detects errors in real-time
+- **LLM-Powered Error Correction**: Uses AI to analyze errors and suggest corrected commands
+- **Auto-Retry with Smart Logic**: Automatically retries failed commands with intelligent corrections
+- **Comprehensive Error Pattern Recognition**: Supports 50+ error patterns including:
+  - **Maven/Java**: Build failures, compilation errors, JAVA_HOME issues, version conflicts
+  - **Node.js/npm**: Package installation failures, dependency conflicts, esbuild errors
+  - **Python**: Import errors, virtual environment issues, package conflicts
+  - **Docker**: Container build failures, image pull errors, network issues
+  - **Git**: Merge conflicts, authentication failures, branch issues
+- **Smart Retry Management**: Prevents infinite loops with intelligent retry limits and cooldown periods
+- **User Notification System**: Real-time notifications for error detection and correction attempts
+- **Terminal Integration**: Seamlessly integrates with VS Code's built-in terminal API
+
+### 🔧 **NEW in v4.0 - Advanced DIFF Processing**
+- **DIFF Callout Support**: Automatically processes DIFF format code blocks in AI responses
+- **Smart File Modification**: Intelligently applies changes to existing files without data loss
+- **Context-Aware Path Resolution**: Automatically resolves file paths relative to project structure
+- **Preserves Existing Content**: Only modifies specified sections while preserving other file content
+- **Batch DIFF Processing**: Handles multiple DIFF operations in a single response
 
 ### 📁 Advanced File Management
 - **Smart File Selection**: Use the @ button to select specific files for context inclusion
@@ -177,11 +198,47 @@ VSCode base code assistant plugin with LLM and LM support.
   - **Memory Optimization**: Chunked processing for large responses
 
 #### Version 3.2.1 - Terminal Auto-Error Correction & DIFF Processing (2025/10/17)
-- **Terminal Auto-Error Correction System**:
-  - **Real-time Error Detection**: Monitors terminal output for command execution errors
-  - **LLM-based Error Correction**: Automatically sends error details to LLM for correction suggestions
-  - **Auto-retry with Corrected Commands**: Automatically executes corrected commands with retry limits
-  - **Smart Error Pattern Recognition**: Detects npm, git, docker, python, and other common command errors
+
+#### 🚀 **Version 4.0.0 - Revolutionary AI-Powered Development Experience (2025/10/18)**
+
+**🎯 Major Features:**
+
+- **🚀 Revolutionary Terminal Auto-Error Correction System**:
+  - **Real-time Error Detection**: Automatically monitors terminal output and detects errors in real-time
+  - **LLM-Powered Error Correction**: Uses AI to analyze errors and suggest corrected commands
+  - **Auto-Retry with Smart Logic**: Automatically retries failed commands with intelligent corrections
+  - **Comprehensive Error Pattern Recognition**: Supports 50+ error patterns including:
+    - **Maven/Java**: Build failures, compilation errors, JAVA_HOME issues, version conflicts
+    - **Node.js/npm**: Package installation failures, dependency conflicts, esbuild errors
+    - **Python**: Import errors, virtual environment issues, package conflicts
+    - **Docker**: Container build failures, image pull errors, network issues
+    - **Git**: Merge conflicts, authentication failures, branch issues
+  - **Smart Retry Management**: Prevents infinite loops with intelligent retry limits and cooldown periods
+  - **User Notification System**: Real-time notifications for error detection and correction attempts
+  - **Terminal Integration**: Seamlessly integrates with VS Code's built-in terminal API
+
+- **🔧 Advanced DIFF Processing**:
+  - **DIFF Callout Support**: Automatically processes DIFF format code blocks in AI responses
+  - **Smart File Modification**: Intelligently applies changes to existing files without data loss
+  - **Context-Aware Path Resolution**: Automatically resolves file paths relative to project structure
+  - **Preserves Existing Content**: Only modifies specified sections while preserving other file content
+  - **Batch DIFF Processing**: Handles multiple DIFF operations in a single response
+
+- **🎨 Enhanced Project Type Detection**:
+  - **LLM-based Detection**: Uses AI to detect project types from user queries and file analysis
+  - **Hybrid Detection**: Combines file-based and query-based detection for maximum accuracy
+  - **Extended Framework Support**: Supports 24+ project types including:
+    - **Web Frameworks**: React, Vue, Angular, Next.js, Nuxt.js, Svelte
+    - **Backend Frameworks**: Spring Boot, Django, Flask, FastAPI, Express.js
+    - **Mobile**: React Native, Flutter, iOS, Android
+    - **Desktop**: Electron, .NET, Java Swing
+  - **Default File Inclusion**: Automatically includes essential files for each project type
+
+- **📊 Processing Steps Visualization**:
+  - **Real-time Step Display**: Shows current processing step with animated indicators
+  - **Detailed Step Information**: Displays comprehensive information for each processing step
+  - **Debug Console Integration**: Provides detailed debugging information in the console
+  - **Token Usage Display**: Shows input token count and usage statistics
   - **User Notification**: Shows error correction progress and results in real-time
   - **Terminal Integration**: Works with both VS Code integrated terminal and direct command execution
 - **DIFF Callout Processing**:

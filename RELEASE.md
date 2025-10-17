@@ -2,6 +2,92 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.0.0 (2025/10/18) - Revolutionary AI-Powered Development Experience
+
+<details>
+<summary>🚀 Revolutionary Terminal Auto-Error Correction System</summary>
+
+- **Real-time Error Detection**: 
+  - Automatically monitors terminal output and detects errors in real-time
+  - Supports 50+ error patterns across multiple technologies and frameworks
+  - Seamlessly integrates with VS Code's built-in terminal API
+- **LLM-Powered Error Correction**: 
+  - Uses AI to analyze errors and suggest corrected commands
+  - Intelligent error pattern recognition with context-aware corrections
+  - JSON-formatted response parsing for reliable command correction
+- **Auto-Retry with Smart Logic**: 
+  - Automatically retries failed commands with intelligent corrections
+  - Smart retry management prevents infinite loops with intelligent limits
+  - Cooldown periods prevent redundant retry attempts
+- **Comprehensive Error Pattern Recognition**: 
+  - **Maven/Java**: Build failures, compilation errors, JAVA_HOME issues, version conflicts
+  - **Node.js/npm**: Package installation failures, dependency conflicts, esbuild errors
+  - **Python**: Import errors, virtual environment issues, package conflicts
+  - **Docker**: Container build failures, image pull errors, network issues
+  - **Git**: Merge conflicts, authentication failures, branch issues
+- **User Notification System**: 
+  - Real-time notifications for error detection and correction attempts
+  - Progress tracking for error correction processes
+  - Success/failure feedback for correction attempts
+
+</details>
+
+<details>
+<summary>🔧 Advanced DIFF Processing</summary>
+
+- **DIFF Callout Support**: 
+  - Automatically processes DIFF format code blocks in AI responses
+  - Supports standard DIFF format with proper parsing and validation
+- **Smart File Modification**: 
+  - Intelligently applies changes to existing files without data loss
+  - Preserves existing content while applying only specified changes
+- **Context-Aware Path Resolution**: 
+  - Automatically resolves file paths relative to project structure
+  - Handles both absolute and relative path specifications
+- **Batch DIFF Processing**: 
+  - Handles multiple DIFF operations in a single response
+  - Efficient processing of complex multi-file changes
+
+</details>
+
+<details>
+<summary>🎨 Enhanced Project Type Detection</summary>
+
+- **LLM-based Detection**: 
+  - Uses AI to detect project types from user queries and file analysis
+  - Intelligent project type inference from natural language descriptions
+- **Hybrid Detection**: 
+  - Combines file-based and query-based detection for maximum accuracy
+  - Fallback mechanisms ensure reliable project type identification
+- **Extended Framework Support**: 
+  - **Web Frameworks**: React, Vue, Angular, Next.js, Nuxt.js, Svelte
+  - **Backend Frameworks**: Spring Boot, Django, Flask, FastAPI, Express.js
+  - **Mobile**: React Native, Flutter, iOS, Android
+  - **Desktop**: Electron, .NET, Java Swing
+- **Default File Inclusion**: 
+  - Automatically includes essential files for each project type
+  - Framework-specific file prioritization and inclusion
+
+</details>
+
+<details>
+<summary>📊 Processing Steps Visualization</summary>
+
+- **Real-time Step Display**: 
+  - Shows current processing step with animated indicators
+  - Dynamic step progression with visual feedback
+- **Detailed Step Information**: 
+  - Displays comprehensive information for each processing step
+  - Context-aware step descriptions and progress tracking
+- **Debug Console Integration**: 
+  - Provides detailed debugging information in the console
+  - Enhanced logging for troubleshooting and development
+- **Token Usage Display**: 
+  - Shows input token count and usage statistics
+  - Real-time token consumption monitoring
+
+</details>
+
 ## Version 3.2.1 (2025/10/17) - Terminal Auto-Error Correction & DIFF Processing
 
 <details>
