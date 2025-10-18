@@ -136,15 +136,15 @@ export class LlmService {
         }
     }
 
-    public setChatWebview(webview: vscode.Webview | undefined): void { 
-        this.chatWebview = webview; 
+    public setChatWebview(webview: vscode.Webview | undefined): void {
+        this.chatWebview = webview;
         // 터미널 모니터링 서비스에도 웹뷰 설정
         if (webview) {
             this.terminalMonitorService.setWebview(webview);
         }
     }
-    public setAskWebview(webview: vscode.Webview | undefined): void { 
-        this.askWebview = webview; 
+    public setAskWebview(webview: vscode.Webview | undefined): void {
+        this.askWebview = webview;
         // 터미널 모니터링 서비스에도 웹뷰 설정
         if (webview) {
             this.terminalMonitorService.setWebview(webview);
@@ -716,6 +716,7 @@ export class LlmService {
 8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
 9. 터미널 명령어가 필요한 경우 "bash" 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
 10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요. (devDependencies에 설치된 vite는 npx로 실행해야 함)
+11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요. (3.2.0 이하는 더 이상 지원되지 않음)
 
 파일 생성/수정 형식 예시:
 

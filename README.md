@@ -39,6 +39,34 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.2 - Intelligent Auto Error Correction System**
+
+#### **Automatic Terminal Error Detection & Correction**
+- **Real-time Error Monitoring**: Automatically detects errors in terminal output
+- **Smart Error Pattern Recognition**: 
+  - Java environment variable issues (JAVA_HOME, PATH)
+  - Maven POM configuration errors (spring-boot.version variables)
+  - Port conflicts (8080 port already in use)
+  - Dependency download failures
+  - Java version compatibility issues (UnsupportedClassVersionError)
+- **LLM-Powered Error Analysis**: Uses AI to understand error root causes
+- **Automatic Command Correction**: Suggests and executes corrected commands
+- **Retry Mechanism**: Intelligent retry with cooldown periods
+- **Dynamic Error Pattern Learning**: Learns new error patterns and solutions
+
+#### **Enhanced Processing Steps Visualization**
+- **React-based Dynamic UI**: Real-time processing step display with typing animations
+- **Auto-Correcting Indicator**: Visual feedback when error correction is active
+- **Step-by-Step Progress**: Shows analysis, correction, and retry steps
+- **Blinking Cursor Effects**: Engaging UI with typing and blinking animations
+
+#### **Comprehensive Error Support**
+- **Maven Build Errors**: MojoExecutionException, ProjectBuildingException
+- **Spring Boot Issues**: Version compatibility, POM configuration
+- **Java Environment**: JDK/JRE issues, class version mismatches
+- **Network Issues**: Connection failures, server unavailability
+- **File System**: Permission denied, file not found errors
+
 ### 🚀 **NEW in v4.1 - Enhanced Settings UI & Configuration Management**
 
 #### **Improved Ollama Configuration**

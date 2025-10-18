@@ -14,7 +14,7 @@ export class OllamaApi {
     private apiUrl: string;
     private endpoint: string = '/api/generate';
     private modelName: string = 'gemma3:27b';
-    private storageService: StorageService;
+    private storageService: StorageService | null;
 
     constructor(apiUrl?: string, endpoint?: string, storageService?: StorageService) {
         this.apiUrl = apiUrl || 'http://localhost:11434';
@@ -405,7 +405,7 @@ export class OllamaService {
         try {
             // 저장된 서버 타입과 설정을 로드
             await this.ollamaApi.loadSettingsFromStorage();
-            
+
             // 현재 저장된 Ollama 모델을 로드하여 설정 (서버 타입이 로컬인 경우)
             const serverType = await this.storageService.getOllamaServerType();
             if (serverType === 'local') {

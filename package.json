@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"

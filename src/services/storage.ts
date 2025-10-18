@@ -335,6 +335,36 @@ export class StorageService {
         const model = await this.secretStorage.get(REMOTE_OLLAMA_MODEL_SECRET_KEY);
         return model || null;
     }
+
+    /**
+     * 동적 오류 패턴을 저장합니다.
+     */
+    async saveDynamicErrorPatterns(patterns: Array<{ pattern: string, severity: string, description: string }>): Promise<void> {
+        await this.secretStorage.store('dynamicErrorPatterns', JSON.stringify(patterns));
+    }
+
+    /**
+     * 동적 오류 패턴을 불러옵니다.
+     */
+    async getDynamicErrorPatterns(): Promise<Array<{ pattern: string, severity: string, description: string }>> {
+        const patterns = await this.secretStorage.get('dynamicErrorPatterns');
+        return patterns ? JSON.parse(patterns) : [];
+    }
+
+    /**
+     * 새로운 오류 패턴을 추가합니다.
+     */
+    async addErrorPattern(pattern: string, severity: string, description: string): Promise<void> {
+        const existingPatterns = await this.getDynamicErrorPatterns();
+        const newPattern = { pattern, severity, description };
+
+        // 중복 체크
+        const isDuplicate = existingPatterns.some(p => p.pattern === pattern);
+        if (!isDuplicate) {
+            existingPatterns.push(newPattern);
+            await this.saveDynamicErrorPatterns(existingPatterns);
+        }
+    }
 }
 
 // --- END OF FILE src/storage/storage.ts ---

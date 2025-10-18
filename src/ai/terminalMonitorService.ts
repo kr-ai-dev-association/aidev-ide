@@ -65,7 +65,7 @@ export class TerminalMonitorService {
      */
     public setLlmService(llmService: LlmService): void {
         this.llmService = llmService;
-        console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
+        // console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
     }
 
     /**
@@ -73,7 +73,7 @@ export class TerminalMonitorService {
      */
     public setWebview(webview: vscode.Webview): void {
         this.currentWebview = webview;
-        console.log('[TerminalMonitorService] Webview set');
+        // console.log('[TerminalMonitorService] Webview set');
     }
 
     /**
@@ -90,11 +90,33 @@ export class TerminalMonitorService {
     }
 
     /**
+     * 단계별 진행 상황을 VS Code Progress API로 표시합니다.
+     */
+    private async showStepProgress(steps: string[], currentStep: number): Promise<void> {
+        return new Promise((resolve) => {
+            // 상태바에만 표시 (알림 영역 사용 안함)
+            const totalSteps = steps.length;
+            const stepDescription = currentStep < steps.length ? steps[currentStep] : "완료";
+
+            // VS Code 상태바에 진행 상황 표시
+            vscode.window.setStatusBarMessage(
+                `🔧 오류 수정 진행 중: ${currentStep + 1}/${totalSteps} - ${stepDescription}`,
+                3000
+            );
+
+            // 각 단계 간 짧은 지연
+            setTimeout(() => {
+                resolve();
+            }, 500);
+        });
+    }
+
+    /**
      * 자동 오류 수정 기능을 활성화/비활성화합니다.
      */
     public setAutoCorrectionEnabled(enabled: boolean): void {
         this.autoCorrectionEnabled = enabled;
-        console.log(`[TerminalMonitorService] 자동 오류 수정 ${enabled ? '활성화' : '비활성화'}`);
+        // console.log(`[TerminalMonitorService] 자동 오류 수정 ${enabled ? '활성화' : '비활성화'}`);
     }
 
     /**
@@ -167,6 +189,10 @@ export class TerminalMonitorService {
             { pattern: 'this environment variable is needed to run this program', severity: 'high', description: '필수 환경 변수 누락' },
             { pattern: 'UnsupportedClassVersionError', severity: 'critical', description: 'Java 버전 호환성 오류' },
             { pattern: 'has been compiled by a more recent version of the Java Runtime', severity: 'critical', description: 'Java 버전 불일치 (높은 버전으로 컴파일됨)' },
+            { pattern: 'class file version 61.0', severity: 'critical', description: 'Java 17로 컴파일된 클래스 파일' },
+            { pattern: 'only recognizes class file versions up to 52.0', severity: 'critical', description: 'Java 8 런타임에서 Java 17 클래스 실행 시도' },
+            { pattern: 'Port 8080 was already in use', severity: 'high', description: '포트 8080 충돌' },
+            { pattern: 'Address already in use', severity: 'high', description: '포트 주소 충돌' },
             { pattern: 'this version of the Java Runtime only recognizes class file versions up to', severity: 'high', description: 'Java 런타임 버전이 낮음' },
 
             // 터미널 세션 간 환경 변수 유지 문제
@@ -227,7 +253,7 @@ export class TerminalMonitorService {
      */
     public startMonitoring(): void {
         if (this.isMonitoring) {
-            console.log('[TerminalMonitorService] 이미 모니터링 중입니다.');
+            // console.log('[TerminalMonitorService] 이미 모니터링 중입니다.');
             return;
         }
 
@@ -273,7 +299,7 @@ export class TerminalMonitorService {
     public ingestExternalOutput(source: string, data: string): void {
         if (!this.isMonitoring) return;
 
-        console.log(`[TerminalMonitorService] 외부 출력 수신: ${source} - ${data.substring(0, 100)}...`);
+        // console.log(`[TerminalMonitorService] 외부 출력 수신: ${source} - ${data.substring(0, 100)}...`);
 
         // 터미널 이름 추출 (source에서)
         const terminalName = source.includes(':') ? source.split(':')[0] : 'external';
@@ -298,7 +324,7 @@ export class TerminalMonitorService {
             this.monitoringInterval = null;
         }
 
-        console.log('[TerminalMonitorService] 터미널 모니터링 중지');
+        // console.log('[TerminalMonitorService] 터미널 모니터링 중지');
     }
 
     /**
@@ -320,7 +346,7 @@ export class TerminalMonitorService {
         const currentTerminalCount = vscode.window.terminals.length;
 
         if (currentTerminalCount !== this.lastTerminalCount) {
-            console.log(`[TerminalMonitorService] 터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
+            // console.log(`[TerminalMonitorService] 터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
             this.logTerminalEvent('info', 'terminal', `터미널 수 변경: ${this.lastTerminalCount} → ${currentTerminalCount}`);
             this.lastTerminalCount = currentTerminalCount;
         }
@@ -394,12 +420,12 @@ export class TerminalMonitorService {
     private processTerminalOutput(terminalName: string, data: string): void {
         if (!this.isMonitoring) return;
 
-        console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
+        // console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
 
         const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|^npm\s+error\b|ERROR in|Traceback|panic:|Exit status [1-9]|^exit status [1-9-]|Process exited \(code\s*-?\d+\)|BUILD FAILED|Missing script:|Missing script\s*:\s*"\w+")/i.test(data);
         const level: 'info' | 'warn' | 'error' = isErrorLike ? 'error' : 'info';
 
-        console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
+        // console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
 
         const logEntry: LogEntry = {
             timestamp: Date.now(),
@@ -413,10 +439,12 @@ export class TerminalMonitorService {
         // 출력 채널에도 즉시 기록
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
         const hasErr = this.checkForErrors(data);
-        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
+        // console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
 
         if (isErrorLike || hasErr) {
             console.log(`[TerminalMonitorService] Error detected, firing onError event`);
+            console.log(`[TerminalMonitorService] Error data: ${data}`);
+            console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
             // 에러가 감지되면 출력 채널 노출
             try { this.outputChannel.show(true); } catch { }
             try {
@@ -669,13 +697,27 @@ export class TerminalMonitorService {
      * 자동 오류 수정을 시도합니다.
      */
     private async attemptAutoCorrection(terminalName: string, errorMessage: string, recentLogs: LogEntry[]): Promise<void> {
+        console.log(`[TerminalMonitorService] attemptAutoCorrection called with error: ${errorMessage}`);
         if (!this.llmService || !this.autoCorrectionEnabled) {
+            console.log(`[TerminalMonitorService] Auto correction disabled or LLM service not available`);
             return;
         }
 
         try {
             this.sendProcessingStatus('error_correction', '터미널 오류 감지됨 - 자동 수정 시도 중...');
-            
+
+            // 단계별 진행 상황 정의
+            const errorCorrectionSteps = [
+                "오류 원인 분석",
+                "환경 확인",
+                "LLM 수정 요청",
+                "수정된 명령어 실행",
+                "결과 검증"
+            ];
+
+            // 1단계: 오류 원인 분석
+            await this.showStepProgress(errorCorrectionSteps, 0);
+
             // 최근 명령어 추출
             const recentCommand = this.extractRecentCommand(recentLogs);
             if (!recentCommand) {
@@ -685,6 +727,9 @@ export class TerminalMonitorService {
             }
 
             this.sendProcessingStatus('error_correction', `실패한 명령어 분석 중: ${recentCommand}`);
+
+            // 2단계: 환경 확인
+            await this.showStepProgress(errorCorrectionSteps, 1);
 
             // 중복 수정 시도 방지 (명령어별로 개별 관리)
             const commandKey = `${terminalName}:${recentCommand}`;
@@ -701,6 +746,14 @@ export class TerminalMonitorService {
                 // 같은 명령어에 대한 재시도 횟수 확인
                 if (lastAttempt.retryCount >= this.MAX_ERROR_RETRIES) {
                     console.log(`[TerminalMonitorService] 명령어 '${recentCommand}'에 대한 최대 재시도 횟수 초과`);
+
+                    // 명령어별 최대 재시도 횟수 초과 시 알림 표시
+                    vscode.window.showErrorMessage(
+                        `❌ 자동 오류 수정 실패`,
+                        `명령어 '${recentCommand}'에 대한 최대 재시도 횟수(${this.MAX_ERROR_RETRIES})를 초과했습니다.`,
+                        '수동으로 문제를 해결해주세요.'
+                    );
+
                     return;
                 }
             }
@@ -708,12 +761,22 @@ export class TerminalMonitorService {
             // 전역 재시도 횟수 확인 (모든 명령어 합계)
             if (this.errorRetryCount >= this.MAX_ERROR_RETRIES * 2) {
                 console.log('[TerminalMonitorService] 전역 최대 재시도 횟수 초과');
+
+                // 전역 최대 재시도 횟수 초과 시 알림 표시
+                vscode.window.showErrorMessage(
+                    `❌ 자동 오류 수정 실패`,
+                    `전역 최대 재시도 횟수(${this.MAX_ERROR_RETRIES * 2})를 초과했습니다.`,
+                    '수동으로 문제를 해결해주세요.'
+                );
+
                 this.errorRetryCount = 0;
                 return;
             }
 
             this.errorRetryCount++;
             console.log(`[TerminalMonitorService] 오류 수정 시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES}`);
+            // 3단계: LLM 수정 요청
+            await this.showStepProgress(errorCorrectionSteps, 2);
             this.sendProcessingStatus('error_correction', `LLM에게 오류 수정 요청 중... (시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES})`);
 
             // LLM에게 오류 수정 요청
@@ -739,14 +802,24 @@ export class TerminalMonitorService {
                 retryCount
             });
 
-            // 수정된 명령어 실행
+            // 4단계: 수정된 명령어 실행
+            await this.showStepProgress(errorCorrectionSteps, 3);
             this.sendProcessingStatus('error_correction', `수정된 명령어 실행 중: ${correctedCommand}`);
             await this.executeCorrectedCommand(terminalName, correctedCommand);
+
+            // 5단계: 결과 검증
+            await this.showStepProgress(errorCorrectionSteps, 4);
             this.sendProcessingStatus('error_correction', '자동 오류 수정 완료');
+
+            // 완료 메시지를 상태바에 표시
+            vscode.window.setStatusBarMessage('✅ 오류 수정 완료!', 5000);
 
         } catch (error) {
             console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
             this.sendProcessingStatus('error_correction', `자동 오류 수정 실패: ${error instanceof Error ? error.message : String(error)}`);
+
+            // 실패 메시지를 상태바에 표시
+            vscode.window.setStatusBarMessage('❌ 오류 수정 실패', 3000);
         }
     }
 
@@ -815,17 +888,25 @@ export class TerminalMonitorService {
             } else if (errorOutput.includes('APPLICATION FAILED TO START')) {
                 specificGuidance = 'Spring Boot 애플리케이션이 시작에 실패했습니다. 설정을 확인하고 재시작하는 명령어를 제안해주세요.';
             } else if (errorOutput.includes('No compiler is provided in this environment') || errorOutput.includes('Perhaps you are running on a JRE rather than a JDK')) {
-                specificGuidance = 'Java 컴파일러가 누락되었습니다. 터미널 세션 간 환경 변수가 유지되지 않는 문제입니다. 각 명령어마다 JAVA_HOME을 설정하거나 영구적으로 설정하는 명령어를 제안해주세요.';
+                specificGuidance = 'Java 컴파일러가 누락되었습니다. JRE 대신 JDK가 필요합니다. 다음 명령어로 Java 17 JDK를 설정하세요: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH';
             } else if (errorOutput.includes('JAVA_HOME environment variable is not defined correctly')) {
-                specificGuidance = 'JAVA_HOME 환경 변수가 올바르게 설정되지 않았습니다. 터미널 세션 간 환경 변수 유지 문제입니다. 각 명령어마다 JAVA_HOME을 설정하거나 영구적으로 설정하는 명령어를 제안해주세요.';
+                specificGuidance = 'JAVA_HOME 환경 변수가 올바르게 설정되지 않았습니다. 올바른 Java 17 JDK 경로를 설정하세요: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH';
+            } else if (errorOutput.includes('UnsupportedClassVersionError') || errorOutput.includes('class file version 61.0') || errorOutput.includes('only recognizes class file versions up to 52.0')) {
+                specificGuidance = 'Java 버전 불일치 오류입니다. Java 17 JDK를 사용해야 합니다. export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH && mvn clean compile';
+            } else if (errorOutput.includes('Port 8080 was already in use') || errorOutput.includes('Address already in use') || errorOutput.includes('port is already in use')) {
+                specificGuidance = '포트 8080이 이미 사용 중입니다. 다른 포트를 사용하거나 기존 프로세스를 종료하세요. lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run';
+            } else if (errorOutput.includes('Invalid Spring Boot version') || errorOutput.includes('Spring Boot compatibility range is >=3.4.0')) {
+                specificGuidance = 'Spring Boot 3.2.0은 더 이상 지원되지 않습니다. Spring Boot 3.4.0 이상을 사용하세요. curl https://start.spring.io/starter.zip -d dependencies=web,data-jpa,h2 -d type=maven-project -d language=java -d bootVersion=3.4.0 -d baseDir=project-name -d groupId=com.example -d artifactId=demo -d name=demo -d description="Demo project for Spring Boot" -d packageName=com.example.demo -d packaging=jar -d javaVersion=17 -o project.zip';
             } else if (errorOutput.includes('must be a valid version but is') && errorOutput.includes('spring-boot.version')) {
-                specificGuidance = 'Spring Boot 버전 변수가 올바르게 설정되지 않았습니다. 명시적인 버전을 지정하는 명령어를 제안해주세요.';
-            } else if (errorOutput.includes('ProjectBuildingException') || errorOutput.includes('MojoFailureException')) {
+                specificGuidance = 'POM 파일에서 spring-boot.version 변수가 정의되지 않았습니다. POM 파일을 수정하여 Spring Boot 3.4.0 버전을 직접 지정하세요. sed -i \'s/${spring-boot.version}/3.4.0/g\' pom.xml';
+            } else if (errorOutput.includes('ProjectBuildingException') || errorOutput.includes('MojoFailureException') || errorOutput.includes('MojoExecutionException')) {
                 specificGuidance = 'Maven 프로젝트 빌드에 실패했습니다. POM 파일을 확인하고 의존성을 정리하는 명령어를 제안해주세요.';
             } else if (errorOutput.includes('Failed to connect to') && errorOutput.includes('port')) {
                 specificGuidance = '서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하고, 실행되지 않았다면 먼저 서버를 시작하는 명령어를 제안해주세요.';
             } else if (errorOutput.includes('Unable to access jarfile')) {
                 specificGuidance = 'JAR 파일에 접근할 수 없습니다. 먼저 프로젝트를 빌드하여 JAR 파일을 생성하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('surefirebooter') || errorOutput.includes('The forked VM terminated without properly saying goodbye')) {
+                specificGuidance = 'Maven Surefire 플러그인 오류입니다. Java 17 JDK 경로를 직접 설정하세요: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH';
             } else if (errorOutput.includes('zip file is empty')) {
                 specificGuidance = 'ZIP 파일이 비어있습니다. Maven 빌드 과정에서 문제가 발생했습니다. 의존성을 정리하고 재빌드하는 명령어를 제안해주세요.';
             } else if (errorOutput.includes('UnsupportedClassVersionError') || errorOutput.includes('has been compiled by a more recent version')) {
@@ -843,10 +924,33 @@ ${errorOutput}
 
 ${specificGuidance}
 
+**MojoExecutionException 특별 분석:**
+이 오류는 주로 Maven POM 파일의 설정 문제로 발생합니다:
+1. spring-boot.version 변수가 정의되지 않았거나 잘못된 경우
+2. Maven 플러그인 버전이 유효하지 않은 경우  
+3. Java 환경 변수 설정 문제
+4. Maven 의존성 다운로드 실패
+
+**일반적인 해결 방법:**
+- spring-boot.version 변수 문제: sed -i 's/\${spring-boot.version}/3.4.0/g' pom.xml
+- Java 환경 변수: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH
+- Maven 캐시 정리: mvn clean && rm -rf ~/.m2/repository/org/springframework/boot/
+
+**새로운 패턴 발견**: 이 오류가 기존 패턴과 다른 새로운 유형이라면, 다음 정보도 함께 제공해주세요:
+- 새로운 오류 패턴의 특징
+- 향후 유사한 오류를 자동으로 감지할 수 있는 키워드
+- 이 패턴에 대한 일반적인 해결 방법
+
 수정된 명령어를 JSON 형식으로 응답해주세요:
 {
   "correctedCommand": "수정된 명령어",
-  "reasoning": "수정 이유"
+  "reasoning": "오류 원인과 해결 방법 설명",
+  "newPattern": {
+    "isNew": true/false,
+    "pattern": "새로운 오류 패턴 키워드",
+    "description": "패턴 설명",
+    "solution": "일반적인 해결 방법"
+  }
 }
 
 명령어는 &&로 연결하여 순차적으로 실행되도록 해주세요.`;
@@ -858,6 +962,22 @@ ${specificGuidance}
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
                 if (parsed.correctedCommand) {
+                    // 새로운 패턴 발견 시 처리
+                    if (parsed.newPattern && parsed.newPattern.isNew) {
+                        console.log(`[TerminalMonitorService] 새로운 오류 패턴 발견: ${parsed.newPattern.pattern}`);
+                        await this.addErrorPattern(
+                            parsed.newPattern.pattern,
+                            'high',
+                            parsed.newPattern.description
+                        );
+
+                        // 사용자에게 새로운 패턴 학습 알림
+                        vscode.window.showInformationMessage(
+                            `🆕 새로운 오류 패턴을 발견했습니다: ${parsed.newPattern.pattern}`,
+                            '패턴 저장됨'
+                        );
+                    }
+
                     console.log(`[TerminalMonitorService] LLM 수정 제안: ${parsed.correctedCommand}`);
                     console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
                     return parsed.correctedCommand;

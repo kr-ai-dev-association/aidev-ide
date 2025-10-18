@@ -5,6 +5,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CHAT</title>
+    <!-- React CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         /* (기존 스타일 유지) */
         body {
@@ -380,17 +384,15 @@
             animation: pulse 1.5s infinite ease-in-out;
         }
 
-        /* 처리 단계 표시 UI */
+        /* 처리 단계 표시 UI - 완전히 숨김 */
         .processing-steps {
-            position: fixed;
-            top: 60px;
-            left: 20px;
-            right: 20px;
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 8px;
-            padding: 12px 20px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            display: none !important;
+            z-index: -1 !important;
             z-index: 1000;
             display: none;
         }
@@ -879,6 +881,92 @@
             display: none;
         }
 
+        /* Auto Correcting Indicator Styles */
+        .auto-correcting-indicator {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            border: 1px solid var(--vscode-button-border);
+        }
+
+        .auto-correcting-indicator.hidden {
+            display: none;
+        }
+
+        .auto-correcting-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .auto-correcting-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--vscode-button-foreground);
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .auto-correcting-text {
+            white-space: nowrap;
+        }
+
+        /* Typing Animation Styles */
+        @keyframes blink {
+
+            0%,
+            50% {
+                opacity: 1;
+            }
+
+            51%,
+            100% {
+                opacity: 0;
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.7;
+                transform: scale(1.1);
+            }
+        }
+
+        .typing-cursor {
+            animation: blink 1s infinite;
+            color: var(--vscode-button-background);
+            font-weight: bold;
+        }
+
         #selected-files-container {
             flex-grow: 1;
             display: flex;
@@ -1030,7 +1118,8 @@
 
 <body>
     <!-- 처리 단계 표시 UI -->
-    <div id="processing-steps" class="processing-steps">
+    <div id="processing-steps" class="processing-steps hidden"
+        style="display: none !important; visibility: hidden !important; opacity: 0 !important; position: absolute !important; left: -9999px !important;">
         <div class="processing-step" data-step="intent">
             <div class="step-indicator"></div>
             <div>
@@ -1086,6 +1175,9 @@
         <div id="chat-container">
             <div id="chat-messages"></div>
         </div>
+
+        <!-- React Components Container -->
+        <div id="react-components"></div>
     </div>
 
     <div class="bottom-fixed-area">
@@ -1142,6 +1234,315 @@
     </script>
     <script src="{{scriptUri}}"></script>
     <script src="{{codeCopyScriptUri}}"></script>
+
+    <!-- React Auto Correcting Component -->
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function AutoCorrectingIndicator() {
+            const [isVisible, setIsVisible] = useState(false);
+            const [message, setMessage] = useState('Auto Correcting...');
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    if (data.command === 'updateProcessingStatus' && data.step === 'error_correction') {
+                        if (data.status.includes('자동 오류 수정') || data.status.includes('오류 수정')) {
+                            setIsVisible(true);
+                            setMessage('Auto Correcting...');
+                        } else if (data.status.includes('완료') || data.status.includes('실패')) {
+                            setIsVisible(false);
+                        }
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => window.removeEventListener('message', handleMessage);
+            }, []);
+
+            if (!isVisible) return null;
+
+            return React.createElement('div', {
+                className: 'auto-correcting-indicator',
+                style: {
+                    position: 'fixed',
+                    bottom: '80px',
+                    right: '20px',
+                    background: 'var(--vscode-button-background)',
+                    color: 'var(--vscode-button-foreground)',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                    zIndex: 1000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    border: '1px solid var(--vscode-button-border)'
+                }
+            }, [
+                React.createElement('div', {
+                    key: 'spinner',
+                    className: 'auto-correcting-spinner',
+                    style: {
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid var(--vscode-button-foreground)',
+                        borderTop: '2px solid transparent',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }
+                }),
+                React.createElement('span', {
+                    key: 'text',
+                    style: { whiteSpace: 'nowrap' }
+                }, message)
+            ]);
+        }
+
+        // Typing Animation Hook
+        function useTypingAnimation(text, speed = 50) {
+            const [displayedText, setDisplayedText] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+
+            useEffect(() => {
+                if (!text) {
+                    setDisplayedText('');
+                    return;
+                }
+
+                setIsTyping(true);
+                setDisplayedText('');
+
+                let index = 0;
+                const timer = setInterval(() => {
+                    if (index < text.length) {
+                        setDisplayedText(text.slice(0, index + 1));
+                        index++;
+                    } else {
+                        setIsTyping(false);
+                        clearInterval(timer);
+                    }
+                }, speed);
+
+                return () => clearInterval(timer);
+            }, [text, speed]);
+
+            return { displayedText, isTyping };
+        }
+
+        // Individual Processing Step Component with Typing Animation
+        function ProcessingStep({ step, status }) {
+            const [stepText, setStepText] = useState('');
+            const [statusText, setStatusText] = useState('');
+            const [isStepTyping, setIsStepTyping] = useState(false);
+            const [isStatusTyping, setIsStatusTyping] = useState(false);
+
+            // 단계별 타이핑 애니메이션
+            useEffect(() => {
+                if (step) {
+                    setIsStepTyping(true);
+                    setStepText('');
+                    let index = 0;
+                    const timer = setInterval(() => {
+                        if (index < step.length) {
+                            setStepText(step.slice(0, index + 1));
+                            index++;
+                        } else {
+                            setIsStepTyping(false);
+                            clearInterval(timer);
+                        }
+                    }, 30);
+                    return () => clearInterval(timer);
+                }
+            }, [step]);
+
+            // 상태별 타이핑 애니메이션
+            useEffect(() => {
+                if (status) {
+                    setIsStatusTyping(true);
+                    setStatusText('');
+                    let index = 0;
+                    const timer = setInterval(() => {
+                        if (index < status.length) {
+                            setStatusText(status.slice(0, index + 1));
+                            index++;
+                        } else {
+                            setIsStatusTyping(false);
+                            clearInterval(timer);
+                        }
+                    }, 20);
+                    return () => clearInterval(timer);
+                }
+            }, [status]);
+
+            return React.createElement('div', {
+                className: 'processing-step',
+                style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }
+            }, [
+                React.createElement('div', {
+                    key: 'indicator',
+                    className: 'step-indicator',
+                    style: {
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
+                        background: 'var(--vscode-button-background)',
+                        animation: isStepTyping ? 'pulse 1s infinite' : 'pulse 2s infinite'
+                    }
+                }),
+                React.createElement('div', {
+                    key: 'content',
+                    style: { flex: 1 }
+                }, [
+                    React.createElement('div', {
+                        key: 'text',
+                        className: 'step-text',
+                        style: {
+                            fontWeight: '600',
+                            color: 'var(--vscode-foreground)',
+                            fontFamily: 'monospace'
+                        }
+                    }, [
+                        stepText,
+                        isStepTyping && React.createElement('span', {
+                            key: 'cursor',
+                            style: {
+                                animation: 'blink 1s infinite',
+                                color: 'var(--vscode-button-background)',
+                                fontWeight: 'bold'
+                            }
+                        }, '|')
+                    ]),
+                    React.createElement('div', {
+                        key: 'status',
+                        className: 'step-description',
+                        style: {
+                            fontSize: '12px',
+                            color: 'var(--vscode-foreground)',
+                            opacity: 0.7,
+                            fontFamily: 'monospace'
+                        }
+                    }, [
+                        statusText,
+                        isStatusTyping && React.createElement('span', {
+                            key: 'cursor',
+                            style: {
+                                animation: 'blink 1s infinite',
+                                color: 'var(--vscode-button-background)',
+                                fontWeight: 'bold'
+                            }
+                        }, '|')
+                    ])
+                ])
+            ]);
+        }
+
+        // Processing Steps Component with Typing Animation
+        function ProcessingSteps() {
+            const [steps, setSteps] = useState([]);
+            const [isVisible, setIsVisible] = useState(false);
+            const [hasUserQuery, setHasUserQuery] = useState(false);
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    if (data.command === 'setProcessingStep') {
+                        setSteps(prev => [...prev, { step: data.step, status: 'processing' }]);
+                        setIsVisible(true);
+                        setHasUserQuery(true); // 사용자 질의가 전송됨
+                    } else if (data.command === 'updateProcessingStatus') {
+                        setSteps(prev => prev.map(s =>
+                            s.step === data.step ? { ...s, status: data.status } : s
+                        ));
+                    } else if (data.command === 'hideLoading') {
+                        setIsVisible(false);
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => window.removeEventListener('message', handleMessage);
+            }, []);
+
+            // 기존 처리 단계들을 React 컴포넌트로 변환
+            const defaultSteps = [
+                { step: 'Defining User Intent', status: 'Initializing...' },
+                { step: 'Selecting Keywords', status: 'Waiting...' },
+                { step: 'Analyzing Code', status: 'Waiting...' },
+                { step: 'Assembling Answer', status: 'Waiting...' },
+                { step: 'Parsing Markdown', status: 'Waiting...' },
+                { step: 'Preparing to Print', status: 'Waiting...' },
+                { step: 'Error Correction', status: 'Waiting...' }
+            ];
+
+            const displaySteps = steps.length > 0 ? steps : defaultSteps;
+
+            // 사용자 질의 전송 후에만 표시 (로드 시에는 숨김)
+            if (!hasUserQuery) {
+                return null; // 사용자 질의 전송 전에는 아무것도 표시하지 않음
+            }
+
+            return React.createElement('div', {
+                className: 'processing-steps',
+                style: {
+                    background: 'var(--vscode-editor-background)',
+                    borderBottom: '1px solid var(--vscode-panel-border)',
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    position: 'fixed',
+                    top: '60px',
+                    left: '0',
+                    right: '0',
+                    zIndex: '1000'
+                }
+            }, displaySteps.map((step, index) =>
+                React.createElement(ProcessingStep, {
+                    key: index,
+                    step: step.step,
+                    status: step.status
+                })
+            ));
+        }
+
+        // Main React App Component
+        function ReactApp() {
+            const [processingStepsVisible, setProcessingStepsVisible] = useState(false);
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    console.log('[ReactApp] Received message:', data);
+                    if (data.command === 'setProcessingStep') {
+                        console.log('[ReactApp] setProcessingStep received, showing processing steps');
+                        setProcessingStepsVisible(true);
+                    } else if (data.command === 'hideLoading') {
+                        setProcessingStepsVisible(false);
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => window.removeEventListener('message', handleMessage);
+            }, []);
+
+            return React.createElement('div', {
+                style: { position: 'relative', width: '100%', height: '100%' }
+            }, [
+                React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
+                processingStepsVisible && React.createElement(ProcessingSteps, { key: 'processing-steps' })
+            ]);
+        }
+
+        // React 컴포넌트 마운트
+        const root = ReactDOM.createRoot(document.getElementById('react-components'));
+        root.render(React.createElement(ReactApp));
+    </script>
 </body>
 
 </html>

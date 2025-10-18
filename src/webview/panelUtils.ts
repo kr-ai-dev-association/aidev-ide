@@ -8,6 +8,10 @@ import * as path from 'path';
 export function safePostMessage(webview: vscode.Webview, message: any): boolean {
     try {
         if (webview) {
+            // Debug logging for processing step messages
+            if (message.command === 'setProcessingStep' || message.command === 'updateProcessingStatus') {
+                console.log(`[PanelUtils] Sending processing message:`, message);
+            }
             webview.postMessage(message);
             return true;
         }

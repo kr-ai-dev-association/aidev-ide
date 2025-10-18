@@ -60,6 +60,21 @@ function updateProcessingStatus(stepName, status) {
     }
 }
 
+// Auto Correcting Indicator Functions
+function showAutoCorrectingIndicator() {
+    const indicator = document.getElementById('auto-correcting-indicator');
+    if (indicator) {
+        indicator.classList.remove('hidden');
+    }
+}
+
+function hideAutoCorrectingIndicator() {
+    const indicator = document.getElementById('auto-correcting-indicator');
+    if (indicator) {
+        indicator.classList.add('hidden');
+    }
+}
+
 function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
     const chatMessages = document.getElementById('chatMessages');
     if (!chatMessages) return;
@@ -488,6 +503,15 @@ window.addEventListener('message', event => {
         case 'updateProcessingStatus':
             if (message.step && message.status) {
                 updateProcessingStatus(message.step, message.status);
+
+                // Auto Correcting Indicator 표시/숨김
+                if (message.step === 'error_correction') {
+                    if (message.status.includes('자동 오류 수정') || message.status.includes('오류 수정')) {
+                        showAutoCorrectingIndicator();
+                    } else if (message.status.includes('완료') || message.status.includes('실패')) {
+                        hideAutoCorrectingIndicator();
+                    }
+                }
             }
             break;
         case 'showErrorCorrection':

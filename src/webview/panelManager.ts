@@ -14,6 +14,21 @@ import * as https from 'https';
 const allWebviews: vscode.Webview[] = [];
 
 /**
+ * 웹뷰에 안전하게 메시지를 전송하는 헬퍼 함수
+ */
+function safePostMessage(panel: vscode.WebviewPanel, message: any): void {
+    try {
+        if (panel && !panel.webview) {
+            console.log('[PanelManager] Panel webview is not available, skipping message');
+            return;
+        }
+        panel.webview.postMessage(message);
+    } catch (error) {
+        console.log('[PanelManager] Failed to post message to webview:', error);
+    }
+}
+
+/**
  * AIDEV-IDE 설정 패널을 엽니다.
  */
 export function openSettingsPanel(
@@ -34,7 +49,7 @@ export function openSettingsPanel(
             // console.log('Settings panel received message:', data.command, data);
             switch (data.command) {
                 case 'initSettings':
-                    panel.webview.postMessage({
+                    safePostMessage(panel, {
                         command: 'currentSettings',
                         autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
                         projectRoot: await configurationService.getProjectRoot(),
@@ -59,13 +74,13 @@ export function openSettingsPanel(
                         } catch (e) {
                             console.error('[PanelManager] terminal-daemon 토글 처리 중 오류:', e);
                         }
-                        panel.webview.postMessage({ command: 'terminalDaemonStatusChanged', enabled: data.enabled });
+                        safePostMessage(panel, { command: 'terminalDaemonStatusChanged', enabled: data.enabled });
                     }
                     break;
                 case 'setAutoUpdate':
                     if (typeof data.enabled === 'boolean') {
                         await configurationService.updateAutoUpdateEnabled(data.enabled);
-                        panel.webview.postMessage({ command: 'autoUpdateStatusChanged', enabled: data.enabled });
+                        safePostMessage(panel, { command: 'autoUpdateStatusChanged', enabled: data.enabled });
                     }
                     break;
                 case 'setProjectRoot':
@@ -79,14 +94,14 @@ export function openSettingsPanel(
                             console.log(`[PanelManager] 프로젝트 Root 삭제 후 확인: ${savedRoot}`);
 
                             if (!savedRoot) {
-                                panel.webview.postMessage({
+                                safePostMessage(panel, {
                                     command: 'updatedProjectRoot',
                                     projectRoot: '',
                                     success: true
                                 });
                                 console.log(`[PanelManager] 프로젝트 Root 삭제 성공`);
                             } else {
-                                panel.webview.postMessage({
+                                safePostMessage(panel, {
                                     command: 'updatedProjectRoot',
                                     projectRoot: '',
                                     success: false,
@@ -96,7 +111,7 @@ export function openSettingsPanel(
                             }
                         } catch (error) {
                             console.error(`[PanelManager] 프로젝트 Root 삭제 중 오류:`, error);
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'updatedProjectRoot',
                                 projectRoot: '',
                                 success: false,
@@ -124,14 +139,14 @@ export function openSettingsPanel(
                                 console.log(`[PanelManager] 저장된 프로젝트 Root 확인: ${savedRoot}`);
 
                                 if (savedRoot === newRootPath) {
-                                    panel.webview.postMessage({
+                                    safePostMessage(panel, {
                                         command: 'updatedProjectRoot',
                                         projectRoot: newRootPath,
                                         success: true
                                     });
                                     console.log(`[PanelManager] 프로젝트 Root 설정 성공: ${newRootPath}`);
                                 } else {
-                                    panel.webview.postMessage({
+                                    safePostMessage(panel, {
                                         command: 'updatedProjectRoot',
                                         projectRoot: '',
                                         success: false,
@@ -141,7 +156,7 @@ export function openSettingsPanel(
                                 }
                             } catch (error) {
                                 console.error(`[PanelManager] 프로젝트 Root 설정 중 오류:`, error);
-                                panel.webview.postMessage({
+                                safePostMessage(panel, {
                                     command: 'updatedProjectRoot',
                                     projectRoot: '',
                                     success: false,
@@ -151,7 +166,7 @@ export function openSettingsPanel(
                         } else {
                             // 사용자가 다이얼로그를 취소한 경우
                             console.log(`[PanelManager] 프로젝트 Root 선택이 취소됨`);
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'updatedProjectRoot',
                                 projectRoot: '',
                                 success: false,
@@ -216,7 +231,7 @@ export function openSettingsPanel(
                         isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
                     };
                     // console.log('Sending currentApiKeys message:', messageToSend);
-                    panel.webview.postMessage(messageToSend);
+                    safePostMessage(panel, messageToSend);
                     break;
                 case 'getOllamaModels': {
                     try {
@@ -249,9 +264,9 @@ export function openSettingsPanel(
                             req.end();
                         });
 
-                        panel.webview.postMessage({ command: 'ollamaModels', models, apiUrl: apiUrl });
+                        safePostMessage(panel, { command: 'ollamaModels', models, apiUrl: apiUrl });
                     } catch (e: any) {
-                        panel.webview.postMessage({ command: 'ollamaModels', models: [], error: e?.message || String(e) });
+                        safePostMessage(panel, { command: 'ollamaModels', models: [], error: e?.message || String(e) });
                     }
                     break;
                 }
@@ -261,14 +276,14 @@ export function openSettingsPanel(
                         try {
                             await storageService.saveApiKey(apiKeyToSave);
                             geminiApi.updateApiKey(apiKeyToSave);
-                            panel.webview.postMessage({ command: 'apiKeySaved' });
+                            safePostMessage(panel, { command: 'apiKeySaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Gemini API Key saved.');
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'apiKeySaveError', error: error.message });
+                            safePostMessage(panel, { command: 'apiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Gemini API Key: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'apiKeySaveError', error: 'API Key empty.' });
+                        safePostMessage(panel, { command: 'apiKeySaveError', error: 'API Key empty.' });
                         notificationService.showErrorMessage('Gemini API Key is empty.');
                     }
                     break;
@@ -281,14 +296,14 @@ export function openSettingsPanel(
                             if (ollamaApi && typeof ollamaApi.setApiUrl === 'function') {
                                 ollamaApi.setApiUrl(ollamaApiUrlToSave);
                             }
-                            panel.webview.postMessage({ command: 'ollamaApiUrlSaved' });
+                            safePostMessage(panel, { command: 'ollamaApiUrlSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Ollama API URL saved.');
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'ollamaApiUrlError', error: error.message });
+                            safePostMessage(panel, { command: 'ollamaApiUrlError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama API URL: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'ollamaApiUrlError', error: 'API URL empty.' });
+                        safePostMessage(panel, { command: 'ollamaApiUrlError', error: 'API URL empty.' });
                         notificationService.showErrorMessage('Ollama API URL is empty.');
                     }
                     break;
@@ -309,16 +324,16 @@ export function openSettingsPanel(
                                 console.log('OllamaApi instance not available or setEndpoint method not found');
                             }
 
-                            panel.webview.postMessage({ command: 'ollamaEndpointSaved' });
+                            safePostMessage(panel, { command: 'ollamaEndpointSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Ollama endpoint saved.');
                         } catch (error: any) {
                             console.error('Error saving Ollama endpoint:', error);
-                            panel.webview.postMessage({ command: 'ollamaEndpointError', error: error.message });
+                            safePostMessage(panel, { command: 'ollamaEndpointError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama endpoint: ${error.message}`);
                         }
                     } else {
                         console.log('Invalid endpoint data received:', ollamaEndpointToSave);
-                        panel.webview.postMessage({ command: 'ollamaEndpointError', error: 'Endpoint empty.' });
+                        safePostMessage(panel, { command: 'ollamaEndpointError', error: 'Endpoint empty.' });
                         notificationService.showErrorMessage('Ollama endpoint is empty.');
                     }
                     break;
@@ -327,7 +342,7 @@ export function openSettingsPanel(
                     if (licenseSerialToSave && typeof licenseSerialToSave === 'string') {
                         try {
                             await storageService.saveBanyaLicenseSerial(licenseSerialToSave);
-                            panel.webview.postMessage({ command: 'banyaLicenseSaved' });
+                            safePostMessage(panel, { command: 'banyaLicenseSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: AIDEV license saved.');
 
                             // 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행
@@ -348,11 +363,11 @@ export function openSettingsPanel(
                                 }
                             }
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'banyaLicenseError', error: error.message });
+                            safePostMessage(panel, { command: 'banyaLicenseError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Banya license: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'banyaLicenseError', error: 'License serial empty.' });
+                        safePostMessage(panel, { command: 'banyaLicenseError', error: 'License serial empty.' });
                         notificationService.showErrorMessage('Banya license serial is empty.');
                     }
                     break;
@@ -364,7 +379,7 @@ export function openSettingsPanel(
                             const verificationResult = await licenseService.verifyLicense(licenseSerialToVerify);
 
                             if (verificationResult.success) {
-                                panel.webview.postMessage({ command: 'banyaLicenseVerified' });
+                                safePostMessage(panel, { command: 'banyaLicenseVerified' });
                                 notificationService.showInfoMessage(`AIDEV-IDE: ${verificationResult.message}`);
 
                                 // 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행
@@ -385,25 +400,25 @@ export function openSettingsPanel(
                                     }
                                 }
                             } else {
-                                panel.webview.postMessage({ command: 'banyaLicenseVerificationFailed', error: verificationResult.message });
+                                safePostMessage(panel, { command: 'banyaLicenseVerificationFailed', error: verificationResult.message });
                                 notificationService.showErrorMessage(`AIDEV-IDE: ${verificationResult.message}`);
                             }
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'banyaLicenseVerificationFailed', error: error.message });
+                            safePostMessage(panel, { command: 'banyaLicenseVerificationFailed', error: error.message });
                             notificationService.showErrorMessage(`Error verifying Banya license: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'banyaLicenseVerificationFailed', error: 'License serial empty.' });
+                        safePostMessage(panel, { command: 'banyaLicenseVerificationFailed', error: 'License serial empty.' });
                         notificationService.showErrorMessage('Banya license serial is empty.');
                     }
                     break;
                 case 'deleteBanyaLicense':
                     try {
                         await storageService.deleteBanyaLicenseSerial();
-                        panel.webview.postMessage({ command: 'banyaLicenseDeleted' });
+                        safePostMessage(panel, { command: 'banyaLicenseDeleted' });
                         notificationService.showInfoMessage('AIDEV-IDE: AIDEV license deleted successfully.');
                     } catch (error: any) {
-                        panel.webview.postMessage({ command: 'banyaLicenseDeleteError', error: error.message });
+                        safePostMessage(panel, { command: 'banyaLicenseDeleteError', error: error.message });
                         notificationService.showErrorMessage(`Error deleting Banya license: ${error.message}`);
                     }
                     break;
@@ -437,24 +452,24 @@ export function openSettingsPanel(
                             if (llmService) {
                                 llmService.setCurrentModel(modelToSave as any);
                             }
-                            panel.webview.postMessage({ command: 'aiModelSaved' });
+                            safePostMessage(panel, { command: 'aiModelSaved' });
                             notificationService.showInfoMessage(`AIDEV-IDE: AI model changed to ${aiModelToSave}.`);
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'aiModelSaveError', error: error.message });
+                            safePostMessage(panel, { command: 'aiModelSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving AI model: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'aiModelSaveError', error: 'AI model empty.' });
+                        safePostMessage(panel, { command: 'aiModelSaveError', error: 'AI model empty.' });
                         notificationService.showErrorMessage('AI model is empty.');
                     }
                     break;
                 case 'loadAiModel':
                     try {
                         const currentAiModel = await storageService.getCurrentAiModel();
-                        panel.webview.postMessage({ command: 'currentAiModel', model: currentAiModel || 'gemini' });
+                        safePostMessage(panel, { command: 'currentAiModel', model: currentAiModel || 'gemini' });
                     } catch (error: any) {
                         // 오류 시 기본값 반환
-                        panel.webview.postMessage({ command: 'currentAiModel', model: 'gemini' });
+                        safePostMessage(panel, { command: 'currentAiModel', model: 'gemini' });
                     }
                     break;
                 case 'saveOllamaModel':
@@ -488,14 +503,14 @@ export function openSettingsPanel(
                                 }
                             }
 
-                            panel.webview.postMessage({ command: 'ollamaModelSaved' });
+                            safePostMessage(panel, { command: 'ollamaModelSaved' });
                             notificationService.showInfoMessage(`AIDEV-IDE: Ollama model changed to ${ollamaModelToSave}.`);
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'ollamaModelError', error: error.message });
+                            safePostMessage(panel, { command: 'ollamaModelError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama model: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'ollamaModelError', error: 'Ollama model empty.' });
+                        safePostMessage(panel, { command: 'ollamaModelError', error: 'Ollama model empty.' });
                         notificationService.showErrorMessage('Ollama model is empty.');
                     }
                     break;
@@ -504,7 +519,7 @@ export function openSettingsPanel(
                     if (serialNumber && typeof serialNumber === 'string' && ollamaBlockerService) {
                         try {
                             const result = await ollamaBlockerService.authenticate(serialNumber);
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'ollamaAuthResult',
                                 success: result.success,
                                 message: result.message
@@ -516,7 +531,7 @@ export function openSettingsPanel(
                             }
                         } catch (error: any) {
                             console.error('Ollama 인증 중 오류:', error);
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'ollamaAuthResult',
                                 success: false,
                                 message: error.message || '알 수 없는 오류가 발생했습니다.'
@@ -524,7 +539,7 @@ export function openSettingsPanel(
                             notificationService.showErrorMessage(`Ollama 인증 실패: ${error.message || '알 수 없는 오류가 발생했습니다.'}`);
                         }
                     } else {
-                        panel.webview.postMessage({
+                        safePostMessage(panel, {
                             command: 'ollamaAuthResult',
                             success: false,
                             message: '시리얼 번호가 제공되지 않았거나 Ollama Blocker 서비스가 사용할 수 없습니다.'
@@ -534,49 +549,49 @@ export function openSettingsPanel(
                 case 'loadOllamaModel':
                     try {
                         const currentOllamaModel = await storageService.getOllamaModel();
-                        panel.webview.postMessage({ command: 'currentOllamaModel', model: currentOllamaModel || 'gemma3:27b' });
+                        safePostMessage(panel, { command: 'currentOllamaModel', model: currentOllamaModel || 'gemma3:27b' });
                     } catch (error: any) {
                         // 오류 시 기본값 반환
-                        panel.webview.postMessage({ command: 'currentOllamaModel', model: 'gemma3:27b' });
+                        safePostMessage(panel, { command: 'currentOllamaModel', model: 'gemma3:27b' });
                     }
                     break;
                 case 'saveWeatherApiKey':
                     try {
                         await configurationService.updateWeatherApiKey(data.apiKey);
-                        panel.webview.postMessage({ command: 'weatherApiKeySaved' });
+                        safePostMessage(panel, { command: 'weatherApiKeySaved' });
                         notificationService.showInfoMessage('AIDEV-IDE: Weather API key saved.');
                     } catch (error: any) {
-                        panel.webview.postMessage({ command: 'weatherApiKeyError', error: error.message });
+                        safePostMessage(panel, { command: 'weatherApiKeyError', error: error.message });
                         notificationService.showErrorMessage(`Error saving weather API key: ${error.message}`);
                     }
                     break;
                 case 'saveNewsApiKey':
                     try {
                         await configurationService.updateNewsApiKey(data.apiKey);
-                        panel.webview.postMessage({ command: 'newsApiKeySaved' });
+                        safePostMessage(panel, { command: 'newsApiKeySaved' });
                         notificationService.showInfoMessage('AIDEV-IDE: News API key saved.');
                     } catch (error: any) {
-                        panel.webview.postMessage({ command: 'newsApiKeyError', error: error.message });
+                        safePostMessage(panel, { command: 'newsApiKeyError', error: error.message });
                         notificationService.showErrorMessage(`Error saving news API key: ${error.message}`);
                     }
                     break;
                 case 'saveNewsApiSecret':
                     try {
                         await configurationService.updateNewsApiSecret(data.apiSecret);
-                        panel.webview.postMessage({ command: 'newsApiSecretSaved' });
+                        safePostMessage(panel, { command: 'newsApiSecretSaved' });
                         notificationService.showInfoMessage('AIDEV-IDE: News API secret saved.');
                     } catch (error: any) {
-                        panel.webview.postMessage({ command: 'newsApiSecretError', error: error.message });
+                        safePostMessage(panel, { command: 'newsApiSecretError', error: error.message });
                         notificationService.showErrorMessage(`Error saving news API secret: ${error.message}`);
                     }
                     break;
                 case 'saveStockApiKey':
                     try {
                         await configurationService.updateStockApiKey(data.apiKey);
-                        panel.webview.postMessage({ command: 'stockApiKeySaved' });
+                        safePostMessage(panel, { command: 'stockApiKeySaved' });
                         notificationService.showInfoMessage('AIDEV-IDE: Stock API key saved.');
                     } catch (error: any) {
-                        panel.webview.postMessage({ command: 'stockApiKeyError', error: error.message });
+                        safePostMessage(panel, { command: 'stockApiKeyError', error: error.message });
                         notificationService.showErrorMessage(`Error saving stock API key: ${error.message}`);
                     }
                     break;
@@ -586,7 +601,7 @@ export function openSettingsPanel(
                         if (language && typeof language === 'string') {
                             // 언어 설정을 저장
                             await configurationService.updateLanguage(language);
-                            panel.webview.postMessage({ command: 'languageSaved', language: language });
+                            safePostMessage(panel, { command: 'languageSaved', language: language });
                             notificationService.showInfoMessage(`AIDEV-IDE: Language changed to ${language}.`);
 
                             // 모든 활성 webview에 언어 변경 브로드캐스트
@@ -595,17 +610,17 @@ export function openSettingsPanel(
                             });
                         }
                     } catch (error: any) {
-                        panel.webview.postMessage({ command: 'languageSaveError', error: error.message });
+                        safePostMessage(panel, { command: 'languageSaveError', error: error.message });
                         notificationService.showErrorMessage(`Error saving language: ${error.message}`);
                     }
                     break;
                 case 'getLanguage':
                     try {
                         const language = await configurationService.getLanguage();
-                        panel.webview.postMessage({ command: 'currentLanguage', language: language });
+                        safePostMessage(panel, { command: 'currentLanguage', language: language });
                     } catch (error: any) {
                         // 오류 시 기본값 반환
-                        panel.webview.postMessage({ command: 'currentLanguage', language: 'ko' });
+                        safePostMessage(panel, { command: 'currentLanguage', language: 'ko' });
                     }
                     break;
                 case 'getLanguageData':
@@ -620,7 +635,7 @@ export function openSettingsPanel(
                             const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
 
                             // 웹뷰에 언어 데이터 전송
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'languageDataReceived',
                                 language: language,
                                 data: languageData
@@ -633,7 +648,7 @@ export function openSettingsPanel(
                             const defaultLanguagePath = vscode.Uri.joinPath(extensionUri, 'webview', 'locales', 'lang_ko.json');
                             const defaultContent = await vscode.workspace.fs.readFile(defaultLanguagePath);
                             const defaultData = JSON.parse(Buffer.from(defaultContent).toString('utf8'));
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'languageDataReceived',
                                 language: 'ko',
                                 data: defaultData
@@ -649,15 +664,15 @@ export function openSettingsPanel(
                     if (serverTypeToSave && typeof serverTypeToSave === 'string') {
                         try {
                             await storageService.saveOllamaServerType(serverTypeToSave);
-                            panel.webview.postMessage({ command: 'ollamaServerTypeSaved' });
+                            safePostMessage(panel, { command: 'ollamaServerTypeSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Server type saved.');
                         } catch (error: any) {
                             console.error('Error saving Ollama server type:', error);
-                            panel.webview.postMessage({ command: 'ollamaServerTypeError', error: error.message });
+                            safePostMessage(panel, { command: 'ollamaServerTypeError', error: error.message });
                             notificationService.showErrorMessage(`Error saving server type: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'ollamaServerTypeError', error: 'Server type empty.' });
+                        safePostMessage(panel, { command: 'ollamaServerTypeError', error: 'Server type empty.' });
                         notificationService.showErrorMessage('Server type is empty.');
                     }
                     break;
@@ -666,15 +681,15 @@ export function openSettingsPanel(
                     if (localApiUrlToSave && typeof localApiUrlToSave === 'string') {
                         try {
                             await storageService.saveLocalOllamaApiUrl(localApiUrlToSave);
-                            panel.webview.postMessage({ command: 'localOllamaApiUrlSaved' });
+                            safePostMessage(panel, { command: 'localOllamaApiUrlSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Local Ollama API URL saved.');
                         } catch (error: any) {
                             console.error('Error saving local Ollama API URL:', error);
-                            panel.webview.postMessage({ command: 'localOllamaApiUrlError', error: error.message });
+                            safePostMessage(panel, { command: 'localOllamaApiUrlError', error: error.message });
                             notificationService.showErrorMessage(`Error saving local API URL: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'localOllamaApiUrlError', error: 'API URL empty.' });
+                        safePostMessage(panel, { command: 'localOllamaApiUrlError', error: 'API URL empty.' });
                         notificationService.showErrorMessage('Local API URL is empty.');
                     }
                     break;
@@ -683,15 +698,15 @@ export function openSettingsPanel(
                     if (localEndpointToSave && typeof localEndpointToSave === 'string') {
                         try {
                             await storageService.saveLocalOllamaEndpoint(localEndpointToSave);
-                            panel.webview.postMessage({ command: 'localOllamaEndpointSaved' });
+                            safePostMessage(panel, { command: 'localOllamaEndpointSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Local Ollama endpoint saved.');
                         } catch (error: any) {
                             console.error('Error saving local Ollama endpoint:', error);
-                            panel.webview.postMessage({ command: 'localOllamaEndpointError', error: error.message });
+                            safePostMessage(panel, { command: 'localOllamaEndpointError', error: error.message });
                             notificationService.showErrorMessage(`Error saving local endpoint: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'localOllamaEndpointError', error: 'Endpoint empty.' });
+                        safePostMessage(panel, { command: 'localOllamaEndpointError', error: 'Endpoint empty.' });
                         notificationService.showErrorMessage('Local endpoint is empty.');
                     }
                     break;
@@ -700,15 +715,15 @@ export function openSettingsPanel(
                     if (remoteApiUrlToSave && typeof remoteApiUrlToSave === 'string') {
                         try {
                             await storageService.saveRemoteOllamaApiUrl(remoteApiUrlToSave);
-                            panel.webview.postMessage({ command: 'remoteOllamaApiUrlSaved' });
+                            safePostMessage(panel, { command: 'remoteOllamaApiUrlSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama API URL saved.');
                         } catch (error: any) {
                             console.error('Error saving remote Ollama API URL:', error);
-                            panel.webview.postMessage({ command: 'remoteOllamaApiUrlError', error: error.message });
+                            safePostMessage(panel, { command: 'remoteOllamaApiUrlError', error: error.message });
                             notificationService.showErrorMessage(`Error saving remote API URL: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'remoteOllamaApiUrlError', error: 'API URL empty.' });
+                        safePostMessage(panel, { command: 'remoteOllamaApiUrlError', error: 'API URL empty.' });
                         notificationService.showErrorMessage('Remote API URL is empty.');
                     }
                     break;
@@ -717,15 +732,15 @@ export function openSettingsPanel(
                     if (remoteEndpointToSave && typeof remoteEndpointToSave === 'string') {
                         try {
                             await storageService.saveRemoteOllamaEndpoint(remoteEndpointToSave);
-                            panel.webview.postMessage({ command: 'remoteOllamaEndpointSaved' });
+                            safePostMessage(panel, { command: 'remoteOllamaEndpointSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama endpoint saved.');
                         } catch (error: any) {
                             console.error('Error saving remote Ollama endpoint:', error);
-                            panel.webview.postMessage({ command: 'remoteOllamaEndpointError', error: error.message });
+                            safePostMessage(panel, { command: 'remoteOllamaEndpointError', error: error.message });
                             notificationService.showErrorMessage(`Error saving remote endpoint: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'remoteOllamaEndpointError', error: 'Endpoint empty.' });
+                        safePostMessage(panel, { command: 'remoteOllamaEndpointError', error: 'Endpoint empty.' });
                         notificationService.showErrorMessage('Remote endpoint is empty.');
                     }
                     break;
@@ -734,15 +749,15 @@ export function openSettingsPanel(
                     if (remoteModelToSave && typeof remoteModelToSave === 'string') {
                         try {
                             await storageService.saveRemoteOllamaModel(remoteModelToSave);
-                            panel.webview.postMessage({ command: 'remoteOllamaModelSaved' });
+                            safePostMessage(panel, { command: 'remoteOllamaModelSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama model saved.');
                         } catch (error: any) {
                             console.error('Error saving remote Ollama model:', error);
-                            panel.webview.postMessage({ command: 'remoteOllamaModelError', error: error.message });
+                            safePostMessage(panel, { command: 'remoteOllamaModelError', error: error.message });
                             notificationService.showErrorMessage(`Error saving remote model: ${error.message}`);
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'remoteOllamaModelError', error: 'Model empty.' });
+                        safePostMessage(panel, { command: 'remoteOllamaModelError', error: 'Model empty.' });
                         notificationService.showErrorMessage('Remote model is empty.');
                     }
                     break;
@@ -755,9 +770,14 @@ export function openSettingsPanel(
 
     // 패널이 dispose될 때 배열에서 제거
     panel.onDidDispose(() => {
-        const idx = allWebviews.indexOf(panel.webview);
-        if (idx !== -1) {
-            allWebviews.splice(idx, 1);
+        try {
+            const idx = allWebviews.indexOf(panel.webview);
+            if (idx !== -1) {
+                allWebviews.splice(idx, 1);
+            }
+        } catch (error) {
+            // Panel이 이미 dispose된 경우 무시
+            console.log('[PanelManager] Panel already disposed, ignoring error:', error);
         }
     }, undefined, context.subscriptions);
 
@@ -785,28 +805,28 @@ export function openLicensePanel(
                         try {
                             await storageService.saveApiKey(apiKeyToSave);
                             geminiApi.updateApiKey(apiKeyToSave);
-                            panel.webview.postMessage({ command: 'apiKeySaved', message: 'API Key saved!' });
+                            safePostMessage(panel, { command: 'apiKeySaved', message: 'API Key saved!' });
                             notificationService.showInfoMessage('AIDEV-IDE: API Key saved.'); // NotificationService 사용
                         } catch (error: any) {
-                            panel.webview.postMessage({ command: 'apiKeySaveError', error: error.message });
+                            safePostMessage(panel, { command: 'apiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving API Key: ${error.message}`); // NotificationService 사용
                         }
                     } else {
-                        panel.webview.postMessage({ command: 'apiKeySaveError', error: 'API Key empty.' });
+                        safePostMessage(panel, { command: 'apiKeySaveError', error: 'API Key empty.' });
                         notificationService.showErrorMessage('API Key is empty.'); // NotificationService 사용
                     }
                     break;
                 case 'checkApiKeyStatus':
                     const currentKey = await storageService.getApiKey();
-                    panel.webview.postMessage({ command: 'apiKeyStatus', hasKey: !!currentKey, apiKeyPreview: currentKey ? `***${currentKey.slice(-4)}` : 'Not Set' });
+                    safePostMessage(panel, { command: 'apiKeyStatus', hasKey: !!currentKey, apiKeyPreview: currentKey ? `***${currentKey.slice(-4)}` : 'Not Set' });
                     break;
                 case 'getLanguage':
                     try {
                         const language = await configurationService.getLanguage();
-                        panel.webview.postMessage({ command: 'currentLanguage', language: language });
+                        safePostMessage(panel, { command: 'currentLanguage', language: language });
                     } catch (error: any) {
                         // 오류 시 기본값 반환
-                        panel.webview.postMessage({ command: 'currentLanguage', language: 'ko' });
+                        safePostMessage(panel, { command: 'currentLanguage', language: 'ko' });
                     }
                     break;
                 case 'getLanguageData':
@@ -821,7 +841,7 @@ export function openLicensePanel(
                             const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
 
                             // 웹뷰에 언어 데이터 전송
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'languageDataReceived',
                                 language: language,
                                 data: languageData
@@ -834,7 +854,7 @@ export function openLicensePanel(
                             const defaultLanguagePath = vscode.Uri.joinPath(extensionUri, 'webview', 'locales', 'lang_ko.json');
                             const defaultContent = await vscode.workspace.fs.readFile(defaultLanguagePath);
                             const defaultData = JSON.parse(Buffer.from(defaultContent).toString('utf8'));
-                            panel.webview.postMessage({
+                            safePostMessage(panel, {
                                 command: 'languageDataReceived',
                                 language: 'ko',
                                 data: defaultData
@@ -853,9 +873,14 @@ export function openLicensePanel(
 
     // 패널이 dispose될 때 배열에서 제거
     panel.onDidDispose(() => {
-        const idx = allWebviews.indexOf(panel.webview);
-        if (idx !== -1) {
-            allWebviews.splice(idx, 1);
+        try {
+            const idx = allWebviews.indexOf(panel.webview);
+            if (idx !== -1) {
+                allWebviews.splice(idx, 1);
+            }
+        } catch (error) {
+            // Panel이 이미 dispose된 경우 무시
+            console.log('[PanelManager] Panel already disposed, ignoring error:', error);
         }
     }, undefined, context.subscriptions);
 

@@ -160,6 +160,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 터미널 모니터링 서비스 초기화 및 LLM 서비스 설정
     const terminalMonitorService = new TerminalMonitorService(notificationService);
     terminalMonitorService.setLlmService(llmService);
+    terminalMonitorService.setAutoCorrectionEnabled(true); // 자동 오류 수정 활성화
     terminalMonitorService.startMonitoring();
 
     // 터미널 매니저에 모니터링 서비스 설정
