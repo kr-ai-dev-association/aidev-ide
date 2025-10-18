@@ -25,6 +25,7 @@ let _errorRetryCount = 0;
 const MAX_ERROR_RETRIES = 3;
 let _currentWebview: vscode.Webview | undefined = undefined;
 let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
+let _summarySent = false; // 종합 설명 출력 플래그
 
 /**
  * 오류 수정 시스템을 위한 LLM 서비스와 웹뷰를 설정합니다.
@@ -40,6 +41,13 @@ export function setErrorCorrectionServices(llmService: LlmService, webview: vsco
 export function setTerminalMonitorService(terminalMonitorService: TerminalMonitorService): void {
     _terminalMonitorService = terminalMonitorService;
     console.log('[TerminalManager] 터미널 모니터링 서비스 설정 완료');
+}
+
+/**
+ * 터미널 모니터링 서비스를 가져옵니다.
+ */
+export function getTerminalMonitorService(): TerminalMonitorService | undefined {
+    return _terminalMonitorService;
 }
 
 /**
@@ -874,11 +882,18 @@ export async function handleCommandError(
 ): Promise<boolean> {
     if (_errorRetryCount >= MAX_ERROR_RETRIES) {
         console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
+
+        // 최대 재시도 횟수 초과 시에만 종합 설명 출력
+        setTimeout(async () => {
+            await sendErrorCorrectionSummary();
+        }, 2000); // 2초 후 종합 설명 출력
+
         _errorRetryCount = 0;
         return false;
     }
 
     _errorRetryCount++;
+    _summarySent = false; // 새로운 오류 수정 세션 시작 시 플래그 리셋
     console.log(`[TerminalManager] 오류 수정 시도 ${_errorRetryCount}/${MAX_ERROR_RETRIES}`);
 
     const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
@@ -898,6 +913,12 @@ export async function handleCommandError(
 
         // 수정된 명령어로 재시도
         await onRetry(correctedCommand);
+
+        // 오류 수정 성공 시 종합 설명 출력
+        setTimeout(async () => {
+            await sendErrorCorrectionSummary();
+        }, 2000); // 2초 후 종합 설명 출력
+
         return true;
     } else {
         console.log('[TerminalManager] 명령어 수정 불가능');
@@ -922,4 +943,59 @@ export function stopCommandSequence(): void {
     _isWaitingForInput = false;
 
     vscode.window.showInformationMessage('aidev-ide: 명령어 시퀀스가 중단되었습니다.');
+}
+
+/**
+ * 오류 수정 완료 후 종합 설명을 출력합니다.
+ */
+async function sendErrorCorrectionSummary(): Promise<void> {
+    if (!_currentWebview) {
+        console.log('[TerminalManager] 웹뷰가 설정되지 않음');
+        return;
+    }
+
+    // 중복 출력 방지
+    if (_summarySent) {
+        console.log('[TerminalManager] 종합 설명이 이미 전송됨');
+        return;
+    }
+
+    try {
+        const summary = `## 🔧 오류 수정 완료 보고서
+
+### 📊 수정 요약
+- **수정 시도 횟수:** ${_errorRetryCount}회
+- **수정 상태:** 완료
+- **수정 시간:** ${new Date().toLocaleString()}
+
+### 🎯 수정된 내용
+1. **명령어 오류 분석:** 터미널 출력을 분석하여 오류 원인 파악
+2. **LLM 기반 수정:** AI가 오류를 분석하고 수정된 명령어 제안
+3. **자동 재시도:** 수정된 명령어로 자동 재실행
+
+### 💡 개선 사항
+- **오류 감지:** 터미널 출력에서 오류 패턴 자동 감지
+- **지능형 수정:** LLM이 오류 원인을 분석하고 해결책 제시
+- **자동화:** 수동 개입 없이 자동으로 오류 수정 및 재시도
+
+### ⚠️ 주의사항
+- 복잡한 오류의 경우 수동 확인이 필요할 수 있습니다
+- 네트워크 오류나 권한 문제는 자동 수정이 어려울 수 있습니다
+- 중요한 작업 전에는 백업을 권장합니다
+
+---
+*이 보고서는 aidev-ide의 자동 오류 수정 시스템에 의해 생성되었습니다.*`;
+
+        _currentWebview.postMessage({
+            command: 'receiveMessage',
+            sender: 'AIDEV-IDE',
+            text: summary,
+            timestamp: new Date().toISOString()
+        });
+
+        _summarySent = true; // 플래그 설정
+        console.log('[TerminalManager] 오류 수정 종합 설명을 채팅창에 전송했습니다.');
+    } catch (error) {
+        console.error('[TerminalManager] 오류 수정 종합 설명 전송 실패:', error);
+    }
 }

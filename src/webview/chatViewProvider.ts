@@ -6,7 +6,7 @@ import { PromptType } from '../ai/types'; // LlmService 및 PromptType 임포트
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { StorageService } from '../services/storage';
-import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices } from '../terminal/terminalManager';
+import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices, getTerminalMonitorService } from '../terminal/terminalManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.chatView';
@@ -44,6 +44,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         setErrorCorrectionServices(this.llmService, webviewView.webview);
+        
+        // 터미널 모니터링 서비스에 웹뷰 설정
+        const terminalMonitorService = getTerminalMonitorService();
+        if (terminalMonitorService) {
+            terminalMonitorService.setWebview(webviewView.webview);
+        }
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
@@ -94,6 +100,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     } catch (e) {
                         console.warn('[ChatViewProvider] executeBashCommands failed:', e);
                         this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
+                    }
+                    break;
+                }
+                case 'analyzeErrors': {
+                    try {
+                        console.log('[ChatViewProvider] 오류 분석 요청');
+                        const terminalMonitorService = getTerminalMonitorService();
+                        if (terminalMonitorService) {
+                            await terminalMonitorService.triggerErrorAnalysis();
+                            this.notificationService.showInfoMessage('오류 분석을 시작했습니다.');
+                        } else {
+                            this.notificationService.showErrorMessage('터미널 모니터링 서비스를 찾을 수 없습니다.');
+                        }
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] analyzeErrors failed:', e);
+                        this.notificationService.showErrorMessage('오류 분석 중 문제가 발생했습니다.');
                     }
                     break;
                 }

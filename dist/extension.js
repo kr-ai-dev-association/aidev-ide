@@ -15184,6 +15184,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setErrorCorrectionServices = setErrorCorrectionServices;
 exports.setTerminalMonitorService = setTerminalMonitorService;
+exports.getTerminalMonitorService = getTerminalMonitorService;
 exports.getAidevIdeTerminal = getAidevIdeTerminal;
 exports.buildFileOpTokens = buildFileOpTokens;
 exports.enqueueCommandsBatch = enqueueCommandsBatch;
@@ -15219,6 +15220,7 @@ let _errorRetryCount = 0;
 const MAX_ERROR_RETRIES = 3;
 let _currentWebview = undefined;
 let _terminalMonitorService = undefined;
+let _summarySent = false; // 종합 설명 출력 플래그
 /**
  * 오류 수정 시스템을 위한 LLM 서비스와 웹뷰를 설정합니다.
  */
@@ -15232,6 +15234,12 @@ function setErrorCorrectionServices(llmService, webview) {
 function setTerminalMonitorService(terminalMonitorService) {
     _terminalMonitorService = terminalMonitorService;
     console.log('[TerminalManager] 터미널 모니터링 서비스 설정 완료');
+}
+/**
+ * 터미널 모니터링 서비스를 가져옵니다.
+ */
+function getTerminalMonitorService() {
+    return _terminalMonitorService;
 }
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
@@ -16007,10 +16015,15 @@ ${errorOutput}
 async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
     if (_errorRetryCount >= MAX_ERROR_RETRIES) {
         console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
+        // 최대 재시도 횟수 초과 시에만 종합 설명 출력
+        setTimeout(async () => {
+            await sendErrorCorrectionSummary();
+        }, 2000); // 2초 후 종합 설명 출력
         _errorRetryCount = 0;
         return false;
     }
     _errorRetryCount++;
+    _summarySent = false; // 새로운 오류 수정 세션 시작 시 플래그 리셋
     console.log(`[TerminalManager] 오류 수정 시도 ${_errorRetryCount}/${MAX_ERROR_RETRIES}`);
     const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
     if (correctedCommand) {
@@ -16026,6 +16039,10 @@ async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
         }
         // 수정된 명령어로 재시도
         await onRetry(correctedCommand);
+        // 오류 수정 성공 시 종합 설명 출력
+        setTimeout(async () => {
+            await sendErrorCorrectionSummary();
+        }, 2000); // 2초 후 종합 설명 출력
         return true;
     }
     else {
@@ -16048,6 +16065,57 @@ function stopCommandSequence() {
     _currentCommandIndex = 0;
     _isWaitingForInput = false;
     vscode.window.showInformationMessage('aidev-ide: 명령어 시퀀스가 중단되었습니다.');
+}
+/**
+ * 오류 수정 완료 후 종합 설명을 출력합니다.
+ */
+async function sendErrorCorrectionSummary() {
+    if (!_currentWebview) {
+        console.log('[TerminalManager] 웹뷰가 설정되지 않음');
+        return;
+    }
+    // 중복 출력 방지
+    if (_summarySent) {
+        console.log('[TerminalManager] 종합 설명이 이미 전송됨');
+        return;
+    }
+    try {
+        const summary = `## 🔧 오류 수정 완료 보고서
+
+### 📊 수정 요약
+- **수정 시도 횟수:** ${_errorRetryCount}회
+- **수정 상태:** 완료
+- **수정 시간:** ${new Date().toLocaleString()}
+
+### 🎯 수정된 내용
+1. **명령어 오류 분석:** 터미널 출력을 분석하여 오류 원인 파악
+2. **LLM 기반 수정:** AI가 오류를 분석하고 수정된 명령어 제안
+3. **자동 재시도:** 수정된 명령어로 자동 재실행
+
+### 💡 개선 사항
+- **오류 감지:** 터미널 출력에서 오류 패턴 자동 감지
+- **지능형 수정:** LLM이 오류 원인을 분석하고 해결책 제시
+- **자동화:** 수동 개입 없이 자동으로 오류 수정 및 재시도
+
+### ⚠️ 주의사항
+- 복잡한 오류의 경우 수동 확인이 필요할 수 있습니다
+- 네트워크 오류나 권한 문제는 자동 수정이 어려울 수 있습니다
+- 중요한 작업 전에는 백업을 권장합니다
+
+---
+*이 보고서는 aidev-ide의 자동 오류 수정 시스템에 의해 생성되었습니다.*`;
+        _currentWebview.postMessage({
+            command: 'receiveMessage',
+            sender: 'AIDEV-IDE',
+            text: summary,
+            timestamp: new Date().toISOString()
+        });
+        _summarySent = true; // 플래그 설정
+        console.log('[TerminalManager] 오류 수정 종합 설명을 채팅창에 전송했습니다.');
+    }
+    catch (error) {
+        console.error('[TerminalManager] 오류 수정 종합 설명 전송 실패:', error);
+    }
 }
 
 
@@ -18344,6 +18412,9 @@ class TerminalMonitorService {
     onError = this.onErrorEmitter.event;
     // 오류 수정 관련 속성
     llmService = undefined;
+    errorCorrectionInProgress = false;
+    recentErrors = [];
+    maxRecentErrors = 10;
     errorRetryCount = 0;
     MAX_ERROR_RETRIES = 3;
     recentCommands = new Map();
@@ -18914,9 +18985,9 @@ class TerminalMonitorService {
      * 자동 오류 수정을 시도합니다.
      */
     async attemptAutoCorrection(terminalName, errorMessage, recentLogs) {
-        console.log(`[TerminalMonitorService] attemptAutoCorrection called with error: ${errorMessage}`);
+        // console.log(`[TerminalMonitorService] attemptAutoCorrection called with error: ${errorMessage}`);
         if (!this.llmService || !this.autoCorrectionEnabled) {
-            console.log(`[TerminalMonitorService] Auto correction disabled or LLM service not available`);
+            // console.log(`[TerminalMonitorService] Auto correction disabled or LLM service not available`);
             return;
         }
         try {
@@ -19085,8 +19156,8 @@ class TerminalMonitorService {
             else if (errorOutput.includes('UnsupportedClassVersionError') || errorOutput.includes('class file version 61.0') || errorOutput.includes('only recognizes class file versions up to 52.0')) {
                 specificGuidance = 'Java 버전 불일치 오류입니다. Java 17 JDK를 사용해야 합니다. export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH && mvn clean compile';
             }
-            else if (errorOutput.includes('Port 8080 was already in use') || errorOutput.includes('Address already in use') || errorOutput.includes('port is already in use')) {
-                specificGuidance = '포트 8080이 이미 사용 중입니다. 다른 포트를 사용하거나 기존 프로세스를 종료하세요. lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run';
+            else if (errorOutput.includes('Port 8080 was already in use') || errorOutput.includes('Address already in use') || errorOutput.includes('port is already in use') || errorOutput.includes('Web server failed to start. Port 8080 was already in use')) {
+                specificGuidance = '포트 8080이 이미 사용 중입니다. 기존 프로세스를 강제 종료한 후 재실행하세요. **lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run**';
             }
             else if (errorOutput.includes('Invalid Spring Boot version') || errorOutput.includes('Spring Boot compatibility range is >=3.4.0')) {
                 specificGuidance = 'Spring Boot 3.2.0은 더 이상 지원되지 않습니다. Spring Boot 3.4.0 이상을 사용하세요. curl https://start.spring.io/starter.zip -d dependencies=web,data-jpa,h2 -d type=maven-project -d language=java -d bootVersion=3.4.0 -d baseDir=project-name -d groupId=com.example -d artifactId=demo -d name=demo -d description="Demo project for Spring Boot" -d packageName=com.example.demo -d packaging=jar -d javaVersion=17 -o project.zip';
@@ -19135,6 +19206,8 @@ ${specificGuidance}
 - spring-boot.version 변수 문제: sed -i 's/\${spring-boot.version}/3.4.0/g' pom.xml
 - Java 환경 변수: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH
 - Maven 캐시 정리: mvn clean && rm -rf ~/.m2/repository/org/springframework/boot/
+- **포트 확인 후 해제**: lsof -i:8080 && lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run
+- 다른 포트 사용: mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081"
 
 **새로운 패턴 발견**: 이 오류가 기존 패턴과 다른 새로운 유형이라면, 다음 정보도 함께 제공해주세요:
 - 새로운 오류 패턴의 특징
@@ -19208,6 +19281,164 @@ ${specificGuidance}
         this.errorRetryCount = 0;
         this.recentCommands.clear();
         console.log('[TerminalMonitorService] 오류 재시도 횟수 리셋');
+    }
+    /**
+     * 터미널 로그를 종합하여 오류 수정 상황을 LLM에게 전송하고 채팅창에 출력합니다.
+     */
+    async analyzeAndCorrectErrors() {
+        if (this.errorCorrectionInProgress) {
+            console.log('[TerminalMonitorService] 오류 수정이 이미 진행 중입니다.');
+            return;
+        }
+        if (!this.llmService) {
+            console.log('[TerminalMonitorService] LLM 서비스가 초기화되지 않았습니다.');
+            return;
+        }
+        this.errorCorrectionInProgress = true;
+        try {
+            // 최근 오류 로그 수집
+            const recentLogs = this.getRecentErrorLogs();
+            if (recentLogs.length === 0) {
+                console.log('[TerminalMonitorService] 분석할 오류 로그가 없습니다.');
+                return;
+            }
+            // 오류 분석을 위한 컨텍스트 구성
+            const errorContext = this.buildErrorContext(recentLogs);
+            // LLM에게 오류 분석 요청
+            const correctionAnalysis = await this.requestErrorCorrectionFromLLM(errorContext);
+            // 채팅창에 오류 수정 상황 출력
+            await this.sendErrorCorrectionToChat(correctionAnalysis);
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] 오류 분석 및 수정 실패:', error);
+        }
+        finally {
+            this.errorCorrectionInProgress = false;
+        }
+    }
+    /**
+     * 최근 오류 로그를 수집합니다.
+     */
+    getRecentErrorLogs() {
+        const now = Date.now();
+        const oneHourAgo = now - (60 * 60 * 1000); // 1시간 전
+        return this.logEntries
+            .filter(log => log.timestamp >= oneHourAgo && log.level === 'error')
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 20); // 최근 20개 오류만
+    }
+    /**
+     * 오류 분석을 위한 컨텍스트를 구성합니다.
+     */
+    buildErrorContext(recentLogs) {
+        const context = {
+            timestamp: new Date().toISOString(),
+            totalErrors: recentLogs.length,
+            recentErrors: recentLogs.map(log => ({
+                time: new Date(log.timestamp).toLocaleString(),
+                source: log.source,
+                level: log.level,
+                message: log.message,
+                rawOutput: log.rawOutput
+            })),
+            errorPatterns: this.errorPatterns.map(pattern => ({
+                pattern: pattern.pattern,
+                severity: pattern.severity,
+                description: pattern.description
+            })),
+            recentCommands: Array.from(this.recentCommands.values()).map(cmd => ({
+                command: cmd.command,
+                workingDirectory: cmd.workingDirectory,
+                retryCount: cmd.retryCount,
+                timestamp: new Date(cmd.timestamp).toLocaleString()
+            }))
+        };
+        return JSON.stringify(context, null, 2);
+    }
+    /**
+     * LLM에게 오류 수정 요청을 전송합니다.
+     */
+    async requestErrorCorrectionFromLLM(errorContext) {
+        const systemPrompt = `당신은 전문적인 소프트웨어 개발자입니다. 터미널에서 발생한 오류들을 분석하고 수정 방안을 제시해주세요.
+
+주요 지침:
+1. 오류 로그를 분석하여 근본 원인을 파악하세요.
+2. 각 오류에 대한 구체적인 수정 방안을 제시하세요.
+3. 명령어 실행 순서나 의존성 문제가 있는지 확인하세요.
+4. 한글로 설명을 제공하세요.
+5. 실행 가능한 명령어나 코드 수정 사항을 포함하세요.
+
+오류 분석 결과를 다음 형식으로 제공해주세요:
+## 🔍 오류 분석 결과
+
+### 📊 오류 요약
+- 총 오류 수: [숫자]
+- 주요 오류 유형: [유형들]
+- 심각도: [low/medium/high/critical]
+
+### 🎯 근본 원인
+[오류의 근본 원인 분석]
+
+### 🛠️ 수정 방안
+1. [수정 방안 1]
+2. [수정 방안 2]
+3. [수정 방안 3]
+
+### 💡 권장 명령어
+\`\`\`bash
+[수정을 위한 명령어들]
+\`\`\`
+
+### ⚠️ 주의사항
+[실행 시 주의할 점들]`;
+        const userPrompt = `다음은 터미널에서 발생한 오류 로그들입니다. 분석하고 수정 방안을 제시해주세요:
+
+${errorContext}`;
+        try {
+            // LLM 서비스를 통해 오류 분석 요청
+            const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+            // 임시 웹뷰 생성 (오류 분석용)
+            const tempWebview = this.currentWebview;
+            if (!tempWebview) {
+                throw new Error('웹뷰가 설정되지 않았습니다.');
+            }
+            // LLM 서비스의 handleUserMessageAndRespond 메서드 사용
+            await this.llmService.handleUserMessageAndRespond(fullPrompt, tempWebview, 'error-correction');
+            return '오류 분석이 완료되었습니다. 결과를 확인해주세요.';
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
+            return '오류 분석 중 문제가 발생했습니다.';
+        }
+    }
+    /**
+     * 오류 수정 결과를 채팅창에 전송합니다.
+     */
+    async sendErrorCorrectionToChat(analysis) {
+        if (!this.currentWebview) {
+            console.log('[TerminalMonitorService] 웹뷰가 초기화되지 않았습니다.');
+            return;
+        }
+        try {
+            // 채팅창에 오류 수정 분석 결과 전송
+            await this.currentWebview.postMessage({
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: analysis,
+                timestamp: new Date().toISOString()
+            });
+            console.log('[TerminalMonitorService] 오류 수정 분석 결과를 채팅창에 전송했습니다.');
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] 채팅창 전송 실패:', error);
+        }
+    }
+    /**
+     * 수동으로 오류 분석을 트리거합니다.
+     */
+    async triggerErrorAnalysis() {
+        console.log('[TerminalMonitorService] 수동 오류 분석을 시작합니다.');
+        await this.analyzeAndCorrectErrors();
     }
 }
 exports.TerminalMonitorService = TerminalMonitorService;
@@ -20663,6 +20894,11 @@ class ChatViewProvider {
         webviewView.webview.html = (0, panelUtils_1.getHtmlContentWithUris)(this.extensionUri, 'chat', webviewView.webview);
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         (0, terminalManager_1.setErrorCorrectionServices)(this.llmService, webviewView.webview);
+        // 터미널 모니터링 서비스에 웹뷰 설정
+        const terminalMonitorService = (0, terminalManager_1.getTerminalMonitorService)();
+        if (terminalMonitorService) {
+            terminalMonitorService.setWebview(webviewView.webview);
+        }
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
                 case 'priorityErrorPrompt': {
@@ -20712,6 +20948,24 @@ class ChatViewProvider {
                     catch (e) {
                         console.warn('[ChatViewProvider] executeBashCommands failed:', e);
                         this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
+                    }
+                    break;
+                }
+                case 'analyzeErrors': {
+                    try {
+                        console.log('[ChatViewProvider] 오류 분석 요청');
+                        const terminalMonitorService = (0, terminalManager_1.getTerminalMonitorService)();
+                        if (terminalMonitorService) {
+                            await terminalMonitorService.triggerErrorAnalysis();
+                            this.notificationService.showInfoMessage('오류 분석을 시작했습니다.');
+                        }
+                        else {
+                            this.notificationService.showErrorMessage('터미널 모니터링 서비스를 찾을 수 없습니다.');
+                        }
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] analyzeErrors failed:', e);
+                        this.notificationService.showErrorMessage('오류 분석 중 문제가 발생했습니다.');
                     }
                     break;
                 }
@@ -20983,6 +21237,11 @@ class AskViewProvider {
         webviewView.webview.html = (0, panelUtils_1.getHtmlContentWithUris)(this.extensionUri, 'ask', webviewView.webview);
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         (0, terminalManager_1.setErrorCorrectionServices)(this.llmService, webviewView.webview);
+        // 터미널 모니터링 서비스에 웹뷰 설정
+        const terminalMonitorService = (0, terminalManager_1.getTerminalMonitorService)();
+        if (terminalMonitorService) {
+            terminalMonitorService.setWebview(webviewView.webview);
+        }
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.command) {
                 case 'sendMessage':

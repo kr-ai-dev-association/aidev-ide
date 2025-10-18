@@ -6,7 +6,7 @@ import { PromptType } from '../ai/types'; // PromptType 임포트
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { StorageService } from '../services/storage';
-import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices } from '../terminal/terminalManager';
+import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices, getTerminalMonitorService } from '../terminal/terminalManager';
 
 export class AskViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.askView'; // 새로운 뷰 타입
@@ -43,6 +43,12 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
 
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         setErrorCorrectionServices(this.llmService, webviewView.webview);
+        
+        // 터미널 모니터링 서비스에 웹뷰 설정
+        const terminalMonitorService = getTerminalMonitorService();
+        if (terminalMonitorService) {
+            terminalMonitorService.setWebview(webviewView.webview);
+        }
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {

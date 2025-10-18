@@ -48,6 +48,9 @@ export class TerminalMonitorService {
 
     // 오류 수정 관련 속성
     private llmService: LlmService | undefined = undefined;
+    private errorCorrectionInProgress: boolean = false;
+    private recentErrors: TerminalErrorEvent[] = [];
+    private maxRecentErrors: number = 10;
     private errorRetryCount = 0;
     private readonly MAX_ERROR_RETRIES = 3;
     private recentCommands: Map<string, CommandErrorContext> = new Map();
@@ -697,9 +700,9 @@ export class TerminalMonitorService {
      * 자동 오류 수정을 시도합니다.
      */
     private async attemptAutoCorrection(terminalName: string, errorMessage: string, recentLogs: LogEntry[]): Promise<void> {
-        console.log(`[TerminalMonitorService] attemptAutoCorrection called with error: ${errorMessage}`);
+        // console.log(`[TerminalMonitorService] attemptAutoCorrection called with error: ${errorMessage}`);
         if (!this.llmService || !this.autoCorrectionEnabled) {
-            console.log(`[TerminalMonitorService] Auto correction disabled or LLM service not available`);
+            // console.log(`[TerminalMonitorService] Auto correction disabled or LLM service not available`);
             return;
         }
 
@@ -893,8 +896,8 @@ export class TerminalMonitorService {
                 specificGuidance = 'JAVA_HOME 환경 변수가 올바르게 설정되지 않았습니다. 올바른 Java 17 JDK 경로를 설정하세요: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH';
             } else if (errorOutput.includes('UnsupportedClassVersionError') || errorOutput.includes('class file version 61.0') || errorOutput.includes('only recognizes class file versions up to 52.0')) {
                 specificGuidance = 'Java 버전 불일치 오류입니다. Java 17 JDK를 사용해야 합니다. export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH && mvn clean compile';
-            } else if (errorOutput.includes('Port 8080 was already in use') || errorOutput.includes('Address already in use') || errorOutput.includes('port is already in use')) {
-                specificGuidance = '포트 8080이 이미 사용 중입니다. 다른 포트를 사용하거나 기존 프로세스를 종료하세요. lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run';
+            } else if (errorOutput.includes('Port 8080 was already in use') || errorOutput.includes('Address already in use') || errorOutput.includes('port is already in use') || errorOutput.includes('Web server failed to start. Port 8080 was already in use')) {
+                specificGuidance = '포트 8080이 이미 사용 중입니다. 기존 프로세스를 강제 종료한 후 재실행하세요. **lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run**';
             } else if (errorOutput.includes('Invalid Spring Boot version') || errorOutput.includes('Spring Boot compatibility range is >=3.4.0')) {
                 specificGuidance = 'Spring Boot 3.2.0은 더 이상 지원되지 않습니다. Spring Boot 3.4.0 이상을 사용하세요. curl https://start.spring.io/starter.zip -d dependencies=web,data-jpa,h2 -d type=maven-project -d language=java -d bootVersion=3.4.0 -d baseDir=project-name -d groupId=com.example -d artifactId=demo -d name=demo -d description="Demo project for Spring Boot" -d packageName=com.example.demo -d packaging=jar -d javaVersion=17 -o project.zip';
             } else if (errorOutput.includes('must be a valid version but is') && errorOutput.includes('spring-boot.version')) {
@@ -935,6 +938,8 @@ ${specificGuidance}
 - spring-boot.version 변수 문제: sed -i 's/\${spring-boot.version}/3.4.0/g' pom.xml
 - Java 환경 변수: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH
 - Maven 캐시 정리: mvn clean && rm -rf ~/.m2/repository/org/springframework/boot/
+- **포트 확인 후 해제**: lsof -i:8080 && lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run
+- 다른 포트 사용: mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081"
 
 **새로운 패턴 발견**: 이 오류가 기존 패턴과 다른 새로운 유형이라면, 다음 정보도 함께 제공해주세요:
 - 새로운 오류 패턴의 특징
@@ -1027,5 +1032,186 @@ ${specificGuidance}
         this.errorRetryCount = 0;
         this.recentCommands.clear();
         console.log('[TerminalMonitorService] 오류 재시도 횟수 리셋');
+    }
+
+    /**
+     * 터미널 로그를 종합하여 오류 수정 상황을 LLM에게 전송하고 채팅창에 출력합니다.
+     */
+    public async analyzeAndCorrectErrors(): Promise<void> {
+        if (this.errorCorrectionInProgress) {
+            console.log('[TerminalMonitorService] 오류 수정이 이미 진행 중입니다.');
+            return;
+        }
+
+        if (!this.llmService) {
+            console.log('[TerminalMonitorService] LLM 서비스가 초기화되지 않았습니다.');
+            return;
+        }
+
+        this.errorCorrectionInProgress = true;
+
+        try {
+            // 최근 오류 로그 수집
+            const recentLogs = this.getRecentErrorLogs();
+            if (recentLogs.length === 0) {
+                console.log('[TerminalMonitorService] 분석할 오류 로그가 없습니다.');
+                return;
+            }
+
+            // 오류 분석을 위한 컨텍스트 구성
+            const errorContext = this.buildErrorContext(recentLogs);
+
+            // LLM에게 오류 분석 요청
+            const correctionAnalysis = await this.requestErrorCorrectionFromLLM(errorContext);
+
+            // 채팅창에 오류 수정 상황 출력
+            await this.sendErrorCorrectionToChat(correctionAnalysis);
+
+        } catch (error) {
+            console.error('[TerminalMonitorService] 오류 분석 및 수정 실패:', error);
+        } finally {
+            this.errorCorrectionInProgress = false;
+        }
+    }
+
+    /**
+     * 최근 오류 로그를 수집합니다.
+     */
+    private getRecentErrorLogs(): LogEntry[] {
+        const now = Date.now();
+        const oneHourAgo = now - (60 * 60 * 1000); // 1시간 전
+
+        return this.logEntries
+            .filter(log => log.timestamp >= oneHourAgo && log.level === 'error')
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 20); // 최근 20개 오류만
+    }
+
+    /**
+     * 오류 분석을 위한 컨텍스트를 구성합니다.
+     */
+    private buildErrorContext(recentLogs: LogEntry[]): string {
+        const context = {
+            timestamp: new Date().toISOString(),
+            totalErrors: recentLogs.length,
+            recentErrors: recentLogs.map(log => ({
+                time: new Date(log.timestamp).toLocaleString(),
+                source: log.source,
+                level: log.level,
+                message: log.message,
+                rawOutput: log.rawOutput
+            })),
+            errorPatterns: this.errorPatterns.map(pattern => ({
+                pattern: pattern.pattern,
+                severity: pattern.severity,
+                description: pattern.description
+            })),
+            recentCommands: Array.from(this.recentCommands.values()).map(cmd => ({
+                command: cmd.command,
+                workingDirectory: cmd.workingDirectory,
+                retryCount: cmd.retryCount,
+                timestamp: new Date(cmd.timestamp).toLocaleString()
+            }))
+        };
+
+        return JSON.stringify(context, null, 2);
+    }
+
+    /**
+     * LLM에게 오류 수정 요청을 전송합니다.
+     */
+    private async requestErrorCorrectionFromLLM(errorContext: string): Promise<string> {
+        const systemPrompt = `당신은 전문적인 소프트웨어 개발자입니다. 터미널에서 발생한 오류들을 분석하고 수정 방안을 제시해주세요.
+
+주요 지침:
+1. 오류 로그를 분석하여 근본 원인을 파악하세요.
+2. 각 오류에 대한 구체적인 수정 방안을 제시하세요.
+3. 명령어 실행 순서나 의존성 문제가 있는지 확인하세요.
+4. 한글로 설명을 제공하세요.
+5. 실행 가능한 명령어나 코드 수정 사항을 포함하세요.
+
+오류 분석 결과를 다음 형식으로 제공해주세요:
+## 🔍 오류 분석 결과
+
+### 📊 오류 요약
+- 총 오류 수: [숫자]
+- 주요 오류 유형: [유형들]
+- 심각도: [low/medium/high/critical]
+
+### 🎯 근본 원인
+[오류의 근본 원인 분석]
+
+### 🛠️ 수정 방안
+1. [수정 방안 1]
+2. [수정 방안 2]
+3. [수정 방안 3]
+
+### 💡 권장 명령어
+\`\`\`bash
+[수정을 위한 명령어들]
+\`\`\`
+
+### ⚠️ 주의사항
+[실행 시 주의할 점들]`;
+
+        const userPrompt = `다음은 터미널에서 발생한 오류 로그들입니다. 분석하고 수정 방안을 제시해주세요:
+
+${errorContext}`;
+
+        try {
+            // LLM 서비스를 통해 오류 분석 요청
+            const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+            // 임시 웹뷰 생성 (오류 분석용)
+            const tempWebview = this.currentWebview;
+            if (!tempWebview) {
+                throw new Error('웹뷰가 설정되지 않았습니다.');
+            }
+
+            // LLM 서비스의 handleUserMessageAndRespond 메서드 사용
+            await this.llmService!.handleUserMessageAndRespond(
+                fullPrompt,
+                tempWebview,
+                'error-correction' as any
+            );
+
+            return '오류 분석이 완료되었습니다. 결과를 확인해주세요.';
+        } catch (error) {
+            console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
+            return '오류 분석 중 문제가 발생했습니다.';
+        }
+    }
+
+    /**
+     * 오류 수정 결과를 채팅창에 전송합니다.
+     */
+    private async sendErrorCorrectionToChat(analysis: string): Promise<void> {
+        if (!this.currentWebview) {
+            console.log('[TerminalMonitorService] 웹뷰가 초기화되지 않았습니다.');
+            return;
+        }
+
+        try {
+            // 채팅창에 오류 수정 분석 결과 전송
+            await this.currentWebview.postMessage({
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: analysis,
+                timestamp: new Date().toISOString()
+            });
+
+            console.log('[TerminalMonitorService] 오류 수정 분석 결과를 채팅창에 전송했습니다.');
+        } catch (error) {
+            console.error('[TerminalMonitorService] 채팅창 전송 실패:', error);
+        }
+    }
+
+
+    /**
+     * 수동으로 오류 분석을 트리거합니다.
+     */
+    public async triggerErrorAnalysis(): Promise<void> {
+        console.log('[TerminalMonitorService] 수동 오류 분석을 시작합니다.');
+        await this.analyzeAndCorrectErrors();
     }
 }
