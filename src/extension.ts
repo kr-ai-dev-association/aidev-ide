@@ -12,7 +12,7 @@ import { AiModelType } from './ai/types';
 import { OllamaApi } from './ai/ollamaService';
 import { ChatViewProvider } from './webview/chatViewProvider';
 import { AskViewProvider } from './webview/askViewProvider'; // 새로 추가된 AskViewProvider 임포트
-import { getAidevIdeTerminal, setTerminalMonitorService } from './terminal/terminalManager';
+import { getAidevIdeTerminal, setTerminalMonitorService, setOutputLogEnabled } from './terminal/terminalManager';
 import { openSettingsPanel, openLicensePanel } from './webview/panelManager';
 import { LicenseService } from './services/licenseService';
 import { OllamaBlockerService } from './services/ollamaBlockerService';
@@ -136,9 +136,9 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     // 사용자 OS 정보를 LlmService에 설정
-    const userOS = require('os').platform() === 'darwin' ? 'macOS' : 
-                   require('os').platform() === 'win32' ? 'Windows' : 
-                   require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
+    const userOS = require('os').platform() === 'darwin' ? 'macOS' :
+        require('os').platform() === 'win32' ? 'Windows' :
+            require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
     llmService.setUserOS(userOS);
     console.log(`[Extension] 사용자 OS 감지 및 설정: ${userOS}`);
 
@@ -167,11 +167,25 @@ export async function activate(context: vscode.ExtensionContext) {
     // 터미널 모니터링 서비스 초기화 및 LLM 서비스 설정
     const terminalMonitorService = new TerminalMonitorService(notificationService);
     terminalMonitorService.setLlmService(llmService);
+
+    // OUTPUT 로그 설정 로드 및 적용
+    const outputLogEnabled = await configurationService.isOutputLogEnabled();
+    terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
+    console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
+
+    // 오류 수정 횟수 설정 로드 및 적용
+    const errorRetryCount = await configurationService.getErrorRetryCount();
+    terminalMonitorService.setMaxErrorRetries(errorRetryCount);
+    console.log(`[Extension] 오류 수정 횟수 설정: ${errorRetryCount}`);
     terminalMonitorService.setAutoCorrectionEnabled(true); // 자동 오류 수정 활성화
     terminalMonitorService.startMonitoring();
 
     // 터미널 매니저에 모니터링 서비스 설정
     setTerminalMonitorService(terminalMonitorService);
+    
+    // OUTPUT 로그 설정 초기화
+    const initialOutputLogEnabled = await configurationService.isOutputLogEnabled();
+    setOutputLogEnabled(initialOutputLogEnabled);
 
     // ChatViewProvider 인스턴스 생성 및 등록 (CODE 탭)
     const chatViewProvider = new ChatViewProvider(
@@ -239,6 +253,35 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         });
     }));
+
+    // Status Bar에 자동 오류 수정 중단 버튼 추가
+    const stopErrorCorrectionButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    stopErrorCorrectionButton.text = "$(stop-circle)";
+    stopErrorCorrectionButton.tooltip = "자동 오류 수정 중단";
+    stopErrorCorrectionButton.command = 'aidevIdeCode.stopErrorCorrection';
+    stopErrorCorrectionButton.show();
+    context.subscriptions.push(stopErrorCorrectionButton);
+
+    // 자동 오류 수정 중단 명령어 등록
+    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.stopErrorCorrection', () => {
+        terminalMonitorService.stopErrorCorrection();
+        vscode.window.showInformationMessage('자동 오류 수정이 중단되었습니다.');
+    }));
+
+        // 설정 변경 시 TerminalMonitorService와 TerminalManager에 반영
+        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (event) => {
+            if (event.affectsConfiguration('aidevIde.outputLogEnabled')) {
+                const outputLogEnabled = await configurationService.isOutputLogEnabled();
+                terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
+                setOutputLogEnabled(outputLogEnabled);
+                console.log(`[Extension] OUTPUT 로그 설정 변경: ${outputLogEnabled ? '활성화' : '비활성화'}`);
+            }
+            if (event.affectsConfiguration('aidevIde.errorRetryCount')) {
+                const errorRetryCount = await configurationService.getErrorRetryCount();
+                terminalMonitorService.setMaxErrorRetries(errorRetryCount);
+                console.log(`[Extension] 오류 수정 횟수 설정 변경: ${errorRetryCount}`);
+            }
+        }));
 
     // ollama-blocker 관리 명령어들
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.startOllamaBlocker', async () => {

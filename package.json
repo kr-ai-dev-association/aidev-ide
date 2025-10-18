@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -211,6 +211,20 @@
           "type": "boolean",
           "default": false,
           "description": "Enable terminal-daemon to run commands via external PTY daemon and stream logs/errors.",
+          "scope": "resource"
+        },
+        "aidevIde.outputLogEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable logs displayed in VS Code's OUTPUT panel. Disabling makes it easier to check terminal logs.",
+          "scope": "resource"
+        },
+        "aidevIde.errorRetryCount": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 3 times)",
           "scope": "resource"
         }
       }

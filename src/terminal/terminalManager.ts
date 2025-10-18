@@ -26,6 +26,7 @@ const MAX_ERROR_RETRIES = 5;
 let _currentWebview: vscode.Webview | undefined = undefined;
 let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
 let _summarySent = false; // 종합 설명 출력 플래그
+let _outputLogEnabled = true; // OUTPUT 로그 활성화 상태
 
 /**
  * 오류 수정 시스템을 위한 LLM 서비스와 웹뷰를 설정합니다.
@@ -49,6 +50,23 @@ export function setTerminalMonitorService(terminalMonitorService: TerminalMonito
 export function getTerminalMonitorService(): TerminalMonitorService | undefined {
     return _terminalMonitorService;
 }
+
+/**
+ * OUTPUT 로그 활성화 상태를 설정합니다.
+ */
+export function setOutputLogEnabled(enabled: boolean): void {
+    _outputLogEnabled = enabled;
+    if (!enabled && _captureOutputChannel) {
+        try {
+            _captureOutputChannel.hide();
+            _captureOutputChannel.clear();
+        } catch (error) {
+            // ignore
+        }
+    }
+}
+
+
 
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
@@ -150,11 +168,27 @@ async function getEffectiveCwd(): Promise<string | undefined> {
 }
 
 function getCaptureOutputChannel(): vscode.OutputChannel {
+    if (!_outputLogEnabled) {
+        // OUTPUT 로그가 비활성화된 경우 더미 채널 반환
+        return {
+            name: 'AIDEV-IDE Terminal (Disabled)',
+            append: () => {},
+            appendLine: () => {},
+            clear: () => {},
+            show: () => {},
+            hide: () => {},
+            dispose: () => {},
+            replace: () => {}
+        } as unknown as vscode.OutputChannel;
+    }
+    
     if (!_captureOutputChannel) {
         _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal');
     }
     return _captureOutputChannel;
 }
+
+
 
 function sanitizeOutput(text: string): string {
     // Strip ANSI escape sequences and control codes
@@ -567,14 +601,18 @@ async function processQueue(): Promise<void> {
             if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
                 const ok = await executeFileOpFromToken(command);
                 if (!ok) {
-                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`); } catch { }
+                    try { 
+                        getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`);
+                    } catch { }
                     break;
                 }
             } else {
                 const ok = await handleInteractiveCommand(command);
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
-                    try { getCaptureOutputChannel().appendLine(`[QUEUE] stop: command failed or cancelled`); } catch { }
+                    try { 
+                        getCaptureOutputChannel().appendLine(`[QUEUE] stop: command failed or cancelled`);
+                    } catch { }
                     break;
                 }
             }
@@ -583,7 +621,9 @@ async function processQueue(): Promise<void> {
             if (isLongRunningDevCommand(command)) {
                 _queuePausedForLongRunning = true;
                 // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
-                try { getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`); } catch { }
+                try { 
+                    getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`);
+                } catch { }
                 return;
             }
 
@@ -683,7 +723,9 @@ export function enqueueCommandsBatch(commands: string[], priority = false): void
             for (const b of bash.slice(0, 20)) {
                 channel.appendLine(`  - ${b}`);
             }
-            if (bash.length > 20) channel.appendLine(`  ... (+${bash.length - 20} more)`);
+            if (bash.length > 20) {
+                channel.appendLine(`  ... (+${bash.length - 20} more)`);
+            }
         }
     } catch { /* ignore logging errors */ }
 

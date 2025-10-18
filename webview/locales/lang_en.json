@@ -140,5 +140,19 @@
   "githubSectionDescription": "Check out CodePilot's source code and latest information.",
   "githubViewLink": "🌐 View on GitHub",
   "githubIssuesLink": "🐛 Issues & Feedback",
-  "githubStarLink": "⭐ Star & Support"
-} 
+  "githubStarLink": "⭐ Star & Support",
+  "outputLogLabel": "📋 OUTPUT Log Control",
+  "outputLogDescription": "Enable/disable logs displayed in VS Code's OUTPUT panel. Disabling makes it easier to check terminal logs.",
+  "outputLogOn": "On",
+  "outputLogOff": "Off",
+  "outputLogEnabled": "Enable OUTPUT Log",
+  "outputLogStatusEnabled": "Current: OUTPUT log enabled",
+  "outputLogStatusDisabled": "Current: OUTPUT log disabled",
+  "errorRetryLabel": "🔄 Auto Error Correction Count",
+  "errorRetryDescription": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 3 times)",
+  "errorRetrySpinnerLabel": "Max error correction count:",
+  "errorRetryTimes": "times",
+  "errorRetryStatus": "Current: Max error correction count",
+  "stopErrorCorrectionLabel": "⏹️ Stop Auto Error Correction",
+  "stopErrorCorrectionTooltip": "Immediately stop automatic error correction"
+}

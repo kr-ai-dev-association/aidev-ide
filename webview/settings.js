@@ -10,6 +10,12 @@ const vscode = window.vscode || null;
 const autoUpdateToggle = document.getElementById('auto-update-toggle');
 const autoUpdateStatus = document.getElementById('auto-update-status');
 
+const outputLogToggle = document.getElementById('output-log-toggle');
+const outputLogStatus = document.getElementById('output-log-status');
+
+const errorRetrySpinner = document.getElementById('error-retry-spinner');
+const errorRetryStatus = document.getElementById('error-retry-status');
+
 const projectRootPathDisplay = document.getElementById('project-root-path-display');
 const selectProjectRootButton = document.getElementById('select-project-root-button');
 const clearProjectRootButton = document.getElementById('clear-project-root-button');
@@ -800,8 +806,13 @@ function applyLanguage() {
     }
 
     // Ollama API URL 입력 필드
-    if (ollamaApiUrlInput && languageData['pleaseEnterOllamaApiUrl']) {
-        ollamaApiUrlInput.placeholder = languageData['pleaseEnterOllamaApiUrl'];
+    const localOllamaApiUrlInput = document.getElementById('local-ollama-api-url-input');
+    const remoteOllamaApiUrlInput = document.getElementById('remote-ollama-api-url-input');
+    if (localOllamaApiUrlInput && languageData['pleaseEnterOllamaApiUrl']) {
+        localOllamaApiUrlInput.placeholder = languageData['pleaseEnterOllamaApiUrl'];
+    }
+    if (remoteOllamaApiUrlInput && languageData['pleaseEnterOllamaApiUrl']) {
+        remoteOllamaApiUrlInput.placeholder = languageData['pleaseEnterOllamaApiUrl'];
     }
 
     // Weather API 키 입력 필드
@@ -842,18 +853,36 @@ function applyLanguage() {
     }
 
     // Ollama API URL 상태
-    if (ollamaApiUrlStatus && ollamaApiUrlStatus.textContent) {
-        const currentText = ollamaApiUrlStatus.textContent;
+    const localOllamaApiUrlStatus = document.getElementById('local-ollama-api-url-status');
+    const remoteOllamaApiUrlStatus = document.getElementById('remote-ollama-api-url-status');
+
+    if (localOllamaApiUrlStatus && localOllamaApiUrlStatus.textContent) {
+        const currentText = localOllamaApiUrlStatus.textContent;
         if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
             currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
             currentText.includes('est définie') || currentText.includes('設定されています') ||
             currentText.includes('已设置')) {
-            ollamaApiUrlStatus.textContent = languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.';
+            localOllamaApiUrlStatus.textContent = languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.';
         } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
             currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
             currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
             currentText.includes('未设置')) {
-            ollamaApiUrlStatus.textContent = languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.';
+            localOllamaApiUrlStatus.textContent = languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.';
+        }
+    }
+
+    if (remoteOllamaApiUrlStatus && remoteOllamaApiUrlStatus.textContent) {
+        const currentText = remoteOllamaApiUrlStatus.textContent;
+        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
+            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
+            currentText.includes('est définie') || currentText.includes('設定されています') ||
+            currentText.includes('已设置')) {
+            remoteOllamaApiUrlStatus.textContent = languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.';
+        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
+            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
+            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
+            currentText.includes('未设置')) {
+            remoteOllamaApiUrlStatus.textContent = languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.';
         }
     }
 
@@ -1053,6 +1082,37 @@ if (autoUpdateToggle) {
         const enabledText = languageData['settingChangeEnabled'] || '(활성화)';
         const disabledText = languageData['settingChangeDisabled'] || '(비활성화)';
         autoUpdateStatus.textContent = `${settingChangeText} ${isChecked ? enabledText : disabledText}`;
+    });
+}
+
+// 이벤트 리스너: OUTPUT 로그 토글
+if (outputLogToggle) {
+    outputLogToggle.addEventListener('change', () => {
+        const isChecked = outputLogToggle.checked;
+        vscode.postMessage({ command: 'setOutputLog', enabled: isChecked });
+        const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
+        const enabledText = languageData['settingChangeEnabled'] || '(활성화)';
+        const disabledText = languageData['settingChangeDisabled'] || '(비활성화)';
+        if (outputLogStatus) {
+            outputLogStatus.textContent = `${settingChangeText} ${isChecked ? enabledText : disabledText}`;
+        }
+    });
+}
+
+// 이벤트 리스너: 오류 수정 횟수 스피너
+if (errorRetrySpinner) {
+    errorRetrySpinner.addEventListener('change', () => {
+        const count = parseInt(errorRetrySpinner.value);
+        if (count >= 1 && count <= 10) {
+            vscode.postMessage({ command: 'setErrorRetryCount', count: count });
+            const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
+            if (errorRetryStatus) {
+                errorRetryStatus.textContent = `${settingChangeText} ${count}회`;
+            }
+        } else {
+            // 범위를 벗어나면 기본값으로 되돌림
+            errorRetrySpinner.value = 3;
+        }
     });
 }
 
@@ -1486,6 +1546,23 @@ window.addEventListener('message', event => {
                 showStatus(autoUpdateStatus, statusText, 'success');
                 autoUpdateStatus.textContent = `${currentText} ${statusText}`;
             }
+            if (typeof message.outputLogEnabled === 'boolean' && outputLogToggle) {
+                outputLogToggle.checked = message.outputLogEnabled;
+                const outputLogEnabledText = languageData['outputLogEnabled'] || 'OUTPUT 로그 활성화';
+                const enabledText = languageData['outputLogStatusEnabled'] || '현재: OUTPUT 로그 활성화됨';
+                const disabledText = languageData['outputLogStatusDisabled'] || '현재: OUTPUT 로그 비활성화됨';
+                const statusText = message.outputLogEnabled ? enabledText : disabledText;
+                showStatus(outputLogStatus, statusText, 'success');
+                outputLogStatus.textContent = statusText;
+            }
+            if (typeof message.errorRetryCount === 'number' && errorRetrySpinner) {
+                errorRetrySpinner.value = message.errorRetryCount;
+                const errorRetryStatusText = languageData['errorRetryStatus'] || '현재: 최대 오류 수정 횟수';
+                const timesText = languageData['errorRetryTimes'] || '회';
+                const statusText = `${errorRetryStatusText} ${message.errorRetryCount}${timesText}`;
+                showStatus(errorRetryStatus, statusText, 'success');
+                errorRetryStatus.textContent = statusText;
+            }
             if (typeof message.projectRoot === 'string') {
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootLoadedText = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';
@@ -1563,6 +1640,27 @@ window.addEventListener('message', event => {
                 const statusText = `${autoUpdateChangedText} ${message.enabled ? enabledText : disabledText}.`;
                 showStatus(autoUpdateStatus, statusText, 'success');
                 autoUpdateStatus.textContent = `${currentText} ${statusText}`;
+            }
+            break;
+        case 'outputLogStatusChanged':
+            if (typeof message.enabled === 'boolean' && outputLogToggle) {
+                outputLogToggle.checked = message.enabled;
+                const outputLogEnabledText = languageData['outputLogEnabled'] || 'OUTPUT 로그 활성화';
+                const enabledText = languageData['outputLogStatusEnabled'] || '현재: OUTPUT 로그 활성화됨';
+                const disabledText = languageData['outputLogStatusDisabled'] || '현재: OUTPUT 로그 비활성화됨';
+                const statusText = message.enabled ? enabledText : disabledText;
+                showStatus(outputLogStatus, statusText, 'success');
+                outputLogStatus.textContent = statusText;
+            }
+            break;
+        case 'errorRetryCountChanged':
+            if (typeof message.count === 'number' && errorRetrySpinner) {
+                errorRetrySpinner.value = message.count;
+                const errorRetryStatusText = languageData['errorRetryStatus'] || '현재: 최대 오류 수정 횟수';
+                const timesText = languageData['errorRetryTimes'] || '회';
+                const statusText = `${errorRetryStatusText} ${message.count}${timesText}`;
+                showStatus(errorRetryStatus, statusText, 'success');
+                errorRetryStatus.textContent = statusText;
             }
             break;
         case 'projectRootError':
@@ -2039,7 +2137,10 @@ document.addEventListener('DOMContentLoaded', () => {
     showStatus(newsApiKeyStatus, apiKeysLoadingText, 'info');
     showStatus(stockApiKeyStatus, apiKeysLoadingText, 'info');
     showStatus(geminiApiKeyStatus, apiKeysLoadingText, 'info');
-    showStatus(ollamaApiUrlStatus, apiKeysLoadingText, 'info');
+    const localOllamaApiUrlStatus = document.getElementById('local-ollama-api-url-status');
+    const remoteOllamaApiUrlStatus = document.getElementById('remote-ollama-api-url-status');
+    if (localOllamaApiUrlStatus) showStatus(localOllamaApiUrlStatus, apiKeysLoadingText, 'info');
+    if (remoteOllamaApiUrlStatus) showStatus(remoteOllamaApiUrlStatus, apiKeysLoadingText, 'info');
     showStatus(banyaLicenseStatus, apiKeysLoadingText, 'info');
 
     // API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨

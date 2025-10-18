@@ -39,6 +39,25 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.3 - OUTPUT Log Control & Enhanced Bash Command Execution**
+
+#### **OUTPUT Log Control Feature**
+- **Complete Log Control**: Enable/disable all logs displayed in VS Code's OUTPUT panel
+- **Terminal Log Optimization**: Easier terminal log checking when OUTPUT logs are disabled
+- **Real-time Setting Changes**: Log control settings applied immediately
+- **Memory Optimization**: Reduced memory usage by clearing log entries when disabled
+
+#### **Enhanced Bash Command Execution**
+- **New Terminal Creation**: "Run" button in bash callouts creates new VS Code terminal for command execution
+- **Sequential Command Execution**: Safely executes multiple commands with 500ms intervals
+- **Enhanced Debugging**: Detailed logging system to track command execution process
+- **Terminal Preparation Time**: Improved stability by waiting for terminal to be fully ready
+
+#### **Auto Error Correction Settings**
+- **Customizable Retry Count**: Set automatic error correction attempts from 1-10 times
+- **Real-time Setting Reflection**: Error correction count adjustments applied immediately
+- **Status Display**: View current error correction count setting in UI
+
 ### 🚀 **NEW in v4.2 - Intelligent Auto Error Correction System**
 
 #### **Automatic Terminal Error Detection & Correction**

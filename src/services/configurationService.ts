@@ -10,6 +10,8 @@ export class ConfigurationService {
     private readonly NEWS_API_SECRET = 'newsApiSecret';
     private readonly STOCK_API_KEY = 'stockApiKey';
     private readonly TERMINAL_DAEMON_ENABLED = 'terminalDaemonEnabled';
+    private readonly OUTPUT_LOG_ENABLED = 'outputLogEnabled';
+    private readonly ERROR_RETRY_COUNT = 'errorRetryCount';
 
     constructor() { }
 
@@ -150,5 +152,41 @@ export class ConfigurationService {
     public async updateTerminalDaemonEnabled(enabled: boolean): Promise<void> {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         await config.update(this.TERMINAL_DAEMON_ENABLED, enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
+     * OUTPUT 로그 활성화 상태를 가져옵니다.
+     */
+    public async isOutputLogEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        return config.get<boolean>(this.OUTPUT_LOG_ENABLED) ?? true; // 기본값: true (활성화)
+    }
+
+    /**
+     * OUTPUT 로그 활성화 상태를 업데이트합니다.
+     */
+    public async updateOutputLogEnabled(enabled: boolean): Promise<void> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        await config.update(this.OUTPUT_LOG_ENABLED, enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
+     * 자동 오류 수정 횟수를 가져옵니다.
+     */
+    public async getErrorRetryCount(): Promise<number> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        const count = config.get<number>(this.ERROR_RETRY_COUNT) ?? 3; // 기본값: 3
+        // 1-10 범위로 제한
+        return Math.max(1, Math.min(10, count));
+    }
+
+    /**
+     * 자동 오류 수정 횟수를 업데이트합니다.
+     */
+    public async updateErrorRetryCount(count: number): Promise<void> {
+        // 1-10 범위로 제한
+        const validCount = Math.max(1, Math.min(10, count));
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        await config.update(this.ERROR_RETRY_COUNT, validCount, vscode.ConfigurationTarget.Global);
     }
 }

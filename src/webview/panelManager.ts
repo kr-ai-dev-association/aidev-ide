@@ -53,7 +53,9 @@ export function openSettingsPanel(
                         command: 'currentSettings',
                         autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
                         projectRoot: await configurationService.getProjectRoot(),
-                        terminalDaemonEnabled: await configurationService.isTerminalDaemonEnabled()
+                        terminalDaemonEnabled: await configurationService.isTerminalDaemonEnabled(),
+                        outputLogEnabled: await configurationService.isOutputLogEnabled(),
+                        errorRetryCount: await configurationService.getErrorRetryCount()
                     });
                     break;
                 case 'setTerminalDaemonEnabled':
@@ -81,6 +83,18 @@ export function openSettingsPanel(
                     if (typeof data.enabled === 'boolean') {
                         await configurationService.updateAutoUpdateEnabled(data.enabled);
                         safePostMessage(panel, { command: 'autoUpdateStatusChanged', enabled: data.enabled });
+                    }
+                    break;
+                case 'setOutputLog':
+                    if (typeof data.enabled === 'boolean') {
+                        await configurationService.updateOutputLogEnabled(data.enabled);
+                        safePostMessage(panel, { command: 'outputLogStatusChanged', enabled: data.enabled });
+                    }
+                    break;
+                case 'setErrorRetryCount':
+                    if (typeof data.count === 'number') {
+                        await configurationService.updateErrorRetryCount(data.count);
+                        safePostMessage(panel, { command: 'errorRetryCountChanged', count: data.count });
                     }
                     break;
                 case 'setProjectRoot':

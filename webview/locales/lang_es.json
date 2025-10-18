@@ -136,5 +136,19 @@
   "githubSectionDescription": "Consulta el código fuente y la información más reciente de CodePilot.",
   "githubViewLink": "🌐 Ver en GitHub",
   "githubIssuesLink": "🐛 Problemas y Comentarios",
-  "githubStarLink": "⭐ Estrella y Apoyo"
-} 
+  "githubStarLink": "⭐ Estrella y Apoyo",
+  "outputLogLabel": "📋 Control de registro OUTPUT",
+  "outputLogDescription": "Activar/desactivar los registros mostrados en el panel OUTPUT de VS Code. Desactivar facilita la verificación de los registros del terminal.",
+  "outputLogOn": "Activado",
+  "outputLogOff": "Desactivado",
+  "outputLogEnabled": "Activar registro OUTPUT",
+  "outputLogStatusEnabled": "Actual: Registro OUTPUT activado",
+  "outputLogStatusDisabled": "Actual: Registro OUTPUT desactivado",
+  "errorRetryLabel": "🔄 Número de correcciones automáticas de errores",
+  "errorRetryDescription": "Establecer el número máximo de intentos de corrección automática cuando ocurre un error en el terminal. (1-10 veces, predeterminado: 3 veces)",
+  "errorRetrySpinnerLabel": "Número máximo de correcciones de errores:",
+  "errorRetryTimes": "veces",
+  "errorRetryStatus": "Actual: Número máximo de correcciones de errores",
+  "stopErrorCorrectionLabel": "⏹️ Detener corrección automática de errores",
+  "stopErrorCorrectionTooltip": "Detiene inmediatamente la corrección automática de errores"
+}

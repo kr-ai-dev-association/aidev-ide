@@ -2,6 +2,36 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.3.0 (2025/10/19) - OUTPUT Log Control & Enhanced Bash Command Execution
+
+<details>
+<summary>🎯 OUTPUT Log Control & Enhanced Bash Command Execution</summary>
+
+### **OUTPUT Log Control Feature**
+- **Complete Log Control**: Enable/disable all logs displayed in VS Code's OUTPUT panel
+- **Terminal Log Optimization**: Easier terminal log checking when OUTPUT logs are disabled
+- **Real-time Setting Changes**: Log control settings applied immediately
+- **Memory Optimization**: Reduced memory usage by clearing log entries when disabled
+
+### **Enhanced Bash Command Execution**
+- **New Terminal Creation**: "Run" button in bash callouts creates new VS Code terminal for command execution
+- **Sequential Command Execution**: Safely executes multiple commands with 500ms intervals
+- **Enhanced Debugging**: Detailed logging system to track command execution process
+- **Terminal Preparation Time**: Improved stability by waiting for terminal to be fully ready
+
+### **Auto Error Correction Settings**
+- **Customizable Retry Count**: Set automatic error correction attempts from 1-10 times
+- **Real-time Setting Reflection**: Error correction count adjustments applied immediately
+- **Status Display**: View current error correction count setting in UI
+
+### **Technical Improvements**
+- **Dummy Channel Implementation**: Performance optimization with empty channel return when OUTPUT logs disabled
+- **Setting Change Detection**: Automatic reflection of VS Code setting changes to TerminalManager
+- **Duplicate Code Removal**: Cleaned up duplicate executeBashCommands cases in ChatViewProvider and AskViewProvider
+- **Enhanced Error Handling**: More robust error handling and user feedback for bash command execution
+
+</details>
+
 ## 🚀 Version 4.2.0 (2025/10/18) - Intelligent Auto Error Correction System
 
 <details>

@@ -50,6 +50,8 @@ export class TerminalMonitorService {
     private lastTerminalCount: number = 0;
     private onErrorEmitter = new vscode.EventEmitter<TerminalErrorEvent>();
     private userOS: OperatingSystem;
+    private outputLogEnabled: boolean = true;
+    private maxErrorRetries: number = 3;
     public readonly onError = this.onErrorEmitter.event;
 
     // 오류 수정 관련 속성
@@ -58,7 +60,6 @@ export class TerminalMonitorService {
     private recentErrors: TerminalErrorEvent[] = [];
     private maxRecentErrors: number = 10;
     private errorRetryCount = 0;
-    private readonly MAX_ERROR_RETRIES = 5;
     private recentCommands: Map<string, CommandErrorContext> = new Map();
     private autoCorrectionEnabled = true;
     private currentWebview: vscode.Webview | undefined = undefined;
@@ -67,7 +68,9 @@ export class TerminalMonitorService {
         this.notificationService = notificationService;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Monitor');
         this.userOS = this.detectOperatingSystem();
-        console.log(`[TerminalMonitorService] 사용자 OS 감지: ${this.userOS}`);
+        if (this.outputLogEnabled) {
+            console.log(`[TerminalMonitorService] 사용자 OS 감지: ${this.userOS}`);
+        }
         this.initializeErrorPatterns();
     }
 
@@ -93,6 +96,72 @@ export class TerminalMonitorService {
      */
     public getUserOS(): OperatingSystem {
         return this.userOS;
+    }
+
+    /**
+     * OUTPUT 로그 활성화 상태를 설정합니다.
+     */
+    public setOutputLogEnabled(enabled: boolean): void {
+        this.outputLogEnabled = enabled;
+        if (this.outputLogEnabled) {
+            console.log(`[TerminalMonitorService] OUTPUT 로그 ${enabled ? '활성화' : '비활성화'}`);
+        }
+
+        // OUTPUT 로그가 비활성화되면 채널을 숨기고 비활성화
+        if (!enabled) {
+            try {
+                this.outputChannel.hide();
+                this.outputChannel.clear();
+                // 로그 엔트리 배열도 정리
+                this.logEntries = [];
+            } catch (error) {
+                // 채널이 이미 닫혀있거나 오류가 발생해도 무시
+            }
+        }
+    }
+
+    /**
+     * OUTPUT 로그 활성화 상태를 반환합니다.
+     */
+    public isOutputLogEnabled(): boolean {
+        return this.outputLogEnabled;
+    }
+
+    /**
+     * 최대 오류 수정 횟수를 설정합니다.
+     */
+    public setMaxErrorRetries(count: number): void {
+        this.maxErrorRetries = Math.max(1, Math.min(10, count));
+        if (this.outputLogEnabled) {
+            console.log(`[TerminalMonitorService] 최대 오류 수정 횟수 설정: ${this.maxErrorRetries}`);
+        }
+    }
+
+    /**
+     * 최대 오류 수정 횟수를 반환합니다.
+     */
+    public getMaxErrorRetries(): number {
+        return this.maxErrorRetries;
+    }
+
+    /**
+     * 자동 오류 수정을 즉시 중단합니다.
+     */
+    public stopErrorCorrection(): void {
+        this.errorCorrectionInProgress = false;
+        this.errorRetryCount = 0;
+        this.recentCommands.clear();
+        if (this.outputLogEnabled) {
+            console.log('[TerminalMonitorService] 자동 오류 수정이 중단되었습니다.');
+        }
+
+        // 웹뷰에 중단 메시지 전송
+        if (this.currentWebview) {
+            this.currentWebview.postMessage({
+                command: 'showErrorCorrectionStopped',
+                message: '자동 오류 수정이 중단되었습니다.'
+            });
+        }
     }
 
     /**
@@ -566,6 +635,11 @@ ${osSpecificGuidelines}`;
      * 터미널 이벤트를 로그에 기록합니다.
      */
     private logTerminalEvent(level: 'info' | 'warn' | 'error' | 'debug', source: 'terminal' | 'console' | 'output', message: string): void {
+        // OUTPUT 로그가 비활성화된 경우 로그를 기록하지 않음
+        if (!this.outputLogEnabled) {
+            return;
+        }
+
         const logEntry: LogEntry = {
             timestamp: Date.now(),
             level,
@@ -637,36 +711,46 @@ ${osSpecificGuidelines}`;
 
         // console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
 
-        const logEntry: LogEntry = {
-            timestamp: Date.now(),
-            level,
-            source: 'terminal',
-            message: data.trim(),
-            rawOutput: data
-        };
+        // OUTPUT 로그가 활성화된 경우에만 로그 기록
+        if (this.outputLogEnabled) {
+            const logEntry: LogEntry = {
+                timestamp: Date.now(),
+                level,
+                source: 'terminal',
+                message: data.trim(),
+                rawOutput: data
+            };
 
-        this.logEntries.push(logEntry);
-        // 출력 채널에도 즉시 기록
-        this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
+            this.logEntries.push(logEntry);
+            this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
+        }
         const hasErr = this.checkForErrors(data);
         // console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
 
         if (isErrorLike || hasErr) {
-            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
-            console.log(`[TerminalMonitorService] Error data: ${data}`);
-            console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
-            // 에러가 감지되면 출력 채널 노출
-            try { this.outputChannel.show(true); } catch { }
+            if (this.outputLogEnabled) {
+                console.log(`[TerminalMonitorService] Error detected, firing onError event`);
+                console.log(`[TerminalMonitorService] Error data: ${data}`);
+                console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
+            }
+            // 에러가 감지되면 출력 채널 노출 (OUTPUT 로그가 활성화된 경우에만)
+            if (this.outputLogEnabled) {
+                try { this.outputChannel.show(true); } catch { }
+            }
             try {
                 const recent = this.getRecentErrors(30);
-                console.log(`[TerminalMonitorService] Recent errors:`, recent);
+                if (this.outputLogEnabled) {
+                    console.log(`[TerminalMonitorService] Recent errors:`, recent);
+                }
                 this.onErrorEmitter.fire({
                     time: Date.now(),
                     source: terminalName,
                     message: data.trim(),
                     recentLogs: recent
                 });
-                console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
+                if (this.outputLogEnabled) {
+                    console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
+                }
 
                 // 자동 오류 수정 시도
                 if (this.autoCorrectionEnabled && this.llmService) {
@@ -676,7 +760,9 @@ ${osSpecificGuidelines}`;
                 console.warn('[TerminalMonitorService] onError emit failed:', e);
             }
         } else {
-            console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
+            if (this.outputLogEnabled) {
+                console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
+            }
         }
     }
 
@@ -927,11 +1013,13 @@ ${osSpecificGuidelines}`;
             console.log(`[TerminalMonitorService] 중간 심각도 에러: ${mediumErrors.map(e => e.pattern).join(', ')}`);
         }
 
-        // 에러 정보를 출력 채널에 기록
-        this.outputChannel.appendLine(`[${new Date().toISOString()}] 에러 감지:`);
-        errors.forEach(error => {
-            this.outputChannel.appendLine(`  - ${error.pattern} (${error.severity}): ${error.description}`);
-        });
+        // 에러 정보를 출력 채널에 기록 (설정에 따라)
+        if (this.outputLogEnabled) {
+            this.outputChannel.appendLine(`[${new Date().toISOString()}] 에러 감지:`);
+            errors.forEach(error => {
+                this.outputChannel.appendLine(`  - ${error.pattern} (${error.severity}): ${error.description}`);
+            });
+        }
 
         // Fire onError event for all detected errors
         if (errors.length > 0) {
@@ -1037,7 +1125,9 @@ ${osSpecificGuidelines}`;
      * 출력 채널을 표시합니다.
      */
     public showOutputChannel(): void {
-        this.outputChannel.show();
+        if (this.outputLogEnabled) {
+            this.outputChannel.show();
+        }
     }
 
     /**
@@ -1121,13 +1211,13 @@ ${osSpecificGuidelines}`;
                 }
 
                 // 같은 명령어에 대한 재시도 횟수 확인
-                if (lastAttempt.retryCount >= this.MAX_ERROR_RETRIES) {
+                if (lastAttempt.retryCount >= this.maxErrorRetries) {
                     console.log(`[TerminalMonitorService] 명령어 '${recentCommand}'에 대한 최대 재시도 횟수 초과`);
 
                     // 명령어별 최대 재시도 횟수 초과 시 알림 표시
                     vscode.window.showErrorMessage(
                         `❌ 자동 오류 수정 실패`,
-                        `명령어 '${recentCommand}'에 대한 최대 재시도 횟수(${this.MAX_ERROR_RETRIES})를 초과했습니다.`,
+                        `명령어 '${recentCommand}'에 대한 최대 재시도 횟수(${this.maxErrorRetries})를 초과했습니다.`,
                         '수동으로 문제를 해결해주세요.'
                     );
 
@@ -1136,13 +1226,13 @@ ${osSpecificGuidelines}`;
             }
 
             // 전역 재시도 횟수 확인 (모든 명령어 합계)
-            if (this.errorRetryCount >= this.MAX_ERROR_RETRIES * 2) {
+            if (this.errorRetryCount >= this.maxErrorRetries * 2) {
                 console.log('[TerminalMonitorService] 전역 최대 재시도 횟수 초과');
 
                 // 전역 최대 재시도 횟수 초과 시 알림 표시
                 vscode.window.showErrorMessage(
                     `❌ 자동 오류 수정 실패`,
-                    `전역 최대 재시도 횟수(${this.MAX_ERROR_RETRIES * 2})를 초과했습니다.`,
+                    `전역 최대 재시도 횟수(${this.maxErrorRetries * 2})를 초과했습니다.`,
                     '수동으로 문제를 해결해주세요.'
                 );
 
@@ -1151,10 +1241,10 @@ ${osSpecificGuidelines}`;
             }
 
             this.errorRetryCount++;
-            console.log(`[TerminalMonitorService] 오류 수정 시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES}`);
+            console.log(`[TerminalMonitorService] 오류 수정 시도 ${this.errorRetryCount}/${this.maxErrorRetries}`);
             // 3단계: LLM 수정 요청
             await this.showStepProgress(errorCorrectionSteps, 2);
-            this.sendProcessingStatus('error_correction', `LLM에게 오류 수정 요청 중... (시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES})`);
+            this.sendProcessingStatus('error_correction', `LLM에게 오류 수정 요청 중... (시도 ${this.errorRetryCount}/${this.maxErrorRetries})`);
 
             // LLM에게 오류 수정 요청
             const correctedCommand = await this.getCorrectedCommandFromLlm(recentCommand, errorMessage, terminalName);
@@ -1395,10 +1485,14 @@ ${specificGuidance}
                 `🔧 자동 오류 수정: ${correctedCommand}`
             );
 
-            // OUTPUT 채널에 로그
-            this.outputChannel.appendLine(`[${new Date().toISOString()}] 자동 오류 수정 실행: ${correctedCommand}`);
+            // OUTPUT 채널에 로그 (설정에 따라)
+            if (this.outputLogEnabled) {
+                this.outputChannel.appendLine(`[${new Date().toISOString()}] 자동 오류 수정 실행: ${correctedCommand}`);
+            }
 
-            console.log(`[TerminalMonitorService] 수정된 명령어 실행: ${correctedCommand}`);
+            if (this.outputLogEnabled) {
+                console.log(`[TerminalMonitorService] 수정된 명령어 실행: ${correctedCommand}`);
+            }
 
         } catch (error) {
             console.error('[TerminalMonitorService] 수정된 명령어 실행 실패:', error);

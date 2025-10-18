@@ -145,6 +145,39 @@
             /* 클릭 시 핸들 약간 커짐 */
         }
 
+        .spinner-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .spinner-container label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .spinner-container input[type="number"] {
+            width: 80px;
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            text-align: center;
+            transition: border-color 0.3s ease;
+        }
+
+        .spinner-container input[type="number"]:focus {
+            outline: none;
+            border-color: #007acc;
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+        }
+
+        .spinner-container span {
+            font-weight: 500;
+            color: #666;
+        }
+
         .toggle-label-text {
             font-weight: normal;
             /* 일반 텍스트처럼 */
@@ -486,6 +519,30 @@
         <span id="auto-update-off">끄기</span>
     </div>
 
+    <div class="section-container">
+        <h2 id="output-log-label" data-i18n="outputLogLabel">📋 OUTPUT 로그 제어</h2>
+        <p class="info-message" data-i18n="outputLogDescription">VS Code의 OUTPUT 패널에 표시되는 로그를 활성화/비활성화할 수 있습니다. 비활성화하면
+            터미널 로그 확인이 더 편해집니다.</p>
+        <div class="toggle-switch-container">
+            <input type="checkbox" id="output-log-toggle" />
+            <label for="output-log-toggle">Toggle</label> <!-- 스위치 핸들 -->
+        </div>
+        <p id="output-log-status" class="info-message" style="margin-top: 5px;"></p>
+        <span id="output-log-on" data-i18n="outputLogOn">켜기</span>
+        <span id="output-log-off" data-i18n="outputLogOff">끄기</span>
+    </div>
+
+    <div class="section-container">
+        <h2 id="error-retry-label" data-i18n="errorRetryLabel">🔄 자동 오류 수정 횟수</h2>
+        <p class="info-message" data-i18n="errorRetryDescription">터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를 설정합니다. (1-10회,
+            기본값: 3회)</p>
+        <div class="spinner-container">
+            <label for="error-retry-spinner" data-i18n="errorRetrySpinnerLabel">최대 오류 수정 횟수:</label>
+            <input type="number" id="error-retry-spinner" min="1" max="10" value="3" />
+            <span data-i18n="errorRetryTimes">회</span>
+        </div>
+        <p id="error-retry-status" class="info-message" style="margin-top: 5px;"></p>
+    </div>
 
     <div class="section-container">
         <h2 id="api-key-section-title">🤖 AI 모델 설정 (UPDATED - 2024-12-19)</h2>

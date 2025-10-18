@@ -136,5 +136,19 @@
   "githubSectionDescription": "Schauen Sie sich den Quellcode und die neuesten Informationen von CodePilot an.",
   "githubViewLink": "🌐 Auf GitHub anzeigen",
   "githubIssuesLink": "🐛 Probleme & Feedback",
-  "githubStarLink": "⭐ Stern & Unterstützung"
-} 
+  "githubStarLink": "⭐ Stern & Unterstützung",
+  "outputLogLabel": "📋 OUTPUT-Protokoll-Steuerung",
+  "outputLogDescription": "Aktivieren/Deaktivieren Sie Protokolle, die im OUTPUT-Bereich von VS Code angezeigt werden. Die Deaktivierung erleichtert die Überprüfung der Terminal-Protokolle.",
+  "outputLogOn": "Ein",
+  "outputLogOff": "Aus",
+  "outputLogEnabled": "OUTPUT-Protokoll aktivieren",
+  "outputLogStatusEnabled": "Aktuell: OUTPUT-Protokoll aktiviert",
+  "outputLogStatusDisabled": "Aktuell: OUTPUT-Protokoll deaktiviert",
+  "errorRetryLabel": "🔄 Anzahl der automatischen Fehlerkorrekturen",
+  "errorRetryDescription": "Legen Sie die maximale Anzahl der automatischen Korrekturversuche fest, wenn ein Fehler im Terminal auftritt. (1-10 Mal, Standard: 3 Mal)",
+  "errorRetrySpinnerLabel": "Maximale Anzahl der Fehlerkorrekturen:",
+  "errorRetryTimes": "Mal",
+  "errorRetryStatus": "Aktuell: Maximale Anzahl der Fehlerkorrekturen",
+  "stopErrorCorrectionLabel": "⏹️ Automatische Fehlerkorrektur stoppen",
+  "stopErrorCorrectionTooltip": "Stoppt die automatische Fehlerkorrektur sofort"
+}

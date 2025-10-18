@@ -43,7 +43,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
 
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         setErrorCorrectionServices(this.llmService, webviewView.webview);
-        
+
         // 터미널 모니터링 서비스에 웹뷰 설정
         const terminalMonitorService = getTerminalMonitorService();
         if (terminalMonitorService) {
@@ -99,22 +99,6 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                         data.selectedFiles // 선택된 파일들 전달
                     );
                     break;
-                case 'executeBashCommands': {
-                    try {
-                        const commands = Array.isArray(data.commands) ? data.commands : [];
-                        if (commands.length > 0) {
-                            // bash 명령어들을 실행
-                            for (const command of commands) {
-                                executeBashCommandsFromLlmResponse(`\`\`\`bash\n${command}\n\`\`\``);
-                            }
-                            this.notificationService.showInfoMessage(`Bash 명령어 ${commands.length}개가 실행되었습니다.`);
-                        }
-                    } catch (e) {
-                        console.warn('[AskViewProvider] executeBashCommands failed:', e);
-                        this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
-                    }
-                    break;
-                }
                 case 'webviewLoaded':
                     console.log('[AskViewProvider] Ask webview loaded.');
                     break;
@@ -126,6 +110,10 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                 case 'openFilePicker':
                     console.log('[Extension Host] Opening file picker from Ask tab...');
                     this.openFilePicker(webviewView.webview);
+                    break;
+                case 'executeBashCommands':
+                    console.log('[Extension Host] Executing bash commands from Ask tab:', data.commands);
+                    this.executeBashCommands(data.commands);
                     break;
             }
         });
@@ -190,6 +178,54 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         } catch (error) {
             console.error('Error opening file picker:', error);
             this.notificationService.showErrorMessage('파일 선택 중 오류가 발생했습니다.');
+        }
+    }
+
+    private async executeBashCommands(commands: string[]): Promise<void> {
+        try {
+            console.log('[AskViewProvider] executeBashCommands called with:', commands);
+
+            if (!commands || commands.length === 0) {
+                console.log('[AskViewProvider] No commands to execute');
+                return;
+            }
+
+            console.log('[AskViewProvider] Creating new terminal...');
+            // 새로운 터미널 생성
+            const terminal = vscode.window.createTerminal({
+                name: 'AIDEV-IDE Bash Commands',
+                shellPath: '/bin/bash'
+            });
+
+            console.log('[AskViewProvider] Terminal created, showing...');
+            // 터미널을 활성화하고 명령어들을 순차적으로 실행
+            terminal.show();
+
+            // 터미널이 준비될 시간을 주기 위해 약간의 지연
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // 각 명령어를 실행
+            for (let i = 0; i < commands.length; i++) {
+                const command = commands[i];
+                console.log(`[AskViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
+
+                // 첫 번째 명령어는 즉시 실행, 나머지는 약간의 지연 후 실행
+                if (i === 0) {
+                    terminal.sendText(command);
+                    console.log(`[AskViewProvider] Sent first command: ${command}`);
+                } else {
+                    setTimeout(() => {
+                        terminal.sendText(command);
+                        console.log(`[AskViewProvider] Sent delayed command: ${command}`);
+                    }, i * 500); // 500ms 간격으로 실행
+                }
+            }
+
+            console.log(`[AskViewProvider] Successfully executed ${commands.length} bash commands`);
+
+        } catch (error) {
+            console.error('[AskViewProvider] Error executing bash commands:', error);
+            this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
         }
     }
 }

@@ -1500,6 +1500,9 @@
                     } else if (data.command === 'showErrorCorrectionSuccess') {
                         // 오류 수정 성공 메시지를 ProcessingSteps에 표시
                         setSteps(prev => [...prev, { step: 'error_correction_success', status: data.message }]);
+                    } else if (data.command === 'showErrorCorrectionStopped') {
+                        // 오류 수정 중단 메시지를 ProcessingSteps에 표시
+                        setSteps(prev => [...prev, { step: 'error_correction_stopped', status: data.message }]);
                     }
                 };
 
@@ -1597,6 +1600,9 @@
                     } else if (data.command === 'showErrorCorrectionSuccess') {
                         // 오류 수정 성공 메시지를 ProcessingSteps에 표시
                         updateProcessingStatus('error_correction_success', data.message);
+                    } else if (data.command === 'showErrorCorrectionStopped') {
+                        // 오류 수정 중단 메시지를 ProcessingSteps에 표시
+                        updateProcessingStatus('error_correction_stopped', data.message);
                     }
                 };
 
