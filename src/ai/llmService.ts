@@ -190,7 +190,7 @@ export class LlmService {
 현재 사용자 환경: ${this.userOS.toUpperCase()}`;
 
         const osSpecificGuidelines = this.getOSSpecificGuidelines();
-        
+
         return `${basePrompt}
 
 ${osSpecificGuidelines}`;
