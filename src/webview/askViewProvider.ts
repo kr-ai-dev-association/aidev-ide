@@ -112,7 +112,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     this.openFilePicker(webviewView.webview);
                     break;
                 case 'executeBashCommands':
-                    console.log('[Extension Host] Executing bash commands from Ask tab:', data.commands);
+                    // console.log('[Extension Host] Executing bash commands from Ask tab:', data.commands);
                     this.executeBashCommands(data.commands);
                     break;
             }
@@ -183,21 +183,21 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
 
     private async executeBashCommands(commands: string[]): Promise<void> {
         try {
-            console.log('[AskViewProvider] executeBashCommands called with:', commands);
+            // console.log('[AskViewProvider] executeBashCommands called with:', commands);
 
             if (!commands || commands.length === 0) {
-                console.log('[AskViewProvider] No commands to execute');
+                // console.log('[AskViewProvider] No commands to execute');
                 return;
             }
 
-            console.log('[AskViewProvider] Creating new terminal...');
+            // console.log('[AskViewProvider] Creating new terminal...');
             // 새로운 터미널 생성
             const terminal = vscode.window.createTerminal({
                 name: 'AIDEV-IDE Bash Commands',
                 shellPath: '/bin/bash'
             });
 
-            console.log('[AskViewProvider] Terminal created, showing...');
+            // console.log('[AskViewProvider] Terminal created, showing...');
             // 터미널을 활성화하고 명령어들을 순차적으로 실행
             terminal.show();
 
@@ -207,21 +207,21 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
             // 각 명령어를 실행
             for (let i = 0; i < commands.length; i++) {
                 const command = commands[i];
-                console.log(`[AskViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
+                // console.log(`[AskViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
 
                 // 첫 번째 명령어는 즉시 실행, 나머지는 약간의 지연 후 실행
                 if (i === 0) {
                     terminal.sendText(command);
-                    console.log(`[AskViewProvider] Sent first command: ${command}`);
+                    // console.log(`[AskViewProvider] Sent first command: ${command}`);
                 } else {
                     setTimeout(() => {
                         terminal.sendText(command);
-                        console.log(`[AskViewProvider] Sent delayed command: ${command}`);
+                        // console.log(`[AskViewProvider] Sent delayed command: ${command}`);
                     }, i * 500); // 500ms 간격으로 실행
                 }
             }
 
-            console.log(`[AskViewProvider] Successfully executed ${commands.length} bash commands`);
+            // console.log(`[AskViewProvider] Successfully executed ${commands.length} bash commands`);
 
         } catch (error) {
             console.error('[AskViewProvider] Error executing bash commands:', error);

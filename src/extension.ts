@@ -274,12 +274,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 const outputLogEnabled = await configurationService.isOutputLogEnabled();
                 terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
                 setOutputLogEnabled(outputLogEnabled);
-                console.log(`[Extension] OUTPUT 로그 설정 변경: ${outputLogEnabled ? '활성화' : '비활성화'}`);
+                // console.log(`[Extension] OUTPUT 로그 설정 변경: ${outputLogEnabled ? '활성화' : '비활성화'}`);
             }
             if (event.affectsConfiguration('aidevIde.errorRetryCount')) {
                 const errorRetryCount = await configurationService.getErrorRetryCount();
                 terminalMonitorService.setMaxErrorRetries(errorRetryCount);
-                console.log(`[Extension] 오류 수정 횟수 설정 변경: ${errorRetryCount}`);
+                // console.log(`[Extension] 오류 수정 횟수 설정 변경: ${errorRetryCount}`);
             }
         }));
 

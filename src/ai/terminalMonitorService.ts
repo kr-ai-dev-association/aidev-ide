@@ -103,9 +103,9 @@ export class TerminalMonitorService {
      */
     public setOutputLogEnabled(enabled: boolean): void {
         this.outputLogEnabled = enabled;
-        if (this.outputLogEnabled) {
-            console.log(`[TerminalMonitorService] OUTPUT 로그 ${enabled ? '활성화' : '비활성화'}`);
-        }
+        // if (this.outputLogEnabled) {
+        //     console.log(`[TerminalMonitorService] OUTPUT 로그 ${enabled ? '활성화' : '비활성화'}`);
+        // }
 
         // OUTPUT 로그가 비활성화되면 채널을 숨기고 비활성화
         if (!enabled) {
@@ -132,9 +132,9 @@ export class TerminalMonitorService {
      */
     public setMaxErrorRetries(count: number): void {
         this.maxErrorRetries = Math.max(1, Math.min(10, count));
-        if (this.outputLogEnabled) {
-            console.log(`[TerminalMonitorService] 최대 오류 수정 횟수 설정: ${this.maxErrorRetries}`);
-        }
+        // if (this.outputLogEnabled) {
+        //     console.log(`[TerminalMonitorService] 최대 오류 수정 횟수 설정: ${this.maxErrorRetries}`);
+        // }
     }
 
     /**
@@ -151,9 +151,9 @@ export class TerminalMonitorService {
         this.errorCorrectionInProgress = false;
         this.errorRetryCount = 0;
         this.recentCommands.clear();
-        if (this.outputLogEnabled) {
-            console.log('[TerminalMonitorService] 자동 오류 수정이 중단되었습니다.');
-        }
+        // if (this.outputLogEnabled) {
+        //     console.log('[TerminalMonitorService] 자동 오류 수정이 중단되었습니다.');
+        // }
 
         // 웹뷰에 중단 메시지 전송
         if (this.currentWebview) {

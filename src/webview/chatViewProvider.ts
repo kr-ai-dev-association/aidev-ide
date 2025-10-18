@@ -166,7 +166,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     this.openFilePicker(webviewView.webview);
                     break;
                 case 'executeBashCommands':
-                    console.log('[Extension Host] Executing bash commands:', data.commands);
+                    // console.log('[Extension Host] Executing bash commands:', data.commands);
                     this.executeBashCommands(data.commands);
                     break;
                 case 'displayUserMessage': // 웹뷰 자체에서 사용자 메시지 표시를 요청할 때, 이미지도 포함
@@ -289,46 +289,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     private async executeBashCommands(commands: string[]): Promise<void> {
         try {
-            console.log('[ChatViewProvider] executeBashCommands called with:', commands);
-
+            // console.log('[ChatViewProvider] executeBashCommands called with:', commands);
+            
             if (!commands || commands.length === 0) {
-                console.log('[ChatViewProvider] No commands to execute');
+                // console.log('[ChatViewProvider] No commands to execute');
                 return;
             }
 
-            console.log('[ChatViewProvider] Creating new terminal...');
+            // console.log('[ChatViewProvider] Creating new terminal...');
             // 새로운 터미널 생성
             const terminal = vscode.window.createTerminal({
                 name: 'AIDEV-IDE Bash Commands',
                 shellPath: '/bin/bash'
             });
 
-            console.log('[ChatViewProvider] Terminal created, showing...');
+            // console.log('[ChatViewProvider] Terminal created, showing...');
             // 터미널을 활성화하고 명령어들을 순차적으로 실행
             terminal.show();
-
+            
             // 터미널이 준비될 시간을 주기 위해 약간의 지연
             await new Promise(resolve => setTimeout(resolve, 1000));
-
+            
             // 각 명령어를 실행
             for (let i = 0; i < commands.length; i++) {
                 const command = commands[i];
-                console.log(`[ChatViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
-
+                // console.log(`[ChatViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
+                
                 // 첫 번째 명령어는 즉시 실행, 나머지는 약간의 지연 후 실행
                 if (i === 0) {
                     terminal.sendText(command);
-                    console.log(`[ChatViewProvider] Sent first command: ${command}`);
+                    // console.log(`[ChatViewProvider] Sent first command: ${command}`);
                 } else {
                     setTimeout(() => {
                         terminal.sendText(command);
-                        console.log(`[ChatViewProvider] Sent delayed command: ${command}`);
+                        // console.log(`[ChatViewProvider] Sent delayed command: ${command}`);
                     }, i * 500); // 500ms 간격으로 실행
                 }
             }
 
-            console.log(`[ChatViewProvider] Successfully executed ${commands.length} bash commands`);
-
+            // console.log(`[ChatViewProvider] Successfully executed ${commands.length} bash commands`);
+            
         } catch (error) {
             console.error('[ChatViewProvider] Error executing bash commands:', error);
             this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
