@@ -57,6 +57,7 @@ export class LlmService {
     private askWebview?: vscode.Webview;
     private lastErrorHandledAt: number = 0;
     private suppressCancelNoticeOnce: boolean = false;
+    private userOS: string = 'unknown';
 
     constructor(
         storageService: StorageService,
@@ -151,6 +152,97 @@ export class LlmService {
         }
     }
     public getTerminalMonitorService(): TerminalMonitorService { return this.terminalMonitorService; }
+
+    /**
+     * 사용자의 OS 정보를 설정합니다.
+     */
+    public setUserOS(os: string): void {
+        this.userOS = os;
+        console.log(`[LlmService] 사용자 OS 설정: ${os}`);
+    }
+
+    /**
+     * 현재 사용자의 OS 정보를 반환합니다.
+     */
+    public getUserOS(): string {
+        return this.userOS;
+    }
+
+    /**
+     * OS별 시스템 프롬프트를 생성합니다.
+     */
+    private generateOSSpecificSystemPrompt(): string {
+        const basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+
+주요 지침:
+1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
+2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
+3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
+4. 한글로 설명을 제공하세요.
+5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
+6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
+7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
+8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
+9. 터미널 명령어가 필요한 경우 OS에 맞는 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
+11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
+
+현재 사용자 환경: ${this.userOS.toUpperCase()}`;
+
+        const osSpecificGuidelines = this.getOSSpecificGuidelines();
+        
+        return `${basePrompt}
+
+${osSpecificGuidelines}`;
+    }
+
+    /**
+     * OS별 특화 가이드라인을 반환합니다.
+     */
+    private getOSSpecificGuidelines(): string {
+        switch (this.userOS.toLowerCase()) {
+            case 'windows':
+                return `**Windows 환경 특화 가이드라인:**
+- PowerShell 또는 Command Prompt 명령어를 사용하세요.
+- 파일 경로는 백슬래시(\\) 또는 슬래시(/) 모두 사용 가능합니다.
+- 환경변수는 %VARIABLE_NAME% 형식을 사용하세요.
+- 터미널 명령어는 \`\`\`cmd 또는 \`\`\`powershell 코드 블록을 사용하세요.
+- 포트 해제: netstat -ano | findstr :포트번호, taskkill /PID 프로세스ID /F
+- 프로세스 종료: taskkill /IM 프로세스명 /F
+- 서비스 관리: net start/stop 서비스명
+- 권한 문제 시 관리자 권한으로 실행하도록 안내하세요.`;
+
+            case 'macos':
+                return `**macOS 환경 특화 가이드라인:**
+- Bash/Zsh 쉘 명령어를 사용하세요.
+- 파일 경로는 슬래시(/)를 사용하세요.
+- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
+- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
+- 포트 해제: lsof -ti:포트번호 | xargs kill -9
+- 프로세스 종료: pkill -f "프로세스명"
+- Homebrew 패키지 관리자 사용을 권장하세요.
+- 권한 문제 시 sudo 명령어 사용을 안내하세요.`;
+
+            case 'linux':
+                return `**Linux 환경 특화 가이드라인:**
+- Bash 쉘 명령어를 사용하세요.
+- 파일 경로는 슬래시(/)를 사용하세요.
+- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
+- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
+- 포트 해제: lsof -ti:포트번호 | xargs kill -9 또는 fuser -k 포트번호/tcp
+- 프로세스 종료: pkill -f "프로세스명" 또는 killall 프로세스명
+- 패키지 관리자: apt (Ubuntu/Debian), yum/dnf (RHEL/CentOS), pacman (Arch)
+- 권한 문제 시 sudo 명령어 사용을 안내하세요.`;
+
+            default:
+                return `**일반 환경 가이드라인:**
+- 플랫폼에 독립적인 명령어를 사용하세요.
+- 파일 경로는 슬래시(/)를 사용하세요.
+- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
+- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
+- 포트 해제 및 프로세스 종료 명령어는 OS별로 다를 수 있으니 주의하세요.`;
+        }
+    }
 
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
@@ -261,7 +353,7 @@ export class LlmService {
                                 detectedProjectType = finalProjectType;
 
                                 projectTypeInfo = ` | Project Type: ${detectedProjectType}`;
-                                this.sendProcessingStatus('intent', `Detected project type: ${detectedProjectType} (LLM: ${llmBasedProjectType})`);
+                                this.sendProcessingStatus('intent', `Detected project type: ${detectedProjectType} (LLM: ${llmBasedProjectType}) | OS: ${this.userOS}`);
                             }
                         } catch (error) {
                             console.warn('[LlmService] Failed to detect project type during intent analysis:', error);
@@ -273,9 +365,9 @@ export class LlmService {
                     if (intentResult) {
                         const confidence = Math.round(intentResult.confidence * 100);
                         const reasoning = intentResult.reasoning || 'No reasoning provided';
-                        this.sendProcessingStatus('intent', `Intent: ${intentResult.category}/${intentResult.subtype} (${confidence}%)${projectTypeInfo} - ${reasoning.substring(0, 100)}${reasoning.length > 100 ? '...' : ''}`);
+                        this.sendProcessingStatus('intent', `Intent: ${intentResult.category}/${intentResult.subtype} (${confidence}%)${projectTypeInfo} | OS: ${this.userOS} - ${reasoning.substring(0, 100)}${reasoning.length > 100 ? '...' : ''}`);
                         // Debug Console 로그를 활용한 추가 정보
-                        console.log(`[LlmService] Intent analysis result: ${intentResult.category}/${intentResult.subtype} with ${confidence}% confidence${projectTypeInfo}`);
+                        console.log(`[LlmService] Intent analysis result: ${intentResult.category}/${intentResult.subtype} with ${confidence}% confidence${projectTypeInfo} | OS: ${this.userOS}`);
                     } else {
                         this.sendProcessingStatus('intent', `Intent analysis completed - No specific intent detected${projectTypeInfo}`);
                         console.log('[LlmService] No specific intent detected from user query');
@@ -722,66 +814,7 @@ export class LlmService {
             '\n\n️중요: 반드시 한국어로만 답변하세요. 중국어, 영어, 일본어 등 다른 언어는 사용하지 마세요. 모든 설명과 응답은 한국어로 작성해주세요.' : '';
 
         if (promptType === PromptType.CODE_GENERATION) {
-            systemPrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
-
-주요 지침:
-1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
-2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
-3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
-4. 한글로 설명을 제공하세요.
-5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
-6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
-7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
-8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
-9. 터미널 명령어가 필요한 경우 "bash" 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
-10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요. (devDependencies에 설치된 vite는 npx로 실행해야 함)
-11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요. (3.2.0 이하는 더 이상 지원되지 않음)
-
-파일 생성/수정 형식 예시:
-
-코드 파일의 경우:
-새 파일: src/components/Button.jsx
-\`\`\`javascript
-import React from 'react';
-
-function Button({ children, onClick }) {
-  return (
-    <button onClick={onClick}>
-      {children}
-    </button>
-  );
-}
-
-export default Button;
-\`\`\`
-
-마크다운 파일의 경우:
-새 파일: docs/README.md
-
-# 프로젝트 문서
-
-이 프로젝트는 React 기반의 웹 애플리케이션입니다.
-
-## 기능
-
-- 사용자 인증
-- 데이터 관리
-- 실시간 업데이트
-
-## 설치 방법
-
-\`\`\`bash
-npm install
-npm start
-\`\`\`
-
-터미널 명령어의 경우 (Vite 프로젝트):
-\`\`\`bash
-npm install
-npm run dev
-npm run build
-npm run preview
-\`\`\`
+            systemPrompt = `${this.generateOSSpecificSystemPrompt()}
 
 코드베이스 컨텍스트:
 ${codebaseContext}

@@ -135,6 +135,13 @@ export async function activate(context: vscode.ExtensionContext) {
         context // extension context 전달
     );
 
+    // 사용자 OS 정보를 LlmService에 설정
+    const userOS = require('os').platform() === 'darwin' ? 'macOS' : 
+                   require('os').platform() === 'win32' ? 'Windows' : 
+                   require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
+    llmService.setUserOS(userOS);
+    console.log(`[Extension] 사용자 OS 감지 및 설정: ${userOS}`);
+
     // 현재 AI 모델 설정 로드
     let currentAiModel = await storageService.getCurrentAiModel();
     // 마이그레이션: 과거 'ollama' 값이 저장된 경우, 현재 Ollama 모델을 확인하여 구체적인 타입으로 변환
