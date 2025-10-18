@@ -938,7 +938,13 @@ ${specificGuidance}
 - spring-boot.version 변수 문제: sed -i 's/\${spring-boot.version}/3.4.0/g' pom.xml
 - Java 환경 변수: export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home && export PATH=$JAVA_HOME/bin:$PATH
 - Maven 캐시 정리: mvn clean && rm -rf ~/.m2/repository/org/springframework/boot/
-- **포트 확인 후 해제**: lsof -i:8080 && lsof -ti:8080 | xargs kill -9 && mvn spring-boot:run
+- **포트 확인 후 해제**: 
+  1. 포트 사용 프로세스 확인: lsof -i:8080
+  2. 강제 종료: lsof -ti:8080 | xargs kill -9
+  3. 2초 대기 후 재확인: sleep 2 && lsof -i:8080
+  4. 여전히 사용 중이면 pkill 사용: pkill -f "spring-boot" && pkill -f "java.*8080"
+  5. 최종 확인: lsof -i:8080 || echo "포트 해제 완료"
+  6. 애플리케이션 실행: mvn spring-boot:run
 - 다른 포트 사용: mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081"
 
 **새로운 패턴 발견**: 이 오류가 기존 패턴과 다른 새로운 유형이라면, 다음 정보도 함께 제공해주세요:
