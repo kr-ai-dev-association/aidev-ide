@@ -14,10 +14,12 @@ export class OllamaApi {
     private apiUrl: string;
     private endpoint: string = '/api/generate';
     private modelName: string = 'gemma3:27b';
+    private storageService: StorageService;
 
-    constructor(apiUrl?: string, endpoint?: string) {
+    constructor(apiUrl?: string, endpoint?: string, storageService?: StorageService) {
         this.apiUrl = apiUrl || 'http://localhost:11434';
         this.endpoint = endpoint || '/api/generate';
+        this.storageService = storageService || null;
     }
 
     public getApiUrl(): string {
@@ -42,6 +44,58 @@ export class OllamaApi {
 
     public getModel(): string {
         return this.modelName;
+    }
+
+    /**
+     * 저장된 서버 타입에 따라 동적으로 설정을 로드합니다.
+     */
+    public async loadSettingsFromStorage(): Promise<void> {
+        if (!this.storageService) {
+            console.log('[OllamaApi] StorageService not available, using default settings');
+            return;
+        }
+
+        try {
+            const serverType = await this.storageService.getOllamaServerType();
+            console.log('[OllamaApi] Loading settings for server type:', serverType);
+
+            if (serverType === 'remote') {
+                // 원격 서버 설정 로드
+                const remoteApiUrl = await this.storageService.getRemoteOllamaApiUrl();
+                const remoteEndpoint = await this.storageService.getRemoteOllamaEndpoint();
+                const remoteModel = await this.storageService.getRemoteOllamaModel();
+
+                if (remoteApiUrl) {
+                    this.apiUrl = remoteApiUrl;
+                    console.log('[OllamaApi] Remote API URL loaded:', remoteApiUrl);
+                }
+                if (remoteEndpoint) {
+                    this.endpoint = remoteEndpoint;
+                    console.log('[OllamaApi] Remote endpoint loaded:', remoteEndpoint);
+                }
+                if (remoteModel) {
+                    this.modelName = remoteModel;
+                    console.log('[OllamaApi] Remote model loaded:', remoteModel);
+                }
+            } else {
+                // 로컬 서버 설정 로드 (기본값)
+                const localApiUrl = await this.storageService.getLocalOllamaApiUrl();
+                const localEndpoint = await this.storageService.getLocalOllamaEndpoint();
+
+                this.apiUrl = localApiUrl;
+                this.endpoint = localEndpoint;
+                console.log('[OllamaApi] Local settings loaded - API URL:', localApiUrl, 'Endpoint:', localEndpoint);
+            }
+        } catch (error) {
+            console.error('[OllamaApi] Error loading settings from storage:', error);
+        }
+    }
+
+    /**
+     * StorageService를 설정합니다.
+     */
+    public setStorageService(storageService: StorageService): void {
+        this.storageService = storageService;
     }
 
     /**
@@ -349,10 +403,18 @@ export class OllamaService {
         const abortSignal = this.currentOllamaCallController.signal;
 
         try {
-            // 현재 저장된 Ollama 모델을 로드하여 설정
-            const currentModel = await this.storageService.getOllamaModel();
-            this.ollamaApi.setModel(currentModel);
-            console.log(`[OllamaService] Using model: ${currentModel}`);
+            // 저장된 서버 타입과 설정을 로드
+            await this.ollamaApi.loadSettingsFromStorage();
+            
+            // 현재 저장된 Ollama 모델을 로드하여 설정 (서버 타입이 로컬인 경우)
+            const serverType = await this.storageService.getOllamaServerType();
+            if (serverType === 'local') {
+                const currentModel = await this.storageService.getOllamaModel();
+                this.ollamaApi.setModel(currentModel);
+                console.log(`[OllamaService] Using local model: ${currentModel}`);
+            } else {
+                console.log(`[OllamaService] Using remote model: ${this.ollamaApi.getModel()}`);
+            }
 
             webviewToRespond.postMessage({ command: 'showLoading' });
 

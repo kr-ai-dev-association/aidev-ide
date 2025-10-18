@@ -52,6 +52,7 @@ export class TerminalMonitorService {
     private readonly MAX_ERROR_RETRIES = 3;
     private recentCommands: Map<string, CommandErrorContext> = new Map();
     private autoCorrectionEnabled = true;
+    private currentWebview: vscode.Webview | undefined = undefined;
 
     constructor(notificationService: NotificationService) {
         this.notificationService = notificationService;
@@ -65,6 +66,27 @@ export class TerminalMonitorService {
     public setLlmService(llmService: LlmService): void {
         this.llmService = llmService;
         console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
+    }
+
+    /**
+     * 웹뷰를 설정합니다.
+     */
+    public setWebview(webview: vscode.Webview): void {
+        this.currentWebview = webview;
+        console.log('[TerminalMonitorService] Webview set');
+    }
+
+    /**
+     * 웹뷰에 처리 상태를 전송합니다.
+     */
+    private sendProcessingStatus(step: string, status: string): void {
+        if (this.currentWebview) {
+            try {
+                this.currentWebview.postMessage({ command: 'updateProcessingStatus', step, status });
+            } catch (error) {
+                console.warn('[TerminalMonitorService] Failed to send processing status:', error);
+            }
+        }
     }
 
     /**
@@ -652,12 +674,17 @@ export class TerminalMonitorService {
         }
 
         try {
+            this.sendProcessingStatus('error_correction', '터미널 오류 감지됨 - 자동 수정 시도 중...');
+            
             // 최근 명령어 추출
             const recentCommand = this.extractRecentCommand(recentLogs);
             if (!recentCommand) {
                 console.log('[TerminalMonitorService] 최근 명령어를 찾을 수 없음');
+                this.sendProcessingStatus('error_correction', '최근 명령어를 찾을 수 없어 자동 수정을 건너뜁니다.');
                 return;
             }
+
+            this.sendProcessingStatus('error_correction', `실패한 명령어 분석 중: ${recentCommand}`);
 
             // 중복 수정 시도 방지 (명령어별로 개별 관리)
             const commandKey = `${terminalName}:${recentCommand}`;
@@ -687,13 +714,17 @@ export class TerminalMonitorService {
 
             this.errorRetryCount++;
             console.log(`[TerminalMonitorService] 오류 수정 시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES}`);
+            this.sendProcessingStatus('error_correction', `LLM에게 오류 수정 요청 중... (시도 ${this.errorRetryCount}/${this.MAX_ERROR_RETRIES})`);
 
             // LLM에게 오류 수정 요청
             const correctedCommand = await this.getCorrectedCommandFromLlm(recentCommand, errorMessage, terminalName);
             if (!correctedCommand) {
                 console.log('[TerminalMonitorService] LLM에서 수정된 명령어를 받지 못함');
+                this.sendProcessingStatus('error_correction', 'LLM에서 수정된 명령어를 받지 못했습니다.');
                 return;
             }
+
+            this.sendProcessingStatus('error_correction', `수정된 명령어 생성됨: ${correctedCommand}`);
 
             // 수정된 명령어 저장 (재시도 횟수 업데이트)
             const existingContext = this.recentCommands.get(commandKey);
@@ -709,10 +740,13 @@ export class TerminalMonitorService {
             });
 
             // 수정된 명령어 실행
+            this.sendProcessingStatus('error_correction', `수정된 명령어 실행 중: ${correctedCommand}`);
             await this.executeCorrectedCommand(terminalName, correctedCommand);
+            this.sendProcessingStatus('error_correction', '자동 오류 수정 완료');
 
         } catch (error) {
             console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
+            this.sendProcessingStatus('error_correction', `자동 오류 수정 실패: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

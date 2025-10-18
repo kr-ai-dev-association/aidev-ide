@@ -118,7 +118,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const initialOllamaUrl = await storageService.getOllamaApiUrl();
     const initialOllamaEndpoint = await storageService.getOllamaEndpoint();
     const initialOllamaModel = await storageService.getOllamaModel();
-    ollamaApi = new OllamaApi(initialOllamaUrl || 'http://localhost:11434', initialOllamaEndpoint);
+    ollamaApi = new OllamaApi(initialOllamaUrl || 'http://localhost:11434', initialOllamaEndpoint, storageService);
     ollamaApi.setModel(initialOllamaModel);
 
     // AI 관련 서비스 초기화

@@ -643,6 +643,109 @@ export function openSettingsPanel(
                         }
                     }
                     break;
+                // === 새로운 Ollama 서버 타입 및 원격/로컬 설정 핸들러들 ===
+                case 'saveOllamaServerType':
+                    const serverTypeToSave = data.serverType;
+                    if (serverTypeToSave && typeof serverTypeToSave === 'string') {
+                        try {
+                            await storageService.saveOllamaServerType(serverTypeToSave);
+                            panel.webview.postMessage({ command: 'ollamaServerTypeSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Server type saved.');
+                        } catch (error: any) {
+                            console.error('Error saving Ollama server type:', error);
+                            panel.webview.postMessage({ command: 'ollamaServerTypeError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving server type: ${error.message}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({ command: 'ollamaServerTypeError', error: 'Server type empty.' });
+                        notificationService.showErrorMessage('Server type is empty.');
+                    }
+                    break;
+                case 'saveLocalOllamaApiUrl':
+                    const localApiUrlToSave = data.apiUrl;
+                    if (localApiUrlToSave && typeof localApiUrlToSave === 'string') {
+                        try {
+                            await storageService.saveLocalOllamaApiUrl(localApiUrlToSave);
+                            panel.webview.postMessage({ command: 'localOllamaApiUrlSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Local Ollama API URL saved.');
+                        } catch (error: any) {
+                            console.error('Error saving local Ollama API URL:', error);
+                            panel.webview.postMessage({ command: 'localOllamaApiUrlError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving local API URL: ${error.message}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({ command: 'localOllamaApiUrlError', error: 'API URL empty.' });
+                        notificationService.showErrorMessage('Local API URL is empty.');
+                    }
+                    break;
+                case 'saveLocalOllamaEndpoint':
+                    const localEndpointToSave = data.endpoint;
+                    if (localEndpointToSave && typeof localEndpointToSave === 'string') {
+                        try {
+                            await storageService.saveLocalOllamaEndpoint(localEndpointToSave);
+                            panel.webview.postMessage({ command: 'localOllamaEndpointSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Local Ollama endpoint saved.');
+                        } catch (error: any) {
+                            console.error('Error saving local Ollama endpoint:', error);
+                            panel.webview.postMessage({ command: 'localOllamaEndpointError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving local endpoint: ${error.message}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({ command: 'localOllamaEndpointError', error: 'Endpoint empty.' });
+                        notificationService.showErrorMessage('Local endpoint is empty.');
+                    }
+                    break;
+                case 'saveRemoteOllamaApiUrl':
+                    const remoteApiUrlToSave = data.apiUrl;
+                    if (remoteApiUrlToSave && typeof remoteApiUrlToSave === 'string') {
+                        try {
+                            await storageService.saveRemoteOllamaApiUrl(remoteApiUrlToSave);
+                            panel.webview.postMessage({ command: 'remoteOllamaApiUrlSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama API URL saved.');
+                        } catch (error: any) {
+                            console.error('Error saving remote Ollama API URL:', error);
+                            panel.webview.postMessage({ command: 'remoteOllamaApiUrlError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving remote API URL: ${error.message}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({ command: 'remoteOllamaApiUrlError', error: 'API URL empty.' });
+                        notificationService.showErrorMessage('Remote API URL is empty.');
+                    }
+                    break;
+                case 'saveRemoteOllamaEndpoint':
+                    const remoteEndpointToSave = data.endpoint;
+                    if (remoteEndpointToSave && typeof remoteEndpointToSave === 'string') {
+                        try {
+                            await storageService.saveRemoteOllamaEndpoint(remoteEndpointToSave);
+                            panel.webview.postMessage({ command: 'remoteOllamaEndpointSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama endpoint saved.');
+                        } catch (error: any) {
+                            console.error('Error saving remote Ollama endpoint:', error);
+                            panel.webview.postMessage({ command: 'remoteOllamaEndpointError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving remote endpoint: ${error.message}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({ command: 'remoteOllamaEndpointError', error: 'Endpoint empty.' });
+                        notificationService.showErrorMessage('Remote endpoint is empty.');
+                    }
+                    break;
+                case 'saveRemoteOllamaModel':
+                    const remoteModelToSave = data.model;
+                    if (remoteModelToSave && typeof remoteModelToSave === 'string') {
+                        try {
+                            await storageService.saveRemoteOllamaModel(remoteModelToSave);
+                            panel.webview.postMessage({ command: 'remoteOllamaModelSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama model saved.');
+                        } catch (error: any) {
+                            console.error('Error saving remote Ollama model:', error);
+                            panel.webview.postMessage({ command: 'remoteOllamaModelError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving remote model: ${error.message}`);
+                        }
+                    } else {
+                        panel.webview.postMessage({ command: 'remoteOllamaModelError', error: 'Model empty.' });
+                        notificationService.showErrorMessage('Remote model is empty.');
+                    }
+                    break;
             }
         }
     );

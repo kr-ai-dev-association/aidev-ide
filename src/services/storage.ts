@@ -9,6 +9,12 @@ const OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.ollamaEndpoint';
 const OLLAMA_MODEL_SECRET_KEY = 'aidev-ide.ollamaModel';
 const CURRENT_AI_MODEL_SECRET_KEY = 'aidev-ide.currentAiModel';
 const BANYA_LICENSE_SERIAL_SECRET_KEY = 'aidev-ide.banyaLicenseSerial';
+const OLLAMA_SERVER_TYPE_SECRET_KEY = 'aidev-ide.ollamaServerType';
+const LOCAL_OLLAMA_API_URL_SECRET_KEY = 'aidev-ide.localOllamaApiUrl';
+const LOCAL_OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.localOllamaEndpoint';
+const REMOTE_OLLAMA_API_URL_SECRET_KEY = 'aidev-ide.remoteOllamaApiUrl';
+const REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.remoteOllamaEndpoint';
+const REMOTE_OLLAMA_MODEL_SECRET_KEY = 'aidev-ide.remoteOllamaModel';
 
 export class StorageService {
     private secretStorage: vscode.SecretStorage;
@@ -218,6 +224,116 @@ export class StorageService {
     async deleteBanyaLicenseSerial(): Promise<void> {
         await this.secretStorage.delete(BANYA_LICENSE_SERIAL_SECRET_KEY);
         console.log('Banya license serial deleted from SecretStorage.');
+    }
+
+    // === 새로운 Ollama 서버 타입 및 로컬/원격 설정 메서드들 ===
+
+    /**
+     * Ollama 서버 타입을 VS Code SecretStorage에 안전하게 저장합니다.
+     * @param serverType 저장할 서버 타입 ('local' 또는 'remote')
+     */
+    async saveOllamaServerType(serverType: string): Promise<void> {
+        await this.secretStorage.store(OLLAMA_SERVER_TYPE_SECRET_KEY, serverType);
+        console.log('Ollama server type saved to SecretStorage:', serverType);
+    }
+
+    /**
+     * SecretStorage에서 저장된 Ollama 서버 타입을 불러옵니다.
+     * @returns 저장된 서버 타입 또는 없을 경우 기본값 'local'
+     */
+    async getOllamaServerType(): Promise<string> {
+        const serverType = await this.secretStorage.get(OLLAMA_SERVER_TYPE_SECRET_KEY);
+        return serverType || 'local';
+    }
+
+    /**
+     * 로컬 Ollama API URL을 VS Code SecretStorage에 안전하게 저장합니다.
+     * @param apiUrl 저장할 로컬 Ollama API URL
+     */
+    async saveLocalOllamaApiUrl(apiUrl: string): Promise<void> {
+        await this.secretStorage.store(LOCAL_OLLAMA_API_URL_SECRET_KEY, apiUrl);
+        console.log('Local Ollama API URL saved to SecretStorage.');
+    }
+
+    /**
+     * SecretStorage에서 저장된 로컬 Ollama API URL을 불러옵니다.
+     * @returns 저장된 로컬 Ollama API URL 또는 없을 경우 기본값 'http://localhost:11434'
+     */
+    async getLocalOllamaApiUrl(): Promise<string> {
+        const apiUrl = await this.secretStorage.get(LOCAL_OLLAMA_API_URL_SECRET_KEY);
+        return apiUrl || 'http://localhost:11434';
+    }
+
+    /**
+     * 로컬 Ollama API 엔드포인트를 VS Code SecretStorage에 안전하게 저장합니다.
+     * @param endpoint 저장할 로컬 Ollama API 엔드포인트
+     */
+    async saveLocalOllamaEndpoint(endpoint: string): Promise<void> {
+        await this.secretStorage.store(LOCAL_OLLAMA_ENDPOINT_SECRET_KEY, endpoint);
+        console.log('Local Ollama API endpoint saved to SecretStorage.');
+    }
+
+    /**
+     * SecretStorage에서 저장된 로컬 Ollama API 엔드포인트를 불러옵니다.
+     * @returns 저장된 로컬 Ollama API 엔드포인트 또는 없을 경우 기본값 '/api/generate'
+     */
+    async getLocalOllamaEndpoint(): Promise<string> {
+        const endpoint = await this.secretStorage.get(LOCAL_OLLAMA_ENDPOINT_SECRET_KEY);
+        return endpoint || '/api/generate';
+    }
+
+    /**
+     * 원격 서버 Ollama API URL을 VS Code SecretStorage에 안전하게 저장합니다.
+     * @param apiUrl 저장할 원격 서버 Ollama API URL
+     */
+    async saveRemoteOllamaApiUrl(apiUrl: string): Promise<void> {
+        await this.secretStorage.store(REMOTE_OLLAMA_API_URL_SECRET_KEY, apiUrl);
+        console.log('Remote Ollama API URL saved to SecretStorage.');
+    }
+
+    /**
+     * SecretStorage에서 저장된 원격 서버 Ollama API URL을 불러옵니다.
+     * @returns 저장된 원격 서버 Ollama API URL 또는 없을 경우 null
+     */
+    async getRemoteOllamaApiUrl(): Promise<string | null> {
+        const apiUrl = await this.secretStorage.get(REMOTE_OLLAMA_API_URL_SECRET_KEY);
+        return apiUrl || null;
+    }
+
+    /**
+     * 원격 서버 Ollama API 엔드포인트를 VS Code SecretStorage에 안전하게 저장합니다.
+     * @param endpoint 저장할 원격 서버 Ollama API 엔드포인트
+     */
+    async saveRemoteOllamaEndpoint(endpoint: string): Promise<void> {
+        await this.secretStorage.store(REMOTE_OLLAMA_ENDPOINT_SECRET_KEY, endpoint);
+        console.log('Remote Ollama API endpoint saved to SecretStorage.');
+    }
+
+    /**
+     * SecretStorage에서 저장된 원격 서버 Ollama API 엔드포인트를 불러옵니다.
+     * @returns 저장된 원격 서버 Ollama API 엔드포인트 또는 없을 경우 기본값 '/api/generate'
+     */
+    async getRemoteOllamaEndpoint(): Promise<string> {
+        const endpoint = await this.secretStorage.get(REMOTE_OLLAMA_ENDPOINT_SECRET_KEY);
+        return endpoint || '/api/generate';
+    }
+
+    /**
+     * 원격 서버 Ollama 모델명을 VS Code SecretStorage에 안전하게 저장합니다.
+     * @param model 저장할 원격 서버 Ollama 모델명
+     */
+    async saveRemoteOllamaModel(model: string): Promise<void> {
+        await this.secretStorage.store(REMOTE_OLLAMA_MODEL_SECRET_KEY, model);
+        console.log('Remote Ollama model saved to SecretStorage.');
+    }
+
+    /**
+     * SecretStorage에서 저장된 원격 서버 Ollama 모델명을 불러옵니다.
+     * @returns 저장된 원격 서버 Ollama 모델명 또는 없을 경우 null
+     */
+    async getRemoteOllamaModel(): Promise<string | null> {
+        const model = await this.secretStorage.get(REMOTE_OLLAMA_MODEL_SECRET_KEY);
+        return model || null;
     }
 }
 

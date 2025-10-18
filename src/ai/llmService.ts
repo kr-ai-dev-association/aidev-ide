@@ -136,8 +136,20 @@ export class LlmService {
         }
     }
 
-    public setChatWebview(webview: vscode.Webview | undefined): void { this.chatWebview = webview; }
-    public setAskWebview(webview: vscode.Webview | undefined): void { this.askWebview = webview; }
+    public setChatWebview(webview: vscode.Webview | undefined): void { 
+        this.chatWebview = webview; 
+        // 터미널 모니터링 서비스에도 웹뷰 설정
+        if (webview) {
+            this.terminalMonitorService.setWebview(webview);
+        }
+    }
+    public setAskWebview(webview: vscode.Webview | undefined): void { 
+        this.askWebview = webview; 
+        // 터미널 모니터링 서비스에도 웹뷰 설정
+        if (webview) {
+            this.terminalMonitorService.setWebview(webview);
+        }
+    }
     public getTerminalMonitorService(): TerminalMonitorService { return this.terminalMonitorService; }
 
     public setCurrentModel(modelType: AiModelType): void {
