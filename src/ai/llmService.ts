@@ -312,6 +312,19 @@ export class LlmService {
             // 실시간 정보 요청 처리
             const realTimeInfo = await this.processRealTimeInfoRequest(userQuery);
 
+            // 터미널 관련 의도인 경우 터미널 로그를 context에 추가
+            let terminalLogsContext = '';
+            if (intentResult && intentResult.category === 'terminal' && intentResult.subtype === 'terminal_error_fix') {
+                console.log('[LlmService] 터미널 오류 수정 의도 감지, 터미널 로그 수집 중...');
+                const terminalLogs = this.terminalMonitorService.getTerminalLogsAsText(30); // 최근 30개 로그
+                if (terminalLogs.trim()) {
+                    terminalLogsContext = `--- 최근 터미널 로그 ---\n${terminalLogs}\n\n`;
+                    console.log(`[LlmService] 터미널 로그 ${terminalLogs.split('\n').length}개를 context에 추가`);
+                } else {
+                    console.log('[LlmService] 터미널 로그가 없음');
+                }
+            }
+
             // 코드베이스 컨텍스트 수집
             let fileContentsContext = '';
             let includedFilesForContext: { name: string, fullPath: string }[] = [];
@@ -402,10 +415,16 @@ export class LlmService {
                 console.log(`[LlmService] Analyzing ${includedFilesForContext.length} automatically found files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
             }
 
-            // 선택된 파일 컨텍스트를 기존 컨텍스트에 추가
-            const fullFileContentsContext = selectedFilesContext
-                ? `${fileContentsContext}\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`
-                : fileContentsContext;
+            // 선택된 파일 컨텍스트와 터미널 로그를 기존 컨텍스트에 추가
+            let fullFileContentsContext = fileContentsContext;
+
+            if (selectedFilesContext) {
+                fullFileContentsContext += `\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`;
+            }
+
+            if (terminalLogsContext) {
+                fullFileContentsContext += `\n${terminalLogsContext}`;
+            }
 
 
 

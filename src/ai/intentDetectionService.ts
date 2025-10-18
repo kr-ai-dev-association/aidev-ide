@@ -1,6 +1,6 @@
 import { OllamaApi } from './ollamaService';
 
-export type IntentCategory = 'code' | 'execution' | 'analysis' | 'documentation';
+export type IntentCategory = 'code' | 'execution' | 'analysis' | 'documentation' | 'terminal';
 
 export type IntentSubtype =
     | 'code_generate'
@@ -11,7 +11,8 @@ export type IntentSubtype =
     | 'analysis_structure'
     | 'analysis_technology'
     | 'analysis_function'
-    | 'documentation_general';
+    | 'documentation_general'
+    | 'terminal_error_fix';
 
 export interface IntentDetectionResult {
     category: IntentCategory;
@@ -32,7 +33,8 @@ export class IntentDetectionService {
         analysis_structure: ['구조', '구성', 'architecture', 'structure', '다이어그램', '트리', '파일 구성'],
         analysis_technology: ['기술', '언어', '프레임워크', '기술스택', 'stack', 'framework', 'library', '알고리즘'],
         analysis_function: ['기능', '동작', '설명', '사용자', 'feature', 'behavior', 'flow', 'use case'],
-        documentation_general: ['문서', 'documentation', 'README', '설명서', 'guide', 'manual', '정리해줘', '문서화']
+        documentation_general: ['문서', 'documentation', 'README', '설명서', 'guide', 'manual', '정리해줘', '문서화'],
+        terminal_error_fix: ['오류', '에러', 'error', '실패', 'fail', '문제', 'issue', '해결', 'fix', '수정', '고쳐', '터미널', 'terminal', '로그', 'log', '포트', 'port', 'kill', '죽여', '종료', 'stop']
     };
 
     private subtypeToCategory: Record<IntentSubtype, IntentCategory> = {
@@ -44,7 +46,8 @@ export class IntentDetectionService {
         analysis_structure: 'analysis',
         analysis_technology: 'analysis',
         analysis_function: 'analysis',
-        documentation_general: 'documentation'
+        documentation_general: 'documentation',
+        terminal_error_fix: 'terminal'
     };
 
     constructor(private ollamaApi: OllamaApi) { }
@@ -124,7 +127,7 @@ export class IntentDetectionService {
     }
 
     private async queryLLMForIntent(userQuery: string): Promise<{ subtype: IntentSubtype; confidence: number; reasoning: string } | null> {
-        const prompt = `다음 사용자 요청을 네 가지 의도 카테고리와 세부 유형으로 분류하세요.
+        const prompt = `다음 사용자 요청을 다섯 가지 의도 카테고리와 세부 유형으로 분류하세요.
 
 카테고리 및 세부 유형 목록:
 1. 코드
@@ -140,6 +143,8 @@ export class IntentDetectionService {
   - analysis_function: 기능 분석 (사용자 관점, 동작 설명)
 4. 문서 작성
   - documentation_general: 문서/가이드 작성
+5. 터미널 오류 수정
+  - terminal_error_fix: 터미널 오류, 로그 문제, 포트 충돌 등 해결
 
 출력 형식 (JSON):
 {

@@ -1300,7 +1300,9 @@
                             s.step === data.step ? { ...s, status: data.status } : s
                         ));
                     } else if (data.command === 'hideLoading') {
+                        console.log('[ProcessingSteps] hideLoading received, hiding processing steps');
                         setIsVisible(false);
+                        setProcessingStepsVisible(false);
                     }
                 };
 
@@ -1435,8 +1437,14 @@
                         console.log('[ReactApp] updateProcessingStatus received, ensuring processing steps visible');
                         setProcessingStepsVisible(true);
                     } else if (data.command === 'hideLoading') {
-                        console.log('[ReactApp] hideLoading received, but keeping processing steps visible for debugging');
-                        // setProcessingStepsVisible(false); // 주석 처리하여 항상 표시
+                        console.log('[ReactApp] hideLoading received, hiding processing steps');
+                        setProcessingStepsVisible(false);
+                    } else if (data.command === 'showErrorCorrection') {
+                        // 오류 수정 정보를 ProcessingSteps에 표시
+                        const errorCorrectionStatus = `🔧 오류 수정 시도 ${data.retryCount}/3: ${data.originalCommand} → ${data.correctedCommand}`;
+                        setSteps(prev => prev.map(s =>
+                            s.step === 'error_correction' ? { ...s, status: errorCorrectionStatus } : s
+                        ));
                     }
                 };
 

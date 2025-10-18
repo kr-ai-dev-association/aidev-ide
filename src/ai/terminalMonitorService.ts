@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { NotificationService } from '../services/notificationService';
 import { LlmService } from './llmService';
 
@@ -52,7 +54,7 @@ export class TerminalMonitorService {
     private recentErrors: TerminalErrorEvent[] = [];
     private maxRecentErrors: number = 10;
     private errorRetryCount = 0;
-    private readonly MAX_ERROR_RETRIES = 3;
+    private readonly MAX_ERROR_RETRIES = 5;
     private recentCommands: Map<string, CommandErrorContext> = new Map();
     private autoCorrectionEnabled = true;
     private currentWebview: vscode.Webview | undefined = undefined;
@@ -69,6 +71,30 @@ export class TerminalMonitorService {
     public setLlmService(llmService: LlmService): void {
         this.llmService = llmService;
         // console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
+    }
+
+    /**
+     * 최근 터미널 로그를 가져옵니다.
+     * @param maxEntries 최대 로그 엔트리 수 (기본값: 50)
+     * @returns 최근 터미널 로그 배열
+     */
+    public getRecentTerminalLogs(maxEntries: number = 50): LogEntry[] {
+        return this.logEntries
+            .slice(-maxEntries)
+            .filter(entry => entry.source === 'terminal')
+            .sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    /**
+     * 터미널 로그를 텍스트 형태로 가져옵니다.
+     * @param maxEntries 최대 로그 엔트리 수 (기본값: 50)
+     * @returns 터미널 로그 텍스트
+     */
+    public getTerminalLogsAsText(maxEntries: number = 50): string {
+        const recentLogs = this.getRecentTerminalLogs(maxEntries);
+        return recentLogs
+            .map(log => `[${new Date(log.timestamp).toISOString()}] ${log.level.toUpperCase()}: ${log.message}`)
+            .join('\n');
     }
 
     /**
@@ -508,6 +534,20 @@ export class TerminalMonitorService {
         let hasErrors = false;
         const foundErrors: { pattern: string; severity: string; description: string }[] = [];
 
+        // pom.xml 관련 오류 감지
+        if (this.isPomXmlError(output)) {
+            hasErrors = true;
+            foundErrors.push({
+                pattern: 'pom.xml-error',
+                severity: 'high',
+                description: 'Maven POM 파일 오류 감지'
+            });
+            console.log(`[TerminalMonitorService] POM.xml 오류 감지: ${output.substring(0, 100)}...`);
+
+            // pom.xml 자동 교체 시도
+            this.handlePomXmlError();
+        }
+
         for (const errorPattern of this.errorPatterns) {
             if (errorPattern.regex && errorPattern.regex.test(output)) {
                 hasErrors = true;
@@ -526,6 +566,159 @@ export class TerminalMonitorService {
         }
 
         return hasErrors;
+    }
+
+    /**
+     * pom.xml 관련 오류인지 확인합니다.
+     * @param output 출력 텍스트
+     * @returns pom.xml 오류 여부
+     */
+    private isPomXmlError(output: string): boolean {
+        const pomErrorPatterns = [
+            /Non-resolvable parent POM/i,
+            /spring-boot-starter-parent.*not found/i,
+            /spring\.boot\.version.*not found/i,
+            /BUILD FAILURE.*POM/i,
+            /ProjectBuildingException/i,
+            /UnresolvableModelException/i,
+            /class file version.*Java Runtime/i,
+            /has been compiled by a more recent version/i
+        ];
+
+        return pomErrorPatterns.some(pattern => pattern.test(output));
+    }
+
+    /**
+     * pom.xml 오류 발생 시 표준 pom.xml로 자동 교체합니다.
+     */
+    private async handlePomXmlError(): Promise<void> {
+        try {
+            console.log('[TerminalMonitorService] POM.xml 오류 감지, 표준 POM.xml로 교체 시도...');
+
+            // 현재 작업 디렉토리에서 pom.xml 찾기
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                console.log('[TerminalMonitorService] 워크스페이스 폴더를 찾을 수 없습니다.');
+                return;
+            }
+
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const pomPath = path.join(workspaceRoot, 'pom.xml');
+
+            // pom.xml이 존재하는지 확인
+            if (!fs.existsSync(pomPath)) {
+                console.log('[TerminalMonitorService] pom.xml 파일을 찾을 수 없습니다.');
+                return;
+            }
+
+            // 표준 pom.xml 생성
+            const standardPomXml = this.generateStandardPomXml();
+
+            // 백업 생성
+            const backupPath = pomPath + '.backup.' + Date.now();
+            fs.copyFileSync(pomPath, backupPath);
+            console.log(`[TerminalMonitorService] 기존 pom.xml 백업: ${backupPath}`);
+
+            // 표준 pom.xml로 교체
+            fs.writeFileSync(pomPath, standardPomXml, 'utf8');
+            console.log('[TerminalMonitorService] 표준 pom.xml로 교체 완료');
+
+            // 웹뷰에 알림 전송
+            if (this.currentWebview) {
+                this.currentWebview.postMessage({
+                    command: 'showErrorCorrectionSuccess',
+                    message: '✅ POM.xml 오류 감지 및 자동 교체 완료',
+                    correctedCommand: '표준 Spring Boot 3.4.0 POM.xml로 교체됨'
+                });
+            }
+
+        } catch (error) {
+            console.error('[TerminalMonitorService] POM.xml 교체 실패:', error);
+            if (this.currentWebview) {
+                this.currentWebview.postMessage({
+                    command: 'showErrorCorrectionFailure',
+                    message: '❌ POM.xml 자동 교체 실패: ' + error
+                });
+            }
+        }
+    }
+
+    /**
+     * 표준 Spring Boot 3.4.0 pom.xml을 생성합니다.
+     */
+    private generateStandardPomXml(): string {
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>demo</name>
+    <description>Demo Spring Boot project</description>
+    <packaging>jar</packaging>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring.boot.version>3.4.0</spring.boot.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <dependencies>
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+
+            <!-- Spring Boot Maven Plugin -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>`;
     }
 
     /**
@@ -1135,6 +1328,87 @@ ${specificGuidance}
 3. 명령어 실행 순서나 의존성 문제가 있는지 확인하세요.
 4. 한글로 설명을 제공하세요.
 5. 실행 가능한 명령어나 코드 수정 사항을 포함하세요.
+
+특별 가이드 - 포트 사용 오류 해결:
+포트 사용 오류("Port was already in use")가 발생할 경우, 현재 프로젝트 타입에 따라 적절한 포트 해제 방법을 제시하세요:
+
+**프로젝트 타입별 포트 해제 가이드:**
+
+**Java/Spring Boot 프로젝트:**
+- 기본 포트: 8080
+- 해제 명령: 
+  1. lsof -i:8080
+  2. lsof -ti:8080 | xargs kill -9
+  3. sleep 2 && lsof -i:8080
+  4. pkill -f "spring-boot" && pkill -f "java.*8080"
+  5. lsof -i:8080 || echo "포트 해제 완료"
+
+**Spring Boot 강력한 포트 해제 방법 (백그라운드 프로세스 지속 생성 시):**
+- 백그라운드에서 계속 새로운 프로세스가 생성되는 경우:
+  **⚠️ 중요: 포트 해제 명령은 새로운 터미널에서 실행해야 합니다!**
+  
+  **새 터미널에서 실행할 명령:**
+  1. **새 터미널 열기** (현재 터미널이 아닌 새로운 터미널)
+  2. lsof -i:8080
+  3. lsof -ti:8080 | xargs kill -9
+  4. sleep 2 && lsof -i:8080
+  5. **강력한 방법**: pkill -f "spring-boot" && pkill -f "java.*8080" && pkill -f "mvn.*spring-boot:run"
+  6. **추가 강력한 방법**: ps aux | grep -E "(spring-boot|java.*8080)" | grep -v grep | awk '{print $2}' | xargs kill -9
+  7. **최종 확인**: lsof -i:8080 || echo "포트 해제 완료"
+  8. **원래 터미널로 돌아가서**: sleep 3 && mvn spring-boot:run
+
+**JavaScript/TypeScript/React/Vue/Node.js 프로젝트:**
+- 기본 포트: 3000, 5173 (Vite), 8080 (Vue)
+- 해제 명령:
+  1. lsof -i:3000 (또는 해당 포트)
+  2. lsof -ti:3000 | xargs kill -9
+  3. sleep 2 && lsof -i:3000
+  4. pkill -f "node.*3000" && pkill -f "npm.*start" && pkill -f "vite"
+  5. lsof -i:3000 || echo "포트 해제 완료"
+
+**Python/Django/Flask/FastAPI 프로젝트:**
+- 기본 포트: 8000 (Django/FastAPI), 5000 (Flask)
+- 해제 명령:
+  1. lsof -i:8000 (또는 5000)
+  2. lsof -ti:8000 | xargs kill -9
+  3. sleep 2 && lsof -i:8000
+  4. pkill -f "python.*8000" && pkill -f "django.*runserver" && pkill -f "flask"
+  5. lsof -i:8000 || echo "포트 해제 완료"
+
+**PHP/Laravel 프로젝트:**
+- 기본 포트: 8000
+- 해제 명령:
+  1. lsof -i:8000
+  2. lsof -ti:8000 | xargs kill -9
+  3. sleep 2 && lsof -i:8000
+  4. pkill -f "php.*8000" && pkill -f "artisan.*serve"
+  5. lsof -i:8000 || echo "포트 해제 완료"
+
+**Ruby/Rails 프로젝트:**
+- 기본 포트: 3000
+- 해제 명령:
+  1. lsof -i:3000
+  2. lsof -ti:3000 | xargs kill -9
+  3. sleep 2 && lsof -i:3000
+  4. pkill -f "rails.*server" && pkill -f "ruby.*3000"
+  5. lsof -i:3000 || echo "포트 해제 완료"
+
+**일반적인 포트 해제 단계:**
+**⚠️ 중요: 포트 해제 명령은 새로운 터미널에서 실행해야 합니다!**
+
+1. **새 터미널 열기** (현재 실행 중인 터미널이 아닌 새로운 터미널)
+2. **포트 사용 프로세스 확인**: lsof -i:[포트번호]
+3. **강제 종료**: lsof -ti:[포트번호] | xargs kill -9
+4. **2초 대기 후 재확인**: sleep 2 && lsof -i:[포트번호]
+5. **프레임워크별 pkill 사용**: 위의 프로젝트 타입별 명령 참조
+6. **최종 확인**: lsof -i:[포트번호] || echo "포트 해제 완료"
+7. **원래 터미널로 돌아가서 애플리케이션 재실행**
+
+**백그라운드 프로세스 주의사항:**
+- 웹 애플리케이션은 백그라운드에서 계속 실행될 수 있음
+- 단순한 kill 명령보다는 pkill -f "[프레임워크명]" 명령 사용 권장
+- 여러 포트를 동시에 사용하는 경우 모든 관련 포트 확인 필요
+- **포트 해제 명령은 반드시 새로운 터미널에서 실행** (현재 실행 중인 터미널에서는 제대로 작동하지 않음)
 
 오류 분석 결과를 다음 형식으로 제공해주세요:
 ## 🔍 오류 분석 결과

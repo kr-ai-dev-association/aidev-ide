@@ -22,7 +22,7 @@ const FILE_OP_PREFIX = '__AIDEV_FILE_OP__::';
 // 오류 수정 시스템 관련 변수들
 let _llmService: LlmService | undefined = undefined;
 let _errorRetryCount = 0;
-const MAX_ERROR_RETRIES = 3;
+const MAX_ERROR_RETRIES = 5;
 let _currentWebview: vscode.Webview | undefined = undefined;
 let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
 let _summarySent = false; // 종합 설명 출력 플래그
@@ -57,21 +57,29 @@ export function getAidevIdeTerminal(): vscode.Terminal {
     // 기존 동일 이름 터미널 재사용 및 중복 정리
     const existing = vscode.window.terminals.filter(t => t.name === 'aidev-ide Terminal');
     if (existing.length > 0) {
+        console.log(`[TerminalManager] 기존 터미널 재사용: ${existing.length}개 발견, 첫 번째 터미널 사용`);
         _codePilotTerminal = existing[0];
         // 나머지 중복 터미널 정리
         for (let i = 1; i < existing.length; i++) {
-            try { existing[i].dispose(); } catch { }
+            try {
+                console.log(`[TerminalManager] 중복 터미널 정리: ${existing[i].name} dispose`);
+                existing[i].dispose();
+            } catch { }
         }
     }
 
     if (!_codePilotTerminal || _codePilotTerminal.exitStatus !== undefined) {
+        console.log(`[TerminalManager] 새로운 터미널 생성: aidev-ide Terminal`);
         _codePilotTerminal = vscode.window.createTerminal({ name: "aidev-ide Terminal" });
         const disposable = vscode.window.onDidCloseTerminal(event => {
             if (event === _codePilotTerminal) {
+                console.log(`[TerminalManager] 터미널 종료 감지: aidev-ide Terminal`);
                 _codePilotTerminal = undefined;
                 disposable.dispose();
             }
         });
+    } else {
+        console.log(`[TerminalManager] 기존 터미널 사용: aidev-ide Terminal (exitStatus: ${_codePilotTerminal.exitStatus})`);
     }
     return _codePilotTerminal;
 }
@@ -883,10 +891,28 @@ export async function handleCommandError(
     if (_errorRetryCount >= MAX_ERROR_RETRIES) {
         console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
 
+        // 최대 재시도 횟수 초과 시 실패 메시지 전송
+        if (_currentWebview) {
+            const failureMessage = `❌ 오류 수정 실패: 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과. 수동 확인이 필요합니다.`;
+            _currentWebview.postMessage({
+                command: 'showErrorCorrectionFailure',
+                message: failureMessage,
+                retryCount: _errorRetryCount
+            });
+        }
+
         // 최대 재시도 횟수 초과 시에만 종합 설명 출력
         setTimeout(async () => {
             await sendErrorCorrectionSummary();
         }, 2000); // 2초 후 종합 설명 출력
+
+        // ProcessingSteps 숨김
+        if (_currentWebview) {
+            console.log('[TerminalManager] hideLoading 메시지 전송 (최대 재시도 초과)');
+            _currentWebview.postMessage({ command: 'hideLoading' });
+        } else {
+            console.log('[TerminalManager] _currentWebview가 설정되지 않음');
+        }
 
         _errorRetryCount = 0;
         return false;
@@ -911,13 +937,39 @@ export async function handleCommandError(
             });
         }
 
+        // 오류 수정 성공 시 ProcessingSteps에 성공 메시지 표시
+        if (_currentWebview) {
+            const successMessage = `✅ 오류 수정 성공: ${correctedCommand} 명령어로 정상 실행됨`;
+            console.log('[TerminalManager] showErrorCorrectionSuccess 메시지 전송:', successMessage);
+            _currentWebview.postMessage({
+                command: 'showErrorCorrectionSuccess',
+                message: successMessage,
+                correctedCommand: correctedCommand
+            });
+        } else {
+            console.log('[TerminalManager] _currentWebview가 설정되지 않음 (성공 메시지)');
+        }
+
         // 수정된 명령어로 재시도
-        await onRetry(correctedCommand);
+        try {
+            await onRetry(correctedCommand);
+            console.log('[TerminalManager] 수정된 명령어 재시도 완료');
+        } catch (error) {
+            console.error('[TerminalManager] 수정된 명령어 재시도 실패:', error);
+        }
 
         // 오류 수정 성공 시 종합 설명 출력
         setTimeout(async () => {
             await sendErrorCorrectionSummary();
         }, 2000); // 2초 후 종합 설명 출력
+
+        // ProcessingSteps 숨김
+        if (_currentWebview) {
+            console.log('[TerminalManager] hideLoading 메시지 전송 (오류 수정 성공)');
+            _currentWebview.postMessage({ command: 'hideLoading' });
+        } else {
+            console.log('[TerminalManager] _currentWebview가 설정되지 않음');
+        }
 
         return true;
     } else {
@@ -987,10 +1039,8 @@ async function sendErrorCorrectionSummary(): Promise<void> {
 *이 보고서는 aidev-ide의 자동 오류 수정 시스템에 의해 생성되었습니다.*`;
 
         _currentWebview.postMessage({
-            command: 'receiveMessage',
-            sender: 'AIDEV-IDE',
-            text: summary,
-            timestamp: new Date().toISOString()
+            command: 'showErrorCorrectionSummary',
+            summary: summary,
         });
 
         _summarySent = true; // 플래그 설정

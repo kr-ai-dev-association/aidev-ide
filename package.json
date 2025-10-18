@@ -231,7 +231,8 @@
     "@tensorflow/tfjs-node": "^4.22.0",
     "evaluate": "^1.0.2",
     "firebase": "^10.7.0",
-    "korean-text-analytics": "^0.0.7"
+    "korean-text-analytics": "^0.0.7",
+    "markdown-it-container": "^4.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.27.3",

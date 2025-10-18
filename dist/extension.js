@@ -15217,7 +15217,7 @@ const FILE_OP_PREFIX = '__AIDEV_FILE_OP__::';
 // 오류 수정 시스템 관련 변수들
 let _llmService = undefined;
 let _errorRetryCount = 0;
-const MAX_ERROR_RETRIES = 3;
+const MAX_ERROR_RETRIES = 5;
 let _currentWebview = undefined;
 let _terminalMonitorService = undefined;
 let _summarySent = false; // 종합 설명 출력 플래그
@@ -15248,23 +15248,30 @@ function getAidevIdeTerminal() {
     // 기존 동일 이름 터미널 재사용 및 중복 정리
     const existing = vscode.window.terminals.filter(t => t.name === 'aidev-ide Terminal');
     if (existing.length > 0) {
+        console.log(`[TerminalManager] 기존 터미널 재사용: ${existing.length}개 발견, 첫 번째 터미널 사용`);
         _codePilotTerminal = existing[0];
         // 나머지 중복 터미널 정리
         for (let i = 1; i < existing.length; i++) {
             try {
+                console.log(`[TerminalManager] 중복 터미널 정리: ${existing[i].name} dispose`);
                 existing[i].dispose();
             }
             catch { }
         }
     }
     if (!_codePilotTerminal || _codePilotTerminal.exitStatus !== undefined) {
+        console.log(`[TerminalManager] 새로운 터미널 생성: aidev-ide Terminal`);
         _codePilotTerminal = vscode.window.createTerminal({ name: "aidev-ide Terminal" });
         const disposable = vscode.window.onDidCloseTerminal(event => {
             if (event === _codePilotTerminal) {
+                console.log(`[TerminalManager] 터미널 종료 감지: aidev-ide Terminal`);
                 _codePilotTerminal = undefined;
                 disposable.dispose();
             }
         });
+    }
+    else {
+        console.log(`[TerminalManager] 기존 터미널 사용: aidev-ide Terminal (exitStatus: ${_codePilotTerminal.exitStatus})`);
     }
     return _codePilotTerminal;
 }
@@ -16015,10 +16022,27 @@ ${errorOutput}
 async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
     if (_errorRetryCount >= MAX_ERROR_RETRIES) {
         console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
+        // 최대 재시도 횟수 초과 시 실패 메시지 전송
+        if (_currentWebview) {
+            const failureMessage = `❌ 오류 수정 실패: 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과. 수동 확인이 필요합니다.`;
+            _currentWebview.postMessage({
+                command: 'showErrorCorrectionFailure',
+                message: failureMessage,
+                retryCount: _errorRetryCount
+            });
+        }
         // 최대 재시도 횟수 초과 시에만 종합 설명 출력
         setTimeout(async () => {
             await sendErrorCorrectionSummary();
         }, 2000); // 2초 후 종합 설명 출력
+        // ProcessingSteps 숨김
+        if (_currentWebview) {
+            console.log('[TerminalManager] hideLoading 메시지 전송 (최대 재시도 초과)');
+            _currentWebview.postMessage({ command: 'hideLoading' });
+        }
+        else {
+            console.log('[TerminalManager] _currentWebview가 설정되지 않음');
+        }
         _errorRetryCount = 0;
         return false;
     }
@@ -16037,12 +16061,39 @@ async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
                 retryCount: _errorRetryCount
             });
         }
+        // 오류 수정 성공 시 ProcessingSteps에 성공 메시지 표시
+        if (_currentWebview) {
+            const successMessage = `✅ 오류 수정 성공: ${correctedCommand} 명령어로 정상 실행됨`;
+            console.log('[TerminalManager] showErrorCorrectionSuccess 메시지 전송:', successMessage);
+            _currentWebview.postMessage({
+                command: 'showErrorCorrectionSuccess',
+                message: successMessage,
+                correctedCommand: correctedCommand
+            });
+        }
+        else {
+            console.log('[TerminalManager] _currentWebview가 설정되지 않음 (성공 메시지)');
+        }
         // 수정된 명령어로 재시도
-        await onRetry(correctedCommand);
+        try {
+            await onRetry(correctedCommand);
+            console.log('[TerminalManager] 수정된 명령어 재시도 완료');
+        }
+        catch (error) {
+            console.error('[TerminalManager] 수정된 명령어 재시도 실패:', error);
+        }
         // 오류 수정 성공 시 종합 설명 출력
         setTimeout(async () => {
             await sendErrorCorrectionSummary();
         }, 2000); // 2초 후 종합 설명 출력
+        // ProcessingSteps 숨김
+        if (_currentWebview) {
+            console.log('[TerminalManager] hideLoading 메시지 전송 (오류 수정 성공)');
+            _currentWebview.postMessage({ command: 'hideLoading' });
+        }
+        else {
+            console.log('[TerminalManager] _currentWebview가 설정되지 않음');
+        }
         return true;
     }
     else {
@@ -16105,10 +16156,8 @@ async function sendErrorCorrectionSummary() {
 ---
 *이 보고서는 aidev-ide의 자동 오류 수정 시스템에 의해 생성되었습니다.*`;
         _currentWebview.postMessage({
-            command: 'receiveMessage',
-            sender: 'AIDEV-IDE',
-            text: summary,
-            timestamp: new Date().toISOString()
+            command: 'showErrorCorrectionSummary',
+            summary: summary,
         });
         _summarySent = true; // 플래그 설정
         console.log('[TerminalManager] 오류 수정 종합 설명을 채팅창에 전송했습니다.');
@@ -16500,6 +16549,19 @@ class LlmService {
             }
             // 실시간 정보 요청 처리
             const realTimeInfo = await this.processRealTimeInfoRequest(userQuery);
+            // 터미널 관련 의도인 경우 터미널 로그를 context에 추가
+            let terminalLogsContext = '';
+            if (intentResult && intentResult.category === 'terminal' && intentResult.subtype === 'terminal_error_fix') {
+                console.log('[LlmService] 터미널 오류 수정 의도 감지, 터미널 로그 수집 중...');
+                const terminalLogs = this.terminalMonitorService.getTerminalLogsAsText(30); // 최근 30개 로그
+                if (terminalLogs.trim()) {
+                    terminalLogsContext = `--- 최근 터미널 로그 ---\n${terminalLogs}\n\n`;
+                    console.log(`[LlmService] 터미널 로그 ${terminalLogs.split('\n').length}개를 context에 추가`);
+                }
+                else {
+                    console.log('[LlmService] 터미널 로그가 없음');
+                }
+            }
             // 코드베이스 컨텍스트 수집
             let fileContentsContext = '';
             let includedFilesForContext = [];
@@ -16587,10 +16649,14 @@ class LlmService {
                 // Debug Console 로그를 활용한 추가 정보
                 console.log(`[LlmService] Analyzing ${includedFilesForContext.length} automatically found files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
             }
-            // 선택된 파일 컨텍스트를 기존 컨텍스트에 추가
-            const fullFileContentsContext = selectedFilesContext
-                ? `${fileContentsContext}\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`
-                : fileContentsContext;
+            // 선택된 파일 컨텍스트와 터미널 로그를 기존 컨텍스트에 추가
+            let fullFileContentsContext = fileContentsContext;
+            if (selectedFilesContext) {
+                fullFileContentsContext += `\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`;
+            }
+            if (terminalLogsContext) {
+                fullFileContentsContext += `\n${terminalLogsContext}`;
+            }
             // 시스템 프롬프트 생성
             const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
             const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
@@ -18398,6 +18464,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.TerminalMonitorService = void 0;
 const vscode = __importStar(__webpack_require__(1));
+const fs = __importStar(__webpack_require__(25));
+const path = __importStar(__webpack_require__(10));
 class TerminalMonitorService {
     notificationService;
     logEntries = [];
@@ -18416,7 +18484,7 @@ class TerminalMonitorService {
     recentErrors = [];
     maxRecentErrors = 10;
     errorRetryCount = 0;
-    MAX_ERROR_RETRIES = 3;
+    MAX_ERROR_RETRIES = 5;
     recentCommands = new Map();
     autoCorrectionEnabled = true;
     currentWebview = undefined;
@@ -18431,6 +18499,28 @@ class TerminalMonitorService {
     setLlmService(llmService) {
         this.llmService = llmService;
         // console.log('[TerminalMonitorService] LLM 서비스 설정 완료');
+    }
+    /**
+     * 최근 터미널 로그를 가져옵니다.
+     * @param maxEntries 최대 로그 엔트리 수 (기본값: 50)
+     * @returns 최근 터미널 로그 배열
+     */
+    getRecentTerminalLogs(maxEntries = 50) {
+        return this.logEntries
+            .slice(-maxEntries)
+            .filter(entry => entry.source === 'terminal')
+            .sort((a, b) => b.timestamp - a.timestamp);
+    }
+    /**
+     * 터미널 로그를 텍스트 형태로 가져옵니다.
+     * @param maxEntries 최대 로그 엔트리 수 (기본값: 50)
+     * @returns 터미널 로그 텍스트
+     */
+    getTerminalLogsAsText(maxEntries = 50) {
+        const recentLogs = this.getRecentTerminalLogs(maxEntries);
+        return recentLogs
+            .map(log => `[${new Date(log.timestamp).toISOString()}] ${log.level.toUpperCase()}: ${log.message}`)
+            .join('\n');
     }
     /**
      * 웹뷰를 설정합니다.
@@ -18810,6 +18900,18 @@ class TerminalMonitorService {
     checkForErrors(output) {
         let hasErrors = false;
         const foundErrors = [];
+        // pom.xml 관련 오류 감지
+        if (this.isPomXmlError(output)) {
+            hasErrors = true;
+            foundErrors.push({
+                pattern: 'pom.xml-error',
+                severity: 'high',
+                description: 'Maven POM 파일 오류 감지'
+            });
+            console.log(`[TerminalMonitorService] POM.xml 오류 감지: ${output.substring(0, 100)}...`);
+            // pom.xml 자동 교체 시도
+            this.handlePomXmlError();
+        }
         for (const errorPattern of this.errorPatterns) {
             if (errorPattern.regex && errorPattern.regex.test(output)) {
                 hasErrors = true;
@@ -18825,6 +18927,148 @@ class TerminalMonitorService {
             this.handleErrors(foundErrors);
         }
         return hasErrors;
+    }
+    /**
+     * pom.xml 관련 오류인지 확인합니다.
+     * @param output 출력 텍스트
+     * @returns pom.xml 오류 여부
+     */
+    isPomXmlError(output) {
+        const pomErrorPatterns = [
+            /Non-resolvable parent POM/i,
+            /spring-boot-starter-parent.*not found/i,
+            /spring\.boot\.version.*not found/i,
+            /BUILD FAILURE.*POM/i,
+            /ProjectBuildingException/i,
+            /UnresolvableModelException/i,
+            /class file version.*Java Runtime/i,
+            /has been compiled by a more recent version/i
+        ];
+        return pomErrorPatterns.some(pattern => pattern.test(output));
+    }
+    /**
+     * pom.xml 오류 발생 시 표준 pom.xml로 자동 교체합니다.
+     */
+    async handlePomXmlError() {
+        try {
+            console.log('[TerminalMonitorService] POM.xml 오류 감지, 표준 POM.xml로 교체 시도...');
+            // 현재 작업 디렉토리에서 pom.xml 찾기
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                console.log('[TerminalMonitorService] 워크스페이스 폴더를 찾을 수 없습니다.');
+                return;
+            }
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const pomPath = path.join(workspaceRoot, 'pom.xml');
+            // pom.xml이 존재하는지 확인
+            if (!fs.existsSync(pomPath)) {
+                console.log('[TerminalMonitorService] pom.xml 파일을 찾을 수 없습니다.');
+                return;
+            }
+            // 표준 pom.xml 생성
+            const standardPomXml = this.generateStandardPomXml();
+            // 백업 생성
+            const backupPath = pomPath + '.backup.' + Date.now();
+            fs.copyFileSync(pomPath, backupPath);
+            console.log(`[TerminalMonitorService] 기존 pom.xml 백업: ${backupPath}`);
+            // 표준 pom.xml로 교체
+            fs.writeFileSync(pomPath, standardPomXml, 'utf8');
+            console.log('[TerminalMonitorService] 표준 pom.xml로 교체 완료');
+            // 웹뷰에 알림 전송
+            if (this.currentWebview) {
+                this.currentWebview.postMessage({
+                    command: 'showErrorCorrectionSuccess',
+                    message: '✅ POM.xml 오류 감지 및 자동 교체 완료',
+                    correctedCommand: '표준 Spring Boot 3.4.0 POM.xml로 교체됨'
+                });
+            }
+        }
+        catch (error) {
+            console.error('[TerminalMonitorService] POM.xml 교체 실패:', error);
+            if (this.currentWebview) {
+                this.currentWebview.postMessage({
+                    command: 'showErrorCorrectionFailure',
+                    message: '❌ POM.xml 자동 교체 실패: ' + error
+                });
+            }
+        }
+    }
+    /**
+     * 표준 Spring Boot 3.4.0 pom.xml을 생성합니다.
+     */
+    generateStandardPomXml() {
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>demo</name>
+    <description>Demo Spring Boot project</description>
+    <packaging>jar</packaging>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring.boot.version>3.4.0</spring.boot.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <dependencies>
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+
+            <!-- Spring Boot Maven Plugin -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>`;
     }
     /**
      * 발견된 에러들을 처리합니다.
@@ -19373,6 +19617,87 @@ ${specificGuidance}
 3. 명령어 실행 순서나 의존성 문제가 있는지 확인하세요.
 4. 한글로 설명을 제공하세요.
 5. 실행 가능한 명령어나 코드 수정 사항을 포함하세요.
+
+특별 가이드 - 포트 사용 오류 해결:
+포트 사용 오류("Port was already in use")가 발생할 경우, 현재 프로젝트 타입에 따라 적절한 포트 해제 방법을 제시하세요:
+
+**프로젝트 타입별 포트 해제 가이드:**
+
+**Java/Spring Boot 프로젝트:**
+- 기본 포트: 8080
+- 해제 명령: 
+  1. lsof -i:8080
+  2. lsof -ti:8080 | xargs kill -9
+  3. sleep 2 && lsof -i:8080
+  4. pkill -f "spring-boot" && pkill -f "java.*8080"
+  5. lsof -i:8080 || echo "포트 해제 완료"
+
+**Spring Boot 강력한 포트 해제 방법 (백그라운드 프로세스 지속 생성 시):**
+- 백그라운드에서 계속 새로운 프로세스가 생성되는 경우:
+  **⚠️ 중요: 포트 해제 명령은 새로운 터미널에서 실행해야 합니다!**
+  
+  **새 터미널에서 실행할 명령:**
+  1. **새 터미널 열기** (현재 터미널이 아닌 새로운 터미널)
+  2. lsof -i:8080
+  3. lsof -ti:8080 | xargs kill -9
+  4. sleep 2 && lsof -i:8080
+  5. **강력한 방법**: pkill -f "spring-boot" && pkill -f "java.*8080" && pkill -f "mvn.*spring-boot:run"
+  6. **추가 강력한 방법**: ps aux | grep -E "(spring-boot|java.*8080)" | grep -v grep | awk '{print $2}' | xargs kill -9
+  7. **최종 확인**: lsof -i:8080 || echo "포트 해제 완료"
+  8. **원래 터미널로 돌아가서**: sleep 3 && mvn spring-boot:run
+
+**JavaScript/TypeScript/React/Vue/Node.js 프로젝트:**
+- 기본 포트: 3000, 5173 (Vite), 8080 (Vue)
+- 해제 명령:
+  1. lsof -i:3000 (또는 해당 포트)
+  2. lsof -ti:3000 | xargs kill -9
+  3. sleep 2 && lsof -i:3000
+  4. pkill -f "node.*3000" && pkill -f "npm.*start" && pkill -f "vite"
+  5. lsof -i:3000 || echo "포트 해제 완료"
+
+**Python/Django/Flask/FastAPI 프로젝트:**
+- 기본 포트: 8000 (Django/FastAPI), 5000 (Flask)
+- 해제 명령:
+  1. lsof -i:8000 (또는 5000)
+  2. lsof -ti:8000 | xargs kill -9
+  3. sleep 2 && lsof -i:8000
+  4. pkill -f "python.*8000" && pkill -f "django.*runserver" && pkill -f "flask"
+  5. lsof -i:8000 || echo "포트 해제 완료"
+
+**PHP/Laravel 프로젝트:**
+- 기본 포트: 8000
+- 해제 명령:
+  1. lsof -i:8000
+  2. lsof -ti:8000 | xargs kill -9
+  3. sleep 2 && lsof -i:8000
+  4. pkill -f "php.*8000" && pkill -f "artisan.*serve"
+  5. lsof -i:8000 || echo "포트 해제 완료"
+
+**Ruby/Rails 프로젝트:**
+- 기본 포트: 3000
+- 해제 명령:
+  1. lsof -i:3000
+  2. lsof -ti:3000 | xargs kill -9
+  3. sleep 2 && lsof -i:3000
+  4. pkill -f "rails.*server" && pkill -f "ruby.*3000"
+  5. lsof -i:3000 || echo "포트 해제 완료"
+
+**일반적인 포트 해제 단계:**
+**⚠️ 중요: 포트 해제 명령은 새로운 터미널에서 실행해야 합니다!**
+
+1. **새 터미널 열기** (현재 실행 중인 터미널이 아닌 새로운 터미널)
+2. **포트 사용 프로세스 확인**: lsof -i:[포트번호]
+3. **강제 종료**: lsof -ti:[포트번호] | xargs kill -9
+4. **2초 대기 후 재확인**: sleep 2 && lsof -i:[포트번호]
+5. **프레임워크별 pkill 사용**: 위의 프로젝트 타입별 명령 참조
+6. **최종 확인**: lsof -i:[포트번호] || echo "포트 해제 완료"
+7. **원래 터미널로 돌아가서 애플리케이션 재실행**
+
+**백그라운드 프로세스 주의사항:**
+- 웹 애플리케이션은 백그라운드에서 계속 실행될 수 있음
+- 단순한 kill 명령보다는 pkill -f "[프레임워크명]" 명령 사용 권장
+- 여러 포트를 동시에 사용하는 경우 모든 관련 포트 확인 필요
+- **포트 해제 명령은 반드시 새로운 터미널에서 실행** (현재 실행 중인 터미널에서는 제대로 작동하지 않음)
 
 오류 분석 결과를 다음 형식으로 제공해주세요:
 ## 🔍 오류 분석 결과
@@ -20119,7 +20444,8 @@ class IntentDetectionService {
         analysis_structure: ['구조', '구성', 'architecture', 'structure', '다이어그램', '트리', '파일 구성'],
         analysis_technology: ['기술', '언어', '프레임워크', '기술스택', 'stack', 'framework', 'library', '알고리즘'],
         analysis_function: ['기능', '동작', '설명', '사용자', 'feature', 'behavior', 'flow', 'use case'],
-        documentation_general: ['문서', 'documentation', 'README', '설명서', 'guide', 'manual', '정리해줘', '문서화']
+        documentation_general: ['문서', 'documentation', 'README', '설명서', 'guide', 'manual', '정리해줘', '문서화'],
+        terminal_error_fix: ['오류', '에러', 'error', '실패', 'fail', '문제', 'issue', '해결', 'fix', '수정', '고쳐', '터미널', 'terminal', '로그', 'log', '포트', 'port', 'kill', '죽여', '종료', 'stop']
     };
     subtypeToCategory = {
         code_generate: 'code',
@@ -20130,7 +20456,8 @@ class IntentDetectionService {
         analysis_structure: 'analysis',
         analysis_technology: 'analysis',
         analysis_function: 'analysis',
-        documentation_general: 'documentation'
+        documentation_general: 'documentation',
+        terminal_error_fix: 'terminal'
     };
     constructor(ollamaApi) {
         this.ollamaApi = ollamaApi;
@@ -20196,7 +20523,7 @@ class IntentDetectionService {
         return { bestSubtype, confidence, matchedKeywords, reasoning };
     }
     async queryLLMForIntent(userQuery) {
-        const prompt = `다음 사용자 요청을 네 가지 의도 카테고리와 세부 유형으로 분류하세요.
+        const prompt = `다음 사용자 요청을 다섯 가지 의도 카테고리와 세부 유형으로 분류하세요.
 
 카테고리 및 세부 유형 목록:
 1. 코드
@@ -20212,6 +20539,8 @@ class IntentDetectionService {
   - analysis_function: 기능 분석 (사용자 관점, 동작 설명)
 4. 문서 작성
   - documentation_general: 문서/가이드 작성
+5. 터미널 오류 수정
+  - terminal_error_fix: 터미널 오류, 로그 문제, 포트 충돌 등 해결
 
 출력 형식 (JSON):
 {

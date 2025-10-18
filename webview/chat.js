@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify';
 import { addCopyButtonsToCodeBlocks } from './codeCopy.js';
 import markdownit from 'markdown-it';
+import markdownitContainer from 'markdown-it-container';
 
 
 // console.log("✅ chat.js loaded");
@@ -237,6 +238,23 @@ const md = markdownit({
     //    }
     //    return '';
     // }
+});
+
+// Container 플러그인 추가 (callout 지원)
+md.use(markdownitContainer, 'text', {
+    validate: function (params) {
+        return params.trim().match(/^text\s+(.*)$/);
+    },
+    render: function (tokens, idx) {
+        const m = tokens[idx].info.trim().match(/^text\s+(.*)$/);
+        if (tokens[idx].nesting === 1) {
+            // opening tag
+            return `<div class="callout callout-text">\n`;
+        } else {
+            // closing tag
+            return `</div>\n`;
+        }
+    }
 });
 
 
