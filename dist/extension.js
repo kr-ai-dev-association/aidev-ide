@@ -50,14 +50,14 @@ const notificationService_1 = __webpack_require__(8);
 const codebaseContextService_1 = __webpack_require__(9);
 const llmResponseProcessor_1 = __webpack_require__(38);
 const llmService_1 = __webpack_require__(45);
-const ollamaService_1 = __webpack_require__(54);
-const chatViewProvider_1 = __webpack_require__(58);
-const askViewProvider_1 = __webpack_require__(59); // 새로 추가된 AskViewProvider 임포트
+const ollamaService_1 = __webpack_require__(55);
+const chatViewProvider_1 = __webpack_require__(59);
+const askViewProvider_1 = __webpack_require__(60); // 새로 추가된 AskViewProvider 임포트
 const terminalManager_1 = __webpack_require__(41);
-const panelManager_1 = __webpack_require__(60);
+const panelManager_1 = __webpack_require__(61);
 const licenseService_1 = __webpack_require__(64);
 const ollamaBlockerService_1 = __webpack_require__(195);
-const terminalDaemonService_1 = __webpack_require__(61);
+const terminalDaemonService_1 = __webpack_require__(62);
 const terminalMonitorService_1 = __webpack_require__(50);
 // 전역 변수
 let storageService;
@@ -16291,9 +16291,9 @@ const tokenUtils_1 = __webpack_require__(48);
 const types_1 = __webpack_require__(39);
 const actionPlannerService_1 = __webpack_require__(49);
 const terminalMonitorService_1 = __webpack_require__(50);
-const actionExecutionEngine_1 = __webpack_require__(51);
-const projectProfileService_1 = __webpack_require__(52);
-const intentDetectionService_1 = __webpack_require__(53);
+const actionExecutionEngine_1 = __webpack_require__(52);
+const projectProfileService_1 = __webpack_require__(53);
+const intentDetectionService_1 = __webpack_require__(54);
 class LlmService {
     extensionContext;
     storageService;
@@ -18466,6 +18466,7 @@ exports.TerminalMonitorService = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(25));
 const path = __importStar(__webpack_require__(10));
+const os = __importStar(__webpack_require__(51));
 class TerminalMonitorService {
     notificationService;
     logEntries = [];
@@ -18477,6 +18478,7 @@ class TerminalMonitorService {
     monitoringInterval = null;
     lastTerminalCount = 0;
     onErrorEmitter = new vscode.EventEmitter();
+    userOS;
     onError = this.onErrorEmitter.event;
     // 오류 수정 관련 속성
     llmService = undefined;
@@ -18491,7 +18493,171 @@ class TerminalMonitorService {
     constructor(notificationService) {
         this.notificationService = notificationService;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Monitor');
+        this.userOS = this.detectOperatingSystem();
+        console.log(`[TerminalMonitorService] 사용자 OS 감지: ${this.userOS}`);
         this.initializeErrorPatterns();
+    }
+    /**
+     * 사용자의 운영체제를 감지합니다.
+     */
+    detectOperatingSystem() {
+        const platform = os.platform();
+        switch (platform) {
+            case 'win32':
+                return 'windows';
+            case 'darwin':
+                return 'macos';
+            case 'linux':
+                return 'linux';
+            default:
+                return 'unknown';
+        }
+    }
+    /**
+     * 현재 사용자의 OS 정보를 반환합니다.
+     */
+    getUserOS() {
+        return this.userOS;
+    }
+    /**
+     * OS별 시스템 프롬프트를 생성합니다.
+     */
+    generateOSSpecificSystemPrompt() {
+        const basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+
+주요 지침:
+1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
+2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
+3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
+4. 한글로 설명을 제공하세요.
+5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
+6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
+7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
+8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
+9. 터미널 명령어가 필요한 경우 적절한 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
+11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
+
+현재 사용자 환경: ${this.userOS.toUpperCase()}`;
+        const osSpecificGuidelines = this.getOSSpecificGuidelines();
+        return `${basePrompt}
+
+${osSpecificGuidelines}`;
+    }
+    /**
+     * OS별 특화 가이드라인을 반환합니다.
+     */
+    getOSSpecificGuidelines() {
+        switch (this.userOS) {
+            case 'windows':
+                return `**Windows 환경 특화 가이드라인:**
+- PowerShell 또는 Command Prompt 명령어를 사용하세요.
+- 파일 경로는 백슬래시(\\) 또는 슬래시(/) 모두 사용 가능합니다.
+- 환경변수는 %VARIABLE_NAME% 형식을 사용하세요.
+- 포트 해제: netstat -ano | findstr :포트번호, taskkill /PID 프로세스ID /F
+- 프로세스 종료: taskkill /IM 프로세스명 /F
+- 서비스 관리: net start/stop 서비스명
+- 권한 문제 시 관리자 권한으로 실행하도록 안내하세요.`;
+            case 'macos':
+                return `**macOS 환경 특화 가이드라인:**
+- Bash/Zsh 쉘 명령어를 사용하세요.
+- 파일 경로는 슬래시(/)를 사용하세요.
+- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
+- 포트 해제: lsof -ti:포트번호 | xargs kill -9
+- 프로세스 종료: pkill -f "프로세스명"
+- Homebrew 패키지 관리자 사용을 권장하세요.
+- 권한 문제 시 sudo 명령어 사용을 안내하세요.`;
+            case 'linux':
+                return `**Linux 환경 특화 가이드라인:**
+- Bash 쉘 명령어를 사용하세요.
+- 파일 경로는 슬래시(/)를 사용하세요.
+- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
+- 포트 해제: lsof -ti:포트번호 | xargs kill -9 또는 fuser -k 포트번호/tcp
+- 프로세스 종료: pkill -f "프로세스명" 또는 killall 프로세스명
+- 패키지 관리자: apt (Ubuntu/Debian), yum/dnf (RHEL/CentOS), pacman (Arch)
+- 권한 문제 시 sudo 명령어 사용을 안내하세요.`;
+            default:
+                return `**일반 환경 가이드라인:**
+- 플랫폼에 독립적인 명령어를 사용하세요.
+- 파일 경로는 슬래시(/)를 사용하세요.
+- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
+- 포트 해제 및 프로세스 종료 명령어는 OS별로 다를 수 있으니 주의하세요.`;
+        }
+    }
+    /**
+     * OS별 포트 해제 가이드를 생성합니다.
+     */
+    generateOSSpecificPortReleaseGuide() {
+        switch (this.userOS) {
+            case 'windows':
+                return `**Windows 환경 포트 해제 가이드:**
+
+**Java/Spring Boot 프로젝트 (포트 8080):**
+1. **새 PowerShell/CMD 창 열기** (현재 터미널이 아닌 새로운 터미널)
+2. netstat -ano | findstr :8080
+3. taskkill /PID [프로세스ID] /F
+4. **강력한 방법**: taskkill /IM java.exe /F
+5. **Spring Boot 전용**: taskkill /IM java.exe /F && taskkill /IM mvn.cmd /F
+6. **최종 확인**: netstat -ano | findstr :8080
+
+**Node.js 프로젝트 (포트 3000, 5173, 8080):**
+1. netstat -ano | findstr :3000
+2. taskkill /PID [프로세스ID] /F
+3. **강력한 방법**: taskkill /IM node.exe /F
+
+**Python 프로젝트 (포트 8000, 5000):**
+1. netstat -ano | findstr :8000
+2. taskkill /PID [프로세스ID] /F
+3. **강력한 방법**: taskkill /IM python.exe /F`;
+            case 'macos':
+                return `**macOS 환경 포트 해제 가이드:**
+
+**Java/Spring Boot 프로젝트 (포트 8080):**
+1. **새 터미널 열기** (현재 터미널이 아닌 새로운 터미널)
+2. lsof -i:8080
+3. lsof -ti:8080 | xargs kill -9
+4. sleep 2 && lsof -i:8080
+5. **강력한 방법**: pkill -f "spring-boot" && pkill -f "java.*8080" && pkill -f "mvn.*spring-boot:run"
+6. **추가 강력한 방법**: ps aux | grep -E "(spring-boot|java.*8080)" | grep -v grep | awk '{print $2}' | xargs kill -9
+7. **최종 확인**: lsof -i:8080 || echo "포트 해제 완료"
+
+**Node.js 프로젝트 (포트 3000, 5173, 8080):**
+1. lsof -i:3000
+2. lsof -ti:3000 | xargs kill -9
+3. **강력한 방법**: pkill -f "node.*3000" && pkill -f "npm.*start" && pkill -f "vite"
+
+**Python 프로젝트 (포트 8000, 5000):**
+1. lsof -i:8000
+2. lsof -ti:8000 | xargs kill -9
+3. **강력한 방법**: pkill -f "python.*8000" && pkill -f "django.*runserver" && pkill -f "flask"`;
+            case 'linux':
+                return `**Linux 환경 포트 해제 가이드:**
+
+**Java/Spring Boot 프로젝트 (포트 8080):**
+1. **새 터미널 열기** (현재 터미널이 아닌 새로운 터미널)
+2. lsof -i:8080 또는 fuser -k 8080/tcp
+3. lsof -ti:8080 | xargs kill -9
+4. sleep 2 && lsof -i:8080
+5. **강력한 방법**: pkill -f "spring-boot" && pkill -f "java.*8080" && pkill -f "mvn.*spring-boot:run"
+6. **추가 강력한 방법**: ps aux | grep -E "(spring-boot|java.*8080)" | grep -v grep | awk '{print $2}' | xargs kill -9
+7. **최종 확인**: lsof -i:8080 || echo "포트 해제 완료"
+
+**Node.js 프로젝트 (포트 3000, 5173, 8080):**
+1. lsof -i:3000 또는 fuser -k 3000/tcp
+2. lsof -ti:3000 | xargs kill -9
+3. **강력한 방법**: pkill -f "node.*3000" && pkill -f "npm.*start" && pkill -f "vite"
+
+**Python 프로젝트 (포트 8000, 5000):**
+1. lsof -i:8000 또는 fuser -k 8000/tcp
+2. lsof -ti:8000 | xargs kill -9
+3. **강력한 방법**: pkill -f "python.*8000" && pkill -f "django.*runserver" && pkill -f "flask"`;
+            default:
+                return `**일반 환경 포트 해제 가이드:**
+포트 사용 오류가 발생할 경우, 다음 명령어들을 OS에 맞게 적응하여 사용하세요:
+- 포트 사용 프로세스 확인: netstat 또는 lsof 사용
+- 프로세스 종료: kill, taskkill, 또는 pkill 사용
+- 강제 종료: -9 플래그 또는 /F 옵션 사용`;
+        }
     }
     /**
      * LLM 서비스를 설정합니다.
@@ -19619,85 +19785,14 @@ ${specificGuidance}
 5. 실행 가능한 명령어나 코드 수정 사항을 포함하세요.
 
 특별 가이드 - 포트 사용 오류 해결:
-포트 사용 오류("Port was already in use")가 발생할 경우, 현재 프로젝트 타입에 따라 적절한 포트 해제 방법을 제시하세요:
+포트 사용 오류("Port was already in use")가 발생할 경우, 현재 사용자의 OS 환경에 맞는 포트 해제 방법을 제시하세요:
 
-**프로젝트 타입별 포트 해제 가이드:**
+${this.generateOSSpecificPortReleaseGuide()}
 
-**Java/Spring Boot 프로젝트:**
-- 기본 포트: 8080
-- 해제 명령: 
-  1. lsof -i:8080
-  2. lsof -ti:8080 | xargs kill -9
-  3. sleep 2 && lsof -i:8080
-  4. pkill -f "spring-boot" && pkill -f "java.*8080"
-  5. lsof -i:8080 || echo "포트 해제 완료"
-
-**Spring Boot 강력한 포트 해제 방법 (백그라운드 프로세스 지속 생성 시):**
-- 백그라운드에서 계속 새로운 프로세스가 생성되는 경우:
-  **⚠️ 중요: 포트 해제 명령은 새로운 터미널에서 실행해야 합니다!**
-  
-  **새 터미널에서 실행할 명령:**
-  1. **새 터미널 열기** (현재 터미널이 아닌 새로운 터미널)
-  2. lsof -i:8080
-  3. lsof -ti:8080 | xargs kill -9
-  4. sleep 2 && lsof -i:8080
-  5. **강력한 방법**: pkill -f "spring-boot" && pkill -f "java.*8080" && pkill -f "mvn.*spring-boot:run"
-  6. **추가 강력한 방법**: ps aux | grep -E "(spring-boot|java.*8080)" | grep -v grep | awk '{print $2}' | xargs kill -9
-  7. **최종 확인**: lsof -i:8080 || echo "포트 해제 완료"
-  8. **원래 터미널로 돌아가서**: sleep 3 && mvn spring-boot:run
-
-**JavaScript/TypeScript/React/Vue/Node.js 프로젝트:**
-- 기본 포트: 3000, 5173 (Vite), 8080 (Vue)
-- 해제 명령:
-  1. lsof -i:3000 (또는 해당 포트)
-  2. lsof -ti:3000 | xargs kill -9
-  3. sleep 2 && lsof -i:3000
-  4. pkill -f "node.*3000" && pkill -f "npm.*start" && pkill -f "vite"
-  5. lsof -i:3000 || echo "포트 해제 완료"
-
-**Python/Django/Flask/FastAPI 프로젝트:**
-- 기본 포트: 8000 (Django/FastAPI), 5000 (Flask)
-- 해제 명령:
-  1. lsof -i:8000 (또는 5000)
-  2. lsof -ti:8000 | xargs kill -9
-  3. sleep 2 && lsof -i:8000
-  4. pkill -f "python.*8000" && pkill -f "django.*runserver" && pkill -f "flask"
-  5. lsof -i:8000 || echo "포트 해제 완료"
-
-**PHP/Laravel 프로젝트:**
-- 기본 포트: 8000
-- 해제 명령:
-  1. lsof -i:8000
-  2. lsof -ti:8000 | xargs kill -9
-  3. sleep 2 && lsof -i:8000
-  4. pkill -f "php.*8000" && pkill -f "artisan.*serve"
-  5. lsof -i:8000 || echo "포트 해제 완료"
-
-**Ruby/Rails 프로젝트:**
-- 기본 포트: 3000
-- 해제 명령:
-  1. lsof -i:3000
-  2. lsof -ti:3000 | xargs kill -9
-  3. sleep 2 && lsof -i:3000
-  4. pkill -f "rails.*server" && pkill -f "ruby.*3000"
-  5. lsof -i:3000 || echo "포트 해제 완료"
-
-**일반적인 포트 해제 단계:**
 **⚠️ 중요: 포트 해제 명령은 새로운 터미널에서 실행해야 합니다!**
-
-1. **새 터미널 열기** (현재 실행 중인 터미널이 아닌 새로운 터미널)
-2. **포트 사용 프로세스 확인**: lsof -i:[포트번호]
-3. **강제 종료**: lsof -ti:[포트번호] | xargs kill -9
-4. **2초 대기 후 재확인**: sleep 2 && lsof -i:[포트번호]
-5. **프레임워크별 pkill 사용**: 위의 프로젝트 타입별 명령 참조
-6. **최종 확인**: lsof -i:[포트번호] || echo "포트 해제 완료"
-7. **원래 터미널로 돌아가서 애플리케이션 재실행**
-
-**백그라운드 프로세스 주의사항:**
-- 웹 애플리케이션은 백그라운드에서 계속 실행될 수 있음
-- 단순한 kill 명령보다는 pkill -f "[프레임워크명]" 명령 사용 권장
-- 여러 포트를 동시에 사용하는 경우 모든 관련 포트 확인 필요
-- **포트 해제 명령은 반드시 새로운 터미널에서 실행** (현재 실행 중인 터미널에서는 제대로 작동하지 않음)
+- 현재 실행 중인 터미널이 아닌 새로운 터미널에서 포트 해제 명령을 실행하세요.
+- 백그라운드 프로세스는 계속 실행될 수 있으므로 강력한 방법을 사용하세요.
+- 여러 포트를 동시에 사용하는 경우 모든 관련 포트를 확인하세요.
 
 오류 분석 결과를 다음 형식으로 제공해주세요:
 ## 🔍 오류 분석 결과
@@ -19777,6 +19872,13 @@ exports.TerminalMonitorService = TerminalMonitorService;
 
 /***/ }),
 /* 51 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 52 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -20139,7 +20241,7 @@ exports.ActionExecutionEngine = ActionExecutionEngine;
 
 
 /***/ }),
-/* 52 */
+/* 53 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -20425,7 +20527,7 @@ exports.ProjectProfileService = ProjectProfileService;
 
 
 /***/ }),
-/* 53 */
+/* 54 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -20599,7 +20701,7 @@ exports.IntentDetectionService = IntentDetectionService;
 
 
 /***/ }),
-/* 54 */
+/* 55 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -20640,9 +20742,9 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OllamaService = exports.OllamaApi = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const http = __importStar(__webpack_require__(55));
-const https = __importStar(__webpack_require__(56));
-const url_1 = __webpack_require__(57);
+const http = __importStar(__webpack_require__(56));
+const https = __importStar(__webpack_require__(57));
+const url_1 = __webpack_require__(58);
 const externalApiService_1 = __webpack_require__(47);
 const types_1 = __webpack_require__(39);
 class OllamaApi {
@@ -21123,28 +21225,28 @@ exports.OllamaService = OllamaService;
 
 
 /***/ }),
-/* 55 */
+/* 56 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("http");
 
 /***/ }),
-/* 56 */
+/* 57 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("https");
 
 /***/ }),
-/* 57 */
+/* 58 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("url");
 
 /***/ }),
-/* 58 */
+/* 59 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -21489,7 +21591,7 @@ exports.ChatViewProvider = ChatViewProvider;
 
 
 /***/ }),
-/* 59 */
+/* 60 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -21718,7 +21820,7 @@ exports.AskViewProvider = AskViewProvider;
 
 
 /***/ }),
-/* 60 */
+/* 61 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -21761,9 +21863,9 @@ exports.openSettingsPanel = openSettingsPanel;
 exports.openLicensePanel = openLicensePanel;
 const vscode = __importStar(__webpack_require__(1));
 const panelUtils_1 = __webpack_require__(40);
-const terminalDaemonService_1 = __webpack_require__(61);
-const http = __importStar(__webpack_require__(55));
-const https = __importStar(__webpack_require__(56));
+const terminalDaemonService_1 = __webpack_require__(62);
+const http = __importStar(__webpack_require__(56));
+const https = __importStar(__webpack_require__(57));
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews = [];
 /**
@@ -22666,7 +22768,7 @@ configurationService // ConfigurationService 주입
 
 
 /***/ }),
-/* 61 */
+/* 62 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -22709,7 +22811,7 @@ exports.TerminalDaemonService = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const path = __importStar(__webpack_require__(10));
 const fs = __importStar(__webpack_require__(25));
-const os = __importStar(__webpack_require__(62));
+const os = __importStar(__webpack_require__(51));
 const child_process_1 = __webpack_require__(43);
 const util_1 = __webpack_require__(63);
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
@@ -22837,13 +22939,6 @@ class TerminalDaemonService {
 }
 exports.TerminalDaemonService = TerminalDaemonService;
 
-
-/***/ }),
-/* 62 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("os");
 
 /***/ }),
 /* 63 */
@@ -63060,7 +63155,7 @@ exports.extractAndSelectServiceConfig = exports.validateServiceConfig = exports.
 /* The any type is purposely used here. All functions validate their input at
  * runtime */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const os = __webpack_require__(62);
+const os = __webpack_require__(51);
 const constants_1 = __webpack_require__(80);
 const load_balancer_1 = __webpack_require__(90);
 /**
@@ -80990,12 +81085,12 @@ exports.getProxiedConnection = exports.mapProxyName = void 0;
 const logging_1 = __webpack_require__(79);
 const constants_1 = __webpack_require__(80);
 const resolver_1 = __webpack_require__(93);
-const http = __webpack_require__(55);
+const http = __webpack_require__(56);
 const tls = __webpack_require__(86);
 const logging = __webpack_require__(79);
 const subchannel_address_1 = __webpack_require__(101);
 const uri_parser_1 = __webpack_require__(94);
-const url_1 = __webpack_require__(57);
+const url_1 = __webpack_require__(58);
 const resolver_dns_1 = __webpack_require__(168);
 const TRACER_NAME = 'proxy';
 function trace(text) {
@@ -81595,7 +81690,7 @@ module.exports = require("dns");
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Http2SubchannelCall = void 0;
 const http2 = __webpack_require__(166);
-const os = __webpack_require__(62);
+const os = __webpack_require__(51);
 const constants_1 = __webpack_require__(80);
 const metadata_1 = __webpack_require__(78);
 const stream_decoder_1 = __webpack_require__(171);
@@ -87315,7 +87410,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OllamaBlockerService = void 0;
 const path = __importStar(__webpack_require__(10));
 const fs = __importStar(__webpack_require__(25));
-const os = __importStar(__webpack_require__(62));
+const os = __importStar(__webpack_require__(51));
 const child_process_1 = __webpack_require__(43);
 const util_1 = __webpack_require__(63);
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
