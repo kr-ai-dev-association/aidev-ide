@@ -2,6 +2,37 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.4.1 (2025/10/20) - Executing Commands Step & Stability
+
+<details>
+<summary>🎯 Executing Commands step, OS-specific command refinement, settings persistence</summary>
+
+### Added
+- Executing Commands step: After initial LLM response, detect bash/powershell callouts and re-call LLM to output commands-only for the user's OS
+- Strict system prompt for commands-only: forces a single code block, enforces Windows (powershell) vs macOS/Linux (bash), forbids mixing and narrative
+
+### Improved
+- Processing Steps: Ensure the steps box is rendered only once (remove static HTML duplicate, React-only)
+- Steps order updated to include executing between assembling and parsing
+- Auto error correction: New toggle in Settings to enable/disable; disables retry spinner when off
+- Auto error correction persistence fixed (stored in workspace settings and applied on startup)
+
+### Fixed
+- Remote Ollama settings now preload on Settings open and enable proper section visibility
+- OS detection value is injected at startup and reused in executing step refinement
+
+</details>
+
+## 🚀 Version 4.4.0 (2025/10/20) - Processing Steps & Remote Settings
+
+<details>
+<summary>🎯 Processing steps executing slot, remote settings init</summary>
+
+- Add executing step placeholder and status updates
+- Include remote Ollama settings in currentSettings payload and apply on load
+
+</details>
+
 ## 🚀 Version 4.3.0 (2025/10/19) - OUTPUT Log Control & Enhanced Bash Command Execution
 
 <details>

@@ -1132,59 +1132,7 @@
 </head>
 
 <body>
-    <!-- 처리 단계 표시 UI -->
-    <div id="processing-steps" class="processing-steps hidden"
-        style="display: none !important; visibility: hidden !important; opacity: 0 !important; position: absolute !important; left: -9999px !important; z-index: -9999 !important;">
-        <div class="processing-step" data-step="intent">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Defining User Intent</div>
-                <div class="step-description" id="intent-status">Initializing...</div>
-            </div>
-        </div>
-        <div class="processing-step" data-step="keywords">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Selecting Keywords</div>
-                <div class="step-description" id="keywords-status">Waiting...</div>
-            </div>
-        </div>
-        <div class="processing-step" data-step="analyzing">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Analyzing Code</div>
-                <div class="step-description" id="analyzing-status">Waiting...</div>
-            </div>
-        </div>
-        <div class="processing-step" data-step="assembling">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Assembling Answer</div>
-                <div class="step-description" id="assembling-status">Waiting...</div>
-            </div>
-        </div>
-        <div class="processing-step" data-step="parsing">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Parsing Markdown</div>
-                <div class="step-description" id="parsing-status">Waiting...</div>
-            </div>
-        </div>
-        <div class="processing-step" data-step="printing">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Preparing to Print</div>
-                <div class="step-description" id="printing-status">Waiting...</div>
-            </div>
-        </div>
-        <div class="processing-step">
-            <div class="step-indicator"></div>
-            <div>
-                <div class="step-text">Error Correction</div>
-                <div class="step-description" id="error_correction-status">Waiting...</div>
-            </div>
-        </div>
-    </div>
+    <!-- Processing steps will be rendered by React component -->
 
     <div class="main-container">
         <div id="chat-container">

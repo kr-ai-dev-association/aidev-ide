@@ -176,12 +176,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // OUTPUT 로그 설정 로드 및 적용
     const outputLogEnabled = await configurationService.isOutputLogEnabled();
     terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
-    console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
+    // console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
 
     // 자동 오류 수정 설정 로드 및 적용
     const autoCorrectionEnabled = await configurationService.isAutoCorrectionEnabled();
+    console.log(`[Extension] isAutoCorrectionEnabled() -> ${autoCorrectionEnabled}`);
     terminalMonitorService.setAutoCorrectionEnabled(autoCorrectionEnabled);
-    console.log(`[Extension] 자동 오류 수정: ${autoCorrectionEnabled ? '활성화' : '비활성화'}`);
+    console.log(`[Extension] 자동 오류 수정 적용 완료: ${autoCorrectionEnabled ? '활성화' : '비활성화'}`);
     const errorRetryCount = await configurationService.getErrorRetryCount();
     terminalMonitorService.setMaxErrorRetries(errorRetryCount);
     console.log(`[Extension] 오류 수정 횟수 설정: ${errorRetryCount}`);
@@ -290,6 +291,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         if (event.affectsConfiguration('aidevIde.autoCorrectionEnabled')) {
             const enabled = await configurationService.isAutoCorrectionEnabled();
+            console.log(`[Extension] onDidChangeConfiguration: autoCorrectionEnabled -> ${enabled}`);
             terminalMonitorService.setAutoCorrectionEnabled(enabled);
         }
     }));

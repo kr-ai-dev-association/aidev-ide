@@ -158,7 +158,7 @@ export class LlmService {
      */
     public setUserOS(os: string): void {
         this.userOS = os;
-        console.log(`[LlmService] 사용자 OS 설정: ${os}`);
+        // console.log(`[LlmService] 사용자 OS 설정: ${os}`);
     }
 
     /**
@@ -604,6 +604,28 @@ ${osSpecificGuidelines}`;
             } else {
                 throw new Error(`Unsupported model type: ${this.currentModelType}`);
             }
+            // 필요 시 명령어만 재구성 단계 실행 (간단한 정규식으로 감지)
+            try {
+                if (llmResponse && (/```\s*(bash|sh)\s*[\s\S]*?```/i.test(llmResponse) || /```\s*(powershell|ps1|pwsh)\s*[\s\S]*?```/i.test(llmResponse))) {
+                    this.sendProcessingStep('executing');
+                    this.sendProcessingStatus('executing', 'Generating OS-specific runnable commands...');
+                    const sys = `당신은 전문적인 셸 명령어 변환기입니다.\n\n현재 사용자 OS: ${this.userOS}\n\n출력 규칙(아주 엄격):\n1) 오직 하나의 코드블록만 출력하세요. 설명/주석/말머리/말미 금지.\n2) OS별로 정확한 셸을 사용하세요:\n   - Windows: \`\`\`powershell ...\`\`\` (cmd 아님, bash 아님)\n   - macOS/Linux: \`\`\`bash ...\`\`\` (powershell 아님)\n3) 서로 다른 OS의 명령을 혼합 금지. 현재 OS에 부적합한 명령은 동등한 대안으로 변환하세요.\n   - 패키지 관리자 예: Windows(choco/winget), macOS(brew), Linux(apt/yum 등 프로젝트 맥락에 맞는 것 하나만)\n   - 경로 구분자/환경변수 표기: Windows(\\, $Env:VAR), macOS/Linux(/, $VAR)\n4) 실행 순서를 고려하여 의존 명령은 올바른 순서로 배치하세요.\n5) 파일은 이미 생성/수정되었다고 가정하고, 필요한 설치/빌드/실행 명령만 남기세요.\n6) 프롬프트나 친절한 문장, 출력 캡쳐 명령(예: cat/type) 금지.\n7) 반드시 해당 OS용 코드블록 언어 태그만 사용하세요.`;
+                    const parts = [{ text: llmResponse }];
+                    let refined: string | null = null;
+                    if (this.currentModelType === AiModelType.GEMINI) {
+                        refined = await this.geminiApi.sendMessageWithSystemPrompt(sys, parts, { signal: abortSignal });
+                    } else {
+                        try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
+                        refined = await this.ollamaApi.sendMessageWithSystemPrompt(sys, parts, { signal: abortSignal });
+                    }
+                    if (refined && refined.trim()) {
+                        safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: refined });
+                    }
+                }
+            } catch (e) {
+                console.warn('[LlmService] command refinement step failed:', e);
+            }
+
             const outputTokens = estimateTokens(llmResponse);
             this.sendProcessingStatus('assembling', `Generated ${llmResponse.length.toLocaleString()} chars (~${outputTokens.toLocaleString()} tokens) response`);
             // Debug Console 로그를 활용한 추가 정보
@@ -837,6 +859,8 @@ ${realTimeInfo}
 
 사용자의 질문에 대해 전문적이고 유용한 답변을 제공해주세요.${languageInstruction}`;
         }
+
+
 
         return systemPrompt;
     }

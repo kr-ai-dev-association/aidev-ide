@@ -17,6 +17,23 @@ const errorRetrySpinner = document.getElementById('error-retry-spinner');
 const errorRetryStatus = document.getElementById('error-retry-status');
 const autoCorrectionToggle = document.getElementById('auto-correction-toggle');
 const autoCorrectionStatus = document.getElementById('auto-correction-status');
+// 자동 오류 수정 토글
+if (autoCorrectionToggle) {
+    autoCorrectionToggle.addEventListener('change', () => {
+        const enabled = autoCorrectionToggle.checked;
+        console.log('[Settings] autoCorrectionToggle changed ->', enabled);
+        if (autoCorrectionStatus) {
+            autoCorrectionStatus.textContent = enabled ? (languageData['autoCorrectionOn'] || '자동 오류 수정: 켜짐') : (languageData['autoCorrectionOff'] || '자동 오류 수정: 꺼짐');
+        }
+        if (errorRetrySpinner) {
+            errorRetrySpinner.disabled = !enabled;
+            errorRetrySpinner.style.opacity = enabled ? '1' : '0.5';
+        }
+        if (vscode) {
+            vscode.postMessage({ command: 'setAutoCorrectionEnabled', enabled });
+        }
+    });
+}
 
 const projectRootPathDisplay = document.getElementById('project-root-path-display');
 const selectProjectRootButton = document.getElementById('select-project-root-button');

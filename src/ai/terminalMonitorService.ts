@@ -68,9 +68,9 @@ export class TerminalMonitorService {
         this.notificationService = notificationService;
         this.outputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Monitor');
         this.userOS = this.detectOperatingSystem();
-        if (this.outputLogEnabled) {
-            console.log(`[TerminalMonitorService] 사용자 OS 감지: ${this.userOS}`);
-        }
+        // if (this.outputLogEnabled) {
+        //     console.log(`[TerminalMonitorService] 사용자 OS 감지: ${this.userOS}`);
+        // }
         this.initializeErrorPatterns();
     }
 

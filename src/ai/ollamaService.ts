@@ -51,13 +51,13 @@ export class OllamaApi {
      */
     public async loadSettingsFromStorage(): Promise<void> {
         if (!this.storageService) {
-            console.log('[OllamaApi] StorageService not available, using default settings');
+            // console.log('[OllamaApi] StorageService not available, using default settings');
             return;
         }
 
         try {
             const serverType = await this.storageService.getOllamaServerType();
-            console.log('[OllamaApi] Loading settings for server type:', serverType);
+            // console.log('[OllamaApi] Loading settings for server type:', serverType);
 
             if (serverType === 'remote') {
                 // 원격 서버 설정 로드
@@ -67,15 +67,15 @@ export class OllamaApi {
 
                 if (remoteApiUrl) {
                     this.apiUrl = remoteApiUrl;
-                    console.log('[OllamaApi] Remote API URL loaded:', remoteApiUrl);
+                    // console.log('[OllamaApi] Remote API URL loaded:', remoteApiUrl);
                 }
                 if (remoteEndpoint) {
                     this.endpoint = remoteEndpoint;
-                    console.log('[OllamaApi] Remote endpoint loaded:', remoteEndpoint);
+                    // console.log('[OllamaApi] Remote endpoint loaded:', remoteEndpoint);
                 }
                 if (remoteModel) {
                     this.modelName = remoteModel;
-                    console.log('[OllamaApi] Remote model loaded:', remoteModel);
+                    // console.log('[OllamaApi] Remote model loaded:', remoteModel);
                 }
             } else {
                 // 로컬 서버 설정 로드 (기본값)
@@ -84,7 +84,7 @@ export class OllamaApi {
 
                 this.apiUrl = localApiUrl;
                 this.endpoint = localEndpoint;
-                console.log('[OllamaApi] Local settings loaded - API URL:', localApiUrl, 'Endpoint:', localEndpoint);
+                // console.log('[OllamaApi] Local settings loaded - API URL:', localApiUrl, 'Endpoint:', localEndpoint);
             }
         } catch (error) {
             console.error('[OllamaApi] Error loading settings from storage:', error);

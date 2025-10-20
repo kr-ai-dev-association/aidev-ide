@@ -44,7 +44,7 @@ function setProcessingStep(stepName) {
     }
 
     // 이전 단계들을 완료로 표시
-    const stepOrder = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+    const stepOrder = ['intent', 'keywords', 'analyzing', 'assembling', 'executing', 'parsing', 'printing'];
     const currentIndex = stepOrder.indexOf(stepName);
     for (let i = 0; i < currentIndex; i++) {
         const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);

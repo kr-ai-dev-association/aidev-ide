@@ -196,7 +196,9 @@ export class ConfigurationService {
      */
     public async isAutoCorrectionEnabled(): Promise<boolean> {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
-        return config.get<boolean>(this.AUTO_CORRECTION_ENABLED) ?? true;
+        const value = config.get<boolean>(this.AUTO_CORRECTION_ENABLED) ?? true;
+        console.log(`[ConfigurationService] Read autoCorrectionEnabled: ${value}`);
+        return value;
     }
 
     /**
@@ -204,6 +206,8 @@ export class ConfigurationService {
      */
     public async updateAutoCorrectionEnabled(enabled: boolean): Promise<void> {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
-        await config.update(this.AUTO_CORRECTION_ENABLED, enabled, vscode.ConfigurationTarget.Global);
+        // 리소스 범위 설정은 워크스페이스에 저장하여 재로드 시 즉시 반영되도록 함
+        console.log(`[ConfigurationService] Update autoCorrectionEnabled -> ${enabled} (Workspace)`);
+        await config.update(this.AUTO_CORRECTION_ENABLED, enabled, vscode.ConfigurationTarget.Workspace);
     }
 }

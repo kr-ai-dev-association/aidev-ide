@@ -39,6 +39,19 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.4.1 - Executing Commands Step & Stability**
+
+#### **Commands-Only Refinement**
+- Adds an Executing Commands step: detects bash/powershell callouts and re-asks the LLM to output a single, OS-specific commands-only code block (Windows=powershell, macOS/Linux=bash)
+- Strict system prompt prohibiting narrative/mixed-OS instructions; preserves correct execution order
+
+#### **Processing Steps**
+- Ensure only one processing steps box is rendered (React-only); add executing in the step order
+
+#### **Auto Error Correction**
+- New toggle in Settings (disables retry spinner when off)
+- Persists across reloads (workspace scope)
+
 ### 🚀 **NEW in v4.3 - OUTPUT Log Control & Enhanced Bash Command Execution**
 
 #### **OUTPUT Log Control Feature**

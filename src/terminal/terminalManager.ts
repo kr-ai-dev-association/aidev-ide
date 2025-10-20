@@ -41,7 +41,7 @@ export function setErrorCorrectionServices(llmService: LlmService, webview: vsco
  */
 export function setTerminalMonitorService(terminalMonitorService: TerminalMonitorService): void {
     _terminalMonitorService = terminalMonitorService;
-    console.log('[TerminalManager] 터미널 모니터링 서비스 설정 완료');
+    // console.log('[TerminalManager] 터미널 모니터링 서비스 설정 완료');
 }
 
 /**
@@ -172,16 +172,16 @@ function getCaptureOutputChannel(): vscode.OutputChannel {
         // OUTPUT 로그가 비활성화된 경우 더미 채널 반환
         return {
             name: 'AIDEV-IDE Terminal (Disabled)',
-            append: () => {},
-            appendLine: () => {},
-            clear: () => {},
-            show: () => {},
-            hide: () => {},
-            dispose: () => {},
-            replace: () => {}
+            append: () => { },
+            appendLine: () => { },
+            clear: () => { },
+            show: () => { },
+            hide: () => { },
+            dispose: () => { },
+            replace: () => { }
         } as unknown as vscode.OutputChannel;
     }
-    
+
     if (!_captureOutputChannel) {
         _captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal');
     }
@@ -601,7 +601,7 @@ async function processQueue(): Promise<void> {
             if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
                 const ok = await executeFileOpFromToken(command);
                 if (!ok) {
-                    try { 
+                    try {
                         getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`);
                     } catch { }
                     break;
@@ -610,7 +610,7 @@ async function processQueue(): Promise<void> {
                 const ok = await handleInteractiveCommand(command);
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
-                    try { 
+                    try {
                         getCaptureOutputChannel().appendLine(`[QUEUE] stop: command failed or cancelled`);
                     } catch { }
                     break;
@@ -621,7 +621,7 @@ async function processQueue(): Promise<void> {
             if (isLongRunningDevCommand(command)) {
                 _queuePausedForLongRunning = true;
                 // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
-                try { 
+                try {
                     getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`);
                 } catch { }
                 return;

@@ -2,6 +2,26 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.4.1 (2025/10/20) - 실행 명령 단계 & 안정성
+
+<details>
+<summary>🎯 실행 명령(executing) 단계, OS별 명령 재구성, 설정 유지</summary>
+
+### 추가
+- Executing Commands 단계: 초기 LLM 응답 후 bash/powershell 콜아웃을 감지하여 사용자 OS에 맞는 명령어만 재구성
+- 엄격한 시스템 프롬프트: 단일 코드블록 강제, Windows(powershell) vs macOS/Linux(bash) 분리, 설명/혼합 금지
+
+### 개선
+- Processing Steps: 정적 HTML 중복 제거(React 단일 렌더링), 단계 순서에 executing 추가
+- 자동 오류 수정: 설정에 On/Off 토글 추가, Off 시 최대 횟수 스피너 비활성화
+- 자동 오류 수정 유지: 워크스페이스 설정 저장 및 시작 시 적용
+
+### 수정
+- 원격 Ollama 설정: 설정 패널 초기 로드시 저장값을 불러와 섹션 표시/비활성 상태 정확히 반영
+- OS 정보: 시작 시 감지된 OS를 executing 단계 프롬프트에 활용
+
+</details>
+
 ## 🚀 Version 4.3.0 (2025/10/19) - OUTPUT 로그 제어 및 bash 명령어 실행 개선
 
 <details>

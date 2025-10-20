@@ -821,8 +821,8 @@ export function openSettingsPanel(
                 allWebviews.splice(idx, 1);
             }
         } catch (error) {
-            // Panel이 이미 dispose된 경우 무시
-            console.log('[PanelManager] Panel already disposed, ignoring error:', error);
+            // Panel이 이미 dispose된 경우 무시 (콘솔 스팸 방지를 위해 주석 처리)
+            // console.log('[PanelManager] Panel already disposed, ignoring error:', error);
         }
     }, undefined, context.subscriptions);
 
@@ -924,8 +924,8 @@ export function openLicensePanel(
                 allWebviews.splice(idx, 1);
             }
         } catch (error) {
-            // Panel이 이미 dispose된 경우 무시
-            console.log('[PanelManager] Panel already disposed, ignoring error:', error);
+            // Panel이 이미 dispose된 경우 무시 (콘솔 스팸 방지를 위해 주석 처리)
+            // console.log('[PanelManager] Panel already disposed, ignoring error:', error);
         }
     }, undefined, context.subscriptions);
 
