@@ -55,7 +55,15 @@ export function openSettingsPanel(
                         projectRoot: await configurationService.getProjectRoot(),
                         terminalDaemonEnabled: await configurationService.isTerminalDaemonEnabled(),
                         outputLogEnabled: await configurationService.isOutputLogEnabled(),
-                        errorRetryCount: await configurationService.getErrorRetryCount()
+                        errorRetryCount: await configurationService.getErrorRetryCount(),
+                        autoCorrectionEnabled: await configurationService.isAutoCorrectionEnabled(),
+                        // Ollama 관련 설정 초기값 전달 (저장된 값 로드)
+                        ollamaServerType: await storageService.getOllamaServerType(),
+                        localOllamaApiUrl: await storageService.getLocalOllamaApiUrl(),
+                        localOllamaEndpoint: await storageService.getLocalOllamaEndpoint(),
+                        remoteOllamaApiUrl: await storageService.getRemoteOllamaApiUrl(),
+                        remoteOllamaEndpoint: await storageService.getRemoteOllamaEndpoint(),
+                        remoteOllamaModel: await storageService.getRemoteOllamaModel()
                     });
                     break;
                 case 'setTerminalDaemonEnabled':
@@ -95,6 +103,12 @@ export function openSettingsPanel(
                     if (typeof data.count === 'number') {
                         await configurationService.updateErrorRetryCount(data.count);
                         safePostMessage(panel, { command: 'errorRetryCountChanged', count: data.count });
+                    }
+                    break;
+                case 'setAutoCorrectionEnabled':
+                    if (typeof data.enabled === 'boolean') {
+                        await configurationService.updateAutoCorrectionEnabled(data.enabled);
+                        safePostMessage(panel, { command: 'autoCorrectionStatusChanged', enabled: data.enabled });
                     }
                     break;
                 case 'setProjectRoot':
@@ -678,6 +692,14 @@ export function openSettingsPanel(
                     if (serverTypeToSave && typeof serverTypeToSave === 'string') {
                         try {
                             await storageService.saveOllamaServerType(serverTypeToSave);
+                            // Ollama API 런타임 설정 즉시 반영
+                            try {
+                                if (ollamaApi && typeof ollamaApi.loadSettingsFromStorage === 'function') {
+                                    await ollamaApi.loadSettingsFromStorage();
+                                }
+                            } catch (e) {
+                                console.warn('[PanelManager] Failed to apply Ollama settings after serverType save:', e);
+                            }
                             safePostMessage(panel, { command: 'ollamaServerTypeSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Server type saved.');
                         } catch (error: any) {
@@ -729,6 +751,9 @@ export function openSettingsPanel(
                     if (remoteApiUrlToSave && typeof remoteApiUrlToSave === 'string') {
                         try {
                             await storageService.saveRemoteOllamaApiUrl(remoteApiUrlToSave);
+                            if (ollamaApi && typeof ollamaApi.setApiUrl === 'function') {
+                                ollamaApi.setApiUrl(remoteApiUrlToSave);
+                            }
                             safePostMessage(panel, { command: 'remoteOllamaApiUrlSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama API URL saved.');
                         } catch (error: any) {
@@ -746,6 +771,9 @@ export function openSettingsPanel(
                     if (remoteEndpointToSave && typeof remoteEndpointToSave === 'string') {
                         try {
                             await storageService.saveRemoteOllamaEndpoint(remoteEndpointToSave);
+                            if (ollamaApi && typeof ollamaApi.setEndpoint === 'function') {
+                                ollamaApi.setEndpoint(remoteEndpointToSave);
+                            }
                             safePostMessage(panel, { command: 'remoteOllamaEndpointSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama endpoint saved.');
                         } catch (error: any) {
@@ -763,6 +791,9 @@ export function openSettingsPanel(
                     if (remoteModelToSave && typeof remoteModelToSave === 'string') {
                         try {
                             await storageService.saveRemoteOllamaModel(remoteModelToSave);
+                            if (ollamaApi && typeof ollamaApi.setModel === 'function') {
+                                ollamaApi.setModel(remoteModelToSave);
+                            }
                             safePostMessage(panel, { command: 'remoteOllamaModelSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama model saved.');
                         } catch (error: any) {

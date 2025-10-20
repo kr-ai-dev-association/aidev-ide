@@ -265,31 +265,12 @@ ${osSpecificGuidelines}`;
         try {
             if (this.currentModelType === AiModelType.GEMINI) {
                 return 'Gemini 2.5 Flash';
-            } else if (this.currentModelType === AiModelType.OLLAMA_Gemma ||
-                this.currentModelType === AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === AiModelType.OLLAMA_CodeLlama ||
-                this.currentModelType === AiModelType.OLLAMA_GPT_OSS) {
-                // Ollama 모델의 경우 실제 모델명을 가져옴
-                return await this.ollamaApi.getCurrentModelName();
             }
+            // Ollama 계열은 저장된 실제 모델명을 사용
+            return await this.ollamaApi.getCurrentModelName();
         } catch (error) {
             console.warn(`[LlmService] 모델명 가져오기 실패: ${error}`);
-        }
-
-        // 기본값 반환
-        switch (this.currentModelType) {
-            case AiModelType.GEMINI:
-                return 'Gemini 2.5 Flash';
-            case AiModelType.OLLAMA_Gemma:
-                return 'Gemma3:27b';
-            case AiModelType.OLLAMA_DeepSeek:
-                return 'DeepSeek R1:70B';
-            case AiModelType.OLLAMA_CodeLlama:
-                return 'CodeLlama 7B';
-            case AiModelType.OLLAMA_GPT_OSS:
-                return 'GPT-OSS 120B Cloud';
-            default:
-                return 'Unknown Model';
+            return this.currentModelType === AiModelType.GEMINI ? 'Gemini 2.5 Flash' : 'Unknown Model';
         }
     }
 
@@ -611,6 +592,8 @@ ${osSpecificGuidelines}`;
                 this.currentModelType === AiModelType.OLLAMA_CodeLlama ||
                 this.currentModelType === AiModelType.OLLAMA_GPT_OSS
             ) {
+                // Ollama 호출 전에 최신 설정을 스토리지에서 로드하여 원격 설정이 즉시 반영되도록 함
+                try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
                 // Ollama API에 직접 호출 (selectedFiles는 이미 시스템 프롬프트에 포함됨)
                 const requestOptions = { signal: abortSignal };
                 llmResponse = await this.ollamaApi.sendMessageWithSystemPrompt(
@@ -809,7 +792,7 @@ ${osSpecificGuidelines}`;
         let systemPrompt = '';
 
         // DeepSeek 모델에 대한 특별한 언어 지시사항 추가
-        const isDeepSeek = this.currentModelType === AiModelType.OLLAMA_DeepSeek;
+        const isDeepSeek = this.currentModelType !== AiModelType.GEMINI && (this.ollamaApi.getModel?.() || '').includes('deepseek');
         const languageInstruction = isDeepSeek ?
             '\n\n️중요: 반드시 한국어로만 답변하세요. 중국어, 영어, 일본어 등 다른 언어는 사용하지 마세요. 모든 설명과 응답은 한국어로 작성해주세요.' : '';
 

@@ -15,6 +15,8 @@ const outputLogStatus = document.getElementById('output-log-status');
 
 const errorRetrySpinner = document.getElementById('error-retry-spinner');
 const errorRetryStatus = document.getElementById('error-retry-status');
+const autoCorrectionToggle = document.getElementById('auto-correction-toggle');
+const autoCorrectionStatus = document.getElementById('auto-correction-status');
 
 const projectRootPathDisplay = document.getElementById('project-root-path-display');
 const selectProjectRootButton = document.getElementById('select-project-root-button');
@@ -1125,9 +1127,15 @@ if (ollamaServerTypeSelect) {
         if (selectedType === 'local') {
             localOllamaSettingsSection.style.display = 'block';
             remoteOllamaSettingsSection.style.display = 'none';
+            // disabled 클래스도 함께 관리
+            if (localOllamaSettingsSection) localOllamaSettingsSection.classList.remove('disabled');
+            if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
         } else if (selectedType === 'remote') {
             localOllamaSettingsSection.style.display = 'none';
             remoteOllamaSettingsSection.style.display = 'block';
+            // disabled 클래스도 함께 관리
+            if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+            if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
         }
 
         // 서버 타입 저장
@@ -1457,7 +1465,15 @@ if (aiModelSelect) {
             remoteOllamaSettingsSection.classList.add('disabled');
         } else if (selectedModel === 'ollama') {
             geminiSettingsSection.classList.add('disabled');
-            localOllamaSettingsSection.classList.remove('disabled');
+            // 서버 타입에 따라 활성 섹션 결정
+            const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
+            if (serverType === 'remote') {
+                localOllamaSettingsSection.classList.add('disabled');
+                remoteOllamaSettingsSection.classList.remove('disabled');
+            } else {
+                localOllamaSettingsSection.classList.remove('disabled');
+                remoteOllamaSettingsSection.classList.add('disabled');
+            }
             // Ollama 선택 시 모델 목록 즉시 요청
             try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
         } else {
@@ -1563,6 +1579,16 @@ window.addEventListener('message', event => {
                 showStatus(errorRetryStatus, statusText, 'success');
                 errorRetryStatus.textContent = statusText;
             }
+            if (typeof message.autoCorrectionEnabled === 'boolean' && autoCorrectionToggle) {
+                autoCorrectionToggle.checked = message.autoCorrectionEnabled;
+                if (autoCorrectionStatus) {
+                    autoCorrectionStatus.textContent = message.autoCorrectionEnabled ? (languageData['autoCorrectionOn'] || '자동 오류 수정: 켜짐') : (languageData['autoCorrectionOff'] || '자동 오류 수정: 꺼짐');
+                }
+                if (errorRetrySpinner) {
+                    errorRetrySpinner.disabled = !message.autoCorrectionEnabled;
+                    errorRetrySpinner.style.opacity = message.autoCorrectionEnabled ? '1' : '0.5';
+                }
+            }
             if (typeof message.projectRoot === 'string') {
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootLoadedText = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';
@@ -1570,6 +1596,75 @@ window.addEventListener('message', event => {
             } else {
                 // 프로젝트 Root가 설정되지 않은 경우에도 업데이트
                 updateProjectRootDisplay(null);
+            }
+
+            // ===== Ollama 서버 타입 및 저장된 설정 적용 =====
+            if (ollamaServerTypeSelect && typeof message.ollamaServerType === 'string') {
+                ollamaServerTypeSelect.value = message.ollamaServerType || 'local';
+                const setText = message.ollamaServerType === 'remote'
+                    ? (languageData['ollamaServerTypeRemoteSet'] || 'Ollama 서버 타입: 원격 서버')
+                    : (languageData['ollamaServerTypeLocalSet'] || 'Ollama 서버 타입: 로컬 머신');
+                showStatus(ollamaServerTypeStatus, setText, 'success');
+
+                // 섹션 가시성 + disabled 클래스 동기화
+                if (message.ollamaServerType === 'remote') {
+                    if (localOllamaSettingsSection) {
+                        localOllamaSettingsSection.style.display = 'none';
+                        localOllamaSettingsSection.classList.add('disabled');
+                    }
+                    if (remoteOllamaSettingsSection) {
+                        remoteOllamaSettingsSection.style.display = 'block';
+                        remoteOllamaSettingsSection.classList.remove('disabled');
+                    }
+                } else {
+                    if (localOllamaSettingsSection) {
+                        localOllamaSettingsSection.style.display = 'block';
+                        localOllamaSettingsSection.classList.remove('disabled');
+                    }
+                    if (remoteOllamaSettingsSection) {
+                        remoteOllamaSettingsSection.style.display = 'none';
+                        remoteOllamaSettingsSection.classList.add('disabled');
+                    }
+                }
+            }
+
+            // 로컬 Ollama 저장값 적용
+            if (localOllamaApiUrlInput && typeof message.localOllamaApiUrl === 'string') {
+                localOllamaApiUrlInput.value = message.localOllamaApiUrl || '';
+                const txt = message.localOllamaApiUrl
+                    ? (languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.')
+                    : (languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.');
+                if (localOllamaApiUrlStatus) showStatus(localOllamaApiUrlStatus, txt, message.localOllamaApiUrl ? 'success' : 'info');
+            }
+            if (localOllamaEndpointSelect && typeof message.localOllamaEndpoint === 'string') {
+                localOllamaEndpointSelect.value = message.localOllamaEndpoint || '/api/generate';
+                const txt = message.localOllamaEndpoint
+                    ? (languageData['ollamaEndpointSet'] || `로컬 엔드포인트가 설정되어 있습니다: ${message.localOllamaEndpoint}`)
+                    : (languageData['ollamaEndpointNotSet'] || '로컬 엔드포인트가 설정되지 않았습니다.');
+                if (localOllamaEndpointStatus) showStatus(localOllamaEndpointStatus, txt, message.localOllamaEndpoint ? 'success' : 'info');
+            }
+
+            // 원격 Ollama 저장값 적용
+            if (remoteOllamaApiUrlInput && typeof message.remoteOllamaApiUrl === 'string') {
+                remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || '';
+                const txt = message.remoteOllamaApiUrl
+                    ? (languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.')
+                    : (languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.');
+                if (remoteOllamaApiUrlStatus) showStatus(remoteOllamaApiUrlStatus, txt, message.remoteOllamaApiUrl ? 'success' : 'info');
+            }
+            if (remoteOllamaEndpointSelect && typeof message.remoteOllamaEndpoint === 'string') {
+                remoteOllamaEndpointSelect.value = message.remoteOllamaEndpoint || '/api/chat';
+                const txt = message.remoteOllamaEndpoint
+                    ? (languageData['ollamaEndpointSet'] || `원격 서버 엔드포인트가 설정되어 있습니다: ${message.remoteOllamaEndpoint}`)
+                    : (languageData['ollamaEndpointNotSet'] || '원격 서버 엔드포인트가 설정되지 않았습니다.');
+                if (remoteOllamaEndpointStatus) showStatus(remoteOllamaEndpointStatus, txt, message.remoteOllamaEndpoint ? 'success' : 'info');
+            }
+            if (remoteOllamaModelInput && typeof message.remoteOllamaModel === 'string') {
+                remoteOllamaModelInput.value = message.remoteOllamaModel || '';
+                const txt = message.remoteOllamaModel
+                    ? (languageData['ollamaModelSet'] || `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}`)
+                    : (languageData['ollamaModelNotSet'] || '원격 서버 모델이 설정되지 않았습니다.');
+                if (remoteOllamaModelStatus) showStatus(remoteOllamaModelStatus, txt, message.remoteOllamaModel ? 'success' : 'info');
             }
             break;
         case 'aiModelSaved':
@@ -1607,7 +1702,15 @@ window.addEventListener('message', event => {
                     remoteOllamaSettingsSection.classList.add('disabled');
                 } else if (displayModel === 'ollama') {
                     geminiSettingsSection.classList.add('disabled');
-                    localOllamaSettingsSection.classList.remove('disabled');
+                    // 서버 타입에 따라 활성 섹션 결정
+                    const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
+                    if (serverType === 'remote') {
+                        localOllamaSettingsSection.classList.add('disabled');
+                        remoteOllamaSettingsSection.classList.remove('disabled');
+                    } else {
+                        localOllamaSettingsSection.classList.remove('disabled');
+                        remoteOllamaSettingsSection.classList.add('disabled');
+                    }
                     // Ollama 모델 목록 로드
                     try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
                 }
@@ -1661,6 +1764,18 @@ window.addEventListener('message', event => {
                 const statusText = `${errorRetryStatusText} ${message.count}${timesText}`;
                 showStatus(errorRetryStatus, statusText, 'success');
                 errorRetryStatus.textContent = statusText;
+            }
+            break;
+        case 'autoCorrectionStatusChanged':
+            if (typeof message.enabled === 'boolean' && autoCorrectionToggle) {
+                autoCorrectionToggle.checked = message.enabled;
+                if (autoCorrectionStatus) {
+                    autoCorrectionStatus.textContent = message.enabled ? (languageData['autoCorrectionOn'] || '자동 오류 수정: 켜짐') : (languageData['autoCorrectionOff'] || '자동 오류 수정: 꺼짐');
+                }
+                if (errorRetrySpinner) {
+                    errorRetrySpinner.disabled = !message.enabled;
+                    errorRetrySpinner.style.opacity = message.enabled ? '1' : '0.5';
+                }
             }
             break;
         case 'projectRootError':
@@ -1757,9 +1872,13 @@ window.addEventListener('message', event => {
                 if (message.ollamaServerType === 'local') {
                     localOllamaSettingsSection.style.display = 'block';
                     remoteOllamaSettingsSection.style.display = 'none';
+                    if (localOllamaSettingsSection) localOllamaSettingsSection.classList.remove('disabled');
+                    if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
                 } else if (message.ollamaServerType === 'remote') {
                     localOllamaSettingsSection.style.display = 'none';
                     remoteOllamaSettingsSection.style.display = 'block';
+                    if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+                    if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
                 }
             }
             // Ollama 모델 상태 로드 (loadOllamaModels 이후 적용)
@@ -2151,8 +2270,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
     if (geminiSettingsSection) geminiSettingsSection.classList.remove('disabled');
-    if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
-    if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
+    // 초기 활성화 상태는 AI 모델과 서버 타입에 따라 결정
+    if (aiModelSelect && aiModelSelect.value === 'ollama') {
+        const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
+        if (serverType === 'remote') {
+            if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+            if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
+        } else {
+            if (localOllamaSettingsSection) localOllamaSettingsSection.classList.remove('disabled');
+            if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
+        }
+    } else {
+        if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+        if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
+    }
 
     // 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
     // isLicenseVerified는 서버에서 전송된 값으로 설정됨

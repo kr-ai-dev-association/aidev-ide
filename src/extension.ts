@@ -120,6 +120,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const initialOllamaModel = await storageService.getOllamaModel();
     ollamaApi = new OllamaApi(initialOllamaUrl || 'http://localhost:11434', initialOllamaEndpoint, storageService);
     ollamaApi.setModel(initialOllamaModel);
+    try {
+        await ollamaApi.loadSettingsFromStorage();
+    } catch (e) {
+        console.warn('[Extension] Failed to load Ollama settings at startup:', e);
+    }
 
     // AI 관련 서비스 초기화
     codebaseContextService = new CodebaseContextService(configurationService, notificationService);
@@ -173,16 +178,18 @@ export async function activate(context: vscode.ExtensionContext) {
     terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
     console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
 
-    // 오류 수정 횟수 설정 로드 및 적용
+    // 자동 오류 수정 설정 로드 및 적용
+    const autoCorrectionEnabled = await configurationService.isAutoCorrectionEnabled();
+    terminalMonitorService.setAutoCorrectionEnabled(autoCorrectionEnabled);
+    console.log(`[Extension] 자동 오류 수정: ${autoCorrectionEnabled ? '활성화' : '비활성화'}`);
     const errorRetryCount = await configurationService.getErrorRetryCount();
     terminalMonitorService.setMaxErrorRetries(errorRetryCount);
     console.log(`[Extension] 오류 수정 횟수 설정: ${errorRetryCount}`);
-    terminalMonitorService.setAutoCorrectionEnabled(true); // 자동 오류 수정 활성화
     terminalMonitorService.startMonitoring();
 
     // 터미널 매니저에 모니터링 서비스 설정
     setTerminalMonitorService(terminalMonitorService);
-    
+
     // OUTPUT 로그 설정 초기화
     const initialOutputLogEnabled = await configurationService.isOutputLogEnabled();
     setOutputLogEnabled(initialOutputLogEnabled);
@@ -268,20 +275,24 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('자동 오류 수정이 중단되었습니다.');
     }));
 
-        // 설정 변경 시 TerminalMonitorService와 TerminalManager에 반영
-        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (event) => {
-            if (event.affectsConfiguration('aidevIde.outputLogEnabled')) {
-                const outputLogEnabled = await configurationService.isOutputLogEnabled();
-                terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
-                setOutputLogEnabled(outputLogEnabled);
-                // console.log(`[Extension] OUTPUT 로그 설정 변경: ${outputLogEnabled ? '활성화' : '비활성화'}`);
-            }
-            if (event.affectsConfiguration('aidevIde.errorRetryCount')) {
-                const errorRetryCount = await configurationService.getErrorRetryCount();
-                terminalMonitorService.setMaxErrorRetries(errorRetryCount);
-                // console.log(`[Extension] 오류 수정 횟수 설정 변경: ${errorRetryCount}`);
-            }
-        }));
+    // 설정 변경 시 TerminalMonitorService와 TerminalManager에 반영
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (event) => {
+        if (event.affectsConfiguration('aidevIde.outputLogEnabled')) {
+            const outputLogEnabled = await configurationService.isOutputLogEnabled();
+            terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
+            setOutputLogEnabled(outputLogEnabled);
+            // console.log(`[Extension] OUTPUT 로그 설정 변경: ${outputLogEnabled ? '활성화' : '비활성화'}`);
+        }
+        if (event.affectsConfiguration('aidevIde.errorRetryCount')) {
+            const errorRetryCount = await configurationService.getErrorRetryCount();
+            terminalMonitorService.setMaxErrorRetries(errorRetryCount);
+            // console.log(`[Extension] 오류 수정 횟수 설정 변경: ${errorRetryCount}`);
+        }
+        if (event.affectsConfiguration('aidevIde.autoCorrectionEnabled')) {
+            const enabled = await configurationService.isAutoCorrectionEnabled();
+            terminalMonitorService.setAutoCorrectionEnabled(enabled);
+        }
+    }));
 
     // ollama-blocker 관리 명령어들
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.startOllamaBlocker', async () => {

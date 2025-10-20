@@ -533,7 +533,12 @@
     </div>
 
     <div class="section-container">
-        <h2 id="error-retry-label" data-i18n="errorRetryLabel">🔄 자동 오류 수정 횟수</h2>
+        <h2 id="error-retry-label" data-i18n="autoCorrectionSection">🔄 자동 오류 수정</h2>
+        <div class="toggle-switch-container" style="margin-bottom:8px;">
+            <input type="checkbox" id="auto-correction-toggle" />
+            <label for="auto-correction-toggle">Toggle</label>
+        </div>
+        <p id="auto-correction-status" class="info-message"></p>
         <p class="info-message" data-i18n="errorRetryDescription">터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를 설정합니다. (1-10회,
             기본값: 3회)</p>
         <div class="spinner-container">

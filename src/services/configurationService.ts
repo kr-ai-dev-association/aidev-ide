@@ -12,6 +12,7 @@ export class ConfigurationService {
     private readonly TERMINAL_DAEMON_ENABLED = 'terminalDaemonEnabled';
     private readonly OUTPUT_LOG_ENABLED = 'outputLogEnabled';
     private readonly ERROR_RETRY_COUNT = 'errorRetryCount';
+    private readonly AUTO_CORRECTION_ENABLED = 'autoCorrectionEnabled';
 
     constructor() { }
 
@@ -188,5 +189,21 @@ export class ConfigurationService {
         const validCount = Math.max(1, Math.min(10, count));
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         await config.update(this.ERROR_RETRY_COUNT, validCount, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
+     * 자동 오류 수정 On/Off 상태를 가져옵니다.
+     */
+    public async isAutoCorrectionEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        return config.get<boolean>(this.AUTO_CORRECTION_ENABLED) ?? true;
+    }
+
+    /**
+     * 자동 오류 수정 On/Off 상태를 저장합니다.
+     */
+    public async updateAutoCorrectionEnabled(enabled: boolean): Promise<void> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        await config.update(this.AUTO_CORRECTION_ENABLED, enabled, vscode.ConfigurationTarget.Global);
     }
 }
