@@ -2330,14 +2330,16 @@ let supportedModels = [];
 
 // 지원되는 모델 목록 로드
 async function loadSupportedModels() {
+    console.log('[Settings] Starting to load supported models...');
     try {
         if (vscode) {
+            console.log('[Settings] Sending getSupportedModels command to extension');
             vscode.postMessage({ command: 'getSupportedModels' });
         } else {
             throw new Error('VS Code API not available');
         }
     } catch (error) {
-        console.error('Failed to load supported models:', error);
+        console.error('[Settings] Failed to load supported models:', error);
         const modelListContainer = document.getElementById('ollama-model-list');
         if (modelListContainer) {
             modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';
@@ -2347,10 +2349,15 @@ async function loadSupportedModels() {
 
 // 모델 리스트 렌더링
 function renderModelList() {
+    console.log('[Settings] renderModelList called with supportedModels:', supportedModels);
     const modelListContainer = document.getElementById('ollama-model-list');
-    if (!modelListContainer) return;
+    if (!modelListContainer) {
+        console.error('[Settings] ollama-model-list container not found');
+        return;
+    }
 
     modelListContainer.innerHTML = '';
+    console.log('[Settings] Rendering', supportedModels.length, 'models');
 
     supportedModels.forEach(model => {
         const modelItem = document.createElement('div');
@@ -2409,11 +2416,13 @@ window.addEventListener('message', (event) => {
 
     switch (message.command) {
         case 'supportedModels':
+            console.log('[Settings] Received supportedModels:', message.models);
             supportedModels = message.models || [];
+            console.log('[Settings] Set supportedModels to:', supportedModels);
             renderModelList();
             break;
         case 'supportedModelsError':
-            console.error('Failed to load supported models:', message.error);
+            console.error('[Settings] Failed to load supported models:', message.error);
             const modelListContainer = document.getElementById('ollama-model-list');
             if (modelListContainer) {
                 modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';

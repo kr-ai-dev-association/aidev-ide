@@ -68,7 +68,7 @@ export function openSettingsPanel(
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
 
-                        const messageToSend = {
+                    const messageToSend = {
                             command: 'currentSettings',
                             apiKey: apiKey || '',
                             ollamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
@@ -84,13 +84,13 @@ export function openSettingsPanel(
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
                             projectRootPath: projectRootPath || '',
-                            weatherApiKey: weatherApiKey || '',
-                            newsApiKey: newsApiKey || '',
+                        weatherApiKey: weatherApiKey || '',
+                        newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
-                            isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
-                        };
-                        // console.log('Sending currentApiKeys message:', messageToSend);
-                        safePostMessage(panel, messageToSend);
+                        isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
+                    };
+                    // console.log('Sending currentApiKeys message:', messageToSend);
+                    safePostMessage(panel, messageToSend);
                     } catch (error: any) {
                         console.error('Error getting current settings:', error);
                         safePostMessage(panel, { command: 'currentSettings', error: error.message });
@@ -204,7 +204,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'ollamaEndpointSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama Endpoint: ${error.message}`);
                         }
-                    } else {
+                            } else {
                         safePostMessage(panel, { command: 'ollamaEndpointSaveError', error: 'Invalid Ollama Endpoint' });
                         notificationService.showErrorMessage('Invalid Ollama Endpoint provided.');
                     }
@@ -252,7 +252,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'remoteOllamaApiUrlSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Remote Ollama API URL: ${error.message}`);
                         }
-                    } else {
+                                    } else {
                         safePostMessage(panel, { command: 'remoteOllamaApiUrlSaveError', error: 'Invalid Remote Ollama API URL' });
                         notificationService.showErrorMessage('Invalid Remote Ollama API URL provided.');
                     }
@@ -316,7 +316,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'newsApiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving News API Key: ${error.message}`);
                         }
-                    } else {
+                                        } else {
                         safePostMessage(panel, { command: 'newsApiKeySaveError', error: 'Invalid News API Key' });
                         notificationService.showErrorMessage('Invalid News API Key provided.');
                     }
@@ -433,11 +433,11 @@ export function openSettingsPanel(
                 case 'saveErrorRetryCount': // 오류 재시도 횟수 저장 케이스 추가
                     const errorRetryCountToSave = data.errorRetryCount;
                     if (typeof errorRetryCountToSave === 'number' && errorRetryCountToSave >= 0 && errorRetryCountToSave <= 10) {
-                        try {
+                    try {
                             await storageService.saveErrorRetryCount(errorRetryCountToSave);
                             safePostMessage(panel, { command: 'errorRetryCountSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Error Retry Count setting saved.');
-                        } catch (error: any) {
+                    } catch (error: any) {
                             safePostMessage(panel, { command: 'errorRetryCountSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Error Retry Count setting: ${error.message}`);
                         }
@@ -453,7 +453,7 @@ export function openSettingsPanel(
                             await storageService.saveAutoCorrectionEnabled(autoCorrectionEnabledToSave);
                             safePostMessage(panel, { command: 'autoCorrectionEnabledSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Auto Correction setting saved.');
-                        } catch (error: any) {
+                    } catch (error: any) {
                             safePostMessage(panel, { command: 'autoCorrectionEnabledSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Auto Correction setting: ${error.message}`);
                         }
@@ -469,7 +469,7 @@ export function openSettingsPanel(
                             await storageService.saveAutoCorrectionEnabled(autoCorrectionEnabledToSet);
                             safePostMessage(panel, { command: 'autoCorrectionEnabledSet' });
                             // 토글에서는 알림을 표시하지 않음 (사용자 경험을 위해)
-                        } catch (error: any) {
+                    } catch (error: any) {
                             safePostMessage(panel, { command: 'autoCorrectionEnabledSetError', error: error.message });
                             notificationService.showErrorMessage(`Error setting Auto Correction: ${error.message}`);
                         }
@@ -485,7 +485,7 @@ export function openSettingsPanel(
                             await storageService.saveAiModel(aiModelToSave);
                             safePostMessage(panel, { command: 'aiModelSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: AI Model saved.');
-                        } catch (error: any) {
+                    } catch (error: any) {
                             safePostMessage(panel, { command: 'aiModelSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving AI Model: ${error.message}`);
                         }
@@ -628,7 +628,7 @@ export function openSettingsPanel(
                         if (testResult.success) {
                             safePostMessage(panel, { command: 'banyaLicenseConnectionTestResult', success: true, data: testResult });
                             notificationService.showInfoMessage('AIDEV-IDE: Banya License connection test successful.');
-                        } else {
+                    } else {
                             safePostMessage(panel, { command: 'banyaLicenseConnectionTestResult', success: false, error: testResult.message });
                             notificationService.showErrorMessage(`AIDEV-IDE: Banya License connection test failed: ${testResult.message}`);
                         }
@@ -649,11 +649,11 @@ export function openSettingsPanel(
                         if (testResult.success) {
                             safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: true, data: testResult.data });
                             notificationService.showInfoMessage('AIDEV-IDE: Ollama Blocker connection test successful.');
-                        } else {
+                    } else {
                             safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: false, error: testResult.error });
                             notificationService.showErrorMessage(`AIDEV-IDE: Ollama Blocker connection test failed: ${testResult.error}`);
                         }
-                    } catch (error: any) {
+                        } catch (error: any) {
                         safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: false, error: error.message });
                         notificationService.showErrorMessage(`AIDEV-IDE: Ollama Blocker connection test failed: ${error.message}`);
                     }
@@ -665,7 +665,7 @@ export function openSettingsPanel(
                         if (testResult.success) {
                             safePostMessage(panel, { command: 'terminalDaemonConnectionTestResult', success: true, data: testResult.data });
                             notificationService.showInfoMessage('AIDEV-IDE: Terminal Daemon connection test successful.');
-                        } else {
+                    } else {
                             safePostMessage(panel, { command: 'terminalDaemonConnectionTestResult', success: false, error: testResult.error });
                             notificationService.showErrorMessage(`AIDEV-IDE: Terminal Daemon connection test failed: ${testResult.error}`);
                         }
@@ -844,7 +844,7 @@ export function openSettingsPanel(
                         };
                         // console.log('Sending currentApiKeys message:', messageToSend);
                         safePostMessage(panel, messageToSend);
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error getting current settings:', error);
                         safePostMessage(panel, { command: 'currentSettings', error: error.message });
                     }
@@ -933,7 +933,7 @@ async function downloadOllamaModel(
                                         statusBarItem.text = `$(download) ${modelName}: ${progress}%`;
 
                                         // 웹뷰에 진행 상황 전송
-                                        safePostMessage(panel, {
+                            safePostMessage(panel, {
                                             command: 'modelDownloadProgress',
                                             modelName: modelName,
                                             progress: progress,
@@ -974,10 +974,10 @@ async function downloadOllamaModel(
 
         notificationService.showInfoMessage(`Ollama 모델 '${modelName}' 다운로드가 완료되었습니다.`);
 
-    } catch (error: any) {
+                    } catch (error: any) {
         console.error('[PanelManager] Failed to download Ollama model:', error);
 
-        safePostMessage(panel, {
+                            safePostMessage(panel, {
             command: 'modelDownloadError',
             modelName: modelName,
             error: error.message
@@ -995,35 +995,82 @@ async function loadSupportedModels(): Promise<any[]> {
         const fs = require('fs');
         const path = require('path');
         
+        console.log('[PanelManager] Starting to load supported models...');
+        console.log('[PanelManager] Current working directory:', process.cwd());
+        console.log('[PanelManager] __dirname:', __dirname);
+        
         // VS Code 확장의 루트 디렉토리에서 파일 찾기
         let modelFilePath: string;
         
-        // 먼저 현재 작업 디렉토리에서 찾기
+        // 먼저 aidev-ide 프로젝트 디렉토리에서 찾기
         const currentDir = process.cwd();
-        const projectRootPath = path.join(currentDir, 'supported_ollama_model.json');
+        let projectRootPath: string;
+        
+        // aidev-ide 디렉토리가 현재 경로에 포함되어 있는지 확인
+        if (currentDir.includes('aidev-ide')) {
+            projectRootPath = path.join(currentDir, 'supported_ollama_model.json');
+        } else {
+            // aidev-ide 디렉토리를 찾아서 경로 구성
+            projectRootPath = path.join(currentDir, 'aidev-ide', 'supported_ollama_model.json');
+        }
+        
+        console.log('[PanelManager] Checking project root path:', projectRootPath);
+        console.log('[PanelManager] Project root exists:', fs.existsSync(projectRootPath));
         
         if (fs.existsSync(projectRootPath)) {
             modelFilePath = projectRootPath;
+            console.log('[PanelManager] Using project root path');
         } else {
             // __dirname 기준으로 찾기 (컴파일된 파일 기준)
             modelFilePath = path.join(__dirname, '..', '..', 'supported_ollama_model.json');
+            console.log('[PanelManager] Using __dirname path:', modelFilePath);
         }
         
-        console.log('[PanelManager] Looking for model file at:', modelFilePath);
+        console.log('[PanelManager] Final model file path:', modelFilePath);
+        console.log('[PanelManager] File exists:', fs.existsSync(modelFilePath));
         
         // 파일 존재 확인
         if (!fs.existsSync(modelFilePath)) {
-            throw new Error(`Model file not found at: ${modelFilePath}`);
+            // 추가 경로들 시도
+            const alternativePaths = [
+                path.join(process.cwd(), 'supported_ollama_model.json'),
+                path.join(process.cwd(), 'aidev-ide', 'supported_ollama_model.json'),
+                path.join(__dirname, 'supported_ollama_model.json'),
+                path.join(__dirname, '..', 'supported_ollama_model.json'),
+                path.join(__dirname, '..', '..', 'supported_ollama_model.json'),
+                path.join(__dirname, '..', '..', '..', 'supported_ollama_model.json'),
+                '/Users/tony/Projects/aidev-ide/supported_ollama_model.json' // 절대 경로
+            ];
+            
+            console.log('[PanelManager] Trying alternative paths...');
+            for (const altPath of alternativePaths) {
+                console.log('[PanelManager] Checking:', altPath, 'exists:', fs.existsSync(altPath));
+                if (fs.existsSync(altPath)) {
+                    modelFilePath = altPath;
+                    console.log('[PanelManager] Found file at:', altPath);
+                    break;
+                }
+            }
+            
+            if (!fs.existsSync(modelFilePath)) {
+                throw new Error(`Model file not found. Tried paths: ${alternativePaths.join(', ')}`);
+            }
         }
         
         // 파일 읽기
+        console.log('[PanelManager] Reading file:', modelFilePath);
         const fileContent = fs.readFileSync(modelFilePath, 'utf8');
-        const modelData = JSON.parse(fileContent);
+        console.log('[PanelManager] File content length:', fileContent.length);
         
-        console.log('[PanelManager] Loaded models:', modelData.models?.length || 0);
+        const modelData = JSON.parse(fileContent);
+        console.log('[PanelManager] Parsed model data:', modelData);
+        console.log('[PanelManager] Models count:', modelData.models?.length || 0);
+        
         return modelData.models || [];
     } catch (error: any) {
         console.error('[PanelManager] Failed to load supported models file:', error);
+        console.error('[PanelManager] Error details:', error.message);
+        console.error('[PanelManager] Error stack:', error.stack);
         throw error;
     }
 }
