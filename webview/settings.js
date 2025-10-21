@@ -1096,7 +1096,7 @@ if (clearProjectRootButton) {
 if (autoUpdateToggle) {
     autoUpdateToggle.addEventListener('change', () => {
         const isChecked = autoUpdateToggle.checked;
-        vscode.postMessage({ command: 'setAutoUpdate', enabled: isChecked });
+        vscode.postMessage({ command: 'setAutoUpdate', autoUpdateEnabled: isChecked });
         const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
         const enabledText = languageData['settingChangeEnabled'] || '(활성화)';
         const disabledText = languageData['settingChangeDisabled'] || '(비활성화)';
@@ -1108,7 +1108,7 @@ if (autoUpdateToggle) {
 if (outputLogToggle) {
     outputLogToggle.addEventListener('change', () => {
         const isChecked = outputLogToggle.checked;
-        vscode.postMessage({ command: 'setOutputLog', enabled: isChecked });
+        vscode.postMessage({ command: 'setOutputLog', outputLogEnabled: isChecked });
         const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
         const enabledText = languageData['settingChangeEnabled'] || '(활성화)';
         const disabledText = languageData['settingChangeDisabled'] || '(비활성화)';

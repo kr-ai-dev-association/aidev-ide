@@ -857,6 +857,102 @@ export function openSettingsPanel(
                     }
                     break;
                 }
+                case 'initSettings': // 설정 초기화 (별칭)
+                case 'loadSettings': // 설정 로드
+                    try {
+                        // initializePanel 케이스와 동일한 로직 사용
+                        const apiKey = await storageService.getApiKey();
+                        const ollamaApiUrl = await storageService.getOllamaApiUrl();
+                        const ollamaEndpoint = await storageService.getOllamaEndpoint();
+                        const ollamaModel = await storageService.getOllamaModel();
+                        const ollamaServerType = await storageService.getOllamaServerType();
+                        const remoteOllamaApiUrl = await storageService.getRemoteOllamaApiUrl();
+                        const remoteOllamaEndpoint = await storageService.getRemoteOllamaEndpoint();
+                        const remoteOllamaModel = await storageService.getRemoteOllamaModel();
+                        const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
+                        const outputLogEnabled = await storageService.getOutputLogEnabled();
+                        const errorRetryCount = await storageService.getErrorRetryCount();
+                        const projectRootPath = await storageService.getProjectRootPath();
+                        const weatherApiKey = await storageService.getWeatherApiKey();
+                        const newsApiKey = await storageService.getNewsApiKey();
+                        const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
+                        const isLicenseVerified = await storageService.getIsLicenseVerified();
+                        const aiModel = await storageService.getAiModel();
+
+                        const messageToSend = {
+                            command: 'currentSettings',
+                            apiKey: apiKey || '',
+                            ollamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
+                            ollamaEndpoint: ollamaEndpoint || '/api/generate',
+                            ollamaModel: ollamaModel || 'gemma3:27b',
+                            ollamaServerType: ollamaServerType || 'local',
+                            localOllamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
+                            localOllamaEndpoint: ollamaEndpoint || '/api/generate',
+                            remoteOllamaApiUrl: remoteOllamaApiUrl || '',
+                            remoteOllamaEndpoint: remoteOllamaEndpoint || '/api/generate',
+                            remoteOllamaModel: remoteOllamaModel || '',
+                            autoCorrectionEnabled: autoCorrectionEnabled || false,
+                            outputLogEnabled: outputLogEnabled || false,
+                            errorRetryCount: errorRetryCount || 3,
+                            projectRootPath: projectRootPath || '',
+                            weatherApiKey: weatherApiKey || '',
+                            newsApiKey: newsApiKey || '',
+                            banyaLicenseSerial: banyaLicenseSerial || '',
+                            isLicenseVerified: isLicenseVerified,
+                            aiModel: aiModel || 'gemini'
+                        };
+                        safePostMessage(panel, messageToSend);
+                    } catch (error: any) {
+                        console.error('Error loading settings:', error);
+                        safePostMessage(panel, { command: 'settingsLoadError', error: error.message });
+                    }
+                    break;
+                case 'loadApiKeys': // API 키 로드
+                    try {
+                        const geminiApiKey = await storageService.getApiKey();
+                        safePostMessage(panel, { command: 'apiKeysLoaded', geminiApiKey });
+                    } catch (error: any) {
+                        console.error('Error loading API keys:', error);
+                        safePostMessage(panel, { command: 'apiKeysLoadError', error: error.message });
+                    }
+                    break;
+                case 'loadAiModel': // AI 모델 로드
+                    try {
+                        const aiModel = await storageService.getAiModel();
+                        safePostMessage(panel, { command: 'aiModelLoaded', aiModel });
+                    } catch (error: any) {
+                        console.error('Error loading AI model:', error);
+                        safePostMessage(panel, { command: 'aiModelLoadError', error: error.message });
+                    }
+                    break;
+                case 'loadOllamaModel': // Ollama 모델 로드
+                    try {
+                        const ollamaModel = await storageService.getOllamaModel();
+                        safePostMessage(panel, { command: 'ollamaModelLoaded', ollamaModel });
+                    } catch (error: any) {
+                        console.error('Error loading Ollama model:', error);
+                        safePostMessage(panel, { command: 'ollamaModelLoadError', error: error.message });
+                    }
+                    break;
+                case 'getLanguage': // 언어 설정 로드
+                    try {
+                        const language = vscode.env.language;
+                        safePostMessage(panel, { command: 'languageLoaded', language });
+                    } catch (error: any) {
+                        console.error('Error getting language:', error);
+                        safePostMessage(panel, { command: 'languageLoadError', error: error.message });
+                    }
+                    break;
+                case 'getLanguageData': // 언어 데이터 로드
+                    try {
+                        const language = vscode.env.language;
+                        const languageData = await loadLanguageData(language);
+                        safePostMessage(panel, { command: 'languageDataLoaded', languageData });
+                    } catch (error: any) {
+                        console.error('Error loading language data:', error);
+                        safePostMessage(panel, { command: 'languageDataLoadError', error: error.message });
+                    }
+                    break;
                 default:
                     console.log('Unknown command:', data.command);
             }
@@ -1079,5 +1175,33 @@ async function loadSupportedModels(): Promise<any[]> {
         console.error('[PanelManager] Error details:', error.message);
         console.error('[PanelManager] Error stack:', error.stack);
         throw error;
+    }
+}
+
+// 언어 데이터 로드 함수
+async function loadLanguageData(language: string): Promise<any> {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        // 언어 파일 경로 구성
+        const languageFilePath = path.join(__dirname, '..', '..', 'webview', 'locales', `lang_${language}.json`);
+        
+        if (fs.existsSync(languageFilePath)) {
+            const fileContent = fs.readFileSync(languageFilePath, 'utf8');
+            return JSON.parse(fileContent);
+        } else {
+            // 기본 언어 파일 (영어) 사용
+            const defaultLanguageFilePath = path.join(__dirname, '..', '..', 'webview', 'locales', 'lang_en.json');
+            if (fs.existsSync(defaultLanguageFilePath)) {
+                const fileContent = fs.readFileSync(defaultLanguageFilePath, 'utf8');
+                return JSON.parse(fileContent);
+            } else {
+                return {};
+            }
+        }
+    } catch (error: any) {
+        console.error('[PanelManager] Failed to load language data:', error);
+        return {};
     }
 }
