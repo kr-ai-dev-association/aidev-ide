@@ -98,6 +98,7 @@ export class LlmService {
 
         // Start terminal monitoring and subscribe for errors
         try {
+            this.terminalMonitorService.setLlmService(this);
             this.terminalMonitorService.startMonitoring();
             this.terminalMonitorService.onError(async (evt) => {
                 try {
@@ -127,7 +128,9 @@ export class LlmService {
 
                     const shortPrompt = `터미널 에러 해결: ${evt.message}`;
                     console.log('[LlmService] Auto error fix prompt:', shortPrompt);
+                    console.log('[LlmService] Starting auto error correction...');
                     await this.handleUserMessageAndRespond(shortPrompt, target, PromptType.CODE_GENERATION);
+                    console.log('[LlmService] Auto error correction completed');
                 } catch (autoErr) {
                     console.warn('[LlmService] Auto error handling failed:', autoErr);
                 }
@@ -169,10 +172,93 @@ export class LlmService {
     }
 
     /**
+     * 프로젝트 파일 리스트를 분석합니다.
+     * @param analysisPrompt 분석 프롬프트
+     * @returns 분석 결과
+     */
+    public async analyzeProject(analysisPrompt: string): Promise<string> {
+        try {
+            console.log('[LlmService] 프로젝트 분석 시작');
+
+            // 현재 AI 모델에 따라 적절한 LLM 호출
+            const currentAiModel = await this.storageService.getCurrentAiModel();
+
+            if (currentAiModel === 'gemini') {
+                return await this.geminiApi.sendMessage(analysisPrompt);
+            } else {
+                return await this.ollamaApi.sendMessage(analysisPrompt);
+            }
+        } catch (error) {
+            console.error('[LlmService] 프로젝트 분석 중 오류:', error);
+            throw error;
+        }
+    }
+
+    /**
      * OS별 시스템 프롬프트를 생성합니다.
      */
     private generateOSSpecificSystemPrompt(): string {
-        const basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+        // 현재 모델 타입과 모델명 확인
+        const currentModelName = this.ollamaApi.getModel?.() || '';
+        const isGPTOSS = currentModelName.includes('gpt-oss') || currentModelName.includes('gpt-oss-120b');
+        const isDeepSeek = currentModelName.includes('deepseek');
+        const isStandardModel = currentModelName.includes('glm') || currentModelName.includes('kimi') ||
+            currentModelName.includes('qwen3') || currentModelName.includes('gemini') ||
+            currentModelName.includes('gemma3');
+
+        let basePrompt = '';
+
+        if (isGPTOSS) {
+            // GPT-OSS 모델용 특화 프롬프트
+            basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+
+주요 지침:
+1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
+2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
+3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
+4. 한글로 설명을 제공하세요.
+5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
+6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
+7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
+8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
+9. 터미널 명령어가 필요한 경우 OS에 맞는 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
+11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
+
+현재 사용자 환경: ${this.userOS.toUpperCase()}
+
+**GPT-OSS 모델 특화 지침:**
+- 응답 형식은 표준 마크다운 형식을 사용하세요.
+- 코드 블록은 \`\`\`언어 형식으로 명시하세요.
+- 파일 작업 시 명확한 구분자를 사용하세요.
+- GPT-OSS 모델의 출력 형식에 맞춰 응답하세요.`;
+        } else if (isDeepSeek) {
+            // DeepSeek 모델용 특화 프롬프트
+            basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+
+주요 지침:
+1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
+2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
+3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
+4. 한글로 설명을 제공하세요.
+5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
+6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
+7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
+8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
+9. 터미널 명령어가 필요한 경우 OS에 맞는 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
+10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
+11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
+
+현재 사용자 환경: ${this.userOS.toUpperCase()}
+
+**DeepSeek 모델 특화 지침:**
+- 응답 형식은 표준 마크다운 형식을 사용하세요.
+- 코드 블록은 \`\`\`언어 형식으로 명시하세요.
+- 파일 작업 시 명확한 구분자를 사용하세요.
+- 반드시 한국어로만 답변하세요.`;
+        } else {
+            // 표준 모델들 (glm, kimi, qwen3, gemini, gemma3) 및 기타 모델용 프롬프트
+            basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
 
 주요 지침:
 1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
@@ -188,6 +274,7 @@ export class LlmService {
 11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
 
 현재 사용자 환경: ${this.userOS.toUpperCase()}`;
+        }
 
         const osSpecificGuidelines = this.getOSSpecificGuidelines();
 
@@ -410,11 +497,35 @@ ${osSpecificGuidelines}`;
                     // CODE 탭: 코드 관련 질문인 경우에만 파일 컨텍스트 수집
                     this.sendProcessingStep('keywords');
                     this.sendProcessingStatus('keywords', `Extracting keywords from query: "${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}"`);
-                    const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
-                    fileContentsContext = relevantContextResult.fileContentsContext;
-                    includedFilesForContext = relevantContextResult.includedFilesForContext;
 
-                    if (relevantContextResult.selectedKeywords) {
+                    // 새로운 프로젝트 분석 로직 사용
+                    const projectAnalysisResult = await this.codebaseContextService.getProjectFileListForAnalysis(userQuery, abortSignal);
+
+                    let relevantContextResult: any = null;
+
+                    if (projectAnalysisResult.analysisResult) {
+                        const analysis = projectAnalysisResult.analysisResult;
+                        console.log(`[LlmService] 프로젝트 분석 결과:`, analysis);
+
+                        // 프로그래밍 관련이 아닌 경우 파일 컨텍스트 제외
+                        if (analysis.programmingRelated === 'GENERAL') {
+                            console.log(`[LlmService] 프로그래밍 관련이 아니므로 파일 컨텍스트 제외`);
+                            fileContentsContext = "";
+                            includedFilesForContext = [];
+                        } else {
+                            // 기존 키워드 기반 파일 컨텍스트 수집
+                            relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
+                            fileContentsContext = relevantContextResult.fileContentsContext;
+                            includedFilesForContext = relevantContextResult.includedFilesForContext;
+                        }
+                    } else {
+                        // 분석 실패 시 기존 로직 사용
+                        relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
+                        fileContentsContext = relevantContextResult.fileContentsContext;
+                        includedFilesForContext = relevantContextResult.includedFilesForContext;
+                    }
+
+                    if (relevantContextResult && relevantContextResult.selectedKeywords) {
                         const keywordsStr = relevantContextResult.selectedKeywords.keywords.join(', ');
                         const confidence = (relevantContextResult.selectedKeywords.confidence * 100).toFixed(1);
                         const fileNames = includedFilesForContext.slice(0, 3).map(f => f.name).join(', ');
@@ -508,25 +619,25 @@ ${osSpecificGuidelines}`;
 
 
 
-            // 시스템 프롬프트 생성
-            const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile) : '';
-            const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
-
-            // 프로젝트 타입 정보 추가
-            let projectTypeContext = '';
+            // 프로젝트 타입 감지
+            let detectedProjectType = '';
             if (this.codebaseContextService) {
                 try {
                     const projectRoot = await this.configurationService.getProjectRoot();
                     if (projectRoot) {
-                        const projectType = await this.codebaseContextService.detectProjectType([projectRoot]);
-                        projectTypeContext = `\n프로젝트 타입: ${projectType}`;
+                        detectedProjectType = await this.codebaseContextService.detectProjectType([projectRoot]);
+                        console.log(`[LlmService] 감지된 프로젝트 타입: ${detectedProjectType}`);
                     }
                 } catch (error) {
                     console.warn('[LlmService] Failed to detect project type:', error);
                 }
             }
 
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext + projectTypeContext, intentContext);
+            // 시스템 프롬프트 생성
+            const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile, detectedProjectType) : '';
+            const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
+
+            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
 
             // 사용자 메시지 파트 구성
             const userParts: any[] = [];
@@ -763,9 +874,12 @@ ${osSpecificGuidelines}`;
         return summary || 'AI가 응답을 제공했습니다.';
     }
 
-    private buildProfileContext(profile: ProjectProfile): string {
+    private buildProfileContext(profile: ProjectProfile, projectType?: string): string {
         const lines: string[] = [];
         lines.push(`언어: ${profile.language}`);
+        if (projectType) {
+            lines.push(`프로젝트 타입: ${projectType}`);
+        }
         if (profile.frameworks.length > 0) {
             const formatted = profile.frameworks
                 .map(f => `${f.framework} (신뢰도 ${(f.confidence * 100).toFixed(0)}%)`)
@@ -898,6 +1012,8 @@ ${realTimeInfo}
 - fastapi: FastAPI (Python) 프로젝트
 - python: 일반 Python 프로젝트
 - java: Java/Spring 프로젝트
+- spring: Spring Boot 프로젝트
+- spring-boot: Spring Boot 프로젝트
 - dotnet: .NET 프로젝트
 - go: Go 프로젝트
 - rust: Rust 프로젝트
@@ -953,7 +1069,9 @@ ${realTimeInfo}
             if (lowerQuery.includes('flask')) return 'flask';
             if (lowerQuery.includes('fastapi')) return 'fastapi';
             if (lowerQuery.includes('python')) return 'python';
-            if (lowerQuery.includes('spring') || lowerQuery.includes('java')) return 'java';
+            if (lowerQuery.includes('spring') || lowerQuery.includes('spring-boot') || lowerQuery.includes('boot')) return 'spring';
+            if (lowerQuery.includes('앱') && (lowerQuery.includes('빌드') || lowerQuery.includes('실행'))) return 'spring';
+            if (lowerQuery.includes('java')) return 'java';
             if (lowerQuery.includes('.net') || lowerQuery.includes('c#')) return 'dotnet';
             if (lowerQuery.includes('go ') || lowerQuery.includes('golang')) return 'go';
             if (lowerQuery.includes('rust')) return 'rust';
@@ -1043,6 +1161,11 @@ ${realTimeInfo}
             const historyKey = promptType === PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
             await this.extensionContext.globalState.update(historyKey, []);
             console.log(`[LlmService] Cleared history for ${promptType === PromptType.CODE_GENERATION ? 'Code' : 'Ask'} tab`);
+
+            // 프로젝트 컨텍스트도 초기화
+            if (this.codebaseContextService) {
+                this.codebaseContextService.clearProjectContext();
+            }
         } catch (error) {
             console.error('[LlmService] Failed to clear history:', error);
             throw error;

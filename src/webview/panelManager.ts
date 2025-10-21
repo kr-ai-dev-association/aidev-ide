@@ -19,12 +19,12 @@ const allWebviews: vscode.Webview[] = [];
 function safePostMessage(panel: vscode.WebviewPanel, message: any): void {
     try {
         if (panel && !panel.webview) {
-            console.log('[PanelManager] Panel webview is not available, skipping message');
+            // console.log('[PanelManager] Panel webview is not available, skipping message');
             return;
         }
         panel.webview.postMessage(message);
     } catch (error) {
-        console.log('[PanelManager] Failed to post message to webview:', error);
+        // console.log('[PanelManager] Failed to post message to webview:', error);
     }
 }
 
@@ -55,7 +55,7 @@ export function openSettingsPanel(
                         const ollamaApiUrl = await storageService.getOllamaApiUrl();
                         const ollamaEndpoint = await storageService.getOllamaEndpoint();
                         const ollamaModel = await storageService.getOllamaModel();
-                        console.log('[PanelManager] Loaded ollamaModel:', ollamaModel);
+                        // console.log('[PanelManager] Loaded ollamaModel:', ollamaModel);
                         const ollamaServerType = await storageService.getOllamaServerType();
                         const remoteOllamaApiUrl = await storageService.getRemoteOllamaApiUrl();
                         const remoteOllamaEndpoint = await storageService.getRemoteOllamaEndpoint();
@@ -69,6 +69,9 @@ export function openSettingsPanel(
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
                         const aiModel = await storageService.getAiModel();
+                        const language = await storageService.getLanguage();
+                        const autoUpdateEnabled = await storageService.getAutoUpdateEnabled();
+                        const autoExecuteCommandsEnabled = await configurationService.isAutoExecuteCommandsEnabled();
 
                         const messageToSend = {
                             command: 'currentSettings',
@@ -84,13 +87,16 @@ export function openSettingsPanel(
                             remoteOllamaModel: remoteOllamaModel || '',
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
+                            autoUpdateEnabled: autoUpdateEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
                             projectRoot: projectRootPath || '',
                             weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
-                            aiModel: aiModel || 'gemini' // AI 모델 정보 추가
+                            aiModel: aiModel || 'gemini', // AI 모델 정보 추가
+                            language: language || 'ko', // 언어 설정 추가
+                            autoExecuteCommandsEnabled: autoExecuteCommandsEnabled // 명령어 자동 실행 설정 추가
                         };
                         // console.log('Sending currentApiKeys message:', messageToSend);
                         safePostMessage(panel, messageToSend);
@@ -103,6 +109,7 @@ export function openSettingsPanel(
                 case 'getOllamaModels': {
                     try {
                         const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
+                        // console.log('[PanelManager] Getting Ollama models from:', apiUrl);
                         const url = new URL('/api/tags', apiUrl);
 
                         const models = await new Promise<string[]>((resolve, reject) => {
@@ -131,8 +138,10 @@ export function openSettingsPanel(
                             req.end();
                         });
 
+                        // console.log('[PanelManager] Successfully retrieved Ollama models:', models);
                         safePostMessage(panel, { command: 'ollamaModels', models, apiUrl: apiUrl });
                     } catch (e: any) {
+                        console.error('[PanelManager] Failed to get Ollama models:', e?.message || String(e));
                         safePostMessage(panel, { command: 'ollamaModels', models: [], error: e?.message || String(e) });
                     }
                     break;
@@ -553,6 +562,22 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage('Invalid Auto Correction setting provided.');
                     }
                     break;
+                case 'setAutoExecuteCommandsEnabled': // 명령어 자동 실행 설정 저장 케이스 추가
+                    const autoExecuteCommandsEnabledToSet = data.enabled;
+                    if (typeof autoExecuteCommandsEnabledToSet === 'boolean') {
+                        try {
+                            await configurationService.updateAutoExecuteCommandsEnabled(autoExecuteCommandsEnabledToSet);
+                            safePostMessage(panel, { command: 'autoExecuteCommandsEnabledSet' });
+                            console.log(`[PanelManager] Auto Execute Commands 설정 저장됨: ${autoExecuteCommandsEnabledToSet}`);
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'autoExecuteCommandsEnabledSetError', error: error.message });
+                            notificationService.showErrorMessage(`Error setting Auto Execute Commands: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'autoExecuteCommandsEnabledSetError', error: 'Invalid Auto Execute Commands setting' });
+                        notificationService.showErrorMessage('Invalid Auto Execute Commands setting provided.');
+                    }
+                    break;
                 case 'saveAiModel': // AI 모델 저장 케이스 추가
                     const aiModelToSave = data.aiModel || data.model;
                     if (aiModelToSave && typeof aiModelToSave === 'string') {
@@ -571,17 +596,20 @@ export function openSettingsPanel(
                     break;
                 case 'saveLanguage': // 언어 설정 저장 케이스 추가
                     const languageToSave = data.language;
+                    // console.log('[PanelManager] Saving language:', languageToSave);
                     if (languageToSave && typeof languageToSave === 'string') {
                         try {
-                            // 언어 설정은 VS Code의 기본 설정을 사용하므로 별도 저장 로직은 필요 없음
-                            // 단순히 성공 메시지만 전송
-                            safePostMessage(panel, { command: 'languageSaved' });
+                            await storageService.saveLanguage(languageToSave);
+                            // console.log('[PanelManager] Language saved successfully:', languageToSave);
+                            safePostMessage(panel, { command: 'languageSaved', language: languageToSave });
                             notificationService.showInfoMessage('AIDEV-IDE: Language setting updated.');
                         } catch (error: any) {
+                            console.error('[PanelManager] Failed to save language:', error);
                             safePostMessage(panel, { command: 'languageSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving language setting: ${error.message}`);
                         }
                     } else {
+                        console.error('[PanelManager] Invalid language setting provided:', languageToSave);
                         safePostMessage(panel, { command: 'languageSaveError', error: 'Invalid language setting' });
                         notificationService.showErrorMessage('Invalid language setting provided.');
                     }
@@ -1020,6 +1048,8 @@ export function openSettingsPanel(
                             isLicenseVerified: isLicenseVerified,
                             aiModel: aiModel || 'gemini'
                         };
+                        // console.log('[PanelManager] Sending currentSettings message:', messageToSend);
+                        // console.log('[PanelManager] Message ollamaModel value:', messageToSend.ollamaModel);
                         safePostMessage(panel, messageToSend);
                     } catch (error: any) {
                         console.error('Error loading settings:', error);
@@ -1055,8 +1085,10 @@ export function openSettingsPanel(
                     break;
                 case 'getLanguage': // 언어 설정 로드
                     try {
-                        const language = vscode.env.language;
-                        safePostMessage(panel, { command: 'languageLoaded', language });
+                        const language = await storageService.getLanguage();
+                        // console.log('[PanelManager] Loaded language from storage:', language);
+                        safePostMessage(panel, { command: 'currentLanguage', language });
+                        // console.log('[PanelManager] Sent currentLanguage message with language:', language);
                     } catch (error: any) {
                         console.error('Error getting language:', error);
                         safePostMessage(panel, { command: 'languageLoadError', error: error.message });
@@ -1064,9 +1096,9 @@ export function openSettingsPanel(
                     break;
                 case 'getLanguageData': // 언어 데이터 로드
                     try {
-                        const language = vscode.env.language;
+                        const language = data.language || vscode.env.language;
                         const languageData = await loadLanguageData(language);
-                        safePostMessage(panel, { command: 'languageDataLoaded', languageData });
+                        safePostMessage(panel, { command: 'languageDataReceived', language, data: languageData });
                     } catch (error: any) {
                         console.error('Error loading language data:', error);
                         safePostMessage(panel, { command: 'languageDataLoadError', error: error.message });

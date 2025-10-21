@@ -2,6 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "npm: compile",
             "type": "npm",
             "script": "compile",
             "group": "build",
@@ -9,9 +10,22 @@
                 "panel": "shared",
                 "reveal": "never"
             },
-            "problemMatcher": "$tsc"
+            "problemMatcher": {
+                "owner": "webpack",
+                "fileLocation": "relative",
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "isBackground": false
         },
         {
+            "label": "npm: watch",
             "type": "npm",
             "script": "watch",
             "group": "build",
@@ -20,7 +34,23 @@
                 "reveal": "never"
             },
             "isBackground": true,
-            "problemMatcher": "$tsc-watch"
+            "problemMatcher": {
+                "owner": "webpack",
+                "fileLocation": "relative",
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^.*webpack.*starting.*$",
+                    "endsPattern": "^.*webpack.*compiled.*$"
+                }
+            }
         }
     ]
 }

@@ -39,6 +39,25 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.5.0 - Auto Command Execution & Individual Callout Execution Status**
+
+#### **Auto Command Execution Feature**
+- **Auto Execution Toggle**: Enable/disable automatic execution of bash/powershell/cmd commands from LLM responses in settings
+- **Smart Execution Control**: Automatically detects commands in LLM responses and executes based on settings
+- **Real-time Status Display**: Shows "Executing commands..." status in real-time during auto execution
+- **Manual Execution Support**: When auto execution is disabled, manually click Run buttons to execute commands
+
+#### **Individual Callout Execution Status Display**
+- **Individual Execution Animation**: Each shell script callout box displays its own independent "Executing..." animation
+- **Real-time Feedback**: When Run button is clicked, only that specific callout box shows executing status
+- **Global Display for Auto Execution**: When auto command execution is enabled, all callout boxes show executing status
+- **Visual Distinction**: Clear separation between Auto Correcting and Run button execution status
+
+#### **Settings System Improvements**
+- **Settings Registration Complete**: `aidevIde.autoExecuteCommands` setting is now properly registered in package.json
+- **Global Settings Support**: Saved as user global settings for consistent behavior across all workspaces
+- **Real-time Settings Reflection**: Dynamic settings system that applies changes immediately
+
 ### 🚀 **NEW in v4.4.1 - Executing Commands Step & Stability**
 
 #### **Commands-Only Refinement**

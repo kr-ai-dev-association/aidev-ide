@@ -67,6 +67,15 @@ export class LlmResponseProcessor {
         statusCallback?: (status: string) => void, // Add status callback
         llmService?: any // Add LLM service for diff rewriting
     ): Promise<void> {
+        // 현재 모델 타입 감지
+        const currentModelName = llmService?.ollamaApi?.getModel?.() || '';
+        const isGPTOSS = currentModelName.includes('gpt-oss') || currentModelName.includes('gpt-oss-120b');
+        const isDeepSeek = currentModelName.includes('deepseek');
+        const isStandardModel = currentModelName.includes('glm') || currentModelName.includes('kimi') ||
+            currentModelName.includes('qwen3') || currentModelName.includes('gemini') ||
+            currentModelName.includes('gemma3');
+
+        console.log(`[LlmResponseProcessor] 현재 모델: ${currentModelName}, GPT-OSS: ${isGPTOSS}, DeepSeek: ${isDeepSeek}, 표준모델: ${isStandardModel}`);
         statusCallback?.('Analyzing response structure...');
 
         if (promptType === PromptType.GENERAL_ASK) {
@@ -109,30 +118,54 @@ export class LlmResponseProcessor {
             return;
         }
 
-        llmResponse = this.normalizeTerminalCommandBlocks(llmResponse);
+        llmResponse = this.normalizeTerminalCommandBlocks(llmResponse, isGPTOSS, isDeepSeek, isStandardModel);
 
         const fileOperations: FileOperation[] = [];
         statusCallback?.('Parsing file operations...');
 
-        // Updated regex to capture the directive (group 1), the path (group 2), and the content (group 3)
-        // 수정: 파일 경로를 더 정확하게 파싱하도록 정규식 개선
-        // 파일 경로는 directive 다음에 오는 텍스트에서 코드 블록 시작 전까지 추출
-        const codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+        // 모델별 파싱 정규식 설정
+        let codeBlockRegex: RegExp;
+        let markdownFileRegex: RegExp;
+        let simpleMarkdownRegex: RegExp;
+        let fallbackMarkdownRegex: RegExp;
+        let deleteFileRegex: RegExp;
+        let diffCalloutRegex: RegExp;
 
-        // 마크다운 파일을 위한 별도 정규식 (코드 블록 없이 마크다운 내용 직접 포함)
-        const markdownFileRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명|$))/gs;
+        if (isGPTOSS) {
+            // GPT-OSS 모델용 정규식 (더 엄격한 파싱)
+            codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+            markdownFileRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명|$))/gs;
+            simpleMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|$))/gs;
+            fallbackMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*)/gs;
+            deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+            diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        } else if (isDeepSeek) {
+            // DeepSeek 모델용 정규식 (더 유연한 파싱)
+            codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+            markdownFileRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명|$))/gs;
+            simpleMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|$))/gs;
+            fallbackMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*)/gs;
+            deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+            diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        } else if (isStandardModel) {
+            // 표준 모델들 (glm, kimi, qwen3, gemini, gemma3)용 정규식 (표준 파싱)
+            codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+            markdownFileRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명|$))/gs;
+            simpleMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|$))/gs;
+            fallbackMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*)/gs;
+            deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+            diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        } else {
+            // 기본 정규식 (기존 로직 유지)
+            codeBlockRegex = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+            markdownFileRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명|$))/gs;
+            simpleMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|$))/gs;
+            fallbackMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*)/gs;
+            deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+            diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        }
 
-        // 더 간단한 마크다운 파일 정규식 (대안)
-        const simpleMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*?)(?=\r?\n\s*(?:새 파일|수정 파일|삭제 파일|$))/gs;
-
-        // 가장 간단한 마크다운 파일 정규식 (최후의 수단)
-        const fallbackMarkdownRegex = /(새 파일|수정 파일):\s*([^\r\n]+\.md)\r?\n([\s\S]*)/gs;
-
-        // 삭제 파일을 위한 별도 정규식 (코드 블록이 없음)
-        const deleteFileRegex = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
-
-        // DIFF callout을 위한 정규식
-        const diffCalloutRegex = /```diff\s*\r?\n([\s\S]*?)\r?\n```/g;
+        console.log(`[LlmResponseProcessor] 사용된 정규식 - GPT-OSS: ${isGPTOSS}, DeepSeek: ${isDeepSeek}, 표준모델: ${isStandardModel}`);
 
         let match;
         let updateSummaryMessages: string[] = [];
@@ -859,14 +892,92 @@ export class LlmResponseProcessor {
                     }
                 }
             } else {
-                // autoUpdateEnabled=true: 파일 작업은 즉시 수행하지 않고 큐에 맡김
-                console.log('[LLM Response Processor] Auto-update enabled -> deferring file ops to queue');
+                // autoUpdateEnabled=true: 파일 작업을 즉시 실행
+                console.log('[LLM Response Processor] Auto-update enabled -> executing file operations immediately');
 
-                // 처리된 파일 작업을 큐에 추가
+                // 처리된 파일 작업을 즉시 실행
                 if (processedFileOperations.length > 0) {
-                    statusCallback?.('Adding processed files to queue...');
-                    safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Adding processed files to queue...' });
+                    statusCallback?.('Executing file operations immediately...');
+                    safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing file operations immediately...' });
+
+                    // 파일 작업 즉시 실행
+                    for (let i = 0; i < processedFileOperations.length; i++) {
+                        const operation = processedFileOperations[i];
+                        statusCallback?.(`Executing file operation ${i + 1}/${processedFileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
+                        safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: `Executing file operation ${i + 1}/${processedFileOperations.length}: ${operation.llmSpecifiedPath}` });
+
+                        try {
+                            const fileNameForDisplay = operation.llmSpecifiedPath.split('/').pop() || operation.llmSpecifiedPath;
+                            const fileUri = vscode.Uri.file(operation.absolutePath);
+
+                            if (operation.type === 'create' || operation.type === 'modify') {
+                                console.log(`[LLM Response Processor] Creating/updating file: ${operation.absolutePath}`);
+                                await vscode.workspace.fs.writeFile(fileUri, Buffer.from(operation.newContent || '', 'utf8'));
+
+                                const operationTypeText = operation.type === 'create' ? '생성' : '업데이트';
+                                const successMsg = `✅ 파일이 자동으로 ${operationTypeText}되었습니다: ${fileNameForDisplay}`;
+                                this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
+                                updateSummaryMessages.push(successMsg);
+                            } else if (operation.type === 'delete') {
+                                console.log(`[LLM Response Processor] Deleting file: ${operation.absolutePath}`);
+                                await vscode.workspace.fs.delete(fileUri);
+
+                                const successMsg = `✅ 파일이 자동으로 삭제되었습니다: ${fileNameForDisplay}`;
+                                this.notificationService.showInfoMessage(`aidev-ide: ${successMsg}`);
+                                updateSummaryMessages.push(successMsg);
+                            }
+                        } catch (err: any) {
+                            const operationTypeText = operation.type === 'create' ? '생성' : operation.type === 'modify' ? '업데이트' : '삭제';
+                            const errorMsg = `❌ 파일 자동 ${operationTypeText} 실패 (${operation.llmSpecifiedPath}): ${err.message}`;
+                            console.error(`[LLM Response Processor] 파일 작업 실패 - 경로: ${operation.absolutePath}, 오류:`, err);
+                            this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
+                            updateSummaryMessages.push(errorMsg);
+                        }
+                    }
                 }
+            }
+
+            // autoUpdateEnabled=true이고 자동 실행이 활성화된 경우 bash 명령어 즉시 실행
+            const autoExecuteEnabled = await this.configurationService.isAutoExecuteCommandsEnabled();
+            if (autoUpdateEnabled && autoExecuteEnabled && hasBashCommands(llmResponse)) {
+                statusCallback?.('Executing bash commands immediately...');
+                safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
+                
+                // Run 버튼 실행 상태 표시 (자동 실행 시)
+                safePostMessage(webview, { command: 'showRunExecution', status: 'Executing commands...' });
+                
+                // 개별 callout 박스에 executing 상태 표시
+                safePostMessage(webview, { command: 'showCalloutExecuting', status: 'Executing commands...' });
+
+                try {
+                    console.log('[LLM Response Processor] Bash 명령어 자동 실행 시작');
+                    const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
+                    if (executedCommands.length > 0) {
+                        console.log(`[LLM Response Processor] ${executedCommands.length}개 명령어를 큐에 적재했습니다:`, executedCommands);
+                        statusCallback?.(`Found ${executedCommands.length} bash commands`);
+                        const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                        
+                        // 명령어 실행 완료 후 Run 버튼 실행 상태 숨기기
+                        setTimeout(() => {
+                            safePostMessage(webview, { command: 'hideRunExecution' });
+                            safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                        }, 2000); // 2초 후 숨김
+                    } else {
+                        console.log('[LLM Response Processor] 실행할 bash 명령어가 없습니다');
+                        // 명령어가 없는 경우 즉시 숨김
+                        safePostMessage(webview, { command: 'hideRunExecution' });
+                        safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                    }
+                } catch (error: any) {
+                    console.error('[LLM Response Processor] Bash command execution error:', error);
+                    const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                }
+            } else if (autoUpdateEnabled && !autoExecuteEnabled && hasBashCommands(llmResponse)) {
+                // 자동 실행이 비활성화된 경우 사용자에게 알림
+                const infoMessage = `\n\nℹ️ 명령어 자동 실행이 비활성화되어 있습니다. 설정에서 "명령어 자동 실행"을 활성화하거나 수동으로 실행해주세요.`;
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
             }
 
             // 파일 작업 결과를 추가로 채팅창에 표시
@@ -875,8 +986,8 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: updateResultMessage });
             }
 
-            // 파일 작업 자동 적용 모드라면: 직접 파일 작업을 수행하지 않고, 큐에 적재하여 순차 실행 보장
-            if (autoUpdateEnabled) {
+            // autoUpdateEnabled=false일 때만 큐에 추가 (이미 위에서 즉시 실행했으므로)
+            if (!autoUpdateEnabled) {
                 try {
                     // 처리된 파일 작업을 큐에 추가
                     const fileOpTokens = buildFileOpTokens(processedFileOperations.map(op => ({
@@ -928,18 +1039,24 @@ export class LlmResponseProcessor {
 
             // Bash 명령어 실행 처리
             if (hasBashCommands(llmResponse)) {
-                statusCallback?.('Parsing bash commands...');
-                try {
-                    const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
-                    if (executedCommands.length > 0) {
-                        statusCallback?.(`Found ${executedCommands.length} bash commands`);
-                        const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                const autoExecuteEnabled = await this.configurationService.isAutoExecuteCommandsEnabled();
+                if (autoExecuteEnabled) {
+                    statusCallback?.('Parsing bash commands...');
+                    try {
+                        const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
+                        if (executedCommands.length > 0) {
+                            statusCallback?.(`Found ${executedCommands.length} bash commands`);
+                            const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                        }
+                    } catch (error: any) {
+                        console.error('[LLM Response Processor] Bash command execution error:', error);
+                        const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                     }
-                } catch (error: any) {
-                    console.error('[LLM Response Processor] Bash command execution error:', error);
-                    const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                } else {
+                    const infoMessage = `\n\nℹ️ 명령어 자동 실행이 비활성화되어 있습니다. 설정에서 "명령어 자동 실행"을 활성화하거나 수동으로 실행해주세요.`;
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
                 }
             }
 
@@ -959,16 +1076,22 @@ export class LlmResponseProcessor {
 
             // Bash 명령어 실행 처리
             if (hasBashCommands(llmResponse)) {
-                try {
-                    const executedCommands = executeBashCommandsFromLlmResponse(llmResponse);
-                    if (executedCommands.length > 0) {
-                        const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                const autoExecuteEnabled = await this.configurationService.isAutoExecuteCommandsEnabled();
+                if (autoExecuteEnabled) {
+                    try {
+                        const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
+                        if (executedCommands.length > 0) {
+                            const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                        }
+                    } catch (error: any) {
+                        console.error('[LLM Response Processor] Bash command execution error:', error);
+                        const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
                     }
-                } catch (error: any) {
-                    console.error('[LLM Response Processor] Bash command execution error:', error);
-                    const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                } else {
+                    const infoMessage = `\n\nℹ️ 명령어 자동 실행이 비활성화되어 있습니다. 설정에서 "명령어 자동 실행"을 활성화하거나 수동으로 실행해주세요.`;
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
                 }
             }
 
@@ -1046,11 +1169,70 @@ export class LlmResponseProcessor {
         return response.replace(/(새 파일|수정 파일|삭제 파일):[\s\S]*?(?=\n{2,}|$)/g, '').trim();
     }
 
-    private normalizeTerminalCommandBlocks(response: string): string {
-        const hasMarkedBlock = /```bash[\s\S]*?```/.test(response);
-        if (hasMarkedBlock) {
-            return response;
+    private normalizeTerminalCommandBlocks(response: string, isGPTOSS: boolean = false, isDeepSeek: boolean = false, isStandardModel: boolean = false): string {
+        console.log(`[LlmResponseProcessor] normalizeTerminalCommandBlocks - GPT-OSS: ${isGPTOSS}, DeepSeek: ${isDeepSeek}, 표준모델: ${isStandardModel}`);
+
+        if (isGPTOSS) {
+            // GPT-OSS 모델용 터미널 명령어 정규화 (더 엄격한 처리)
+            const hasMarkedBlock = /```bash[\s\S]*?```/.test(response);
+            if (hasMarkedBlock) {
+                console.log('[LlmResponseProcessor] GPT-OSS: 터미널 명령어 블록 감지됨');
+                return response;
+            }
+
+            // GPT-OSS 모델의 경우 더 정확한 bash 블록 감지
+            const bashBlockRegex = /```(?:bash|sh|shell)\s*\n([\s\S]*?)\n```/g;
+            if (bashBlockRegex.test(response)) {
+                console.log('[LlmResponseProcessor] GPT-OSS: 정확한 bash 블록 감지됨');
+                return response;
+            }
+        } else if (isDeepSeek) {
+            // DeepSeek 모델용 터미널 명령어 정규화 (더 유연한 처리)
+            const hasMarkedBlock = /```bash[\s\S]*?```/.test(response);
+            if (hasMarkedBlock) {
+                console.log('[LlmResponseProcessor] DeepSeek: 터미널 명령어 블록 감지됨');
+                return response;
+            }
+
+            // DeepSeek 모델의 경우 다양한 터미널 블록 형식 지원
+            const terminalBlockRegex = /```(?:bash|sh|shell|terminal|cmd|powershell)\s*\n([\s\S]*?)\n```/g;
+            if (terminalBlockRegex.test(response)) {
+                console.log('[LlmResponseProcessor] DeepSeek: 터미널 블록 감지됨');
+                return response;
+            }
+        } else if (isStandardModel) {
+            // 표준 모델들 (glm, kimi, qwen3, gemini, gemma3)용 터미널 명령어 정규화
+            const hasMarkedBlock = /```bash[\s\S]*?```/.test(response);
+            if (hasMarkedBlock) {
+                console.log('[LlmResponseProcessor] 표준모델: 터미널 명령어 블록 감지됨');
+                return response;
+            }
+
+            // 표준 모델들의 경우 표준 bash 블록 형식 지원
+            const standardBashRegex = /```(?:bash|sh|shell)\s*\n([\s\S]*?)\n```/g;
+            if (standardBashRegex.test(response)) {
+                console.log('[LlmResponseProcessor] 표준모델: 표준 bash 블록 감지됨');
+                return response;
+            }
+        } else {
+            // 기본 처리 (기존 로직 유지)
+            const hasMarkedBlock = /```bash[\s\S]*?```/.test(response);
+            if (hasMarkedBlock) {
+                return response;
+            }
+            const commandPatterns = /(npm\s+(install|run\s+\w+)|yarn\s+\w+|pnpm\s+\w+|bun\s+\w+)/gi;
+            let normalized = response;
+            normalized = normalized.replace(commandPatterns, (match) => {
+                return `
+\`\`\`bash
+${match.trim()}
+\`\`\`
+`.trim();
+            });
+            return normalized;
         }
+
+        // 모든 모델에 공통으로 적용되는 기본 처리
         const commandPatterns = /(npm\s+(install|run\s+\w+)|yarn\s+\w+|pnpm\s+\w+|bun\s+\w+)/gi;
         let normalized = response;
         normalized = normalized.replace(commandPatterns, (match) => {

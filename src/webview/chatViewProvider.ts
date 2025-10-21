@@ -161,6 +161,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     this.llmService.cancelCurrentCall();
                     webviewView.webview.postMessage({ command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
                     break;
+                case 'cancelAutoCorrection':
+                    console.log('[Extension Host] Received cancelAutoCorrection command.');
+                    // 터미널 모니터링 서비스에서 자동 오류 수정 중지
+                    const { TerminalMonitorService } = await import('../ai/terminalMonitorService');
+                    // 전역 터미널 모니터링 서비스 인스턴스를 통해 중지
+                    if ((globalThis as any).terminalMonitorService) {
+                        (globalThis as any).terminalMonitorService.stopErrorCorrection();
+                    }
+                    webviewView.webview.postMessage({
+                        command: 'hideAutoCorrecting',
+                        message: '자동 오류 수정이 중단되었습니다.'
+                    });
+                    break;
+                case 'stopCommandExecution':
+                    console.log('[Extension Host] Received stopCommandExecution command.');
+                    // 명령어 실행 중지
+                    if ((globalThis as any).terminalMonitorService) {
+                        (globalThis as any).terminalMonitorService.stopCommandExecution();
+                    }
+                    webviewView.webview.postMessage({
+                        command: 'hideAutoCorrecting',
+                        message: '명령어 실행이 중단되었습니다.'
+                    });
+                    break;
                 case 'openFilePicker':
                     console.log('[Extension Host] Opening file picker...');
                     this.openFilePicker(webviewView.webview);
@@ -177,6 +201,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             command: 'receiveMessage',
                             sender: 'AIDEV-IDE',
                             text: '대화기록이 삭제되었습니다.'
+                        });
+                        // React 컴포넌트에도 메시지 초기화 신호 전송
+                        webviewView.webview.postMessage({
+                            command: 'clearHistory'
                         });
                     } catch (error) {
                         console.error('[ChatViewProvider] Failed to clear history:', error);
@@ -307,21 +335,69 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     private async executeBashCommands(commands: string[]): Promise<void> {
         try {
-            // console.log('[ChatViewProvider] executeBashCommands called with:', commands);
+            console.log('[ChatViewProvider] executeBashCommands called with:', commands);
 
             if (!commands || commands.length === 0) {
-                // console.log('[ChatViewProvider] No commands to execute');
+                console.log('[ChatViewProvider] No commands to execute');
                 return;
             }
 
-            // console.log('[ChatViewProvider] Creating new terminal...');
-            // 새로운 터미널 생성
-            const terminal = vscode.window.createTerminal({
-                name: 'AIDEV-IDE Bash Commands',
-                shellPath: '/bin/bash'
+            // 실행 상태 표시
+            this._view?.webview.postMessage({
+                command: 'showRunExecution',
+                status: 'Executing commands...'
             });
 
-            // console.log('[ChatViewProvider] Terminal created, showing...');
+            // LlmService에서 OS 정보 가져오기
+            const userOS = this.llmService.getUserOS().toLowerCase();
+            console.log('[ChatViewProvider] Detected user OS:', userOS);
+
+            // OS별 적절한 셸 선택
+            let shellPath: string;
+            let terminalName: string;
+
+            if (userOS === 'windows') {
+                shellPath = 'powershell.exe';
+                terminalName = '🚀 AIDEV-IDE PowerShell Commands';
+            } else if (userOS === 'macos') {
+                shellPath = '/bin/bash';
+                terminalName = '🚀 AIDEV-IDE Bash Commands';
+            } else if (userOS === 'linux') {
+                shellPath = '/bin/bash';
+                terminalName = '🚀 AIDEV-IDE Bash Commands';
+            } else {
+                // 기본값 (unknown OS)
+                shellPath = process.platform === 'win32' ? 'powershell.exe' : '/bin/bash';
+                terminalName = process.platform === 'win32' ? '🚀 AIDEV-IDE PowerShell Commands' : '🚀 AIDEV-IDE Bash Commands';
+            }
+
+            // 프로젝트 루트 경로 가져오기
+            const projectRoot = await this.configurationService.getProjectRoot();
+            let terminalCwd: string | undefined;
+
+            if (projectRoot) {
+                terminalCwd = projectRoot;
+                console.log('[ChatViewProvider] Using configured project root for terminal:', terminalCwd);
+            } else {
+                // 워크스페이스 루트 사용
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (workspaceFolders && workspaceFolders.length > 0) {
+                    terminalCwd = workspaceFolders[0].uri.fsPath;
+                    console.log('[ChatViewProvider] Using workspace root for terminal:', terminalCwd);
+                } else {
+                    console.log('[ChatViewProvider] No project root or workspace found, using current directory');
+                }
+            }
+
+            console.log('[ChatViewProvider] Creating new terminal with shell:', shellPath, 'cwd:', terminalCwd);
+            // 새로운 터미널 생성
+            const terminal = vscode.window.createTerminal({
+                name: terminalName,
+                shellPath: shellPath,
+                cwd: terminalCwd // 설정된 프로젝트 루트 또는 워크스페이스 루트 사용
+            });
+
+            console.log('[ChatViewProvider] Terminal created, showing...');
             // 터미널을 활성화하고 명령어들을 순차적으로 실행
             terminal.show();
 
@@ -331,25 +407,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // 각 명령어를 실행
             for (let i = 0; i < commands.length; i++) {
                 const command = commands[i];
-                // console.log(`[ChatViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
+                console.log(`[ChatViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
 
                 // 첫 번째 명령어는 즉시 실행, 나머지는 약간의 지연 후 실행
                 if (i === 0) {
                     terminal.sendText(command);
-                    // console.log(`[ChatViewProvider] Sent first command: ${command}`);
+                    console.log(`[ChatViewProvider] Sent first command: ${command}`);
                 } else {
                     setTimeout(() => {
                         terminal.sendText(command);
-                        // console.log(`[ChatViewProvider] Sent delayed command: ${command}`);
+                        console.log(`[ChatViewProvider] Sent delayed command: ${command}`);
                     }, i * 500); // 500ms 간격으로 실행
                 }
             }
 
-            // console.log(`[ChatViewProvider] Successfully executed ${commands.length} bash commands`);
+            console.log(`[ChatViewProvider] Successfully executed ${commands.length} commands`);
+
+            // 실행 완료 후 상태 숨기기
+            setTimeout(() => {
+                this._view?.webview.postMessage({
+                    command: 'hideRunExecution'
+                });
+            }, 2000); // 2초 후 숨김
 
         } catch (error) {
-            console.error('[ChatViewProvider] Error executing bash commands:', error);
-            this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');
+            console.error('[ChatViewProvider] Error executing commands:', error);
+            
+            // 오류 발생 시에도 상태 숨기기
+            this._view?.webview.postMessage({
+                command: 'hideRunExecution'
+            });
+            this.notificationService.showErrorMessage('명령어 실행 중 오류가 발생했습니다.');
         }
     }
 }

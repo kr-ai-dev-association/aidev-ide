@@ -691,8 +691,8 @@ function showLoading() {
     thinkingBubbleElement = messageContainer; // 엘리먼트 참조 저장
 
     // 로딩 애니메이션이 보일 때 Clear 버튼 비활성화, Cancel 버튼 활성화
-    if (cleanHistoryButton) {
-        cleanHistoryButton.disabled = true;
+    if (clearHistoryButton) {
+        clearHistoryButton.disabled = true;
     }
     if (cancelButton) {
         cancelButton.disabled = false;
@@ -744,8 +744,8 @@ function hideLoading() {
         thinkingBubbleElement = null;
     }
     // 로딩 애니메이션이 사라질 때 Clear 버튼 활성화, Cancel 버튼 비활성화
-    if (cleanHistoryButton) {
-        cleanHistoryButton.disabled = false;
+    if (clearHistoryButton) {
+        clearHistoryButton.disabled = false;
     }
     if (cancelButton) {
         cancelButton.disabled = true;

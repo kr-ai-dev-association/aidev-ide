@@ -2,6 +2,30 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.5.0 (2025/10/21) - Auto Command Execution & Individual Callout Execution Status
+
+<details>
+<summary>🎯 Auto Command Execution Feature & Individual Callout Execution Status Display</summary>
+
+### Added
+- **Auto Command Execution Toggle**: Enable/disable automatic execution of bash/powershell/cmd commands from LLM responses in settings
+- **Individual Callout Execution Status Display**: Each shell script callout box displays its own independent "Executing..." animation
+- **Global Display for Auto Execution**: When auto command execution is enabled, all callout boxes show executing status
+- **Settings Registration Complete**: `aidevIde.autoExecuteCommands` setting is now properly registered in package.json
+
+### Improved
+- **Real-time Status Display**: Shows "Executing commands..." status in real-time during auto execution
+- **Visual Distinction**: Clear separation between Auto Correcting and Run button execution status
+- **Global Settings Support**: Saved as user global settings for consistent behavior across all workspaces
+- **Real-time Settings Reflection**: Dynamic settings system that applies changes immediately
+
+### Fixed
+- **Settings Save Issue Resolved**: Fixed "Unable to write to User Settings because aidevIde.autoExecuteCommands is not a registered configuration" error
+- **Individual Run Button Click**: Only the specific callout box shows executing status when Run button is clicked
+- **Auto Execution Disabled**: Shows user notification for manual execution when auto execution is disabled
+
+</details>
+
 ## 🚀 Version 4.4.1 (2025/10/20) - Executing Commands Step & Stability
 
 <details>

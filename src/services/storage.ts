@@ -435,6 +435,11 @@ export class StorageService {
         await this.secretStorage.store('aidev-ide.autoUpdateEnabled', enabled.toString());
     }
 
+    async getAutoUpdateEnabled(): Promise<boolean> {
+        const enabled = await this.secretStorage.get('aidev-ide.autoUpdateEnabled');
+        return enabled === 'true';
+    }
+
     async saveAiModel(model: string): Promise<void> {
         await this.secretStorage.store('aidev-ide.aiModel', model);
     }
@@ -442,6 +447,15 @@ export class StorageService {
     async getAiModel(): Promise<string> {
         const model = await this.secretStorage.get('aidev-ide.aiModel');
         return model || 'gemini';
+    }
+
+    async saveLanguage(language: string): Promise<void> {
+        await this.secretStorage.store('aidev-ide.language', language);
+    }
+
+    async getLanguage(): Promise<string> {
+        const language = await this.secretStorage.get('aidev-ide.language');
+        return language || 'ko';
     }
 }
 

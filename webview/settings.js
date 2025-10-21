@@ -17,6 +17,9 @@ const errorRetrySpinner = document.getElementById('error-retry-spinner');
 const errorRetryStatus = document.getElementById('error-retry-status');
 const autoCorrectionToggle = document.getElementById('auto-correction-toggle');
 const autoCorrectionStatus = document.getElementById('auto-correction-status');
+
+const autoExecuteToggle = document.getElementById('auto-execute-toggle');
+const autoExecuteStatus = document.getElementById('auto-execute-status');
 // 자동 오류 수정 토글
 if (autoCorrectionToggle) {
     autoCorrectionToggle.addEventListener('change', () => {
@@ -31,6 +34,20 @@ if (autoCorrectionToggle) {
         }
         if (vscode) {
             vscode.postMessage({ command: 'setAutoCorrectionEnabled', enabled });
+        }
+    });
+}
+
+// 명령어 자동 실행 토글
+if (autoExecuteToggle) {
+    autoExecuteToggle.addEventListener('change', () => {
+        const enabled = autoExecuteToggle.checked;
+        // console.log('[Settings] autoExecuteToggle changed ->', enabled);
+        if (autoExecuteStatus) {
+            autoExecuteStatus.textContent = enabled ? (languageData['autoExecuteOn'] || '명령어 자동 실행: 켜짐') : (languageData['autoExecuteOff'] || '명령어 자동 실행: 꺼짐');
+        }
+        if (vscode) {
+            vscode.postMessage({ command: 'setAutoExecuteCommandsEnabled', enabled });
         }
     });
 }
@@ -118,6 +135,7 @@ const remoteOllamaSettingsSection = document.getElementById('remote-ollama-setti
 // 시리얼 번호 검증 상태 추적
 let isLicenseVerified = false;
 let storedOllamaModel = null; // 저장된 Ollama 모델 값
+let currentSettingsOllamaModel = null; // currentSettings에서 받은 Ollama 모델 값
 
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
@@ -976,8 +994,11 @@ if (languageSelect) {
         const lang = e.target.value;
         console.log('Language changed to:', lang);
 
-        // 언어 데이터 로드 요청 (저장 요청 제거)
+        // 언어 데이터 로드 요청
         loadLanguage(lang);
+
+        // 언어 저장 요청
+        vscode.postMessage({ command: 'saveLanguage', language: lang });
 
         // 임시로 현재 언어 업데이트 (UI 반응성 향상)
         currentLanguage = lang;
@@ -1025,19 +1046,7 @@ if (saveLanguageButton) {
     });
 }
 
-// 페이지 로드 시 기본 언어 적용
-window.addEventListener('DOMContentLoaded', () => {
-    // VS Code 설정에서 언어를 가져오도록 요청
-    vscode.postMessage({ command: 'getLanguage' });
-
-    // 기본 언어 데이터 로드 (한국어)
-    loadLanguage('ko');
-
-    // 라이센스 입력 필드 초기 상태 설정
-    if (banyaLicenseSerialInput) {
-        banyaLicenseSerialInput.readOnly = false; // 초기에는 편집 가능
-    }
-});
+// 페이지 로드 시 기본 언어 적용 (제거 - 중복 방지)
 
 
 // UI 업데이트 함수 (프로젝트 Root)
@@ -1558,6 +1567,7 @@ window.addEventListener('message', event => {
     const message = event.data;
     switch (message.command) {
         case 'ollamaModels': {
+            // console.log('[Settings] Received ollamaModels message:', message);
             const sel = document.getElementById('ollama-model-select');
             if (sel) {
                 // 현재 선택된 모델 저장
@@ -1579,27 +1589,31 @@ window.addEventListener('message', event => {
                 // console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
 
                 // 저장된 모델 값이 있으면 우선 적용, 없으면 기존 모델 유지
-                console.log('[Settings] Applying Ollama model - storedOllamaModel:', storedOllamaModel, 'currentModel:', currentModel);
-                if (storedOllamaModel && storedOllamaModel !== '') {
+                // console.log('[Settings] Applying Ollama model - storedOllamaModel:', storedOllamaModel, 'currentSettingsOllamaModel:', currentSettingsOllamaModel, 'currentModel:', currentModel);
+
+                // currentSettings에서 받은 모델을 우선적으로 사용
+                const modelToApply = currentSettingsOllamaModel || storedOllamaModel;
+                if (modelToApply && modelToApply !== '') {
                     const options = Array.from(sel.options).map(o => o.value);
-                    console.log('[Settings] Available options:', options);
-                    if (options.includes(storedOllamaModel)) {
-                        sel.value = storedOllamaModel;
-                        console.log('[Settings] Applied stored model:', storedOllamaModel);
+                    // console.log('[Settings] Available options:', options);
+                    if (options.includes(modelToApply)) {
+                        sel.value = modelToApply;
+                        // console.log('[Settings] Applied model:', modelToApply);
                     } else {
                         // 목록에 없다면 앞에 추가
                         const opt = document.createElement('option');
-                        opt.value = storedOllamaModel;
-                        opt.textContent = storedOllamaModel;
+                        opt.value = modelToApply;
+                        opt.textContent = modelToApply;
                         sel.insertBefore(opt, sel.firstChild);
-                        sel.value = storedOllamaModel;
-                        console.log('[Settings] Added and applied stored model:', storedOllamaModel);
+                        sel.value = modelToApply;
+                        // console.log('[Settings] Added and applied model:', modelToApply);
                     }
                     // 적용 후 저장된 값 초기화
                     storedOllamaModel = null;
+                    currentSettingsOllamaModel = null;
                 } else if (currentModel && currentModel !== '') {
                     sel.value = currentModel;
-                    console.log('[Settings] Applied current model:', currentModel);
+                    // console.log('[Settings] Applied current model:', currentModel);
                 }
             }
 
@@ -1608,7 +1622,50 @@ window.addEventListener('message', event => {
             break;
         }
         case 'currentSettings':
-            // console.log('Received currentSettings:', message);
+            // console.log('[Settings] Received currentSettings message:', message);
+            // console.log('[Settings] message.ollamaModel:', message.ollamaModel);
+
+            // 언어 설정 처리
+            if (message.language && languageSelect) {
+                // console.log('[Settings] Setting language from currentSettings:', message.language);
+                languageSelect.value = message.language;
+                currentLanguage = message.language;
+                loadLanguage(message.language);
+            }
+
+            // 프로젝트 루트 설정 처리
+            if (typeof message.projectRoot === 'string') {
+                updateProjectRootDisplay(message.projectRoot);
+            }
+
+            // Ollama 모델 설정 처리
+            if (message.ollamaModel && message.ollamaModel !== '') {
+                // console.log('[Settings] Storing Ollama model from currentSettings:', message.ollamaModel);
+                storedOllamaModel = message.ollamaModel;
+                currentSettingsOllamaModel = message.ollamaModel;
+
+                // 이미 Ollama 모델 목록이 로드되었다면 즉시 적용
+                const sel = document.getElementById('ollama-model-select');
+                if (sel && sel.options.length > 1) { // 기본 옵션 외에 다른 옵션이 있다면
+                    // console.log('[Settings] Applying stored model immediately:', message.ollamaModel);
+                    const options = Array.from(sel.options).map(o => o.value);
+                    if (options.includes(message.ollamaModel)) {
+                        sel.value = message.ollamaModel;
+                        // console.log('[Settings] Applied stored model immediately:', message.ollamaModel);
+                    } else {
+                        // 목록에 없다면 앞에 추가
+                        const opt = document.createElement('option');
+                        opt.value = message.ollamaModel;
+                        opt.textContent = message.ollamaModel;
+                        sel.insertBefore(opt, sel.firstChild);
+                        sel.value = message.ollamaModel;
+                        // console.log('[Settings] Added and applied stored model immediately:', message.ollamaModel);
+                    }
+                    // 적용 후 저장된 값 초기화
+                    storedOllamaModel = null;
+                    currentSettingsOllamaModel = null;
+                }
+            }
             if (typeof message.autoUpdateEnabled === 'boolean' && autoUpdateToggle) {
                 autoUpdateToggle.checked = message.autoUpdateEnabled;
                 const autoUpdateChangedText = languageData['autoUpdateChanged'] || '자동 업데이트';
@@ -1635,6 +1692,14 @@ window.addEventListener('message', event => {
                 const statusText = `${errorRetryStatusText} ${message.errorRetryCount}${timesText}`;
                 showStatus(errorRetryStatus, statusText, 'success');
                 errorRetryStatus.textContent = statusText;
+            }
+            if (typeof message.autoExecuteCommandsEnabled === 'boolean' && autoExecuteToggle) {
+                autoExecuteToggle.checked = message.autoExecuteCommandsEnabled;
+                const autoExecuteOnText = languageData['autoExecuteOn'] || '명령어 자동 실행: 켜짐';
+                const autoExecuteOffText = languageData['autoExecuteOff'] || '명령어 자동 실행: 꺼짐';
+                const statusText = message.autoExecuteCommandsEnabled ? autoExecuteOnText : autoExecuteOffText;
+                showStatus(autoExecuteStatus, statusText, 'success');
+                autoExecuteStatus.textContent = statusText;
             }
             if (typeof message.autoCorrectionEnabled === 'boolean' && autoCorrectionToggle) {
                 autoCorrectionToggle.checked = message.autoCorrectionEnabled;
@@ -2000,14 +2065,35 @@ window.addEventListener('message', event => {
                     if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
                 }
             }
-            // Ollama 모델 상태 로드 - 저장된 모델 값을 전역 변수에 저장
-            if (typeof message.ollamaModel === 'string') {
+            // Ollama 모델 상태 로드 - 저장된 모델 값을 전역 변수에 저장하고 드롭다운에 적용
+            if (typeof message.ollamaModel === 'string' && message.ollamaModel !== '') {
                 storedOllamaModel = message.ollamaModel;
                 console.log('[Settings] Stored Ollama model:', storedOllamaModel);
+
+                // 드롭다운에 직접 적용
+                if (ollamaModelSelect && message.ollamaModel) {
+                    // 모델이 목록에 있는지 확인
+                    const existingOption = Array.from(ollamaModelSelect.options).find(option => option.value === message.ollamaModel);
+                    if (existingOption) {
+                        ollamaModelSelect.value = message.ollamaModel;
+                        console.log('[Settings] Applied Ollama model to dropdown:', message.ollamaModel);
+                    } else {
+                        // 목록에 없다면 추가
+                        const newOption = document.createElement('option');
+                        newOption.value = message.ollamaModel;
+                        newOption.textContent = message.ollamaModel;
+                        ollamaModelSelect.appendChild(newOption);
+                        ollamaModelSelect.value = message.ollamaModel;
+                        console.log('[Settings] Added and applied Ollama model to dropdown:', message.ollamaModel);
+                    }
+                }
+
                 const ollamaModelSetText = message.ollamaModel ?
                     `Ollama 모델이 설정되어 있습니다: ${message.ollamaModel}` :
                     'Ollama 모델이 설정되지 않았습니다.';
                 showStatus(ollamaModelStatus, ollamaModelSetText, message.ollamaModel ? 'success' : 'info');
+            } else {
+                console.log('[Settings] No valid ollamaModel in currentSettings message');
             }
             // Banya 라이센스 상태 로드
             if (banyaLicenseSerialInput && typeof message.banyaLicenseSerial === 'string') {
@@ -2235,6 +2321,11 @@ window.addEventListener('message', event => {
             }
             break;
         case 'languageSaved':
+            console.log('Language saved successfully:', message.language);
+            currentLanguage = message.language;
+            if (languageSelect) {
+                languageSelect.value = currentLanguage;
+            }
             const languageChangedText = languageData['languageChanged'] || '언어가';
             const languageChangedToText = languageData['languageChangedTo'] || '로 변경되었습니다.';
             showStatus(sourcePathStatus, `${languageChangedText} ${message.language} ${languageChangedToText}`, 'success');
@@ -2244,20 +2335,14 @@ window.addEventListener('message', event => {
             showStatus(sourcePathStatus, `${languageSaveErrorText} ${message.error}`, 'error');
             break;
         case 'currentLanguage':
+            // console.log('[Settings] Received currentLanguage message:', message.language);
             if (message.language) {
                 currentLanguage = message.language;
                 if (languageSelect) {
                     languageSelect.value = currentLanguage;
-                    // console.log('Set language select value to:', currentLanguage);
+                    console.log('[Settings] Set language select value to:', currentLanguage);
                 }
                 loadLanguage(currentLanguage);
-            }
-            break;
-        case 'languageSaved':
-            console.log('Language saved successfully:', message.language);
-            currentLanguage = message.language;
-            if (languageSelect) {
-                languageSelect.value = currentLanguage;
             }
             break;
         case 'languageSaveError':
@@ -2355,59 +2440,45 @@ window.addEventListener('message', event => {
     }
 });
 
-// Webview 로드 시 초기 설정값 요청
-document.addEventListener('DOMContentLoaded', () => {
-    vscode.postMessage({ command: 'initSettings' });
-    const settingsLoadingText = languageData['settingsLoading'] || '설정 로드 중...';
-    showStatus(sourcePathStatus, settingsLoadingText, 'info');
-    const autoUpdateLoadingText = languageData['autoUpdateLoading'] || '자동 업데이트 설정 로드 중...';
-    autoUpdateStatus.textContent = autoUpdateLoadingText;
-    const projectRootLoadingText = languageData['projectRootLoading'] || '프로젝트 Root 설정 로드 중...';
-    projectRootStatus.textContent = projectRootLoadingText;
+// Webview 로드 시 초기 설정값 요청 (제거 - 중복 방지)
+vscode.postMessage({ command: 'loadApiKeys' });
+vscode.postMessage({ command: 'loadAiModel' });
+vscode.postMessage({ command: 'loadOllamaModel' });
 
-    // API 키 상태 요청
-    // API 키 및 현재 AI 모델/설정 로드
-    vscode.postMessage({ command: 'loadApiKeys' });
-    vscode.postMessage({ command: 'loadAiModel' });
-    vscode.postMessage({ command: 'loadOllamaModel' });
+const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
+showStatus(weatherApiKeyStatus, apiKeysLoadingText, 'info');
+showStatus(newsApiKeyStatus, apiKeysLoadingText, 'info');
+showStatus(stockApiKeyStatus, apiKeysLoadingText, 'info');
+showStatus(geminiApiKeyStatus, apiKeysLoadingText, 'info');
+if (localOllamaApiUrlStatus) showStatus(localOllamaApiUrlStatus, apiKeysLoadingText, 'info');
+if (remoteOllamaApiUrlStatus) showStatus(remoteOllamaApiUrlStatus, apiKeysLoadingText, 'info');
+showStatus(banyaLicenseStatus, apiKeysLoadingText, 'info');
 
-    const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
-    showStatus(weatherApiKeyStatus, apiKeysLoadingText, 'info');
-    showStatus(newsApiKeyStatus, apiKeysLoadingText, 'info');
-    showStatus(stockApiKeyStatus, apiKeysLoadingText, 'info');
-    showStatus(geminiApiKeyStatus, apiKeysLoadingText, 'info');
-    const localOllamaApiUrlStatus = document.getElementById('local-ollama-api-url-status');
-    const remoteOllamaApiUrlStatus = document.getElementById('remote-ollama-api-url-status');
-    if (localOllamaApiUrlStatus) showStatus(localOllamaApiUrlStatus, apiKeysLoadingText, 'info');
-    if (remoteOllamaApiUrlStatus) showStatus(remoteOllamaApiUrlStatus, apiKeysLoadingText, 'info');
-    showStatus(banyaLicenseStatus, apiKeysLoadingText, 'info');
+// API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨
+// 여기서는 초기화만 하고, 실제 업데이트는 서버 응답 후에 수행
 
-    // API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨
-    // 여기서는 초기화만 하고, 실제 업데이트는 서버 응답 후에 수행
+// Ollama 모델 목록 불러오기
+loadOllamaModels();
 
-    // Ollama 모델 목록 불러오기
-    loadOllamaModels();
-
-    // 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
-    if (geminiSettingsSection) geminiSettingsSection.classList.remove('disabled');
-    // 초기 활성화 상태는 AI 모델과 서버 타입에 따라 결정
-    if (aiModelSelect && aiModelSelect.value === 'ollama') {
-        const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
-        if (serverType === 'remote') {
-            if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
-            if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
-        } else {
-            if (localOllamaSettingsSection) localOllamaSettingsSection.classList.remove('disabled');
-            if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
-        }
-    } else {
+// 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
+if (geminiSettingsSection) geminiSettingsSection.classList.remove('disabled');
+// 초기 활성화 상태는 AI 모델과 서버 타입에 따라 결정
+if (aiModelSelect && aiModelSelect.value === 'ollama') {
+    const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
+    if (serverType === 'remote') {
         if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+        if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
+    } else {
+        if (localOllamaSettingsSection) localOllamaSettingsSection.classList.remove('disabled');
         if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
     }
+} else {
+    if (localOllamaSettingsSection) localOllamaSettingsSection.classList.add('disabled');
+    if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.add('disabled');
+}
 
-    // 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
-    // isLicenseVerified는 서버에서 전송된 값으로 설정됨
-});
+// 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
+// isLicenseVerified는 서버에서 전송된 값으로 설정됨
 
 // Ollama 모델 목록을 확장 호스트에 요청하여 수신
 async function loadOllamaModels() {
@@ -2633,7 +2704,35 @@ function updateModelDownloadStatus(modelName, status, isDownloading) {
     }
 }
 
-// 페이지 로드 시 지원되는 모델 목록 로드
+// 페이지 로드 시 초기 설정 로드
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[Settings] DOMContentLoaded - Starting initial load sequence');
+
+    // 1. 언어 설정 로드
+    vscode.postMessage({ command: 'getLanguage' });
+
+    // 2. 기본 언어 데이터 로드 (한국어)
+    loadLanguage('ko');
+
+    // 3. 전체 설정 로드
+    vscode.postMessage({ command: 'getCurrentSettings' });
+
+    // 4. API 키 로드
+    vscode.postMessage({ command: 'loadApiKeys' });
+
+    // 5. AI 모델 로드
+    vscode.postMessage({ command: 'loadAiModel' });
+
+    // 6. Ollama 모델 로드
+    vscode.postMessage({ command: 'loadOllamaModel' });
+
+    // 7. 지원되는 모델 목록 로드
     loadSupportedModels();
+
+    // 8. 라이센스 입력 필드 초기 상태 설정
+    if (banyaLicenseSerialInput) {
+        banyaLicenseSerialInput.readOnly = false;
+    }
+
+    console.log('[Settings] DOMContentLoaded - Initial load sequence completed');
 });

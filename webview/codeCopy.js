@@ -43,6 +43,52 @@ function createRunButton() {
     return button;
 }
 
+// 개별 callout 박스에 executing 상태를 표시하는 함수
+function showCalloutExecutingState(button, codeElement) {
+    // callout 박스 찾기 (codeElement의 부모 요소)
+    const calloutBox = codeElement.closest('pre') || codeElement.closest('.code-block');
+    if (!calloutBox) return;
+
+    // executing 상태 표시 요소 생성
+    const executingIndicator = document.createElement('div');
+    executingIndicator.className = 'callout-executing-indicator';
+    executingIndicator.innerHTML = `
+        <div class="callout-executing-content">
+            <div class="callout-executing-spinner"></div>
+            <span class="callout-executing-text">Executing...</span>
+        </div>
+    `;
+
+    // 스타일 적용
+    executingIndicator.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 4px;
+    `;
+
+    // callout 박스를 relative positioning으로 설정
+    calloutBox.style.position = 'relative';
+    
+    // executing 상태 표시
+    calloutBox.appendChild(executingIndicator);
+
+    // 3초 후 자동으로 제거 (실제 실행 완료 시에는 다른 로직에서 제거)
+    setTimeout(() => {
+        if (executingIndicator.parentNode) {
+            executingIndicator.parentNode.removeChild(executingIndicator);
+        }
+    }, 3000);
+}
+
 // 명령어에서 인라인 주석을 제거하는 함수
 function removeInlineComment(command) {
     // 따옴표 안의 #은 주석이 아니므로 보호
@@ -116,6 +162,9 @@ function attachRunButtonListener(button, codeElement) {
             console.log('[codeCopy.js] No valid bash commands found');
             return;
         }
+
+        // 개별 callout 박스에 executing 상태 표시
+        showCalloutExecutingState(button, codeElement);
 
         // VS Code API를 통해 확장에 명령어 실행 요청
         if (vscode) {

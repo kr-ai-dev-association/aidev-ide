@@ -13,6 +13,7 @@ export class ConfigurationService {
     private readonly OUTPUT_LOG_ENABLED = 'outputLogEnabled';
     private readonly ERROR_RETRY_COUNT = 'errorRetryCount';
     private readonly AUTO_CORRECTION_ENABLED = 'autoCorrectionEnabled';
+    private readonly AUTO_EXECUTE_COMMANDS = 'autoExecuteCommands';
 
     constructor() { }
 
@@ -209,5 +210,24 @@ export class ConfigurationService {
         // 리소스 범위 설정은 워크스페이스에 저장하여 재로드 시 즉시 반영되도록 함
         console.log(`[ConfigurationService] Update autoCorrectionEnabled -> ${enabled} (Workspace)`);
         await config.update(this.AUTO_CORRECTION_ENABLED, enabled, vscode.ConfigurationTarget.Workspace);
+    }
+
+    /**
+     * 명령어 자동 실행 On/Off 상태를 읽습니다.
+     */
+    public async isAutoExecuteCommandsEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        const value = config.get<boolean>(this.AUTO_EXECUTE_COMMANDS) ?? true;
+        console.log(`[ConfigurationService] Read autoExecuteCommands: ${value}`);
+        return value;
+    }
+
+    /**
+     * 명령어 자동 실행 On/Off 상태를 저장합니다.
+     */
+    public async updateAutoExecuteCommandsEnabled(enabled: boolean): Promise<void> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        console.log(`[ConfigurationService] Update autoExecuteCommands -> ${enabled} (Global)`);
+        await config.update(this.AUTO_EXECUTE_COMMANDS, enabled, vscode.ConfigurationTarget.Global);
     }
 }

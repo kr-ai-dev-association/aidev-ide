@@ -48,6 +48,7 @@ export class TerminalMonitorService {
     private activeTerminals: Set<vscode.Terminal> = new Set();
     private monitoringInterval: NodeJS.Timeout | null = null;
     private lastTerminalCount: number = 0;
+    private isCommandExecutionStopped: boolean = false;
     private onErrorEmitter = new vscode.EventEmitter<TerminalErrorEvent>();
     private userOS: OperatingSystem;
     private outputLogEnabled: boolean = true;
@@ -447,6 +448,9 @@ ${osSpecificGuidelines}`;
 
             // Maven 관련 오류
             { pattern: 'BUILD FAILURE', severity: 'critical', description: 'Maven 빌드 실패' },
+            { pattern: 'No such file or directory', severity: 'high', description: '파일 또는 디렉토리를 찾을 수 없음' },
+            { pattern: 'command not found', severity: 'high', description: '명령어를 찾을 수 없음' },
+            { pattern: 'Permission denied', severity: 'medium', description: '권한 거부' },
             { pattern: 'Failed to execute goal', severity: 'critical', description: 'Maven 목표 실행 실패' },
             { pattern: 'MojoExecutionException', severity: 'critical', description: 'Maven 플러그인 실행 예외' },
             { pattern: 'MojoFailureException', severity: 'critical', description: 'Maven 플러그인 실행 실패' },
@@ -584,6 +588,34 @@ ${osSpecificGuidelines}`;
         const terminalName = source.includes(':') ? source.split(':')[0] : 'external';
 
         this.processTerminalOutput(terminalName, data);
+    }
+
+    /**
+     * 최근 실행된 명령어를 저장합니다.
+     */
+    public storeRecentCommand(terminalName: string, command: string): void {
+        console.log(`[TerminalMonitorService] 명령어 저장: ${terminalName} - ${command}`);
+
+        // 최근 명령어를 로그에 추가
+        const logEntry: LogEntry = {
+            timestamp: Date.now(),
+            level: 'info',
+            source: 'terminal',
+            message: command,
+            rawOutput: command
+        };
+
+        this.logEntries.push(logEntry);
+
+        // 최근 명령어 맵에 저장
+        this.recentCommands.set(`${terminalName}:${command}`, {
+            command,
+            errorOutput: '',
+            workingDirectory: '',
+            timestamp: Date.now(),
+            terminalName,
+            retryCount: 0
+        });
     }
 
     /**
@@ -725,14 +757,12 @@ ${osSpecificGuidelines}`;
             this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
         }
         const hasErr = this.checkForErrors(data);
-        // console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
+        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
 
         if (isErrorLike || hasErr) {
-            if (this.outputLogEnabled) {
-                console.log(`[TerminalMonitorService] Error detected, firing onError event`);
-                console.log(`[TerminalMonitorService] Error data: ${data}`);
-                console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
-            }
+            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
+            console.log(`[TerminalMonitorService] Error data: ${data}`);
+            console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
             // 에러가 감지되면 출력 채널 노출 (OUTPUT 로그가 활성화된 경우에만)
             if (this.outputLogEnabled) {
                 try { this.outputChannel.show(true); } catch { }
@@ -754,7 +784,10 @@ ${osSpecificGuidelines}`;
 
                 // 자동 오류 수정 시도
                 if (this.autoCorrectionEnabled && this.llmService) {
+                    console.log('[TerminalMonitorService] Attempting auto correction...');
                     this.attemptAutoCorrection(terminalName, data.trim(), recent);
+                } else {
+                    console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
                 }
             } catch (e) {
                 console.warn('[TerminalMonitorService] onError emit failed:', e);
@@ -800,6 +833,8 @@ ${osSpecificGuidelines}`;
     private checkForErrors(output: string): boolean {
         let hasErrors = false;
         const foundErrors: { pattern: string; severity: string; description: string }[] = [];
+
+        console.log(`[TerminalMonitorService] checkForErrors called with: "${output}"`);
 
         // pom.xml 관련 오류 감지
         if (this.isPomXmlError(output)) {
@@ -1294,10 +1329,14 @@ ${osSpecificGuidelines}`;
      * 최근 로그에서 명령어를 추출합니다.
      */
     private extractRecentCommand(recentLogs: LogEntry[]): string | null {
+        console.log(`[TerminalMonitorService] extractRecentCommand called with ${recentLogs.length} logs`);
+
         // 최근 로그에서 명령어 패턴 찾기
         for (let i = recentLogs.length - 1; i >= 0; i--) {
             const log = recentLogs[i];
             const message = log.message;
+
+            console.log(`[TerminalMonitorService] Checking log message: "${message}"`);
 
             // 일반적인 명령어 패턴들
             const commandPatterns = [
@@ -1312,15 +1351,58 @@ ${osSpecificGuidelines}`;
                 /^mkdir\s+/,
                 /^rm\s+/,
                 /^cp\s+/,
-                /^mv\s+/
+                /^mv\s+/,
+                /^\.\/\w+\.sh/,  // 스크립트 실행 명령어
+                /^\.\/\w+/,      // 실행 파일 실행
+                /^mvn\s+/,
+                /^gradle\s+/,
+                /^chmod\s+/,
+                /^ls\s*/,
+                /^pwd\s*/,
+                /^echo\s+/
             ];
 
             for (const pattern of commandPatterns) {
                 if (pattern.test(message)) {
+                    console.log(`[TerminalMonitorService] Found command: "${message.trim()}"`);
                     return message.trim();
                 }
             }
         }
+
+        // 로그에서 찾지 못한 경우, 저장된 명령어에서 찾기
+        console.log(`[TerminalMonitorService] No command found in logs, checking stored commands`);
+        console.log(`[TerminalMonitorService] Stored commands count: ${this.recentCommands.size}`);
+
+        // 가장 최근 명령어 찾기 (시간순으로 정렬)
+        const sortedCommands = Array.from(this.recentCommands.entries())
+            .sort((a, b) => b[1].timestamp - a[1].timestamp);
+
+        console.log(`[TerminalMonitorService] Sorted commands:`, sortedCommands.map(([key, ctx]) => `${key} (${Math.round((Date.now() - ctx.timestamp) / 1000)}초 전)`));
+
+        // 스크립트 실행 명령어 우선 찾기
+        for (const [key, context] of sortedCommands) {
+            const timeSinceCommand = Date.now() - context.timestamp;
+            if (timeSinceCommand < 30000) { // 30초 이내
+                const command = key.split(':').slice(1).join(':');
+                // 스크립트 실행 명령어 우선 선택
+                if (command.startsWith('./') || command.includes('.sh') || command.includes('mvn') || command.includes('gradle')) {
+                    console.log(`[TerminalMonitorService] Found script command: "${key}" (${Math.round(timeSinceCommand / 1000)}초 전)`);
+                    return command;
+                }
+            }
+        }
+
+        // 스크립트 명령어가 없으면 가장 최근 명령어 선택
+        for (const [key, context] of sortedCommands) {
+            const timeSinceCommand = Date.now() - context.timestamp;
+            if (timeSinceCommand < 30000) { // 30초 이내
+                console.log(`[TerminalMonitorService] Found stored command: "${key}" (${Math.round(timeSinceCommand / 1000)}초 전)`);
+                return key.split(':').slice(1).join(':'); // 터미널 이름 제거하고 명령어만 반환
+            }
+        }
+
+        console.log(`[TerminalMonitorService] No recent command found`);
         return null;
     }
 
@@ -1697,5 +1779,35 @@ ${errorContext}`;
     public async triggerErrorAnalysis(): Promise<void> {
         console.log('[TerminalMonitorService] 수동 오류 분석을 시작합니다.');
         await this.analyzeAndCorrectErrors();
+    }
+
+    /**
+     * 명령어 실행을 즉시 중지합니다.
+     */
+    public stopCommandExecution(): void {
+        this.isCommandExecutionStopped = true;
+        console.log('[TerminalMonitorService] 명령어 실행이 중지되었습니다.');
+        
+        // 활성 터미널들 종료
+        this.activeTerminals.forEach(terminal => {
+            if (terminal.exitStatus === undefined) {
+                terminal.sendText('\x03'); // Ctrl+C 전송
+            }
+        });
+    }
+
+    /**
+     * 명령어 실행 중지 상태를 확인합니다.
+     */
+    public isExecutionStopped(): boolean {
+        return this.isCommandExecutionStopped;
+    }
+
+    /**
+     * 명령어 실행 중지 상태를 리셋합니다.
+     */
+    public resetExecutionStop(): void {
+        this.isCommandExecutionStopped = false;
+        console.log('[TerminalMonitorService] 명령어 실행 중지 상태가 리셋되었습니다.');
     }
 }

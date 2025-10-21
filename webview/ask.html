@@ -1006,6 +1006,131 @@
         #file-picker-button:active {
             background-color: var(--vscode-button-secondary-activeBackground);
         }
+
+        .auto-correcting-close {
+            background: none;
+            border: none;
+            color: var(--vscode-button-foreground);
+            cursor: pointer;
+            padding: 4px;
+            margin-left: 8px;
+            border-radius: 4px;
+            font-size: 16px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            transition: background-color 0.2s;
+        }
+
+        .auto-correcting-close:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Run Button Execution Status Styles */
+        .run-execution-indicator {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: flex;
+            alignItems: center;
+            gap: 8px;
+            fontSize: 14px;
+            fontWeight: 500;
+            border: 1px solid var(--vscode-button-border);
+        }
+
+        .run-execution-indicator.hidden {
+            display: none;
+        }
+
+        .run-execution-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            gap: 8px;
+        }
+
+        .run-execution-close {
+            background: none;
+            border: none;
+            color: var(--vscode-button-foreground);
+            cursor: pointer;
+            padding: 4px;
+            margin-left: auto;
+            border-radius: 4px;
+            font-size: 16px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            transition: background-color 0.2s;
+            flex-shrink: 0;
+        }
+
+        .run-execution-close:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .run-execution-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--vscode-button-foreground);
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .run-execution-text {
+            white-space: nowrap;
+        }
+
+        /* Callout Executing Indicator Styles */
+        .callout-executing-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            border-radius: 4px;
+        }
+
+        .callout-executing-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .callout-executing-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .callout-executing-text {
+            font-size: 14px;
+            font-weight: 500;
+        }
     </style>
 </head>
 
@@ -1121,20 +1246,20 @@
         const { useState, useEffect, useRef } = React;
 
         // Auto Correcting Indicator Component
-        function AutoCorrectingIndicator() {
+        function RunExecutionIndicator() {
             const [isVisible, setIsVisible] = useState(false);
-            const [message, setMessage] = useState('Auto Correcting...');
+            const [message, setMessage] = useState('Executing...');
 
             useEffect(() => {
                 const handleMessage = (event) => {
                     const data = event.data;
-                    if (data.command === 'updateProcessingStatus' && data.step === 'error_correction') {
-                        if (data.status.includes('자동 오류 수정') || data.status.includes('오류 수정')) {
-                            setIsVisible(true);
-                            setMessage('Auto Correcting...');
-                        } else if (data.status.includes('완료') || data.status.includes('실패')) {
-                            setIsVisible(false);
-                        }
+                    if (data.command === 'showRunExecution') {
+                        // Run 버튼 실행 상태 표시
+                        setIsVisible(true);
+                        setMessage(data.status || 'Executing...');
+                    } else if (data.command === 'hideRunExecution') {
+                        // Run 버튼 실행 상태 숨김
+                        setIsVisible(false);
                     }
                 };
 
@@ -1145,7 +1270,7 @@
             if (!isVisible) return null;
 
             return React.createElement('div', {
-                className: 'auto-correcting-indicator',
+                className: 'run-execution-indicator',
                 style: {
                     position: 'fixed',
                     bottom: '80px',
@@ -1165,22 +1290,203 @@
                 }
             }, [
                 React.createElement('div', {
-                    key: 'spinner',
-                    className: 'auto-correcting-spinner',
+                    key: 'content',
+                    className: 'run-execution-content',
                     style: {
-                        width: '16px',
-                        height: '16px',
-                        border: '2px solid var(--vscode-button-foreground)',
-                        borderTop: '2px solid transparent',
-                        borderRadius: '50%',
-                        animation: 'spin 1s linear infinite'
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        gap: '8px'
                     }
-                }),
-                React.createElement('span', {
-                    key: 'text',
-                    style: { whiteSpace: 'nowrap' }
-                }, message)
+                }, [
+                    React.createElement('div', {
+                        key: 'left-content',
+                        style: {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }
+                    }, [
+                        React.createElement('div', {
+                            key: 'spinner',
+                            className: 'run-execution-spinner',
+                            style: {
+                                width: '16px',
+                                height: '16px',
+                                border: '2px solid var(--vscode-button-foreground)',
+                                borderTop: '2px solid transparent',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite'
+                            }
+                        }),
+                        React.createElement('span', {
+                            key: 'text',
+                            className: 'run-execution-text',
+                            style: { whiteSpace: 'nowrap' }
+                        }, message)
+                    ]),
+                    React.createElement('button', {
+                        key: 'close',
+                        className: 'run-execution-close',
+                        style: {
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--vscode-button-foreground)',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            marginLeft: 'auto',
+                            borderRadius: '4px',
+                            fontSize: '16px',
+                            lineHeight: '1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '20px',
+                            height: '20px',
+                            transition: 'background-color 0.2s',
+                            flexShrink: '0'
+                        },
+                        onClick: () => {
+                            setIsVisible(false);
+                            // 확장 프로그램에 명령어 실행 중지 신호 전송
+                            if (window.vscode) {
+                                window.vscode.postMessage({
+                                    command: 'stopCommandExecution'
+                                });
+                            }
+                        },
+                        title: '명령어 실행 중지'
+                    }, '×')
+                ])
             ]);
+        }
+
+        function AutoCorrectingIndicator() {
+            const [isVisible, setIsVisible] = useState(false);
+            const [message, setMessage] = useState('Auto Correcting...');
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    if (data.command === 'updateProcessingStatus' && data.step === 'error_correction') {
+                        if (data.status.includes('자동 오류 수정') || data.status.includes('오류 수정') || data.status.includes('터미널 오류 감지')) {
+                            setIsVisible(true);
+                            setMessage('Auto Correcting...');
+                        } else if (data.status.includes('완료') || data.status.includes('실패') || data.status.includes('수정 완료') || data.status.includes('수정 실패')) {
+                            setIsVisible(false);
+                        }
+                    } else if (data.command === 'hideLoading') {
+                        // hideLoading 메시지가 오면 자동 수정 완료로 간주
+                        setIsVisible(false);
+                    } else if (data.command === 'showErrorCorrectionSuccess' || data.command === 'showErrorCorrectionFailure') {
+                        // 오류 수정 성공/실패 메시지가 오면 자동 수정 완료로 간주
+                        setIsVisible(false);
+                    } else if (data.command === 'hideAutoCorrecting') {
+                        // 명시적으로 Auto Correcting 애니메이션 숨김
+                        setIsVisible(false);
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => window.removeEventListener('message', handleMessage);
+            }, []);
+
+            if (!isVisible) return null;
+
+            return React.createElement('div', {
+                className: 'auto-correcting-indicator',
+                style: {
+                    position: 'fixed',
+                    bottom: '250px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'var(--vscode-button-background)',
+                    color: 'var(--vscode-button-foreground)',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                    zIndex: 1000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    border: '1px solid var(--vscode-button-border)'
+                }
+            }, [
+                React.createElement('div', {
+                    key: 'content',
+                    style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        gap: '8px'
+                    }
+                }, [
+                    React.createElement('div', {
+                        key: 'left-content',
+                        style: {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }
+                    }, [
+                        React.createElement('div', {
+                            key: 'spinner',
+                            className: 'auto-correcting-spinner',
+                            style: {
+                                width: '16px',
+                                height: '16px',
+                                border: '2px solid var(--vscode-button-foreground)',
+                                borderTop: '2px solid transparent',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite'
+                            }
+                        }),
+                        React.createElement('span', {
+                            key: 'text',
+                            style: { whiteSpace: 'nowrap' }
+                        }, message)
+                    ]),
+                    React.createElement('button', {
+                        key: 'close',
+                        className: 'auto-correcting-close',
+                        style: {
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--vscode-button-foreground)',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            marginLeft: 'auto',
+                            borderRadius: '4px',
+                            fontSize: '16px',
+                            lineHeight: '1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '20px',
+                            height: '20px',
+                            transition: 'background-color 0.2s',
+                            flexShrink: '0'
+                        },
+                        onClick: () => {
+                            setIsVisible(false);
+                            // 확장 프로그램에 수동 중지 신호 전송
+                            if (window.vscode) {
+                                window.vscode.postMessage({
+                                    command: 'cancelAutoCorrection'
+                                });
+                                // 명령어 실행 중지 신호도 전송
+                                window.vscode.postMessage({
+                                    command: 'stopCommandExecution'
+                                });
+                            }
+                        },
+                        title: '자동 수정 중지'
+                    }, '×')
+                ]);
         }
 
         // Typing Animation Hook
@@ -1484,12 +1790,21 @@
                     } else if (data.command === 'hideLoading') {
                         console.log('[ReactApp] hideLoading received, hiding processing steps');
                         setProcessingStepsVisible(false);
+                    } else if (data.command === 'clearHistory') {
+                        console.log('[ReactApp] clearHistory received, clearing messages');
+                        setMessages([]);
                     } else if (data.command === 'showErrorCorrection') {
                         // 오류 수정 정보를 ProcessingSteps에 표시
                         const errorCorrectionStatus = `🔧 오류 수정 시도 ${data.retryCount}/3: ${data.originalCommand} → ${data.correctedCommand}`;
                         setSteps(prev => prev.map(s =>
                             s.step === 'error_correction' ? { ...s, status: errorCorrectionStatus } : s
                         ));
+                    } else if (data.command === 'showCalloutExecuting') {
+                        // 모든 callout 박스에 executing 상태 표시
+                        showAllCalloutExecuting();
+                    } else if (data.command === 'hideCalloutExecuting') {
+                        // 모든 callout 박스의 executing 상태 숨김
+                        hideAllCalloutExecuting();
                     }
                 };
 
@@ -1503,6 +1818,7 @@
             return React.createElement('div', {
                 style: { position: 'relative', width: '100%', height: '100%' }
             }, [
+                React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
                 processingStepsVisible && React.createElement(ProcessingSteps, { key: 'processing-steps' }),
                 React.createElement('div', {
@@ -1531,6 +1847,37 @@
             console.log('[React] React app rendered successfully');
         } else {
             console.error('[React] React container not found!');
+        }
+
+        // 모든 callout 박스에 executing 상태를 표시하는 함수
+        function showAllCalloutExecuting() {
+            const codeBlocks = document.querySelectorAll('pre code');
+            codeBlocks.forEach(codeElement => {
+                const calloutBox = codeElement.closest('pre') || codeElement.closest('.code-block');
+                if (calloutBox && !calloutBox.querySelector('.callout-executing-indicator')) {
+                    const executingIndicator = document.createElement('div');
+                    executingIndicator.className = 'callout-executing-indicator';
+                    executingIndicator.innerHTML = `
+                        <div class="callout-executing-content">
+                            <div class="callout-executing-spinner"></div>
+                            <span class="callout-executing-text">Executing...</span>
+                        </div>
+                    `;
+
+                    calloutBox.style.position = 'relative';
+                    calloutBox.appendChild(executingIndicator);
+                }
+            });
+        }
+
+        // 모든 callout 박스의 executing 상태를 숨기는 함수
+        function hideAllCalloutExecuting() {
+            const executingIndicators = document.querySelectorAll('.callout-executing-indicator');
+            executingIndicators.forEach(indicator => {
+                if (indicator.parentNode) {
+                    indicator.parentNode.removeChild(indicator);
+                }
+            });
         }
     </script>
 </body>

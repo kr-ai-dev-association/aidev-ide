@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "4.4.2",
+  "version": "4.5.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -231,6 +231,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic terminal error correction.",
+          "scope": "resource"
+        },
+        "aidevIde.autoExecuteCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
           "scope": "resource"
         }
       }

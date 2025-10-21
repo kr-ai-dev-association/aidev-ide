@@ -10,6 +10,7 @@ export class CodebaseContextService {
     private configurationService: ConfigurationService;
     private notificationService: NotificationService;
     private llmKeywordSelectionService: LlmKeywordSelectionService | null = null;
+    private llmService: any; // LlmService 인스턴스
     private readonly MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
     private readonly EXCLUDED_EXTENSIONS = [
         '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico', // Images
@@ -104,9 +105,18 @@ export class CodebaseContextService {
         '.TemporaryItems'
     ];
 
-    constructor(configurationService: ConfigurationService, notificationService: NotificationService) {
+    constructor(configurationService: ConfigurationService, notificationService: NotificationService, llmService?: any) {
         this.configurationService = configurationService;
         this.notificationService = notificationService;
+        this.llmService = llmService;
+    }
+
+    /**
+     * LlmService를 설정합니다.
+     * @param llmService LlmService 인스턴스
+     */
+    public setLlmService(llmService: any): void {
+        this.llmService = llmService;
     }
 
     /**
@@ -148,6 +158,51 @@ export class CodebaseContextService {
     }
 
     /**
+     * 전체 파일 리스트를 수집하여 LLM이 프로젝트를 분석하고 플래닝할 수 있도록 합니다.
+     * @param userQuery 사용자의 질의
+     * @param abortSignal 취소 신호
+     * @returns 파일 리스트와 LLM 분석 결과
+     */
+    public async getProjectFileListForAnalysis(userQuery: string, abortSignal: AbortSignal): Promise<{ fileList: string[], analysisResult?: any }> {
+        let projectRoot = await this.configurationService.getProjectRoot();
+
+        // 프로젝트 루트가 설정되지 않았을 때 현재 워크스페이스 루트 사용
+        if (!projectRoot) {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                projectRoot = workspaceFolders[0].uri.fsPath;
+                console.log(`[CodebaseContextService] 프로젝트 루트가 설정되지 않아 현재 워크스페이스 루트 사용: ${projectRoot}`);
+            } else {
+                this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았고 워크스페이스도 열려있지 않습니다. 설정에서 프로젝트 루트를 지정해주세요.');
+                return { fileList: [] };
+            }
+        } else {
+            console.log(`[CodebaseContextService] 설정된 프로젝트 루트 사용: ${projectRoot}`);
+
+            // aidev-ide 소스 디렉토리인지 확인
+            if (projectRoot.includes('aidev-ide') && projectRoot.includes('Projects')) {
+                console.warn(`[CodebaseContextService] ⚠️ 경고: 프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다: ${projectRoot}`);
+                console.warn(`[CodebaseContextService] 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
+                this.notificationService.showWarningMessage(`프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다. 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
+            }
+        }
+
+        try {
+            // 전체 파일 리스트 수집 (라이브러리 파일 제외)
+            const allFiles = await this.getAllProjectFiles(projectRoot, abortSignal);
+            console.log(`[CodebaseContextService] 전체 파일 ${allFiles.length}개 수집 완료`);
+
+            // LLM을 통한 프로젝트 분석
+            const analysisResult = await this.analyzeProjectWithLLM(userQuery, allFiles, projectRoot);
+
+            return { fileList: allFiles, analysisResult };
+        } catch (error) {
+            console.error('[CodebaseContextService] 프로젝트 파일 리스트 분석 중 오류:', error);
+            return { fileList: [] };
+        }
+    }
+
+    /**
      * 사용자 질의와 관련된 파일들을 자동으로 찾아서 컨텍스트에 추가합니다.
      * @param userQuery 사용자의 질의
      * @param abortSignal 취소 신호
@@ -160,10 +215,27 @@ export class CodebaseContextService {
             return { fileContentsContext: "", includedFilesForContext: [] };
         }
 
-        const projectRoot = await this.configurationService.getProjectRoot();
+        let projectRoot = await this.configurationService.getProjectRoot();
+
+        // 프로젝트 루트가 설정되지 않았을 때 현재 워크스페이스 루트 사용
         if (!projectRoot) {
-            this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았습니다. 설정에서 프로젝트 루트를 지정해주세요.');
-            return { fileContentsContext: '', includedFilesForContext: [] };
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                projectRoot = workspaceFolders[0].uri.fsPath;
+                console.log(`[CodebaseContextService] 프로젝트 루트가 설정되지 않아 현재 워크스페이스 루트 사용: ${projectRoot}`);
+            } else {
+                this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았고 워크스페이스도 열려있지 않습니다. 설정에서 프로젝트 루트를 지정해주세요.');
+                return { fileContentsContext: '', includedFilesForContext: [] };
+            }
+        } else {
+            console.log(`[CodebaseContextService] 설정된 프로젝트 루트 사용: ${projectRoot}`);
+
+            // aidev-ide 소스 디렉토리인지 확인
+            if (projectRoot.includes('aidev-ide') && projectRoot.includes('Projects')) {
+                console.warn(`[CodebaseContextService] ⚠️ 경고: 프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다: ${projectRoot}`);
+                console.warn(`[CodebaseContextService] 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
+                this.notificationService.showWarningMessage(`프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다. 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
+            }
         }
 
         let fileContentsContext = "";
@@ -229,7 +301,7 @@ export class CodebaseContextService {
                     if (buildFile) {
                         const contentBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(buildFile));
                         const content = Buffer.from(contentBytes).toString('utf8');
-                        const nameForContext = this.getPathRelativeToWorkspace(buildFile) || buildFileName;
+                        const nameForContext = await this.getPathRelativeToProjectRoot(buildFile) || buildFileName;
                         const fileType = getFileType(buildFile);
                         fileContentsContext += `\n--- 파일: ${nameForContext} (${fileType}) ---\n${content}\n`;
                         includedFilesForContext.push({ name: buildFileName, fullPath: buildFile });
@@ -290,7 +362,7 @@ export class CodebaseContextService {
                                 if (fileStats.type === vscode.FileType.File && !includedPathSet.has(filePath)) {
                                     const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
                                     const fileContent = Buffer.from(fileContentBytes).toString('utf8');
-                                    const relativeName = this.getPathRelativeToWorkspace(filePath) || configFile;
+                                    const relativeName = await this.getPathRelativeToProjectRoot(filePath) || configFile;
                                     const fileType = getFileType(filePath);
 
                                     fileContentsContext += `\n--- 파일: ${relativeName} (${fileType}) ---\n${fileContent}\n`;
@@ -516,7 +588,7 @@ export class CodebaseContextService {
                     if (stats.type === vscode.FileType.File) {
                         const contentBytes = await vscode.workspace.fs.readFile(uri);
                         const content = Buffer.from(contentBytes).toString('utf8');
-                        const nameForContext = this.getPathRelativeToWorkspace(packageJsonPath) || 'package.json';
+                        const nameForContext = await this.getPathRelativeToProjectRoot(packageJsonPath) || 'package.json';
                         const fileType = getFileType(packageJsonPath);
                         fileContentsContext += `\n--- 파일: ${nameForContext} (${fileType}) ---\n${content}\n`;
                         includedFilesForContext.push({ name: 'package.json', fullPath: packageJsonPath });
@@ -663,7 +735,7 @@ export class CodebaseContextService {
                         const content = Buffer.from(contentBytes).toString('utf8');
 
                         // 워크스페이스 기준 상대 경로를 얻거나, 없으면 기본 파일명 사용
-                        const nameForContext = this.getPathRelativeToWorkspace(filePath) || path.basename(filePath);
+                        const nameForContext = await this.getPathRelativeToProjectRoot(filePath) || path.basename(filePath);
                         const fileType = getFileType(filePath);
 
                         // 파일 내용을 컨텍스트에 추가
@@ -1279,6 +1351,144 @@ export class CodebaseContextService {
     }
 
     /**
+     * 프로젝트의 모든 파일 리스트를 수집합니다 (라이브러리 파일 제외).
+     * @param projectRoot 프로젝트 루트 경로
+     * @param abortSignal 취소 신호
+     * @returns 파일 경로 리스트
+     */
+    private async getAllProjectFiles(projectRoot: string, abortSignal: AbortSignal): Promise<string[]> {
+        const allFiles: string[] = [];
+
+        try {
+            // 모든 파일 타입을 검색 (라이브러리 디렉토리 제외)
+            const searchPatterns = [
+                '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
+                '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
+                '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
+                '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat', '**/*.gradle', '**/*.kts',
+                '**/*.properties', '**/*.conf', '**/*.config', '**/*.ini', '**/*.toml'
+            ];
+
+            for (const pattern of searchPatterns) {
+                if (abortSignal.aborted) break;
+
+                try {
+                    const files = await glob(pattern, { cwd: projectRoot, nodir: true });
+                    const fullPaths = files.map((file: string) => path.join(projectRoot, file));
+
+                    for (const filePath of fullPaths) {
+                        if (abortSignal.aborted) break;
+
+                        try {
+                            // 라이브러리 디렉토리 파일 제외
+                            if (this.isLibraryPath(filePath, projectRoot)) {
+                                continue;
+                            }
+
+                            // 중복 제거
+                            if (!allFiles.includes(filePath)) {
+                                allFiles.push(filePath);
+                            }
+                        } catch (error) {
+                            console.warn(`[CodebaseContextService] 파일 처리 중 오류: ${filePath}`, error);
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`[CodebaseContextService] 패턴 검색 중 오류: ${pattern}`, error);
+                }
+            }
+        } catch (error) {
+            console.error('[CodebaseContextService] 전체 파일 수집 중 오류:', error);
+        }
+
+        console.log(`[CodebaseContextService] 총 ${allFiles.length}개 파일 수집 완료`);
+        return allFiles;
+    }
+
+    /**
+     * LLM을 사용하여 프로젝트를 분석합니다.
+     * @param userQuery 사용자 질의
+     * @param fileList 파일 리스트
+     * @param projectRoot 프로젝트 루트
+     * @returns 분석 결과
+     */
+    private async analyzeProjectWithLLM(userQuery: string, fileList: string[], projectRoot: string): Promise<any> {
+        try {
+            // 파일 리스트를 상대 경로로 변환
+            const relativeFileList = fileList.map(filePath => path.relative(projectRoot, filePath));
+
+            const analysisPrompt = `다음은 프로젝트의 파일 리스트입니다. 이 파일들을 분석하여 다음을 수행해주세요:
+
+파일 리스트:
+${relativeFileList.slice(0, 100).join('\n')}${relativeFileList.length > 100 ? `\n... (총 ${relativeFileList.length}개 파일)` : ''}
+
+사용자 질의: "${userQuery}"
+
+다음 3가지 분석을 수행해주세요:
+
+1. 프로그래밍 관련 여부 분석:
+   - 파일명들을 보고 이 프로젝트가 프로그래밍 관련인지 판단
+   - 프로그래밍 관련이면 "CODE", 그렇지 않으면 "GENERAL" 반환
+
+2. 프로젝트 타입 분석:
+   - 파일명들을 보고 프로젝트 타입을 분석
+   - 가능한 타입: react, react-vite, vue, angular, next, nuxt, svelte, nodejs, django, flask, fastapi, python, java, spring, spring-boot, dotnet, go, rust, php, ruby, ios, android, flutter, react-native, unknown
+
+3. 추천 플랜:
+   - 1, 2번 분석 결과를 바탕으로 사용자에게 추천할 다음 단계 플랜을 제안
+
+응답 형식 (JSON):
+{
+  "programmingRelated": "CODE" | "GENERAL",
+  "projectType": "프로젝트 타입",
+  "reasoning": "분석 근거",
+  "recommendedPlan": "추천 플랜",
+  "confidence": 0.8
+}`;
+
+            // LLM 서비스 호출
+            const llmService = this.getLLMService();
+            if (!llmService) {
+                console.warn('[CodebaseContextService] LLM 서비스를 사용할 수 없습니다.');
+                return null;
+            }
+
+            const response = await llmService.analyzeProject(analysisPrompt);
+
+            // JSON 응답 파싱
+            try {
+                // ```json 코드 블록 제거
+                let cleanResponse = response.trim();
+                if (cleanResponse.startsWith('```json')) {
+                    cleanResponse = cleanResponse.replace(/^```json\s*/, '');
+                }
+                if (cleanResponse.endsWith('```')) {
+                    cleanResponse = cleanResponse.replace(/\s*```$/, '');
+                }
+
+                const analysisResult = JSON.parse(cleanResponse);
+                console.log(`[CodebaseContextService] LLM 프로젝트 분석 완료:`, analysisResult);
+                return analysisResult;
+            } catch (parseError) {
+                console.warn('[CodebaseContextService] LLM 응답 파싱 실패:', parseError);
+                console.warn('[CodebaseContextService] 원본 응답:', response);
+                return null;
+            }
+        } catch (error) {
+            console.error('[CodebaseContextService] LLM 프로젝트 분석 중 오류:', error);
+            return null;
+        }
+    }
+
+    /**
+     * LLM 서비스를 가져옵니다.
+     * @returns LLM 서비스 인스턴스
+     */
+    private getLLMService(): any {
+        return this.llmService;
+    }
+
+    /**
      * Node.js 프로젝트인지 확인합니다.
      */
     private async isNodeProject(projectRoot: string): Promise<boolean> {
@@ -1699,6 +1909,46 @@ export class CodebaseContextService {
     }
 
     /**
+     * 파일의 전체 경로를 프로젝트 루트 기준 상대 경로로 변환합니다.
+     * @param fullPath 파일의 전체 경로
+     * @returns 프로젝트 루트 기준 상대 경로 (슬래시 구분) 또는 null
+     */
+    private async getPathRelativeToProjectRoot(fullPath: string): Promise<string | null> {
+        try {
+            // 프로젝트 루트 경로 가져오기
+            const projectRoot = await this.configurationService.getProjectRoot();
+            if (!projectRoot) {
+                // 프로젝트 루트가 설정되지 않은 경우 워크스페이스 루트 사용
+                if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+                    return null;
+                }
+                const workspaceRootUri = vscode.workspace.workspaceFolders[0].uri;
+                const normalizedWorkspacePath = path.resolve(workspaceRootUri.fsPath);
+                const normalizedFullPath = path.resolve(fullPath);
+
+                if (normalizedFullPath.startsWith(normalizedWorkspacePath)) {
+                    return path.relative(normalizedWorkspacePath, normalizedFullPath).replace(/\\/g, '/');
+                }
+                return null;
+            }
+
+            // 프로젝트 루트 기준으로 상대 경로 계산
+            const normalizedProjectRoot = path.resolve(projectRoot);
+            const normalizedFullPath = path.resolve(fullPath);
+
+            // 파일이 프로젝트 루트 내에 있는지 확인
+            if (normalizedFullPath.startsWith(normalizedProjectRoot)) {
+                return path.relative(normalizedProjectRoot, normalizedFullPath).replace(/\\/g, '/');
+            }
+
+            return null; // 프로젝트 루트 외부 파일
+        } catch (error) {
+            console.warn(`[CodebaseContextService] 경로 변환 실패: ${fullPath}`, error);
+            return null;
+        }
+    }
+
+    /**
      * 파일의 전체 경로를 VS Code 워크스페이스 루트를 기준으로 한 상대 경로로 변환합니다.
      * 워크스페이스가 열려있지 않거나 파일이 워크스페이스 외부에 있으면 null을 반환합니다.
      * Remote SSH 환경을 고려하여 경로 처리를 개선합니다.
@@ -1806,7 +2056,7 @@ export class CodebaseContextService {
                     const content = Buffer.from(contentBytes).toString('utf8');
 
                     // 워크스페이스 기준 상대 경로를 얻거나, 없으면 기본 파일명 사용
-                    const nameForContext = this.getPathRelativeToWorkspace(sourcePath) || path.basename(sourcePath);
+                    const nameForContext = await this.getPathRelativeToProjectRoot(sourcePath) || path.basename(sourcePath);
 
                     if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
                         fileContentsContext += `파일명: ${nameForContext}\n코드:\n\`\`\`${getFileType(sourcePath)}\n${content}\n\`\`\`\n\n`;
@@ -1890,7 +2140,7 @@ export class CodebaseContextService {
                         const content = Buffer.from(contentBytes).toString('utf8');
 
                         // 워크스페이스 기준 상대 경로를 얻거나, 없으면 기본 파일명 사용
-                        const nameForContext = this.getPathRelativeToWorkspace(file) || path.basename(file);
+                        const nameForContext = await this.getPathRelativeToProjectRoot(file) || path.basename(file);
 
                         if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
                             fileContentsContext += `파일명: ${nameForContext}\n코드:\n\`\`\`${getFileType(file)}\n${content}\n\`\`\`\n\n`;
@@ -2007,7 +2257,7 @@ export class CodebaseContextService {
                 if (fileStats.type === vscode.FileType.File && !includedPathSet.has(filePath)) {
                     const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
                     const fileContent = Buffer.from(fileContentBytes).toString('utf8');
-                    const relativeName = this.getPathRelativeToWorkspace(filePath) || fileName;
+                    const relativeName = await this.getPathRelativeToProjectRoot(filePath) || fileName;
                     const fileType = getFileType(filePath);
 
                     fileContentsContext += `\n--- 파일: ${relativeName} (${fileType}) ---\n${fileContent}\n`;
@@ -2094,9 +2344,53 @@ export class CodebaseContextService {
                     const pomXmlPath = path.join(sourcePath, 'pom.xml');
                     try {
                         await vscode.workspace.fs.stat(vscode.Uri.file(pomXmlPath));
-                        return 'java';
+                        console.log(`[CodebaseContextService] pom.xml 발견: ${pomXmlPath}`);
+
+                        // pom.xml 내용을 읽어서 Spring Boot 프로젝트인지 확인
+                        try {
+                            const pomContent = await vscode.workspace.fs.readFile(vscode.Uri.file(pomXmlPath));
+                            const pomText = pomContent.toString();
+
+                            if (pomText.includes('spring-boot-starter') || pomText.includes('spring-boot-parent') || pomText.includes('org.springframework.boot')) {
+                                console.log(`[CodebaseContextService] Spring Boot 프로젝트 감지 (Maven)`);
+                                return 'spring';
+                            }
+                            console.log(`[CodebaseContextService] 일반 Java 프로젝트 감지 (Maven)`);
+                            return 'java';
+                        } catch (e) {
+                            console.log(`[CodebaseContextService] pom.xml 파싱 실패:`, e);
+                            return 'java';
+                        }
                     } catch {
                         // pom.xml이 없음
+                    }
+
+                    // Gradle 기반 Spring 프로젝트 확인
+                    const buildGradlePath = path.join(sourcePath, 'build.gradle');
+                    const buildGradleKtsPath = path.join(sourcePath, 'build.gradle.kts');
+
+                    try {
+                        const buildGradleContent = await vscode.workspace.fs.readFile(vscode.Uri.file(buildGradlePath));
+                        const buildGradleText = buildGradleContent.toString();
+
+                        if (buildGradleText.includes('spring-boot-starter') || buildGradleText.includes('org.springframework.boot') || buildGradleText.includes('spring-boot-gradle-plugin')) {
+                            console.log(`[CodebaseContextService] Spring Boot 프로젝트 감지 (Gradle)`);
+                            return 'spring';
+                        }
+                    } catch {
+                        // build.gradle이 없거나 읽을 수 없는 경우
+                    }
+
+                    try {
+                        const buildGradleKtsContent = await vscode.workspace.fs.readFile(vscode.Uri.file(buildGradleKtsPath));
+                        const buildGradleKtsText = buildGradleKtsContent.toString();
+
+                        if (buildGradleKtsText.includes('spring-boot-starter') || buildGradleKtsText.includes('org.springframework.boot') || buildGradleKtsText.includes('spring-boot-gradle-plugin')) {
+                            console.log(`[CodebaseContextService] Spring Boot 프로젝트 감지 (Gradle Kotlin DSL)`);
+                            return 'spring';
+                        }
+                    } catch {
+                        // build.gradle.kts가 없거나 읽을 수 없는 경우
                     }
 
                     // Python 프로젝트 확인 (requirements.txt 또는 pyproject.toml 존재)
@@ -2670,5 +2964,29 @@ export class CodebaseContextService {
         }
 
         return deduplicatedFiles;
+    }
+
+    /**
+     * 프로젝트 컨텍스트를 초기화합니다.
+     * 대화 기록 삭제 시 호출되어 이전 프로젝트의 파일 컨텍스트를 정리합니다.
+     */
+    public clearProjectContext(): void {
+        // 프로젝트 컨텍스트 관련 캐시나 상태를 초기화
+        console.log('[CodebaseContextService] 프로젝트 컨텍스트 초기화됨');
+
+        // LLM 키워드 선택 서비스 초기화
+        if (this.llmKeywordSelectionService) {
+            this.llmKeywordSelectionService = null;
+        }
+
+        // 강제로 새로운 LLM 키워드 선택 서비스 인스턴스 생성
+        if (this.llmService) {
+            this.llmKeywordSelectionService = new LlmKeywordSelectionService(this.llmService);
+        }
+
+        console.log('[CodebaseContextService] LLM 키워드 선택 서비스 재초기화 완료');
+
+        // 프로젝트 루트 경로 강제 재설정을 위한 로그
+        console.log('[CodebaseContextService] 다음 요청 시 프로젝트 루트 경로가 재확인됩니다');
     }
 }

@@ -2,6 +2,30 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.5.0 (2025/10/21) - 명령어 자동 실행 및 개별 Callout 실행 상태 표시
+
+<details>
+<summary>🎯 명령어 자동 실행 기능 및 개별 Callout 실행 상태 표시</summary>
+
+### 추가
+- **명령어 자동 실행 토글**: 설정에서 bash/powershell/cmd 명령어 자동 실행을 활성화/비활성화 가능
+- **개별 Callout 실행 상태 표시**: 각 shell script callout 박스마다 독립적인 "Executing..." 애니메이션 표시
+- **자동 실행 시 전체 표시**: 자동 명령어 실행 시 모든 callout 박스에 executing 상태 표시
+- **설정 등록 완료**: `aidevIde.autoExecuteCommands` 설정이 package.json에 정식 등록
+
+### 개선
+- **실시간 상태 표시**: 자동 실행 시 "Executing commands..." 상태를 실시간으로 표시
+- **시각적 구분**: Auto Correcting과 Run 버튼 실행 상태를 명확히 구분하여 표시
+- **Global 설정 지원**: 사용자 전역 설정으로 저장되어 모든 워크스페이스에서 일관된 동작
+- **실시간 설정 반영**: 설정 변경 시 즉시 적용되는 동적 설정 시스템
+
+### 수정
+- **설정 저장 문제 해결**: "Unable to write to User Settings because aidevIde.autoExecuteCommands is not a registered configuration" 오류 해결
+- **개별 Run 버튼 클릭 시**: 해당 callout 박스에만 executing 상태 표시
+- **자동 실행 비활성화 시**: 사용자에게 수동 실행 안내 메시지 표시
+
+</details>
+
 ## 🚀 Version 4.4.1 (2025/10/20) - 실행 명령 단계 & 안정성
 
 <details>

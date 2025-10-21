@@ -140,12 +140,19 @@ export async function activate(context: vscode.ExtensionContext) {
         context // extension context 전달
     );
 
+    // CodebaseContextService에 LlmService 주입
+    codebaseContextService.setLlmService(llmService);
+
     // 사용자 OS 정보를 LlmService에 설정
     const userOS = require('os').platform() === 'darwin' ? 'macOS' :
         require('os').platform() === 'win32' ? 'Windows' :
             require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
     llmService.setUserOS(userOS);
     console.log(`[Extension] 사용자 OS 감지 및 설정: ${userOS}`);
+
+    // 터미널 매니저에도 사용자 OS 설정
+    const { setUserOS } = await import('./terminal/terminalManager');
+    setUserOS(userOS);
 
     // 현재 AI 모델 설정 로드
     let currentAiModel = await storageService.getCurrentAiModel();
@@ -157,6 +164,8 @@ export async function activate(context: vscode.ExtensionContext) {
         } else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) {
             currentAiModel = 'ollama-codellama';
         } else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud') {
+            currentAiModel = 'ollama-gpt-oss';
+        } else if (storedOllamaModel && storedOllamaModel.startsWith('qwen')) {
             currentAiModel = 'ollama-gpt-oss';
         } else {
             currentAiModel = 'ollama-gemma';

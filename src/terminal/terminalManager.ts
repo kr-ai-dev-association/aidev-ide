@@ -27,6 +27,16 @@ let _currentWebview: vscode.Webview | undefined = undefined;
 let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
 let _summarySent = false; // 종합 설명 출력 플래그
 let _outputLogEnabled = true; // OUTPUT 로그 활성화 상태
+let _userOS = 'unknown'; // 사용자 OS
+let _projectRoot: string | undefined = undefined; // 프로젝트 루트 경로
+
+/**
+ * 사용자 OS를 설정합니다.
+ */
+export function setUserOS(os: string): void {
+    _userOS = os;
+    // console.log('[TerminalManager] 사용자 OS 설정:', os);
+}
 
 /**
  * 오류 수정 시스템을 위한 LLM 서비스와 웹뷰를 설정합니다.
@@ -70,8 +80,9 @@ export function setOutputLogEnabled(enabled: boolean): void {
 
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
+ * @param projectRoot 프로젝트 루트 경로 (선택사항)
  */
-export function getAidevIdeTerminal(): vscode.Terminal {
+export function getAidevIdeTerminal(projectRoot?: string): vscode.Terminal {
     // 기존 동일 이름 터미널 재사용 및 중복 정리
     const existing = vscode.window.terminals.filter(t => t.name === 'aidev-ide Terminal');
     if (existing.length > 0) {
@@ -88,7 +99,15 @@ export function getAidevIdeTerminal(): vscode.Terminal {
 
     if (!_codePilotTerminal || _codePilotTerminal.exitStatus !== undefined) {
         console.log(`[TerminalManager] 새로운 터미널 생성: aidev-ide Terminal`);
-        _codePilotTerminal = vscode.window.createTerminal({ name: "aidev-ide Terminal" });
+        const terminalOptions: vscode.TerminalOptions = { name: "aidev-ide Terminal" };
+
+        // 프로젝트 루트 경로가 제공된 경우 설정
+        if (projectRoot) {
+            terminalOptions.cwd = projectRoot;
+            console.log(`[TerminalManager] 터미널 작업 디렉토리 설정: ${projectRoot}`);
+        }
+
+        _codePilotTerminal = vscode.window.createTerminal(terminalOptions);
         const disposable = vscode.window.onDidCloseTerminal(event => {
             if (event === _codePilotTerminal) {
                 console.log(`[TerminalManager] 터미널 종료 감지: aidev-ide Terminal`);
@@ -268,7 +287,13 @@ async function readPackageJson(cwd: string | undefined): Promise<any | null> {
 
 // Note: We intentionally do not pre-validate npm scripts.
 
-async function handleInteractiveCommand(command: string): Promise<boolean> {
+async function handleInteractiveCommand(command: string, projectRoot?: string): Promise<boolean> {
+    // 명령어 실행 중지 상태 확인
+    if ((globalThis as any).terminalMonitorService && (globalThis as any).terminalMonitorService.isExecutionStopped()) {
+        console.log('[TerminalManager] 명령어 실행이 중지되었습니다:', command);
+        return false;
+    }
+
     const lower = command.toLowerCase();
     const isDevLong = isLongRunningDevCommand(lower);
     let shouldUseTerminal = isInteractiveCommand(lower); // dev 서버 등 비대화형 장기 실행은 데몬 사용
@@ -324,7 +349,7 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         channel.appendLine(`Command: ${cleanCommand}`);
         channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
-        const terminal = getAidevIdeTerminal();
+        const terminal = getAidevIdeTerminal(projectRoot);
         if (!terminal.state.isInteractedWith) {
             terminal.show();
         }
@@ -372,7 +397,16 @@ async function handleInteractiveCommand(command: string): Promise<boolean> {
         channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
 
         // VS Code 터미널을 사용하여 명령어 실행
-        const terminal = getAidevIdeTerminal();
+        const terminal = getAidevIdeTerminal(projectRoot);
+
+        // 터미널 모니터링 서비스에 명령어 저장
+        if (_terminalMonitorService) {
+            console.log(`[TerminalManager] 명령어 저장: ${terminal.name} - ${cleanCommand}`);
+            _terminalMonitorService.storeRecentCommand(terminal.name, cleanCommand);
+            console.log(`[TerminalManager] 명령어 저장 완료`);
+        } else {
+            console.log(`[TerminalManager] 터미널 모니터링 서비스가 설정되지 않음`);
+        }
 
         // 작업 디렉토리 설정
         if (cwd) {
@@ -607,7 +641,7 @@ async function processQueue(): Promise<void> {
                     break;
                 }
             } else {
-                const ok = await handleInteractiveCommand(command);
+                const ok = await handleInteractiveCommand(command, _projectRoot);
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
                     try {
@@ -688,7 +722,12 @@ export function buildFileOpTokens(ops: { type: 'create' | 'modify' | 'delete'; p
     return ops.map(op => FILE_OP_PREFIX + Buffer.from(JSON.stringify(op), 'utf8').toString('base64'));
 }
 
-export function enqueueCommandsBatch(commands: string[], priority = false): void {
+export function enqueueCommandsBatch(commands: string[], priority = false, projectRoot?: string): void {
+    // 프로젝트 루트 저장
+    if (projectRoot) {
+        _projectRoot = projectRoot;
+    }
+
     try {
         const channel = getCaptureOutputChannel();
         const timestamp = new Date().toLocaleString();
@@ -801,7 +840,7 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
 /**
  * LLM 응답에서 bash 명령어를 추출하고 터미널에서 실행합니다.
  */
-export function executeBashCommandsFromLlmResponse(llmResponse: string): string[] {
+export function executeBashCommandsFromLlmResponse(llmResponse: string, projectRoot?: string): string[] {
     const executedCommands: string[] = [];
 
     // bash로 시작하는 코드 블록을 찾는 정규식
@@ -828,7 +867,7 @@ export function executeBashCommandsFromLlmResponse(llmResponse: string): string[
     if (executedCommands.length > 0) {
         // 작업 디렉토리를 초기화하여 잘못된 cwd 방지
         resetWorkingDirectory();
-        enqueueCommandsBatch(executedCommands, true);
+        enqueueCommandsBatch(executedCommands, true, projectRoot);
     }
 
     return executedCommands;
@@ -836,9 +875,11 @@ export function executeBashCommandsFromLlmResponse(llmResponse: string): string[
 
 /**
  * 단일 bash 명령어를 터미널에서 실행합니다.
+ * @param command 실행할 명령어
+ * @param projectRoot 프로젝트 루트 경로 (선택사항)
  */
-export function executeBashCommand(command: string): void {
-    handleInteractiveCommand(command);
+export function executeBashCommand(command: string, projectRoot?: string): void {
+    handleInteractiveCommand(command, projectRoot);
 }
 
 /**
@@ -884,6 +925,20 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 오류 출력:
 ${errorOutput}
 
+${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제안해주세요:
+1. 기본 명령어(echo, ls, pwd 등)가 실패하는 경우, 셸 환경 문제일 수 있습니다
+2. 경로 문제가 있는 경우 절대 경로나 상대 경로를 수정하세요
+3. 권한 문제가 있는 경우 chmod 명령어를 추가하세요
+4. 환경 변수 문제가 있는 경우 export 명령어를 추가하세요
+5. 셸 문제가 있는 경우 /bin/bash 또는 /bin/zsh를 명시적으로 사용하세요
+6. "No such file or directory" 오류의 경우, 프로젝트 루트 경로를 재확인하고 올바른 디렉토리에서 명령어를 실행하세요
+7. Spring Boot 프로젝트의 경우 Maven(mvn) 또는 Gradle(./gradlew) 명령어를 사용하고, npm/node.js 명령어는 사용하지 마세요
+8. 프로젝트 타입에 맞는 빌드 도구를 사용하세요 (Spring Boot: Maven/Gradle, React: npm/yarn, Python: pip)
+9. "앱 빌드하고 실행해" 요청의 경우 Spring Boot 프로젝트일 가능성이 높으므로 Maven(mvn clean package) 또는 Gradle(./gradlew build) 명령어를 사용하세요
+10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요
+
+**중요: 오직 하나의 JSON 객체만 응답해주세요. 다른 텍스트나 설명은 포함하지 마세요.**
+
 수정된 명령어를 JSON 형식으로 응답해주세요:
 {
   "correctedCommand": "수정된 명령어",
@@ -903,13 +958,20 @@ ${errorOutput}
         // LLM 서비스를 통해 응답 받기
         const response = await _llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
 
-        // JSON 응답 파싱
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const result = JSON.parse(jsonMatch[0]);
-            if (result.correctedCommand && result.confidence > 0.5) {
-                console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
-                return result.correctedCommand;
+        // JSON 응답 파싱 - 여러 JSON 객체 처리
+        const jsonMatches = response.match(/\{[^{}]*\}/g);
+        if (jsonMatches) {
+            for (const jsonStr of jsonMatches) {
+                try {
+                    const result = JSON.parse(jsonStr);
+                    if (result.correctedCommand && result.confidence > 0.5) {
+                        console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
+                        return result.correctedCommand;
+                    }
+                } catch (parseError) {
+                    console.warn('[TerminalManager] JSON 파싱 실패, 다음 JSON 시도:', parseError);
+                    continue;
+                }
             }
         }
 
@@ -952,6 +1014,16 @@ export async function handleCommandError(
         if (_currentWebview) {
             console.log('[TerminalManager] hideLoading 메시지 전송 (최대 재시도 초과)');
             _currentWebview.postMessage({ command: 'hideLoading' });
+            // Auto Correcting 애니메이션도 숨김
+            _currentWebview.postMessage({
+                command: 'updateProcessingStatus',
+                step: 'error_correction',
+                status: '자동 오류 수정 완료'
+            });
+            // 명시적으로 Auto Correcting 애니메이션 숨김
+            _currentWebview.postMessage({
+                command: 'hideAutoCorrecting'
+            });
         } else {
             console.log('[TerminalManager] _currentWebview가 설정되지 않음');
         }
@@ -1009,6 +1081,16 @@ export async function handleCommandError(
         if (_currentWebview) {
             console.log('[TerminalManager] hideLoading 메시지 전송 (오류 수정 성공)');
             _currentWebview.postMessage({ command: 'hideLoading' });
+            // Auto Correcting 애니메이션도 숨김
+            _currentWebview.postMessage({
+                command: 'updateProcessingStatus',
+                step: 'error_correction',
+                status: '자동 오류 수정 완료'
+            });
+            // 명시적으로 Auto Correcting 애니메이션 숨김
+            _currentWebview.postMessage({
+                command: 'hideAutoCorrecting'
+            });
         } else {
             console.log('[TerminalManager] _currentWebview가 설정되지 않음');
         }

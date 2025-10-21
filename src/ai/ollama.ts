@@ -71,7 +71,31 @@ export class OllamaApi {
         }
     }
 
-    public async sendMessage(message: string, options?: { signal?: AbortSignal }): Promise<string> {
+    public async sendMessage(message: string, options?: { signal?: AbortSignal, retries?: number }): Promise<string> {
+        const maxRetries = options?.retries || 3;
+        let lastError: Error | null = null;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const result = await this.sendMessageInternal(message, options);
+                return result;
+            } catch (error) {
+                lastError = error as Error;
+                console.warn(`[OllamaApi] Attempt ${attempt}/${maxRetries} failed:`, error);
+
+                if (attempt < maxRetries) {
+                    // 재시도 전 대기 (지수 백오프)
+                    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                    console.log(`[OllamaApi] Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
+    }
+
+    private async sendMessageInternal(message: string, options?: { signal?: AbortSignal }): Promise<string> {
         return new Promise((resolve, reject) => {
             const url = new URL(`${this.apiUrl}${this.endpoint}`);
 
@@ -95,6 +119,13 @@ export class OllamaApi {
             const req = (url.protocol === 'https:' ? https : http).request(requestOptions, (res) => {
                 let data = '';
 
+                // HTTP 상태 코드 확인
+                if (res.statusCode && res.statusCode >= 400) {
+                    console.error(`Ollama API error: ${res.statusCode} ${res.statusMessage}`);
+                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+                    return;
+                }
+
                 res.on('data', (chunk) => {
                     data += chunk;
                 });
@@ -102,12 +133,32 @@ export class OllamaApi {
                 res.on('end', () => {
                     try {
                         const response = JSON.parse(data);
+                        console.log('Ollama raw response:', response);
+
+                        // Ollama API 응답 형식 확인 (여러 형식 지원)
                         if (response.response) {
                             resolve(response.response);
+                        } else if (response.message && response.message.content) {
+                            // 다른 형식의 응답 처리
+                            resolve(response.message.content);
+                        } else if (response.content) {
+                            // content 필드가 있는 경우
+                            resolve(response.content);
+                        } else if (response.text) {
+                            // text 필드가 있는 경우
+                            resolve(response.text);
+                        } else if (response.choices && response.choices[0] && response.choices[0].message) {
+                            // OpenAI 형식의 응답 처리
+                            resolve(response.choices[0].message.content);
+                        } else if (typeof response === 'string') {
+                            // 문자열 응답 처리
+                            resolve(response);
                         } else {
-                            reject(new Error('Invalid response format'));
+                            console.error('Ollama response format error:', response);
+                            reject(new Error(`Invalid response format: ${JSON.stringify(response)}`));
                         }
                     } catch (error) {
+                        console.error('Ollama response parse error:', error, 'Raw data:', data);
                         reject(new Error(`Failed to parse response: ${error}`));
                     }
                 });
