@@ -248,8 +248,40 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage('Invalid Ollama Endpoint provided.');
                     }
                     break;
+                case 'saveLocalOllamaApiUrl': // 로컬 Ollama API URL 저장 케이스 추가
+                    const localOllamaApiUrlToSave = data.localOllamaApiUrl;
+                    if (localOllamaApiUrlToSave && typeof localOllamaApiUrlToSave === 'string') {
+                        try {
+                            await storageService.saveOllamaApiUrl(localOllamaApiUrlToSave);
+                            safePostMessage(panel, { command: 'localOllamaApiUrlSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Local Ollama API URL saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'localOllamaApiUrlError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Local Ollama API URL: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'localOllamaApiUrlError', error: 'Invalid Local Ollama API URL' });
+                        notificationService.showErrorMessage('Invalid Local Ollama API URL provided.');
+                    }
+                    break;
+                case 'saveLocalOllamaEndpoint': // 로컬 Ollama 엔드포인트 저장 케이스 추가
+                    const localOllamaEndpointToSave = data.localOllamaEndpoint;
+                    if (localOllamaEndpointToSave && typeof localOllamaEndpointToSave === 'string') {
+                        try {
+                            await storageService.saveOllamaEndpoint(localOllamaEndpointToSave);
+                            safePostMessage(panel, { command: 'localOllamaEndpointSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Local Ollama Endpoint saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'localOllamaEndpointError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Local Ollama Endpoint: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'localOllamaEndpointError', error: 'Invalid Local Ollama Endpoint' });
+                        notificationService.showErrorMessage('Invalid Local Ollama Endpoint provided.');
+                    }
+                    break;
                 case 'saveOllamaModel': // Ollama 모델 저장 케이스 추가
-                    const ollamaModelToSave = data.ollamaModel;
+                    const ollamaModelToSave = data.ollamaModel || data.model;
                     if (ollamaModelToSave && typeof ollamaModelToSave === 'string') {
                         try {
                             await storageService.saveOllamaModel(ollamaModelToSave);
