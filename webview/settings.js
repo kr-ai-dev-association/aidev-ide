@@ -1646,9 +1646,9 @@ window.addEventListener('message', event => {
                 } else if (message.aiModel === 'gemini') {
                     displayModel = 'gemini';
                 }
-                
+
                 aiModelSelect.value = displayModel;
-                
+
                 // 모델에 따라 섹션 활성화/비활성화
                 if (displayModel === 'gemini') {
                     geminiSettingsSection.classList.remove('disabled');
@@ -2507,6 +2507,32 @@ window.addEventListener('message', (event) => {
             updateModelDownloadStatus(message.modelName, '다운로드 완료', false);
             // 모델 목록 새로고침
             loadOllamaModels();
+            // 다운로드된 모델을 Ollama 모델 드롭다운에 즉시 반영
+            setTimeout(() => {
+                if (ollamaModelSelect && message.modelName) {
+                    // 현재 선택된 값 저장
+                    const currentValue = ollamaModelSelect.value;
+                    
+                    // 새 모델이 목록에 있는지 확인하고 없으면 추가
+                    const existingOption = Array.from(ollamaModelSelect.options).find(option => option.value === message.modelName);
+                    if (!existingOption) {
+                        const newOption = document.createElement('option');
+                        newOption.value = message.modelName;
+                        newOption.textContent = message.modelName;
+                        ollamaModelSelect.appendChild(newOption);
+                    }
+                    
+                    // 다운로드된 모델을 자동으로 선택
+                    ollamaModelSelect.value = message.modelName;
+                    
+                    // 모델 선택 이벤트 트리거
+                    ollamaModelSelect.dispatchEvent(new Event('change'));
+                    
+                    // 상태 메시지 업데이트
+                    const modelDownloadedText = `새 모델 '${message.modelName}'이 다운로드되어 선택되었습니다.`;
+                    showStatus(ollamaModelStatus, modelDownloadedText, 'success');
+                }
+            }, 500); // 모델 목록이 업데이트될 시간을 고려하여 지연
             break;
         case 'modelDownloadError':
             updateModelDownloadStatus(message.modelName, `다운로드 실패: ${message.error}`, false);
