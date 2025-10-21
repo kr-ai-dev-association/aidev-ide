@@ -117,6 +117,7 @@ const remoteOllamaSettingsSection = document.getElementById('remote-ollama-setti
 
 // 시리얼 번호 검증 상태 추적
 let isLicenseVerified = false;
+let storedOllamaModel = null; // 저장된 Ollama 모델 값
 
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
@@ -1577,8 +1578,22 @@ window.addEventListener('message', event => {
                 }
                 // console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
 
-                // 기존 모델이 있으면 다시 선택
-                if (currentModel && currentModel !== '') {
+                // 저장된 모델 값이 있으면 우선 적용, 없으면 기존 모델 유지
+                if (storedOllamaModel && storedOllamaModel !== '') {
+                    const options = Array.from(sel.options).map(o => o.value);
+                    if (options.includes(storedOllamaModel)) {
+                        sel.value = storedOllamaModel;
+                    } else {
+                        // 목록에 없다면 앞에 추가
+                        const opt = document.createElement('option');
+                        opt.value = storedOllamaModel;
+                        opt.textContent = storedOllamaModel;
+                        sel.insertBefore(opt, sel.firstChild);
+                        sel.value = storedOllamaModel;
+                    }
+                    // 적용 후 저장된 값 초기화
+                    storedOllamaModel = null;
+                } else if (currentModel && currentModel !== '') {
                     sel.value = currentModel;
                     // console.log('Restored previous Ollama model selection:', currentModel);
                 }
@@ -1981,24 +1996,9 @@ window.addEventListener('message', event => {
                     if (remoteOllamaSettingsSection) remoteOllamaSettingsSection.classList.remove('disabled');
                 }
             }
-            // Ollama 모델 상태 로드 (loadOllamaModels 이후 적용)
-            if (ollamaModelSelect && typeof message.ollamaModel === 'string') {
-                // 모델 목록이 동적으로 채워진 후 값을 적용하기 위해 약간 지연
-                const desiredModel = message.ollamaModel;
-                setTimeout(() => {
-                    const sel = document.getElementById('ollama-model-select');
-                    if (sel) {
-                        const options = Array.from(sel.options).map(o => o.value);
-                        if (!options.includes(desiredModel)) {
-                            // 목록에 없다면 앞에 추가
-                            const opt = document.createElement('option');
-                            opt.value = desiredModel;
-                            opt.textContent = desiredModel || '모델을 선택하세요';
-                            sel.insertBefore(opt, sel.firstChild);
-                        }
-                        sel.value = desiredModel || '';
-                    }
-                }, 200);
+            // Ollama 모델 상태 로드 - 저장된 모델 값을 전역 변수에 저장
+            if (typeof message.ollamaModel === 'string') {
+                storedOllamaModel = message.ollamaModel;
                 const ollamaModelSetText = message.ollamaModel ?
                     `Ollama 모델이 설정되어 있습니다: ${message.ollamaModel}` :
                     'Ollama 모델이 설정되지 않았습니다.';
