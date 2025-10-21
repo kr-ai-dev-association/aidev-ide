@@ -21,7 +21,7 @@ const autoCorrectionStatus = document.getElementById('auto-correction-status');
 if (autoCorrectionToggle) {
     autoCorrectionToggle.addEventListener('change', () => {
         const enabled = autoCorrectionToggle.checked;
-        console.log('[Settings] autoCorrectionToggle changed ->', enabled);
+        // console.log('[Settings] autoCorrectionToggle changed ->', enabled);
         if (autoCorrectionStatus) {
             autoCorrectionStatus.textContent = enabled ? (languageData['autoCorrectionOn'] || '자동 오류 수정: 켜짐') : (languageData['autoCorrectionOff'] || '자동 오류 수정: 꺼짐');
         }
@@ -1272,6 +1272,21 @@ if (saveRemoteOllamaApiUrlButton) {
     });
 }
 
+// Ollama 서버 타입 저장 이벤트 리스너
+if (saveOllamaServerTypeButton) {
+    saveOllamaServerTypeButton.addEventListener('click', () => {
+        const serverType = ollamaServerTypeSelect.value;
+        if (serverType) {
+            vscode.postMessage({ command: 'saveOllamaServerType', ollamaServerType: serverType });
+            const savingText = languageData['ollamaServerTypeSaving'] || 'Ollama 서버 타입 저장 중...';
+            showStatus(ollamaServerTypeStatus, savingText, 'info');
+        } else {
+            const pleaseSelectText = languageData['pleaseSelectOllamaServerType'] || 'Ollama 서버 타입을 선택해주세요.';
+            showStatus(ollamaServerTypeStatus, pleaseSelectText, 'error');
+        }
+    });
+}
+
 // Ollama 모델 저장 이벤트 리스너
 if (saveOllamaModelButton) {
     saveOllamaModelButton.addEventListener('click', () => {
@@ -1644,11 +1659,23 @@ window.addEventListener('message', event => {
                     // 서버 타입에 따라 활성 섹션 결정
                     const serverType = message.ollamaServerType || 'local';
                     if (serverType === 'remote') {
-                        localOllamaSettingsSection.classList.add('disabled');
-                        remoteOllamaSettingsSection.classList.remove('disabled');
+                        if (localOllamaSettingsSection) {
+                            localOllamaSettingsSection.style.display = 'none';
+                            localOllamaSettingsSection.classList.add('disabled');
+                        }
+                        if (remoteOllamaSettingsSection) {
+                            remoteOllamaSettingsSection.style.display = 'block';
+                            remoteOllamaSettingsSection.classList.remove('disabled');
+                        }
                     } else {
-                        localOllamaSettingsSection.classList.remove('disabled');
-                        remoteOllamaSettingsSection.classList.add('disabled');
+                        if (localOllamaSettingsSection) {
+                            localOllamaSettingsSection.style.display = 'block';
+                            localOllamaSettingsSection.classList.remove('disabled');
+                        }
+                        if (remoteOllamaSettingsSection) {
+                            remoteOllamaSettingsSection.style.display = 'none';
+                            remoteOllamaSettingsSection.classList.add('disabled');
+                        }
                     }
                 }
             }

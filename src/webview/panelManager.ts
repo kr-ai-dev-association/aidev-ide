@@ -401,6 +401,7 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage(`Error clearing Project Root Path: ${error.message}`);
                     }
                     break;
+                case 'setAutoUpdate': // 자동 업데이트 설정 저장 케이스 (별칭)
                 case 'saveAutoUpdateEnabled': // 자동 업데이트 설정 저장 케이스 추가
                     const autoUpdateEnabledToSave = data.autoUpdateEnabled;
                     if (typeof autoUpdateEnabledToSave === 'boolean') {
@@ -417,6 +418,7 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage('Invalid Auto Update setting provided.');
                     }
                     break;
+                case 'setOutputLog': // 출력 로그 설정 저장 케이스 (별칭)
                 case 'saveOutputLogEnabled': // 출력 로그 설정 저장 케이스 추가
                     const outputLogEnabledToSave = data.outputLogEnabled;
                     if (typeof outputLogEnabledToSave === 'boolean') {
