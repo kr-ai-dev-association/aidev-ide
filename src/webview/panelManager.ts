@@ -167,8 +167,8 @@ export function openSettingsPanel(
                     try {
                         const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
                         const url = new URL('/api/tags', apiUrl);
-                        const isHttps = url.protocol === 'https:';
-                        const client = isHttps ? https : http;
+                            const isHttps = url.protocol === 'https:';
+                            const client = isHttps ? https : http;
 
                         const models = await new Promise<string[]>((resolve, reject) => {
                             const req = client.request({
@@ -243,7 +243,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'ollamaEndpointSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama Endpoint: ${error.message}`);
                         }
-                    } else {
+                            } else {
                         safePostMessage(panel, { command: 'ollamaEndpointSaveError', error: 'Invalid Ollama Endpoint' });
                         notificationService.showErrorMessage('Invalid Ollama Endpoint provided.');
                     }
@@ -291,7 +291,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'ollamaModelSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama Model: ${error.message}`);
                         }
-                    } else {
+                                    } else {
                         safePostMessage(panel, { command: 'ollamaModelSaveError', error: 'Invalid Ollama Model' });
                         notificationService.showErrorMessage('Invalid Ollama Model provided.');
                     }
@@ -356,7 +356,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'remoteOllamaModelSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Remote Ollama Model: ${error.message}`);
                         }
-                    } else {
+                                        } else {
                         safePostMessage(panel, { command: 'remoteOllamaModelSaveError', error: 'Invalid Remote Ollama Model' });
                         notificationService.showErrorMessage('Invalid Remote Ollama Model provided.');
                     }
@@ -387,8 +387,8 @@ export function openSettingsPanel(
                         } catch (error: any) {
                             safePostMessage(panel, { command: 'newsApiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving News API Key: ${error.message}`);
-                        }
-                    } else {
+                                }
+                            } else {
                         safePostMessage(panel, { command: 'newsApiKeySaveError', error: 'Invalid News API Key' });
                         notificationService.showErrorMessage('Invalid News API Key provided.');
                     }
@@ -455,7 +455,7 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'projectRootPathSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Project Root Path: ${error.message}`);
                         }
-                    } else {
+                                } else {
                         safePostMessage(panel, { command: 'projectRootPathSaveError', error: 'Invalid Project Root Path' });
                         notificationService.showErrorMessage('Invalid Project Root Path provided.');
                     }
@@ -491,11 +491,11 @@ export function openSettingsPanel(
                 case 'saveOutputLogEnabled': // 출력 로그 설정 저장 케이스 추가
                     const outputLogEnabledToSave = data.outputLogEnabled;
                     if (typeof outputLogEnabledToSave === 'boolean') {
-                        try {
+                    try {
                             await storageService.saveOutputLogEnabled(outputLogEnabledToSave);
                             safePostMessage(panel, { command: 'outputLogEnabledSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Output Log setting saved.');
-                        } catch (error: any) {
+                    } catch (error: any) {
                             safePostMessage(panel, { command: 'outputLogEnabledSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Output Log setting: ${error.message}`);
                         }
@@ -563,9 +563,26 @@ export function openSettingsPanel(
                             safePostMessage(panel, { command: 'aiModelSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving AI Model: ${error.message}`);
                         }
-                    } else {
+                            } else {
                         safePostMessage(panel, { command: 'aiModelSaveError', error: 'Invalid AI Model' });
                         notificationService.showErrorMessage('Invalid AI Model provided.');
+                    }
+                    break;
+                case 'saveLanguage': // 언어 설정 저장 케이스 추가
+                    const languageToSave = data.language;
+                    if (languageToSave && typeof languageToSave === 'string') {
+                        try {
+                            // 언어 설정은 VS Code의 기본 설정을 사용하므로 별도 저장 로직은 필요 없음
+                            // 단순히 성공 메시지만 전송
+                            safePostMessage(panel, { command: 'languageSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Language setting updated.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'languageSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving language setting: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'languageSaveError', error: 'Invalid language setting' });
+                        notificationService.showErrorMessage('Invalid language setting provided.');
                     }
                     break;
                 case 'testOllamaConnection': // Ollama 연결 테스트 케이스 추가
@@ -920,7 +937,7 @@ export function openSettingsPanel(
                         };
                         // console.log('Sending currentApiKeys message:', messageToSend);
                         safePostMessage(panel, messageToSend);
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error getting current settings:', error);
                         safePostMessage(panel, { command: 'currentSettings', error: error.message });
                     }
@@ -977,37 +994,37 @@ export function openSettingsPanel(
                     }
                     break;
                 case 'loadApiKeys': // API 키 로드
-                    try {
+                        try {
                         const geminiApiKey = await storageService.getApiKey();
                         safePostMessage(panel, { command: 'apiKeysLoaded', geminiApiKey });
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error loading API keys:', error);
                         safePostMessage(panel, { command: 'apiKeysLoadError', error: error.message });
                     }
                     break;
                 case 'loadAiModel': // AI 모델 로드
-                    try {
+                        try {
                         const aiModel = await storageService.getAiModel();
                         safePostMessage(panel, { command: 'aiModelLoaded', aiModel });
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error loading AI model:', error);
                         safePostMessage(panel, { command: 'aiModelLoadError', error: error.message });
                     }
                     break;
                 case 'loadOllamaModel': // Ollama 모델 로드
-                    try {
+                        try {
                         const ollamaModel = await storageService.getOllamaModel();
                         safePostMessage(panel, { command: 'ollamaModelLoaded', ollamaModel });
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error loading Ollama model:', error);
                         safePostMessage(panel, { command: 'ollamaModelLoadError', error: error.message });
                     }
                     break;
                 case 'getLanguage': // 언어 설정 로드
-                    try {
+                        try {
                         const language = vscode.env.language;
                         safePostMessage(panel, { command: 'languageLoaded', language });
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error getting language:', error);
                         safePostMessage(panel, { command: 'languageLoadError', error: error.message });
                     }
@@ -1017,7 +1034,7 @@ export function openSettingsPanel(
                         const language = vscode.env.language;
                         const languageData = await loadLanguageData(language);
                         safePostMessage(panel, { command: 'languageDataLoaded', languageData });
-                    } catch (error: any) {
+                        } catch (error: any) {
                         console.error('Error loading language data:', error);
                         safePostMessage(panel, { command: 'languageDataLoadError', error: error.message });
                     }
@@ -1105,7 +1122,7 @@ async function downloadOllamaModel(
                                         statusBarItem.text = `$(download) ${modelName}: ${progress}%`;
 
                                         // 웹뷰에 진행 상황 전송
-                                        safePostMessage(panel, {
+                            safePostMessage(panel, {
                                             command: 'modelDownloadProgress',
                                             modelName: modelName,
                                             progress: progress,
@@ -1146,10 +1163,10 @@ async function downloadOllamaModel(
 
         notificationService.showInfoMessage(`Ollama 모델 '${modelName}' 다운로드가 완료되었습니다.`);
 
-    } catch (error: any) {
+                    } catch (error: any) {
         console.error('[PanelManager] Failed to download Ollama model:', error);
 
-        safePostMessage(panel, {
+                            safePostMessage(panel, {
             command: 'modelDownloadError',
             modelName: modelName,
             error: error.message

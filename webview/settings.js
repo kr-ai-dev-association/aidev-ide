@@ -975,10 +975,7 @@ if (languageSelect) {
         const lang = e.target.value;
         console.log('Language changed to:', lang);
 
-        // 언어 변경 시 즉시 저장 요청
-        vscode.postMessage({ command: 'saveLanguage', language: lang });
-
-        // 언어 데이터 로드 요청
+        // 언어 데이터 로드 요청 (저장 요청 제거)
         loadLanguage(lang);
 
         // 임시로 현재 언어 업데이트 (UI 반응성 향상)
@@ -2201,6 +2198,13 @@ window.addEventListener('message', event => {
                 showStatus(ollamaAuthStatus, 'Ollama 인증이 성공했습니다.', 'success');
             } else {
                 showStatus(ollamaAuthStatus, `Ollama 인증 실패: ${message.message}`, 'error');
+            }
+            break;
+        case 'languageDataLoaded':
+            if (message.languageData) {
+                languageData = message.languageData;
+                console.log('Language data loaded:', Object.keys(languageData).length, 'keys');
+                applyLanguage();
             }
             break;
         case 'languageSaved':
