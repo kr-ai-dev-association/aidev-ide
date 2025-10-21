@@ -444,8 +444,8 @@
             overflow-y: auto;
             box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
             opacity: 0.95;
-            display: none;
-            /* 초기에는 숨김 */
+            display: block;
+            /* 초기에는 표시 */
             transition: opacity 0.8s ease-out, transform 0.8s ease-out;
         }
 
@@ -1617,7 +1617,8 @@
                         },
                         title: '자동 수정 중지'
                     }, '×')
-                ]);
+                ])
+            ])
         }
 
         // Typing Animation Hook
@@ -1649,6 +1650,21 @@
             }, [text, speed]);
 
             return { displayedText, isTyping };
+        }
+
+        // Emoji mapper for processing steps
+        function getStepEmoji(step) {
+            if (!step || typeof step !== 'string') return '🔹';
+            const s = step.toLowerCase();
+            if (s.includes('intent')) return '🎯';
+            if (s.includes('keyword')) return '🧩';
+            if (s.includes('analy')) return '🔎';
+            if (s.includes('assembl') || s.includes('generate') || s.includes('answer')) return '🧠';
+            if (s.includes('markdown') || s.includes('parse')) return '🧾';
+            if (s.includes('file') || s.includes('write') || s.includes('update')) return '📂';
+            if (s.includes('print') || s.includes('render') || s.includes('prepare')) return '🖨️';
+            if (s.includes('error') || s.includes('correct')) return '🛠️';
+            return '🔹';
         }
 
         // Individual Processing Step Component with Typing Animation
@@ -1728,6 +1744,7 @@
                             fontFamily: 'monospace'
                         }
                     }, [
+                        React.createElement('span', { key: 'emoji', style: { marginRight: '6px' } }, getStepEmoji(step)),
                         stepText,
                         isStepTyping && React.createElement('span', {
                             key: 'cursor',
@@ -1768,6 +1785,8 @@
             const [isVisible, setIsVisible] = useState(false);
             const [hasUserQuery, setHasUserQuery] = useState(false);
 
+
+
             useEffect(() => {
                 const handleMessage = (event) => {
                     const data = event.data;
@@ -1777,11 +1796,11 @@
                         setIsVisible(true);
                         setHasUserQuery(true); // 사용자 질의가 전송됨
                     } else if (data.command === 'updateProcessingStatus') {
+                        setIsVisible(true); // 상태 업데이트 시에도 표시
                         setSteps(prev => prev.map(s =>
                             s.step === data.step ? { ...s, status: data.status } : s
                         ));
                     } else if (data.command === 'hideLoading') {
-                        console.log('[ProcessingSteps] hideLoading received, hiding processing steps');
                         // 페이드아웃 애니메이션 적용
                         const processingStepsElement = document.querySelector('.processing-steps');
                         if (processingStepsElement) {
@@ -1793,6 +1812,16 @@
                         } else {
                             setIsVisible(false);
                         }
+                    } else if (data.command === 'cancelProcessing') {
+                        // cancel 후 상태 초기화
+                        setIsVisible(false);
+                        setSteps([]);
+                        setHasUserQuery(false);
+                    } else if (data.command === 'resetProcessingState') {
+                        // 완전한 상태 초기화
+                        setIsVisible(false);
+                        setSteps([]);
+                        setHasUserQuery(false);
                     } else if (data.command === 'showErrorCorrectionSummary') {
                         // 오류 수정 완료 보고서를 ProcessingSteps에 표시
                         const summaryStatus = `✅ 오류 수정 완료 보고서: ${data.summary.substring(0, 100)}...`;
@@ -1810,7 +1839,9 @@
                 };
 
                 window.addEventListener('message', handleMessage);
-                return () => window.removeEventListener('message', handleMessage);
+                return () => {
+                    window.removeEventListener('message', handleMessage);
+                };
             }, []);
 
             // 기존 처리 단계들을 React 컴포넌트로 변환
@@ -1827,16 +1858,11 @@
 
             const displaySteps = steps.length > 0 ? steps : defaultSteps;
 
-            // 항상 표시 (디버깅용)
-            console.log('[ProcessingSteps] Rendering with hasUserQuery:', hasUserQuery, 'isVisible:', isVisible, 'steps.length:', steps.length);
-
-            // isVisible이 false이면 숨김
-            if (!isVisible) {
-                return null;
-            }
+            if (!isVisible) return null;
 
             return React.createElement('div', {
                 className: 'processing-steps',
+                id: 'processing-steps-debug', // 디버깅용 ID 추가
                 style: {
                     background: '#1e1e1e',
                     border: '1px solid #00ff00',
@@ -1849,7 +1875,7 @@
                     top: '10px',
                     left: '10px',
                     right: '10px',
-                    zIndex: '999999',
+                    zIndex: '2147483647', // 최대 z-index 값
                     color: '#ffffff',
                     fontSize: '13px',
                     minHeight: '60px',
@@ -1880,18 +1906,17 @@
             useEffect(() => {
                 const handleMessage = (event) => {
                     const data = event.data;
-                    console.log('[ReactApp] Received message:', data);
                     if (data.command === 'setProcessingStep') {
-                        console.log('[ReactApp] setProcessingStep received, showing processing steps');
                         setProcessingStepsVisible(true);
                     } else if (data.command === 'updateProcessingStatus') {
-                        console.log('[ReactApp] updateProcessingStatus received, ensuring processing steps visible');
                         setProcessingStepsVisible(true);
                     } else if (data.command === 'hideLoading') {
-                        console.log('[ReactApp] hideLoading received, hiding processing steps');
+                        setProcessingStepsVisible(false);
+                    } else if (data.command === 'cancelProcessing') {
+                        setProcessingStepsVisible(false);
+                    } else if (data.command === 'resetProcessingState') {
                         setProcessingStepsVisible(false);
                     } else if (data.command === 'clearHistory') {
-                        console.log('[ReactApp] clearHistory received, clearing messages');
                         setMessages([]);
                     } else if (data.command === 'showErrorCorrection') {
                         // 오류 수정 정보를 ProcessingSteps에 표시
@@ -1920,37 +1945,34 @@
                 };
 
                 window.addEventListener('message', handleMessage);
-                return () => window.removeEventListener('message', handleMessage);
+                return () => {
+                    window.removeEventListener('message', handleMessage);
+                };
             }, []);
 
-            console.log('[ReactApp] Rendering with processingStepsVisible:', processingStepsVisible);
+
 
             return React.createElement('div', {
                 style: { position: 'relative', width: '100%', height: '100%' }
             }, [
                 React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
-                React.createElement(ProcessingSteps, { key: 'processing-steps' }) // 항상 렌더링
+                React.createElement(ProcessingSteps, { key: 'processing-steps' }) // 강제 렌더링
             ]);
         }
 
         // React 컴포넌트 마운트
-        console.log('[React] Mounting React components...');
         const reactContainer = document.getElementById('react-components');
-        console.log('[React] React container found:', reactContainer);
 
         if (reactContainer) {
             const root = ReactDOM.createRoot(reactContainer);
-            console.log('[React] Creating React root...');
             root.render(React.createElement(ReactApp));
-            console.log('[React] React app rendered successfully');
         } else {
-            console.error('[React] React container not found!');
+            // container not found
         }
 
         // ProcessingSteps 업데이트 함수들
         function updateProcessingStep(step) {
-            console.log('[ProcessingSteps] Setting step:', step);
             const steps = document.querySelectorAll('.processing-step');
             steps.forEach((stepElement, index) => {
                 const stepName = stepElement.querySelector('.step-name').textContent.toLowerCase().replace(' ', '');
@@ -1965,7 +1987,6 @@
         }
 
         function updateProcessingStatus(step, status) {
-            console.log('[ProcessingSteps] Updating status:', step, status);
             const steps = document.querySelectorAll('.processing-step');
             steps.forEach((stepElement) => {
                 const stepNameElement = stepElement.querySelector('.step-name');

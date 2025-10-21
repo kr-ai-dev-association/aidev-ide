@@ -942,10 +942,10 @@ export class LlmResponseProcessor {
             if (autoUpdateEnabled && autoExecuteEnabled && hasBashCommands(llmResponse)) {
                 statusCallback?.('Executing bash commands immediately...');
                 safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
-                
+
                 // Run 버튼 실행 상태 표시 (자동 실행 시)
                 safePostMessage(webview, { command: 'showRunExecution', status: 'Executing commands...' });
-                
+
                 // 개별 callout 박스에 executing 상태 표시
                 safePostMessage(webview, { command: 'showCalloutExecuting', status: 'Executing commands...' });
 
@@ -957,7 +957,7 @@ export class LlmResponseProcessor {
                         statusCallback?.(`Found ${executedCommands.length} bash commands`);
                         const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
                         safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
-                        
+
                         // 명령어 실행 완료 후 Run 버튼 실행 상태 숨기기
                         setTimeout(() => {
                             safePostMessage(webview, { command: 'hideRunExecution' });

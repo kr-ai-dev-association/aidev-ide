@@ -173,6 +173,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         command: 'hideAutoCorrecting',
                         message: '자동 오류 수정이 중단되었습니다.'
                     });
+                    // cancel 후 상태 초기화
+                    webviewView.webview.postMessage({
+                        command: 'cancelProcessing'
+                    });
+                    webviewView.webview.postMessage({
+                        command: 'resetProcessingState'
+                    });
                     break;
                 case 'stopCommandExecution':
                     console.log('[Extension Host] Received stopCommandExecution command.');
@@ -432,7 +439,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         } catch (error) {
             console.error('[ChatViewProvider] Error executing commands:', error);
-            
+
             // 오류 발생 시에도 상태 숨기기
             this._view?.webview.postMessage({
                 command: 'hideRunExecution'

@@ -1634,7 +1634,7 @@
         // Processing Steps Component
         function ProcessingSteps() {
             const [steps, setSteps] = useState([]);
-            const [isVisible, setIsVisible] = useState(false);
+            const [isVisible, setIsVisible] = useState(true); // 초기에는 표시
             const [hasUserQuery, setHasUserQuery] = useState(false);
 
             useEffect(() => {
@@ -1647,6 +1647,7 @@
                         setIsVisible(true);
                         setHasUserQuery(true); // 사용자 질의가 전송됨
                     } else if (data.command === 'updateProcessingStatus') {
+                        setIsVisible(true); // 상태 업데이트 시에도 표시
                         setSteps(prev => prev.map(s =>
                             s.step === data.step ? { ...s, status: data.status } : s
                         ));
@@ -1701,7 +1702,7 @@
                     top: '10px',
                     left: '10px',
                     right: '10px',
-                    zIndex: '999999',
+                    zIndex: '2147483647', // 최대 z-index 값
                     color: '#ffffff',
                     fontSize: '13px',
                     maxHeight: '300px',

@@ -119,6 +119,13 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                         command: 'hideAutoCorrecting',
                         message: '자동 오류 수정이 중단되었습니다.'
                     });
+                    // cancel 후 상태 초기화
+                    webviewView.webview.postMessage({
+                        command: 'cancelProcessing'
+                    });
+                    webviewView.webview.postMessage({
+                        command: 'resetProcessingState'
+                    });
                     break;
                 case 'stopCommandExecution':
                     console.log('[Extension Host] Received stopCommandExecution command from Ask tab.');

@@ -1787,7 +1787,7 @@ ${errorContext}`;
     public stopCommandExecution(): void {
         this.isCommandExecutionStopped = true;
         console.log('[TerminalMonitorService] 명령어 실행이 중지되었습니다.');
-        
+
         // 활성 터미널들 종료
         this.activeTerminals.forEach(terminal => {
             if (terminal.exitStatus === undefined) {
