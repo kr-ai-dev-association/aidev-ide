@@ -1586,6 +1586,9 @@ window.addEventListener('message', event => {
                     // console.log('Restored previous Ollama model selection:', currentModel);
                 }
             }
+            
+            // 다운로드된 모델 목록을 받았을 때 버튼 상태 업데이트
+            updateDownloadButtonStates(message.models || []);
             break;
         }
         case 'currentSettings':
@@ -2455,6 +2458,47 @@ function renderModelList() {
             const modelName = e.target.getAttribute('data-model');
             downloadModel(modelName, e.target);
         });
+    });
+
+    // 현재 로컬에 다운로드된 모델 확인하여 버튼 상태 업데이트
+    checkDownloadedModels();
+}
+
+// 현재 다운로드된 모델 확인
+function checkDownloadedModels() {
+    if (!vscode) return;
+    
+    // Ollama 모델 목록 요청
+    vscode.postMessage({ command: 'getOllamaModels' });
+}
+
+// 다운로드 버튼 상태 업데이트
+function updateDownloadButtonStates(downloadedModels) {
+    const modelListContainer = document.getElementById('ollama-model-list');
+    if (!modelListContainer) return;
+
+    // 각 모델 아이템의 버튼 상태 업데이트
+    const modelItems = modelListContainer.querySelectorAll('.model-item');
+    modelItems.forEach(item => {
+        const modelName = item.getAttribute('data-model');
+        const button = item.querySelector('.model-download-button');
+        
+        if (button && modelName) {
+            // 다운로드된 모델인지 확인
+            const isDownloaded = downloadedModels.includes(modelName);
+            
+            if (isDownloaded) {
+                button.textContent = '다운로드 완료';
+                button.disabled = true;
+                button.style.backgroundColor = '#4CAF50'; // 녹색
+                button.style.color = 'white';
+            } else {
+                button.textContent = '다운로드';
+                button.disabled = false;
+                button.style.backgroundColor = ''; // 기본 색상
+                button.style.color = '';
+            }
+        }
     });
 }
 
