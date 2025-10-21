@@ -1120,7 +1120,7 @@ if (errorRetrySpinner) {
     errorRetrySpinner.addEventListener('change', () => {
         const count = parseInt(errorRetrySpinner.value);
         if (count >= 1 && count <= 10) {
-            vscode.postMessage({ command: 'setErrorRetryCount', count: count });
+            vscode.postMessage({ command: 'saveErrorRetryCount', errorRetryCount: count });
             const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
             if (errorRetryStatus) {
                 errorRetryStatus.textContent = `${settingChangeText} ${count}회`;
@@ -2139,6 +2139,14 @@ window.addEventListener('message', event => {
         case 'banyaLicenseError':
             const banyaLicenseErrorText = languageData['banyaLicenseError'] || 'Banya 라이센스 저장 실패:';
             showStatus(banyaLicenseStatus, `${banyaLicenseErrorText} ${message.error}`, 'error');
+            break;
+        case 'errorRetryCountSaved':
+            const errorRetryCountSavedText = languageData['errorRetryCountSaved'] || '오류 수정 횟수가 저장되었습니다.';
+            showStatus(errorRetryStatus, errorRetryCountSavedText, 'success');
+            break;
+        case 'errorRetryCountSaveError':
+            const errorRetryCountSaveErrorText = languageData['errorRetryCountSaveError'] || '오류 수정 횟수 저장 실패:';
+            showStatus(errorRetryStatus, `${errorRetryCountSaveErrorText} ${message.error}`, 'error');
             break;
         case 'banyaLicenseVerified':
             const banyaLicenseVerifiedText = languageData['banyaLicenseVerified'] || 'Banya 라이센스가 유효합니다.';

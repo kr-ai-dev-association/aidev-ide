@@ -1301,7 +1301,7 @@ async function loadLanguageData(language: string): Promise<any> {
     try {
         const fs = require('fs');
         const path = require('path');
-        
+
         // 여러 경로에서 언어 파일 찾기
         const possiblePaths = [
             path.join(__dirname, '..', '..', 'webview', 'locales', `lang_${language}.json`),
@@ -1309,14 +1309,14 @@ async function loadLanguageData(language: string): Promise<any> {
             path.join(process.cwd(), 'aidev-ide', 'webview', 'locales', `lang_${language}.json`),
             path.join(__dirname, '..', '..', '..', 'webview', 'locales', `lang_${language}.json`)
         ];
-        
+
         for (const languageFilePath of possiblePaths) {
             if (fs.existsSync(languageFilePath)) {
                 const fileContent = fs.readFileSync(languageFilePath, 'utf8');
                 return JSON.parse(fileContent);
             }
         }
-        
+
         // 기본 언어 파일 (영어) 사용
         const defaultPaths = [
             path.join(__dirname, '..', '..', 'webview', 'locales', 'lang_en.json'),
@@ -1324,14 +1324,14 @@ async function loadLanguageData(language: string): Promise<any> {
             path.join(process.cwd(), 'aidev-ide', 'webview', 'locales', 'lang_en.json'),
             path.join(__dirname, '..', '..', '..', 'webview', 'locales', 'lang_en.json')
         ];
-        
+
         for (const defaultLanguageFilePath of defaultPaths) {
             if (fs.existsSync(defaultLanguageFilePath)) {
                 const fileContent = fs.readFileSync(defaultLanguageFilePath, 'utf8');
                 return JSON.parse(fileContent);
             }
         }
-        
+
         console.warn('[PanelManager] No language files found, returning empty object');
         return {};
     } catch (error: any) {
