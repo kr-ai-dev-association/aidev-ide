@@ -180,10 +180,8 @@ export class LlmService {
         try {
             console.log('[LlmService] 프로젝트 분석 시작');
 
-            // 현재 AI 모델에 따라 적절한 LLM 호출
-            const currentAiModel = await this.storageService.getCurrentAiModel();
-
-            if (currentAiModel === 'gemini') {
+            // 현재 런타임에 설정된 모델 타입으로 분기 (저장소 재조회 대신 즉시 반영)
+            if (this.currentModelType === AiModelType.GEMINI) {
                 return await this.geminiApi.sendMessage(analysisPrompt);
             } else {
                 return await this.ollamaApi.sendMessage(analysisPrompt);
@@ -333,7 +331,7 @@ ${osSpecificGuidelines}`;
 
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
-        // console.log(`[LlmService] Current model set to: ${modelType}`);
+        console.log(`[LlmService] Current model set to: ${modelType}`);
     }
 
     private formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
@@ -391,6 +389,11 @@ ${osSpecificGuidelines}`;
             safePostMessage(webviewToRespond, { command: 'showLoading' });
             const currentModelNameForLog = await this.getCurrentModelName();
             console.log(`[LlmService] Using model: type=${this.currentModelType}, name=${currentModelNameForLog}`);
+            try {
+                const savedUi = await this.storageService.getAiModel();
+                const savedRuntime = await this.storageService.getCurrentAiModel();
+                console.log(`[LlmService] Saved models -> ui='${savedUi}', runtime='${savedRuntime}'`);
+            } catch { }
 
             if (this.projectProfileService) {
                 this.projectProfile = await this.projectProfileService.loadProfile();

@@ -1549,7 +1549,7 @@ if (aiModelSelect) {
 if (saveAiModelButton) {
     saveAiModelButton.addEventListener('click', () => {
         const selectedModel = aiModelSelect.value;
-        // console.log('AI model save button clicked, selected model:', selectedModel);
+        console.log('[Settings] Save AI Model button clicked. selectedModel =', selectedModel);
 
         if (aiModelStatus) {
             aiModelStatus.textContent = 'AI 모델 저장 중...';
@@ -1566,6 +1566,22 @@ if (saveAiModelButton) {
 window.addEventListener('message', event => {
     const message = event.data;
     switch (message.command) {
+        case 'aiModelSaved': {
+            console.log('[Settings] aiModelSaved received from extension.');
+            if (aiModelStatus) {
+                aiModelStatus.textContent = 'AI 모델이 저장되었습니다.';
+                aiModelStatus.className = 'success-message';
+            }
+            break;
+        }
+        case 'aiModelSaveError': {
+            console.warn('[Settings] aiModelSaveError received from extension:', message.error);
+            if (aiModelStatus) {
+                aiModelStatus.textContent = `AI 모델 저장 실패: ${message.error}`;
+                aiModelStatus.className = 'error-message';
+            }
+            break;
+        }
         case 'ollamaModels': {
             // console.log('[Settings] Received ollamaModels message:', message);
             const sel = document.getElementById('ollama-model-select');

@@ -7,6 +7,7 @@ import { LicenseService } from '../services/licenseService'; // 라이센스 서
 import { OllamaBlockerService } from '../services/ollamaBlockerService'; // Ollama Blocker 서비스 추가
 import { createAndSetupWebviewPanel } from './panelUtils';
 import { TerminalDaemonService } from '../services/terminalDaemonService';
+import { AiModelType } from '../ai/types';
 import * as http from 'http';
 import * as https from 'https';
 
@@ -582,7 +583,31 @@ export function openSettingsPanel(
                     const aiModelToSave = data.aiModel || data.model;
                     if (aiModelToSave && typeof aiModelToSave === 'string') {
                         try {
+                            // UI 표시에 쓰는 키와 런타임에서 사용하는 키를 모두 저장
                             await storageService.saveAiModel(aiModelToSave);
+                            await storageService.saveCurrentAiModel(aiModelToSave);
+
+                            // 즉시 런타임 모델도 반영
+                            if (llmService && typeof llmService.setCurrentModel === 'function') {
+                                let mapped: AiModelType = AiModelType.GEMINI;
+                                const lower = aiModelToSave.toLowerCase();
+                                if (lower === 'gemini') mapped = AiModelType.GEMINI;
+                                else if (lower === 'ollama-gemma' || lower.includes('gemma')) mapped = AiModelType.OLLAMA_Gemma;
+                                else if (lower === 'ollama-deepseek' || lower.includes('deepseek')) mapped = AiModelType.OLLAMA_DeepSeek;
+                                else if (lower === 'ollama-codellama' || lower.includes('codellama')) mapped = AiModelType.OLLAMA_CodeLlama;
+                                else if (lower === 'ollama-gpt-oss' || lower.includes('gpt-oss') || lower.includes('qwen')) mapped = AiModelType.OLLAMA_GPT_OSS;
+                                llmService.setCurrentModel(mapped);
+                            }
+
+                            // 저장된 값 점검 로그
+                            try {
+                                const storedUi = await storageService.getAiModel();
+                                const storedRuntime = await storageService.getCurrentAiModel();
+                                const currentType = llmService?.getCurrentModel?.();
+                                console.log(`[PanelManager] AI model saved. ui='${storedUi}', runtime='${storedRuntime}', llmType='${currentType}'`);
+                            } catch (e) {
+                                console.warn('[PanelManager] Failed to read-back AI model after save:', e);
+                            }
                             safePostMessage(panel, { command: 'aiModelSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: AI Model saved.');
                         } catch (error: any) {

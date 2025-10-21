@@ -159,7 +159,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'cancelGeminiCall':
                     console.log('[Extension Host] Received cancelGeminiCall command.');
                     this.llmService.cancelCurrentCall();
-                    webviewView.webview.postMessage({ command: 'receiveMessage', sender: 'AIDEV-IDE', text: 'AI 호출이 취소되었습니다.' });
+                    // 즉시 로딩/처리 상태를 종료하고 알림 표시
+                    webviewView.webview.postMessage({ command: 'hideLoading' });
+                    webviewView.webview.postMessage({ command: 'cancelProcessing' });
+                    webviewView.webview.postMessage({ command: 'resetProcessingState' });
+                    this.notificationService.showInfoMessage('전송을 취소하였습니다.');
                     break;
                 case 'cancelAutoCorrection':
                     console.log('[Extension Host] Received cancelAutoCorrection command.');

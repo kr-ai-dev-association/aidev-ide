@@ -70,23 +70,18 @@ export class GeminiApi {
         return !!this.model && !!this.genAI;
     }
 
-    // <-- 수정: sendMessage 메서드에 RequestOptions를 두 번째 인자로 전달 -->
     async sendMessage(message: string, generationConfigParam?: GenerationConfig, options?: RequestOptions): Promise<string> {
         if (!this.isInitialized()) {
             throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
         }
 
         try {
-            const chat = this.model.startChat({
-                generationConfig: generationConfigParam || this.defaultGenerationConfig,
-            });
+            // generateContent API를 사용해 요청 객체를 전달 (옵션과 함께 Abort 지원)
             const request: GenerateContentRequest = {
                 contents: [{ role: "user", parts: [{ text: message }] }],
+                generationConfig: generationConfigParam || this.defaultGenerationConfig,
             };
-            // <-- 수정: chat.sendMessage 호출 시 request와 options를 분리하여 두 번째 인자로 전달 -->
-            const result = await chat.sendMessage(request, options); // RequestOptions를 두 번째 인자로 전달
-            // <-- 수정 끝 -->
-
+            const result = await this.model.generateContent(request, options);
             const response = result.response;
             const text = response.text();
             console.log('Banya Response (sendMessage):', text);
@@ -106,20 +101,16 @@ export class GeminiApi {
         }
 
         try {
-            const tempModel = this.genAI.getGenerativeModel({
-                model: this.MODEL_NAME,
-                systemInstruction: systemInstructionText,
-                safetySettings: this.defaultSafetySettings,
-            });
-
-            const request: GenerateContentRequest = {
-                contents: [{ role: "user", parts: userParts }], // userParts 배열 사용
+            // systemInstruction을 포함하는 request 형태로 호출 (SDK가 지원)
+            const request: any = {
+                systemInstruction: { role: "user", parts: [{ text: systemInstructionText }] },
+                contents: [{ role: "user", parts: userParts }],
                 generationConfig: this.defaultGenerationConfig,
+                safetySettings: this.defaultSafetySettings,
+                model: this.MODEL_NAME,
             };
-
-            // <-- 수정: generateContent 호출 시 request와 options를 분리하여 두 번째 인자로 전달 -->
-            const result = await tempModel.generateContent(request, options); // RequestOptions를 두 번째 인자로 전달
-            // <-- 수정 끝 -->
+            // @types 제한으로 any 사용. SDK는 request 내 systemInstruction를 허용
+            const result = await (this.model as any).generateContent(request, options);
 
             const response = result.response;
             if (response.promptFeedback && response.promptFeedback.blockReason) {

@@ -1,3 +1,37 @@
+# Exclude development sources and large folders
+src/**
+webview-react/**
+test/**
+.vscode/**
+out/**
+**/*.log
+
+# Exclude secrets
+assets/ollama-blocker/service-account-key.json
+ollama-blocker/service-account-key.json
+
+# Keep required runtime assets
+!dist/**
+!webview/**
+!media/**
+
+# Exclude all assets by default, then selectively include needed binaries
+assets/**
+!assets/ollama-blocker/ollama-blocker-embedded
+# Ensure docs and metadata are included
+!package.json
+!README.md
+!README.ko.md
+!RELEASE.md
+!RELEASE.ko.md
+!CHANGELOG.md
+!NOTICE.txt
+!LICENSE.txt
+!supported_ollama_model.json
+
+# Final safeguard: secrets must remain excluded
+assets/ollama-blocker/service-account-key.json
+ollama-blocker/service-account-key.json
 # Exclude development folders and large/unrelated directories
 .git/**
 .github/**
@@ -20,7 +54,7 @@ src/**
 !webview/**/*.html
 !webview/locales/**/*.json
 !media/**
-!assets/**
+# Only allow specific binaries from assets
 !assets/terminal-daemon/terminal-client
 
 # Exclude secrets and sensitive files

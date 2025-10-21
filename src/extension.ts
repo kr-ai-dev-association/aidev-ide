@@ -154,8 +154,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const { setUserOS } = await import('./terminal/terminalManager');
     setUserOS(userOS);
 
-    // 현재 AI 모델 설정 로드
+    // 현재 AI 모델 설정 로드 (runtime 키와 UI 키를 모두 읽어 정합성 맞춤)
     let currentAiModel = await storageService.getCurrentAiModel();
+    const uiAiModel = await storageService.getAiModel();
     // 마이그레이션: 과거 'ollama' 값이 저장된 경우, 현재 Ollama 모델을 확인하여 구체적인 타입으로 변환
     if (currentAiModel === 'ollama') {
         const storedOllamaModel = await storageService.getOllamaModel();
@@ -172,6 +173,14 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         await storageService.saveCurrentAiModel(currentAiModel as any);
     }
+    // UI에서 저장된 모델이 우선 (과거 버전 잔존값 교정)
+    try {
+        if (uiAiModel && uiAiModel !== currentAiModel) {
+            currentAiModel = uiAiModel as any;
+            await storageService.saveCurrentAiModel(uiAiModel);
+        }
+    } catch { /* noop */ }
+
     if (currentAiModel) {
         llmService.setCurrentModel(currentAiModel as AiModelType);
     }
