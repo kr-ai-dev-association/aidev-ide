@@ -1583,7 +1583,7 @@ window.addEventListener('message', event => {
                     // console.log('Restored previous Ollama model selection:', currentModel);
                 }
             }
-            
+
             // 다운로드된 모델 목록을 받았을 때 버튼 상태 업데이트
             updateDownloadButtonStates(message.models || []);
             break;
@@ -1864,7 +1864,21 @@ window.addEventListener('message', event => {
                 }
             }
             break;
-        case 'projectRootError':
+        case 'projectRootPathSaved':
+            const projectRootSavedText = languageData['projectRootSaved'] || '프로젝트 Root 경로가 저장되었습니다.';
+            showStatus(projectRootStatus, projectRootSavedText, 'success');
+            updateProjectRootDisplay(message.projectRootPath);
+            break;
+        case 'projectRootPathCleared':
+            const projectRootClearedText = languageData['projectRootCleared'] || '프로젝트 Root 경로가 지워졌습니다.';
+            showStatus(projectRootStatus, projectRootClearedText, 'success');
+            updateProjectRootDisplay('');
+            break;
+        case 'projectRootPathCancelled':
+            const projectRootCancelledText = languageData['projectRootCancelled'] || '프로젝트 Root 선택이 취소되었습니다.';
+            showStatus(projectRootStatus, projectRootCancelledText, 'info');
+            break;
+        case 'projectRootPathError':
             const projectRootErrorText = languageData['projectRootError'] || '오류 (프로젝트 Root 설정):';
             showStatus(projectRootStatus, `${projectRootErrorText} ${message.error}`, 'error');
             break;
@@ -2471,7 +2485,7 @@ function renderModelList() {
 // 현재 다운로드된 모델 확인
 function checkDownloadedModels() {
     if (!vscode) return;
-    
+
     // Ollama 모델 목록 요청
     vscode.postMessage({ command: 'getOllamaModels' });
 }
@@ -2486,11 +2500,11 @@ function updateDownloadButtonStates(downloadedModels) {
     modelItems.forEach(item => {
         const modelName = item.getAttribute('data-model');
         const button = item.querySelector('.model-download-button');
-        
+
         if (button && modelName) {
             // 다운로드된 모델인지 확인
             const isDownloaded = downloadedModels.includes(modelName);
-            
+
             if (isDownloaded) {
                 button.textContent = '다운로드 완료';
                 button.disabled = true;
@@ -2560,7 +2574,7 @@ window.addEventListener('message', (event) => {
                 if (ollamaModelSelect && message.modelName) {
                     // 현재 선택된 값 저장
                     const currentValue = ollamaModelSelect.value;
-                    
+
                     // 새 모델이 목록에 있는지 확인하고 없으면 추가
                     const existingOption = Array.from(ollamaModelSelect.options).find(option => option.value === message.modelName);
                     if (!existingOption) {
@@ -2569,13 +2583,13 @@ window.addEventListener('message', (event) => {
                         newOption.textContent = message.modelName;
                         ollamaModelSelect.appendChild(newOption);
                     }
-                    
+
                     // 다운로드된 모델을 자동으로 선택
                     ollamaModelSelect.value = message.modelName;
-                    
+
                     // 모델 선택 이벤트 트리거
                     ollamaModelSelect.dispatchEvent(new Event('change'));
-                    
+
                     // 상태 메시지 업데이트
                     const modelDownloadedText = `새 모델 '${message.modelName}'이 다운로드되어 선택되었습니다.`;
                     showStatus(ollamaModelStatus, modelDownloadedText, 'success');

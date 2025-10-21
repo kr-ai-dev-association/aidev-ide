@@ -585,6 +585,38 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage('Invalid language setting provided.');
                     }
                     break;
+                case 'setProjectRoot': // 프로젝트 Root 설정 케이스 추가
+                    try {
+                        if (data.clear) {
+                            // 프로젝트 Root 지우기
+                            await storageService.clearProjectRootPath();
+                            safePostMessage(panel, { command: 'projectRootPathCleared' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Project root path cleared.');
+                        } else {
+                            // 프로젝트 Root 선택 다이얼로그 열기
+                            const selectedFolder = await vscode.window.showOpenDialog({
+                                canSelectFiles: false,
+                                canSelectFolders: true,
+                                canSelectMany: false,
+                                openLabel: 'Select Project Root',
+                                title: 'Select Project Root Directory'
+                            });
+
+                            if (selectedFolder && selectedFolder.length > 0) {
+                                const projectRootPath = selectedFolder[0].fsPath;
+                                await storageService.saveProjectRootPath(projectRootPath);
+                                safePostMessage(panel, { command: 'projectRootPathSaved', projectRootPath });
+                                notificationService.showInfoMessage(`AIDEV-IDE: Project root path set to: ${projectRootPath}`);
+                            } else {
+                                safePostMessage(panel, { command: 'projectRootPathCancelled' });
+                            }
+                        }
+                    } catch (error: any) {
+                        console.error('Error setting project root:', error);
+                        safePostMessage(panel, { command: 'projectRootPathError', error: error.message });
+                        notificationService.showErrorMessage(`Error setting project root: ${error.message}`);
+                    }
+                    break;
                 case 'testOllamaConnection': // Ollama 연결 테스트 케이스 추가
                     try {
                         const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
