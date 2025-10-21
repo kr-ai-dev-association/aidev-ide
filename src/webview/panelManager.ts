@@ -67,6 +67,7 @@ export function openSettingsPanel(
                         const newsApiKey = await storageService.getNewsApiKey();
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
+                        const aiModel = await storageService.getAiModel();
 
                         const messageToSend = {
                             command: 'currentSettings',
@@ -87,7 +88,8 @@ export function openSettingsPanel(
                             weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
-                            isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
+                            isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
+                            aiModel: aiModel || 'gemini' // AI 모델 정보 추가
                         };
                         // console.log('Sending currentApiKeys message:', messageToSend);
                         safePostMessage(panel, messageToSend);
@@ -227,7 +229,7 @@ export function openSettingsPanel(
                     break;
                 case 'saveOllamaServerType': // Ollama 서버 타입 저장 케이스 추가
                     const ollamaServerTypeToSave = data.ollamaServerType;
-                    console.log('[PanelManager] Saving Ollama server type:', ollamaServerTypeToSave);
+                    // console.log('[PanelManager] Saving Ollama server type:', ollamaServerTypeToSave);
                     if (ollamaServerTypeToSave && typeof ollamaServerTypeToSave === 'string') {
                         try {
                             await storageService.saveOllamaServerType(ollamaServerTypeToSave);
@@ -821,6 +823,7 @@ export function openSettingsPanel(
                         const newsApiKey = await storageService.getNewsApiKey();
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
+                        const aiModel = await storageService.getAiModel();
 
                         const messageToSend = {
                             command: 'currentSettings',
@@ -841,7 +844,8 @@ export function openSettingsPanel(
                             weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
-                            isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
+                            isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
+                            aiModel: aiModel || 'gemini' // AI 모델 정보 추가
                         };
                         // console.log('Sending currentApiKeys message:', messageToSend);
                         safePostMessage(panel, messageToSend);
@@ -996,9 +1000,9 @@ async function loadSupportedModels(): Promise<any[]> {
         const fs = require('fs');
         const path = require('path');
 
-        console.log('[PanelManager] Starting to load supported models...');
-        console.log('[PanelManager] Current working directory:', process.cwd());
-        console.log('[PanelManager] __dirname:', __dirname);
+        // console.log('[PanelManager] Starting to load supported models...');
+        // console.log('[PanelManager] Current working directory:', process.cwd());
+        // console.log('[PanelManager] __dirname:', __dirname);
 
         // VS Code 확장의 루트 디렉토리에서 파일 찾기
         let modelFilePath: string;
@@ -1015,20 +1019,20 @@ async function loadSupportedModels(): Promise<any[]> {
             projectRootPath = path.join(currentDir, 'aidev-ide', 'supported_ollama_model.json');
         }
 
-        console.log('[PanelManager] Checking project root path:', projectRootPath);
-        console.log('[PanelManager] Project root exists:', fs.existsSync(projectRootPath));
+        // console.log('[PanelManager] Checking project root path:', projectRootPath);
+        // console.log('[PanelManager] Project root exists:', fs.existsSync(projectRootPath));
 
         if (fs.existsSync(projectRootPath)) {
             modelFilePath = projectRootPath;
-            console.log('[PanelManager] Using project root path');
+            // console.log('[PanelManager] Using project root path');
         } else {
             // __dirname 기준으로 찾기 (컴파일된 파일 기준)
             modelFilePath = path.join(__dirname, '..', '..', 'supported_ollama_model.json');
-            console.log('[PanelManager] Using __dirname path:', modelFilePath);
+            // console.log('[PanelManager] Using __dirname path:', modelFilePath);
         }
 
-        console.log('[PanelManager] Final model file path:', modelFilePath);
-        console.log('[PanelManager] File exists:', fs.existsSync(modelFilePath));
+        // console.log('[PanelManager] Final model file path:', modelFilePath);
+        // console.log('[PanelManager] File exists:', fs.existsSync(modelFilePath));
 
         // 파일 존재 확인
         if (!fs.existsSync(modelFilePath)) {
@@ -1043,12 +1047,12 @@ async function loadSupportedModels(): Promise<any[]> {
                 '/Users/tony/Projects/aidev-ide/supported_ollama_model.json' // 절대 경로
             ];
 
-            console.log('[PanelManager] Trying alternative paths...');
+            // console.log('[PanelManager] Trying alternative paths...');
             for (const altPath of alternativePaths) {
-                console.log('[PanelManager] Checking:', altPath, 'exists:', fs.existsSync(altPath));
+                // console.log('[PanelManager] Checking:', altPath, 'exists:', fs.existsSync(altPath));
                 if (fs.existsSync(altPath)) {
                     modelFilePath = altPath;
-                    console.log('[PanelManager] Found file at:', altPath);
+                    // console.log('[PanelManager] Found file at:', altPath);
                     break;
                 }
             }
@@ -1059,13 +1063,13 @@ async function loadSupportedModels(): Promise<any[]> {
         }
 
         // 파일 읽기
-        console.log('[PanelManager] Reading file:', modelFilePath);
+        // console.log('[PanelManager] Reading file:', modelFilePath);
         const fileContent = fs.readFileSync(modelFilePath, 'utf8');
-        console.log('[PanelManager] File content length:', fileContent.length);
+        // console.log('[PanelManager] File content length:', fileContent.length);
 
         const modelData = JSON.parse(fileContent);
-        console.log('[PanelManager] Parsed model data:', modelData);
-        console.log('[PanelManager] Models count:', modelData.models?.length || 0);
+        // console.log('[PanelManager] Parsed model data:', modelData);
+        // console.log('[PanelManager] Models count:', modelData.models?.length || 0);
 
         return modelData.models || [];
     } catch (error: any) {

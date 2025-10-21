@@ -438,6 +438,11 @@ export class StorageService {
     async saveAiModel(model: string): Promise<void> {
         await this.secretStorage.store('aidev-ide.aiModel', model);
     }
+
+    async getAiModel(): Promise<string> {
+        const model = await this.secretStorage.get('aidev-ide.aiModel');
+        return model || 'gemini';
+    }
 }
 
 // --- END OF FILE src/storage/storage.ts ---

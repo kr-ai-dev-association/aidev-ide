@@ -1621,6 +1621,38 @@ window.addEventListener('message', event => {
                 updateProjectRootDisplay(null);
             }
 
+            // ===== AI 모델 설정 적용 =====
+            if (aiModelSelect && typeof message.aiModel === 'string') {
+                // 저장된 모델을 UI 표시용으로 변환
+                let displayModel = message.aiModel;
+                if (message.aiModel === 'ollama-gemma' || message.aiModel === 'ollama-deepseek' ||
+                    message.aiModel === 'ollama-codellama' || message.aiModel === 'ollama-gpt-oss') {
+                    displayModel = 'ollama';
+                } else if (message.aiModel === 'gemini') {
+                    displayModel = 'gemini';
+                }
+                
+                aiModelSelect.value = displayModel;
+                
+                // 모델에 따라 섹션 활성화/비활성화
+                if (displayModel === 'gemini') {
+                    geminiSettingsSection.classList.remove('disabled');
+                    localOllamaSettingsSection.classList.add('disabled');
+                    remoteOllamaSettingsSection.classList.add('disabled');
+                } else if (displayModel === 'ollama') {
+                    geminiSettingsSection.classList.add('disabled');
+                    // 서버 타입에 따라 활성 섹션 결정
+                    const serverType = message.ollamaServerType || 'local';
+                    if (serverType === 'remote') {
+                        localOllamaSettingsSection.classList.add('disabled');
+                        remoteOllamaSettingsSection.classList.remove('disabled');
+                    } else {
+                        localOllamaSettingsSection.classList.remove('disabled');
+                        remoteOllamaSettingsSection.classList.add('disabled');
+                    }
+                }
+            }
+
             // ===== Ollama 서버 타입 및 저장된 설정 적용 =====
             if (ollamaServerTypeSelect && typeof message.ollamaServerType === 'string') {
                 ollamaServerTypeSelect.value = message.ollamaServerType || 'local';
@@ -1629,24 +1661,28 @@ window.addEventListener('message', event => {
                     : (languageData['ollamaServerTypeLocalSet'] || 'Ollama 서버 타입: 로컬 머신');
                 showStatus(ollamaServerTypeStatus, setText, 'success');
 
-                // 섹션 가시성 + disabled 클래스 동기화
-                if (message.ollamaServerType === 'remote') {
-                    if (localOllamaSettingsSection) {
-                        localOllamaSettingsSection.style.display = 'none';
-                        localOllamaSettingsSection.classList.add('disabled');
-                    }
-                    if (remoteOllamaSettingsSection) {
-                        remoteOllamaSettingsSection.style.display = 'block';
-                        remoteOllamaSettingsSection.classList.remove('disabled');
-                    }
-                } else {
-                    if (localOllamaSettingsSection) {
-                        localOllamaSettingsSection.style.display = 'block';
-                        localOllamaSettingsSection.classList.remove('disabled');
-                    }
-                    if (remoteOllamaSettingsSection) {
-                        remoteOllamaSettingsSection.style.display = 'none';
-                        remoteOllamaSettingsSection.classList.add('disabled');
+                // AI 모델이 'ollama'인 경우에만 섹션 활성화/비활성화
+                const currentAiModel = aiModelSelect ? aiModelSelect.value : 'gemini';
+                if (currentAiModel === 'ollama') {
+                    // 섹션 가시성 + disabled 클래스 동기화
+                    if (message.ollamaServerType === 'remote') {
+                        if (localOllamaSettingsSection) {
+                            localOllamaSettingsSection.style.display = 'none';
+                            localOllamaSettingsSection.classList.add('disabled');
+                        }
+                        if (remoteOllamaSettingsSection) {
+                            remoteOllamaSettingsSection.style.display = 'block';
+                            remoteOllamaSettingsSection.classList.remove('disabled');
+                        }
+                    } else {
+                        if (localOllamaSettingsSection) {
+                            localOllamaSettingsSection.style.display = 'block';
+                            localOllamaSettingsSection.classList.remove('disabled');
+                        }
+                        if (remoteOllamaSettingsSection) {
+                            remoteOllamaSettingsSection.style.display = 'none';
+                            remoteOllamaSettingsSection.classList.add('disabled');
+                        }
                     }
                 }
             }
@@ -2336,10 +2372,10 @@ let supportedModels = [];
 
 // 지원되는 모델 목록 로드
 async function loadSupportedModels() {
-    console.log('[Settings] Starting to load supported models...');
+    // console.log('[Settings] Starting to load supported models...');
     try {
         if (vscode) {
-            console.log('[Settings] Sending getSupportedModels command to extension');
+            // console.log('[Settings] Sending getSupportedModels command to extension');
             vscode.postMessage({ command: 'getSupportedModels' });
         } else {
             throw new Error('VS Code API not available');
@@ -2355,7 +2391,7 @@ async function loadSupportedModels() {
 
 // 모델 리스트 렌더링
 function renderModelList() {
-    console.log('[Settings] renderModelList called with supportedModels:', supportedModels);
+    // console.log('[Settings] renderModelList called with supportedModels:', supportedModels);
     const modelListContainer = document.getElementById('ollama-model-list');
     if (!modelListContainer) {
         console.error('[Settings] ollama-model-list container not found');
@@ -2363,7 +2399,7 @@ function renderModelList() {
     }
 
     modelListContainer.innerHTML = '';
-    console.log('[Settings] Rendering', supportedModels.length, 'models');
+    // console.log('[Settings] Rendering', supportedModels.length, 'models');
 
     supportedModels.forEach(model => {
         const modelItem = document.createElement('div');
@@ -2422,9 +2458,9 @@ window.addEventListener('message', (event) => {
 
     switch (message.command) {
         case 'supportedModels':
-            console.log('[Settings] Received supportedModels:', message.models);
+            // console.log('[Settings] Received supportedModels:', message.models);
             supportedModels = message.models || [];
-            console.log('[Settings] Set supportedModels to:', supportedModels);
+            // console.log('[Settings] Set supportedModels to:', supportedModels);
             renderModelList();
             break;
         case 'supportedModelsError':
