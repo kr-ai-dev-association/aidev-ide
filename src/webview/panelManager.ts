@@ -45,222 +45,58 @@ export function openSettingsPanel(
     ollamaBlockerService?: OllamaBlockerService // OllamaBlockerService 추가
 ) {
     const panel = createAndSetupWebviewPanel(extensionUri, context, 'settings', 'AIDEV-IDE Settings', 'settings', viewColumn,
-        async (data, panel) => {
+        async (data, panel: vscode.WebviewPanel) => {
             // console.log('Settings panel received message:', data.command, data);
             switch (data.command) {
-                case 'initSettings':
-                    safePostMessage(panel, {
-                        command: 'currentSettings',
-                        autoUpdateEnabled: await configurationService.isAutoUpdateEnabled(),
-                        projectRoot: await configurationService.getProjectRoot(),
-                        terminalDaemonEnabled: await configurationService.isTerminalDaemonEnabled(),
-                        outputLogEnabled: await configurationService.isOutputLogEnabled(),
-                        errorRetryCount: await configurationService.getErrorRetryCount(),
-                        autoCorrectionEnabled: await configurationService.isAutoCorrectionEnabled(),
-                        // Ollama 관련 설정 초기값 전달 (저장된 값 로드)
-                        ollamaServerType: await storageService.getOllamaServerType(),
-                        localOllamaApiUrl: await storageService.getLocalOllamaApiUrl(),
-                        localOllamaEndpoint: await storageService.getLocalOllamaEndpoint(),
-                        remoteOllamaApiUrl: await storageService.getRemoteOllamaApiUrl(),
-                        remoteOllamaEndpoint: await storageService.getRemoteOllamaEndpoint(),
-                        remoteOllamaModel: await storageService.getRemoteOllamaModel()
-                    });
-                    break;
-                case 'setTerminalDaemonEnabled':
-                    if (typeof data.enabled === 'boolean') {
-                        await configurationService.updateTerminalDaemonEnabled(data.enabled);
-                        try {
-                            const tds = TerminalDaemonService.getInstance(context);
-                            const isInstalled = await tds.isInstalled();
-                            if (!isInstalled) {
-                                await tds.install();
-                            }
-                            if (data.enabled) {
-                                await tds.start();
-                                tds.showLogs();
-                            } else {
-                                await tds.stop();
-                            }
-                        } catch (e) {
-                            console.error('[PanelManager] terminal-daemon 토글 처리 중 오류:', e);
-                        }
-                        safePostMessage(panel, { command: 'terminalDaemonStatusChanged', enabled: data.enabled });
+                case 'getCurrentSettings': {
+                    try {
+                        // 현재 설정들을 가져와서 웹뷰에 전송
+                        const apiKey = await storageService.getApiKey();
+                        const ollamaApiUrl = await storageService.getOllamaApiUrl();
+                        const ollamaEndpoint = await storageService.getOllamaEndpoint();
+                        const ollamaModel = await storageService.getOllamaModel();
+                        const ollamaServerType = await storageService.getOllamaServerType();
+                        const remoteOllamaApiUrl = await storageService.getRemoteOllamaApiUrl();
+                        const remoteOllamaEndpoint = await storageService.getRemoteOllamaEndpoint();
+                        const remoteOllamaModel = await storageService.getRemoteOllamaModel();
+                        const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
+                        const outputLogEnabled = await storageService.getOutputLogEnabled();
+                        const errorRetryCount = await storageService.getErrorRetryCount();
+                        const projectRootPath = await storageService.getProjectRootPath();
+                        const weatherApiKey = await storageService.getWeatherApiKey();
+                        const newsApiKey = await storageService.getNewsApiKey();
+                        const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
+                        const isLicenseVerified = await storageService.getIsLicenseVerified();
+
+                        const messageToSend = {
+                            command: 'currentSettings',
+                            apiKey: apiKey || '',
+                            ollamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
+                            ollamaEndpoint: ollamaEndpoint || '/api/generate',
+                            ollamaModel: ollamaModel || 'gemma3:27b',
+                            ollamaServerType: ollamaServerType || 'local',
+                            localOllamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
+                            localOllamaEndpoint: ollamaEndpoint || '/api/generate',
+                            remoteOllamaApiUrl: remoteOllamaApiUrl || '',
+                            remoteOllamaEndpoint: remoteOllamaEndpoint || '/api/generate',
+                            remoteOllamaModel: remoteOllamaModel || '',
+                            autoCorrectionEnabled: autoCorrectionEnabled || false,
+                            outputLogEnabled: outputLogEnabled || false,
+                            errorRetryCount: errorRetryCount || 3,
+                            projectRootPath: projectRootPath || '',
+                            weatherApiKey: weatherApiKey || '',
+                            newsApiKey: newsApiKey || '',
+                            banyaLicenseSerial: banyaLicenseSerial || '',
+                            isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
+                        };
+                        // console.log('Sending currentApiKeys message:', messageToSend);
+                        safePostMessage(panel, messageToSend);
+                    } catch (error: any) {
+                        console.error('Error getting current settings:', error);
+                        safePostMessage(panel, { command: 'currentSettings', error: error.message });
                     }
                     break;
-                case 'setAutoUpdate':
-                    if (typeof data.enabled === 'boolean') {
-                        await configurationService.updateAutoUpdateEnabled(data.enabled);
-                        safePostMessage(panel, { command: 'autoUpdateStatusChanged', enabled: data.enabled });
-                    }
-                    break;
-                case 'setOutputLog':
-                    if (typeof data.enabled === 'boolean') {
-                        await configurationService.updateOutputLogEnabled(data.enabled);
-                        safePostMessage(panel, { command: 'outputLogStatusChanged', enabled: data.enabled });
-                    }
-                    break;
-                case 'setErrorRetryCount':
-                    if (typeof data.count === 'number') {
-                        await configurationService.updateErrorRetryCount(data.count);
-                        safePostMessage(panel, { command: 'errorRetryCountChanged', count: data.count });
-                    }
-                    break;
-                case 'setAutoCorrectionEnabled':
-                    if (typeof data.enabled === 'boolean') {
-                        await configurationService.updateAutoCorrectionEnabled(data.enabled);
-                        safePostMessage(panel, { command: 'autoCorrectionStatusChanged', enabled: data.enabled });
-                    }
-                    break;
-                case 'setProjectRoot':
-                    if (data.clear) {
-                        // 프로젝트 Root 지우기
-                        try {
-                            await configurationService.updateProjectRoot(undefined);
-
-                            // 설정이 제대로 삭제되었는지 확인
-                            const savedRoot = await configurationService.getProjectRoot();
-                            console.log(`[PanelManager] 프로젝트 Root 삭제 후 확인: ${savedRoot}`);
-
-                            if (!savedRoot) {
-                                safePostMessage(panel, {
-                                    command: 'updatedProjectRoot',
-                                    projectRoot: '',
-                                    success: true
-                                });
-                                console.log(`[PanelManager] 프로젝트 Root 삭제 성공`);
-                            } else {
-                                safePostMessage(panel, {
-                                    command: 'updatedProjectRoot',
-                                    projectRoot: '',
-                                    success: false,
-                                    error: '프로젝트 Root 삭제에 실패했습니다.'
-                                });
-                                console.error(`[PanelManager] 프로젝트 Root 삭제 실패: 여전히 값이 존재함`);
-                            }
-                        } catch (error) {
-                            console.error(`[PanelManager] 프로젝트 Root 삭제 중 오류:`, error);
-                            safePostMessage(panel, {
-                                command: 'updatedProjectRoot',
-                                projectRoot: '',
-                                success: false,
-                                error: `삭제 중 오류가 발생했습니다: ${error}`
-                            });
-                        }
-                    } else {
-                        // 프로젝트 Root 선택
-                        const rootUris = await vscode.window.showOpenDialog({
-                            canSelectFiles: false,
-                            canSelectFolders: true,
-                            canSelectMany: false,
-                            openLabel: 'Select Project Root Directory'
-                        });
-
-                        if (rootUris && rootUris.length > 0) {
-                            const newRootPath = rootUris[0].fsPath;
-                            console.log(`[PanelManager] 프로젝트 Root 설정 시도: ${newRootPath}`);
-
-                            try {
-                                await configurationService.updateProjectRoot(newRootPath);
-
-                                // 설정이 제대로 저장되었는지 확인
-                                const savedRoot = await configurationService.getProjectRoot();
-                                console.log(`[PanelManager] 저장된 프로젝트 Root 확인: ${savedRoot}`);
-
-                                if (savedRoot === newRootPath) {
-                                    safePostMessage(panel, {
-                                        command: 'updatedProjectRoot',
-                                        projectRoot: newRootPath,
-                                        success: true
-                                    });
-                                    console.log(`[PanelManager] 프로젝트 Root 설정 성공: ${newRootPath}`);
-                                } else {
-                                    safePostMessage(panel, {
-                                        command: 'updatedProjectRoot',
-                                        projectRoot: '',
-                                        success: false,
-                                        error: '설정 저장에 실패했습니다.'
-                                    });
-                                    console.error(`[PanelManager] 프로젝트 Root 설정 실패: 저장된 값이 다름`);
-                                }
-                            } catch (error) {
-                                console.error(`[PanelManager] 프로젝트 Root 설정 중 오류:`, error);
-                                safePostMessage(panel, {
-                                    command: 'updatedProjectRoot',
-                                    projectRoot: '',
-                                    success: false,
-                                    error: `설정 저장 중 오류가 발생했습니다: ${error}`
-                                });
-                            }
-                        } else {
-                            // 사용자가 다이얼로그를 취소한 경우
-                            console.log(`[PanelManager] 프로젝트 Root 선택이 취소됨`);
-                            safePostMessage(panel, {
-                                command: 'updatedProjectRoot',
-                                projectRoot: '',
-                                success: false,
-                                error: '프로젝트 Root 선택이 취소되었습니다.'
-                            });
-                        }
-                    }
-                    break;
-                case 'loadApiKeys':
-                    // API 키 상태 로드
-                    const weatherApiKey = await configurationService.getWeatherApiKey();
-                    const newsApiKey = await configurationService.getNewsApiKey();
-                    const newsApiSecret = await configurationService.getNewsApiSecret();
-                    const stockApiKey = await configurationService.getStockApiKey();
-                    const geminiApiKey = await storageService.getApiKey(); // Gemini API 키 추가
-                    const ollamaApiUrl = await storageService.getOllamaApiUrl(); // Ollama API URL 추가
-                    const ollamaEndpoint = await storageService.getOllamaEndpoint(); // Ollama 엔드포인트 추가
-                    const ollamaModel = await storageService.getOllamaModel(); // Ollama 모델 추가
-                    const banyaLicenseSerial = await storageService.getBanyaLicenseSerial(); // Banya 라이센스 추가
-
-                    // Banya 라이센스 시리얼 검증 - 잘못된 데이터 필터링
-                    let validBanyaLicenseSerial = '';
-                    if (banyaLicenseSerial &&
-                        typeof banyaLicenseSerial === 'string' &&
-                        banyaLicenseSerial.trim() !== '' &&
-                        !banyaLicenseSerial.includes('/') &&
-                        !banyaLicenseSerial.includes('\\') &&
-                        !banyaLicenseSerial.includes('프로젝트') &&
-                        !banyaLicenseSerial.includes('Project') &&
-                        banyaLicenseSerial.length > 5) {
-                        validBanyaLicenseSerial = banyaLicenseSerial.trim();
-                    }
-
-                    // 라이선스 검증 상태 확인
-                    let isLicenseVerified = false;
-                    if (validBanyaLicenseSerial) {
-                        try {
-                            // console.log('Verifying license:', validBanyaLicenseSerial);
-                            const verificationResult = await licenseService.verifyLicense(validBanyaLicenseSerial);
-                            isLicenseVerified = verificationResult.success;
-                            // console.log('License verification result:', verificationResult);
-                            // console.log('isLicenseVerified set to:', isLicenseVerified);
-                        } catch (error) {
-                            console.error('License verification failed:', error);
-                            isLicenseVerified = false;
-                        }
-                    } else {
-                        console.log('No valid license serial found');
-                    }
-
-                    const messageToSend = {
-                        command: 'currentApiKeys',
-                        weatherApiKey: weatherApiKey || '',
-                        newsApiKey: newsApiKey || '',
-                        newsApiSecret: newsApiSecret || '',
-                        stockApiKey: stockApiKey || '',
-                        geminiApiKey: geminiApiKey || '', // Gemini API 키 추가
-                        ollamaApiUrl: ollamaApiUrl || '', // Ollama API URL 추가
-                        ollamaEndpoint: ollamaEndpoint || '', // Ollama 엔드포인트 추가
-                        ollamaModel: ollamaModel || '', // Ollama 모델 추가
-                        banyaLicenseSerial: validBanyaLicenseSerial, // 검증된 Banya 라이센스만 전송
-                        isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
-                    };
-                    // console.log('Sending currentApiKeys message:', messageToSend);
-                    safePostMessage(panel, messageToSend);
-                    break;
+                }
                 case 'getOllamaModels': {
                     try {
                         const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
@@ -298,6 +134,32 @@ export function openSettingsPanel(
                     }
                     break;
                 }
+                case 'downloadOllamaModel': {
+                    try {
+                        const modelName = data.modelName;
+                        if (!modelName) {
+                            safePostMessage(panel, { command: 'modelDownloadError', error: 'Model name is required' });
+                            return;
+                        }
+
+                        // Ollama 모델 다운로드 시작
+                        await downloadOllamaModel(modelName, panel, storageService, notificationService);
+                    } catch (error: any) {
+                        console.error('[PanelManager] Failed to download Ollama model:', error);
+                        safePostMessage(panel, { command: 'modelDownloadError', error: error.message });
+                    }
+                    break;
+                }
+                case 'getSupportedModels': {
+                    try {
+                        const supportedModels = await loadSupportedModels();
+                        safePostMessage(panel, { command: 'supportedModels', models: supportedModels });
+                    } catch (error: any) {
+                        console.error('[PanelManager] Failed to load supported models:', error);
+                        safePostMessage(panel, { command: 'supportedModelsError', error: error.message });
+                    }
+                    break;
+                }
                 case 'saveApiKey': // Gemini API 키 저장 케이스 추가
                     const apiKeyToSave = data.apiKey;
                     if (apiKeyToSave && typeof apiKeyToSave === 'string') {
@@ -311,501 +173,685 @@ export function openSettingsPanel(
                             notificationService.showErrorMessage(`Error saving Gemini API Key: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'apiKeySaveError', error: 'API Key empty.' });
-                        notificationService.showErrorMessage('Gemini API Key is empty.');
+                        safePostMessage(panel, { command: 'apiKeySaveError', error: 'Invalid API key' });
+                        notificationService.showErrorMessage('Invalid API key provided.');
                     }
                     break;
-                case 'saveOllamaApiUrl':
-                    const ollamaApiUrlToSave = data.apiUrl;
+                case 'saveOllamaApiUrl': // Ollama API URL 저장 케이스 추가
+                    const ollamaApiUrlToSave = data.ollamaApiUrl;
                     if (ollamaApiUrlToSave && typeof ollamaApiUrlToSave === 'string') {
                         try {
                             await storageService.saveOllamaApiUrl(ollamaApiUrlToSave);
-                            // OllamaApi 인스턴스의 URL도 업데이트
-                            if (ollamaApi && typeof ollamaApi.setApiUrl === 'function') {
-                                ollamaApi.setApiUrl(ollamaApiUrlToSave);
-                            }
                             safePostMessage(panel, { command: 'ollamaApiUrlSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Ollama API URL saved.');
                         } catch (error: any) {
-                            safePostMessage(panel, { command: 'ollamaApiUrlError', error: error.message });
+                            safePostMessage(panel, { command: 'ollamaApiUrlSaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Ollama API URL: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'ollamaApiUrlError', error: 'API URL empty.' });
-                        notificationService.showErrorMessage('Ollama API URL is empty.');
+                        safePostMessage(panel, { command: 'ollamaApiUrlSaveError', error: 'Invalid Ollama API URL' });
+                        notificationService.showErrorMessage('Invalid Ollama API URL provided.');
                     }
                     break;
-                case 'saveOllamaEndpoint':
-                    const ollamaEndpointToSave = data.endpoint;
-                    // console.log('Received saveOllamaEndpoint command with endpoint:', ollamaEndpointToSave);
+                case 'saveOllamaEndpoint': // Ollama 엔드포인트 저장 케이스 추가
+                    const ollamaEndpointToSave = data.ollamaEndpoint;
                     if (ollamaEndpointToSave && typeof ollamaEndpointToSave === 'string') {
                         try {
-                            // console.log('Saving Ollama endpoint to storage:', ollamaEndpointToSave);
                             await storageService.saveOllamaEndpoint(ollamaEndpointToSave);
-                            // console.log('Ollama endpoint saved successfully');
-
-                            // OllamaApi 인스턴스의 엔드포인트도 업데이트
-                            if (ollamaApi && typeof ollamaApi.setEndpoint === 'function') {
-                                // console.log('Updating OllamaApi instance endpoint');
-                                ollamaApi.setEndpoint(ollamaEndpointToSave);
-                            } else {
-                                console.log('OllamaApi instance not available or setEndpoint method not found');
-                            }
-
                             safePostMessage(panel, { command: 'ollamaEndpointSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Ollama endpoint saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Ollama Endpoint saved.');
                         } catch (error: any) {
-                            console.error('Error saving Ollama endpoint:', error);
-                            safePostMessage(panel, { command: 'ollamaEndpointError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving Ollama endpoint: ${error.message}`);
+                            safePostMessage(panel, { command: 'ollamaEndpointSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Ollama Endpoint: ${error.message}`);
                         }
                     } else {
-                        console.log('Invalid endpoint data received:', ollamaEndpointToSave);
-                        safePostMessage(panel, { command: 'ollamaEndpointError', error: 'Endpoint empty.' });
-                        notificationService.showErrorMessage('Ollama endpoint is empty.');
+                        safePostMessage(panel, { command: 'ollamaEndpointSaveError', error: 'Invalid Ollama Endpoint' });
+                        notificationService.showErrorMessage('Invalid Ollama Endpoint provided.');
                     }
                     break;
-                case 'saveBanyaLicense':
-                    const licenseSerialToSave = data.licenseSerial;
-                    if (licenseSerialToSave && typeof licenseSerialToSave === 'string') {
-                        try {
-                            await storageService.saveBanyaLicenseSerial(licenseSerialToSave);
-                            safePostMessage(panel, { command: 'banyaLicenseSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: AIDEV license saved.');
-
-                            // 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행
-                            if (ollamaBlockerService) {
-                                console.log('[PanelManager] 시리얼 번호 저장 후 ollama-blocker 인증 자동 실행');
-                                try {
-                                    const authResult = await ollamaBlockerService.authenticate(licenseSerialToSave);
-                                    if (authResult.success) {
-                                        console.log('[PanelManager] ollama-blocker 인증 성공:', authResult.message);
-                                        notificationService.showInfoMessage(`AIDEV-IDE: ${authResult.message}`);
-                                    } else {
-                                        console.error('[PanelManager] ollama-blocker 인증 실패:', authResult.message);
-                                        notificationService.showWarningMessage(`AIDEV-IDE: ${authResult.message}`);
-                                    }
-                                } catch (error) {
-                                    console.error('[PanelManager] ollama-blocker 인증 중 오류:', error);
-                                    notificationService.showErrorMessage(`AIDEV-IDE: ollama-blocker 인증 중 오류가 발생했습니다.`);
-                                }
-                            }
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'banyaLicenseError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving Banya license: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'banyaLicenseError', error: 'License serial empty.' });
-                        notificationService.showErrorMessage('Banya license serial is empty.');
-                    }
-                    break;
-                case 'verifyBanyaLicense':
-                    const licenseSerialToVerify = data.licenseSerial;
-                    if (licenseSerialToVerify && typeof licenseSerialToVerify === 'string') {
-                        try {
-                            // 실제 라이센스 검증 로직 구현
-                            const verificationResult = await licenseService.verifyLicense(licenseSerialToVerify);
-
-                            if (verificationResult.success) {
-                                safePostMessage(panel, { command: 'banyaLicenseVerified' });
-                                notificationService.showInfoMessage(`AIDEV-IDE: ${verificationResult.message}`);
-
-                                // 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행
-                                if (ollamaBlockerService) {
-                                    console.log('[PanelManager] 시리얼 번호 검증 성공 후 ollama-blocker 인증 자동 실행');
-                                    try {
-                                        const authResult = await ollamaBlockerService.authenticate(licenseSerialToVerify);
-                                        if (authResult.success) {
-                                            console.log('[PanelManager] ollama-blocker 인증 성공:', authResult.message);
-                                            notificationService.showInfoMessage(`AIDEV-IDE: ${authResult.message}`);
-                                        } else {
-                                            console.error('[PanelManager] ollama-blocker 인증 실패:', authResult.message);
-                                            notificationService.showWarningMessage(`AIDEV-IDE: ${authResult.message}`);
-                                        }
-                                    } catch (error) {
-                                        console.error('[PanelManager] ollama-blocker 인증 중 오류:', error);
-                                        notificationService.showErrorMessage(`AIDEV-IDE: ollama-blocker 인증 중 오류가 발생했습니다.`);
-                                    }
-                                }
-                            } else {
-                                safePostMessage(panel, { command: 'banyaLicenseVerificationFailed', error: verificationResult.message });
-                                notificationService.showErrorMessage(`AIDEV-IDE: ${verificationResult.message}`);
-                            }
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'banyaLicenseVerificationFailed', error: error.message });
-                            notificationService.showErrorMessage(`Error verifying Banya license: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'banyaLicenseVerificationFailed', error: 'License serial empty.' });
-                        notificationService.showErrorMessage('Banya license serial is empty.');
-                    }
-                    break;
-                case 'deleteBanyaLicense':
-                    try {
-                        await storageService.deleteBanyaLicenseSerial();
-                        safePostMessage(panel, { command: 'banyaLicenseDeleted' });
-                        notificationService.showInfoMessage('AIDEV-IDE: AIDEV license deleted successfully.');
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'banyaLicenseDeleteError', error: error.message });
-                        notificationService.showErrorMessage(`Error deleting Banya license: ${error.message}`);
-                    }
-                    break;
-                case 'saveAiModel':
-                    const aiModelToSave = data.model;
-                    if (aiModelToSave && typeof aiModelToSave === 'string') {
-                        try {
-                            // Ollama 모델인 경우 실제 모델명을 가져와서 저장
-                            let modelToSave = aiModelToSave;
-                            if (aiModelToSave === 'ollama') {
-                                const currentOllamaModel = await storageService.getOllamaModel();
-                                // console.log('Current Ollama model for mapping:', currentOllamaModel);
-
-                                if (currentOllamaModel === 'deepseek-r1:70b') {
-                                    modelToSave = 'ollama-deepseek';
-                                } else if (currentOllamaModel && currentOllamaModel.startsWith('codellama')) {
-                                    modelToSave = 'ollama-codellama';
-                                } else if (currentOllamaModel === 'gpt-oss:120b-cloud' || currentOllamaModel === 'gpt-oss-120b:cloud') {
-                                    modelToSave = 'ollama-gpt-oss';
-                                } else if (currentOllamaModel && (currentOllamaModel.includes('gemma') || currentOllamaModel.includes('Gemma'))) {
-                                    modelToSave = 'ollama-gemma';
-                                } else {
-                                    // 기본값을 ollama-gemma로 설정하되, 실제 모델명을 로그로 출력
-                                    console.log('Unknown Ollama model, defaulting to ollama-gemma:', currentOllamaModel);
-                                    modelToSave = 'ollama-gemma';
-                                }
-                            }
-
-                            await storageService.saveCurrentAiModel(modelToSave);
-                            // LlmService의 현재 모델도 업데이트
-                            if (llmService) {
-                                llmService.setCurrentModel(modelToSave as any);
-                            }
-                            safePostMessage(panel, { command: 'aiModelSaved' });
-                            notificationService.showInfoMessage(`AIDEV-IDE: AI model changed to ${aiModelToSave}.`);
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'aiModelSaveError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving AI model: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'aiModelSaveError', error: 'AI model empty.' });
-                        notificationService.showErrorMessage('AI model is empty.');
-                    }
-                    break;
-                case 'loadAiModel':
-                    try {
-                        const currentAiModel = await storageService.getCurrentAiModel();
-                        safePostMessage(panel, { command: 'currentAiModel', model: currentAiModel || 'gemini' });
-                    } catch (error: any) {
-                        // 오류 시 기본값 반환
-                        safePostMessage(panel, { command: 'currentAiModel', model: 'gemini' });
-                    }
-                    break;
-                case 'saveOllamaModel':
-                    const ollamaModelToSave = data.model;
+                case 'saveOllamaModel': // Ollama 모델 저장 케이스 추가
+                    const ollamaModelToSave = data.ollamaModel;
                     if (ollamaModelToSave && typeof ollamaModelToSave === 'string') {
                         try {
                             await storageService.saveOllamaModel(ollamaModelToSave);
-                            // OllamaApi 인스턴스의 모델도 업데이트
-                            if (ollamaApi && typeof ollamaApi.setModel === 'function') {
-                                ollamaApi.setModel(ollamaModelToSave);
-                            }
-
-                            // 현재 AI 모델이 Ollama인 경우 AI 모델도 업데이트
-                            const currentAiModel = await storageService.getCurrentAiModel();
-                            if (currentAiModel === 'ollama-gemma' || currentAiModel === 'ollama-deepseek' || currentAiModel === 'ollama-codellama') {
-                                let newAiModel = 'ollama-gemma'; // 기본값
-
-                                if (ollamaModelToSave === 'deepseek-r1:70b') {
-                                    newAiModel = 'ollama-deepseek';
-                                } else if (ollamaModelToSave && ollamaModelToSave.startsWith('codellama')) {
-                                    newAiModel = 'ollama-codellama';
-                                } else if (ollamaModelToSave === 'gpt-oss-120b:cloud' || ollamaModelToSave === 'gpt-oss:120b-cloud') {
-                                    newAiModel = 'ollama-gpt-oss'; // 새로운 모델 타입 추가
-                                } else if (ollamaModelToSave && (ollamaModelToSave.includes('gemma') || ollamaModelToSave.includes('Gemma'))) {
-                                    newAiModel = 'ollama-gemma';
-                                }
-
-                                await storageService.saveCurrentAiModel(newAiModel);
-                                if (llmService) {
-                                    llmService.setCurrentModel(newAiModel as any);
-                                }
-                            }
-
                             safePostMessage(panel, { command: 'ollamaModelSaved' });
-                            notificationService.showInfoMessage(`AIDEV-IDE: Ollama model changed to ${ollamaModelToSave}.`);
+                            notificationService.showInfoMessage('AIDEV-IDE: Ollama Model saved.');
                         } catch (error: any) {
-                            safePostMessage(panel, { command: 'ollamaModelError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving Ollama model: ${error.message}`);
+                            safePostMessage(panel, { command: 'ollamaModelSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Ollama Model: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'ollamaModelError', error: 'Ollama model empty.' });
-                        notificationService.showErrorMessage('Ollama model is empty.');
+                        safePostMessage(panel, { command: 'ollamaModelSaveError', error: 'Invalid Ollama Model' });
+                        notificationService.showErrorMessage('Invalid Ollama Model provided.');
                     }
                     break;
-                case 'ollamaAuth':
-                    const serialNumber = data.serialNumber;
-                    if (serialNumber && typeof serialNumber === 'string' && ollamaBlockerService) {
+                case 'saveOllamaServerType': // Ollama 서버 타입 저장 케이스 추가
+                    const ollamaServerTypeToSave = data.ollamaServerType;
+                    if (ollamaServerTypeToSave && typeof ollamaServerTypeToSave === 'string') {
                         try {
-                            const result = await ollamaBlockerService.authenticate(serialNumber);
-                            safePostMessage(panel, {
-                                command: 'ollamaAuthResult',
-                                success: result.success,
-                                message: result.message
-                            });
-                            if (result.success) {
-                                notificationService.showInfoMessage('Ollama 인증이 성공했습니다.');
-                            } else {
-                                notificationService.showErrorMessage(`Ollama 인증 실패: ${result.message}`);
-                            }
-                        } catch (error: any) {
-                            console.error('Ollama 인증 중 오류:', error);
-                            safePostMessage(panel, {
-                                command: 'ollamaAuthResult',
-                                success: false,
-                                message: error.message || '알 수 없는 오류가 발생했습니다.'
-                            });
-                            notificationService.showErrorMessage(`Ollama 인증 실패: ${error.message || '알 수 없는 오류가 발생했습니다.'}`);
-                        }
-                    } else {
-                        safePostMessage(panel, {
-                            command: 'ollamaAuthResult',
-                            success: false,
-                            message: '시리얼 번호가 제공되지 않았거나 Ollama Blocker 서비스가 사용할 수 없습니다.'
-                        });
-                    }
-                    break;
-                case 'loadOllamaModel':
-                    try {
-                        const currentOllamaModel = await storageService.getOllamaModel();
-                        safePostMessage(panel, { command: 'currentOllamaModel', model: currentOllamaModel || 'gemma3:27b' });
-                    } catch (error: any) {
-                        // 오류 시 기본값 반환
-                        safePostMessage(panel, { command: 'currentOllamaModel', model: 'gemma3:27b' });
-                    }
-                    break;
-                case 'saveWeatherApiKey':
-                    try {
-                        await configurationService.updateWeatherApiKey(data.apiKey);
-                        safePostMessage(panel, { command: 'weatherApiKeySaved' });
-                        notificationService.showInfoMessage('AIDEV-IDE: Weather API key saved.');
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'weatherApiKeyError', error: error.message });
-                        notificationService.showErrorMessage(`Error saving weather API key: ${error.message}`);
-                    }
-                    break;
-                case 'saveNewsApiKey':
-                    try {
-                        await configurationService.updateNewsApiKey(data.apiKey);
-                        safePostMessage(panel, { command: 'newsApiKeySaved' });
-                        notificationService.showInfoMessage('AIDEV-IDE: News API key saved.');
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'newsApiKeyError', error: error.message });
-                        notificationService.showErrorMessage(`Error saving news API key: ${error.message}`);
-                    }
-                    break;
-                case 'saveNewsApiSecret':
-                    try {
-                        await configurationService.updateNewsApiSecret(data.apiSecret);
-                        safePostMessage(panel, { command: 'newsApiSecretSaved' });
-                        notificationService.showInfoMessage('AIDEV-IDE: News API secret saved.');
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'newsApiSecretError', error: error.message });
-                        notificationService.showErrorMessage(`Error saving news API secret: ${error.message}`);
-                    }
-                    break;
-                case 'saveStockApiKey':
-                    try {
-                        await configurationService.updateStockApiKey(data.apiKey);
-                        safePostMessage(panel, { command: 'stockApiKeySaved' });
-                        notificationService.showInfoMessage('AIDEV-IDE: Stock API key saved.');
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'stockApiKeyError', error: error.message });
-                        notificationService.showErrorMessage(`Error saving stock API key: ${error.message}`);
-                    }
-                    break;
-                case 'saveLanguage':
-                    try {
-                        const language = data.language;
-                        if (language && typeof language === 'string') {
-                            // 언어 설정을 저장
-                            await configurationService.updateLanguage(language);
-                            safePostMessage(panel, { command: 'languageSaved', language: language });
-                            notificationService.showInfoMessage(`AIDEV-IDE: Language changed to ${language}.`);
-
-                            // 모든 활성 webview에 언어 변경 브로드캐스트
-                            allWebviews.forEach(webview => {
-                                webview.postMessage({ command: 'languageChanged', language });
-                            });
-                        }
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'languageSaveError', error: error.message });
-                        notificationService.showErrorMessage(`Error saving language: ${error.message}`);
-                    }
-                    break;
-                case 'getLanguage':
-                    try {
-                        const language = await configurationService.getLanguage();
-                        safePostMessage(panel, { command: 'currentLanguage', language: language });
-                    } catch (error: any) {
-                        // 오류 시 기본값 반환
-                        safePostMessage(panel, { command: 'currentLanguage', language: 'ko' });
-                    }
-                    break;
-                case 'getLanguageData':
-                    try {
-                        const language = data.language;
-                        if (language && typeof language === 'string') {
-                            // 언어 파일 경로
-                            const languageFilePath = vscode.Uri.joinPath(extensionUri, 'webview', 'locales', `lang_${language}.json`);
-
-                            // 파일 읽기
-                            const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
-                            const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
-
-                            // 웹뷰에 언어 데이터 전송
-                            safePostMessage(panel, {
-                                command: 'languageDataReceived',
-                                language: language,
-                                data: languageData
-                            });
-                        }
-                    } catch (error: any) {
-                        console.error('Error loading language data:', error);
-                        // 오류 시 기본 한국어 데이터 반환
-                        try {
-                            const defaultLanguagePath = vscode.Uri.joinPath(extensionUri, 'webview', 'locales', 'lang_ko.json');
-                            const defaultContent = await vscode.workspace.fs.readFile(defaultLanguagePath);
-                            const defaultData = JSON.parse(Buffer.from(defaultContent).toString('utf8'));
-                            safePostMessage(panel, {
-                                command: 'languageDataReceived',
-                                language: 'ko',
-                                data: defaultData
-                            });
-                        } catch (fallbackError) {
-                            console.error('Error loading fallback language data:', fallbackError);
-                        }
-                    }
-                    break;
-                // === 새로운 Ollama 서버 타입 및 원격/로컬 설정 핸들러들 ===
-                case 'saveOllamaServerType':
-                    const serverTypeToSave = data.serverType;
-                    if (serverTypeToSave && typeof serverTypeToSave === 'string') {
-                        try {
-                            await storageService.saveOllamaServerType(serverTypeToSave);
-                            // Ollama API 런타임 설정 즉시 반영
-                            try {
-                                if (ollamaApi && typeof ollamaApi.loadSettingsFromStorage === 'function') {
-                                    await ollamaApi.loadSettingsFromStorage();
-                                }
-                            } catch (e) {
-                                console.warn('[PanelManager] Failed to apply Ollama settings after serverType save:', e);
-                            }
+                            await storageService.saveOllamaServerType(ollamaServerTypeToSave);
                             safePostMessage(panel, { command: 'ollamaServerTypeSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Server type saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Ollama Server Type saved.');
                         } catch (error: any) {
-                            console.error('Error saving Ollama server type:', error);
-                            safePostMessage(panel, { command: 'ollamaServerTypeError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving server type: ${error.message}`);
+                            safePostMessage(panel, { command: 'ollamaServerTypeSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Ollama Server Type: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'ollamaServerTypeError', error: 'Server type empty.' });
-                        notificationService.showErrorMessage('Server type is empty.');
+                        safePostMessage(panel, { command: 'ollamaServerTypeSaveError', error: 'Invalid Ollama Server Type' });
+                        notificationService.showErrorMessage('Invalid Ollama Server Type provided.');
                     }
                     break;
-                case 'saveLocalOllamaApiUrl':
-                    const localApiUrlToSave = data.apiUrl;
-                    if (localApiUrlToSave && typeof localApiUrlToSave === 'string') {
+                case 'saveRemoteOllamaApiUrl': // 원격 Ollama API URL 저장 케이스 추가
+                    const remoteOllamaApiUrlToSave = data.remoteOllamaApiUrl;
+                    if (remoteOllamaApiUrlToSave && typeof remoteOllamaApiUrlToSave === 'string') {
                         try {
-                            await storageService.saveLocalOllamaApiUrl(localApiUrlToSave);
-                            safePostMessage(panel, { command: 'localOllamaApiUrlSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Local Ollama API URL saved.');
-                        } catch (error: any) {
-                            console.error('Error saving local Ollama API URL:', error);
-                            safePostMessage(panel, { command: 'localOllamaApiUrlError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving local API URL: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'localOllamaApiUrlError', error: 'API URL empty.' });
-                        notificationService.showErrorMessage('Local API URL is empty.');
-                    }
-                    break;
-                case 'saveLocalOllamaEndpoint':
-                    const localEndpointToSave = data.endpoint;
-                    if (localEndpointToSave && typeof localEndpointToSave === 'string') {
-                        try {
-                            await storageService.saveLocalOllamaEndpoint(localEndpointToSave);
-                            safePostMessage(panel, { command: 'localOllamaEndpointSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Local Ollama endpoint saved.');
-                        } catch (error: any) {
-                            console.error('Error saving local Ollama endpoint:', error);
-                            safePostMessage(panel, { command: 'localOllamaEndpointError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving local endpoint: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'localOllamaEndpointError', error: 'Endpoint empty.' });
-                        notificationService.showErrorMessage('Local endpoint is empty.');
-                    }
-                    break;
-                case 'saveRemoteOllamaApiUrl':
-                    const remoteApiUrlToSave = data.apiUrl;
-                    if (remoteApiUrlToSave && typeof remoteApiUrlToSave === 'string') {
-                        try {
-                            await storageService.saveRemoteOllamaApiUrl(remoteApiUrlToSave);
-                            if (ollamaApi && typeof ollamaApi.setApiUrl === 'function') {
-                                ollamaApi.setApiUrl(remoteApiUrlToSave);
-                            }
+                            await storageService.saveRemoteOllamaApiUrl(remoteOllamaApiUrlToSave);
                             safePostMessage(panel, { command: 'remoteOllamaApiUrlSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama API URL saved.');
                         } catch (error: any) {
-                            console.error('Error saving remote Ollama API URL:', error);
-                            safePostMessage(panel, { command: 'remoteOllamaApiUrlError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving remote API URL: ${error.message}`);
+                            safePostMessage(panel, { command: 'remoteOllamaApiUrlSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Remote Ollama API URL: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'remoteOllamaApiUrlError', error: 'API URL empty.' });
-                        notificationService.showErrorMessage('Remote API URL is empty.');
+                        safePostMessage(panel, { command: 'remoteOllamaApiUrlSaveError', error: 'Invalid Remote Ollama API URL' });
+                        notificationService.showErrorMessage('Invalid Remote Ollama API URL provided.');
                     }
                     break;
-                case 'saveRemoteOllamaEndpoint':
-                    const remoteEndpointToSave = data.endpoint;
-                    if (remoteEndpointToSave && typeof remoteEndpointToSave === 'string') {
+                case 'saveRemoteOllamaEndpoint': // 원격 Ollama 엔드포인트 저장 케이스 추가
+                    const remoteOllamaEndpointToSave = data.remoteOllamaEndpoint;
+                    if (remoteOllamaEndpointToSave && typeof remoteOllamaEndpointToSave === 'string') {
                         try {
-                            await storageService.saveRemoteOllamaEndpoint(remoteEndpointToSave);
-                            if (ollamaApi && typeof ollamaApi.setEndpoint === 'function') {
-                                ollamaApi.setEndpoint(remoteEndpointToSave);
-                            }
+                            await storageService.saveRemoteOllamaEndpoint(remoteOllamaEndpointToSave);
                             safePostMessage(panel, { command: 'remoteOllamaEndpointSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama endpoint saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama Endpoint saved.');
                         } catch (error: any) {
-                            console.error('Error saving remote Ollama endpoint:', error);
-                            safePostMessage(panel, { command: 'remoteOllamaEndpointError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving remote endpoint: ${error.message}`);
+                            safePostMessage(panel, { command: 'remoteOllamaEndpointSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Remote Ollama Endpoint: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'remoteOllamaEndpointError', error: 'Endpoint empty.' });
-                        notificationService.showErrorMessage('Remote endpoint is empty.');
+                        safePostMessage(panel, { command: 'remoteOllamaEndpointSaveError', error: 'Invalid Remote Ollama Endpoint' });
+                        notificationService.showErrorMessage('Invalid Remote Ollama Endpoint provided.');
                     }
                     break;
-                case 'saveRemoteOllamaModel':
-                    const remoteModelToSave = data.model;
-                    if (remoteModelToSave && typeof remoteModelToSave === 'string') {
+                case 'saveRemoteOllamaModel': // 원격 Ollama 모델 저장 케이스 추가
+                    const remoteOllamaModelToSave = data.remoteOllamaModel;
+                    if (remoteOllamaModelToSave && typeof remoteOllamaModelToSave === 'string') {
                         try {
-                            await storageService.saveRemoteOllamaModel(remoteModelToSave);
-                            if (ollamaApi && typeof ollamaApi.setModel === 'function') {
-                                ollamaApi.setModel(remoteModelToSave);
-                            }
+                            await storageService.saveRemoteOllamaModel(remoteOllamaModelToSave);
                             safePostMessage(panel, { command: 'remoteOllamaModelSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama model saved.');
+                            notificationService.showInfoMessage('AIDEV-IDE: Remote Ollama Model saved.');
                         } catch (error: any) {
-                            console.error('Error saving remote Ollama model:', error);
-                            safePostMessage(panel, { command: 'remoteOllamaModelError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving remote model: ${error.message}`);
+                            safePostMessage(panel, { command: 'remoteOllamaModelSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Remote Ollama Model: ${error.message}`);
                         }
                     } else {
-                        safePostMessage(panel, { command: 'remoteOllamaModelError', error: 'Model empty.' });
-                        notificationService.showErrorMessage('Remote model is empty.');
+                        safePostMessage(panel, { command: 'remoteOllamaModelSaveError', error: 'Invalid Remote Ollama Model' });
+                        notificationService.showErrorMessage('Invalid Remote Ollama Model provided.');
                     }
                     break;
+                case 'saveWeatherApiKey': // 기상청 API 키 저장 케이스 추가
+                    const weatherApiKeyToSave = data.weatherApiKey;
+                    if (weatherApiKeyToSave && typeof weatherApiKeyToSave === 'string') {
+                        try {
+                            await storageService.saveWeatherApiKey(weatherApiKeyToSave);
+                            safePostMessage(panel, { command: 'weatherApiKeySaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Weather API Key saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'weatherApiKeySaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Weather API Key: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'weatherApiKeySaveError', error: 'Invalid Weather API Key' });
+                        notificationService.showErrorMessage('Invalid Weather API Key provided.');
+                    }
+                    break;
+                case 'saveNewsApiKey': // 뉴스 API 키 저장 케이스 추가
+                    const newsApiKeyToSave = data.newsApiKey;
+                    if (newsApiKeyToSave && typeof newsApiKeyToSave === 'string') {
+                        try {
+                            await storageService.saveNewsApiKey(newsApiKeyToSave);
+                            safePostMessage(panel, { command: 'newsApiKeySaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: News API Key saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'newsApiKeySaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving News API Key: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'newsApiKeySaveError', error: 'Invalid News API Key' });
+                        notificationService.showErrorMessage('Invalid News API Key provided.');
+                    }
+                    break;
+                case 'saveBanyaLicenseSerial': // Banya 라이선스 시리얼 저장 케이스 추가
+                    const banyaLicenseSerialToSave = data.banyaLicenseSerial;
+                    if (banyaLicenseSerialToSave && typeof banyaLicenseSerialToSave === 'string') {
+                        try {
+                            await storageService.saveBanyaLicenseSerial(banyaLicenseSerialToSave);
+                            safePostMessage(panel, { command: 'banyaLicenseSerialSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Banya License Serial saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'banyaLicenseSerialSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Banya License Serial: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'banyaLicenseSerialSaveError', error: 'Invalid Banya License Serial' });
+                        notificationService.showErrorMessage('Invalid Banya License Serial provided.');
+                    }
+                    break;
+                case 'verifyBanyaLicense': // Banya 라이선스 검증 케이스 추가
+                    const banyaLicenseSerialToVerify = data.banyaLicenseSerial;
+                    if (banyaLicenseSerialToVerify && typeof banyaLicenseSerialToVerify === 'string') {
+                        try {
+                            const verificationResult = await licenseService.verifyLicense(banyaLicenseSerialToVerify);
+                            if (verificationResult.success) {
+                                await storageService.saveIsLicenseVerified(true);
+                                safePostMessage(panel, { command: 'banyaLicenseVerified', success: true, message: verificationResult.message });
+                                notificationService.showInfoMessage(`AIDEV-IDE: License verified successfully. ${verificationResult.message}`);
+                            } else {
+                                await storageService.saveIsLicenseVerified(false);
+                                safePostMessage(panel, { command: 'banyaLicenseVerified', success: false, message: verificationResult.message });
+                                notificationService.showErrorMessage(`AIDEV-IDE: License verification failed. ${verificationResult.message}`);
+                            }
+                        } catch (error: any) {
+                            await storageService.saveIsLicenseVerified(false);
+                            safePostMessage(panel, { command: 'banyaLicenseVerified', success: false, message: error.message });
+                            notificationService.showErrorMessage(`AIDEV-IDE: License verification error. ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'banyaLicenseVerified', success: false, message: 'Invalid license serial provided.' });
+                        notificationService.showErrorMessage('Invalid license serial provided.');
+                    }
+                    break;
+                case 'deleteBanyaLicense': // Banya 라이선스 삭제 케이스 추가
+                    try {
+                        await storageService.deleteBanyaLicenseSerial();
+                        await storageService.saveIsLicenseVerified(false);
+                        safePostMessage(panel, { command: 'banyaLicenseDeleted' });
+                        notificationService.showInfoMessage('AIDEV-IDE: Banya License Serial deleted.');
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'banyaLicenseDeleteError', error: error.message });
+                        notificationService.showErrorMessage(`Error deleting Banya License Serial: ${error.message}`);
+                    }
+                    break;
+                case 'saveProjectRootPath': // 프로젝트 루트 경로 저장 케이스 추가
+                    const projectRootPathToSave = data.projectRootPath;
+                    if (projectRootPathToSave && typeof projectRootPathToSave === 'string') {
+                        try {
+                            await storageService.saveProjectRootPath(projectRootPathToSave);
+                            safePostMessage(panel, { command: 'projectRootPathSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Project Root Path saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'projectRootPathSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Project Root Path: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'projectRootPathSaveError', error: 'Invalid Project Root Path' });
+                        notificationService.showErrorMessage('Invalid Project Root Path provided.');
+                    }
+                    break;
+                case 'clearProjectRootPath': // 프로젝트 루트 경로 삭제 케이스 추가
+                    try {
+                        await storageService.clearProjectRootPath();
+                        safePostMessage(panel, { command: 'projectRootPathCleared' });
+                        notificationService.showInfoMessage('AIDEV-IDE: Project Root Path cleared.');
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'projectRootPathClearError', error: error.message });
+                        notificationService.showErrorMessage(`Error clearing Project Root Path: ${error.message}`);
+                    }
+                    break;
+                case 'saveAutoUpdateEnabled': // 자동 업데이트 설정 저장 케이스 추가
+                    const autoUpdateEnabledToSave = data.autoUpdateEnabled;
+                    if (typeof autoUpdateEnabledToSave === 'boolean') {
+                        try {
+                            await storageService.saveAutoUpdateEnabled(autoUpdateEnabledToSave);
+                            safePostMessage(panel, { command: 'autoUpdateEnabledSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Auto Update setting saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'autoUpdateEnabledSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Auto Update setting: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'autoUpdateEnabledSaveError', error: 'Invalid Auto Update setting' });
+                        notificationService.showErrorMessage('Invalid Auto Update setting provided.');
+                    }
+                    break;
+                case 'saveOutputLogEnabled': // 출력 로그 설정 저장 케이스 추가
+                    const outputLogEnabledToSave = data.outputLogEnabled;
+                    if (typeof outputLogEnabledToSave === 'boolean') {
+                        try {
+                            await storageService.saveOutputLogEnabled(outputLogEnabledToSave);
+                            safePostMessage(panel, { command: 'outputLogEnabledSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Output Log setting saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'outputLogEnabledSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Output Log setting: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'outputLogEnabledSaveError', error: 'Invalid Output Log setting' });
+                        notificationService.showErrorMessage('Invalid Output Log setting provided.');
+                    }
+                    break;
+                case 'saveErrorRetryCount': // 오류 재시도 횟수 저장 케이스 추가
+                    const errorRetryCountToSave = data.errorRetryCount;
+                    if (typeof errorRetryCountToSave === 'number' && errorRetryCountToSave >= 0 && errorRetryCountToSave <= 10) {
+                        try {
+                            await storageService.saveErrorRetryCount(errorRetryCountToSave);
+                            safePostMessage(panel, { command: 'errorRetryCountSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Error Retry Count setting saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'errorRetryCountSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Error Retry Count setting: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'errorRetryCountSaveError', error: 'Invalid Error Retry Count setting' });
+                        notificationService.showErrorMessage('Invalid Error Retry Count setting provided.');
+                    }
+                    break;
+                case 'saveAutoCorrectionEnabled': // 자동 오류 수정 설정 저장 케이스 추가
+                    const autoCorrectionEnabledToSave = data.autoCorrectionEnabled;
+                    if (typeof autoCorrectionEnabledToSave === 'boolean') {
+                        try {
+                            await storageService.saveAutoCorrectionEnabled(autoCorrectionEnabledToSave);
+                            safePostMessage(panel, { command: 'autoCorrectionEnabledSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: Auto Correction setting saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'autoCorrectionEnabledSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving Auto Correction setting: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'autoCorrectionEnabledSaveError', error: 'Invalid Auto Correction setting' });
+                        notificationService.showErrorMessage('Invalid Auto Correction setting provided.');
+                    }
+                    break;
+                case 'setAutoCorrectionEnabled': // 자동 오류 수정 설정 저장 케이스 추가 (토글에서 직접 호출)
+                    const autoCorrectionEnabledToSet = data.enabled;
+                    if (typeof autoCorrectionEnabledToSet === 'boolean') {
+                        try {
+                            await storageService.saveAutoCorrectionEnabled(autoCorrectionEnabledToSet);
+                            safePostMessage(panel, { command: 'autoCorrectionEnabledSet' });
+                            // 토글에서는 알림을 표시하지 않음 (사용자 경험을 위해)
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'autoCorrectionEnabledSetError', error: error.message });
+                            notificationService.showErrorMessage(`Error setting Auto Correction: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'autoCorrectionEnabledSetError', error: 'Invalid Auto Correction setting' });
+                        notificationService.showErrorMessage('Invalid Auto Correction setting provided.');
+                    }
+                    break;
+                case 'saveAiModel': // AI 모델 저장 케이스 추가
+                    const aiModelToSave = data.aiModel || data.model;
+                    if (aiModelToSave && typeof aiModelToSave === 'string') {
+                        try {
+                            await storageService.saveAiModel(aiModelToSave);
+                            safePostMessage(panel, { command: 'aiModelSaved' });
+                            notificationService.showInfoMessage('AIDEV-IDE: AI Model saved.');
+                        } catch (error: any) {
+                            safePostMessage(panel, { command: 'aiModelSaveError', error: error.message });
+                            notificationService.showErrorMessage(`Error saving AI Model: ${error.message}`);
+                        }
+                    } else {
+                        safePostMessage(panel, { command: 'aiModelSaveError', error: 'Invalid AI Model' });
+                        notificationService.showErrorMessage('Invalid AI Model provided.');
+                    }
+                    break;
+                case 'testOllamaConnection': // Ollama 연결 테스트 케이스 추가
+                    try {
+                        const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
+                        const url = new URL('/api/tags', apiUrl);
+
+                        const response = await new Promise<any>((resolve, reject) => {
+                            const isHttps = url.protocol === 'https:';
+                            const client = isHttps ? https : http;
+                            const req = client.request({
+                                hostname: url.hostname,
+                                port: url.port || (isHttps ? 443 : 80),
+                                path: url.pathname + url.search,
+                                method: 'GET',
+                                headers: { 'Content-Type': 'application/json' }
+                            }, (res) => {
+                                let data = '';
+                                res.on('data', chunk => data += chunk);
+                                res.on('end', () => {
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        resolve(parsed);
+                                    } catch (e) { reject(e); }
+                                });
+                            });
+                            req.on('error', reject);
+                            req.end();
+                        });
+
+                        safePostMessage(panel, { command: 'ollamaConnectionTestResult', success: true, data: response });
+                        notificationService.showInfoMessage('AIDEV-IDE: Ollama connection test successful.');
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'ollamaConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: Ollama connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testGeminiConnection': // Gemini 연결 테스트 케이스 추가
+                    try {
+                        const apiKey = await storageService.getApiKey();
+                        if (!apiKey) {
+                            safePostMessage(panel, { command: 'geminiConnectionTestResult', success: false, error: 'No API key found' });
+                            notificationService.showErrorMessage('AIDEV-IDE: No Gemini API key found.');
+                            return;
+                        }
+
+                        const testResult = await geminiApi.testConnection();
+                        if (testResult.success) {
+                            safePostMessage(panel, { command: 'geminiConnectionTestResult', success: true, data: testResult.data });
+                            notificationService.showInfoMessage('AIDEV-IDE: Gemini connection test successful.');
+                        } else {
+                            safePostMessage(panel, { command: 'geminiConnectionTestResult', success: false, error: testResult.error });
+                            notificationService.showErrorMessage(`AIDEV-IDE: Gemini connection test failed: ${testResult.error}`);
+                        }
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'geminiConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: Gemini connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testWeatherApiConnection': // 기상청 API 연결 테스트 케이스 추가
+                    try {
+                        const apiKey = await storageService.getWeatherApiKey();
+                        if (!apiKey) {
+                            safePostMessage(panel, { command: 'weatherApiConnectionTestResult', success: false, error: 'No Weather API key found' });
+                            notificationService.showErrorMessage('AIDEV-IDE: No Weather API key found.');
+                            return;
+                        }
+
+                        const testResult = await new Promise<any>((resolve, reject) => {
+                            const url = `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst?serviceKey=${apiKey}&numOfRows=10&pageNo=1&base_date=20240101&base_time=0600&nx=55&ny=127&dataType=JSON`;
+                            const req = https.request(url, { method: 'GET' }, (res) => {
+                                let data = '';
+                                res.on('data', chunk => data += chunk);
+                                res.on('end', () => {
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        resolve({ success: true, data: parsed });
+                                    } catch (e) { reject(e); }
+                                });
+                            });
+                            req.on('error', reject);
+                            req.end();
+                        });
+
+                        safePostMessage(panel, { command: 'weatherApiConnectionTestResult', success: true, data: testResult });
+                        notificationService.showInfoMessage('AIDEV-IDE: Weather API connection test successful.');
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'weatherApiConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: Weather API connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testNewsApiConnection': // 뉴스 API 연결 테스트 케이스 추가
+                    try {
+                        const apiKey = await storageService.getNewsApiKey();
+                        if (!apiKey) {
+                            safePostMessage(panel, { command: 'newsApiConnectionTestResult', success: false, error: 'No News API key found' });
+                            notificationService.showErrorMessage('AIDEV-IDE: No News API key found.');
+                            return;
+                        }
+
+                        const testResult = await new Promise<any>((resolve, reject) => {
+                            const url = `https://newsapi.org/v2/top-headlines?country=kr&apiKey=${apiKey}`;
+                            const req = https.request(url, { method: 'GET' }, (res) => {
+                                let data = '';
+                                res.on('data', chunk => data += chunk);
+                                res.on('end', () => {
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        resolve({ success: true, data: parsed });
+                                    } catch (e) { reject(e); }
+                                });
+                            });
+                            req.on('error', reject);
+                            req.end();
+                        });
+
+                        safePostMessage(panel, { command: 'newsApiConnectionTestResult', success: true, data: testResult });
+                        notificationService.showInfoMessage('AIDEV-IDE: News API connection test successful.');
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'newsApiConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: News API connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testBanyaLicenseConnection': // Banya 라이선스 연결 테스트 케이스 추가
+                    try {
+                        const licenseSerial = await storageService.getBanyaLicenseSerial();
+                        if (!licenseSerial) {
+                            safePostMessage(panel, { command: 'banyaLicenseConnectionTestResult', success: false, error: 'No Banya License Serial found' });
+                            notificationService.showErrorMessage('AIDEV-IDE: No Banya License Serial found.');
+                            return;
+                        }
+
+                        const testResult = await licenseService.verifyLicense(licenseSerial);
+                        if (testResult.success) {
+                            safePostMessage(panel, { command: 'banyaLicenseConnectionTestResult', success: true, data: testResult });
+                            notificationService.showInfoMessage('AIDEV-IDE: Banya License connection test successful.');
+                        } else {
+                            safePostMessage(panel, { command: 'banyaLicenseConnectionTestResult', success: false, error: testResult.message });
+                            notificationService.showErrorMessage(`AIDEV-IDE: Banya License connection test failed: ${testResult.message}`);
+                        }
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'banyaLicenseConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: Banya License connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testOllamaBlockerConnection': // Ollama Blocker 연결 테스트 케이스 추가
+                    try {
+                        if (!ollamaBlockerService) {
+                            safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: false, error: 'Ollama Blocker service not available' });
+                            notificationService.showErrorMessage('AIDEV-IDE: Ollama Blocker service not available.');
+                            return;
+                        }
+
+                        const testResult = await ollamaBlockerService.testConnection();
+                        if (testResult.success) {
+                            safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: true, data: testResult.data });
+                            notificationService.showInfoMessage('AIDEV-IDE: Ollama Blocker connection test successful.');
+                        } else {
+                            safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: false, error: testResult.error });
+                            notificationService.showErrorMessage(`AIDEV-IDE: Ollama Blocker connection test failed: ${testResult.error}`);
+                        }
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'ollamaBlockerConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: Ollama Blocker connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testTerminalDaemonConnection': // Terminal Daemon 연결 테스트 케이스 추가
+                    try {
+                        const terminalDaemonService = TerminalDaemonService.getInstance(context);
+                        const testResult = await terminalDaemonService.testConnection();
+                        if (testResult.success) {
+                            safePostMessage(panel, { command: 'terminalDaemonConnectionTestResult', success: true, data: testResult.data });
+                            notificationService.showInfoMessage('AIDEV-IDE: Terminal Daemon connection test successful.');
+                        } else {
+                            safePostMessage(panel, { command: 'terminalDaemonConnectionTestResult', success: false, error: testResult.error });
+                            notificationService.showErrorMessage(`AIDEV-IDE: Terminal Daemon connection test failed: ${testResult.error}`);
+                        }
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'terminalDaemonConnectionTestResult', success: false, error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: Terminal Daemon connection test failed: ${error.message}`);
+                    }
+                    break;
+                case 'testAllConnections': // 모든 연결 테스트 케이스 추가
+                    try {
+                        const results = {
+                            gemini: false,
+                            ollama: false,
+                            weather: false,
+                            news: false,
+                            banyaLicense: false,
+                            ollamaBlocker: false,
+                            terminalDaemon: false
+                        };
+
+                        // Gemini 연결 테스트
+                        try {
+                            const apiKey = await storageService.getApiKey();
+                            if (apiKey) {
+                                const geminiTest = await geminiApi.testConnection();
+                                results.gemini = geminiTest.success;
+                            }
+                        } catch (e) { /* 무시 */ }
+
+                        // Ollama 연결 테스트
+                        try {
+                            const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
+                            const url = new URL('/api/tags', apiUrl);
+                            const isHttps = url.protocol === 'https:';
+                            const client = isHttps ? https : http;
+                            await new Promise<void>((resolve, reject) => {
+                                const req = client.request({
+                                    hostname: url.hostname,
+                                    port: url.port || (isHttps ? 443 : 80),
+                                    path: url.pathname + url.search,
+                                    method: 'GET',
+                                    headers: { 'Content-Type': 'application/json' }
+                                }, (res) => {
+                                    let data = '';
+                                    res.on('data', chunk => data += chunk);
+                                    res.on('end', () => {
+                                        try {
+                                            JSON.parse(data);
+                                            resolve();
+                                        } catch (e) { reject(e); }
+                                    });
+                                });
+                                req.on('error', reject);
+                                req.end();
+                            });
+                            results.ollama = true;
+                        } catch (e) { /* 무시 */ }
+
+                        // 기상청 API 연결 테스트
+                        try {
+                            const apiKey = await storageService.getWeatherApiKey();
+                            if (apiKey) {
+                                const url = `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst?serviceKey=${apiKey}&numOfRows=10&pageNo=1&base_date=20240101&base_time=0600&nx=55&ny=127&dataType=JSON`;
+                                await new Promise<void>((resolve, reject) => {
+                                    const req = https.request(url, { method: 'GET' }, (res) => {
+                                        let data = '';
+                                        res.on('data', chunk => data += chunk);
+                                        res.on('end', () => {
+                                            try {
+                                                JSON.parse(data);
+                                                resolve();
+                                            } catch (e) { reject(e); }
+                                        });
+                                    });
+                                    req.on('error', reject);
+                                    req.end();
+                                });
+                                results.weather = true;
+                            }
+                        } catch (e) { /* 무시 */ }
+
+                        // 뉴스 API 연결 테스트
+                        try {
+                            const apiKey = await storageService.getNewsApiKey();
+                            if (apiKey) {
+                                const url = `https://newsapi.org/v2/top-headlines?country=kr&apiKey=${apiKey}`;
+                                await new Promise<void>((resolve, reject) => {
+                                    const req = https.request(url, { method: 'GET' }, (res) => {
+                                        let data = '';
+                                        res.on('data', chunk => data += chunk);
+                                        res.on('end', () => {
+                                            try {
+                                                JSON.parse(data);
+                                                resolve();
+                                            } catch (e) { reject(e); }
+                                        });
+                                    });
+                                    req.on('error', reject);
+                                    req.end();
+                                });
+                                results.news = true;
+                            }
+                        } catch (e) { /* 무시 */ }
+
+                        // Banya 라이선스 연결 테스트
+                        try {
+                            const licenseSerial = await storageService.getBanyaLicenseSerial();
+                            if (licenseSerial) {
+                                const licenseTest = await licenseService.verifyLicense(licenseSerial);
+                                results.banyaLicense = licenseTest.success;
+                            }
+                        } catch (e) { /* 무시 */ }
+
+                        // Ollama Blocker 연결 테스트
+                        try {
+                            if (ollamaBlockerService) {
+                                const blockerTest = await ollamaBlockerService.testConnection();
+                                results.ollamaBlocker = blockerTest.success;
+                            }
+                        } catch (e) { /* 무시 */ }
+
+                        // Terminal Daemon 연결 테스트
+                        try {
+                            const terminalDaemonService = TerminalDaemonService.getInstance(context);
+                            const daemonTest = await terminalDaemonService.testConnection();
+                            results.terminalDaemon = daemonTest.success;
+                        } catch (e) { /* 무시 */ }
+
+                        safePostMessage(panel, { command: 'allConnectionsTestResult', results });
+                        notificationService.showInfoMessage('AIDEV-IDE: All connections test completed.');
+                    } catch (error: any) {
+                        safePostMessage(panel, { command: 'allConnectionsTestResult', error: error.message });
+                        notificationService.showErrorMessage(`AIDEV-IDE: All connections test failed: ${error.message}`);
+                    }
+                    break;
+                case 'initializePanel': {
+                    // 패널이 열릴 때 현재 설정들을 로드하여 웹뷰에 전송
+                    try {
+                        const apiKey = await storageService.getApiKey();
+                        const ollamaApiUrl = await storageService.getOllamaApiUrl();
+                        const ollamaEndpoint = await storageService.getOllamaEndpoint();
+                        const ollamaModel = await storageService.getOllamaModel();
+                        const ollamaServerType = await storageService.getOllamaServerType();
+                        const remoteOllamaApiUrl = await storageService.getRemoteOllamaApiUrl();
+                        const remoteOllamaEndpoint = await storageService.getRemoteOllamaEndpoint();
+                        const remoteOllamaModel = await storageService.getRemoteOllamaModel();
+                        const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
+                        const outputLogEnabled = await storageService.getOutputLogEnabled();
+                        const errorRetryCount = await storageService.getErrorRetryCount();
+                        const projectRootPath = await storageService.getProjectRootPath();
+                        const weatherApiKey = await storageService.getWeatherApiKey();
+                        const newsApiKey = await storageService.getNewsApiKey();
+                        const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
+                        const isLicenseVerified = await storageService.getIsLicenseVerified();
+
+                        const messageToSend = {
+                            command: 'currentSettings',
+                            apiKey: apiKey || '',
+                            ollamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
+                            ollamaEndpoint: ollamaEndpoint || '/api/generate',
+                            ollamaModel: ollamaModel || 'gemma3:27b',
+                            ollamaServerType: ollamaServerType || 'local',
+                            localOllamaApiUrl: ollamaApiUrl || 'http://localhost:11434',
+                            localOllamaEndpoint: ollamaEndpoint || '/api/generate',
+                            remoteOllamaApiUrl: remoteOllamaApiUrl || '',
+                            remoteOllamaEndpoint: remoteOllamaEndpoint || '/api/generate',
+                            remoteOllamaModel: remoteOllamaModel || '',
+                            autoCorrectionEnabled: autoCorrectionEnabled || false,
+                            outputLogEnabled: outputLogEnabled || false,
+                            errorRetryCount: errorRetryCount || 3,
+                            projectRootPath: projectRootPath || '',
+                            weatherApiKey: weatherApiKey || '',
+                            newsApiKey: newsApiKey || '',
+                            banyaLicenseSerial: banyaLicenseSerial || '',
+                            isLicenseVerified: isLicenseVerified // 라이선스 검증 상태 추가
+                        };
+                        // console.log('Sending currentApiKeys message:', messageToSend);
+                        safePostMessage(panel, messageToSend);
+                    } catch (error: any) {
+                        console.error('Error getting current settings:', error);
+                        safePostMessage(panel, { command: 'currentSettings', error: error.message });
+                    }
+                    break;
+                }
+                default:
+                    console.log('Unknown command:', data.command);
             }
         }
     );
@@ -830,104 +876,154 @@ export function openSettingsPanel(
 }
 
 /**
- * AIDEV-IDE 라이선스 패널을 엽니다.
+ * Ollama 모델을 다운로드하고 진행 상황을 표시합니다.
  */
-export function openLicensePanel(
-    extensionUri: vscode.Uri,
-    context: vscode.ExtensionContext,
-    viewColumn: vscode.ViewColumn,
+async function downloadOllamaModel(
+    modelName: string,
+    panel: vscode.WebviewPanel,
     storageService: StorageService,
-    geminiApi: GeminiApi,
-    notificationService: NotificationService, // NotificationService 주입
-    configurationService: ConfigurationService // ConfigurationService 주입
-) {
-    const panel = createAndSetupWebviewPanel(extensionUri, context, 'license', 'AIDEV-IDE License & Copyright', 'license', viewColumn,
-        async (data, panel) => {
-            switch (data.command) {
-                case 'saveApiKey':
-                    const apiKeyToSave = data.apiKey;
-                    if (apiKeyToSave && typeof apiKeyToSave === 'string') {
-                        try {
-                            await storageService.saveApiKey(apiKeyToSave);
-                            geminiApi.updateApiKey(apiKeyToSave);
-                            safePostMessage(panel, { command: 'apiKeySaved', message: 'API Key saved!' });
-                            notificationService.showInfoMessage('AIDEV-IDE: API Key saved.'); // NotificationService 사용
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'apiKeySaveError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving API Key: ${error.message}`); // NotificationService 사용
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'apiKeySaveError', error: 'API Key empty.' });
-                        notificationService.showErrorMessage('API Key is empty.'); // NotificationService 사용
-                    }
-                    break;
-                case 'checkApiKeyStatus':
-                    const currentKey = await storageService.getApiKey();
-                    safePostMessage(panel, { command: 'apiKeyStatus', hasKey: !!currentKey, apiKeyPreview: currentKey ? `***${currentKey.slice(-4)}` : 'Not Set' });
-                    break;
-                case 'getLanguage':
+    notificationService: NotificationService
+): Promise<void> {
+    try {
+        const apiUrl = (await storageService.getOllamaApiUrl()) || 'http://localhost:11434';
+        const url = new URL('/api/pull', apiUrl);
+
+        // VS Code 상태 바에 진행 상황 표시
+        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
+        statusBarItem.text = `$(download) Ollama 모델 다운로드: ${modelName}`;
+        statusBarItem.show();
+
+        // 다운로드 시작 메시지
+        safePostMessage(panel, {
+            command: 'modelDownloadStarted',
+            modelName: modelName
+        });
+
+        const isHttps = url.protocol === 'https:';
+        const client = isHttps ? https : http;
+
+        const requestData = JSON.stringify({ name: modelName });
+
+        const response = await new Promise<any>((resolve, reject) => {
+            const req = client.request({
+                hostname: url.hostname,
+                port: url.port || (isHttps ? 443 : 80),
+                path: url.pathname + url.search,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(requestData)
+                }
+            }, (res) => {
+                let data = '';
+                res.on('data', chunk => {
+                    data += chunk;
                     try {
-                        const language = await configurationService.getLanguage();
-                        safePostMessage(panel, { command: 'currentLanguage', language: language });
-                    } catch (error: any) {
-                        // 오류 시 기본값 반환
-                        safePostMessage(panel, { command: 'currentLanguage', language: 'ko' });
-                    }
-                    break;
-                case 'getLanguageData':
-                    try {
-                        const language = data.language;
-                        if (language && typeof language === 'string') {
-                            // 언어 파일 경로
-                            const languageFilePath = vscode.Uri.joinPath(extensionUri, 'webview', 'locales', `lang_${language}.json`);
+                        // 스트리밍 응답에서 진행 상황 파싱
+                        const lines = data.split('\n');
+                        for (const line of lines) {
+                            if (line.trim()) {
+                                try {
+                                    const parsed = JSON.parse(line);
+                                    if (parsed.status) {
+                                        const progress = parsed.completed && parsed.total
+                                            ? Math.round((parsed.completed / parsed.total) * 100)
+                                            : 0;
 
-                            // 파일 읽기
-                            const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
-                            const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
+                                        statusBarItem.text = `$(download) ${modelName}: ${progress}%`;
 
-                            // 웹뷰에 언어 데이터 전송
-                            safePostMessage(panel, {
-                                command: 'languageDataReceived',
-                                language: language,
-                                data: languageData
-                            });
+                                        // 웹뷰에 진행 상황 전송
+                                        safePostMessage(panel, {
+                                            command: 'modelDownloadProgress',
+                                            modelName: modelName,
+                                            progress: progress,
+                                            status: parsed.status
+                                        });
+                                    }
+                                } catch (e) {
+                                    // JSON 파싱 실패는 무시
+                                }
+                            }
                         }
-                    } catch (error: any) {
-                        console.error('Error loading language data:', error);
-                        // 오류 시 기본 한국어 데이터 반환
-                        try {
-                            const defaultLanguagePath = vscode.Uri.joinPath(extensionUri, 'webview', 'locales', 'lang_ko.json');
-                            const defaultContent = await vscode.workspace.fs.readFile(defaultLanguagePath);
-                            const defaultData = JSON.parse(Buffer.from(defaultContent).toString('utf8'));
-                            safePostMessage(panel, {
-                                command: 'languageDataReceived',
-                                language: 'ko',
-                                data: defaultData
-                            });
-                        } catch (fallbackError) {
-                            console.error('Error loading fallback language data:', fallbackError);
-                        }
+                    } catch (e) {
+                        // 진행 상황 파싱 실패는 무시
                     }
-                    break;
-            }
+                });
+                res.on('end', () => {
+                    resolve({ success: true });
+                });
+                res.on('error', reject);
+            });
+
+            req.on('error', reject);
+            req.write(requestData);
+            req.end();
+        });
+
+        // 다운로드 완료
+        statusBarItem.text = `$(check) ${modelName} 다운로드 완료`;
+        setTimeout(() => statusBarItem.dispose(), 3000);
+
+        safePostMessage(panel, {
+            command: 'modelDownloadCompleted',
+            modelName: modelName
+        });
+
+        // 모델 목록 새로고침
+        safePostMessage(panel, { command: 'refreshOllamaModels' });
+
+        notificationService.showInfoMessage(`Ollama 모델 '${modelName}' 다운로드가 완료되었습니다.`);
+
+    } catch (error: any) {
+        console.error('[PanelManager] Failed to download Ollama model:', error);
+
+        safePostMessage(panel, {
+            command: 'modelDownloadError',
+            modelName: modelName,
+            error: error.message
+        });
+
+        notificationService.showErrorMessage(`Ollama 모델 '${modelName}' 다운로드 실패: ${error.message}`);
+    }
+}
+
+/**
+ * 지원되는 Ollama 모델 목록을 로드합니다.
+ */
+async function loadSupportedModels(): Promise<any[]> {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        // VS Code 확장의 루트 디렉토리에서 파일 찾기
+        let modelFilePath: string;
+        
+        // 먼저 현재 작업 디렉토리에서 찾기
+        const currentDir = process.cwd();
+        const projectRootPath = path.join(currentDir, 'supported_ollama_model.json');
+        
+        if (fs.existsSync(projectRootPath)) {
+            modelFilePath = projectRootPath;
+        } else {
+            // __dirname 기준으로 찾기 (컴파일된 파일 기준)
+            modelFilePath = path.join(__dirname, '..', '..', 'supported_ollama_model.json');
         }
-    );
-
-    // webview를 전역 배열에 등록
-    allWebviews.push(panel.webview);
-
-    // 패널이 dispose될 때 배열에서 제거
-    panel.onDidDispose(() => {
-        try {
-            const idx = allWebviews.indexOf(panel.webview);
-            if (idx !== -1) {
-                allWebviews.splice(idx, 1);
-            }
-        } catch (error) {
-            // Panel이 이미 dispose된 경우 무시 (콘솔 스팸 방지를 위해 주석 처리)
-            // console.log('[PanelManager] Panel already disposed, ignoring error:', error);
+        
+        console.log('[PanelManager] Looking for model file at:', modelFilePath);
+        
+        // 파일 존재 확인
+        if (!fs.existsSync(modelFilePath)) {
+            throw new Error(`Model file not found at: ${modelFilePath}`);
         }
-    }, undefined, context.subscriptions);
-
-    return panel;
+        
+        // 파일 읽기
+        const fileContent = fs.readFileSync(modelFilePath, 'utf8');
+        const modelData = JSON.parse(fileContent);
+        
+        console.log('[PanelManager] Loaded models:', modelData.models?.length || 0);
+        return modelData.models || [];
+    } catch (error: any) {
+        console.error('[PanelManager] Failed to load supported models file:', error);
+        throw error;
+    }
 }

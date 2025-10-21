@@ -169,6 +169,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     // console.log('[Extension Host] Executing bash commands:', data.commands);
                     this.executeBashCommands(data.commands);
                     break;
+                case 'clearHistory':
+                    console.log('[Extension Host] Clearing conversation history for Code tab');
+                    try {
+                        await this.llmService.clearHistory(PromptType.CODE_GENERATION);
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: '대화기록이 삭제되었습니다.'
+                        });
+                    } catch (error) {
+                        console.error('[ChatViewProvider] Failed to clear history:', error);
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: '대화기록 삭제에 실패했습니다.'
+                        });
+                    }
+                    break;
                 case 'displayUserMessage': // 웹뷰 자체에서 사용자 메시지 표시를 요청할 때, 이미지도 포함
                     console.log('Received command to display user message from webview:', data.text, data.imageData);
                     if (data.text !== undefined || data.imageData !== undefined) {
@@ -290,7 +308,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async executeBashCommands(commands: string[]): Promise<void> {
         try {
             // console.log('[ChatViewProvider] executeBashCommands called with:', commands);
-            
+
             if (!commands || commands.length === 0) {
                 // console.log('[ChatViewProvider] No commands to execute');
                 return;
@@ -306,15 +324,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // console.log('[ChatViewProvider] Terminal created, showing...');
             // 터미널을 활성화하고 명령어들을 순차적으로 실행
             terminal.show();
-            
+
             // 터미널이 준비될 시간을 주기 위해 약간의 지연
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             // 각 명령어를 실행
             for (let i = 0; i < commands.length; i++) {
                 const command = commands[i];
                 // console.log(`[ChatViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
-                
+
                 // 첫 번째 명령어는 즉시 실행, 나머지는 약간의 지연 후 실행
                 if (i === 0) {
                     terminal.sendText(command);
@@ -328,7 +346,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             // console.log(`[ChatViewProvider] Successfully executed ${commands.length} bash commands`);
-            
+
         } catch (error) {
             console.error('[ChatViewProvider] Error executing bash commands:', error);
             this.notificationService.showErrorMessage('Bash 명령어 실행 중 오류가 발생했습니다.');

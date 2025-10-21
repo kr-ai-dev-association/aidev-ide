@@ -378,6 +378,103 @@
             background-color: var(--vscode-button-hoverBackground);
         }
 
+        /* 모델 리스트 스타일 */
+        .model-list-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            padding: 10px;
+            background-color: var(--vscode-editor-background);
+        }
+
+        .model-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            margin-bottom: 8px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            background-color: var(--vscode-input-background);
+        }
+
+        .model-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .model-info {
+            flex: 1;
+        }
+
+        .model-name {
+            font-weight: bold;
+            color: var(--vscode-foreground);
+            margin-bottom: 4px;
+        }
+
+        .model-description {
+            font-size: 0.9em;
+            color: var(--vscode-descriptionForeground);
+            margin-bottom: 2px;
+        }
+
+        .model-size {
+            font-size: 0.8em;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .model-tags {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .model-tag {
+            background-color: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7em;
+        }
+
+        .model-download-button {
+            padding: 6px 12px;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .model-download-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .model-download-button:disabled {
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: not-allowed;
+        }
+
+        .download-link {
+            text-decoration: none;
+        }
+
+        .download-link button {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .download-link button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
         /* Ollama API URL 입력 스타일 */
         #ollama-api-url-input {
             font-family: var(--vscode-font-family);
@@ -588,6 +685,19 @@
         </div>
         <p id="ollama-server-type-status" class="info-message"></p>
 
+        <!-- Ollama 설치 섹션 -->
+        <div class="api-key-section" id="ollama-install-section">
+            <h3 id="ollama-install-label">📥 Ollama 설치</h3>
+            <p class="info-message">Ollama를 설치하여 로컬에서 LLM 모델을 실행할 수 있습니다.</p>
+            <p class="info-message"><strong>설치 방법:</strong> 아래 링크에서 운영체제에 맞는 Ollama 설치 파일을 다운로드하여 설치하세요.</p>
+            <div class="api-key-input-group">
+                <a href="https://ollama.ai/download" target="_blank" class="download-link">
+                    <button id="download-ollama-button">Ollama 다운로드</button>
+                </a>
+            </div>
+            <p class="info-message">설치 후 터미널에서 <code>ollama --version</code> 명령어로 설치를 확인하세요.</p>
+        </div>
+
         <!-- 로컬 Ollama 설정 -->
         <div class="api-key-section" id="local-ollama-settings-section">
             <h3 id="local-ollama-api-label">🏠 Local Ollama</h3>
@@ -668,6 +778,19 @@
                 <button id="save-remote-ollama-endpoint-button">엔드포인트 저장</button>
             </div>
             <p id="remote-ollama-endpoint-status" class="info-message"></p>
+        </div>
+
+        <!-- Ollama 모델 다운로드 섹션 -->
+        <div class="api-key-section" id="ollama-model-download-section">
+            <h3 id="ollama-model-download-label">📦 Ollama 모델 다운로드</h3>
+            <p class="info-message">로컬 Ollama에 사용할 수 있는 다양한 LLM 모델을 다운로드할 수 있습니다.</p>
+            <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에 추가됩니다.</p>
+            
+            <div id="ollama-model-list" class="model-list-container">
+                <!-- 모델 리스트가 여기에 동적으로 로드됩니다 -->
+            </div>
+            
+            <p id="ollama-model-download-status" class="info-message"></p>
         </div>
     </div>
 

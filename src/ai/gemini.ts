@@ -12,6 +12,7 @@ declare module '@google/generative-ai' {
 export class GeminiApi {
     private genAI: GoogleGenerativeAI | undefined;
     private model: any; // SDK의 GenerativeModel 타입으로 지정 권장 (GenerativeModel)
+    public apiKey: string | undefined;
 
     private readonly MODEL_NAME = "gemini-2.5-flash-preview-05-20";
     //private readonly MODEL_NAME = "gemini-2.5-pro-preview-05-06";
@@ -54,6 +55,7 @@ export class GeminiApi {
     }
 
     updateApiKey(apiKey: string | undefined): void {
+        this.apiKey = apiKey;
         if (apiKey && apiKey.trim() !== '') {
             this.initializeApi(apiKey);
             console.log('AIDEV-IDE API Key updated.');
@@ -141,9 +143,6 @@ export class GeminiApi {
             return "Error: AIDEV-IDE API call was cancelled.";
         }
         if (error.message) {
-            if (error.message.includes('API key not valid') || error.message.includes('invalid api key')) {
-                return "Error: Invalid AIDEV-IDE API Key. Please check and update it in the AIDEV-IDE settings (License section).";
-            }
             if (error.message.includes('quota') || error.message.includes('Quota')) {
                 return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
             }
@@ -159,5 +158,28 @@ export class GeminiApi {
             return `Error communicating with AIDEV-IDE API: AIDEV-IDE agent orchestration service aborted LLM calling`;
         }
         return "Error: An unknown error occurred while communicating with the AIDEV-IDE API.";
+    }
+
+    /**
+     * Gemini API 연결을 테스트합니다.
+     */
+    async testConnection(): Promise<{ success: boolean; data?: any; error?: string }> {
+        try {
+            if (!this.apiKey) {
+                return { success: false, error: 'No API key configured' };
+            }
+
+            // 간단한 테스트 요청
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`);
+
+            if (response.ok) {
+                const data = await response.json();
+                return { success: true, data };
+            } else {
+                return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+            }
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
     }
 }

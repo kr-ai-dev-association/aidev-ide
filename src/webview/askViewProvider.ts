@@ -115,6 +115,24 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     // console.log('[Extension Host] Executing bash commands from Ask tab:', data.commands);
                     this.executeBashCommands(data.commands);
                     break;
+                case 'clearHistory':
+                    console.log('[Extension Host] Clearing conversation history for Ask tab');
+                    try {
+                        await this.llmService.clearHistory(PromptType.GENERAL_ASK);
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: '대화기록이 삭제되었습니다.'
+                        });
+                    } catch (error) {
+                        console.error('[AskViewProvider] Failed to clear history:', error);
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'AIDEV-IDE',
+                            text: '대화기록 삭제에 실패했습니다.'
+                        });
+                    }
+                    break;
             }
         });
         webviewView.onDidDispose(() => {

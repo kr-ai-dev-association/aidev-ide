@@ -100,7 +100,8 @@ function resetProcessingStatuses() {
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages');
-const cleanHistoryButton = document.getElementById('clean-history-button');
+const clearDisplayButton = document.getElementById('clear-display-button'); // Clear Display 버튼 참조
+const clearHistoryButton = document.getElementById('clear-history-button'); // Clear History 버튼 참조
 const cancelButton = document.getElementById('cancel-call-button');
 const imagePreviewContainer = document.getElementById('image-preview-container');
 const imagePreview = document.getElementById('image-preview');
@@ -276,9 +277,14 @@ if (sendButton && chatInput) {
     chatInput.addEventListener('paste', handlePaste);
 }
 
+// Clear Display 버튼 클릭 이벤트 리스너
+if (clearDisplayButton) {
+    clearDisplayButton.addEventListener('click', handleClearDisplay);
+}
+
 // Clear History 버튼 클릭 이벤트 리스너
-if (cleanHistoryButton) {
-    cleanHistoryButton.addEventListener('click', handleCleanHistory);
+if (clearHistoryButton) {
+    clearHistoryButton.addEventListener('click', handleClearHistory);
 }
 
 // Cancel 버튼 클릭 이벤트 리스너
@@ -624,8 +630,8 @@ function showLoading() {
     chatMessages.appendChild(messageContainer);
     thinkingBubbleElement = messageContainer;
 
-    if (cleanHistoryButton) {
-        cleanHistoryButton.disabled = true;
+    if (clearHistoryButton) {
+        clearHistoryButton.disabled = true;
     }
     if (cancelButton) {
         cancelButton.disabled = false;
@@ -676,29 +682,135 @@ function hideLoading() {
         chatMessages.removeChild(thinkingBubbleElement);
         thinkingBubbleElement = null;
     }
-    if (cleanHistoryButton) {
-        cleanHistoryButton.disabled = false;
+    if (clearHistoryButton) {
+        clearHistoryButton.disabled = false;
     }
     if (cancelButton) {
         cancelButton.disabled = true;
     }
 }
 
-// 채팅 기록을 모두 삭제하는 함수
-function handleCleanHistory() {
+// 챗창 출력 내용을 지우는 함수 (UI만 클리어)
+function handleClearDisplay() {
     if (chatMessages) {
         while (chatMessages.firstChild) {
             chatMessages.removeChild(chatMessages.firstChild);
         }
         thinkingBubbleElement = null;
-        // console.log('Chat history cleared.');
+        console.log('Chat display cleared.');
     }
-    if (cleanHistoryButton) {
-        cleanHistoryButton.disabled = false;
+
+    // 버튼 상태 초기화
+    if (clearDisplayButton) {
+        clearDisplayButton.disabled = false;
     }
     if (cancelButton) {
         cancelButton.disabled = true;
     }
+}
+
+// 저장된 대화 이력을 삭제하는 함수
+function handleClearHistory() {
+    // 커스텀 경고창 생성
+    const warningModal = document.createElement('div');
+    warningModal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+    `;
+
+    const warningContent = document.createElement('div');
+    warningContent.style.cssText = `
+        background-color: var(--vscode-editor-background);
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 8px;
+        padding: 20px;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    `;
+
+    warningContent.innerHTML = `
+        <div style="margin-bottom: 16px;">
+            <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">⚠️ 대화 기록 삭제</h3>
+            <p style="margin: 0; color: var(--vscode-foreground); line-height: 1.4;">
+                저장된 모든 대화 기록이 사라집니다.<br>
+                이 작업은 되돌릴 수 없습니다.
+            </p>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button id="cancel-clear-history" style="
+                padding: 8px 16px;
+                border: 1px solid var(--vscode-panel-border);
+                background-color: var(--vscode-button-secondaryBackground);
+                color: var(--vscode-button-secondaryForeground);
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            ">취소</button>
+            <button id="confirm-clear-history" style="
+                padding: 8px 16px;
+                border: none;
+                background-color: #dc3545;
+                color: white;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            ">확인</button>
+        </div>
+    `;
+
+    warningModal.appendChild(warningContent);
+    document.body.appendChild(warningModal);
+
+    // 취소 버튼 이벤트
+    const cancelBtn = document.getElementById('cancel-clear-history');
+    cancelBtn.addEventListener('click', () => {
+        document.body.removeChild(warningModal);
+    });
+
+    // 확인 버튼 이벤트
+    const confirmBtn = document.getElementById('confirm-clear-history');
+    confirmBtn.addEventListener('click', () => {
+        document.body.removeChild(warningModal);
+
+        // UI 클리어
+        if (chatMessages) {
+            while (chatMessages.firstChild) {
+                chatMessages.removeChild(chatMessages.firstChild);
+            }
+            thinkingBubbleElement = null;
+            console.log('Chat history cleared.');
+        }
+
+        // 확장 프로그램에 대화기록 삭제 요청 전송
+        vscode.postMessage({
+            command: 'clearHistory',
+            promptType: 'GENERAL_ASK' // Ask 탭
+        });
+
+        // 버튼 상태 초기화
+        if (clearHistoryButton) {
+            clearHistoryButton.disabled = false;
+        }
+        if (cancelButton) {
+            cancelButton.disabled = true;
+        }
+    });
+
+    // 배경 클릭 시 닫기
+    warningModal.addEventListener('click', (e) => {
+        if (e.target === warningModal) {
+            document.body.removeChild(warningModal);
+        }
+    });
 }
 
 // AIDEV-IDE 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시

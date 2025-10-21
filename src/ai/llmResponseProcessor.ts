@@ -5,6 +5,8 @@ import { NotificationService } from '../services/notificationService';
 import { PromptType } from './types'; // Import PromptType
 import { safePostMessage } from '../webview/panelUtils';
 import { executeBashCommandsFromLlmResponse, hasBashCommands, buildFileOpTokens, enqueueCommandsBatch, extractBashCommandsFromLlmResponse } from '../terminal/terminalManager';
+import * as fs from 'fs';
+import * as os from 'os';
 // Removed unused imports and non-existent bridge
 
 // Define a type for file operations
@@ -20,6 +22,7 @@ export class LlmResponseProcessor {
     private context: vscode.ExtensionContext;
     private configurationService: ConfigurationService;
     private notificationService: NotificationService;
+    private tempFiles: string[] = []; // 임시 파일 추적
 
     constructor(context: vscode.ExtensionContext, configurationService: ConfigurationService, notificationService: NotificationService) {
         this.context = context;
@@ -61,7 +64,8 @@ export class LlmResponseProcessor {
         contextFiles: { name: string, fullPath: string }[],
         webview: vscode.Webview,
         promptType: PromptType, // Add this parameter
-        statusCallback?: (status: string) => void // Add status callback
+        statusCallback?: (status: string) => void, // Add status callback
+        llmService?: any // Add LLM service for diff rewriting
     ): Promise<void> {
         statusCallback?.('Analyzing response structure...');
 
@@ -510,12 +514,56 @@ export class LlmResponseProcessor {
             // thinking 애니메이션을 먼저 제거
             safePostMessage(webview, { command: 'hideLoading' });
 
+            // 파일 처리 단계 시작
+            statusCallback?.('Starting file processing...');
+            safePostMessage(webview, { command: 'setProcessingStep', step: 'file_processing' });
+            safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Processing files...' });
+
             const autoUpdateEnabled = await this.configurationService.isAutoUpdateEnabled();
 
+            // 파일 diff 비교 및 처리
+            const processedFileOperations: FileOperation[] = [];
+            const fileProcessingQueue: { operation: FileOperation; tempFilePath?: string }[] = [];
+
+            for (let i = 0; i < fileOperations.length; i++) {
+                const operation = fileOperations[i];
+                statusCallback?.(`Processing file ${i + 1}/${fileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
+                safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: `Processing file ${i + 1}/${fileOperations.length}: ${operation.llmSpecifiedPath}` });
+
+                // 파일이 생성되거나 수정되는 경우에만 diff 비교 수행
+                if ((operation.type === 'create' || operation.type === 'modify') && operation.newContent) {
+                    const diffResult = await this.checkFileDiff(
+                        { path: operation.llmSpecifiedPath, content: operation.newContent },
+                        contextFiles
+                    );
+
+                    if (diffResult && diffResult.hasDiff && llmService) {
+                        // diff가 있는 경우 LLM을 통해 파일을 다시 작성
+                        statusCallback?.(`Diff detected for ${operation.llmSpecifiedPath}, rewriting with LLM...`);
+                        safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: `Diff detected for ${operation.llmSpecifiedPath}, rewriting...` });
+
+                        const rewrittenContent = await this.rewriteFileWithDiff(
+                            diffResult.diffContent!,
+                            diffResult.originalContent!,
+                            llmService
+                        );
+
+                        if (rewrittenContent) {
+                            operation.newContent = rewrittenContent;
+                            console.log(`[LLM Response Processor] File rewritten with diff: ${operation.llmSpecifiedPath}`);
+                        }
+                    }
+                }
+
+                // 큐에 추가
+                fileProcessingQueue.push({ operation });
+                processedFileOperations.push(operation);
+            }
+
             if (!autoUpdateEnabled) {
-                for (let i = 0; i < fileOperations.length; i++) {
-                    const operation = fileOperations[i];
-                    statusCallback?.(`Executing file operation ${i + 1}/${fileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
+                for (let i = 0; i < processedFileOperations.length; i++) {
+                    const operation = processedFileOperations[i];
+                    statusCallback?.(`Executing file operation ${i + 1}/${processedFileOperations.length}: ${operation.type} ${operation.llmSpecifiedPath}`);
                     // Remote SSH 환경을 위한 경로 처리 개선
                     let fileUri: vscode.Uri;
                     let fileNameForDisplay = operation.llmSpecifiedPath;
@@ -813,6 +861,12 @@ export class LlmResponseProcessor {
             } else {
                 // autoUpdateEnabled=true: 파일 작업은 즉시 수행하지 않고 큐에 맡김
                 console.log('[LLM Response Processor] Auto-update enabled -> deferring file ops to queue');
+
+                // 처리된 파일 작업을 큐에 추가
+                if (processedFileOperations.length > 0) {
+                    statusCallback?.('Adding processed files to queue...');
+                    safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Adding processed files to queue...' });
+                }
             }
 
             // 파일 작업 결과를 추가로 채팅창에 표시
@@ -824,7 +878,8 @@ export class LlmResponseProcessor {
             // 파일 작업 자동 적용 모드라면: 직접 파일 작업을 수행하지 않고, 큐에 적재하여 순차 실행 보장
             if (autoUpdateEnabled) {
                 try {
-                    const fileOpTokens = buildFileOpTokens(fileOperations.map(op => ({
+                    // 처리된 파일 작업을 큐에 추가
+                    const fileOpTokens = buildFileOpTokens(processedFileOperations.map(op => ({
                         type: op.type,
                         path: op.absolutePath,
                         content: op.newContent
@@ -927,6 +982,13 @@ export class LlmResponseProcessor {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
+        }
+
+        // 임시 파일 정리
+        try {
+            await this.cleanupAllTempFiles();
+        } catch (error) {
+            console.warn('[LLM Response Processor] Error cleaning up temp files:', error);
         }
     }
 
@@ -1767,5 +1829,203 @@ ${match.trim()}
             console.error('[LLM Response Processor] Error applying DIFF changes:', error);
             return null;
         }
+    }
+
+    /**
+     * 생성된 파일이 기존 context에 첨부된 파일과 동일한지 확인하고 diff를 생성합니다.
+     * @param generatedFile 생성된 파일 정보
+     * @param contextFiles 컨텍스트에 포함된 파일들
+     * @returns diff 정보 또는 null
+     */
+    private async checkFileDiff(
+        generatedFile: { path: string; content: string },
+        contextFiles: { name: string, fullPath: string }[]
+    ): Promise<{ hasDiff: boolean; diffContent?: string; originalContent?: string } | null> {
+        try {
+            // 동일한 파일명을 가진 컨텍스트 파일 찾기
+            const fileName = path.basename(generatedFile.path);
+            const matchingContextFile = contextFiles.find(file =>
+                path.basename(file.fullPath) === fileName
+            );
+
+            if (!matchingContextFile) {
+                return { hasDiff: false };
+            }
+
+            // 기존 파일 내용 읽기
+            const originalContent = await this.readFileContent(matchingContextFile.fullPath);
+            if (!originalContent) {
+                return { hasDiff: false };
+            }
+
+            // 파일 내용이 동일한지 확인
+            if (originalContent === generatedFile.content) {
+                return { hasDiff: false };
+            }
+
+            // diff 생성
+            const diffContent = this.generateDiff(originalContent, generatedFile.content);
+            return {
+                hasDiff: true,
+                diffContent,
+                originalContent
+            };
+        } catch (error) {
+            console.error('[LLM Response Processor] Error checking file diff:', error);
+            return null;
+        }
+    }
+
+
+    /**
+     * 두 파일 내용의 diff를 생성합니다.
+     * @param original 원본 내용
+     * @param modified 수정된 내용
+     * @returns diff 문자열
+     */
+    private generateDiff(original: string, modified: string): string {
+        const originalLines = original.split('\n');
+        const modifiedLines = modified.split('\n');
+
+        let diff = '';
+        let i = 0, j = 0;
+
+        while (i < originalLines.length || j < modifiedLines.length) {
+            if (i >= originalLines.length) {
+                // 추가된 라인
+                diff += `+${modifiedLines[j]}\n`;
+                j++;
+            } else if (j >= modifiedLines.length) {
+                // 삭제된 라인
+                diff += `-${originalLines[i]}\n`;
+                i++;
+            } else if (originalLines[i] === modifiedLines[j]) {
+                // 동일한 라인
+                diff += ` ${originalLines[i]}\n`;
+                i++;
+                j++;
+            } else {
+                // 수정된 라인
+                diff += `-${originalLines[i]}\n`;
+                diff += `+${modifiedLines[j]}\n`;
+                i++;
+                j++;
+            }
+        }
+
+        return diff;
+    }
+
+    /**
+     * 임시 파일을 생성합니다.
+     * @param content 파일 내용
+     * @param fileName 파일명
+     * @returns 임시 파일 경로
+     */
+    private async createTempFile(content: string, fileName: string): Promise<string> {
+        const tempDir = os.tmpdir();
+        const tempFileName = `aidev-ide-temp-${Date.now()}-${fileName}`;
+        const tempFilePath = path.join(tempDir, tempFileName);
+
+        await fs.promises.writeFile(tempFilePath, content, 'utf8');
+        this.tempFiles.push(tempFilePath); // 임시 파일 추적
+        return tempFilePath;
+    }
+
+    /**
+     * 임시 파일을 삭제합니다.
+     * @param filePath 파일 경로
+     */
+    private async cleanupTempFile(filePath: string): Promise<void> {
+        try {
+            await fs.promises.unlink(filePath);
+            // 추적 목록에서 제거
+            const index = this.tempFiles.indexOf(filePath);
+            if (index > -1) {
+                this.tempFiles.splice(index, 1);
+            }
+        } catch (error) {
+            console.warn('[LLM Response Processor] Error cleaning up temp file:', error);
+        }
+    }
+
+    /**
+     * 모든 임시 파일을 정리합니다.
+     */
+    private async cleanupAllTempFiles(): Promise<void> {
+        const cleanupPromises = this.tempFiles.map(filePath => this.cleanupTempFile(filePath));
+        await Promise.all(cleanupPromises);
+        this.tempFiles = [];
+    }
+
+    /**
+     * LLM을 호출하여 diff 기반으로 파일을 다시 작성합니다.
+     * @param diffContent diff 내용
+     * @param originalContent 원본 내용
+     * @param llmService LLM 서비스
+     * @returns 수정된 내용
+     */
+    private async rewriteFileWithDiff(
+        diffContent: string,
+        originalContent: string,
+        llmService: any
+    ): Promise<string | null> {
+        try {
+            const systemPrompt = this.createDiffRewritingSystemPrompt();
+            const userPrompt = this.createDiffRewritingUserPrompt(diffContent, originalContent);
+
+            // LLM 호출 (Gemini 또는 Ollama)
+            const response = await llmService.sendMessageWithSystemPrompt(systemPrompt, [
+                { text: userPrompt }
+            ]);
+
+            return response;
+        } catch (error) {
+            console.error('[LLM Response Processor] Error rewriting file with diff:', error);
+            return null;
+        }
+    }
+
+    /**
+     * diff 기반 파일 재작성을 위한 시스템 프롬프트를 생성합니다.
+     * @returns 시스템 프롬프트
+     */
+    private createDiffRewritingSystemPrompt(): string {
+        return `당신은 전문적인 코드 diff 분석가입니다.
+
+역할:
+- 주어진 diff를 분석하여 변경사항을 이해합니다
+- 원본 파일과 수정된 파일의 차이점을 파악합니다
+- 변경사항을 바탕으로 최종 파일을 생성합니다
+
+출력 규칙:
+1) 오직 수정된 파일의 전체 내용만 출력하세요
+2) 설명, 주석, diff 표시는 포함하지 마세요
+3) 완전한 파일 내용을 제공하세요
+4) 코드 블록 마커는 사용하지 마세요
+
+목표: diff를 분석하여 최종 파일을 생성하는 것입니다.`;
+    }
+
+    /**
+     * diff 기반 파일 재작성을 위한 사용자 프롬프트를 생성합니다.
+     * @param diffContent diff 내용
+     * @param originalContent 원본 내용
+     * @returns 사용자 프롬프트
+     */
+    private createDiffRewritingUserPrompt(diffContent: string, originalContent: string): string {
+        return `다음은 원본 파일과 수정된 파일의 diff입니다:
+
+원본 파일:
+\`\`\`
+${originalContent}
+\`\`\`
+
+Diff:
+\`\`\`
+${diffContent}
+\`\`\`
+
+위 diff를 분석하여 최종 수정된 파일의 전체 내용을 생성해주세요.`;
     }
 }

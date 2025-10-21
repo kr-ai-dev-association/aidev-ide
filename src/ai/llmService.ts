@@ -8,7 +8,7 @@ import { ConfigurationService } from '../services/configurationService';
 import { ExternalApiService } from './externalApiService';
 import { safePostMessage } from '../webview/panelUtils';
 import { GeminiApi } from './gemini';
-import { OllamaApi } from './ollamaService';
+import { OllamaApi } from './ollama';
 import { checkTokenLimit, logTokenUsage, estimateTokens } from '../utils/tokenUtils';
 import { AiModelType, PromptType } from './types';
 import { ActionPlannerService, ActionPlan } from './actionPlannerService';
@@ -402,50 +402,57 @@ ${osSpecificGuidelines}`;
             let fileContentsContext = '';
             let includedFilesForContext: { name: string, fullPath: string }[] = [];
 
-            if (promptType === PromptType.CODE_GENERATION) {
-                // 새로운 방식: 질의 기반 관련 파일 자동 검색 (CODE 탭에도 적용)
-                this.sendProcessingStep('keywords');
-                this.sendProcessingStatus('keywords', `Extracting keywords from query: "${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}"`);
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
-                fileContentsContext = relevantContextResult.fileContentsContext;
-                includedFilesForContext = relevantContextResult.includedFilesForContext;
+            // 의도 분석 결과 확인 - 코드 관련 질문일 때만 파일 컨텍스트 수집
+            const isCodeRelated = intentResult && this.isCodeRelatedIntent(intentResult);
 
-                if (relevantContextResult.selectedKeywords) {
-                    const keywordsStr = relevantContextResult.selectedKeywords.keywords.join(', ');
-                    const confidence = (relevantContextResult.selectedKeywords.confidence * 100).toFixed(1);
-                    const fileNames = includedFilesForContext.slice(0, 3).map(f => f.name).join(', ');
-                    const moreFiles = includedFilesForContext.length > 3 ? ` (+${includedFilesForContext.length - 3} more)` : '';
+            if (isCodeRelated) {
+                if (promptType === PromptType.CODE_GENERATION) {
+                    // CODE 탭: 코드 관련 질문인 경우에만 파일 컨텍스트 수집
+                    this.sendProcessingStep('keywords');
+                    this.sendProcessingStatus('keywords', `Extracting keywords from query: "${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}"`);
+                    const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
+                    fileContentsContext = relevantContextResult.fileContentsContext;
+                    includedFilesForContext = relevantContextResult.includedFilesForContext;
 
-                    this.sendProcessingStatus('keywords', `LLM 선택: ${keywordsStr} (${confidence}%) → ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
-                    // Debug Console 로그를 활용한 추가 정보
-                    console.log(`[LlmService] LLM selected keywords: ${keywordsStr} (confidence: ${confidence}%, reasoning: ${relevantContextResult.selectedKeywords.reasoning})`);
-                    console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
-                } else if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
-                    const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
-                    const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
-                    this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
-                    // Debug Console 로그를 활용한 추가 정보
-                    console.log(`[LlmService] Extracted ${relevantContextResult.extractedKeywords.length} keywords: ${relevantContextResult.extractedKeywords.join(', ')}`);
-                    console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files with ${fileContentsContext.length.toLocaleString()} characters of context`);
-                } else {
-                    this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
-                    console.log(`[LlmService] No keywords extracted, but found ${includedFilesForContext.length} files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                    if (relevantContextResult.selectedKeywords) {
+                        const keywordsStr = relevantContextResult.selectedKeywords.keywords.join(', ');
+                        const confidence = (relevantContextResult.selectedKeywords.confidence * 100).toFixed(1);
+                        const fileNames = includedFilesForContext.slice(0, 3).map(f => f.name).join(', ');
+                        const moreFiles = includedFilesForContext.length > 3 ? ` (+${includedFilesForContext.length - 3} more)` : '';
+
+                        this.sendProcessingStatus('keywords', `LLM 선택: ${keywordsStr} (${confidence}%) → ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
+                        console.log(`[LlmService] LLM selected keywords: ${keywordsStr} (confidence: ${confidence}%, reasoning: ${relevantContextResult.selectedKeywords.reasoning})`);
+                        console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
+                    } else if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
+                        const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
+                        const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
+                        this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                        console.log(`[LlmService] Extracted ${relevantContextResult.extractedKeywords.length} keywords: ${relevantContextResult.extractedKeywords.join(', ')}`);
+                        console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                    } else {
+                        this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                        console.log(`[LlmService] No keywords extracted, but found ${includedFilesForContext.length} files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                    }
+                } else if (promptType === PromptType.GENERAL_ASK) {
+                    // ASK 탭: 코드 관련 질문인 경우에만 파일 컨텍스트 수집
+                    this.sendProcessingStep('keywords');
+                    this.sendProcessingStatus('keywords', 'Extracting keywords from query...');
+                    const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
+                    fileContentsContext = relevantContextResult.fileContentsContext;
+                    includedFilesForContext = relevantContextResult.includedFilesForContext;
+
+                    if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
+                        const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
+                        const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
+                        this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files`);
+                    } else {
+                        this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files`);
+                    }
                 }
-            } else if (promptType === PromptType.GENERAL_ASK) {
-                // 새로운 방식: 질의 기반 관련 파일 자동 검색
-                this.sendProcessingStep('keywords');
-                this.sendProcessingStatus('keywords', 'Extracting keywords from query...');
-                const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
-                fileContentsContext = relevantContextResult.fileContentsContext;
-                includedFilesForContext = relevantContextResult.includedFilesForContext;
-
-                if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
-                    const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
-                    const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
-                    this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files`);
-                } else {
-                    this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files`);
-                }
+            } else {
+                // 코드 관련 질문이 아닌 경우 파일 컨텍스트 수집하지 않음
+                console.log(`[LlmService] 코드 관련 질문이 아니므로 파일 컨텍스트 제외. 의도: ${intentResult?.category}/${intentResult?.subtype}`);
+                this.sendProcessingStatus('keywords', 'Non-code related question - skipping file context collection');
             }
 
             // 선택된 파일들의 내용을 읽어서 컨텍스트에 추가
@@ -651,15 +658,20 @@ ${osSpecificGuidelines}`;
                 }
             }
 
+            // 중복 파일 제거 (파일명 기준)
+            const deduplicatedFiles = this.removeDuplicateFiles(allContextFiles);
+            console.log(`[LlmService] Original files: ${allContextFiles.length}, After deduplication: ${deduplicatedFiles.length}`);
+
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
             this.sendProcessingStep('parsing');
             this.sendProcessingStatus('parsing', 'Processing response format...');
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(
                 llmResponse,
-                promptType === PromptType.CODE_GENERATION ? allContextFiles : [],
+                promptType === PromptType.CODE_GENERATION ? deduplicatedFiles : [],
                 webviewToRespond,
                 promptType,
-                (status: string) => this.sendProcessingStatus('parsing', status)
+                (status: string) => this.sendProcessingStatus('parsing', status),
+                this // LLM 서비스 전달
             );
             this.sendProcessingStatus('parsing', 'Response processed successfully');
             this.sendProcessingStep('printing');
@@ -979,6 +991,60 @@ ${realTimeInfo}
             return response;
         } catch (error) {
             console.error('[LlmService] 오류 수정 메시지 전송 실패:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 의도 분석 결과가 코드 관련 질문인지 확인합니다.
+     * @param intentResult 의도 분석 결과
+     * @returns 코드 관련 의도인지 여부
+     */
+    private isCodeRelatedIntent(intentResult: { category: string; subtype: string; confidence: number }): boolean {
+        // 코드, 실행, 분석 카테고리는 파일 컨텍스트가 필요
+        const codeRelatedCategories = ['code', 'execution', 'analysis'];
+        return codeRelatedCategories.includes(intentResult.category);
+    }
+
+    /**
+     * 중복된 파일을 제거합니다. 파일명이 동일한 경우 가장 최근에 추가된 파일을 유지합니다.
+     * @param files 파일 목록
+     * @returns 중복이 제거된 파일 목록
+     */
+    private removeDuplicateFiles(files: { name: string, fullPath: string }[]): { name: string, fullPath: string }[] {
+        const fileMap = new Map<string, { name: string, fullPath: string }>();
+
+        // 파일명을 키로 하여 Map에 저장 (동일한 파일명이 있으면 덮어쓰기)
+        for (const file of files) {
+            fileMap.set(file.name, file);
+        }
+
+        const deduplicatedFiles = Array.from(fileMap.values());
+
+        if (files.length !== deduplicatedFiles.length) {
+            const removedFiles = files.length - deduplicatedFiles.length;
+            console.log(`[LlmService] Removed ${removedFiles} duplicate files. Remaining files: ${deduplicatedFiles.map(f => f.name).join(', ')}`);
+        }
+
+        return deduplicatedFiles;
+    }
+
+    /**
+     * 대화기록을 삭제합니다.
+     * @param promptType 프롬프트 타입 (CODE_GENERATION 또는 GENERAL_ASK)
+     */
+    public async clearHistory(promptType: PromptType): Promise<void> {
+        if (!this.extensionContext) {
+            console.warn('[LlmService] Extension context not available for clearing history');
+            return;
+        }
+
+        try {
+            const historyKey = promptType === PromptType.CODE_GENERATION ? 'codeTabHistory' : 'askTabHistory';
+            await this.extensionContext.globalState.update(historyKey, []);
+            console.log(`[LlmService] Cleared history for ${promptType === PromptType.CODE_GENERATION ? 'Code' : 'Ask'} tab`);
+        } catch (error) {
+            console.error('[LlmService] Failed to clear history:', error);
             throw error;
         }
     }

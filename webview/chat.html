@@ -241,12 +241,12 @@
         }
 
         #send-button {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
+            background-color: #007ACC;
+            color: white;
         }
 
         #send-button:hover {
-            background-color: var(--vscode-button-hoverBackground);
+            background-color: #005A9E;
         }
 
         /* Clean (-> Clear) 버튼 스타일 */
@@ -310,6 +310,48 @@
             /* 버튼 사이 간격 */
             margin-bottom: 8px;
             width: 100%;
+        }
+
+        /* Clear 버튼과 지우개 버튼을 가로로 배치하는 컨테이너 */
+        .clear-buttons-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 8px;
+            width: 100%;
+        }
+
+        /* Clear 버튼 (챗창 출력 내용 지우기) */
+        #clear-display-button {
+            flex: 1;
+            padding: 8px 15px;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 14px;
+        }
+
+        #clear-display-button:hover {
+            background-color: #45A049;
+        }
+
+        /* 지우개 버튼 (대화 이력 지우기) */
+        #clear-history-button {
+            padding: 8px 12px;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            background-color: #FFC107;
+            color: #212529;
+            font-size: 16px;
+            min-width: 40px;
+        }
+
+        #clear-history-button:hover {
+            background-color: #E0A800;
         }
 
         /* <-- 추가 끝 --> */
@@ -1172,7 +1214,10 @@
                     <button id="file-picker-button" title="파일 선택">@</button>
                     <button id="cancel-call-button" class="cancel-button">Cancel</button>
                 </div>
-                <button id="clean-history-button">Clear</button> <!-- <-- Clean -> Clear 이름 변경, ID는 그대로 유지 -->
+                <div class="clear-buttons-row">
+                    <button id="clear-display-button">Clear</button>
+                    <button id="clear-history-button">🧹</button>
+                </div>
                 <button id="send-button">Send</button>
             </div>
             <!-- <-- 추가 끝 -->
@@ -1465,6 +1510,7 @@
                 { step: 'Analyzing Code', status: 'Waiting...' },
                 { step: 'Assembling Answer', status: 'Waiting...' },
                 { step: 'Parsing Markdown', status: 'Waiting...' },
+                { step: 'File Processing', status: 'Waiting...' },
                 { step: 'Preparing to Print', status: 'Waiting...' },
                 { step: 'Error Correction', status: 'Waiting...' }
             ];

@@ -365,6 +365,79 @@ export class StorageService {
             await this.saveDynamicErrorPatterns(existingPatterns);
         }
     }
+
+    // 추가된 메서드들
+    async getAutoCorrectionEnabled(): Promise<boolean> {
+        const enabled = await this.secretStorage.get('aidev-ide.autoCorrectionEnabled');
+        return enabled === 'true';
+    }
+
+    async saveAutoCorrectionEnabled(enabled: boolean): Promise<void> {
+        await this.secretStorage.store('aidev-ide.autoCorrectionEnabled', enabled.toString());
+    }
+
+    async getOutputLogEnabled(): Promise<boolean> {
+        const enabled = await this.secretStorage.get('aidev-ide.outputLogEnabled');
+        return enabled === 'true';
+    }
+
+    async saveOutputLogEnabled(enabled: boolean): Promise<void> {
+        await this.secretStorage.store('aidev-ide.outputLogEnabled', enabled.toString());
+    }
+
+    async getErrorRetryCount(): Promise<number> {
+        const count = await this.secretStorage.get('aidev-ide.errorRetryCount');
+        return count ? parseInt(count) : 3;
+    }
+
+    async saveErrorRetryCount(count: number): Promise<void> {
+        await this.secretStorage.store('aidev-ide.errorRetryCount', count.toString());
+    }
+
+    async getProjectRootPath(): Promise<string | undefined> {
+        return await this.secretStorage.get('aidev-ide.projectRootPath');
+    }
+
+    async saveProjectRootPath(path: string): Promise<void> {
+        await this.secretStorage.store('aidev-ide.projectRootPath', path);
+    }
+
+    async clearProjectRootPath(): Promise<void> {
+        await this.secretStorage.delete('aidev-ide.projectRootPath');
+    }
+
+    async getWeatherApiKey(): Promise<string | undefined> {
+        return await this.secretStorage.get('aidev-ide.weatherApiKey');
+    }
+
+    async saveWeatherApiKey(apiKey: string): Promise<void> {
+        await this.secretStorage.store('aidev-ide.weatherApiKey', apiKey);
+    }
+
+    async getNewsApiKey(): Promise<string | undefined> {
+        return await this.secretStorage.get('aidev-ide.newsApiKey');
+    }
+
+    async saveNewsApiKey(apiKey: string): Promise<void> {
+        await this.secretStorage.store('aidev-ide.newsApiKey', apiKey);
+    }
+
+    async getIsLicenseVerified(): Promise<boolean> {
+        const verified = await this.secretStorage.get('aidev-ide.isLicenseVerified');
+        return verified === 'true';
+    }
+
+    async saveIsLicenseVerified(verified: boolean): Promise<void> {
+        await this.secretStorage.store('aidev-ide.isLicenseVerified', verified.toString());
+    }
+
+    async saveAutoUpdateEnabled(enabled: boolean): Promise<void> {
+        await this.secretStorage.store('aidev-ide.autoUpdateEnabled', enabled.toString());
+    }
+
+    async saveAiModel(model: string): Promise<void> {
+        await this.secretStorage.store('aidev-ide.aiModel', model);
+    }
 }
 
 // --- END OF FILE src/storage/storage.ts ---

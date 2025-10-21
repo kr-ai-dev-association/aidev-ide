@@ -9,11 +9,11 @@ import { CodebaseContextService } from './ai/codebaseContextService';
 import { LlmResponseProcessor } from './ai/llmResponseProcessor';
 import { LlmService } from './ai/llmService';
 import { AiModelType } from './ai/types';
-import { OllamaApi } from './ai/ollamaService';
+import { OllamaApi } from './ai/ollama';
 import { ChatViewProvider } from './webview/chatViewProvider';
 import { AskViewProvider } from './webview/askViewProvider'; // 새로 추가된 AskViewProvider 임포트
 import { getAidevIdeTerminal, setTerminalMonitorService, setOutputLogEnabled } from './terminal/terminalManager';
-import { openSettingsPanel, openLicensePanel } from './webview/panelManager';
+import { openSettingsPanel } from './webview/panelManager';
 import { LicenseService } from './services/licenseService';
 import { OllamaBlockerService } from './services/ollamaBlockerService';
 import { TerminalDaemonService } from './services/terminalDaemonService';
@@ -201,7 +201,7 @@ export async function activate(context: vscode.ExtensionContext) {
         context,
         llmService,
         (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService),
-        (viewColumn: vscode.ViewColumn) => openLicensePanel(context.extensionUri, context, viewColumn, storageService, geminiApi, notificationService, configurationService),
+        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService),
         configurationService,
         notificationService,
         storageService
@@ -241,9 +241,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openSettingsPanel', () => {
         openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService);
     }));
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openLicensePanel', () => {
-        openLicensePanel(context.extensionUri, context, vscode.ViewColumn.One, storageService, geminiApi, notificationService, configurationService);
-    }));
+    // context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openLicensePanel', () => {
+    //     openLicensePanel(context.extensionUri, context, vscode.ViewColumn.One, storageService, geminiApi, notificationService, configurationService);
+    // }));
 
     // 언어 변경 브로드캐스트 명령어 등록
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.broadcastLanguageChange', (language: string) => {

@@ -2324,3 +2324,137 @@ if (localOllamaApiUrlInput) {
         loadOllamaModels();
     });
 }
+
+// Ollama 모델 다운로드 기능
+let supportedModels = [];
+
+// 지원되는 모델 목록 로드
+async function loadSupportedModels() {
+    try {
+        if (vscode) {
+            vscode.postMessage({ command: 'getSupportedModels' });
+        } else {
+            throw new Error('VS Code API not available');
+        }
+    } catch (error) {
+        console.error('Failed to load supported models:', error);
+        const modelListContainer = document.getElementById('ollama-model-list');
+        if (modelListContainer) {
+            modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';
+        }
+    }
+}
+
+// 모델 리스트 렌더링
+function renderModelList() {
+    const modelListContainer = document.getElementById('ollama-model-list');
+    if (!modelListContainer) return;
+
+    modelListContainer.innerHTML = '';
+
+    supportedModels.forEach(model => {
+        const modelItem = document.createElement('div');
+        modelItem.className = 'model-item';
+        modelItem.setAttribute('data-model', model.name);
+        modelItem.innerHTML = `
+            <div class="model-info">
+                <div class="model-name">${model.displayName}</div>
+                <div class="model-description">${model.description}</div>
+                <div class="model-size">크기: ${model.size}</div>
+                <div class="model-tags">
+                    ${model.tags.map(tag => `<span class="model-tag">${tag}</span>`).join('')}
+                </div>
+            </div>
+            <button class="model-download-button" data-model="${model.name}">
+                다운로드
+            </button>
+        `;
+        modelListContainer.appendChild(modelItem);
+    });
+
+    // 다운로드 버튼 이벤트 리스너 추가
+    const downloadButtons = modelListContainer.querySelectorAll('.model-download-button');
+    downloadButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            const modelName = e.target.getAttribute('data-model');
+            downloadModel(modelName, e.target);
+        });
+    });
+}
+
+// 모델 다운로드
+async function downloadModel(modelName, buttonElement) {
+    if (!vscode) return;
+
+    // 버튼 비활성화
+    buttonElement.disabled = true;
+    buttonElement.textContent = '다운로드 중...';
+
+    try {
+        // 확장 프로그램에 다운로드 요청 전송
+        vscode.postMessage({
+            command: 'downloadOllamaModel',
+            modelName: modelName
+        });
+    } catch (error) {
+        console.error('Failed to download model:', error);
+        buttonElement.disabled = false;
+        buttonElement.textContent = '다운로드';
+    }
+}
+
+// 모델 다운로드 진행 상황 처리
+window.addEventListener('message', (event) => {
+    const message = event.data;
+
+    switch (message.command) {
+        case 'supportedModels':
+            supportedModels = message.models || [];
+            renderModelList();
+            break;
+        case 'supportedModelsError':
+            console.error('Failed to load supported models:', message.error);
+            const modelListContainer = document.getElementById('ollama-model-list');
+            if (modelListContainer) {
+                modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';
+            }
+            break;
+        case 'modelDownloadStarted':
+            updateModelDownloadStatus(message.modelName, '다운로드 시작...', true);
+            break;
+        case 'modelDownloadProgress':
+            updateModelDownloadStatus(message.modelName, `다운로드 중... ${message.progress}%`, true);
+            break;
+        case 'modelDownloadCompleted':
+            updateModelDownloadStatus(message.modelName, '다운로드 완료', false);
+            // 모델 목록 새로고침
+            loadOllamaModels();
+            break;
+        case 'modelDownloadError':
+            updateModelDownloadStatus(message.modelName, `다운로드 실패: ${message.error}`, false);
+            break;
+        case 'refreshOllamaModels':
+            loadOllamaModels();
+            break;
+    }
+});
+
+// 모델 다운로드 상태 업데이트
+function updateModelDownloadStatus(modelName, status, isDownloading) {
+    const modelListContainer = document.getElementById('ollama-model-list');
+    if (!modelListContainer) return;
+
+    const modelItem = modelListContainer.querySelector(`[data-model="${modelName}"]`);
+    if (modelItem) {
+        const button = modelItem.querySelector('.model-download-button');
+        if (button) {
+            button.textContent = status;
+            button.disabled = isDownloading;
+        }
+    }
+}
+
+// 페이지 로드 시 지원되는 모델 목록 로드
+document.addEventListener('DOMContentLoaded', () => {
+    loadSupportedModels();
+});

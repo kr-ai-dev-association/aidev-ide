@@ -142,6 +142,28 @@ export class TerminalDaemonService {
     public showLogs(): void {
         this.outputChannel.show(true);
     }
+
+    /**
+     * Terminal Daemon 서비스 연결을 테스트합니다.
+     */
+    async testConnection(): Promise<{ success: boolean; data?: any; error?: string }> {
+        try {
+            const daemonPath = this.getDaemonPath();
+
+            if (!fs.existsSync(daemonPath)) {
+                return { success: false, error: 'Terminal daemon binary not found' };
+            }
+
+            // 소켓 파일 존재 확인
+            if (fs.existsSync(this.socketPath)) {
+                return { success: true, data: { status: 'running' } };
+            } else {
+                return { success: false, error: 'Terminal daemon not running' };
+            }
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
+    }
 }
 
 

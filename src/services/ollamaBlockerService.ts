@@ -421,4 +421,25 @@ export class OllamaBlockerService {
             };
         }
     }
+
+    /**
+     * Ollama Blocker 서비스 연결을 테스트합니다.
+     */
+    async testConnection(): Promise<{ success: boolean; data?: any; error?: string }> {
+        try {
+            const blockerPath = this.getBlockerPath();
+
+            if (!fs.existsSync(blockerPath)) {
+                return { success: false, error: 'Ollama blocker binary not found' };
+            }
+
+            // 간단한 상태 확인
+            const tempDir = os.tmpdir();
+            const result = await execAsync(`"${blockerPath}" status`, { cwd: tempDir });
+
+            return { success: true, data: { status: result.stdout } };
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
+    }
 }

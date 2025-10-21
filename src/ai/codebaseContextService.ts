@@ -680,10 +680,17 @@ export class CodebaseContextService {
                 }
             }
 
-            // console.log(`[CodebaseContextService] 총 ${includedFilesForContext.length}개 파일이 컨텍스트에 포함됨`);
+            // 중복 파일 제거 (파일명 기준)
+            const deduplicatedFiles = this.removeDuplicateFiles(includedFilesForContext);
+            if (includedFilesForContext.length !== deduplicatedFiles.length) {
+                const removedFiles = includedFilesForContext.length - deduplicatedFiles.length;
+                console.log(`[CodebaseContextService] getRelevantFilesContext: Removed ${removedFiles} duplicate files. Remaining files: ${deduplicatedFiles.map(f => f.name).join(', ')}`);
+            }
+
+            // console.log(`[CodebaseContextService] 총 ${deduplicatedFiles.length}개 파일이 컨텍스트에 포함됨`);
             return {
                 fileContentsContext,
-                includedFilesForContext,
+                includedFilesForContext: deduplicatedFiles,
                 extractedKeywords: selectedKeywords.keywords,
                 selectedKeywords: selectedKeywords
             };
@@ -1905,7 +1912,15 @@ export class CodebaseContextService {
         } else if (sourcePathsSetting.length === 0) {
             fileContentsContext += "[정보] 참조할 소스 경로가 설정되지 않았습니다. CodePilot 설정에서 경로를 추가해주세요.\n";
         }
-        return { fileContentsContext, includedFilesForContext };
+
+        // 중복 파일 제거 (파일명 기준)
+        const deduplicatedFiles = this.removeDuplicateFiles(includedFilesForContext);
+        if (includedFilesForContext.length !== deduplicatedFiles.length) {
+            const removedFiles = includedFilesForContext.length - deduplicatedFiles.length;
+            console.log(`[CodebaseContextService] Removed ${removedFiles} duplicate files. Remaining files: ${deduplicatedFiles.map(f => f.name).join(', ')}`);
+        }
+
+        return { fileContentsContext, includedFilesForContext: deduplicatedFiles };
     }
 
     /**
@@ -2632,5 +2647,28 @@ export class CodebaseContextService {
         }
 
         return updatedFiles;
+    }
+
+    /**
+     * 중복된 파일을 제거합니다. 파일명이 동일한 경우 가장 최근에 추가된 파일을 유지합니다.
+     * @param files 파일 목록
+     * @returns 중복이 제거된 파일 목록
+     */
+    private removeDuplicateFiles(files: { name: string, fullPath: string }[]): { name: string, fullPath: string }[] {
+        const fileMap = new Map<string, { name: string, fullPath: string }>();
+
+        // 파일명을 키로 하여 Map에 저장 (동일한 파일명이 있으면 덮어쓰기)
+        for (const file of files) {
+            fileMap.set(file.name, file);
+        }
+
+        const deduplicatedFiles = Array.from(fileMap.values());
+
+        if (files.length !== deduplicatedFiles.length) {
+            const removedFiles = files.length - deduplicatedFiles.length;
+            console.log(`[CodebaseContextService] Removed ${removedFiles} duplicate files. Remaining files: ${deduplicatedFiles.map(f => f.name).join(', ')}`);
+        }
+
+        return deduplicatedFiles;
     }
 }

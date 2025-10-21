@@ -1,4 +1,4 @@
-import { OllamaApi } from './ollamaService';
+import { OllamaApi } from './ollama';
 
 export type IntentCategory = 'code' | 'execution' | 'analysis' | 'documentation' | 'terminal';
 
