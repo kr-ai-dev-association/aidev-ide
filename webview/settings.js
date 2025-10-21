@@ -1579,10 +1579,13 @@ window.addEventListener('message', event => {
                 // console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
 
                 // 저장된 모델 값이 있으면 우선 적용, 없으면 기존 모델 유지
+                console.log('[Settings] Applying Ollama model - storedOllamaModel:', storedOllamaModel, 'currentModel:', currentModel);
                 if (storedOllamaModel && storedOllamaModel !== '') {
                     const options = Array.from(sel.options).map(o => o.value);
+                    console.log('[Settings] Available options:', options);
                     if (options.includes(storedOllamaModel)) {
                         sel.value = storedOllamaModel;
+                        console.log('[Settings] Applied stored model:', storedOllamaModel);
                     } else {
                         // 목록에 없다면 앞에 추가
                         const opt = document.createElement('option');
@@ -1590,12 +1593,13 @@ window.addEventListener('message', event => {
                         opt.textContent = storedOllamaModel;
                         sel.insertBefore(opt, sel.firstChild);
                         sel.value = storedOllamaModel;
+                        console.log('[Settings] Added and applied stored model:', storedOllamaModel);
                     }
                     // 적용 후 저장된 값 초기화
                     storedOllamaModel = null;
                 } else if (currentModel && currentModel !== '') {
                     sel.value = currentModel;
-                    // console.log('Restored previous Ollama model selection:', currentModel);
+                    console.log('[Settings] Applied current model:', currentModel);
                 }
             }
 
@@ -1999,6 +2003,7 @@ window.addEventListener('message', event => {
             // Ollama 모델 상태 로드 - 저장된 모델 값을 전역 변수에 저장
             if (typeof message.ollamaModel === 'string') {
                 storedOllamaModel = message.ollamaModel;
+                console.log('[Settings] Stored Ollama model:', storedOllamaModel);
                 const ollamaModelSetText = message.ollamaModel ?
                     `Ollama 모델이 설정되어 있습니다: ${message.ollamaModel}` :
                     'Ollama 모델이 설정되지 않았습니다.';
