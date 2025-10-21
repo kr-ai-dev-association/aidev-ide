@@ -1156,7 +1156,7 @@ if (ollamaServerTypeSelect) {
         }
 
         // 서버 타입 저장
-        vscode.postMessage({ command: 'saveOllamaServerType', serverType: selectedType });
+        vscode.postMessage({ command: 'saveOllamaServerType', ollamaServerType: selectedType });
         const savingText = 'Ollama 서버 타입 저장 중...';
         showStatus(ollamaServerTypeStatus, savingText, 'info');
     });
@@ -1482,6 +1482,12 @@ if (aiModelSelect) {
             remoteOllamaSettingsSection.classList.add('disabled');
         } else if (selectedModel === 'ollama') {
             geminiSettingsSection.classList.add('disabled');
+            // Ollama 선택 시 서버 타입을 기본값 'local'로 설정
+            if (ollamaServerTypeSelect) {
+                ollamaServerTypeSelect.value = 'local';
+                // 서버 타입 변경 이벤트 트리거
+                ollamaServerTypeSelect.dispatchEvent(new Event('change'));
+            }
             // 서버 타입에 따라 활성 섹션 결정
             const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
             if (serverType === 'remote') {
@@ -2045,7 +2051,7 @@ window.addEventListener('message', event => {
         case 'ollamaServerTypeSaved':
             showStatus(ollamaServerTypeStatus, 'Ollama 서버 타입이 저장되었습니다.', 'success');
             break;
-        case 'ollamaServerTypeError':
+        case 'ollamaServerTypeSaveError':
             showStatus(ollamaServerTypeStatus, `Ollama 서버 타입 저장 실패: ${message.error}`, 'error');
             break;
         case 'banyaLicenseSaved':
