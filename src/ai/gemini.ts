@@ -134,6 +134,20 @@ export class GeminiApi {
             return "Error: AIDEV-IDE API call was cancelled.";
         }
         if (error.message) {
+            const lowerMsg = String(error.message).toLowerCase();
+            const isOffline =
+                lowerMsg.includes('err_internet_disconnected') ||
+                lowerMsg.includes('fetch failed') ||
+                lowerMsg.includes('network error') ||
+                lowerMsg.includes('network is unreachable') ||
+                lowerMsg.includes('getaddrinfo') ||
+                lowerMsg.includes('enotfound') ||
+                lowerMsg.includes('offline');
+
+            if (isOffline) {
+                // Special marker that upstream can detect to trigger offline fallback
+                return 'OFFLINE: Network unavailable for Gemini. Falling back is recommended.';
+            }
             if (error.message.includes('quota') || error.message.includes('Quota')) {
                 return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
             }

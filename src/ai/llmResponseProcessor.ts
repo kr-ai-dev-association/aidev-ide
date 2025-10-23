@@ -859,9 +859,12 @@ export class LlmResponseProcessor {
                                     console.warn('[LLM Response Processor] Failed to post priorityErrorPrompt (manual mode):', postErr);
                                 }
 
-                                // Remote SSH 환경에서 권한 문제인 경우 추가 안내
+                                // 권한/경로 관련 추가 안내 (플랫폼별)
                                 if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
-                                    const permissionMsg = `권한 문제가 발생했습니다. Remote SSH 환경에서는 파일 권한을 확인해주세요.`;
+                                    const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+                                    const permissionMsg = isWindows
+                                        ? `권한 문제가 발생했습니다. Windows에서는 VS Code를 관리자 권한으로 실행하거나 대상 폴더의 쓰기 권한을 부여하세요. Program Files/Windows/OneDrive 동기화 폴더 등은 쓰기가 제한될 수 있습니다.`
+                                        : `권한 문제가 발생했습니다. Remote SSH/로컬 환경에서 파일 권한(chmod/chown)과 소유자를 확인해주세요.`;
                                     this.notificationService.showErrorMessage(`aidev-ide: ${permissionMsg}`);
                                 } else if (err.message.includes('ENOENT') || err.message.includes('not found')) {
                                     const notFoundMsg = `파일 또는 디렉토리를 찾을 수 없습니다. Remote SSH 환경에서 경로를 확인해주세요.`;
@@ -880,9 +883,11 @@ export class LlmResponseProcessor {
                             try {
                                 await vscode.workspace.fs.writeFile(tempFileUri, Buffer.from(operation.newContent!, 'utf8'));
                                 await vscode.commands.executeCommand('vscode.diff', fileUri, tempFileUri, `Original '${fileNameForDisplay}'  vs.  aidev-ide Suggestion`);
+                                safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: `Diff 표시 완료 (${fileNameForDisplay})` });
                                 updateSummaryMessages.push(`ℹ️ '${fileNameForDisplay}' 변경 제안 Diff를 표시했습니다.`);
                             } catch (diffError: any) {
                                 this.notificationService.showErrorMessage(`Diff 표시 중 오류: ${diffError.message}`);
+                                safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: `Diff 표시 실패 (${fileNameForDisplay}): ${diffError.message}` });
                                 updateSummaryMessages.push(`❌ Diff 표시 실패 (${fileNameForDisplay}): ${diffError.message}`);
                             }
                         } else {
@@ -932,6 +937,22 @@ export class LlmResponseProcessor {
                             console.error(`[LLM Response Processor] 파일 작업 실패 - 경로: ${operation.absolutePath}, 오류:`, err);
                             this.notificationService.showErrorMessage(`aidev-ide: ${errorMsg}`);
                             updateSummaryMessages.push(errorMsg);
+
+                            // 권한/경로 관련 추가 안내 (자동 업데이트 경로에서도 동일하게 적용)
+                            if (err && typeof err.message === 'string') {
+                                if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
+                                    const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+                                    const permissionMsg = isWindows
+                                        ? `권한 문제가 발생했습니다. Windows에서는 VS Code를 관리자 권한으로 실행하거나 대상 폴더의 쓰기 권한을 부여하세요. Program Files/Windows/OneDrive 동기화 폴더 등은 쓰기가 제한될 수 있습니다.`
+                                        : `권한 문제가 발생했습니다. Remote SSH/로컬 환경에서 파일 권한(chmod/chown)과 소유자를 확인해주세요.`;
+                                    this.notificationService.showErrorMessage(`aidev-ide: ${permissionMsg}`);
+                                    updateSummaryMessages.push(`⚠️ ${permissionMsg}`);
+                                } else if (err.message.includes('ENOENT') || err.message.includes('not found')) {
+                                    const notFoundMsg = `파일 또는 디렉토리를 찾을 수 없습니다. 경로가 올바른지 확인해주세요.`;
+                                    this.notificationService.showErrorMessage(`aidev-ide: ${notFoundMsg}`);
+                                    updateSummaryMessages.push(`⚠️ ${notFoundMsg}`);
+                                }
+                            }
                         }
                     }
                 }

@@ -707,6 +707,21 @@ ${osSpecificGuidelines}`;
                     userParts,
                     requestOptions
                 );
+
+                // Offline fallback trigger
+                if (typeof llmResponse === 'string' && llmResponse.startsWith('OFFLINE:')) {
+                    try {
+                        this.sendProcessingStatus('assembling', 'Network unavailable. Falling back to local model (Ollama)...');
+                    } catch { }
+                    // Attempt fallback to Ollama if configured
+                    try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
+                    const requestOptions2 = { signal: abortSignal };
+                    llmResponse = await this.ollamaApi.sendMessageWithSystemPrompt(
+                        systemPrompt,
+                        userParts,
+                        requestOptions2
+                    );
+                }
             } else if (
                 this.currentModelType === AiModelType.OLLAMA_Gemma ||
                 this.currentModelType === AiModelType.OLLAMA_DeepSeek ||
