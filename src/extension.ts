@@ -176,8 +176,19 @@ export async function activate(context: vscode.ExtensionContext) {
     // UI에서 저장된 모델이 우선 (과거 버전 잔존값 교정)
     try {
         if (uiAiModel && uiAiModel !== currentAiModel) {
-            currentAiModel = uiAiModel as any;
-            await storageService.saveCurrentAiModel(uiAiModel);
+            let mappedUiModel: string = uiAiModel;
+            // 'ollama' 일반 문자열이 들어온 경우, 저장된 Ollama 실제 모델을 기준으로 구체 타입으로 변환
+            if (uiAiModel === 'ollama') {
+                try {
+                    const storedOllamaModel = await storageService.getOllamaModel();
+                    if (storedOllamaModel === 'deepseek-r1:70b') mappedUiModel = 'ollama-deepseek';
+                    else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) mappedUiModel = 'ollama-codellama';
+                    else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud' || (storedOllamaModel && storedOllamaModel.startsWith('qwen'))) mappedUiModel = 'ollama-gpt-oss';
+                    else mappedUiModel = 'ollama-gemma';
+                } catch { mappedUiModel = 'ollama-gemma'; }
+            }
+            currentAiModel = mappedUiModel as any;
+            await storageService.saveCurrentAiModel(mappedUiModel);
         }
     } catch { /* noop */ }
 

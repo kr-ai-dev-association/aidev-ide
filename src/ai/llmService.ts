@@ -16,6 +16,7 @@ import { TerminalMonitorService } from './terminalMonitorService';
 import { ActionExecutionEngine } from './actionExecutionEngine';
 import { ProjectProfileService, ProjectProfile } from './projectProfileService';
 import { IntentDetectionService, IntentDetectionResult } from './intentDetectionService';
+import { PlanQueueService } from '../services/planQueueService';
 
 export class LlmService {
     private storageService: StorageService;
@@ -24,6 +25,7 @@ export class LlmService {
     private codebaseContextService: CodebaseContextService;
     private llmKeywordSelectionService: LlmKeywordSelectionService;
     private llmResponseProcessor: LlmResponseProcessor;
+    private planQueueService?: PlanQueueService;
     private notificationService: NotificationService;
     private configurationService: ConfigurationService;
     private externalApiService: ExternalApiService;
@@ -343,6 +345,56 @@ ${osSpecificGuidelines}`;
     }
 
     /**
+     * 사용자 질의/키워드/환경을 입력으로 받아 계획 수립 프롬프트를 생성합니다.
+     */
+    private buildPlanPrompt(userQuery: string, keywords: string[], os: string, modelName: string, includedFiles: { name: string, fullPath: string }[]): string {
+        const topFiles = includedFiles.slice(0, 8).map(f => `- ${f.name} (${f.fullPath})`).join('\n');
+        const kw = keywords.join(', ');
+        return (
+            `You are a senior software planner. Convert the user's query into an actionable, verifiable plan.
+
+User query:
+"""
+${userQuery}
+"""
+
+Context:
+- OS: ${os}
+- Current model: ${modelName}
+- Relevant files (${includedFiles.length}):
+${topFiles || '- (none)'}
+- Keywords: ${kw}
+
+Requirements:
+- Output a concise to-do list as markdown bullet points or checkboxes.
+- Each item should be atomic, testable, and ordered logically.
+- Capture any prerequisites and risks.
+- Keep it pragmatic for this codebase.
+`);
+    }
+
+    /**
+     * 간단한 Markdown 체크박스/불릿 리스트를 PlanItem 입력 형태로 파싱
+     */
+    private parsePlanToItems(planMarkdown: string): Array<{ title: string, detail?: string }> {
+        const lines = planMarkdown.split('\n');
+        const items: Array<{ title: string, detail?: string }> = [];
+        for (const raw of lines) {
+            const line = raw.trim();
+            if (!line) continue;
+            // - [ ] Task 또는 - Task, * Task, 1. Task 등 폭넓게 수용
+            const match = line.match(/^([-*]|\d+\.)\s*(\[\s*[xX]?\s*\]\s*)?(.*)$/);
+            if (match) {
+                const title = (match[3] || '').trim();
+                if (title) {
+                    items.push({ title });
+                }
+            }
+        }
+        return items;
+    }
+
+    /**
      * 현재 설정된 모델의 실제 이름을 가져옵니다.
      * @returns 현재 모델명
      */
@@ -397,6 +449,15 @@ ${osSpecificGuidelines}`;
 
             if (this.projectProfileService) {
                 this.projectProfile = await this.projectProfileService.loadProfile();
+            }
+
+            // Systems 단계 표시: OS, 모델명, 프로젝트 루트
+            try {
+                const projectRootForStatus = await this.configurationService.getProjectRoot();
+                this.sendProcessingStep('systems');
+                this.sendProcessingStatus('systems', `OS: ${this.userOS} | Model: ${currentModelNameForLog} | Root: ${projectRootForStatus || '(not set)'}`);
+            } catch (e) {
+                console.warn('[LlmService] Failed to send systems status:', e);
             }
 
             let intentResult: IntentDetectionResult | undefined;
@@ -515,17 +576,27 @@ ${osSpecificGuidelines}`;
                             console.log(`[LlmService] 프로그래밍 관련이 아니므로 파일 컨텍스트 제외`);
                             fileContentsContext = "";
                             includedFilesForContext = [];
+                            // ensure non-null structure to avoid downstream null access
+                            relevantContextResult = { fileContentsContext: '', includedFilesForContext: [], extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } };
                         } else {
                             // 기존 키워드 기반 파일 컨텍스트 수집
                             relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
-                            fileContentsContext = relevantContextResult.fileContentsContext;
-                            includedFilesForContext = relevantContextResult.includedFilesForContext;
+                            fileContentsContext = relevantContextResult?.fileContentsContext || '';
+                            includedFilesForContext = Array.isArray(relevantContextResult?.includedFilesForContext) ? relevantContextResult.includedFilesForContext : [];
                         }
                     } else {
                         // 분석 실패 시 기존 로직 사용
                         relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
-                        fileContentsContext = relevantContextResult.fileContentsContext;
-                        includedFilesForContext = relevantContextResult.includedFilesForContext;
+                        fileContentsContext = relevantContextResult?.fileContentsContext || '';
+                        includedFilesForContext = Array.isArray(relevantContextResult?.includedFilesForContext) ? relevantContextResult.includedFilesForContext : [];
+                    }
+
+                    // normalize structure to guard against nulls
+                    if (!relevantContextResult || typeof relevantContextResult !== 'object') {
+                        relevantContextResult = { fileContentsContext: fileContentsContext || '', includedFilesForContext: includedFilesForContext || [], extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } };
+                    } else {
+                        if (!Array.isArray(relevantContextResult.extractedKeywords)) relevantContextResult.extractedKeywords = [];
+                        if (!relevantContextResult.selectedKeywords) relevantContextResult.selectedKeywords = { keywords: [], reasoning: '', confidence: 0 };
                     }
 
                     if (relevantContextResult && relevantContextResult.selectedKeywords) {
@@ -537,12 +608,63 @@ ${osSpecificGuidelines}`;
                         this.sendProcessingStatus('keywords', `LLM 선택: ${keywordsStr} (${confidence}%) → ${includedFilesForContext.length} files: ${fileNames}${moreFiles}`);
                         console.log(`[LlmService] LLM selected keywords: ${keywordsStr} (confidence: ${confidence}%, reasoning: ${relevantContextResult.selectedKeywords.reasoning})`);
                         console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files: ${includedFilesForContext.map(f => f.name).join(', ')}`);
+
+                        // --- Plan 단계: 키워드/컨텍스트를 기반으로 To-Do 생성 ---
+                        try {
+                            this.sendProcessingStep('plan');
+                            // 계획 생성 시작: reasoning 모델명과 작업 요약 안내
+                            let reasoningModelNameForPlan = '';
+                            try { reasoningModelNameForPlan = (await this.storageService.getPlanningModel()) || (await this.storageService.getOllamaModel()) || ''; } catch { }
+                            this.sendProcessingStatus('plan', `Reasoning 모델: ${reasoningModelNameForPlan || '(미설정)'} - 계획 생성 시작`);
+                            const planPrompt = this.buildPlanPrompt(userQuery, relevantContextResult.selectedKeywords.keywords, this.userOS, await this.getCurrentModelName(), includedFilesForContext);
+                            const parts = [{ text: planPrompt }];
+                            let planText: string | null = null;
+                            if (this.currentModelType === AiModelType.GEMINI) {
+                                planText = await this.geminiApi.sendMessageWithSystemPrompt('Transform into actionable plan (to-do list). Output bullet list or markdown with checkboxes.', parts, { signal: abortSignal });
+                            } else {
+                                try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
+                                planText = await this.ollamaApi.sendMessageWithSystemPrompt('Transform into actionable plan (to-do list). Output bullet list or markdown with checkboxes.', parts, { signal: abortSignal });
+                            }
+                            if (planText && planText.trim()) {
+                                // 요약: 첫 줄 또는 첫 항목으로 간단 요약 표시
+                                const firstLine = planText.split('\n').find(l => l.trim().length > 0)?.trim() || '';
+                                const summary = firstLine.length > 80 ? (firstLine.slice(0, 80) + '...') : firstLine;
+                                this.sendProcessingStatus('plan', `Reasoning 모델: ${reasoningModelNameForPlan || '(미설정)'} - ${summary || 'Plan ready.'}`);
+                                // 챗 패널에 우선 출력(사용자 승인 전 참고용)
+                                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: planText });
+
+                                // 간단 파서: markdown 체크박스/불릿을 PlanItem으로 큐잉
+                                try {
+                                    const items = this.parsePlanToItems(planText);
+                                    if (!this.planQueueService && this.extensionContext) {
+                                        this.planQueueService = new PlanQueueService(this.extensionContext);
+                                    }
+                                    if (this.planQueueService && items.length > 0) {
+                                        this.planQueueService.enqueue(items.map(it => ({ title: it.title, detail: it.detail })), 'pending');
+                                        this.sendProcessingStatus('plan', `Queued ${items.length} to-do items.`);
+                                    }
+                                } catch (e) {
+                                    console.warn('[LlmService] Failed to enqueue plan items:', e);
+                                }
+                            } else {
+                                this.sendProcessingStatus('plan', 'Plan generation returned empty content.');
+                            }
+                        } catch (planErr) {
+                            console.warn('[LlmService] Plan generation failed:', planErr);
+                            this.sendProcessingStatus('plan', 'Plan generation failed.');
+                        }
                     } else if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
-                        const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
-                        const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
-                        this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
-                        console.log(`[LlmService] Extracted ${relevantContextResult.extractedKeywords.length} keywords: ${relevantContextResult.extractedKeywords.join(', ')}`);
-                        console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                        const extracted = Array.isArray((relevantContextResult as any)?.extractedKeywords) ? (relevantContextResult as any).extractedKeywords as string[] : [];
+                        if (extracted.length > 0) {
+                            const keywordsStr = extracted.slice(0, 5).join(', ');
+                            const moreKeywords = extracted.length > 5 ? ` (+${extracted.length - 5} more)` : '';
+                            this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                            console.log(`[LlmService] Extracted ${extracted.length} keywords: ${extracted.join(', ')}`);
+                            console.log(`[LlmService] Found ${includedFilesForContext.length} relevant files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                        } else {
+                            this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
+                            console.log(`[LlmService] No keywords extracted, but found ${includedFilesForContext.length} files with ${fileContentsContext.length.toLocaleString()} characters of context`);
+                        }
                     } else {
                         this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files (${fileContentsContext.length.toLocaleString()} chars)`);
                         console.log(`[LlmService] No keywords extracted, but found ${includedFilesForContext.length} files with ${fileContentsContext.length.toLocaleString()} characters of context`);
@@ -551,16 +673,23 @@ ${osSpecificGuidelines}`;
                     // ASK 탭: 코드 관련 질문인 경우에만 파일 컨텍스트 수집
                     this.sendProcessingStep('keywords');
                     this.sendProcessingStatus('keywords', 'Extracting keywords from query...');
-                    const relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
-                    fileContentsContext = relevantContextResult.fileContentsContext;
-                    includedFilesForContext = relevantContextResult.includedFilesForContext;
+                    let relevantContextResult = await this.codebaseContextService.getRelevantFilesContext(userQuery, abortSignal, history, intentResult);
+                    if (!relevantContextResult) {
+                        console.warn('[LlmService] getRelevantFilesContext returned null. Using default.');
+                        relevantContextResult = { fileContentsContext: '', includedFilesForContext: [], extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } } as any;
+                    }
+                    fileContentsContext = relevantContextResult.fileContentsContext || '';
+                    includedFilesForContext = Array.isArray(relevantContextResult.includedFilesForContext) ? relevantContextResult.includedFilesForContext : [];
 
-                    if (relevantContextResult.extractedKeywords && relevantContextResult.extractedKeywords.length > 0) {
-                        const keywordsStr = relevantContextResult.extractedKeywords.slice(0, 5).join(', ');
-                        const moreKeywords = relevantContextResult.extractedKeywords.length > 5 ? ` (+${relevantContextResult.extractedKeywords.length - 5} more)` : '';
-                        this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files`);
-                    } else {
-                        this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files`);
+                    {
+                        const extracted = Array.isArray((relevantContextResult as any)?.extractedKeywords) ? (relevantContextResult as any).extractedKeywords as string[] : [];
+                        if (extracted.length > 0) {
+                            const keywordsStr = extracted.slice(0, 5).join(', ');
+                            const moreKeywords = extracted.length > 5 ? ` (+${extracted.length - 5} more)` : '';
+                            this.sendProcessingStatus('keywords', `Keywords: ${keywordsStr}${moreKeywords} → Found ${includedFilesForContext.length} files`);
+                        } else {
+                            this.sendProcessingStatus('keywords', `No specific keywords found → Found ${includedFilesForContext.length} files`);
+                        }
                     }
                 }
             } else {
@@ -745,7 +874,12 @@ ${osSpecificGuidelines}`;
                 if (llmResponse && (/```\s*(bash|sh)\s*[\s\S]*?```/i.test(llmResponse) || /```\s*(powershell|ps1|pwsh)\s*[\s\S]*?```/i.test(llmResponse))) {
                     this.sendProcessingStep('executing');
                     this.sendProcessingStatus('executing', 'Generating OS-specific runnable commands...');
-                    const sys = `당신은 전문적인 셸 명령어 변환기입니다.\n\n현재 사용자 OS: ${this.userOS}\n\n출력 규칙(아주 엄격):\n1) 오직 하나의 코드블록만 출력하세요. 설명/주석/말머리/말미 금지.\n2) OS별로 정확한 셸을 사용하세요:\n   - Windows: \`\`\`powershell ...\`\`\` (cmd 아님, bash 아님)\n   - macOS/Linux: \`\`\`bash ...\`\`\` (powershell 아님)\n3) 서로 다른 OS의 명령을 혼합 금지. 현재 OS에 부적합한 명령은 동등한 대안으로 변환하세요.\n   - 패키지 관리자 예: Windows(choco/winget), macOS(brew), Linux(apt/yum 등 프로젝트 맥락에 맞는 것 하나만)\n   - 경로 구분자/환경변수 표기: Windows(\\, $Env:VAR), macOS/Linux(/, $VAR)\n4) 실행 순서를 고려하여 의존 명령은 올바른 순서로 배치하세요.\n5) 파일은 이미 생성/수정되었다고 가정하고, 필요한 설치/빌드/실행 명령만 남기세요.\n6) 프롬프트나 친절한 문장, 출력 캡쳐 명령(예: cat/type) 금지.\n7) 반드시 해당 OS용 코드블록 언어 태그만 사용하세요.`;
+                    const isVenvTask = /venv|가상환경|virtual\s*env|virtualenv/i.test(userQuery || '');
+                    const baseGuide = `당신은 전문적인 셸 명령어 변환기입니다.\n\n현재 사용자 OS: ${this.userOS}\n\n출력 규칙(아주 엄격):\n1) 오직 하나의 코드블록만 출력하세요. 설명/주석/말머리/말미 금지.\n2) OS별로 정확한 셸을 사용하세요:\n   - Windows: \`\`\`powershell ...\`\`\` (cmd 아님, bash 아님)\n   - macOS/Linux: \`\`\`bash ...\`\`\` (powershell 아님)\n3) 서로 다른 OS의 명령을 혼합 금지. 현재 OS에 부적합한 명령은 동등한 대안으로 변환하세요.\n   - 패키지 관리자 예: Windows(winget/choco), macOS(brew), Linux(apt/yum 등)\n   - 경로/환경변수 표기: Windows(\\, $Env:VAR), macOS/Linux(/, $VAR)\n4) 실행 순서 고려(의존 명령 선행).\n5) 파일은 이미 생성/수정되었다고 가정하고 필요한 설치/실행 명령만.\n6) cd 명령 절대 사용 금지. 현재 작업 디렉토리를 기준으로만 작업.\n7) 불완전한 제어구문 금지. if/then/fi는 항상 완결형. 한 줄 if는 ; 로 닫고 PS2 프롬프트 유발 금지.\n8) 비정상 종료 금지. exit 1, set -e 등 사용 금지. 실패 안내는 echo/Write-Output으로만.\n9) 불필요한 빈 줄과 중복 echo 출력 금지.\n10) 반드시 해당 OS용 코드블록 언어 태그만 사용.`;
+                    const venvGuide = this.userOS === 'Windows'
+                        ? `\n\n[파이썬 가상환경(Windows 전용) 지침]\n- 가상환경 이름: 기본 .venv, $Env:VENV_NAME 가 있으면 그 값을 사용합니다.\n- 존재하면 재생성하지 말고 안내만 출력(idempotent).\n- python 또는 py 유무를 Get-Command로 확인하고 없으면 winget/choco 설치 안내는 Write-Output으로만 표시(강제 설치 금지).\n- 생성: python -m venv $venv\n- 활성화: & \"$venv\\Scripts\\Activate.ps1\"\n- 활성화 검증: $Env:VIRTUAL_ENV를 우선 확인하고 (Get-Command python).Path를 보조로 출력.\n- 불완전 if/블록 금지. 한 줄 if는 ; 로 닫습니다.\n- 실패(exit 1) 같은 비정상 종료 명령은 금지.\n- cd, 빈 echo, 중복 echo 출력 금지.`
+                        : `\n\n[파이썬 가상환경(macOS/Linux 전용) 지침]\n- 가상환경 이름: 기본 .venv, $VENV_NAME 가 있으면 그 값을 사용합니다.\n- 존재하면 재생성하지 말고 안내만 출력(idempotent).\n- python3 유무 확인은 command -v python3로. 없으면 macOS(brew install python) 또는 Linux(apt install python3) 안내를 echo로만 표시(강제 설치 금지).\n- 생성: python3 -m venv \"$VENV_DIR\"\n- 활성화: . \"$VENV_DIR/bin/activate\"\n- 활성화 검증: [ -n \"$VIRTUAL_ENV\" ]를 우선 확인하고, 보조로 which python 또는 python -V를 간결히 출력. which python 단독으로 활성화 여부를 판단하지 말 것.\n- 모든 변수/경로는 인용부호로 감싸고, if/then/fi는 항상 완결형으로 작성(PS2 프롬프트 유발 금지).\n- 실패(exit 1) 같은 비정상 종료 명령은 금지.\n- cd, 빈 echo, 중복 echo 출력 금지.`;
+                    const sys = isVenvTask ? `${baseGuide}${venvGuide}` : baseGuide;
                     const parts = [{ text: llmResponse }];
                     let refined: string | null = null;
                     if (this.currentModelType === AiModelType.GEMINI) {
@@ -755,6 +889,8 @@ ${osSpecificGuidelines}`;
                         refined = await this.ollamaApi.sendMessageWithSystemPrompt(sys, parts, { signal: abortSignal });
                     }
                     if (refined && refined.trim()) {
+                        // 정제된 응답을 실제 처리 대상으로 대체하여 이후 파일/명령 처리 단계가 정제본을 사용하도록 함
+                        llmResponse = refined;
                         safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: refined });
                     }
                 }

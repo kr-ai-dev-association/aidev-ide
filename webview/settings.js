@@ -2056,8 +2056,8 @@ window.addEventListener('message', event => {
             if (remoteOllamaModelInput && typeof message.remoteOllamaModel === 'string') {
                 remoteOllamaModelInput.value = message.remoteOllamaModel || '';
                 const remoteOllamaModelSetText = message.remoteOllamaModel ?
-                    `원격 서버 모델명이 설정되어 있습니다: ${message.remoteOllamaModel}` :
-                    '원격 서버 모델명이 설정되지 않았습니다.';
+                    `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}` :
+                    '원격 서버 모델이 설정되지 않았습니다.';
                 showStatus(remoteOllamaModelStatus, remoteOllamaModelSetText, message.remoteOllamaModel ? 'success' : 'info');
             }
             // Ollama 서버 타입 상태 로드
@@ -2752,3 +2752,111 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('[Settings] DOMContentLoaded - Initial load sequence completed');
 });
+
+// === Planning (Reasoning) Section ===
+(function initPlanningSection() {
+    const planningContainer = document.createElement('div');
+    planningContainer.className = 'section-container';
+    planningContainer.innerHTML = `
+        <h2 id="planning-section-title">🧠 Planning (Reasoning)</h2>
+        <p class="info-message" id="planning-helper">키워드 추출 후 계획(Plan) 생성을 위한 Reasoning 모델을 선택하세요.</p>
+        <div class="api-key-section" id="planning-settings-section">
+            <div class="api-key-input-group">
+                <label for="planning-model-select" style="margin-right:10px; font-weight:bold;">Reasoning 모델</label>
+                <select id="planning-model-select" style="flex-grow:1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;"></select>
+                <button id="save-planning-model-button">모델 저장</button>
+            </div>
+            <p id="planning-model-status" class="info-message"></p>
+        </div>
+    `;
+
+    // 적절한 삽입 위치: Ollama 설정 섹션 바로 아래 배치 시도
+    const settingsRoot = document.body || document.documentElement;
+    settingsRoot.appendChild(planningContainer);
+
+    const planningSelect = document.getElementById('planning-model-select');
+    const planningStatus = document.getElementById('planning-model-status');
+    const planningHelper = document.getElementById('planning-helper');
+    const savePlanningModelButton = document.getElementById('save-planning-model-button');
+
+    function setPlanningStatus(text, cls) {
+        if (!planningStatus) return;
+        planningStatus.textContent = text || '';
+        planningStatus.className = 'info-message' + (cls ? ' ' + cls : '');
+    }
+
+    if (savePlanningModelButton) {
+        savePlanningModelButton.addEventListener('click', () => {
+            if (!planningSelect) return;
+            const model = planningSelect.value || '';
+            if (model && window.vscode) {
+                vscode.postMessage({ command: 'savePlanningModel', model });
+            }
+        });
+    }
+
+    // 메시지 수신 확장: reasoningModels/planningModel 사용
+    window.addEventListener('message', (event) => {
+        const message = event.data || {};
+        if (message.command === 'ollamaModels') {
+            if (Array.isArray(message.reasoningModels) && planningSelect) {
+                planningSelect.innerHTML = '';
+                const def = document.createElement('option');
+                def.value = '';
+                def.textContent = 'Reasoning 모델을 선택하세요';
+                planningSelect.appendChild(def);
+
+                message.reasoningModels.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    planningSelect.appendChild(opt);
+                });
+
+                // 모델 없을 때 안내
+                if (message.reasoningModels.length === 0) {
+                    if (planningHelper) {
+                        planningHelper.textContent = '로컬 Ollama에 Reasoning 모델이 없습니다. 아래 Ollama 모델 다운로드 섹션에서 적절한 모델을 다운로드하세요.';
+                    }
+                } else {
+                    if (planningHelper) {
+                        planningHelper.textContent = '키워드 추출 후 계획(Plan) 생성을 위한 Reasoning 모델을 선택하세요.';
+                    }
+                }
+
+                // 현재 저장된 planningModel 적용
+                if (typeof message.planningModel === 'string' && message.planningModel) {
+                    const options = Array.from(planningSelect.options).map(o => o.value);
+                    if (options.includes(message.planningModel)) {
+                        planningSelect.value = message.planningModel;
+                    } else {
+                        // 목록에 없으면 앞에 추가
+                        const opt = document.createElement('option');
+                        opt.value = message.planningModel;
+                        opt.textContent = message.planningModel;
+                        planningSelect.insertBefore(opt, planningSelect.firstChild);
+                        planningSelect.value = message.planningModel;
+                    }
+                }
+            }
+        } else if (message.command === 'planningModelSaved') {
+            setPlanningStatus(`Planning 모델이 저장되었습니다: ${message.model}`, 'success-message');
+        } else if (message.command === 'planningModelSaveError') {
+            setPlanningStatus(`Planning 모델 저장 실패: ${message.error}`, 'error-message');
+        } else if (message.command === 'currentSettings') {
+            // 초기 로드 시 planningModel만 반영 (reasoningModels는 별도 ollamaModels에서 옴)
+            if (planningSelect && typeof message.planningModel === 'string' && message.planningModel) {
+                const options = Array.from(planningSelect.options).map(o => o.value);
+                if (options.includes(message.planningModel)) {
+                    planningSelect.value = message.planningModel;
+                } else if (message.planningModel) {
+                    const opt = document.createElement('option');
+                    opt.value = message.planningModel;
+                    opt.textContent = message.planningModel;
+                    planningSelect.insertBefore(opt, planningSelect.firstChild);
+                    planningSelect.value = message.planningModel;
+                }
+            }
+        }
+    });
+})();

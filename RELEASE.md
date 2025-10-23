@@ -2,6 +2,21 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.6.0 (2025/10/23) - Planning & Plan Queue
+
+<details>
+<summary>🧠 Planning 섹션, Plan 단계 요약, Plan Queue 패널</summary>
+
+### Added
+- Settings에 Planning 섹션 추가: 로컬 Ollama reasoning 모델 드롭다운 표시, 모델 미존재 시 다운로드 안내
+- Plan 단계: 생성된 계획을 자동으로 큐잉, Processing Steps의 plan 단계에 reasoning 모델명과 현재 작업 요약 표시
+- Plan Queue 패널: 항목 목록/실행/완료/취소/비우기 및 지속화(globalState)
+
+### Improved
+- 내부 오류 처리 및 상태 메시지 가독성 개선
+
+</details>
+
 ## 🚀 Version 4.5.0 (2025/10/21) - Auto Command Execution & Individual Callout Execution Status
 
 <details>

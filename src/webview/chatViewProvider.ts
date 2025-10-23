@@ -377,7 +377,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 shellPath = '/bin/bash';
                 terminalName = '🚀 AIDEV-IDE Bash Commands';
             } else {
-                // 기본값 (unknown OS)
                 shellPath = process.platform === 'win32' ? 'powershell.exe' : '/bin/bash';
                 terminalName = process.platform === 'win32' ? '🚀 AIDEV-IDE PowerShell Commands' : '🚀 AIDEV-IDE Bash Commands';
             }
@@ -390,7 +389,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 terminalCwd = projectRoot;
                 console.log('[ChatViewProvider] Using configured project root for terminal:', terminalCwd);
             } else {
-                // 워크스페이스 루트 사용
                 const workspaceFolders = vscode.workspace.workspaceFolders;
                 if (workspaceFolders && workspaceFolders.length > 0) {
                     terminalCwd = workspaceFolders[0].uri.fsPath;
@@ -401,53 +399,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             console.log('[ChatViewProvider] Creating new terminal with shell:', shellPath, 'cwd:', terminalCwd);
-            // 새로운 터미널 생성
-            const terminal = vscode.window.createTerminal({
-                name: terminalName,
-                shellPath: shellPath,
-                cwd: terminalCwd // 설정된 프로젝트 루트 또는 워크스페이스 루트 사용
-            });
-
-            console.log('[ChatViewProvider] Terminal created, showing...');
-            // 터미널을 활성화하고 명령어들을 순차적으로 실행
+            const terminal = vscode.window.createTerminal({ name: terminalName, shellPath, cwd: terminalCwd });
             terminal.show();
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            // 터미널이 준비될 시간을 주기 위해 약간의 지연
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // 각 명령어를 실행
-            for (let i = 0; i < commands.length; i++) {
-                const command = commands[i];
-                console.log(`[ChatViewProvider] Executing command ${i + 1}/${commands.length}: ${command}`);
-
-                // 첫 번째 명령어는 즉시 실행, 나머지는 약간의 지연 후 실행
-                if (i === 0) {
-                    terminal.sendText(command);
-                    console.log(`[ChatViewProvider] Sent first command: ${command}`);
-                } else {
-                    setTimeout(() => {
-                        terminal.sendText(command);
-                        console.log(`[ChatViewProvider] Sent delayed command: ${command}`);
-                    }, i * 500); // 500ms 간격으로 실행
-                }
+            // 스크립트를 단일 세션으로 실행: bash는 heredoc, PowerShell은 here-string 사용
+            if (userOS === 'windows') {
+                const script = commands.join('\n');
+                const ps = `$script = @'\n${script}\n'@; powershell -NoLogo -NoProfile -NonInteractive -Command $script`;
+                terminal.sendText(ps);
+            } else {
+                const script = commands.join('\n');
+                const heredoc = `bash <<'AIDEV_EOF'\nset -e\n${script}\nAIDEV_EOF`;
+                terminal.sendText(heredoc);
             }
 
-            console.log(`[ChatViewProvider] Successfully executed ${commands.length} commands`);
+            console.log(`[ChatViewProvider] Submitted script as single block (${commands.length} logical lines)`);
 
-            // 실행 완료 후 상태 숨기기
             setTimeout(() => {
-                this._view?.webview.postMessage({
-                    command: 'hideRunExecution'
-                });
-            }, 2000); // 2초 후 숨김
+                this._view?.webview.postMessage({ command: 'hideRunExecution' });
+            }, 2000);
 
         } catch (error) {
             console.error('[ChatViewProvider] Error executing commands:', error);
-
-            // 오류 발생 시에도 상태 숨기기
-            this._view?.webview.postMessage({
-                command: 'hideRunExecution'
-            });
+            this._view?.webview.postMessage({ command: 'hideRunExecution' });
             this.notificationService.showErrorMessage('명령어 실행 중 오류가 발생했습니다.');
         }
     }

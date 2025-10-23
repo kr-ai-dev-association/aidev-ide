@@ -430,8 +430,9 @@
         .processing-steps {
             position: fixed;
             top: 10px;
-            left: 10px;
-            right: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 85%;
             background: #1e1e1e;
             border: 1px solid #00ff00;
             border-radius: 8px;
@@ -457,7 +458,7 @@
         .processing-step {
             display: flex;
             align-items: flex-start;
-            margin: 4px 0;
+            margin: 5px 0;
             opacity: 0.5;
             transition: opacity 0.3s ease;
         }
@@ -500,7 +501,7 @@
         .step-description {
             font-size: 12px;
             color: var(--vscode-descriptionForeground);
-            margin-left: 24px;
+            margin-left: 0;
             margin-top: 2px;
         }
 
@@ -1736,33 +1737,14 @@
                     style: { flex: 1 }
                 }, [
                     React.createElement('div', {
-                        key: 'text',
-                        className: 'step-text',
-                        style: {
-                            fontWeight: '600',
-                            color: 'var(--vscode-foreground)',
-                            fontFamily: 'monospace'
-                        }
-                    }, [
-                        React.createElement('span', { key: 'emoji', style: { marginRight: '6px' } }, getStepEmoji(step)),
-                        stepText,
-                        isStepTyping && React.createElement('span', {
-                            key: 'cursor',
-                            style: {
-                                animation: 'blink 1s infinite',
-                                color: 'var(--vscode-button-background)',
-                                fontWeight: 'bold'
-                            }
-                        }, '|')
-                    ]),
-                    React.createElement('div', {
                         key: 'status',
                         className: 'step-description',
                         style: {
                             fontSize: '12px',
                             color: 'var(--vscode-foreground)',
                             opacity: 0.7,
-                            fontFamily: 'monospace'
+                            fontFamily: 'monospace',
+                            marginLeft: '0px'
                         }
                     }, [
                         statusText,
@@ -1873,8 +1855,9 @@
                     gap: '8px',
                     position: 'fixed',
                     top: '10px',
-                    left: '10px',
-                    right: '10px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '85%',
                     zIndex: '2147483647', // 최대 z-index 값
                     color: '#ffffff',
                     fontSize: '13px',
@@ -1885,10 +1868,38 @@
                     opacity: '0.95'
                 }
             }, [
+                // 상단 우측 로딩 스피너
+                React.createElement('div', {
+                    key: 'spinner',
+                    style: {
+                        position: 'absolute',
+                        top: '8px',
+                        right: '10px',
+                        width: '14px',
+                        height: '14px',
+                        border: '2px solid #00ff00',
+                        borderTop: '2px solid transparent',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                        opacity: 0.9
+                    }
+                }),
                 React.createElement('div', {
                     key: 'header',
-                    style: { fontWeight: 'bold', marginBottom: '10px', color: '#00ff00' }
+                    style: { fontWeight: 'bold', marginBottom: '5px', color: '#00ff00' }
                 }, '🔧 Processing Steps'),
+                React.createElement('div', {
+                    key: 'titles',
+                    style: { marginBottom: '5px', paddingLeft: '24px' }
+                }, displaySteps.map((s, idx) =>
+                    React.createElement('div', {
+                        key: `t-${idx}`,
+                        style: { fontWeight: '600', color: 'var(--vscode-foreground)', fontFamily: 'monospace', fontSize: '13px', marginBottom: '5px' }
+                    }, [
+                        React.createElement('span', { key: 'emoji', style: { marginRight: '6px' } }, getStepEmoji(s.step)),
+                        s.step
+                    ])
+                )),
                 ...displaySteps.map((step, index) =>
                     React.createElement(ProcessingStep, {
                         key: index,

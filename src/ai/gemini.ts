@@ -148,6 +148,7 @@ export class GeminiApi {
                 // Special marker that upstream can detect to trigger offline fallback
                 return 'OFFLINE: Network unavailable for Gemini. Falling back is recommended.';
             }
+            // Common explicit causes
             if (error.message.includes('quota') || error.message.includes('Quota')) {
                 return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
             }
@@ -159,6 +160,26 @@ export class GeminiApi {
             }
             if (error.message.includes('Response was blocked')) {
                 return error.message;
+            }
+            // Auth / key / permission patterns
+            if (lowerMsg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('invalid api key') || lowerMsg.includes('apikey') || lowerMsg.includes('api key')) {
+                return 'Error: Authentication failed. Check your Gemini API key in Settings.';
+            }
+            if (lowerMsg.includes('403') || lowerMsg.includes('forbidden') || lowerMsg.includes('permission') || lowerMsg.includes('permission denied')) {
+                return 'Error: Access forbidden. Check project permissions and billing enablement.';
+            }
+            // Model/endpoint issues
+            if (lowerMsg.includes('404') || lowerMsg.includes('not found') || lowerMsg.includes('model not found')) {
+                return 'Error: API endpoint/model not found. Verify model name and API endpoint.';
+            }
+            if (lowerMsg.includes('429') || lowerMsg.includes('rate limit') || lowerMsg.includes('too many requests')) {
+                return 'Error: Rate limit exceeded. Please slow down and try again shortly.';
+            }
+            if (lowerMsg.includes('deadline exceeded') || lowerMsg.includes('timeout') || lowerMsg.includes('timed out')) {
+                return 'Error: Request timed out. Please retry or reduce request size.';
+            }
+            if (lowerMsg.includes('internal') || lowerMsg.includes('server error') || lowerMsg.includes('500')) {
+                return 'Error: Upstream server error. Please try again later.';
             }
             return `Error communicating with AIDEV-IDE API: AIDEV-IDE agent orchestration service aborted LLM calling`;
         }

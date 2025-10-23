@@ -7,6 +7,7 @@ import { LicenseService } from '../services/licenseService'; // 라이센스 서
 import { OllamaBlockerService } from '../services/ollamaBlockerService'; // Ollama Blocker 서비스 추가
 import { createAndSetupWebviewPanel } from './panelUtils';
 import { TerminalDaemonService } from '../services/terminalDaemonService';
+import { PlanQueueService } from '../services/planQueueService';
 import { AiModelType } from '../ai/types';
 import * as http from 'http';
 import * as https from 'https';
@@ -70,10 +71,12 @@ export function openSettingsPanel(
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
                         const aiModel = await storageService.getAiModel();
+                        const planningModelValue = await storageService.getPlanningModel();
                         const language = await storageService.getLanguage();
                         const autoUpdateEnabled = await storageService.getAutoUpdateEnabled();
                         const autoExecuteCommandsEnabled = await configurationService.isAutoExecuteCommandsEnabled();
 
+                        // duplicate removed
                         const messageToSend = {
                             command: 'currentSettings',
                             apiKey: apiKey || '',
@@ -96,6 +99,7 @@ export function openSettingsPanel(
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
                             aiModel: aiModel || 'gemini', // AI 모델 정보 추가
+                            planningModel: planningModelValue || '',
                             language: language || 'ko', // 언어 설정 추가
                             autoExecuteCommandsEnabled: autoExecuteCommandsEnabled // 명령어 자동 실행 설정 추가
                         };
@@ -140,7 +144,19 @@ export function openSettingsPanel(
                         });
 
                         // console.log('[PanelManager] Successfully retrieved Ollama models:', models);
-                        safePostMessage(panel, { command: 'ollamaModels', models, apiUrl: apiUrl });
+                        const reasoningCandidates = models.filter(name => {
+                            const n = (name || '').toLowerCase();
+                            return (
+                                n.includes('deepseek') ||
+                                n.includes('reason') ||
+                                n.includes('qwen') ||
+                                n.includes('llama') ||
+                                n.includes('gemma') ||
+                                n.includes('r1')
+                            );
+                        });
+                        const planningModel = await storageService.getPlanningModel();
+                        safePostMessage(panel, { command: 'ollamaModels', models, reasoningModels: reasoningCandidates, planningModel: planningModel || '', apiUrl: apiUrl });
                     } catch (e: any) {
                         console.error('[PanelManager] Failed to get Ollama models:', e?.message || String(e));
                         safePostMessage(panel, { command: 'ollamaModels', models: [], error: e?.message || String(e) });
@@ -585,12 +601,24 @@ export function openSettingsPanel(
                         try {
                             // UI 표시에 쓰는 키와 런타임에서 사용하는 키를 모두 저장
                             await storageService.saveAiModel(aiModelToSave);
-                            await storageService.saveCurrentAiModel(aiModelToSave);
+                            // 'ollama' 일반 문자열이 들어오면 구체 타입으로 매핑하여 런타임 저장
+                            let toRuntime = aiModelToSave;
+                            if (aiModelToSave.toLowerCase() === 'ollama') {
+                                try {
+                                    const storedOllamaModel = await storageService.getOllamaModel();
+                                    const lowerModel = (storedOllamaModel || '').toLowerCase();
+                                    if (lowerModel === 'deepseek-r1:70b' || lowerModel.includes('deepseek')) toRuntime = 'ollama-deepseek';
+                                    else if (lowerModel.startsWith('codellama')) toRuntime = 'ollama-codellama';
+                                    else if (lowerModel === 'gpt-oss:120b-cloud' || lowerModel === 'gpt-oss-120b:cloud' || lowerModel.startsWith('qwen') || lowerModel.includes('gpt-oss')) toRuntime = 'ollama-gpt-oss';
+                                    else toRuntime = 'ollama-gemma';
+                                } catch { toRuntime = 'ollama-gemma'; }
+                            }
+                            await storageService.saveCurrentAiModel(toRuntime);
 
                             // 즉시 런타임 모델도 반영
                             if (llmService && typeof llmService.setCurrentModel === 'function') {
                                 let mapped: AiModelType = AiModelType.GEMINI;
-                                const lower = aiModelToSave.toLowerCase();
+                                const lower = toRuntime.toLowerCase();
                                 if (lower === 'gemini') mapped = AiModelType.GEMINI;
                                 else if (lower === 'ollama-gemma' || lower.includes('gemma')) mapped = AiModelType.OLLAMA_Gemma;
                                 else if (lower === 'ollama-deepseek' || lower.includes('deepseek')) mapped = AiModelType.OLLAMA_DeepSeek;
@@ -1150,6 +1178,81 @@ export function openSettingsPanel(
             // console.log('[PanelManager] Panel already disposed, ignoring error:', error);
         }
     }, undefined, context.subscriptions);
+
+    return panel;
+}
+
+/**
+ * Plan Queue 패널을 엽니다.
+ */
+export function openPlanPanel(
+    extensionUri: vscode.Uri,
+    context: vscode.ExtensionContext
+) {
+    const planQueueService = new PlanQueueService(context);
+    const panel = createAndSetupWebviewPanel(extensionUri, context, 'plan', 'AIDEV-IDE Plan Queue', 'plan', vscode.ViewColumn.Two,
+        async (data, panel: vscode.WebviewPanel) => {
+            switch (data.command) {
+                case 'planQueueLoad': {
+                    try {
+                        const items = planQueueService.list();
+                        safePostMessage(panel, { command: 'planQueueData', items });
+                    } catch (e: any) {
+                        safePostMessage(panel, { command: 'planQueueError', error: e?.message || String(e) });
+                    }
+                    break;
+                }
+                case 'planQueueRun': {
+                    try {
+                        const id = String(data.id || '');
+                        if (!id) throw new Error('Invalid id');
+                        planQueueService.updateStatus(id, 'in_progress');
+                        const items = planQueueService.list();
+                        safePostMessage(panel, { command: 'planQueueData', items });
+                    } catch (e: any) {
+                        safePostMessage(panel, { command: 'planQueueError', error: e?.message || String(e) });
+                    }
+                    break;
+                }
+                case 'planQueueComplete': {
+                    try {
+                        const id = String(data.id || '');
+                        if (!id) throw new Error('Invalid id');
+                        planQueueService.updateStatus(id, 'done');
+                        const items = planQueueService.list();
+                        safePostMessage(panel, { command: 'planQueueData', items });
+                    } catch (e: any) {
+                        safePostMessage(panel, { command: 'planQueueError', error: e?.message || String(e) });
+                    }
+                    break;
+                }
+                case 'planQueueCancel': {
+                    try {
+                        const id = String(data.id || '');
+                        if (!id) throw new Error('Invalid id');
+                        planQueueService.updateStatus(id, 'skipped');
+                        const items = planQueueService.list();
+                        safePostMessage(panel, { command: 'planQueueData', items });
+                    } catch (e: any) {
+                        safePostMessage(panel, { command: 'planQueueError', error: e?.message || String(e) });
+                    }
+                    break;
+                }
+                case 'planQueueClear': {
+                    planQueueService.clear();
+                    const items = planQueueService.list();
+                    safePostMessage(panel, { command: 'planQueueData', items });
+                    break;
+                }
+                default:
+                    // console.log('[PlanPanel] Unknown command:', data.command);
+                    break;
+            }
+        }
+    );
+
+    // 초기 로드
+    safePostMessage(panel, { command: 'planQueueData', items: planQueueService.list() });
 
     return panel;
 }

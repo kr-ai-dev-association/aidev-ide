@@ -77,7 +77,7 @@ function showCalloutExecutingState(button, codeElement) {
 
     // callout 박스를 relative positioning으로 설정
     calloutBox.style.position = 'relative';
-    
+
     // executing 상태 표시
     calloutBox.appendChild(executingIndicator);
 
@@ -129,24 +129,63 @@ function removeInlineComment(command) {
     return command.trim();
 }
 
-// bash 명령어를 추출하고 정리하는 함수
-function extractBashCommands(bashCode) {
-    const commands = [];
+// bash 블록을 단일 명령으로 병합 (if/then/elif/else/fi 유지)
+function mergeBashBlockToSingleCommand(bashCode) {
     const lines = bashCode.split('\n');
+    let buffer = [];
+    let ifDepth = 0;
 
-    for (const line of lines) {
-        const trimmedLine = line.trim();
-        // 주석 처리된 줄들(#으로 시작)과 빈 줄들을 제외
-        if (trimmedLine && !trimmedLine.startsWith('#')) {
-            // 인라인 주석 제거
-            const cleanCommand = removeInlineComment(trimmedLine);
-            if (cleanCommand) {
-                commands.push(cleanCommand);
-            }
+    const pushLine = (l) => {
+        const clean = removeInlineComment(l.trim());
+        if (!clean || clean.startsWith('#')) return;
+        if (/^exit(\s+\d+)?$/i.test(clean)) return; // 비정상 종료/종료 라인 제거
+        if (/^echo\s*"?"?$/i.test(clean)) return; // 빈 echo 제거
+        buffer.push(clean);
+    };
+
+    for (let raw of lines) {
+        const line = removeInlineComment(raw.trim());
+        if (!line || line.startsWith('#')) continue;
+
+        // 고아 제어토큰 방지
+        if (/^(then|fi|else|elif\b)/.test(line) && ifDepth === 0) {
+            continue;
         }
+
+        const startsIf = /^(if\b|if\s*\[|if\s*\[\[|if\s+test\b)/.test(line);
+        const endsWithThen = /;\s*then\s*$/.test(line) || /\bthen\b\s*$/.test(line);
+
+        if (startsIf) {
+            ifDepth += 1;
+            let normalized = line;
+            if (!endsWithThen) normalized = line.replace(/;?\s*$/, ' ; then');
+            pushLine(normalized);
+            continue;
+        }
+
+        if (ifDepth > 0 && /^(elif\b|else\b)/.test(line)) {
+            pushLine(line);
+            continue;
+        }
+
+        if (/^fi\b/.test(line)) {
+            ifDepth = Math.max(0, ifDepth - 1);
+            pushLine('fi');
+            continue;
+        }
+
+        // 일반 라인
+        pushLine(line);
     }
 
-    return commands;
+    // 세미콜론으로 한 줄로 결합
+    return buffer.join('; ');
+}
+
+// bash 명령어를 추출하고 정리하는 함수 (단일 명령으로 병합하여 반환)
+function extractBashCommands(bashCode) {
+    const merged = mergeBashBlockToSingleCommand(bashCode);
+    return merged ? [merged] : [];
 }
 
 // Run 버튼에 이벤트 리스너를 등록하는 함수
@@ -166,7 +205,7 @@ function attachRunButtonListener(button, codeElement) {
         // 개별 callout 박스에 executing 상태 표시
         showCalloutExecutingState(button, codeElement);
 
-        // VS Code API를 통해 확장에 명령어 실행 요청
+        // VS Code API를 통해 확장에 명령어 실행 요청 (단일 명령으로 동일 셸 세션에서 실행)
         if (vscode) {
             console.log('[codeCopy.js] Sending executeBashCommands message:', commands);
             vscode.postMessage({

@@ -9,9 +9,9 @@ export function safePostMessage(webview: vscode.Webview, message: any): boolean 
     try {
         if (webview) {
             // Debug logging for processing step messages
-            if (message.command === 'setProcessingStep' || message.command === 'updateProcessingStatus') {
-                console.log(`[PanelUtils] Sending processing message:`, message);
-            }
+            // if (message.command === 'setProcessingStep' || message.command === 'updateProcessingStatus') {
+            //     console.log(`[PanelUtils] Sending processing message:`, message);
+            // }
             webview.postMessage(message);
             return true;
         }
@@ -112,12 +112,12 @@ export function createAndSetupWebviewPanel(
     panel.onDidDispose(() => { /* 정리 */ }, undefined, contextForSubs.subscriptions);
     if (onDidReceiveMessage) {
         // console.log(`[PanelUtils] Setting up message handler for ${panelTypeSuffix} panel`);
-        panel.webview.onDidReceiveMessage(async (data) => { 
+        panel.webview.onDidReceiveMessage(async (data) => {
             // console.log(`[PanelUtils] Received message in ${panelTypeSuffix} panel:`, data.command, data);
-            await onDidReceiveMessage(data, panel); 
+            await onDidReceiveMessage(data, panel);
         }, undefined, contextForSubs.subscriptions);
     } else {
-        console.log(`[PanelUtils] No message handler provided for ${panelTypeSuffix} panel`);
+        // console.log(`[PanelUtils] No message handler provided for ${panelTypeSuffix} panel`);
     }
     panel.reveal(viewColumn);
     return panel;

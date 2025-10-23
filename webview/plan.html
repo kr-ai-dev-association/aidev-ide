@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src vscode-resource: https: data:; script-src 'unsafe-inline' 'unsafe-eval' vscode-resource:; style-src 'unsafe-inline' vscode-resource:; font-src vscode-resource:;" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AIDEV-IDE Plan Queue</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            color: var(--vscode-foreground);
+            background: var(--vscode-editor-background);
+        }
+
+        .plan-toolbar {
+            display: flex;
+            gap: 8px;
+            margin: 8px 0;
+        }
+
+        .plan-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .plan-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border: 1px solid var(--vscode-input-border);
+            padding: 10px;
+            border-radius: 4px;
+            background: var(--vscode-editor-selectionBackground);
+        }
+
+        .plan-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .plan-detail {
+            opacity: 0.9;
+            margin-bottom: 6px;
+            white-space: pre-wrap;
+        }
+
+        .plan-meta {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .plan-actions button {
+            margin-left: 4px;
+        }
+
+        .info-message {
+            opacity: 0.8;
+        }
+
+        .error-message {
+            color: var(--vscode-errorForeground);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="plan-root"></div>
+    <script src="./plan.js"></script>
+</body>
+
+</html>

@@ -13,6 +13,8 @@ VSCode base code assistant plugin with LLM and LM support.
 <img src="https://drive.google.com/uc?export=view&id=1KYN5wO_lE8lBgyrldAtMpKReJYUYnwTO" width="700" height="500"/><br>
 <img src="https://drive.google.com/uc?export=view&id=1sADJQZCmOatGiHyeop1pa0dipg_Zs5SP" width="700" height="500"/><br>
 
+- Planning: Select a local Ollama reasoning model to generate an actionable to-do plan and manage items in the new Plan Queue panel (run/complete/cancel/persist)
+
 ### 🤖 AI-Powered Code Assistance
 - **Multi-Model AI Support**: 
   - **Gemini 2.5 Pro Flash**: Google's advanced LLM for intelligent code generation and analysis

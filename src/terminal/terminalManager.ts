@@ -29,6 +29,7 @@ let _summarySent = false; // 종합 설명 출력 플래그
 let _outputLogEnabled = true; // OUTPUT 로그 활성화 상태
 let _userOS = 'unknown'; // 사용자 OS
 let _projectRoot: string | undefined = undefined; // 프로젝트 루트 경로
+let _terminalSeq = 0;
 
 /**
  * 사용자 OS를 설정합니다.
@@ -81,8 +82,28 @@ export function setOutputLogEnabled(enabled: boolean): void {
 /**
  * aidev-ide 전용 터미널 인스턴스를 가져오거나 새로 생성합니다.
  * @param projectRoot 프로젝트 루트 경로 (선택사항)
+ * @param alwaysNew 항상 새로운 터미널을 생성할지 여부 (기본값: true)
  */
-export function getAidevIdeTerminal(projectRoot?: string): vscode.Terminal {
+export function getAidevIdeTerminal(projectRoot?: string, alwaysNew: boolean = true): vscode.Terminal {
+    if (alwaysNew) {
+        const name = `aidev-ide Terminal ${++_terminalSeq}`;
+        console.log(`[TerminalManager] 새로운 터미널 생성: ${name}`);
+        const terminalOptions: vscode.TerminalOptions = { name };
+        if (projectRoot) {
+            terminalOptions.cwd = projectRoot;
+            console.log(`[TerminalManager] 터미널 작업 디렉토리 설정: ${projectRoot}`);
+        }
+        const term = vscode.window.createTerminal(terminalOptions);
+        const disposable = vscode.window.onDidCloseTerminal(event => {
+            if (event === term) {
+                console.log(`[TerminalManager] 터미널 종료 감지: ${name}`);
+                disposable.dispose();
+            }
+        });
+        return term;
+    }
+
+    // 기존 동작 (재사용) 경로
     // 기존 동일 이름 터미널 재사용 및 중복 정리
     const existing = vscode.window.terminals.filter(t => t.name === 'aidev-ide Terminal');
     if (existing.length > 0) {
@@ -99,7 +120,7 @@ export function getAidevIdeTerminal(projectRoot?: string): vscode.Terminal {
 
     if (!_codePilotTerminal || _codePilotTerminal.exitStatus !== undefined) {
         console.log(`[TerminalManager] 새로운 터미널 생성: aidev-ide Terminal`);
-        const terminalOptions: vscode.TerminalOptions = { name: "aidev-ide Terminal" };
+        const terminalOptions: vscode.TerminalOptions = { name: 'aidev-ide Terminal' };
 
         // 프로젝트 루트 경로가 제공된 경우 설정
         if (projectRoot) {
@@ -349,7 +370,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         channel.appendLine(`Command: ${cleanCommand}`);
         channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
-        const terminal = getAidevIdeTerminal(projectRoot);
+        const terminal = getAidevIdeTerminal(projectRoot, true);
         if (!terminal.state.isInteractedWith) {
             terminal.show();
         }
@@ -397,7 +418,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
 
         // VS Code 터미널을 사용하여 명령어 실행
-        const terminal = getAidevIdeTerminal(projectRoot);
+        const terminal = getAidevIdeTerminal(projectRoot, true);
 
         // 터미널 모니터링 서비스에 명령어 저장
         if (_terminalMonitorService) {
@@ -594,7 +615,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         if (result.code !== 0 || isErrorLike(result.stderr)) {
             channel.appendLine(`----- Exit code: ${result.code} -----`);
             channel.show(true);
-            vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${cleanCommand})`);
+            vscode.window.showErrorMessage(`aidev-ide: 명력 실패 (${cleanCommand})`);
             try { getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${cleanCommand}`); } catch { }
             return false;
         }
@@ -815,6 +836,49 @@ function removeInlineComment(command: string): string {
     return command.trim();
 }
 
+function mergeBashBlockToSingleCommand(bashCode: string): string {
+    const lines = bashCode.split('\n');
+    let buffer: string[] = [];
+    let ifDepth = 0;
+
+    const pushLine = (l: string) => {
+        const clean = removeInlineComment(l.trim());
+        if (!clean || clean.startsWith('#')) return;
+        if (/^exit(\s+\d+)?$/i.test(clean)) return;
+        if (/^echo\s*"?"?$/i.test(clean)) return;
+        buffer.push(clean);
+    };
+
+    for (let raw of lines) {
+        const line = removeInlineComment(raw.trim());
+        if (!line || line.startsWith('#')) continue;
+        if (/^(then|fi|else|elif\b)/.test(line) && ifDepth === 0) {
+            continue;
+        }
+        const startsIf = /^(if\b|if\s*\[|if\s*\[\[|if\s+test\b)/.test(line);
+        const endsWithThen = /;\s*then\s*$/.test(line) || /\bthen\b\s*$/.test(line);
+        if (startsIf) {
+            ifDepth += 1;
+            let normalized = line;
+            if (!endsWithThen) normalized = line.replace(/;?\s*$/, ' ; then');
+            pushLine(normalized);
+            continue;
+        }
+        if (ifDepth > 0 && /^(elif\b|else\b)/.test(line)) {
+            pushLine(line);
+            continue;
+        }
+        if (/^fi\b/.test(line)) {
+            ifDepth = Math.max(0, ifDepth - 1);
+            pushLine('fi');
+            continue;
+        }
+        pushLine(line);
+    }
+
+    return buffer.join('; ');
+}
+
 export function extractBashCommandsFromLlmResponse(llmResponse: string): string[] {
     const commands: string[] = [];
     const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
@@ -822,17 +886,81 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
     while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
         const block = match[1].trim();
         if (!block) continue;
-        block.split('\n').forEach(cmd => {
-            const c = cmd.trim();
-            // 주석 처리된 줄들(#으로 시작)과 빈 줄들을 제외
-            if (c && !c.startsWith('#')) {
-                // 인라인 주석 제거
-                const cleanCommand = removeInlineComment(c);
-                if (cleanCommand) {
-                    commands.push(cleanCommand);
+        const lines = block.split('\n');
+        let buffer: string[] = [];
+        let ifDepth = 0;
+        const flushBufferIfDone = () => {
+            if (ifDepth === 0 && buffer.length > 0) {
+                // join with '; ' and push as single command
+                const joined = buffer
+                    .map(l => removeInlineComment(l.trim()))
+                    .filter(l => !!l && !/^exit(\s+\d+)?$/i.test(l) && !/^echo\s*"?"?$/i.test(l))
+                    .join('; ')
+                    .trim();
+                if (joined) {
+                    commands.push(joined);
                 }
+                buffer = [];
             }
-        });
+        };
+
+        for (let raw of lines) {
+            const line = removeInlineComment(raw.trim());
+            if (!line || line.startsWith('#')) continue;
+
+            // Skip standalone control tokens that break shells when isolated
+            if (/^(then|fi|else|elif\b)/.test(line) && ifDepth === 0) {
+                // ignore stray control tokens
+                continue;
+            }
+
+            // Detect start of if-block (common forms)
+            const startsIf = /^(if\b|if\s*\[|if\s+test\b)/.test(line);
+            const endsWithThen = /;\s*then\s*$/.test(line) || /\bthen\b\s*$/.test(line);
+
+            if (startsIf) {
+                ifDepth += 1;
+                // ensure 'then' present in same line for one-liner semantics; if not, add ' then'
+                let normalized = line;
+                if (!endsWithThen) {
+                    normalized = line.replace(/;?\s*$/, ' ; then');
+                }
+                buffer.push(normalized);
+                continue;
+            }
+
+            // elif/else within if-block
+            if (ifDepth > 0 && /^(elif\b|else\b)/.test(line)) {
+                buffer.push(line);
+                continue;
+            }
+
+            // fi closes one level
+            if (/^fi\b/.test(line)) {
+                ifDepth = Math.max(0, ifDepth - 1);
+                buffer.push('fi');
+                flushBufferIfDone();
+                continue;
+            }
+
+            // Inside if-block: collect lines
+            if (ifDepth > 0) {
+                // Drop hard exits inside the block
+                if (/^exit(\s+\d+)?$/i.test(line)) {
+                    continue;
+                }
+                buffer.push(line);
+                continue;
+            }
+
+            // Outside if-block: standalone command
+            if (line && !/^exit(\s+\d+)?$/i.test(line) && !/^echo\s*"?"?$/i.test(line)) {
+                commands.push(line);
+            }
+        }
+
+        // Flush any dangling buffer (defensive)
+        flushBufferIfDone();
     }
     return commands;
 }
@@ -842,34 +970,18 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
  */
 export function executeBashCommandsFromLlmResponse(llmResponse: string, projectRoot?: string): string[] {
     const executedCommands: string[] = [];
-
-    // bash로 시작하는 코드 블록을 찾는 정규식
     const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
-
     let match;
     while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
-        const bashCommands = match[1].trim();
-        if (bashCommands) {
-            // 여러 명령어를 개행으로 분리하고 주석 처리된 줄들 제외
-            const commands = bashCommands.split('\n')
-                .map(cmd => cmd.trim())
-                .filter(cmd => cmd && !cmd.startsWith('#'))
-                .map(cmd => removeInlineComment(cmd))
-                .filter(cmd => cmd); // 빈 명령어 제거
-
-            for (const command of commands) {
-                executedCommands.push(command);
-            }
-        }
+        const block = (match[1] || '').trim();
+        if (!block) continue;
+        const merged = mergeBashBlockToSingleCommand(block);
+        if (merged) executedCommands.push(merged);
     }
-
-    // 명령어들을 우선순위 큐에 추가하고 처리 시작
     if (executedCommands.length > 0) {
-        // 작업 디렉토리를 초기화하여 잘못된 cwd 방지
         resetWorkingDirectory();
         enqueueCommandsBatch(executedCommands, true, projectRoot);
     }
-
     return executedCommands;
 }
 

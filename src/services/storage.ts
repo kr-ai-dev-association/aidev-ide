@@ -457,6 +457,18 @@ export class StorageService {
         const language = await this.secretStorage.get('aidev-ide.language');
         return language || 'ko';
     }
+
+    /**
+     * Planning(Reasoning)용 모델을 저장/조회합니다.
+     */
+    async savePlanningModel(model: string): Promise<void> {
+        await this.secretStorage.store('aidev-ide.planningModel', model);
+    }
+
+    async getPlanningModel(): Promise<string | undefined> {
+        const model = await this.secretStorage.get('aidev-ide.planningModel');
+        return model || undefined;
+    }
 }
 
 // --- END OF FILE src/storage/storage.ts ---
