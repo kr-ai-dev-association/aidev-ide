@@ -17009,7 +17009,42 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
         if (jsonMatches) {
             for (const jsonStr of jsonMatches) {
                 try {
-                    const result = JSON.parse(jsonStr);
+                    // Try parsing as-is first
+                    let result;
+                    try {
+                        result = JSON.parse(jsonStr);
+                    }
+                    catch (firstError) {
+                        // If parsing fails, try to fix common JSON escape issues
+                        // Fix invalid escape sequences (e.g., \' -> ', invalid \X -> X)
+                        let fixedJson = jsonStr.replace(/\\(?![\\/"bfnrtu])/g, (match, offset, str) => {
+                            // Check if it's inside a string (between quotes)
+                            const before = str.substring(0, offset);
+                            const after = str.substring(offset);
+                            // Count unescaped quotes before this position
+                            const quoteCount = (before.match(/(?:^|[^\\])(?:\\\\)*"/g) || []).length;
+                            // If odd number of quotes, we're inside a string
+                            if (quoteCount % 2 === 1) {
+                                // Remove invalid backslash (keep the following char)
+                                return '';
+                            }
+                            return match; // Keep backslash outside strings
+                        });
+                        try {
+                            result = JSON.parse(fixedJson);
+                        }
+                        catch (secondError) {
+                            // Last resort: try removing all backslashes followed by invalid escapes
+                            fixedJson = jsonStr.replace(/\\(?![\\/"bfnrtu\d])/g, '');
+                            try {
+                                result = JSON.parse(fixedJson);
+                            }
+                            catch (thirdError) {
+                                console.warn('[TerminalManager] JSON 파싱 실패, 다음 JSON 시도:', thirdError);
+                                continue;
+                            }
+                        }
+                    }
                     if (result.correctedCommand && result.confidence > 0.5) {
                         console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
                         return result.correctedCommand;
@@ -17321,27 +17356,36 @@ function normalizeEncodedPowerShellCommand(cmd) {
             console.log(`[TerminalManager] Decode exception: ${e}`);
             return cmd;
         }
-        // If decode validation failed, keep original -EncodedCommand (safer)
-        // Even if validation passes, if we see cmdlet-not-found errors in practice, 
-        // it's safer to keep -EncodedCommand which PowerShell handles natively
+        // If decode validation failed, try converting to -Command as fallback
+        // This is safer than keeping a potentially broken -EncodedCommand
         if (!isValidDecode) {
-            console.log('[TerminalManager] Decoded script validation failed (corruption detected or missing required patterns), keeping original -EncodedCommand');
-            return cmd;
+            console.log('[TerminalManager] Decoded script validation failed, attempting fallback to -Command');
+            try {
+                // Try to fix common issues and convert to -Command
+                let script = decoded.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+                // Remove any obvious corruption markers
+                script = script.replace(/\s=\s/g, ' = ');
+                // Escape double quotes for PowerShell -Command
+                script = script.replace(/"/g, '""');
+                // Wrap in script block for better isolation
+                const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '').replace(/\s-EncodedCommand\s+[^\s]+/i, '')} -Command "& { ${script} }"`;
+                console.log('[TerminalManager] Converted to -Command fallback');
+                return rebuilt + (suffix ? ` ${suffix}` : '');
+            }
+            catch (fallbackError) {
+                console.log(`[TerminalManager] Fallback conversion failed: ${fallbackError}, keeping original`);
+                return cmd;
+            }
         }
-        // Note: Even with validation, -EncodedCommand is safer for PowerShell execution
-        // Only convert if we're absolutely certain the script is valid
-        // For now, prefer keeping -EncodedCommand to avoid cmdlet-not-found issues
-        console.log('[TerminalManager] Decoded script passed validation, but keeping -EncodedCommand for safer execution');
-        return cmd; // Prefer original -EncodedCommand even if decoded looks valid
-        // If we want to try conversion in the future, uncomment below:
-        /*
+        // If validation passed, we can safely convert to -Command
+        // This avoids potential encoding issues with -EncodedCommand
+        console.log('[TerminalManager] Decoded script passed validation, converting to -Command');
         let script = decoded.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
         // PowerShell -Command "..." inside: use "" for quotes (PowerShell's escaping rule), not \"
         // This avoids parser errors when mixing single and double quotes
         script = script.replace(/"/g, '""');
-        const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '')} -Command "& { ${script} }"`;
+        const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '').replace(/\s-EncodedCommand\s+[^\s]+/i, '')} -Command "& { ${script} }"`;
         return rebuilt + (suffix ? ` ${suffix}` : '');
-        */
     }
     catch (e) {
         console.log(`[TerminalManager] normalizeEncodedPowerShellCommand exception: ${e}`);
