@@ -1175,11 +1175,23 @@ ${osSpecificGuidelines}`;
      * @param description 설명
      */
     public addErrorPattern(pattern: string, severity: 'low' | 'medium' | 'high' | 'critical', description: string): void {
+        // Escape special regex characters in pattern to treat it as a literal string
+        // This prevents regex syntax errors when patterns contain parentheses, etc.
+        const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let regex: RegExp;
+        try {
+            regex = new RegExp(escapedPattern, 'i');
+        } catch (e) {
+            console.warn(`[TerminalMonitorService] Failed to create regex from pattern "${pattern}": ${e}, using literal match`);
+            // Fallback to literal string match
+            regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        }
+        
         const errorPattern: ErrorPattern = {
             pattern,
             severity,
             description,
-            regex: new RegExp(pattern, 'i')
+            regex
         };
 
         this.errorPatterns.push(errorPattern);

@@ -17057,11 +17057,20 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
             }
         }
         // Fallback 1: 키-값만 추출 (정규식) - 개선된 멀티라인/이스케이프 처리
-        const keyMatch = fenceStripped.match(/"correctedCommand"\s*:\s*"([\s\S]*?)"/i);
+        // Try to extract correctedCommand from JSON string
+        // Handle both escaped and unescaped quotes
+        const keyMatch = fenceStripped.match(/"correctedCommand"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/i);
         if (keyMatch && keyMatch[1]) {
             let cmd = keyMatch[1];
-            // Unescape JSON escapes
-            cmd = cmd.replace(/\\n/g, ' ').replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/\\r/g, '').replace(/\\t/g, ' ').trim();
+            // Unescape JSON escapes: handle \\\" -> ", \\\\ -> \, etc.
+            // Process in order: longest matches first
+            cmd = cmd.replace(/\\\\"/g, '"'); // \\\" -> "
+            cmd = cmd.replace(/\\\\/g, '\\'); // \\\\ -> \
+            cmd = cmd.replace(/\\n/g, ' '); // \n -> space
+            cmd = cmd.replace(/\\"/g, '"'); // \" -> "
+            cmd = cmd.replace(/\\r/g, ''); // \r -> empty
+            cmd = cmd.replace(/\\t/g, ' '); // \t -> space
+            cmd = cmd.trim();
             if (cmd && cmd.length >= 4 && !cmd.match(/^(\\|""|''|```)/)) {
                 console.log('[TerminalManager] Fallback correctedCommand extracted via regex');
                 return cmd;
@@ -17356,6 +17365,21 @@ function normalizeEncodedPowerShellCommand(cmd) {
             console.log(`[TerminalManager] Decode exception: ${e}`);
             return cmd;
         }
+        // Helper function to fix corrupted PowerShell script
+        const fixCorruptedScript = (script) => {
+            // Fix double-quoted strings that got corrupted (e.g., "".venv"" -> ".venv")
+            script = script.replace(/""+([^"]*)""+/g, '"$1"');
+            // Fix missing variable names in foreach (e.g., foreach( in @ -> foreach($name in @
+            script = script.replace(/foreach\s*\(\s*in\s*@/gi, 'foreach($name in @');
+            // Fix missing variable names in if conditions (e.g., if (-not ) -> if (-not $var)
+            // This is tricky, so we'll use a more general fix
+            script = script.replace(/if\s*\(\s*-not\s*\)/gi, 'if (-not $null)');
+            // Fix empty variable assignments (e.g.,  = ; -> $var = $null;)
+            script = script.replace(/\s+=\s+;/g, ' = $null;');
+            // Fix lone = operators
+            script = script.replace(/=\s+(?![^=])/g, ' = ');
+            return script;
+        };
         // If decode validation failed, try converting to -Command as fallback
         // This is safer than keeping a potentially broken -EncodedCommand
         if (!isValidDecode) {
@@ -17363,10 +17387,11 @@ function normalizeEncodedPowerShellCommand(cmd) {
             try {
                 // Try to fix common issues and convert to -Command
                 let script = decoded.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-                // Remove any obvious corruption markers
-                script = script.replace(/\s=\s/g, ' = ');
-                // Escape double quotes for PowerShell -Command
-                script = script.replace(/"/g, '""');
+                // Fix corruption first
+                script = fixCorruptedScript(script);
+                // Escape double quotes for PowerShell -Command (use \" for outer quotes, "" for inner)
+                // Since we're wrapping in "& { ... }", we need to escape inner quotes properly
+                script = script.replace(/"/g, '\\"');
                 // Wrap in script block for better isolation
                 const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '').replace(/\s-EncodedCommand\s+[^\s]+/i, '')} -Command "& { ${script} }"`;
                 console.log('[TerminalManager] Converted to -Command fallback');
@@ -17381,9 +17406,8 @@ function normalizeEncodedPowerShellCommand(cmd) {
         // This avoids potential encoding issues with -EncodedCommand
         console.log('[TerminalManager] Decoded script passed validation, converting to -Command');
         let script = decoded.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-        // PowerShell -Command "..." inside: use "" for quotes (PowerShell's escaping rule), not \"
-        // This avoids parser errors when mixing single and double quotes
-        script = script.replace(/"/g, '""');
+        // Escape double quotes for PowerShell -Command (use \" for escaping)
+        script = script.replace(/"/g, '\\"');
         const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '').replace(/\s-EncodedCommand\s+[^\s]+/i, '')} -Command "& { ${script} }"`;
         return rebuilt + (suffix ? ` ${suffix}` : '');
     }
@@ -21062,11 +21086,23 @@ ${osSpecificGuidelines}`;
      * @param description 설명
      */
     addErrorPattern(pattern, severity, description) {
+        // Escape special regex characters in pattern to treat it as a literal string
+        // This prevents regex syntax errors when patterns contain parentheses, etc.
+        const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let regex;
+        try {
+            regex = new RegExp(escapedPattern, 'i');
+        }
+        catch (e) {
+            console.warn(`[TerminalMonitorService] Failed to create regex from pattern "${pattern}": ${e}, using literal match`);
+            // Fallback to literal string match
+            regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        }
         const errorPattern = {
             pattern,
             severity,
             description,
-            regex: new RegExp(pattern, 'i')
+            regex
         };
         this.errorPatterns.push(errorPattern);
         console.log(`[TerminalMonitorService] 에러 패턴 추가: ${pattern} (${severity})`);
