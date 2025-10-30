@@ -4,7 +4,7 @@ import * as os from 'os';
 export interface RunCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
-    shell?: boolean;
+    shell?: boolean | string;
     timeoutMs?: number;
 }
 

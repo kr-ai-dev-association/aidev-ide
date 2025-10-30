@@ -71,7 +71,7 @@
 
         #chat-container {
             /* 하단 고정 영역의 높이를 고려한 패딩 설정 */
-            padding: 10px 10px 120px 10px;
+            padding: 10px 10px 220px 10px; /* 입력 영역 + Processing Steps를 고려해 하단 여백 확대 */
             /* 하단 패딩을 120px로 증가 (입력 영역 + 파일 선택 영역 고려) */
             overflow-y: auto;
             /* 내용 넘칠 시 세로 스크롤 생성 */
@@ -428,31 +428,31 @@
 
         /* 처리 단계 표시 UI */
         .processing-steps {
-            position: fixed;
-            top: 10px;
+            position: fixed; /* 오버레이 */
             left: 50%;
+            bottom: 170px; /* 입력 영역 위로 띄움 */
             transform: translateX(-50%);
             width: 85%;
             background: #1e1e1e;
             border: 1px solid #00ff00;
             border-radius: 8px;
-            padding: 7.5px;
-            z-index: 999999;
+            padding: 10px;
+            z-index: 2147483647; /* 최상단 */
             color: #ffffff;
             font-size: 13px;
             min-height: 60px;
-            max-height: 80vh;
+            max-height: 50vh;
             overflow-y: auto;
             box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
             opacity: 0.95;
             display: block;
-            /* 초기에는 표시 */
+            pointer-events: none; /* 아래 요소와 상호작용 방해 금지 */
             transition: opacity 0.8s ease-out, transform 0.8s ease-out;
         }
 
         .processing-steps.fade-out {
             opacity: 0;
-            transform: translateY(-20px);
+            transform: translate(-50%, 10px);
         }
 
         .processing-step {
@@ -1309,10 +1309,9 @@
     <div class="main-container">
         <div id="chat-container">
             <div id="chat-messages"></div>
+            <!-- React Components Container (채팅 스크롤 영역 안으로 이동) -->
+            <div id="react-components"></div>
         </div>
-
-        <!-- React Components Container -->
-        <div id="react-components"></div>
 
     </div>
 
@@ -1849,20 +1848,21 @@
                     background: '#1e1e1e',
                     border: '1px solid #00ff00',
                     borderRadius: '8px',
-                    padding: '15px',
+                    padding: '10px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '8px',
                     position: 'fixed',
-                    top: '10px',
                     left: '50%',
+                    bottom: '170px',
                     transform: 'translateX(-50%)',
                     width: '85%',
-                    zIndex: '2147483647', // 최대 z-index 값
+                    zIndex: 2147483647,
+                    pointerEvents: 'none',
                     color: '#ffffff',
                     fontSize: '13px',
                     minHeight: '60px',
-                    maxHeight: '80vh',
+                    maxHeight: '50vh',
                     overflowY: 'auto',
                     boxShadow: '0 4px 12px rgba(0, 255, 0, 0.3)',
                     opacity: '0.95'

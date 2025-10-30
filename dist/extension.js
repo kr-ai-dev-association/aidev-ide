@@ -16203,6 +16203,19 @@ async function handleInteractiveCommand(command, projectRoot) {
     const lower = command.toLowerCase();
     const isDevLong = isLongRunningDevCommand(lower);
     let shouldUseTerminal = isInteractiveCommand(lower); // dev 서버 등 비대화형 장기 실행은 데몬 사용
+    const selectShellForCapture = (cmd) => {
+        const c = cmd.trim();
+        // Force PowerShell for PowerShell-style invocations
+        if (/^(powershell|pwsh)\b/i.test(c) || /-encodedcommand\b/i.test(c))
+            return process.platform === 'win32' ? 'powershell.exe' : undefined;
+        // Force CMD for explicit cmd.exe invocations
+        if (/^cmd\.exe\b/i.test(c) || /^cmd\b/i.test(c))
+            return process.platform === 'win32' ? 'cmd.exe' : undefined;
+        // Default: on Windows prefer PowerShell for better Unicode handling
+        if (process.platform === 'win32')
+            return 'powershell.exe';
+        return undefined;
+    };
     // 위험 명령어 방지
     if (isDangerousCommand(lower)) {
         const answer = await vscode.window.showWarningMessage(`매우 위험한 명령어가 감지되었습니다: "${command}"\n실행 시 현재 작업 디렉토리의 파일이 삭제될 수 있습니다. 계속하시겠습니까?`, { modal: true }, '실행', '취소');
@@ -16304,7 +16317,7 @@ async function handleInteractiveCommand(command, projectRoot) {
         terminal.show(true);
         // VS Code 터미널에서는 직접적인 출력 캡처가 어려우므로
         // processRunner를 사용하여 출력을 캡처
-        const runPromise = (0, processRunner_1.runCommandCapture)(cleanCommand, { cwd }, 
+        const runPromise = (0, processRunner_1.runCommandCapture)(cleanCommand, { cwd, shell: selectShellForCapture(cleanCommand) || true }, 
         // stdout 콜백
         (data) => {
             if (_terminalMonitorService) {
@@ -16815,16 +16828,39 @@ function extractBashCommandsFromLlmResponse(llmResponse) {
         const block = (match[1] || '').trim();
         if (!block)
             continue;
-        const joined = block.split('\n').map(l => l.trim()).filter(Boolean).join('; ');
+        // Prepend encoding and formatting prologue to avoid mojibake and CLIXML/progress artifacts
+        const prologue = [
+            "$ProgressPreference='SilentlyContinue'",
+            "$WarningPreference='Continue'",
+            "$InformationPreference='Continue'",
+            "$ErrorActionPreference='Continue'",
+            "$ErrorView='NormalView'",
+            "$PSModuleAutoLoadingPreference='None'",
+            "try{ $PSStyle.OutputRendering='PlainText' } catch { }",
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
+            "[Console]::InputEncoding=[System.Text.Encoding]::UTF8",
+            "$OutputEncoding=[System.Text.Encoding]::UTF8",
+        ].join('; ');
+        // Virtualenv helper: set VENV_DIR to existing '.venv' or 'venv' in CWD
+        const venvHelper = [
+            "$Env:VENV_DIR = $null",
+            "foreach($name in @('.venv','venv')) { if (Test-Path -Path ('.\\' + $name)) { $Env:VENV_DIR = ('.\\' + $name); break } }"
+        ].join('; ');
+        // Normalize activation script paths to use $Env:VENV_DIR when block references a hard-coded venv path
+        let normalizedPs = block
+            .replace(/\.\\(?:\.venv|venv)\\Scripts\\Activate\.ps1/g, '$Env:VENV_DIR\\Scripts\\Activate.ps1')
+            .replace(/"\.\\(?:\.venv|venv)\\Scripts\\Activate\.ps1"/g, '"$Env:VENV_DIR\\Scripts\\Activate.ps1"')
+            .replace(/'\.\\(?:\.venv|venv)\\Scripts\\Activate\.ps1'/g, "'$Env:VENV_DIR\\Scripts\\Activate.ps1'");
+        const joined = [prologue, venvHelper, normalizedPs.split('\n').map(l => l.trim()).filter(Boolean).join('; ')].join('; ');
         if (joined) {
             try {
                 const utf16le = Buffer.from(joined, 'utf16le');
                 const b64 = utf16le.toString('base64');
-                commands.push(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${b64}`);
+                commands.push(`powershell -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -OutputFormat Text -EncodedCommand ${b64}`);
             }
             catch {
                 // fallback to direct execution if encoding fails
-                commands.push(joined);
+                commands.push(`powershell -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -OutputFormat Text -Command \"${joined.replace(/\"/g, '\\\"')}\"`);
             }
         }
     }
@@ -16897,12 +16933,31 @@ async function getCorrectedCommand(failedCommand, errorOutput, cwd) {
         return null;
     }
     try {
+        // Sanitize noisy CLIXML and CRLF markers to keep the prompt compact and clear
+        const sanitizeForPrompt = (text) => {
+            if (!text)
+                return text;
+            let t = text;
+            // Remove CLIXML tags and attributes
+            t = t.replace(/<Objs[\s\S]*?>/g, '')
+                .replace(/<\/Objs>/g, '')
+                .replace(/<Obj[\s\S]*?>/g, '')
+                .replace(/<\/Obj>/g, '')
+                .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
+                .replace(/<[^>]+>/g, '');
+            // Decode common _x000D__x000A_ noise into newlines
+            t = t.replace(/_x000D__x000A_/g, '\n');
+            // Collapse whitespace
+            t = t.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+            return t;
+        };
+        const cleanedErrorOutput = sanitizeForPrompt(errorOutput);
         const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
 작업 디렉토리: ${cwd}
 오류 출력:
-${errorOutput}
+${cleanedErrorOutput}
 
 ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제안해주세요:
 1. 기본 명령어(echo, ls, pwd 등)가 실패하는 경우, 셸 환경 문제일 수 있습니다
@@ -16934,8 +16989,13 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
         console.log('[TerminalManager] LLM에게 오류 수정 요청 전송');
         // LLM 서비스를 통해 응답 받기
         const response = await _llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
-        // JSON 응답 파싱 - 여러 JSON 객체 처리
-        const jsonMatches = response.match(/\{[^{}]*\}/g);
+        // Strip code fences and language headers if present
+        const fenceStripped = response
+            .replace(/```json[\s\S]*?\n([\s\S]*?)```/gi, '$1')
+            .replace(/```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)```/g, '$1')
+            .trim();
+        // JSON 응답 파싱 - 느슨한 매칭(중첩 최소)으로 여러 JSON 객체 처리
+        const jsonMatches = fenceStripped.match(/\{[\s\S]*?\}/g);
         if (jsonMatches) {
             for (const jsonStr of jsonMatches) {
                 try {
@@ -16949,6 +17009,24 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
                     console.warn('[TerminalManager] JSON 파싱 실패, 다음 JSON 시도:', parseError);
                     continue;
                 }
+            }
+        }
+        // Fallback 1: 키-값만 추출 (정규식)
+        const m = fenceStripped.match(/"correctedCommand"\s*:\s*"([\s\S]*?)"/i);
+        if (m && m[1]) {
+            const cmd = m[1].replace(/\\n/g, ' ').replace(/\\"/g, '"').trim();
+            if (cmd) {
+                console.log('[TerminalManager] Fallback correctedCommand extracted via regex');
+                return cmd;
+            }
+        }
+        // Fallback 2: 응답이 순수 명령문으로만 온 경우(따옴표 없이 한 줄)
+        const singleLine = fenceStripped.split('\n').map(s => s.trim()).filter(Boolean).join(' ');
+        if (singleLine && !singleLine.startsWith('{') && !singleLine.startsWith('"')) {
+            // 보수적으로 길이 체크
+            if (singleLine.length >= 4) {
+                console.log('[TerminalManager] Fallback plain command used');
+                return singleLine;
             }
         }
         console.log('[TerminalManager] LLM 오류 수정 실패 또는 신뢰도 부족');
@@ -17003,7 +17081,23 @@ async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
     _summarySent = false; // 새로운 오류 수정 세션 시작 시 플래그 리셋
     console.log(`[TerminalManager] 오류 수정 시도 ${_errorRetryCount}/${MAX_ERROR_RETRIES}`);
     const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
-    if (correctedCommand) {
+    const isValidCorrected = (cmd) => {
+        if (!cmd)
+            return false;
+        const t = cmd.trim();
+        if (!t)
+            return false;
+        if (t === '\\')
+            return false;
+        if (t === '""' || t === "''")
+            return false;
+        if (/^```/.test(t))
+            return false;
+        if (t.length < 2)
+            return false;
+        return true;
+    };
+    if (isValidCorrected(correctedCommand)) {
         console.log(`[TerminalManager] 수정된 명령어로 재시도: ${correctedCommand}`);
         // 웹뷰에 오류 수정 상태 전송
         if (_currentWebview) {

@@ -1019,26 +1019,32 @@ export class LlmResponseProcessor {
                     const bashCommands = extractBashCommandsFromLlmResponse(llmResponse);
                     const combined = [...fileOpTokens, ...bashCommands];
                     if (combined.length > 0) {
-                        enqueueCommandsBatch(combined, true);
+                        let projectRootForQueue: string | undefined = undefined;
+                        try {
+                            // Try to read project root from configuration service if available through llmService
+                            // Fallbacks are fine; undefined will be handled downstream
+                            projectRootForQueue = await llmService?.configurationService?.getProjectRoot?.();
+                        } catch {}
+                        enqueueCommandsBatch(combined, true, projectRootForQueue);
+                         
+                         // Build clickable file list (생성/수정: clickable, 삭제: plain)
+                         const fileListLines = fileOperations.map(op => {
+                             const typeLabel = op.type === 'create' ? '생성' : op.type === 'modify' ? '수정' : '삭제';
+                             const displayPath = op.absolutePath; // 절대 경로로 표시
+                             if (op.type === 'delete') {
+                                 return `- ${typeLabel}: ${displayPath}`;
+                             }
+                             // Webview 내 보안/정상 동작을 위해 https placeholder 사용, 클릭 시 가로채기
+                             const href = `https://aidev-ide.invalid/open?path=${encodeURIComponent(op.absolutePath)}`;
+                             return `- ${typeLabel}: [${displayPath}](${href})`;
+                         }).join('\n');
 
-                        // Build clickable file list (생성/수정: clickable, 삭제: plain)
-                        const fileListLines = fileOperations.map(op => {
-                            const typeLabel = op.type === 'create' ? '생성' : op.type === 'modify' ? '수정' : '삭제';
-                            const displayPath = op.absolutePath; // 절대 경로로 표시
-                            if (op.type === 'delete') {
-                                return `- ${typeLabel}: ${displayPath}`;
-                            }
-                            // Webview 내 보안/정상 동작을 위해 https placeholder 사용, 클릭 시 가로채기
-                            const href = `https://aidev-ide.invalid/open?path=${encodeURIComponent(op.absolutePath)}`;
-                            return `- ${typeLabel}: [${displayPath}](${href})`;
-                        }).join('\n');
-
-                        const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개` + (fileOperations.length > 0 ? `\n${fileListLines}` : '');
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: enqueueMsg });
-                    }
-                } catch (error: any) {
-                    console.error('[LLM Response Processor] Queue enqueue error:', error);
-                }
+                         const enqueueMsg = `\n\n🧩 실행 큐 적재: 파일 작업 ${fileOpTokens.length}개 + 명령 ${bashCommands.length}개` + (fileOperations.length > 0 ? `\n${fileListLines}` : '');
+                         safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: enqueueMsg });
+                     }
+                 } catch (error: any) {
+                     console.error('[LLM Response Processor] Queue enqueue error:', error);
+                 }
             }
 
             // 작업 요약과 설명을 마지막에 출력
