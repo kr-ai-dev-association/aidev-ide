@@ -37,6 +37,37 @@
 
 ## 2025-10-31
 
+### 항목 #0019
+- 커밋 해시: abfed3a0c9286fdec1747ceac8fe3f74cebd26ad
+- 커밋 메시지: fix(terminal): PowerShell quote escaping; strengthen JSON fallback parser
+- 범위(scope): terminal
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:32:12 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): PowerShell 따옴표 이스케이프 처리 강화 및 JSON 폴백 파서 안정화.
+- 비고:
+
+### 항목 #0020
+- 커밋 해시: 1af345fb6d87e46d0c01bfb41f9e29aec8f08f60
+- 커밋 메시지: fix(terminal): decode -EncodedCommand to -Command before exec; ban mvn/gradle in auto-correction when type unknown fix(monitor): CLIXML sanitize and robust PowerShell error detection build: update dist
+- 범위(scope): terminal, monitor
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:24:42 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - devlog.md
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/ai/llmResponseProcessor.ts
+  - src/ai/terminalMonitorService.ts
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): -EncodedCommand 디코딩 후 실행, mvn/gradle 자동 수정 제한(타입 미상 시), CLIXML 정제 및 PowerShell 오류 감지 강화.
+- 비고:
+
 ### 항목 #0018
 - 커밋 해시: d11dc998a94dc51a7da47082c97fae14c61a92ce
 - 커밋 메시지: feat(terminal): pass projectRoot to queue and error-correction; fix placeholder guards; feat(utils): string shell capture; fix(llm): enqueue with projectRoot

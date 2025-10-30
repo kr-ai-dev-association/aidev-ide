@@ -17263,6 +17263,7 @@ function normalizeEncodedPowerShellCommand(cmd) {
         const b64 = m[2];
         const suffix = (m[3] || '').trim();
         let decoded = '';
+        let isValidDecode = false;
         try {
             const buf = Buffer.from(b64, 'base64');
             // Try UTF-16LE first as PowerShell expects
@@ -17272,11 +17273,47 @@ function normalizeEncodedPowerShellCommand(cmd) {
             if (highNulRatio > 0.3) {
                 decoded = buf.toString('utf8');
             }
+            // Strict validation: check for specific corruption patterns from logs
+            const corruptionPatterns = [
+                /foreach\s*\([^$]/i, // foreach( without variable: foreach( in @
+                /\$[a-zA-Z]{1,2}['"]/, // Short variable names with quotes: $Pe', $OutputEncoding
+                /\[Console\]:[^:]/, // Broken Console method calls: [Console]:
+                /\s=\s/, // Lone = operator: " = " without LHS
+                /if\s*\([^$\)]/, // if( without condition
+                /foreach\s*\(\s*$/, // foreach( at end of string
+                /Get-Command\s+\s/, // Double spaces (corruption indicator)
+                /\$[a-zA-Z]{1,2}\s*=/, // Very short variable names followed by =
+            ];
+            const hasCorruption = corruptionPatterns.some(pattern => pattern.test(decoded));
+            // Check for complete PowerShell patterns (must have full variable/command names)
+            const requiredPatterns = [
+                /\$ProgressPreference/i, // Full variable name, not $Pe
+                /\[Console\]::(OutputEncoding|InputEncoding)/i, // Complete method call
+                /foreach\s*\(\s*\$[a-zA-Z]/i, // foreach($name or similar with variable
+                /(Test-Path|Get-Command|Write-Output|Set-ExecutionPolicy)/i, // Complete cmdlet names
+            ];
+            const hasRequiredPatterns = requiredPatterns.every(pattern => {
+                // Check if script contains these patterns OR if they might be present but differently formatted
+                // But if corruption is detected, fail validation
+                if (hasCorruption)
+                    return false;
+                return pattern.test(decoded);
+            });
+            // Additional check: ensure variable names are reasonable length (not truncated)
+            const variableNameCheck = !/\$[a-zA-Z]{1,2}(['";\s=]|$)/.test(decoded) ||
+                /(\$ProgressPreference|\$ErrorActionPreference|\$OutputEncoding|\$WarningPreference)/i.test(decoded);
+            isValidDecode = !hasCorruption && hasRequiredPatterns && variableNameCheck && decoded.length > 50;
         }
         catch {
-            return cmd; // keep original if decode fails
+            // Decode failed, keep original
+            return cmd;
         }
-        let script = decoded.replace(/\r\n/g, '\n').trim();
+        // If decode validation failed, keep original -EncodedCommand (safer)
+        if (!isValidDecode) {
+            console.log('[TerminalManager] Decoded script validation failed (corruption detected or missing required patterns), keeping original -EncodedCommand');
+            return cmd;
+        }
+        let script = decoded.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
         // PowerShell -Command "..." inside: use "" for quotes (PowerShell's escaping rule), not \"
         // This avoids parser errors when mixing single and double quotes
         script = script.replace(/"/g, '""');
