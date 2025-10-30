@@ -38,7 +38,7 @@ function createRunButton() {
     const button = document.createElement('button');
     button.classList.add('run-bash-button');
     button.textContent = 'Run'; // 버튼 텍스트
-    button.title = 'Run bash commands'; // 툴팁
+    button.title = 'Run commands'; // 툴팁
 
     return button;
 }
@@ -188,13 +188,25 @@ function extractBashCommands(bashCode) {
     return merged ? [merged] : [];
 }
 
+// powershell/cmd 블록은 원문을 단일 명령으로 전달 (터미널에서 그대로 실행)
+function extractGenericCommands(rawCode) {
+    const text = (rawCode || '').trim();
+    return text ? [text] : [];
+}
+
 // Run 버튼에 이벤트 리스너를 등록하는 함수
-function attachRunButtonListener(button, codeElement) {
+function attachRunButtonListener(button, codeElement, lang) {
     button.addEventListener('click', async () => {
         console.log('[codeCopy.js] Run button clicked');
-        const bashCode = codeElement.textContent || '';
-        console.log('[codeCopy.js] Bash code:', bashCode);
-        const commands = extractBashCommands(bashCode);
+        const codeText = codeElement.textContent || '';
+        let commands = [];
+        if (lang === 'bash' || lang === 'sh' || lang === 'shell') {
+            console.log('[codeCopy.js] Bash code:', codeText);
+            commands = extractBashCommands(codeText);
+        } else {
+            console.log('[codeCopy.js] Non-bash code (powershell/cmd):', lang);
+            commands = extractGenericCommands(codeText);
+        }
         console.log('[codeCopy.js] Extracted commands:', commands);
 
         if (commands.length === 0) {
@@ -268,7 +280,10 @@ export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워
         if (codeElement) {
             // 언어 라벨 확인 (bash인지 체크)
             const languageLabel = container.querySelector('.code-language');
-            const isBash = languageLabel && languageLabel.textContent.toLowerCase() === 'bash';
+            const labelText = (languageLabel && languageLabel.textContent) ? languageLabel.textContent.toLowerCase() : '';
+            const isBash = labelText === 'bash' || labelText === 'sh' || labelText === 'shell';
+            const isPwsh = labelText === 'powershell' || labelText === 'pwsh' || labelText === 'ps1';
+            const isCmd = labelText === 'cmd' || labelText === 'batch' || labelText === 'bat';
 
             // 버튼 컨테이너 생성
             const buttonContainer = document.createElement('div');
@@ -278,11 +293,12 @@ export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워
             const copyButton = createCopyButton();
             buttonContainer.appendChild(copyButton);
 
-            // bash인 경우 run 버튼도 추가
-            if (isBash) {
+            // 지원 언어(bash/powershell/cmd)인 경우 run 버튼도 추가
+            if (isBash || isPwsh || isCmd) {
                 const runButton = createRunButton();
                 buttonContainer.appendChild(runButton);
-                attachRunButtonListener(runButton, codeElement);
+                const lang = isBash ? 'bash' : (isPwsh ? 'powershell' : 'cmd');
+                attachRunButtonListener(runButton, codeElement, lang);
             }
 
             // 버튼 컨테이너를 코드 블록 컨테이너 바로 뒤에 삽입

@@ -1297,18 +1297,31 @@ ${match.trim()}
             // 공백 제거
             .trim();
 
-        // 경로 구분자 정규화
-        cleanedPath = cleanedPath.replace(/\\/g, '/');
-
-        // 연속된 슬래시 제거
-        cleanedPath = cleanedPath.replace(/\/+/g, '/');
-
-        // 시작과 끝의 슬래시 제거 (루트 경로가 아닌 경우)
-        if (cleanedPath.length > 1) {
-            cleanedPath = cleanedPath.replace(/^\/+|\/+$/g, '');
+        // Windows 드라이브 접두사 정규화 (예: "/c:/path" 또는 "c:\\path" → "C:/path")
+        const windowsDriveMatch = cleanedPath.match(/^\/?([a-zA-Z]):[\\\/]/);
+        if (windowsDriveMatch) {
+            const drive = windowsDriveMatch[1].toUpperCase();
+            cleanedPath = cleanedPath.replace(/^\/?[a-zA-Z]:[\\\/]/, `${drive}:/`);
         }
 
-        // console.log(`[LLM Response Processor] Cleaned file path: "${filePath}" -> "${cleanedPath}"`);
+        // 경로 구분자 정규화 (역슬래시 → 슬래시)
+        cleanedPath = cleanedPath.replace(/\\/g, '/');
+
+        // 연속된 슬래시 제거 (하나로 축약)
+        cleanedPath = cleanedPath.replace(/\/+/g, '/');
+
+        // 시작/끝 슬래시 정리: 단, Windows 드라이브 루트 패턴은 보존 (예: "C:/...")
+        if (!/^[a-zA-Z]:\//.test(cleanedPath)) {
+            if (cleanedPath.length > 1) {
+                cleanedPath = cleanedPath.replace(/^\/+|\/+$/g, '');
+            }
+        } else {
+            cleanedPath = cleanedPath.replace(/\/+$/g, '');
+        }
+
+        // 잘못된 말미 드라이브 표기 제거 (예: ".../c:")
+        cleanedPath = cleanedPath.replace(/\/[a-zA-Z]:$/g, '');
+
         return cleanedPath;
     }
 
@@ -1402,6 +1415,16 @@ ${match.trim()}
             if (pattern.test(filePath)) {
                 return { isValid: false, error: `위험한 경로 패턴이 감지되었습니다: ${filePath}` };
             }
+        }
+
+        // Windows 전용 유효성: 단독 드라이브 문자("C:") 금지, 허용 패턴은 "C:/" 또는 "C:\\"
+        if (/^[a-zA-Z]:$/.test(filePath)) {
+            return { isValid: false, error: '드라이브 문자만 있는 경로는 유효하지 않습니다.' };
+        }
+        // 콜론이 있는 경우, 드라이브 문자 위치(인덱스 1)에서만 허용
+        const colonIdx = filePath.indexOf(':');
+        if (colonIdx !== -1 && colonIdx !== 1) {
+            return { isValid: false, error: '잘못된 경로 포맷(콜론 위치 오류)입니다.' };
         }
 
         // 파일명 길이 검사
@@ -1736,7 +1759,7 @@ ${match.trim()}
             throw new Error('프로젝트 루트가 설정되지 않았습니다.');
         }
 
-        const absolutePath = path.join(projectRoot, filePath);
+        const absolutePath = this.resolveTargetPath(projectRoot, filePath);
         const fileUri = vscode.Uri.file(absolutePath);
 
         // 디렉토리 생성
@@ -1757,8 +1780,27 @@ ${match.trim()}
         safePostMessage(webview, {
             command: 'receiveMessage',
             sender: 'AIDEV-IDE',
-            text: `✅ 파일 ${filePath}이(가) 성공적으로 생성/업데이트되었습니다.`
+            text: `✅ 파일이 자동으로 ${vscode.workspace ? '생성/업데이트' : '생성'}되었습니다: ${filePath}`
         });
+    }
+
+    /**
+     * Windows/Unix 호환 절대 경로 결정을 수행합니다.
+     * - 파일 경로가 절대 경로이면 그대로 사용
+     * - 상대 경로이면 프로젝트 루트와 결합
+     */
+    private resolveTargetPath(projectRoot: string, filePath: string): string {
+        const normalized = this.cleanFilePath(filePath);
+        // Windows 드라이브 루트 절대 경로
+        if (/^[a-zA-Z]:\//.test(normalized)) {
+            return path.win32.normalize(normalized);
+        }
+        // 일반 절대 경로
+        if (path.isAbsolute(normalized)) {
+            return path.normalize(normalized);
+        }
+        // 상대 경로 → 프로젝트 루트와 결합
+        return path.join(projectRoot, normalized);
     }
 
     /**
@@ -1772,7 +1814,7 @@ ${match.trim()}
             throw new Error('프로젝트 루트가 설정되지 않았습니다.');
         }
 
-        const absolutePath = path.join(projectRoot, filePath);
+        const absolutePath = this.resolveTargetPath(projectRoot, filePath);
         const fileUri = vscode.Uri.file(absolutePath);
 
         try {

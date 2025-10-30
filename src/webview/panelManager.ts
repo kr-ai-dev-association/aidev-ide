@@ -437,12 +437,14 @@ export function openSettingsPanel(
                     }
                     break;
                 case 'verifyBanyaLicense': // Banya 라이선스 검증 케이스 추가
-                    const banyaLicenseSerialToVerify = data.banyaLicenseSerial;
+                    const banyaLicenseSerialToVerify = (data.banyaLicenseSerial ?? data.licenseSerial);
                     if (banyaLicenseSerialToVerify && typeof banyaLicenseSerialToVerify === 'string') {
                         try {
                             const verificationResult = await licenseService.verifyLicense(banyaLicenseSerialToVerify);
                             if (verificationResult.success) {
                                 await storageService.saveIsLicenseVerified(true);
+                                // 검증 성공 시 시리얼을 저장하여 CODE/ASK 탭에서 즉시 인식되도록 함
+                                await storageService.saveBanyaLicenseSerial(banyaLicenseSerialToVerify);
                                 safePostMessage(panel, { command: 'banyaLicenseVerified', success: true, message: verificationResult.message });
                                 notificationService.showInfoMessage(`AIDEV-IDE: License verified successfully. ${verificationResult.message}`);
                             } else {

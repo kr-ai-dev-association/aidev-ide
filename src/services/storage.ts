@@ -41,7 +41,7 @@ export class StorageService {
         if (apiKey) {
             // console.log('API Key loaded from SecretStorage.');
         } else {
-            console.log('No API Key found in SecretStorage.');
+            // no-op: absence is normal when Gemini is not selected
         }
         return apiKey;
     }

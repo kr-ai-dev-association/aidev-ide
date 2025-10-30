@@ -882,6 +882,8 @@ function mergeBashBlockToSingleCommand(bashCode: string): string {
 export function extractBashCommandsFromLlmResponse(llmResponse: string): string[] {
     const commands: string[] = [];
     const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
+    const pwshBlockRegex = /```(?:powershell|pwsh)\s*\n([\s\S]*?)\n```/g;
+    const cmdBlockRegex = /```(?:cmd|batch|bat)\s*\n([\s\S]*?)\n```/g;
     let match;
     while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
         const block = match[1].trim();
@@ -962,6 +964,39 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
         // Flush any dangling buffer (defensive)
         flushBufferIfDone();
     }
+
+    // Powershell: join lines then execute via -EncodedCommand (UTF-16LE Base64) to avoid parsing issues
+    while ((match = pwshBlockRegex.exec(llmResponse)) !== null) {
+        const block = (match[1] || '').trim();
+        if (!block) continue;
+        const joined = block.split('\n').map(l => l.trim()).filter(Boolean).join('; ');
+        if (joined) {
+            try {
+                const utf16le = Buffer.from(joined, 'utf16le');
+                const b64 = utf16le.toString('base64');
+                commands.push(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${b64}`);
+            } catch {
+                // fallback to direct execution if encoding fails
+                commands.push(joined);
+            }
+        }
+    }
+
+    // CMD: join lines with ' & '
+    while ((match = cmdBlockRegex.exec(llmResponse)) !== null) {
+        const block = (match[1] || '').trim();
+        if (!block) continue;
+        const joined = block
+            .split('\n')
+            .map(l => l.trim())
+            // drop CMD comments like ':: ...' or 'REM ...'
+            .filter(l => !!l && !/^::/.test(l) && !/^REM\b/i.test(l))
+            .join(' & ');
+        if (joined) {
+            // Force execution in cmd.exe to avoid PowerShell parsing '&' and '()'
+            commands.push(`cmd.exe /d /c ${joined}`);
+        }
+    }
     return commands;
 }
 
@@ -969,15 +1004,7 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
  * LLM 응답에서 bash 명령어를 추출하고 터미널에서 실행합니다.
  */
 export function executeBashCommandsFromLlmResponse(llmResponse: string, projectRoot?: string): string[] {
-    const executedCommands: string[] = [];
-    const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
-    let match;
-    while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
-        const block = (match[1] || '').trim();
-        if (!block) continue;
-        const merged = mergeBashBlockToSingleCommand(block);
-        if (merged) executedCommands.push(merged);
-    }
+    const executedCommands: string[] = extractBashCommandsFromLlmResponse(llmResponse);
     if (executedCommands.length > 0) {
         resetWorkingDirectory();
         enqueueCommandsBatch(executedCommands, true, projectRoot);
@@ -998,8 +1025,8 @@ export function executeBashCommand(command: string, projectRoot?: string): void 
  * LLM 응답에서 bash 명령어가 포함되어 있는지 확인합니다.
  */
 export function hasBashCommands(llmResponse: string): boolean {
-    const bashBlockRegex = /```bash\s*\n([\s\S]*?)\n```/g;
-    return bashBlockRegex.test(llmResponse);
+    const anyShellRegex = /```(?:bash|sh|shell|powershell|pwsh|cmd|batch|bat)\s*\n([\s\S]*?)\n```/g;
+    return anyShellRegex.test(llmResponse);
 }
 
 /**

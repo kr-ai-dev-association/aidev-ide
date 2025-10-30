@@ -106,11 +106,19 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error('terminal-daemon 설정 확인 중 오류:', error);
     }
 
+    let currentAiModelInit = await storageService.getCurrentAiModel();
+    // fallback: 설정에서 모델 타입을 유추하거나 기본값 처리 가능 (여기서는 문자열 비교만)
+    const isGeminiSelected = (currentAiModelInit || '').toLowerCase() === 'gemini';
     const initialApiKey = await storageService.getApiKey();
-    if (!initialApiKey || initialApiKey.trim() === '') {
-        notificationService.showWarningMessage('aidev-ide: Gemini API Key is not set. Please set it in the License panel for AI features.');
-        geminiApi = new GeminiApi();
+    if (isGeminiSelected) {
+        if (!initialApiKey || initialApiKey.trim() === '') {
+            notificationService.showWarningMessage('aidev-ide: Gemini API Key is not set. Please set it in the Settings.');
+            geminiApi = new GeminiApi();
+        } else {
+            geminiApi = new GeminiApi(initialApiKey);
+        }
     } else {
+        // Gemini가 선택되지 않은 경우 키 유무와 상관없이 조용히 초기화 (경고 출력 안 함)
         geminiApi = new GeminiApi(initialApiKey);
     }
 

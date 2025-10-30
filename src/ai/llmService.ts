@@ -60,6 +60,8 @@ export class LlmService {
     private lastErrorHandledAt: number = 0;
     private suppressCancelNoticeOnce: boolean = false;
     private userOS: string = 'unknown';
+    // 전역 디버그 플래그 (필요 시 true로)
+    private readonly debug: boolean = false;
 
     constructor(
         storageService: StorageService,
@@ -333,7 +335,7 @@ ${osSpecificGuidelines}`;
 
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
-        console.log(`[LlmService] Current model set to: ${modelType}`);
+        if (this.debug) console.log(`[LlmService] Current model set to: ${modelType}`);
     }
 
     private formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
@@ -347,13 +349,18 @@ ${osSpecificGuidelines}`;
     /**
      * 사용자 질의/키워드/환경을 입력으로 받아 계획 수립 프롬프트를 생성합니다.
      */
-    private buildPlanPrompt(userQuery: string, keywords: string[], os: string, modelName: string, includedFiles: { name: string, fullPath: string }[]): string {
+    private async buildPlanPrompt(userQuery: string, keywords: string[], os: string, modelName: string, includedFiles: { name: string, fullPath: string }[]): Promise<string> {
         const topFiles = includedFiles.slice(0, 8).map(f => `- ${f.name} (${f.fullPath})`).join('\n');
         const kw = keywords.join(', ');
+        const lang = (await this.configurationService.getLanguage?.()) || 'ko';
+        const forceKorean = lang.toLowerCase().startsWith('ko');
+        const languageRule = forceKorean
+            ? '\n- 모든 출력은 한국어로 작성하세요. 영어 표현이 필요한 식별자/코드는 그대로 두되 설명과 계획은 한국어로 작성하세요.'
+            : '';
         return (
-            `You are a senior software planner. Convert the user's query into an actionable, verifiable plan.
+            `${forceKorean ? '당신은 시니어 소프트웨어 플래너입니다. 사용자의 요청을 실행 가능한 검증 가능한 계획으로 변환하세요.' : "You are a senior software planner. Convert the user's query into an actionable, verifiable plan."}
 
-User query:
+${forceKorean ? '사용자 요청:' : 'User query:'}
 """
 ${userQuery}
 """
@@ -366,10 +373,11 @@ ${topFiles || '- (none)'}
 - Keywords: ${kw}
 
 Requirements:
-- Output a concise to-do list as markdown bullet points or checkboxes.
-- Each item should be atomic, testable, and ordered logically.
-- Capture any prerequisites and risks.
-- Keep it pragmatic for this codebase.
+- ${forceKorean ? '마크다운 불릿 또는 체크박스 형태의 간결한 할 일 목록(To-Do)으로 출력하세요.' : 'Output a concise to-do list as markdown bullet points or checkboxes.'}
+- ${forceKorean ? '각 항목은 원자적이고 테스트 가능하며 논리 순서로 정렬하세요.' : 'Each item should be atomic, testable, and ordered logically.'}
+- ${forceKorean ? '필요 전제조건과 리스크를 포함하세요.' : 'Capture any prerequisites and risks.'}
+- ${forceKorean ? '이 코드베이스에 실용적으로 적용 가능하도록 작성하세요.' : 'Keep it pragmatic for this codebase.'}
+${languageRule}
 `);
     }
 
@@ -616,22 +624,43 @@ Requirements:
                             let reasoningModelNameForPlan = '';
                             try { reasoningModelNameForPlan = (await this.storageService.getPlanningModel()) || (await this.storageService.getOllamaModel()) || ''; } catch { }
                             this.sendProcessingStatus('plan', `Reasoning 모델: ${reasoningModelNameForPlan || '(미설정)'} - 계획 생성 시작`);
-                            const planPrompt = this.buildPlanPrompt(userQuery, relevantContextResult.selectedKeywords.keywords, this.userOS, await this.getCurrentModelName(), includedFilesForContext);
+                            const planPrompt = await this.buildPlanPrompt(userQuery, relevantContextResult.selectedKeywords.keywords, this.userOS, await this.getCurrentModelName(), includedFilesForContext);
                             const parts = [{ text: planPrompt }];
+                            const lang = (await this.configurationService.getLanguage?.()) || 'ko';
+                            const forceKorean = lang.toLowerCase().startsWith('ko');
+                            const systemPromptForPlan = forceKorean
+                                ? 'Transform into an actionable plan (to-do list). Output in Korean. Use markdown bullets or checkboxes. Do NOT include any executable code blocks or terminal commands. Absolutely avoid triple-fenced code blocks (```), especially bash/sh/shell/powershell/pwsh/cmd/batch/bat. Provide only plain checklist and descriptions.'
+                                : 'Transform into an actionable plan (to-do list). Use bullets/checkboxes. Do NOT include any executable code or terminal commands. Avoid triple-fenced code blocks (```), especially bash/sh/shell/powershell/pwsh/cmd/batch/bat. Provide plain checklist only.';
                             let planText: string | null = null;
                             if (this.currentModelType === AiModelType.GEMINI) {
-                                planText = await this.geminiApi.sendMessageWithSystemPrompt('Transform into actionable plan (to-do list). Output bullet list or markdown with checkboxes.', parts, { signal: abortSignal });
+                                planText = await this.geminiApi.sendMessageWithSystemPrompt(systemPromptForPlan, parts, { signal: abortSignal });
                             } else {
                                 try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
-                                planText = await this.ollamaApi.sendMessageWithSystemPrompt('Transform into actionable plan (to-do list). Output bullet list or markdown with checkboxes.', parts, { signal: abortSignal });
+                                planText = await this.ollamaApi.sendMessageWithSystemPrompt(systemPromptForPlan, parts, { signal: abortSignal });
                             }
+                            const stripTerminalBlocks = (text: string): string => {
+                                if (!text) return text;
+                                // Remove fenced code blocks entirely (generic and shell types)
+                                const fenceAny = /```[a-zA-Z0-9_-]*\s*[\s\S]*?```/g;
+                                let cleaned = text.replace(fenceAny, (m) => {
+                                    // Preserve a placeholder note once if needed
+                                    return '';
+                                });
+                                // Also remove inline backtick code that looks like commands (heuristic)
+                                cleaned = cleaned.replace(/`[^`\n]*?(?:\bpython\b|\bnpm\b|\bnode\b|\\|\/)\S*?`/g, (m) => m.replace(/`/g, ''));
+                                // Collapse excessive blank lines
+                                cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+                                return cleaned;
+                            };
+
                             if (planText && planText.trim()) {
                                 // 요약: 첫 줄 또는 첫 항목으로 간단 요약 표시
                                 const firstLine = planText.split('\n').find(l => l.trim().length > 0)?.trim() || '';
                                 const summary = firstLine.length > 80 ? (firstLine.slice(0, 80) + '...') : firstLine;
                                 this.sendProcessingStatus('plan', `Reasoning 모델: ${reasoningModelNameForPlan || '(미설정)'} - ${summary || 'Plan ready.'}`);
-                                // 챗 패널에 우선 출력(사용자 승인 전 참고용)
-                                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: planText });
+                                // 챗 패널에 우선 출력: 실행 가능한 코드/터미널 블록 제거 후 표시
+                                const displayPlan = stripTerminalBlocks(planText);
+                                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: displayPlan });
 
                                 // 간단 파서: markdown 체크박스/불릿을 PlanItem으로 큐잉
                                 try {
@@ -749,7 +778,13 @@ Requirements:
                 fullFileContentsContext += `\n${terminalLogsContext}`;
             }
 
-
+            // 프로젝트 인벤토리(파일/디렉터리 스냅샷) 추가: 새로 생성된 항목도 항상 포함됨
+            try {
+                const inventory = await this.buildProjectInventorySection();
+                if (inventory) {
+                    fullFileContentsContext += `\n${inventory}`;
+                }
+            } catch { /* ignore inventory errors */ }
 
             // 프로젝트 타입 감지
             let detectedProjectType = '';
@@ -891,7 +926,7 @@ Requirements:
                     if (refined && refined.trim()) {
                         // 정제된 응답을 실제 처리 대상으로 대체하여 이후 파일/명령 처리 단계가 정제본을 사용하도록 함
                         llmResponse = refined;
-                        safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: refined });
+                        // 중복 출력 방지: 표시(채팅 전송)는 llmResponseProcessor에서 단일 경로로 처리
                     }
                 }
             } catch (e) {
@@ -1323,6 +1358,49 @@ ${realTimeInfo}
         } catch (error) {
             console.error('[LlmService] Failed to clear history:', error);
             throw error;
+        }
+    }
+
+    private async buildProjectInventorySection(): Promise<string> {
+        try {
+            const projectRoot = await this.configurationService.getProjectRoot?.();
+            if (!projectRoot) return '';
+            const rootUri = vscode.Uri.file(projectRoot);
+            const maxEntries = 400; // hard cap to avoid token blowup
+            const items: string[] = [];
+
+            const rel = (p: string) => {
+                const norm = p.replace(/\\/g, '/');
+                const rootNorm = projectRoot.replace(/\\/g, '/');
+                return norm.startsWith(rootNorm) ? norm.substring(rootNorm.length + (rootNorm.endsWith('/') ? 0 : 1)) : norm;
+            };
+
+            const walk = async (dir: vscode.Uri, depth: number) => {
+                if (items.length >= maxEntries) return;
+                let entries: [string, vscode.FileType][] = [];
+                try {
+                    entries = await vscode.workspace.fs.readDirectory(dir);
+                } catch { return; }
+                for (const [name, type] of entries) {
+                    if (items.length >= maxEntries) break;
+                    const child = vscode.Uri.joinPath(dir, name);
+                    if (type === vscode.FileType.Directory) {
+                        items.push(`[D] ${rel(child.fsPath)}`);
+                        if (depth < 6) {
+                            await walk(child, depth + 1);
+                        }
+                    } else if (type === vscode.FileType.File) {
+                        items.push(`[F] ${rel(child.fsPath)}`);
+                    }
+                }
+            };
+
+            await walk(rootUri, 0);
+            if (items.length === 0) return '';
+            const header = `\n--- 프로젝트 파일 인벤토리 (최대 ${maxEntries}개, 최신 루트 스냅샷) ---\n`;
+            return header + items.join('\n');
+        } catch {
+            return '';
         }
     }
 }

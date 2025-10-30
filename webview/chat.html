@@ -1984,32 +1984,41 @@
 
         // ProcessingSteps 업데이트 함수들
         function updateProcessingStep(step) {
-            const steps = document.querySelectorAll('.processing-step');
-            steps.forEach((stepElement, index) => {
-                const stepName = stepElement.querySelector('.step-name').textContent.toLowerCase().replace(' ', '');
-                if (stepName.includes(step.toLowerCase())) {
-                    stepElement.querySelector('.step-status').textContent = 'Active';
-                    stepElement.querySelector('.step-status').className = 'step-status active';
+            const container = document.getElementById('processing-steps');
+            if (!container) return;
+            const steps = container.querySelectorAll('.processing-step');
+            if (!steps || steps.length === 0) return;
+            steps.forEach((stepElement) => {
+                if (!stepElement) return;
+                const nameEl = stepElement.querySelector('.step-name');
+                const statusEl = stepElement.querySelector('.step-status');
+                if (!nameEl || !statusEl) return;
+                const stepName = (nameEl.textContent || '').toLowerCase().replace(' ', '');
+                if (stepName.includes(String(step).toLowerCase())) {
+                    statusEl.textContent = 'Active';
+                    statusEl.className = 'step-status active';
                 } else {
-                    stepElement.querySelector('.step-status').textContent = 'Waiting...';
-                    stepElement.querySelector('.step-status').className = 'step-status';
+                    statusEl.textContent = 'Waiting...';
+                    statusEl.className = 'step-status';
                 }
             });
         }
 
         function updateProcessingStatus(step, status) {
-            const steps = document.querySelectorAll('.processing-step');
+            const container = document.getElementById('processing-steps');
+            if (!container) return;
+            const steps = container.querySelectorAll('.processing-step');
+            if (!steps || steps.length === 0) return;
             steps.forEach((stepElement) => {
-                const stepNameElement = stepElement.querySelector('.step-name');
-                if (stepNameElement) {
-                    const stepName = stepNameElement.textContent.toLowerCase().replace(' ', '');
-                    if (stepName.includes(step.toLowerCase())) {
-                        const statusElement = stepElement.querySelector('.step-status');
-                        if (statusElement) {
-                            statusElement.textContent = status;
-                            statusElement.className = 'step-status active';
-                        }
-                    }
+                if (!stepElement) return;
+                const nameEl = stepElement.querySelector('.step-name');
+                if (!nameEl) return;
+                const stepName = (nameEl.textContent || '').toLowerCase().replace(' ', '');
+                if (stepName.includes(String(step).toLowerCase())) {
+                    const statusElement = stepElement.querySelector('.step-status');
+                    if (!statusElement) return;
+                    statusElement.textContent = status;
+                    statusElement.className = 'step-status active';
                 }
             });
         }

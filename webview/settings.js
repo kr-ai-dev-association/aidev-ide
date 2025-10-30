@@ -1422,7 +1422,7 @@ if (saveBanyaLicenseButton) {
     saveBanyaLicenseButton.addEventListener('click', () => {
         const licenseSerial = banyaLicenseSerialInput.value.trim();
         if (licenseSerial) {
-            vscode.postMessage({ command: 'saveBanyaLicense', licenseSerial: licenseSerial });
+            vscode.postMessage({ command: 'saveBanyaLicenseSerial', banyaLicenseSerial: licenseSerial });
             const savingText = languageData['banyaLicenseSaving'] || 'Banya 라이센스 저장 중...';
             showStatus(banyaLicenseStatus, savingText, 'info');
         } else {
@@ -1437,12 +1437,14 @@ if (saveBanyaLicenseButton) {
             }
             if (aiModelSelect && aiModelSelect.value) {
                 const selectedModel = aiModelSelect.value;
-                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
+                vscode.postMessage({
+                    command: 'saveAiModel',
+                    model: selectedModel
+                });
             }
         } catch (e) {
             console.warn('Failed to autosave AI model:', e);
         }
-
     });
 }
 
