@@ -842,11 +842,11 @@ ${osSpecificGuidelines}`;
             let t = text;
             t = t.replace(/_x000D__x000A_/g, '\n');
             t = t.replace(/<Objs[\s\S]*?>/g, '')
-                 .replace(/<\/Objs>/g, '')
-                 .replace(/<Obj[\s\S]*?>/g, '')
-                 .replace(/<\/Obj>/g, '')
-                 .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
-                 .replace(/<[^>]+>/g, '');
+                .replace(/<\/Objs>/g, '')
+                .replace(/<Obj[\s\S]*?>/g, '')
+                .replace(/<\/Obj>/g, '')
+                .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
+                .replace(/<[^>]+>/g, '');
             t = t.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
             return t;
         };
@@ -1186,7 +1186,7 @@ ${osSpecificGuidelines}`;
             // Fallback to literal string match
             regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
         }
-        
+
         const errorPattern: ErrorPattern = {
             pattern,
             severity,

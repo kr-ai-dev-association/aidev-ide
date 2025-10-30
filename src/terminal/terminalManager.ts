@@ -1096,6 +1096,23 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
     }
 
     try {
+        // Check if this failed command has a corrupted PowerShell script stored
+        const cmdHash = Buffer.from(failedCommand).toString('base64').substring(0, 32);
+        const corruptedScript = _corruptedPowerShellScripts.get(cmdHash);
+        if (corruptedScript) {
+            console.log('[TerminalManager] 손상된 PowerShell 스크립트 감지, LLM에게 복구 요청');
+            const repaired = await repairCorruptedPowerShellScript(corruptedScript.decoded, errorOutput);
+            if (repaired) {
+                // Remove from map after successful repair
+                _corruptedPowerShellScripts.delete(cmdHash);
+                console.log('[TerminalManager] LLM이 손상된 스크립트 복구 완료');
+                return repaired;
+            } else {
+                console.log('[TerminalManager] LLM 스크립트 복구 실패, 일반 오류 수정 시도');
+                // Continue with normal error correction
+            }
+        }
+        
         // Sanitize noisy CLIXML and CRLF markers to keep the prompt compact and clear
         const sanitizeForPrompt = (text: string): string => {
             if (!text) return text;
@@ -1470,6 +1487,81 @@ async function sendErrorCorrectionSummary(): Promise<void> {
     }
 }
 
+// Global variable to store corrupted PowerShell scripts for LLM repair
+const _corruptedPowerShellScripts = new Map<string, { decoded: string, originalCommand: string }>();
+
+async function repairCorruptedPowerShellScript(corruptedScript: string, errorOutput: string): Promise<string | null> {
+    if (!_llmService) {
+        console.log('[TerminalManager] LLM 서비스가 없어 스크립트 복구 불가');
+        return null;
+    }
+    
+    try {
+        const repairPrompt = `PowerShell 스크립트가 디코딩 과정에서 손상되었습니다. 손상된 스크립트와 실제 실행 오류를 분석하고, 복구된 완전하고 실행 가능한 PowerShell 명령어를 제공해주세요.
+
+손상된 스크립트:
+${corruptedScript.substring(0, 2000)}${corruptedScript.length > 2000 ? '... (truncated)' : ''}
+
+실제 실행 오류:
+${errorOutput.substring(0, 1000)}${errorOutput.length > 1000 ? '... (truncated)' : ''}
+
+요구사항:
+1. 복구된 명령어는 완전하고 실행 가능한 PowerShell 명령어여야 합니다
+2. 모든 변수명이 올바르게 복구되어야 합니다 (예: foreach(\$name in @, if (-not \$var) 등)
+3. 모든 따옴표가 올바르게 이스케이프되어야 합니다
+4. 원본 스크립트의 기능을 유지해야 합니다
+5. 실행 가능한 전체 PowerShell 명령어로 응답하세요 (powershell -Command "..." 형식)
+
+JSON 형식으로 응답해주세요:
+{
+  "correctedCommand": "powershell -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command \"...복구된 스크립트...\"",
+  "reasoning": "복구 이유 설명",
+  "confidence": 0.9
+}`;
+
+        console.log('[TerminalManager] LLM에게 손상된 PowerShell 스크립트 복구 요청');
+        const response = await _llmService.sendMessageForErrorCorrection(repairPrompt);
+        
+        // Try to parse JSON response
+        const fenceStripped = response
+            .replace(/```json[\s\S]*?\n([\s\S]*?)```/gi, '$1')
+            .replace(/```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)```/g, '$1')
+            .trim();
+        
+        const jsonMatches = fenceStripped.match(/\{[\s\S]*?\}/g);
+        if (jsonMatches) {
+            for (const jsonStr of jsonMatches) {
+                try {
+                    const result = JSON.parse(jsonStr);
+                    if (result.correctedCommand && result.confidence > 0.7) {
+                        console.log(`[TerminalManager] LLM이 스크립트 복구 완료 (신뢰도: ${result.confidence})`);
+                        return result.correctedCommand;
+                    }
+                } catch (parseError) {
+                    continue;
+                }
+            }
+        }
+        
+        // Fallback: extract command directly
+        const cmdMatch = fenceStripped.match(/"correctedCommand"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/i);
+        if (cmdMatch && cmdMatch[1]) {
+            let cmd = cmdMatch[1];
+            cmd = cmd.replace(/\\\\"/g, '"').replace(/\\\\/g, '\\').replace(/\\n/g, ' ').replace(/\\"/g, '"').replace(/\\r/g, '').replace(/\\t/g, ' ').trim();
+            if (cmd && cmd.length > 50) {
+                console.log('[TerminalManager] LLM 스크립트 복구 완료 (fallback)');
+                return cmd;
+            }
+        }
+        
+        console.log('[TerminalManager] LLM 스크립트 복구 실패 또는 응답 불충분');
+        return null;
+    } catch (error) {
+        console.error('[TerminalManager] 스크립트 복구 중 오류:', error);
+        return null;
+    }
+}
+
 function normalizeEncodedPowerShellCommand(cmd: string): string {
     try {
         const m = cmd.match(/^(\s*powershell(?:\.exe)?\b[\s\S]*?)\s-EncodedCommand\s+([A-Za-z0-9+/=]+)([\s\S]*)$/i);
@@ -1560,26 +1652,16 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
             return script;
         };
         
-        // If decode validation failed, try converting to -Command as fallback
-        // This is safer than keeping a potentially broken -EncodedCommand
+        // If decode validation failed, store corrupted script for LLM repair
+        // Keep original -EncodedCommand but mark it as corrupted
         if (!isValidDecode) {
-            console.log('[TerminalManager] Decoded script validation failed, attempting fallback to -Command');
-            try {
-                // Try to fix common issues and convert to -Command
-                let script = decoded.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-                // Fix corruption first
-                script = fixCorruptedScript(script);
-                // Escape double quotes for PowerShell -Command (use \" for outer quotes, "" for inner)
-                // Since we're wrapping in "& { ... }", we need to escape inner quotes properly
-                script = script.replace(/"/g, '\\"');
-                // Wrap in script block for better isolation
-                const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '').replace(/\s-EncodedCommand\s+[^\s]+/i, '')} -Command "& { ${script} }"`;
-                console.log('[TerminalManager] Converted to -Command fallback');
-                return rebuilt + (suffix ? ` ${suffix}` : '');
-            } catch (fallbackError) {
-                console.log(`[TerminalManager] Fallback conversion failed: ${fallbackError}, keeping original`);
-                return cmd;
-            }
+            console.log('[TerminalManager] Decoded script validation failed, storing for LLM repair');
+            // Store corrupted script with command hash as key
+            const cmdHash = Buffer.from(cmd).toString('base64').substring(0, 32);
+            _corruptedPowerShellScripts.set(cmdHash, { decoded, originalCommand: cmd });
+            console.log(`[TerminalManager] 손상된 스크립트 저장 (key: ${cmdHash})`);
+            // Keep original -EncodedCommand - LLM will repair it when error occurs
+            return cmd;
         }
         
         // If validation passed, we can safely convert to -Command
