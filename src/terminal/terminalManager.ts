@@ -1180,12 +1180,23 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
             }
         }
 
-        // Fallback 1: 키-값만 추출 (정규식)
-        const m = fenceStripped.match(/"correctedCommand"\s*:\s*"([\s\S]*?)"/i);
-        if (m && m[1]) {
-            const cmd = m[1].replace(/\\n/g, ' ').replace(/\\"/g, '"').trim();
-            if (cmd) {
+        // Fallback 1: 키-값만 추출 (정규식) - 개선된 멀티라인/이스케이프 처리
+        const keyMatch = fenceStripped.match(/"correctedCommand"\s*:\s*"([\s\S]*?)"/i);
+        if (keyMatch && keyMatch[1]) {
+            let cmd = keyMatch[1];
+            // Unescape JSON escapes
+            cmd = cmd.replace(/\\n/g, ' ').replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/\\r/g, '').replace(/\\t/g, ' ').trim();
+            if (cmd && cmd.length >= 4 && !cmd.match(/^(\\|""|''|```)/)) {
                 console.log('[TerminalManager] Fallback correctedCommand extracted via regex');
+                return cmd;
+            }
+        }
+        // Fallback 1b: 단일 따옴표 문자열 또는 이스케이프 없는 문자열
+        const singleQuoteMatch = fenceStripped.match(/"correctedCommand"\s*:\s*'([^']*)'/i);
+        if (singleQuoteMatch && singleQuoteMatch[1]) {
+            const cmd = singleQuoteMatch[1].trim();
+            if (cmd && cmd.length >= 4 && !cmd.match(/^(\\|""|''|```)/)) {
+                console.log('[TerminalManager] Fallback correctedCommand extracted from single-quoted value');
                 return cmd;
             }
         }
@@ -1436,8 +1447,11 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
         } catch {
             return cmd; // keep original if decode fails
         }
-        const script = decoded.replace(/\r\n/g, '\n').trim();
-        const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '')} -Command "& { ${script.replace(/"/g, '\\"')} }"`;
+        let script = decoded.replace(/\r\n/g, '\n').trim();
+        // PowerShell -Command "..." inside: use "" for quotes (PowerShell's escaping rule), not \"
+        // This avoids parser errors when mixing single and double quotes
+        script = script.replace(/"/g, '""');
+        const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '')} -Command "& { ${script} }"`;
         return rebuilt + (suffix ? ` ${suffix}` : '');
     } catch {
         return cmd;
