@@ -14581,7 +14581,14 @@ class LlmResponseProcessor {
                     const bashCommands = (0, terminalManager_1.extractBashCommandsFromLlmResponse)(llmResponse);
                     const combined = [...fileOpTokens, ...bashCommands];
                     if (combined.length > 0) {
-                        (0, terminalManager_1.enqueueCommandsBatch)(combined, true);
+                        let projectRootForQueue = undefined;
+                        try {
+                            // Try to read project root from configuration service if available through llmService
+                            // Fallbacks are fine; undefined will be handled downstream
+                            projectRootForQueue = await llmService?.configurationService?.getProjectRoot?.();
+                        }
+                        catch { }
+                        (0, terminalManager_1.enqueueCommandsBatch)(combined, true, projectRootForQueue);
                         // Build clickable file list (생성/수정: clickable, 삭제: plain)
                         const fileListLines = fileOperations.map(op => {
                             const typeLabel = op.type === 'create' ? '생성' : op.type === 'modify' ? '수정' : '삭제';
@@ -16293,6 +16300,8 @@ async function handleInteractiveCommand(command, projectRoot) {
     let stdoutAgg = '';
     try {
         const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        // Normalize PowerShell -EncodedCommand into -Command with decoded script to avoid CLIXML and cmdlet-not-found
+        cleanCommand = normalizeEncodedPowerShellCommand(cleanCommand);
         console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${cleanCommand}"`);
         channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${cleanCommand}`);
         channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
@@ -16444,7 +16453,7 @@ async function handleInteractiveCommand(command, projectRoot) {
         channel.appendLine(`[WARN] VS Code 터미널 실행 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
         channel.appendLine(`[ERROR] Execution error details: ${JSON.stringify(e)}`);
         console.error(`[TerminalManager] VS Code terminal execution failed:`, e);
-        const result = await (0, processRunner_1.runCommandCapture)(cleanCommand, { cwd, shell: true }, (chunk) => {
+        const result = await (0, processRunner_1.runCommandCapture)(normalizeEncodedPowerShellCommand(cleanCommand), { cwd, shell: true }, (chunk) => {
             chunk.split(/\r?\n/).forEach(line => {
                 const cleaned = sanitizeOutput(line).trim();
                 if (!cleaned)
@@ -16955,7 +16964,8 @@ async function getCorrectedCommand(failedCommand, errorOutput, cwd) {
         const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
-작업 디렉토리: ${cwd}
+프로젝트 루트: ${_projectRoot || '(unknown)'}
+작업 디렉토리(CWD): ${cwd}
 오류 출력:
 ${cleanedErrorOutput}
 
@@ -17091,6 +17101,16 @@ async function handleCommandError(failedCommand, errorOutput, cwd, onRetry) {
             return false;
         if (t === '""' || t === "''")
             return false;
+        // Reject placeholders or angle-bracket templates often produced by LLM
+        if (/[<>]/.test(t))
+            return false;
+        if (/Your(Command|ActualCommand)(Here)?/i.test(t))
+            return false;
+        // Ban mvn/gradle suggestions when project type is not confirmed (conservative default)
+        if (/\bmvn(\.cmd)?\b/i.test(t))
+            return false;
+        if (/\bgradle(w)?\b/i.test(t))
+            return false;
         if (/^```/.test(t))
             return false;
         if (t.length < 2)
@@ -17221,6 +17241,36 @@ async function sendErrorCorrectionSummary() {
     }
     catch (error) {
         console.error('[TerminalManager] 오류 수정 종합 설명 전송 실패:', error);
+    }
+}
+function normalizeEncodedPowerShellCommand(cmd) {
+    try {
+        const m = cmd.match(/^(\s*powershell(?:\.exe)?\b[\s\S]*?)\s-EncodedCommand\s+([A-Za-z0-9+/=]+)([\s\S]*)$/i);
+        if (!m)
+            return cmd;
+        const prefix = m[1];
+        const b64 = m[2];
+        const suffix = (m[3] || '').trim();
+        let decoded = '';
+        try {
+            const buf = Buffer.from(b64, 'base64');
+            // Try UTF-16LE first as PowerShell expects
+            decoded = buf.toString('utf16le');
+            // Heuristic: if most chars are NULs or unreadable, fallback to utf8
+            const highNulRatio = (decoded.match(/\u0000/g) || []).length / Math.max(1, decoded.length);
+            if (highNulRatio > 0.3) {
+                decoded = buf.toString('utf8');
+            }
+        }
+        catch {
+            return cmd; // keep original if decode fails
+        }
+        const script = decoded.replace(/\r\n/g, '\n').trim();
+        const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '')} -Command "& { ${script.replace(/"/g, '\\"')} }"`;
+        return rebuilt + (suffix ? ` ${suffix}` : '');
+    }
+    catch {
+        return cmd;
     }
 }
 
@@ -20577,8 +20627,38 @@ ${osSpecificGuidelines}`;
         let hasErrors = false;
         const foundErrors = [];
         console.log(`[TerminalMonitorService] checkForErrors called with: "${output}"`);
+        // Normalize CLIXML noise and extract human-readable error text
+        const sanitize = (text) => {
+            if (!text)
+                return '';
+            let t = text;
+            t = t.replace(/_x000D__x000A_/g, '\n');
+            t = t.replace(/<Objs[\s\S]*?>/g, '')
+                .replace(/<\/Objs>/g, '')
+                .replace(/<Obj[\s\S]*?>/g, '')
+                .replace(/<\/Obj>/g, '')
+                .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
+                .replace(/<[^>]+>/g, '');
+            t = t.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+            return t;
+        };
+        const cleaned = sanitize(output);
+        // Detect PowerShell common errors (both ko/en)
+        const errorRegexes = [
+            { pattern: 'CommandNotFound', severity: 'high', description: '명령 또는 cmdlet을 찾을 수 없음', re: /(CommandNotFoundException|용어가\s+cmdlet|용어가\s+함수|용어가\s+스크립트)/i },
+            { pattern: 'AccessDenied', severity: 'high', description: '권한/실행정책 문제', re: /(Access\s+is\s+denied|UnauthorizedAccess|실행할\s+수\s+없습니다|ExecutionPolicy)/i },
+            { pattern: 'FileNotFound', severity: 'medium', description: '파일/경로 없음', re: /(No\s+such\s+file|경로가\s+올바른지|찾을\s+수\s+없습니다)/i },
+            { pattern: 'SyntaxError', severity: 'medium', description: '구문 오류', re: /(ParserError|Unexpected\s+token|예기치\s+않은\s+토큰)/i },
+            { pattern: 'PythonNotFound', severity: 'medium', description: 'Python 미설치/경로문제', re: /(Python\s+not\s+found|py(thon)?\s+.*not\s+found)/i },
+        ];
+        for (const r of errorRegexes) {
+            if (r.re.test(cleaned)) {
+                hasErrors = true;
+                foundErrors.push({ pattern: r.pattern, severity: r.severity, description: r.description });
+            }
+        }
         // pom.xml 관련 오류 감지
-        if (this.isPomXmlError(output)) {
+        if (this.isPomXmlError(cleaned)) {
             hasErrors = true;
             foundErrors.push({
                 pattern: 'pom.xml-error',
@@ -20590,7 +20670,7 @@ ${osSpecificGuidelines}`;
             this.handlePomXmlError();
         }
         for (const errorPattern of this.errorPatterns) {
-            if (errorPattern.regex && errorPattern.regex.test(output)) {
+            if (errorPattern.regex && errorPattern.regex.test(cleaned)) {
                 hasErrors = true;
                 foundErrors.push({
                     pattern: errorPattern.pattern,

@@ -836,8 +836,39 @@ ${osSpecificGuidelines}`;
 
         console.log(`[TerminalMonitorService] checkForErrors called with: "${output}"`);
 
+        // Normalize CLIXML noise and extract human-readable error text
+        const sanitize = (text: string): string => {
+            if (!text) return '';
+            let t = text;
+            t = t.replace(/_x000D__x000A_/g, '\n');
+            t = t.replace(/<Objs[\s\S]*?>/g, '')
+                 .replace(/<\/Objs>/g, '')
+                 .replace(/<Obj[\s\S]*?>/g, '')
+                 .replace(/<\/Obj>/g, '')
+                 .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
+                 .replace(/<[^>]+>/g, '');
+            t = t.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+            return t;
+        };
+        const cleaned = sanitize(output);
+
+        // Detect PowerShell common errors (both ko/en)
+        const errorRegexes: { pattern: string; severity: 'medium' | 'high'; description: string; re: RegExp }[] = [
+            { pattern: 'CommandNotFound', severity: 'high', description: '명령 또는 cmdlet을 찾을 수 없음', re: /(CommandNotFoundException|용어가\s+cmdlet|용어가\s+함수|용어가\s+스크립트)/i },
+            { pattern: 'AccessDenied', severity: 'high', description: '권한/실행정책 문제', re: /(Access\s+is\s+denied|UnauthorizedAccess|실행할\s+수\s+없습니다|ExecutionPolicy)/i },
+            { pattern: 'FileNotFound', severity: 'medium', description: '파일/경로 없음', re: /(No\s+such\s+file|경로가\s+올바른지|찾을\s+수\s+없습니다)/i },
+            { pattern: 'SyntaxError', severity: 'medium', description: '구문 오류', re: /(ParserError|Unexpected\s+token|예기치\s+않은\s+토큰)/i },
+            { pattern: 'PythonNotFound', severity: 'medium', description: 'Python 미설치/경로문제', re: /(Python\s+not\s+found|py(thon)?\s+.*not\s+found)/i },
+        ];
+        for (const r of errorRegexes) {
+            if (r.re.test(cleaned)) {
+                hasErrors = true;
+                foundErrors.push({ pattern: r.pattern, severity: r.severity, description: r.description });
+            }
+        }
+
         // pom.xml 관련 오류 감지
-        if (this.isPomXmlError(output)) {
+        if (this.isPomXmlError(cleaned)) {
             hasErrors = true;
             foundErrors.push({
                 pattern: 'pom.xml-error',
@@ -851,7 +882,7 @@ ${osSpecificGuidelines}`;
         }
 
         for (const errorPattern of this.errorPatterns) {
-            if (errorPattern.regex && errorPattern.regex.test(output)) {
+            if (errorPattern.regex && errorPattern.regex.test(cleaned)) {
                 hasErrors = true;
                 foundErrors.push({
                     pattern: errorPattern.pattern,

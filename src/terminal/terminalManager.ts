@@ -424,6 +424,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
     try {
         const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        // Normalize PowerShell -EncodedCommand into -Command with decoded script to avoid CLIXML and cmdlet-not-found
+        cleanCommand = normalizeEncodedPowerShellCommand(cleanCommand);
         console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${cleanCommand}"`);
         channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${cleanCommand}`);
         channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
@@ -595,7 +597,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         channel.appendLine(`[ERROR] Execution error details: ${JSON.stringify(e)}`);
         console.error(`[TerminalManager] VS Code terminal execution failed:`, e);
         const result = await runCommandCapture(
-            cleanCommand,
+            normalizeEncodedPowerShellCommand(cleanCommand),
             { cwd, shell: true },
             (chunk) => {
                 chunk.split(/\r?\n/).forEach(line => {
@@ -1270,6 +1272,9 @@ export async function handleCommandError(
         // Reject placeholders or angle-bracket templates often produced by LLM
         if (/[<>]/.test(t)) return false;
         if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
+        // Ban mvn/gradle suggestions when project type is not confirmed (conservative default)
+        if (/\bmvn(\.cmd)?\b/i.test(t)) return false;
+        if (/\bgradle(w)?\b/i.test(t)) return false;
         if (/^```/.test(t)) return false;
         if (t.length < 2) return false;
         return true;
@@ -1408,5 +1413,33 @@ async function sendErrorCorrectionSummary(): Promise<void> {
         console.log('[TerminalManager] 오류 수정 종합 설명을 채팅창에 전송했습니다.');
     } catch (error) {
         console.error('[TerminalManager] 오류 수정 종합 설명 전송 실패:', error);
+    }
+}
+
+function normalizeEncodedPowerShellCommand(cmd: string): string {
+    try {
+        const m = cmd.match(/^(\s*powershell(?:\.exe)?\b[\s\S]*?)\s-EncodedCommand\s+([A-Za-z0-9+/=]+)([\s\S]*)$/i);
+        if (!m) return cmd;
+        const prefix = m[1];
+        const b64 = m[2];
+        const suffix = (m[3] || '').trim();
+        let decoded = '';
+        try {
+            const buf = Buffer.from(b64, 'base64');
+            // Try UTF-16LE first as PowerShell expects
+            decoded = buf.toString('utf16le');
+            // Heuristic: if most chars are NULs or unreadable, fallback to utf8
+            const highNulRatio = (decoded.match(/\u0000/g) || []).length / Math.max(1, decoded.length);
+            if (highNulRatio > 0.3) {
+                decoded = buf.toString('utf8');
+            }
+        } catch {
+            return cmd; // keep original if decode fails
+        }
+        const script = decoded.replace(/\r\n/g, '\n').trim();
+        const rebuilt = `${prefix.replace(/\s-OutputFormat\s+Text/i, '')} -Command "& { ${script.replace(/"/g, '\\"')} }"`;
+        return rebuilt + (suffix ? ` ${suffix}` : '');
+    } catch {
+        return cmd;
     }
 }

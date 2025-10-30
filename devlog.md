@@ -37,6 +37,24 @@
 
 ## 2025-10-31
 
+### 항목 #0018
+- 커밋 해시: d11dc998a94dc51a7da47082c97fae14c61a92ce
+- 커밋 메시지: feat(terminal): pass projectRoot to queue and error-correction; fix placeholder guards; feat(utils): string shell capture; fix(llm): enqueue with projectRoot
+- 범위(scope): terminal, utils, llm
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:16:31 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - devlog.md
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/ai/llmResponseProcessor.ts
+  - src/terminal/terminalManager.ts
+  - src/utils/processRunner.ts
+  - webview/chat.html
+- 요약(변경 이유/영향): 프로젝트 루트 전달로 큐/오류수정 흐름 일관화, 플레이스홀더 가드 보강, 셸 출력 캡처 유틸 추가, LLM 큐 등록 시 projectRoot 반영.
+- 비고:
+
 ### 항목 #0002
 - 커밋 해시: 7399e91a121b69f9e8100624da111ea1dd2be1cc
 - 커밋 메시지: feat(terminal): auto-exec PowerShell via -EncodedCommand; cmd.exe enforcement for CMD blocks fix(planner): prevent duplicate command rendering; strip code blocks from plan output feat(context): include project file inventory snapshot in LLM context chore: quiet unnecessary logs and improve Windows path handling; add Run button for PS/CMD build: update dist bundles
