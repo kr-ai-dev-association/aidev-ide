@@ -66,10 +66,6 @@ if (autoExecuteToggle) {
     }
   });
 }
-const projectRootPathDisplay = document.getElementById('project-root-path-display');
-const selectProjectRootButton = document.getElementById('select-project-root-button');
-const clearProjectRootButton = document.getElementById('clear-project-root-button');
-const projectRootStatus = document.getElementById('project-root-status');
 
 // API 키 관련 요소들
 const weatherApiKeyInput = document.getElementById('weather-api-key-input');
@@ -430,20 +426,6 @@ function applyLanguage() {
     }
   });
 
-  // 프로젝트 루트 라벨
-  const projectRootLabel = document.getElementById('project-root-label');
-  if (projectRootLabel && languageData['projectRootLabel']) {
-    projectRootLabel.textContent = languageData['projectRootLabel'];
-    // console.log('Updated project root label:', languageData['projectRootLabel']);
-  }
-
-  // 프로젝트 루트 설명
-  const projectRootDescription = document.getElementById('project-root-description');
-  if (projectRootDescription && languageData['projectRootDescription']) {
-    projectRootDescription.textContent = languageData['projectRootDescription'];
-    // console.log('Updated project root description:', languageData['projectRootDescription']);
-  }
-
   // 소스 경로 라벨
   const sourcePathLabel = document.getElementById('source-path-label');
   if (sourcePathLabel && languageData['sourcePathLabel']) {
@@ -491,23 +473,11 @@ function applyLanguage() {
     // console.log('Updated external API keys title:', languageData['externalApiKeysTitle']);
   }
 
-  // 프로젝트 Root 선택 버튼
-  const selectProjectRootButton = document.getElementById('select-project-root-button');
-  if (selectProjectRootButton && languageData['addSourcePathButton']) {
-    selectProjectRootButton.textContent = languageData['addSourcePathButton'];
-    // console.log('Updated select project root button:', languageData['addSourcePathButton']);
-  }
-
   // 기타 설명 텍스트들 (p 태그들) - 더 정확한 매칭으로 개선
   const infoMessages = document.querySelectorAll('.info-message');
   infoMessages.forEach(msg => {
     const text = msg.textContent;
-    if (text && (text.includes('CodePilot이 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다') || text.includes('Set the directory that CodePilot will recognize') || text.includes('Establece el directorio que CodePilot reconocerá') || text.includes('Définissez le répertoire que CodePilot reconnaîtra') || text.includes('設定 CodePilot 将识别为项目顶级路径的目录') || text.includes('CodePilotがプロジェクトの最上位パスとして認識するディレクトリを設定します'))) {
-      // 프로젝트 Root 설명
-      if (languageData['projectRootDescription']) {
-        msg.textContent = languageData['projectRootDescription'];
-      }
-    } else if (text && (text.includes('CodePilot이 AI 응답을 생성할 때 참조할 소스 코드 경로 목록입니다') || text.includes('This is a list of source code paths that CodePilot will reference') || text.includes('Esta es una lista de rutas de código fuente que CodePilot referenciará') || text.includes('Ceci est une liste de chemins de code source que CodePilot référencera') || text.includes('这是 CodePilot 在生成 AI 响应时将引用的源代码路径列表') || text.includes('これは、CodePilotがAI応答を生成する際に参照するソースコードパスのリストです'))) {
+    if (text && (text.includes('CodePilot이 AI 응답을 생성할 때 참조할 소스 코드 경로 목록입니다') || text.includes('This is a list of source code paths that CodePilot will reference') || text.includes('Esta es una lista de rutas de código fuente que CodePilot referenciará') || text.includes('Ceci est une liste de chemins de code source que CodePilot référencera') || text.includes('这是 CodePilot 在生成 AI 响应时将引用的源代码路径列表') || text.includes('これは、CodePilotがAI応答を生成する際に参照するソースコードパスのリストです'))) {
       // 소스 경로 설명
       if (languageData['sourcePathDescription']) {
         msg.textContent = languageData['sourcePathDescription'];
@@ -568,12 +538,6 @@ function applyLanguage() {
       autoUpdateStatus.textContent = languageData['autoUpdateLoading'];
     }
   }
-  if (languageData['projectRootLoading'] && projectRootStatus) {
-    const currentText = projectRootStatus.textContent;
-    if (currentText === '프로젝트 Root 설정 로드 중...' || currentText === 'Loading project root settings...' || currentText === 'Cargando configuración de raíz del proyecto...' || currentText === 'Chargement des paramètres de racine de projet...' || currentText === '正在加载项目根目录设置...' || currentText === 'プロジェクトルート設定を読み込み中...' || currentText === 'Lade Projekt-Stammverzeichnis-Einstellungen...') {
-      projectRootStatus.textContent = languageData['projectRootLoading'];
-    }
-  }
 
   // 소스 경로 리스트 업데이트 (언어 데이터가 로드된 후)
   if (sourcePathsList) {
@@ -584,15 +548,6 @@ function applyLanguage() {
         // 현재 "지정된 경로 없음" 상태라면 언어 변경 시 업데이트
         updateSourcePathsList([]);
       }
-    }
-  }
-
-  // 언어 데이터가 로드된 후 즉시 프로젝트 Root 표시 업데이트
-  if (projectRootPathDisplay) {
-    const currentText = projectRootPathDisplay.textContent;
-    // 프로젝트 Root가 설정되지 않은 상태라면 언어 변경 시 즉시 업데이트
-    if (!currentText.includes('/') && !currentText.includes('\\')) {
-      updateProjectRootDisplay(null);
     }
   }
 
@@ -940,24 +895,6 @@ if (saveLanguageButton) {
 
 // 페이지 로드 시 기본 언어 적용 (제거 - 중복 방지)
 
-// UI 업데이트 함수 (프로젝트 Root)
-function updateProjectRootDisplay(rootPath) {
-  if (projectRootPathDisplay) {
-    if (rootPath) {
-      projectRootPathDisplay.textContent = rootPath;
-      projectRootPathDisplay.title = rootPath;
-    } else {
-      const noProjectRootText = languageData['noProjectRootSet'] || '설정된 프로젝트 Root 없음';
-      console.log('Updating project root display - no root path');
-      console.log('Language data available:', !!languageData);
-      console.log('Translation key value:', languageData['noProjectRootSet']);
-      console.log('Final text to display:', noProjectRootText);
-      projectRootPathDisplay.textContent = noProjectRootText;
-      projectRootPathDisplay.title = noProjectRootText;
-    }
-  }
-}
-
 // 상태 메시지 표시
 function showStatus(element, message, type = 'info', duration = 3000) {
   if (!element) return;
@@ -969,29 +906,6 @@ function showStatus(element, message, type = 'info', duration = 3000) {
       element.className = 'info-message';
     }, duration);
   }
-}
-
-// 이벤트 리스너: 프로젝트 Root 선택 버튼
-if (selectProjectRootButton) {
-  selectProjectRootButton.addEventListener('click', () => {
-    const projectRootSelectionText = languageData['projectRootSelectionDialog'] || '프로젝트 Root 선택 창 열림...';
-    showStatus(projectRootStatus, projectRootSelectionText, 'info');
-    vscode.postMessage({
-      command: 'setProjectRoot'
-    });
-  });
-}
-
-// 이벤트 리스너: 프로젝트 Root 지우기 버튼
-if (clearProjectRootButton) {
-  clearProjectRootButton.addEventListener('click', () => {
-    const clearingProjectRootText = languageData['clearingProjectRoot'] || '프로젝트 Root 지우는 중...';
-    showStatus(projectRootStatus, clearingProjectRootText, 'info');
-    vscode.postMessage({
-      command: 'setProjectRoot',
-      clear: true
-    }); // clear 플래그 전송
-  });
 }
 
 // 이벤트 리스너: 자동 업데이트 토글
@@ -1610,11 +1524,6 @@ window.addEventListener('message', event => {
         loadLanguage(message.language);
       }
 
-      // 프로젝트 루트 설정 처리
-      if (typeof message.projectRoot === 'string') {
-        updateProjectRootDisplay(message.projectRoot);
-      }
-
       // Ollama 모델 설정 처리
       if (message.ollamaModel && message.ollamaModel !== '') {
         // console.log('[Settings] Storing Ollama model from currentSettings:', message.ollamaModel);
@@ -1853,23 +1762,6 @@ window.addEventListener('message', event => {
         }
       }
       break;
-    case 'updatedProjectRoot':
-      // console.log('Received updatedProjectRoot message:', message);
-      if (message.success === false) {
-        // 설정 실패 또는 취소된 경우
-        const errorText = message.error || '프로젝트 Root 설정에 실패했습니다.';
-        showStatus(projectRootStatus, errorText, 'error');
-        console.error('프로젝트 Root 설정 실패:', errorText);
-      } else {
-        // 성공한 경우 (success가 true이거나 undefined인 경우)
-        updateProjectRootDisplay(message.projectRoot);
-        const projectRootUpdatedText = languageData['projectRootUpdated'] || '프로젝트 Root 업데이트 완료:';
-        const projectRootClearedText = languageData['projectRootCleared'] || '프로젝트 Root가 지워졌습니다.';
-        const statusText = message.projectRoot ? `${projectRootUpdatedText} ${message.projectRoot}` : projectRootClearedText;
-        showStatus(projectRootStatus, statusText, 'success');
-        console.log('프로젝트 Root 설정 성공:', message.projectRoot);
-      }
-      break;
     case 'autoUpdateStatusChanged':
       if (typeof message.enabled === 'boolean' && autoUpdateToggle) {
         autoUpdateToggle.checked = message.enabled;
@@ -1914,24 +1806,6 @@ window.addEventListener('message', event => {
           errorRetrySpinner.style.opacity = message.enabled ? '1' : '0.5';
         }
       }
-      break;
-    case 'projectRootPathSaved':
-      const projectRootSavedText = languageData['projectRootSaved'] || '프로젝트 Root 경로가 저장되었습니다.';
-      showStatus(projectRootStatus, projectRootSavedText, 'success');
-      updateProjectRootDisplay(message.projectRootPath);
-      break;
-    case 'projectRootPathCleared':
-      const projectRootClearedText = languageData['projectRootCleared'] || '프로젝트 Root 경로가 지워졌습니다.';
-      showStatus(projectRootStatus, projectRootClearedText, 'success');
-      updateProjectRootDisplay('');
-      break;
-    case 'projectRootPathCancelled':
-      const projectRootCancelledText = languageData['projectRootCancelled'] || '프로젝트 Root 선택이 취소되었습니다.';
-      showStatus(projectRootStatus, projectRootCancelledText, 'info');
-      break;
-    case 'projectRootPathError':
-      const projectRootErrorText = languageData['projectRootError'] || '오류 (프로젝트 Root 설정):';
-      showStatus(projectRootStatus, `${projectRootErrorText} ${message.error}`, 'error');
       break;
     case 'currentApiKeys':
       // API 키 상태 로드

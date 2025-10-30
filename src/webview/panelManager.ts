@@ -65,7 +65,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
                         const outputLogEnabled = await storageService.getOutputLogEnabled();
                         const errorRetryCount = await storageService.getErrorRetryCount();
-                        const projectRootPath = await storageService.getProjectRootPath();
                         const weatherApiKey = await storageService.getWeatherApiKey();
                         const newsApiKey = await storageService.getNewsApiKey();
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
@@ -93,7 +92,6 @@ export function openSettingsPanel(
                             outputLogEnabled: outputLogEnabled || false,
                             autoUpdateEnabled: autoUpdateEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            projectRoot: projectRootPath || '',
                             weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
@@ -473,32 +471,6 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage(`Error deleting Banya License Serial: ${error.message}`);
                     }
                     break;
-                case 'saveProjectRootPath': // 프로젝트 루트 경로 저장 케이스 추가
-                    const projectRootPathToSave = data.projectRootPath;
-                    if (projectRootPathToSave && typeof projectRootPathToSave === 'string') {
-                        try {
-                            await storageService.saveProjectRootPath(projectRootPathToSave);
-                            safePostMessage(panel, { command: 'projectRootPathSaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Project Root Path saved.');
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'projectRootPathSaveError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving Project Root Path: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'projectRootPathSaveError', error: 'Invalid Project Root Path' });
-                        notificationService.showErrorMessage('Invalid Project Root Path provided.');
-                    }
-                    break;
-                case 'clearProjectRootPath': // 프로젝트 루트 경로 삭제 케이스 추가
-                    try {
-                        await storageService.clearProjectRootPath();
-                        safePostMessage(panel, { command: 'projectRootPathCleared' });
-                        notificationService.showInfoMessage('AIDEV-IDE: Project Root Path cleared.');
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'projectRootPathClearError', error: error.message });
-                        notificationService.showErrorMessage(`Error clearing Project Root Path: ${error.message}`);
-                    }
-                    break;
                 case 'setAutoUpdate': // 자동 업데이트 설정 저장 케이스 (별칭)
                 case 'saveAutoUpdateEnabled': // 자동 업데이트 설정 저장 케이스 추가
                     const autoUpdateEnabledToSave = data.autoUpdateEnabled;
@@ -667,38 +639,6 @@ export function openSettingsPanel(
                         console.error('[PanelManager] Invalid language setting provided:', languageToSave);
                         safePostMessage(panel, { command: 'languageSaveError', error: 'Invalid language setting' });
                         notificationService.showErrorMessage('Invalid language setting provided.');
-                    }
-                    break;
-                case 'setProjectRoot': // 프로젝트 Root 설정 케이스 추가
-                    try {
-                        if (data.clear) {
-                            // 프로젝트 Root 지우기
-                            await storageService.clearProjectRootPath();
-                            safePostMessage(panel, { command: 'projectRootPathCleared' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Project root path cleared.');
-                        } else {
-                            // 프로젝트 Root 선택 다이얼로그 열기
-                            const selectedFolder = await vscode.window.showOpenDialog({
-                                canSelectFiles: false,
-                                canSelectFolders: true,
-                                canSelectMany: false,
-                                openLabel: 'Select Project Root',
-                                title: 'Select Project Root Directory'
-                            });
-
-                            if (selectedFolder && selectedFolder.length > 0) {
-                                const projectRootPath = selectedFolder[0].fsPath;
-                                await storageService.saveProjectRootPath(projectRootPath);
-                                safePostMessage(panel, { command: 'projectRootPathSaved', projectRootPath });
-                                notificationService.showInfoMessage(`AIDEV-IDE: Project root path set to: ${projectRootPath}`);
-                            } else {
-                                safePostMessage(panel, { command: 'projectRootPathCancelled' });
-                            }
-                        }
-                    } catch (error: any) {
-                        console.error('Error setting project root:', error);
-                        safePostMessage(panel, { command: 'projectRootPathError', error: error.message });
-                        notificationService.showErrorMessage(`Error setting project root: ${error.message}`);
                     }
                     break;
                 case 'testOllamaConnection': // Ollama 연결 테스트 케이스 추가
@@ -1022,7 +962,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
                         const outputLogEnabled = await storageService.getOutputLogEnabled();
                         const errorRetryCount = await storageService.getErrorRetryCount();
-                        const projectRootPath = await storageService.getProjectRootPath();
                         const weatherApiKey = await storageService.getWeatherApiKey();
                         const newsApiKey = await storageService.getNewsApiKey();
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
@@ -1044,7 +983,6 @@ export function openSettingsPanel(
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            projectRoot: projectRootPath || '',
                             weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
@@ -1074,7 +1012,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
                         const outputLogEnabled = await storageService.getOutputLogEnabled();
                         const errorRetryCount = await storageService.getErrorRetryCount();
-                        const projectRootPath = await storageService.getProjectRootPath();
                         const weatherApiKey = await storageService.getWeatherApiKey();
                         const newsApiKey = await storageService.getNewsApiKey();
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
@@ -1096,7 +1033,6 @@ export function openSettingsPanel(
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            projectRoot: projectRootPath || '',
                             weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
