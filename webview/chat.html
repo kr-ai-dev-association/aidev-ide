@@ -2015,10 +2015,10 @@
                 if (!nameEl) return;
                 const stepName = (nameEl.textContent || '').toLowerCase().replace(' ', '');
                 if (stepName.includes(String(step).toLowerCase())) {
-                    const statusElement = stepElement.querySelector('.step-status');
+                        const statusElement = stepElement.querySelector('.step-status');
                     if (!statusElement) return;
-                    statusElement.textContent = status;
-                    statusElement.className = 'step-status active';
+                            statusElement.textContent = status;
+                            statusElement.className = 'step-status active';
                 }
             });
         }
