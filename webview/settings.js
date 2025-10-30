@@ -478,12 +478,12 @@ function applyLanguage() {
     const infoMessages = document.querySelectorAll('.info-message');
     infoMessages.forEach(msg => {
         const text = msg.textContent;
-        if (text && (text.includes('CodePilot이 AI 응답을 생성할 때 참조할 소스 코드 경로 목록입니다') ||
-            text.includes('This is a list of source code paths that CodePilot will reference') ||
-            text.includes('Esta es una lista de rutas de código fuente que CodePilot referenciará') ||
-            text.includes('Ceci est une liste de chemins de code source que CodePilot référencera') ||
-            text.includes('这是 CodePilot 在生成 AI 响应时将引用的源代码路径列表') ||
-            text.includes('これは、CodePilotがAI応答を生成する際に参照するソースコードパスのリストです'))) {
+        if (text && (text.includes('AIDEV-IDE이 AI 응답을 생성할 때 참조할 소스 코드 경로 목록입니다') ||
+            text.includes('This is a list of source code paths that AIDEV-IDE will reference') ||
+            text.includes('Esta es una lista de rutas de código fuente que AIDEV-IDE referenciará') ||
+            text.includes('Ceci est une liste de chemins de code source que AIDEV-IDE référencera') ||
+            text.includes('这是 AIDEV-IDE 在生成 AI 响应时将引用的源代码路径列表') ||
+            text.includes('これは、AIDEV-IDEがAI応答を生成する際に参照するソースコードパスのリストです'))) {
             // 소스 경로 설명
             if (languageData['sourcePathDescription']) {
                 msg.textContent = languageData['sourcePathDescription'];
@@ -509,12 +509,12 @@ function applyLanguage() {
             if (languageData['settingsSavedImmediately']) {
                 msg.textContent = languageData['settingsSavedImmediately'];
             }
-        } else if (text && (text.includes('CodePilot의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
-            text.includes('Set the Gemini API key to use CodePilot\'s AI features') ||
-            text.includes('Establece la clave API de Gemini para usar las funciones de IA de CodePilot') ||
-            text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de CodePilot') ||
-            text.includes('设置 Gemini API 密钥以使用 CodePilot 的 AI 功能') ||
-            text.includes('CodePilotのAI機能を使用するためのGemini APIキーを設定します'))) {
+        } else if (text && (text.includes('AIDEV-IDE의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
+            text.includes('Set the Gemini API key to use AIDEV-IDE\'s AI features') ||
+            text.includes('Establece la clave API de Gemini para usar las funciones de IA de AIDEV-IDE') ||
+            text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de AIDEV-IDE') ||
+            text.includes('设置 Gemini API 密钥以使用 AIDEV-IDE 的 AI 功能') ||
+            text.includes('AIDEV-IDEのAI機能を使用するためのGemini APIキーを設定します'))) {
             // Gemini API 설명
             if (languageData['geminiApiDescription']) {
                 msg.textContent = languageData['geminiApiDescription'];

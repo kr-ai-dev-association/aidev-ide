@@ -4432,7 +4432,7 @@ ${relativeFileList.slice(0, 100).join('\n')}${relativeFileList.length > 100 ? `\
             fileContentsContext += "[정보] 설정된 경로에서 컨텍스트에 포함할 파일을 찾지 못했습니다. 파일 확장자나 경로 설정을 확인해주세요.\n";
         }
         else if (sourcePathsSetting.length === 0) {
-            fileContentsContext += "[정보] 참조할 소스 경로가 설정되지 않았습니다. CodePilot 설정에서 경로를 추가해주세요.\n";
+            fileContentsContext += "[정보] 참조할 소스 경로가 설정되지 않았습니다. AIDEV-IDE 설정에서 경로를 추가해주세요.\n";
         }
         // 중복 파일 제거 (파일명 기준)
         const deduplicatedFiles = this.removeDuplicateFiles(includedFilesForContext);
@@ -23782,6 +23782,9 @@ ollamaBlockerService // OllamaBlockerService 추가
                     const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                     const isLicenseVerified = await storageService.getIsLicenseVerified();
                     const aiModel = await storageService.getAiModel();
+                    const currentAiModel = await storageService.getCurrentAiModel();
+                    // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
+                    const modelToUse = currentAiModel || aiModel || 'gemini';
                     const planningModelValue = await storageService.getPlanningModel();
                     const language = await storageService.getLanguage();
                     const autoUpdateEnabled = await storageService.getAutoUpdateEnabled();
@@ -23807,7 +23810,7 @@ ollamaBlockerService // OllamaBlockerService 추가
                         newsApiKey: newsApiKey || '',
                         banyaLicenseSerial: banyaLicenseSerial || '',
                         isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
-                        aiModel: aiModel || 'gemini', // AI 모델 정보 추가
+                        aiModel: modelToUse, // AI 모델 정보 추가
                         planningModel: planningModelValue || '',
                         language: language || 'ko', // 언어 설정 추가
                         autoExecuteCommandsEnabled: autoExecuteCommandsEnabled // 명령어 자동 실행 설정 추가
@@ -24809,6 +24812,9 @@ ollamaBlockerService // OllamaBlockerService 추가
                     const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                     const isLicenseVerified = await storageService.getIsLicenseVerified();
                     const aiModel = await storageService.getAiModel();
+                    const currentAiModel = await storageService.getCurrentAiModel();
+                    // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
+                    const modelToUse = currentAiModel || aiModel || 'gemini';
                     const messageToSend = {
                         command: 'currentSettings',
                         apiKey: apiKey || '',
@@ -24828,7 +24834,7 @@ ollamaBlockerService // OllamaBlockerService 추가
                         newsApiKey: newsApiKey || '',
                         banyaLicenseSerial: banyaLicenseSerial || '',
                         isLicenseVerified: isLicenseVerified,
-                        aiModel: aiModel || 'gemini'
+                        aiModel: modelToUse
                     };
                     // console.log('[PanelManager] Sending currentSettings message:', messageToSend);
                     // console.log('[PanelManager] Message ollamaModel value:', messageToSend.ollamaModel);
@@ -24852,7 +24858,10 @@ ollamaBlockerService // OllamaBlockerService 추가
             case 'loadAiModel': // AI 모델 로드
                 try {
                     const aiModel = await storageService.getAiModel();
-                    safePostMessage(panel, { command: 'aiModelLoaded', aiModel });
+                    const currentAiModel = await storageService.getCurrentAiModel();
+                    // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
+                    const modelToSend = currentAiModel || aiModel;
+                    safePostMessage(panel, { command: 'currentAiModel', model: modelToSend });
                 }
                 catch (error) {
                     console.error('Error loading AI model:', error);

@@ -1646,7 +1646,7 @@ ${relativeFileList.slice(0, 100).join('\n')}${relativeFileList.length > 100 ? `\
         if (includedFilesForContext.length === 0 && sourcePathsSetting.length > 0) {
             fileContentsContext += "[정보] 설정된 경로에서 컨텍스트에 포함할 파일을 찾지 못했습니다. 파일 확장자나 경로 설정을 확인해주세요.\n";
         } else if (sourcePathsSetting.length === 0) {
-            fileContentsContext += "[정보] 참조할 소스 경로가 설정되지 않았습니다. CodePilot 설정에서 경로를 추가해주세요.\n";
+            fileContentsContext += "[정보] 참조할 소스 경로가 설정되지 않았습니다. AIDEV-IDE 설정에서 경로를 추가해주세요.\n";
         }
 
         // 중복 파일 제거 (파일명 기준)

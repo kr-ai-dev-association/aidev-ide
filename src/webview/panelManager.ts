@@ -70,6 +70,9 @@ export function openSettingsPanel(
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
                         const aiModel = await storageService.getAiModel();
+                        const currentAiModel = await storageService.getCurrentAiModel();
+                        // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
+                        const modelToUse = currentAiModel || aiModel || 'gemini';
                         const planningModelValue = await storageService.getPlanningModel();
                         const language = await storageService.getLanguage();
                         const autoUpdateEnabled = await storageService.getAutoUpdateEnabled();
@@ -96,7 +99,7 @@ export function openSettingsPanel(
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
-                            aiModel: aiModel || 'gemini', // AI 모델 정보 추가
+                            aiModel: modelToUse, // AI 모델 정보 추가
                             planningModel: planningModelValue || '',
                             language: language || 'ko', // 언어 설정 추가
                             autoExecuteCommandsEnabled: autoExecuteCommandsEnabled // 명령어 자동 실행 설정 추가
@@ -1017,6 +1020,9 @@ export function openSettingsPanel(
                         const banyaLicenseSerial = await storageService.getBanyaLicenseSerial();
                         const isLicenseVerified = await storageService.getIsLicenseVerified();
                         const aiModel = await storageService.getAiModel();
+                        const currentAiModel = await storageService.getCurrentAiModel();
+                        // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
+                        const modelToUse = currentAiModel || aiModel || 'gemini';
 
                         const messageToSend = {
                             command: 'currentSettings',
@@ -1037,7 +1043,7 @@ export function openSettingsPanel(
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified,
-                            aiModel: aiModel || 'gemini'
+                            aiModel: modelToUse
                         };
                         // console.log('[PanelManager] Sending currentSettings message:', messageToSend);
                         // console.log('[PanelManager] Message ollamaModel value:', messageToSend.ollamaModel);
@@ -1059,7 +1065,10 @@ export function openSettingsPanel(
                 case 'loadAiModel': // AI 모델 로드
                     try {
                         const aiModel = await storageService.getAiModel();
-                        safePostMessage(panel, { command: 'aiModelLoaded', aiModel });
+                        const currentAiModel = await storageService.getCurrentAiModel();
+                        // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
+                        const modelToSend = currentAiModel || aiModel;
+                        safePostMessage(panel, { command: 'currentAiModel', model: modelToSend });
                     } catch (error: any) {
                         console.error('Error loading AI model:', error);
                         safePostMessage(panel, { command: 'aiModelLoadError', error: error.message });

@@ -299,9 +299,9 @@ function attachCopyButtonListener(button, codeElement) {
   });
 }
 
-// CodePilot 메시지 버블 내부에서 코드 블록을 찾아 복사 버튼과 run 버튼을 추가하는 메인 함수
+// AIDEV-IDE 메시지 버블 내부에서 코드 블록을 찾아 복사 버튼과 run 버튼을 추가하는 메인 함수
 // 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
-// 인자로 CodePilot 메시지의 bubbleElement (DOM 요소)를 받습니다.
+// 인자로 AIDEV-IDE 메시지의 bubbleElement (DOM 요소)를 받습니다.
 function addCopyButtonsToCodeBlocks(bubbleElement) {
   // <-- export 키워드 유지
   if (!bubbleElement) return;

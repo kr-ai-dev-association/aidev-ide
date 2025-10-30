@@ -561,7 +561,7 @@ window.addEventListener('message', event => {
 
             if (message.sender === 'AIDEV-IDE' && message.text !== undefined) {
                 console.log('Calling displayCodePilotMessage with text length:', message.text.length);
-                window.displayCodePilotMessage(message.text); // CodePilot 메시지 표시
+                window.displayCodePilotMessage(message.text); // AIDEV-IDE 메시지 표시
             }
             break;
 
