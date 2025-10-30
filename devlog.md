@@ -37,6 +37,148 @@
 
 ## 2025-10-31
 
+### 항목 #0028 (로그 분석)
+- 지시: 제공된 런타임 로그 분석 및 주요 이슈 파악
+- 수행: 로그 분석 결과 정리
+- 결과:
+  - **ollama-blocker 설치 실패**: 서비스 계정 키 파일을 찾을 수 없어 설치 실패
+  - **PowerShell 실행 오류**: 
+    - EncodedCommand 디코딩 검증 실패 (cmdletIntegrityCheck=false)
+    - 디코딩된 스크립트에서 PowerShell cmdlet을 찾을 수 없음 (Test-Path, Split-Path, Join-Path, Write-Output 등)
+    - CLIXML 형식 오류 출력 감지
+    - 제한된 언어 모드(Constrained Language Mode) 환경에서 실행되는 것으로 추정
+  - **LLM 오류 수정 시도**:
+    - 1차 시도: PowerShell -Command 블록으로 재구성 (실패 - 여전히 cmdlet 미인식)
+    - 2차 시도: CMD 방식으로 전환 제안 (cmd /c를 사용한 Windows 네이티브 명령어 실행)
+    - 3차 시도: 간단한 mvn 명령어로 단순화 (작업 디렉터리 이동 + mvn clean package)
+  - **새로운 오류 패턴 발견**: "PowerShell cmdlet not found in constrained language sessions" 패턴 식별
+- 비고: PowerShell 제한 환경에서는 네이티브 shell(cmd.exe) 사용을 권장하는 것으로 확인됨. 오류 수정 로직의 폴백 전략 강화 필요.
+
+### 항목 #0021
+- 커밋 해시: 7c3e35614133e9e14f5261eb5bc5229eeca98d0a
+- 커밋 메시지: fix(settings): Improve AI model dropdown loading and remove CodePilot references - Remove UPDATED date from AI model settings title - Fix AI model dropdown to load saved model correctly (prioritize currentAiModel) - Replace all CodePilot references with AIDEV-IDE across all files and locales
+- 범위(scope): settings
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 07:02:17 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - dist/webview/ask.js
+  - dist/webview/ask.js.map
+  - dist/webview/chat.js
+  - dist/webview/chat.js.map
+  - dist/webview/codeCopy.js
+  - dist/webview/codeCopy.js.map
+  - dist/webview/settings.js
+  - dist/webview/settings.js.map
+  - src/ai/codebaseContextService.ts
+  - src/webview/panelManager.ts
+  - webview/ask.js
+  - webview/chat.js
+  - webview/codeCopy.js
+  - webview/locales/lang_de.json
+  - webview/locales/lang_en.json
+  - webview/locales/lang_es.json
+  - webview/locales/lang_fr.json
+  - webview/locales/lang_ja.json
+  - webview/locales/lang_zh.json
+  - webview/settings.html
+  - webview/settings.js
+- 요약(변경 이유/영향): AI 모델 드롭다운 로딩 개선, CodePilot 참조 제거 및 AIDEV-IDE로 전면 교체, 모든 로케일 파일 업데이트.
+- 비고:
+
+### 항목 #0022
+- 커밋 해시: 8d3c587d6be0d75015e4d04173fd5b94198ec00a
+- 커밋 메시지: refactor(settings): CodePilot Root 설정 UI 및 관련 코드 정리 - VS Code 다이얼로그 대신 사용
+- 범위(scope): settings
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:53:51 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - dist/webview/settings.js
+  - dist/webview/settings.js.map
+  - src/webview/panelManager.ts
+  - webview/settings.html
+  - webview/settings.js
+- 요약(변경 이유/영향): Root 설정 UI 리팩토링 및 관련 코드 정리, VS Code 다이얼로그 통합.
+- 비고:
+
+### 항목 #0023
+- 커밋 해시: d26cebb6cec4b5e5d96a5ece93918752b9df5df1
+- 커밋 메시지: feat(terminal): 이전 PowerShell 실행 오류 LLM 피드백 추가
+- 범위(scope): terminal
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:50:07 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/ai/terminalMonitorService.ts
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): PowerShell 실행 오류 발생 시 LLM 피드백 기능 추가.
+- 비고:
+
+### 항목 #0024
+- 커밋 해시: b8cdb377701c63c30b2e76a3a8118a4ae5a780f7
+- 커밋 메시지: fix(terminal): PowerShell 실행 오류 이전 피드백, JSON 파싱 폴백 먼저 적용 개선
+- 범위(scope): terminal
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:47:13 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/ai/terminalMonitorService.ts
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): PowerShell 오류 피드백 흐름 개선, JSON 파싱 폴백 처리 우선순위 조정.
+- 비고:
+
+### 항목 #0025
+- 커밋 해시: d2f0ec67b20b5a21f155af665001cdd9c924584a
+- 커밋 메시지: fix(terminal): 오류 해결 시 -Command 변경 및 JSON 파싱 개선
+- 범위(scope): terminal
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:44:16 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): 오류 해결 시 -Command 사용 전환 및 JSON 파싱 처리 개선.
+- 비고:
+
+### 항목 #0026
+- 커밋 해시: 1d0295a8241ad623353e9aebbea08a5325b5ff83
+- 커밋 메시지: fix(terminal): 인코딩 오류 시 -EncodedCommand 대신 PowerShell 직접 실행
+- 범위(scope): terminal
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:41:18 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): 인코딩 오류 시 -EncodedCommand 대신 PowerShell 직접 실행 방식 적용.
+- 비고:
+
+### 항목 #0027
+- 커밋 해시: 7bd617fb9eb175447f5ae53b0663b1dfb288ca05
+- 커밋 메시지: fix(terminal): 인코딩 PowerShell 명령 실행 오류 이전 피드백 전달
+- 범위(scope): terminal
+- 작성자(author): Administrator
+- 커밋 시간(date): 2025-10-31 06:38:26 +0900
+- 관련 이슈/PR:
+- 변경 파일:
+  - devlog.md
+  - dist/extension.js
+  - dist/extension.js.map
+  - src/terminal/terminalManager.ts
+- 요약(변경 이유/영향): PowerShell 인코딩 오류 발생 시 이전 피드백을 LLM에 전달하도록 개선.
+- 비고:
+
 ### 항목 #0019
 - 커밋 해시: abfed3a0c9286fdec1747ceac8fe3f74cebd26ad
 - 커밋 메시지: fix(terminal): PowerShell quote escaping; strengthen JSON fallback parser

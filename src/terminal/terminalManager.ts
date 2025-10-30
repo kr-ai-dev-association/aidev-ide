@@ -1334,7 +1334,7 @@ export async function handleCommandError(
 
     const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
 
-    const isValidCorrected = (cmd: string | null | undefined): cmd is string => {
+    const isValidCorrected = async (cmd: string | null | undefined): Promise<boolean> => {
         if (!cmd) return false;
         const t = cmd.trim();
         if (!t) return false;
@@ -1343,15 +1343,45 @@ export async function handleCommandError(
         // Reject placeholders or angle-bracket templates often produced by LLM
         if (/[<>]/.test(t)) return false;
         if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
-        // Ban mvn/gradle suggestions when project type is not confirmed (conservative default)
-        if (/\bmvn(\.cmd)?\b/i.test(t)) return false;
-        if (/\bgradle(w)?\b/i.test(t)) return false;
+        
+        // Check if this is a Spring Boot/Java project by looking for build files
+        let isSpringBootProject = false;
+        try {
+            isSpringBootProject = 
+                fs.existsSync(path.join(cwd, 'pom.xml')) ||
+                fs.existsSync(path.join(cwd, 'build.gradle')) ||
+                fs.existsSync(path.join(cwd, 'build.gradle.kts')) ||
+                fs.existsSync(path.join(cwd, 'mvnw.cmd')) ||
+                fs.existsSync(path.join(cwd, 'mvnw')) ||
+                fs.existsSync(path.join(cwd, 'gradlew')) ||
+                fs.existsSync(path.join(cwd, 'gradlew.bat'));
+        } catch (e) {
+            console.warn('[TerminalManager] 프로젝트 타입 확인 중 오류:', e);
+            // If we can't check, assume it might be a Spring Boot project to be safe
+            isSpringBootProject = true;
+        }
+        
+        // Only ban mvn/gradle if it's NOT a Spring Boot/Java project
+        if (!isSpringBootProject) {
+            if (/\bmvn(\.cmd)?\b/i.test(t)) {
+                console.log('[TerminalManager] Maven 명령어 차단: Spring Boot 프로젝트 아님');
+                return false;
+            }
+            if (/\bgradle(w)?\b/i.test(t)) {
+                console.log('[TerminalManager] Gradle 명령어 차단: Spring Boot 프로젝트 아님');
+                return false;
+            }
+        } else {
+            console.log('[TerminalManager] Spring Boot 프로젝트 확인됨, Maven/Gradle 명령어 허용');
+        }
+        
         if (/^```/.test(t)) return false;
         if (t.length < 2) return false;
         return true;
     };
 
-    if (isValidCorrected(correctedCommand)) {
+    const isValid = await isValidCorrected(correctedCommand);
+    if (isValid && correctedCommand) {
         console.log(`[TerminalManager] 수정된 명령어로 재시도: ${correctedCommand}`);
 
         // 웹뷰에 오류 수정 상태 전송
@@ -1410,7 +1440,11 @@ export async function handleCommandError(
 
         return true;
     } else {
-        console.log('[TerminalManager] 명령어 수정 불가능');
+        if (correctedCommand) {
+            console.log(`[TerminalManager] 명령어 수정 불가능 (검증 실패): ${correctedCommand.substring(0, 100)}...`);
+        } else {
+            console.log('[TerminalManager] 명령어 수정 불가능 (LLM이 명령어를 반환하지 않음)');
+        }
         _errorRetryCount = 0;
         return false;
     }
@@ -1543,14 +1577,31 @@ JSON 형식으로 응답해주세요:
             }
         }
         
-        // Fallback: extract command directly
-        const cmdMatch = fenceStripped.match(/"correctedCommand"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/i);
-        if (cmdMatch && cmdMatch[1]) {
-            let cmd = cmdMatch[1];
-            cmd = cmd.replace(/\\\\"/g, '"').replace(/\\\\/g, '\\').replace(/\\n/g, ' ').replace(/\\"/g, '"').replace(/\\r/g, '').replace(/\\t/g, ' ').trim();
-            if (cmd && cmd.length > 50) {
-                console.log('[TerminalManager] LLM 스크립트 복구 완료 (fallback)');
-                return cmd;
+        // Fallback: extract command directly with better regex for multiline commands
+        // Try multiple patterns to handle different JSON formats
+        const cmdPatterns = [
+            /"correctedCommand"\s*:\s*"((?:[^"\\]|\\.|\\\n)*)"/gi,  // Handle escaped quotes and newlines
+            /"correctedCommand"\s*:\s*"([^"]+)"/gi,  // Simple pattern
+            /correctedCommand["\s:]+"([^"]+)"/gi,  // Flexible pattern
+        ];
+        
+        for (const pattern of cmdPatterns) {
+            const cmdMatch = fenceStripped.match(pattern);
+            if (cmdMatch && cmdMatch[1]) {
+                let cmd = cmdMatch[1];
+                // Unescape JSON escape sequences
+                cmd = cmd
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\')
+                    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                    .trim();
+                if (cmd && cmd.length > 10 && cmd !== '\\' && cmd !== '\\\\') {
+                    console.log(`[TerminalManager] LLM 스크립트 복구 완료 (fallback, 길이: ${cmd.length})`);
+                    return cmd;
+                }
             }
         }
         
