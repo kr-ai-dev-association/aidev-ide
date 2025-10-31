@@ -270,22 +270,12 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                 terminalName = process.platform === 'win32' ? '🚀 AIDEV-IDE PowerShell Commands' : '🚀 AIDEV-IDE Bash Commands';
             }
 
-            // 프로젝트 루트 경로 가져오기
-            const projectRoot = await this.configurationService.getProjectRoot();
-            let terminalCwd: string | undefined;
-
-            if (projectRoot) {
-                terminalCwd = projectRoot;
-                console.log('[AskViewProvider] Using configured project root for terminal:', terminalCwd);
+            // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
+            const terminalCwd = await this.configurationService.getProjectRoot();
+            if (terminalCwd) {
+                console.log('[AskViewProvider] Using workspace root for terminal:', terminalCwd);
             } else {
-                // 워크스페이스 루트 사용
-                const workspaceFolders = vscode.workspace.workspaceFolders;
-                if (workspaceFolders && workspaceFolders.length > 0) {
-                    terminalCwd = workspaceFolders[0].uri.fsPath;
-                    console.log('[AskViewProvider] Using workspace root for terminal:', terminalCwd);
-                } else {
-                    console.log('[AskViewProvider] No project root or workspace found, using current directory');
-                }
+                console.warn('[AskViewProvider] 워크스페이스가 열려있지 않습니다.');
             }
 
             console.log('[AskViewProvider] Creating new terminal with shell:', shellPath, 'cwd:', terminalCwd);

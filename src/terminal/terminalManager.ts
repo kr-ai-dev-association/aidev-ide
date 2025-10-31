@@ -28,7 +28,7 @@ let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
 let _summarySent = false; // 종합 설명 출력 플래그
 let _outputLogEnabled = true; // OUTPUT 로그 활성화 상태
 let _userOS = 'unknown'; // 사용자 OS
-let _projectRoot: string | undefined = undefined; // 프로젝트 루트 경로
+// 프로젝트 루트는 항상 워크스페이스 루트를 사용하므로 변수로 저장하지 않고 필요할 때마다 가져옵니다.
 let _terminalSeq = 0;
 
 /**
@@ -198,12 +198,16 @@ function getProjectCwd(): string | undefined {
 
 const _configService = new ConfigurationService();
 async function getEffectiveCwd(): Promise<string | undefined> {
+    // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
     try {
-        const configured = await _configService.getProjectRoot();
-        if (configured && configured.trim().length > 0) {
-            return configured;
+        const workspaceRoot = await _configService.getProjectRoot();
+        if (workspaceRoot) {
+            return workspaceRoot;
         }
-    } catch { }
+    } catch (error) {
+        console.warn('[TerminalManager] getProjectRoot 실패:', error);
+    }
+    // 워크스페이스 루트를 직접 가져오기
     return getProjectCwd();
 }
 
@@ -675,7 +679,9 @@ async function processQueue(): Promise<void> {
                     break;
                 }
             } else {
-                const ok = await handleInteractiveCommand(command, _projectRoot);
+                // 항상 워크스페이스 루트를 사용
+                const projectRoot = await getEffectiveCwd();
+                const ok = await handleInteractiveCommand(command, projectRoot);
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
                     try {
@@ -757,10 +763,8 @@ export function buildFileOpTokens(ops: { type: 'create' | 'modify' | 'delete'; p
 }
 
 export function enqueueCommandsBatch(commands: string[], priority = false, projectRoot?: string): void {
-    // 프로젝트 루트 저장
-    if (projectRoot) {
-        _projectRoot = projectRoot;
-    }
+    // projectRoot 파라미터는 이전 버전 호환성을 위해 유지하지만 실제로는 사용하지 않습니다.
+    // 항상 워크스페이스 루트를 사용합니다.
 
     try {
         const channel = getCaptureOutputChannel();
@@ -1016,7 +1020,7 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                 commands.push(`powershell -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -OutputFormat Text -EncodedCommand ${b64}`);
             } catch {
                 // fallback to direct execution if encoding fails
-                commands.push(`powershell -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -OutputFormat Text -Command \"${joined.replace(/\"/g,'\\\"')}\"`);
+                commands.push(`powershell -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -OutputFormat Text -Command \"${joined.replace(/\"/g, '\\\"')}\"`);
             }
         }
     }
@@ -1041,12 +1045,15 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
 
 /**
  * LLM 응답에서 bash 명령어를 추출하고 터미널에서 실행합니다.
+ * projectRoot 파라미터는 이전 버전 호환성을 위해 유지하지만 실제로는 사용하지 않습니다.
+ * 항상 워크스페이스 루트를 사용합니다.
  */
 export function executeBashCommandsFromLlmResponse(llmResponse: string, projectRoot?: string): string[] {
     const executedCommands: string[] = extractBashCommandsFromLlmResponse(llmResponse);
     if (executedCommands.length > 0) {
         resetWorkingDirectory();
-        enqueueCommandsBatch(executedCommands, true, projectRoot);
+        // 항상 워크스페이스 루트를 사용하므로 projectRoot 파라미터는 무시됩니다.
+        enqueueCommandsBatch(executedCommands, true);
     }
     return executedCommands;
 }
@@ -1112,18 +1119,18 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
                 // Continue with normal error correction
             }
         }
-        
+
         // Sanitize noisy CLIXML and CRLF markers to keep the prompt compact and clear
         const sanitizeForPrompt = (text: string): string => {
             if (!text) return text;
             let t = text;
             // Remove CLIXML tags and attributes
             t = t.replace(/<Objs[\s\S]*?>/g, '')
-                 .replace(/<\/Objs>/g, '')
-                 .replace(/<Obj[\s\S]*?>/g, '')
-                 .replace(/<\/Obj>/g, '')
-                 .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
-                 .replace(/<[^>]+>/g, '');
+                .replace(/<\/Objs>/g, '')
+                .replace(/<Obj[\s\S]*?>/g, '')
+                .replace(/<\/Obj>/g, '')
+                .replace(/<S\s+S="Error">([\s\S]*?)<\/S>/g, '$1')
+                .replace(/<[^>]+>/g, '');
             // Decode common _x000D__x000A_ noise into newlines
             t = t.replace(/_x000D__x000A_/g, '\n');
             // Collapse whitespace
@@ -1133,10 +1140,13 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 
         const cleanedErrorOutput = sanitizeForPrompt(errorOutput);
 
+        // 항상 워크스페이스 루트를 가져옵니다.
+        const projectRoot = await getEffectiveCwd();
+        
         const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
-프로젝트 루트: ${_projectRoot || '(unknown)'}
+프로젝트 루트: ${projectRoot || '(unknown)'}
 작업 디렉토리(CWD): ${cwd}
 오류 출력:
 ${cleanedErrorOutput}
@@ -1205,7 +1215,7 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
                             }
                             return match; // Keep backslash outside strings
                         });
-                        
+
                         try {
                             result = JSON.parse(fixedJson);
                         } catch (secondError) {
@@ -1219,7 +1229,7 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
                             }
                         }
                     }
-                    
+
                     if (result.correctedCommand && result.confidence > 0.5) {
                         console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
                         return result.correctedCommand;
@@ -1343,11 +1353,11 @@ export async function handleCommandError(
         // Reject placeholders or angle-bracket templates often produced by LLM
         if (/[<>]/.test(t)) return false;
         if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
-        
+
         // Check if this is a Spring Boot/Java project by looking for build files
         let isSpringBootProject = false;
         try {
-            isSpringBootProject = 
+            isSpringBootProject =
                 fs.existsSync(path.join(cwd, 'pom.xml')) ||
                 fs.existsSync(path.join(cwd, 'build.gradle')) ||
                 fs.existsSync(path.join(cwd, 'build.gradle.kts')) ||
@@ -1360,7 +1370,7 @@ export async function handleCommandError(
             // If we can't check, assume it might be a Spring Boot project to be safe
             isSpringBootProject = true;
         }
-        
+
         // Only ban mvn/gradle if it's NOT a Spring Boot/Java project
         if (!isSpringBootProject) {
             if (/\bmvn(\.cmd)?\b/i.test(t)) {
@@ -1374,7 +1384,7 @@ export async function handleCommandError(
         } else {
             console.log('[TerminalManager] Spring Boot 프로젝트 확인됨, Maven/Gradle 명령어 허용');
         }
-        
+
         if (/^```/.test(t)) return false;
         if (t.length < 2) return false;
         return true;
@@ -1529,7 +1539,7 @@ async function repairCorruptedPowerShellScript(corruptedScript: string, errorOut
         console.log('[TerminalManager] LLM 서비스가 없어 스크립트 복구 불가');
         return null;
     }
-    
+
     try {
         const repairPrompt = `PowerShell 스크립트가 디코딩 과정에서 손상되었습니다. 손상된 스크립트와 실제 실행 오류를 분석하고, 복구된 완전하고 실행 가능한 PowerShell 명령어를 제공해주세요.
 
@@ -1555,13 +1565,13 @@ JSON 형식으로 응답해주세요:
 
         console.log('[TerminalManager] LLM에게 손상된 PowerShell 스크립트 복구 요청');
         const response = await _llmService.sendMessageForErrorCorrection(repairPrompt);
-        
+
         // Try to parse JSON response
         const fenceStripped = response
             .replace(/```json[\s\S]*?\n([\s\S]*?)```/gi, '$1')
             .replace(/```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)```/g, '$1')
             .trim();
-        
+
         const jsonMatches = fenceStripped.match(/\{[\s\S]*?\}/g);
         if (jsonMatches) {
             for (const jsonStr of jsonMatches) {
@@ -1576,7 +1586,7 @@ JSON 형식으로 응답해주세요:
                 }
             }
         }
-        
+
         // Fallback: extract command directly with better regex for multiline commands
         // Try multiple patterns to handle different JSON formats
         const cmdPatterns = [
@@ -1584,7 +1594,7 @@ JSON 형식으로 응답해주세요:
             /"correctedCommand"\s*:\s*"([^"]+)"/gi,  // Simple pattern
             /correctedCommand["\s:]+"([^"]+)"/gi,  // Flexible pattern
         ];
-        
+
         for (const pattern of cmdPatterns) {
             const cmdMatch = fenceStripped.match(pattern);
             if (cmdMatch && cmdMatch[1]) {
@@ -1604,7 +1614,7 @@ JSON 형식으로 응답해주세요:
                 }
             }
         }
-        
+
         console.log('[TerminalManager] LLM 스크립트 복구 실패 또는 응답 불충분');
         return null;
     } catch (error) {
@@ -1633,7 +1643,7 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
                 decoded = buf.toString('utf8');
                 decodeMethod = 'utf8';
             }
-            
+
             // Strict validation: check for specific corruption patterns from logs
             const corruptionPatterns = [
                 /foreach\s*\([^$]/i,  // foreach( without variable: foreach( in @
@@ -1645,9 +1655,9 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
                 /Get-Command\s+\s/,  // Double spaces (corruption indicator)
                 /\$[a-zA-Z]{1,2}\s*=/,  // Very short variable names followed by =
             ];
-            
+
             const hasCorruption = corruptionPatterns.some(pattern => pattern.test(decoded));
-            
+
             // Check for complete PowerShell patterns (must have full variable/command names)
             // These patterns MUST exist in the decoded script for it to be valid
             const requiredPatterns = [
@@ -1656,7 +1666,7 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
                 /foreach\s*\(\s*\$[a-zA-Z]+/i,  // foreach($name with actual variable name
                 /(Test-Path|Get-Command|Write-Output|Set-ExecutionPolicy)/i,  // Complete cmdlet names
             ];
-            
+
             // All required patterns must be present
             const allPatternsPresent = requiredPatterns.every(pattern => {
                 const found = pattern.test(decoded);
@@ -1665,19 +1675,19 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
                 }
                 return found;
             });
-            
+
             // Additional check: ensure variable names are reasonable length (not truncated)
             // Allow short vars only if full vars are also present
             const hasShortVars = /\$[a-zA-Z]{1,2}(['";\s=]|$)/.test(decoded);
             const hasFullVars = /(\$ProgressPreference|\$ErrorActionPreference|\$OutputEncoding|\$WarningPreference|\$InformationPreference|\$PSModuleAutoLoadingPreference)/i.test(decoded);
             const variableNameCheck = !hasShortVars || hasFullVars;
-            
+
             // Additional integrity check: ensure cmdlet calls are properly formatted
             // Check that cmdlets are followed by proper syntax (parameters or spaces)
             const cmdletIntegrityCheck = !/Test-Path\s*[^-\s]|Get-Command\s*[^-\s]|Write-Output\s*[^-\s]/.test(decoded);
-            
+
             isValidDecode = !hasCorruption && allPatternsPresent && variableNameCheck && cmdletIntegrityCheck && decoded.length > 50;
-            
+
             if (!isValidDecode) {
                 console.log(`[TerminalManager] Decode validation failed: hasCorruption=${hasCorruption}, allPatternsPresent=${allPatternsPresent}, variableNameCheck=${variableNameCheck}, cmdletIntegrityCheck=${cmdletIntegrityCheck}, length=${decoded.length}`);
             }
@@ -1686,7 +1696,7 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
             console.log(`[TerminalManager] Decode exception: ${e}`);
             return cmd;
         }
-        
+
         // Helper function to fix corrupted PowerShell script
         const fixCorruptedScript = (script: string): string => {
             // Fix double-quoted strings that got corrupted (e.g., "".venv"" -> ".venv")
@@ -1702,7 +1712,7 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
             script = script.replace(/=\s+(?![^=])/g, ' = ');
             return script;
         };
-        
+
         // If decode validation failed, store corrupted script for LLM repair
         // Keep original -EncodedCommand but mark it as corrupted
         if (!isValidDecode) {
@@ -1714,7 +1724,7 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
             // Keep original -EncodedCommand - LLM will repair it when error occurs
             return cmd;
         }
-        
+
         // If validation passed, we can safely convert to -Command
         // This avoids potential encoding issues with -EncodedCommand
         console.log('[TerminalManager] Decoded script passed validation, converting to -Command');

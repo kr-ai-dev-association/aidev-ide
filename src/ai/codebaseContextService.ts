@@ -164,28 +164,15 @@ export class CodebaseContextService {
      * @returns 파일 리스트와 LLM 분석 결과
      */
     public async getProjectFileListForAnalysis(userQuery: string, abortSignal: AbortSignal): Promise<{ fileList: string[], analysisResult?: any }> {
-        let projectRoot = await this.configurationService.getProjectRoot();
+        // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
+        const projectRoot = await this.configurationService.getProjectRoot();
 
-        // 프로젝트 루트가 설정되지 않았을 때 현재 워크스페이스 루트 사용
         if (!projectRoot) {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                projectRoot = workspaceFolders[0].uri.fsPath;
-                console.log(`[CodebaseContextService] 프로젝트 루트가 설정되지 않아 현재 워크스페이스 루트 사용: ${projectRoot}`);
-            } else {
-                this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았고 워크스페이스도 열려있지 않습니다. 설정에서 프로젝트 루트를 지정해주세요.');
-                return { fileList: [] };
-            }
-        } else {
-            console.log(`[CodebaseContextService] 설정된 프로젝트 루트 사용: ${projectRoot}`);
-
-            // aidev-ide 소스 디렉토리인지 확인
-            if (projectRoot.includes('aidev-ide') && projectRoot.includes('Projects')) {
-                console.warn(`[CodebaseContextService] ⚠️ 경고: 프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다: ${projectRoot}`);
-                console.warn(`[CodebaseContextService] 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
-                this.notificationService.showWarningMessage(`프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다. 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
-            }
+            this.notificationService.showWarningMessage('워크스페이스가 열려있지 않습니다. VS Code에서 프로젝트 폴더를 열어주세요.');
+            return { fileList: [] };
         }
+
+        console.log(`[CodebaseContextService] 워크스페이스 루트 사용: ${projectRoot}`);
 
         try {
             // 전체 파일 리스트 수집 (라이브러리 파일 제외)
@@ -216,27 +203,12 @@ export class CodebaseContextService {
             return defaultResult;
         }
 
-        let projectRoot = await this.configurationService.getProjectRoot();
+        // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
+        const projectRoot = await this.configurationService.getProjectRoot();
 
-        // 프로젝트 루트가 설정되지 않았을 때 현재 워크스페이스 루트 사용
         if (!projectRoot) {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                projectRoot = workspaceFolders[0].uri.fsPath;
-                // console.log(`[CodebaseContextService] 프로젝트 루트가 설정되지 않아 현재 워크스페이스 루트 사용: ${projectRoot}`);
-            } else {
-                this.notificationService.showWarningMessage('프로젝트 루트가 설정되지 않았고 워크스페이스도 열려있지 않습니다. 설정에서 프로젝트 루트를 지정해주세요.');
-                return defaultResult;
-            }
-        } else {
-            // console.log(`[CodebaseContextService] 설정된 프로젝트 루트 사용: ${projectRoot}`);
-
-            // aidev-ide 소스 디렉토리인지 확인
-            if (projectRoot.includes('aidev-ide') && projectRoot.includes('Projects')) {
-                console.warn(`[CodebaseContextService] ⚠️ 경고: 프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다: ${projectRoot}`);
-                console.warn(`[CodebaseContextService] 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
-                this.notificationService.showWarningMessage(`프로젝트 루트가 aidev-ide 소스 디렉토리로 설정되어 있습니다. 실제 작업할 프로젝트 디렉토리로 설정해주세요.`);
-            }
+            this.notificationService.showWarningMessage('워크스페이스가 열려있지 않습니다. VS Code에서 프로젝트 폴더를 열어주세요.');
+            return defaultResult;
         }
 
         let fileContentsContext = "";
@@ -254,7 +226,7 @@ export class CodebaseContextService {
             // ... rest of existing logic remains ...
 
             return { fileContentsContext, includedFilesForContext, extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } };
-                } catch (error) {
+        } catch (error) {
             console.error('[CodebaseContextService] 관련 파일 컨텍스트 수집 중 오류:', error);
             return { fileContentsContext: fileContentsContext || '', includedFilesForContext: includedFilesForContext || [], extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } };
         }
@@ -1401,20 +1373,9 @@ ${relativeFileList.slice(0, 100).join('\n')}${relativeFileList.length > 100 ? `\
      */
     private async getPathRelativeToProjectRoot(fullPath: string): Promise<string | null> {
         try {
-            // 프로젝트 루트 경로 가져오기
+            // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
             const projectRoot = await this.configurationService.getProjectRoot();
             if (!projectRoot) {
-                // 프로젝트 루트가 설정되지 않은 경우 워크스페이스 루트 사용
-                if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-                    return null;
-                }
-                const workspaceRootUri = vscode.workspace.workspaceFolders[0].uri;
-                const normalizedWorkspacePath = path.resolve(workspaceRootUri.fsPath);
-                const normalizedFullPath = path.resolve(fullPath);
-
-                if (normalizedFullPath.startsWith(normalizedWorkspacePath)) {
-                    return path.relative(normalizedWorkspacePath, normalizedFullPath).replace(/\\/g, '/');
-                }
                 return null;
             }
 

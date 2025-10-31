@@ -31,24 +31,18 @@ export class LlmResponseProcessor {
     }
 
     /**
-     * Retrieves the project root path. It first checks the 'aidev-ide.projectRoot' setting.
-     * If not set, it defaults to the first workspace folder's root.
-     * @returns The absolute path of the project root, or undefined if no workspace is open and no setting is configured.
+     * Retrieves the project root path. Always uses the workspace folder's root.
+     * @returns The absolute path of the workspace root, or undefined if no workspace is open.
      */
     private async getProjectRootPath(): Promise<string | undefined> {
-        const configuredRoot = await this.configurationService.getProjectRoot();
-        if (configuredRoot) {
-            // ConfigurationService's getProjectRoot should ideally return an absolute path
-            // or handle resolution. Assuming it returns an absolute path or undefined.
-            // console.log(`[LLM Response Processor] Configured project root: ${configuredRoot}`);
-            return configuredRoot;
-        }
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-            const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-            // console.log(`[LLM Response Processor] Workspace folder project root: ${workspaceRoot}`);
+        // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
+        const workspaceRoot = await this.configurationService.getProjectRoot();
+        if (workspaceRoot) {
+            console.log(`[LLM Response Processor] Using workspace root: ${workspaceRoot}`);
             return workspaceRoot;
         }
-        // console.log(`[LLM Response Processor] No project root found.`);
+
+        console.warn(`[LLM Response Processor] No workspace found.`);
         return undefined;
     }
 

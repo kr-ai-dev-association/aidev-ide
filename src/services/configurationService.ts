@@ -37,12 +37,20 @@ export class ConfigurationService {
         await config.update(this.AUTO_UPDATE_KEY, enabled, vscode.ConfigurationTarget.Global);
     }
 
+    /**
+     * 현재 워크스페이스 루트 경로를 반환합니다.
+     * 설정에서 projectRoot를 가져오지 않고, 항상 워크스페이스 루트만 사용합니다.
+     * 워크스페이스가 없으면 undefined를 반환합니다.
+     */
     public async getProjectRoot(): Promise<string | undefined> {
-        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
-        const root = config.get<string>(this.PROJECT_ROOT_KEY);
-        // VS Code settings default to empty string if not set for string types,
-        // but we treat empty string as "not set" for project root.
-        return root === '' ? undefined : root;
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            console.log(`[ConfigurationService] 워크스페이스 루트 사용: ${workspaceRoot}`);
+            return workspaceRoot;
+        }
+        console.warn(`[ConfigurationService] 워크스페이스가 열려있지 않습니다.`);
+        return undefined;
     }
 
     public async updateProjectRoot(path: string | undefined): Promise<void> {
