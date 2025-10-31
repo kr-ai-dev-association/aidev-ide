@@ -17,6 +17,8 @@ import { ActionExecutionEngine } from './actionExecutionEngine';
 import { ProjectProfileService, ProjectProfile } from './projectProfileService';
 import { IntentDetectionService, IntentDetectionResult } from './intentDetectionService';
 import { PlanQueueService } from '../services/planQueueService';
+import { GitRepositoryService } from '../services/gitRepositoryService';
+import { GitBranchAnalysisService } from '../services/gitBranchAnalysisService';
 
 export class LlmService {
     private storageService: StorageService;
@@ -37,6 +39,10 @@ export class LlmService {
     private actionPlannerService: ActionPlannerService;
     private terminalMonitorService: TerminalMonitorService;
     private actionExecutionEngine: ActionExecutionEngine;
+
+    // Git 리포지토리 서비스
+    private gitRepositoryService: GitRepositoryService;
+    private gitBranchAnalysisService: GitBranchAnalysisService;
 
     // 처리 단계 전송 함수
     private sendProcessingStep(step: string) {
@@ -81,6 +87,10 @@ export class LlmService {
         this.notificationService = notificationService;
         this.configurationService = configurationService;
         this.externalApiService = new ExternalApiService(configurationService);
+
+        // Git 리포지토리 서비스 초기화
+        this.gitRepositoryService = new GitRepositoryService(extensionContext!);
+        this.gitBranchAnalysisService = new GitBranchAnalysisService(this.gitRepositoryService);
 
         // LLM 키워드 선택 서비스 초기화
         this.llmKeywordSelectionService = new LlmKeywordSelectionService(this);
@@ -557,6 +567,44 @@ ${languageRule}
                 }
             }
 
+            // 브랜치 분석 의도 처리
+            if (intentResult && intentResult.category === 'analysis' && intentResult.subtype === 'analysis_branch') {
+                console.log('[LlmService] 브랜치 분석 의도 감지, 브랜치 분석 시작...');
+                try {
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (workspaceFolder) {
+                        const branchAnalysisReport = await this.analyzeBranchIssues(workspaceFolder.uri.fsPath);
+                        // 브랜치 분석 결과를 직접 반환
+                        this.sendProcessingStatus('analyzing', '브랜치 분석 완료');
+                        this.sendProcessingStep('printing');
+                        this.sendProcessingStatus('printing', '브랜치 분석 보고서 생성 중...');
+
+                        // 웹뷰에 결과 전송
+                        if (webviewToRespond) {
+                            safePostMessage(webviewToRespond, {
+                                command: 'displayUserMessage',
+                                message: userQuery,
+                                timestamp: new Date().toISOString()
+                            });
+
+                            safePostMessage(webviewToRespond, {
+                                command: 'displayAiMessage',
+                                message: branchAnalysisReport,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+
+                        this.sendProcessingStatus('printing', '브랜치 분석 보고서 완료');
+                        this.sendProcessingStep('completed');
+                        return;
+                    } else {
+                        console.log('[LlmService] 워크스페이스 폴더를 찾을 수 없습니다.');
+                    }
+                } catch (error) {
+                    console.error('[LlmService] 브랜치 분석 실패:', error);
+                }
+            }
+
             // 코드베이스 컨텍스트 수집
             let fileContentsContext = '';
             let includedFilesForContext: { name: string, fullPath: string }[] = [];
@@ -804,7 +852,7 @@ ${languageRule}
             const profileContext = this.projectProfile ? this.buildProfileContext(this.projectProfile, detectedProjectType) : '';
             const intentContext = intentResult ? this.buildIntentContext(intentResult) : '';
 
-            const systemPrompt = this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
+            const systemPrompt = await this.generateSystemPrompt(promptType, fullFileContentsContext, realTimeInfo, profileContext, intentContext);
 
             // 사용자 메시지 파트 구성
             const userParts: any[] = [];
@@ -1125,13 +1173,16 @@ ${languageRule}
     /**
      * 시스템 프롬프트를 생성합니다
      */
-    private generateSystemPrompt(promptType: PromptType, codebaseContext: string, realTimeInfo: string, profileContext: string, intentContext: string): string {
+    private async generateSystemPrompt(promptType: PromptType, codebaseContext: string, realTimeInfo: string, profileContext: string, intentContext: string): Promise<string> {
         let systemPrompt = '';
 
         // DeepSeek 모델에 대한 특별한 언어 지시사항 추가
         const isDeepSeek = this.currentModelType !== AiModelType.GEMINI && (this.ollamaApi.getModel?.() || '').includes('deepseek');
         const languageInstruction = isDeepSeek ?
             '\n\n️중요: 반드시 한국어로만 답변하세요. 중국어, 영어, 일본어 등 다른 언어는 사용하지 마세요. 모든 설명과 응답은 한국어로 작성해주세요.' : '';
+
+        // Git 리포지토리 정보 가져오기
+        const gitContext = await this.gitRepositoryService.getGitContextForLlm();
 
         if (promptType === PromptType.CODE_GENERATION) {
             systemPrompt = `${this.generateOSSpecificSystemPrompt()}
@@ -1147,6 +1198,8 @@ ${intentContext}
 
 실시간 정보:
 ${realTimeInfo}
+
+${gitContext}
 
 사용자의 요청에 따라 적절한 코드를 생성하거나 수정해주세요.${languageInstruction}`;
         } else {
@@ -1171,6 +1224,8 @@ ${intentContext}
 
 실시간 정보:
 ${realTimeInfo}
+
+${gitContext}
 
 사용자의 질문에 대해 전문적이고 유용한 답변을 제공해주세요.${languageInstruction}`;
         }
@@ -1334,6 +1389,131 @@ ${realTimeInfo}
         }
 
         return deduplicatedFiles;
+    }
+
+    /**
+     * 브랜치별 이슈 분석 및 개선 방안 도출
+     */
+    public async analyzeBranchIssues(projectRoot: string): Promise<string> {
+        try {
+            this.sendProcessingStep('analyzing');
+            this.sendProcessingStatus('analyzing', '브랜치별 이슈 분석 중...');
+
+            const analysis = await this.gitBranchAnalysisService.analyzeAllBranches(projectRoot);
+
+            // 분석 결과를 마크다운 형식으로 포맷팅
+            let report = `# 🔍 브랜치별 이슈 분석 보고서\n\n`;
+
+            // 전체 프로젝트 상태
+            report += `## 📊 전체 프로젝트 상태\n`;
+            report += `- **총 브랜치 수**: ${analysis.totalBranches}\n`;
+            report += `- **총 이슈 수**: ${analysis.totalIssues}\n`;
+            report += `- **전체 건강도**: ${this.getHealthStatusEmoji(analysis.overallHealth)} ${analysis.overallHealth}\n\n`;
+
+            // 브랜치별 분석
+            report += `## 🌿 브랜치별 분석\n\n`;
+            analysis.branchAnalyses.forEach(branchAnalysis => {
+                report += `### ${branchAnalysis.branch}\n`;
+                report += `- **상태**: ${this.getHealthStatusEmoji(branchAnalysis.branchHealth)} ${branchAnalysis.branchHealth}\n`;
+                report += `- **총 이슈**: ${branchAnalysis.totalIssues}개\n`;
+
+                if (branchAnalysis.criticalIssues.length > 0) {
+                    report += `- **심각한 이슈**: ${branchAnalysis.criticalIssues.length}개\n`;
+                }
+
+                // 카테고리별 이슈 수
+                const categories = Object.keys(branchAnalysis.issuesByCategory);
+                if (categories.length > 0) {
+                    report += `- **이슈 카테고리**: ${categories.map(cat => `${cat}(${branchAnalysis.issuesByCategory[cat].length})`).join(', ')}\n`;
+                }
+
+                // 개선 방안
+                if (branchAnalysis.suggestedImprovements.length > 0) {
+                    report += `- **개선 방안**:\n`;
+                    branchAnalysis.suggestedImprovements.forEach(improvement => {
+                        report += `  - ${improvement}\n`;
+                    });
+                }
+
+                report += `\n`;
+            });
+
+            // 공통 이슈
+            if (analysis.crossBranchIssues.length > 0) {
+                report += `## 🔄 브랜치 간 공통 이슈\n\n`;
+                analysis.crossBranchIssues.forEach(issue => {
+                    report += `### ${issue.issue}\n`;
+                    report += `- **심각도**: ${this.getSeverityEmoji(issue.severity)} ${issue.severity}\n`;
+                    report += `- **카테고리**: ${issue.category}\n`;
+                    report += `- **설명**: ${issue.description}\n`;
+                    report += `- **개선 방안**: ${issue.suggestedFix}\n\n`;
+                });
+            }
+
+            // 권장 액션
+            if (analysis.recommendedActions.length > 0) {
+                report += `## 🎯 권장 액션\n\n`;
+                analysis.recommendedActions.forEach((action, index) => {
+                    report += `${index + 1}. ${action}\n`;
+                });
+                report += `\n`;
+            }
+
+            // 상세 이슈 목록
+            report += `## 📋 상세 이슈 목록\n\n`;
+            analysis.branchAnalyses.forEach(branchAnalysis => {
+                if (branchAnalysis.totalIssues > 0) {
+                    report += `### ${branchAnalysis.branch} 상세 이슈\n\n`;
+
+                    Object.entries(branchAnalysis.issuesByCategory).forEach(([category, issues]) => {
+                        if (issues.length > 0) {
+                            report += `#### ${category} (${issues.length}개)\n\n`;
+                            issues.forEach(issue => {
+                                report += `- **${issue.issue}**\n`;
+                                report += `  - 심각도: ${this.getSeverityEmoji(issue.severity)} ${issue.severity}\n`;
+                                report += `  - 우선순위: ${issue.priority}/10\n`;
+                                report += `  - 설명: ${issue.description}\n`;
+                                report += `  - 개선 방안: ${issue.suggestedFix}\n\n`;
+                            });
+                        }
+                    });
+                }
+            });
+
+            this.sendProcessingStatus('analyzing', '브랜치 분석 완료');
+            return report;
+
+        } catch (error) {
+            console.error('[LlmService] 브랜치 분석 실패:', error);
+            this.sendProcessingStatus('analyzing', '브랜치 분석 실패');
+            return `브랜치 분석 중 오류가 발생했습니다: ${error}`;
+        }
+    }
+
+    /**
+     * 건강도 상태에 따른 이모지 반환
+     */
+    private getHealthStatusEmoji(health: string): string {
+        switch (health) {
+            case 'excellent': return '🟢';
+            case 'good': return '🟡';
+            case 'needs_attention': return '🟠';
+            case 'critical': return '🔴';
+            default: return '⚪';
+        }
+    }
+
+    /**
+     * 심각도에 따른 이모지 반환
+     */
+    private getSeverityEmoji(severity: string): string {
+        switch (severity) {
+            case 'critical': return '🔴';
+            case 'high': return '🟠';
+            case 'medium': return '🟡';
+            case 'low': return '🟢';
+            default: return '⚪';
+        }
     }
 
     /**

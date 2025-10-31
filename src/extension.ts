@@ -18,6 +18,7 @@ import { LicenseService } from './services/licenseService';
 import { OllamaBlockerService } from './services/ollamaBlockerService';
 import { TerminalDaemonService } from './services/terminalDaemonService';
 import { TerminalMonitorService } from './ai/terminalMonitorService';
+import { GitRepositoryService } from './services/gitRepositoryService';
 
 // 전역 변수
 let storageService: StorageService;
@@ -31,6 +32,7 @@ let llmService: LlmService;
 let licenseService: LicenseService;
 let ollamaBlockerService: OllamaBlockerService;
 let terminalDaemonService: TerminalDaemonService;
+let gitRepositoryService: GitRepositoryService;
 
 export async function activate(context: vscode.ExtensionContext) {
     // console.log('Congratulations, aidev-ide is now active!');
@@ -42,6 +44,7 @@ export async function activate(context: vscode.ExtensionContext) {
     licenseService = new LicenseService();
     ollamaBlockerService = OllamaBlockerService.getInstance(context);
     terminalDaemonService = TerminalDaemonService.getInstance(context);
+    gitRepositoryService = new GitRepositoryService(context);
 
     // ollama-blocker 자동 설치 확인 및 설치
     try {
@@ -158,6 +161,21 @@ export async function activate(context: vscode.ExtensionContext) {
     llmService.setUserOS(userOS);
     console.log(`[Extension] 사용자 OS 감지 및 설정: ${userOS}`);
 
+    // Git 리포지토리 정보 자동 감지
+    try {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            const gitInfo = await gitRepositoryService.detectAndSaveRepositoryInfo(workspaceFolder.uri.fsPath);
+            if (gitInfo) {
+                console.log(`[Extension] Git 리포지토리 감지됨: ${gitInfo.owner}/${gitInfo.repo}`);
+            } else {
+                console.log('[Extension] Git 리포지토리가 감지되지 않았습니다.');
+            }
+        }
+    } catch (error) {
+        console.error('[Extension] Git 리포지토리 감지 중 오류:', error);
+    }
+
     // 터미널 매니저에도 사용자 OS 설정
     const { setUserOS } = await import('./terminal/terminalManager');
     setUserOS(userOS);
@@ -241,7 +259,8 @@ export async function activate(context: vscode.ExtensionContext) {
         (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService),
         configurationService,
         notificationService,
-        storageService
+        storageService,
+        gitRepositoryService
     );
 
     context.subscriptions.push(
@@ -413,6 +432,23 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         } catch (error) {
             vscode.window.showErrorMessage(`터미널 모니터링 테스트 오류: ${error}`);
+        }
+    }));
+
+    // 워크스페이스 변경 시 Git 리포지토리 정보 업데이트
+    context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (workspaceFolder) {
+                const gitInfo = await gitRepositoryService.detectAndSaveRepositoryInfo(workspaceFolder.uri.fsPath);
+                if (gitInfo) {
+                    console.log(`[Extension] 워크스페이스 변경 - Git 리포지토리 감지됨: ${gitInfo.owner}/${gitInfo.repo}`);
+                } else {
+                    console.log('[Extension] 워크스페이스 변경 - Git 리포지토리가 감지되지 않았습니다.');
+                }
+            }
+        } catch (error) {
+            console.error('[Extension] 워크스페이스 변경 시 Git 리포지토리 감지 중 오류:', error);
         }
     }));
 

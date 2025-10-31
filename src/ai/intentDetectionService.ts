@@ -11,6 +11,7 @@ export type IntentSubtype =
     | 'analysis_structure'
     | 'analysis_technology'
     | 'analysis_function'
+    | 'analysis_branch'
     | 'documentation_general'
     | 'terminal_error_fix';
 
@@ -33,6 +34,7 @@ export class IntentDetectionService {
         analysis_structure: ['구조', '구성', 'architecture', 'structure', '다이어그램', '트리', '파일 구성'],
         analysis_technology: ['기술', '언어', '프레임워크', '기술스택', 'stack', 'framework', 'library', '알고리즘'],
         analysis_function: ['기능', '동작', '설명', '사용자', 'feature', 'behavior', 'flow', 'use case'],
+        analysis_branch: ['브랜치', 'branch', '이슈', 'issue', '문제점', '개선', '분석', '리뷰', '코드리뷰', '품질', 'quality', 'health', '상태', '정리', '정리해줘'],
         documentation_general: ['문서', 'documentation', 'README', '설명서', 'guide', 'manual', '정리해줘', '문서화'],
         terminal_error_fix: ['오류', '에러', 'error', '실패', 'fail', '문제', 'issue', '해결', 'fix', '수정', '고쳐', '터미널', 'terminal', '로그', 'log', '포트', 'port', 'kill', '죽여', '종료', 'stop']
     };
@@ -46,6 +48,7 @@ export class IntentDetectionService {
         analysis_structure: 'analysis',
         analysis_technology: 'analysis',
         analysis_function: 'analysis',
+        analysis_branch: 'analysis',
         documentation_general: 'documentation',
         terminal_error_fix: 'terminal'
     };

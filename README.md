@@ -13,7 +13,8 @@ VSCode base code assistant plugin with LLM and LM support.
 <img src="https://drive.google.com/uc?export=view&id=1KYN5wO_lE8lBgyrldAtMpKReJYUYnwTO" width="700" height="500"/><br>
 <img src="https://drive.google.com/uc?export=view&id=1sADJQZCmOatGiHyeop1pa0dipg_Zs5SP" width="700" height="500"/><br>
 
-- Planning: Select a local Ollama reasoning model to generate an actionable to-do plan and manage items in the new Plan Queue panel (run/complete/cancel/persist)
+- **Planning**: Select a local Ollama reasoning model to generate an actionable to-do plan and manage items in the new Plan Queue panel (run/complete/cancel/persist)
+- **Bash Script Execution Fix**: Multi-line bash constructs (if/then/else/fi) are now merged into single commands and executed in the same terminal session, preventing syntax errors
 
 ### 🤖 AI-Powered Code Assistance
 - **Multi-Model AI Support**: 
@@ -40,6 +41,20 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Context-Aware Responses**: Analyzes your project structure and existing code for relevant suggestions
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
+
+### 🚀 **NEW in v4.6.0 - Plan Queue Management & Bash Script Execution Fix**
+
+#### **Plan Queue Management**
+- **Planning Model Selection**: Select specialized reasoning models from local Ollama installations for plan generation
+- **Plan Queue Panel**: New webview panel to manage actionable to-do items with run/complete/cancel/persist functionality
+- **Structured Plan Generation**: Convert user queries into organized, actionable plan items using reasoning LLMs
+- **Plan Item Management**: Individual control over each plan item with status tracking and execution
+
+#### **Bash Script Execution Fix**
+- **Multi-line Script Merging**: Complex bash constructs (if/then/else/fi) are automatically merged into single commands
+- **Single Session Execution**: Scripts execute in the same terminal session using heredoc/here-string syntax
+- **Syntax Error Prevention**: Eliminates "unexpected end of file" and "unexpected token" errors from line-by-line execution
+- **Command Normalization**: Improved command preprocessing for idempotent, OS-specific shell commands
 
 ### 🚀 **NEW in v4.5.0 - Auto Command Execution & Individual Callout Execution Status**
 
@@ -688,6 +703,10 @@ Calling out known issues can help limit users opening duplicate issues against y
 Please see [RELEASE.md](RELEASE.md).
 
 ### Latest Release
+- **🚀 Version 4.6.0** (2025/01/15) - Plan Queue Management & Bash Script Execution Fix
+  - **Plan Queue Management**: Reasoning model selection, actionable to-do plan generation, item management in Plan Queue panel
+  - **Bash Script Execution Fix**: Multi-line bash construct merging, single session execution, syntax error prevention
+  - **Command Normalization**: Improved preprocessing for idempotent, OS-specific shell commands
 - **Version 3.0.0** (2025/10/04)
   - Terminal-daemon integration and command routing
   - Chat send queue with pending UI and per-item cancel

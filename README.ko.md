@@ -13,6 +13,9 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 <img src="https://drive.google.com/uc?export=view&id=1KYN5wO_lE8lBgyrldAtMpKReJYUYnwTO" width="700" height="500"/><br>
 <img src="https://drive.google.com/uc?export=view&id=1sADJQZCmOatGiHyeop1pa0dipg_Zs5SP" width="700" height="500"/><br>
 
+- **계획 관리**: 로컬 Ollama 추론 모델을 선택하여 실행 가능한 할 일 계획을 생성하고 새로운 Plan Queue 패널에서 항목 관리 (실행/완료/취소/지속)
+- **Bash 스크립트 실행 수정**: 다중 라인 bash 구문(if/then/else/fi)이 단일 명령어로 병합되어 동일한 터미널 세션에서 실행되어 구문 오류 방지
+
 ### 🤖 AI 기반 코드 어시스턴스
 - **멀티모델 AI 지원**:
   - **Gemini 2.5 Pro Flash**: Google의 고급 LLM으로 지능형 코드 생성 및 분석
@@ -35,6 +38,20 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **맥락 인식 응답**: 프로젝트 구조와 기존 코드를 분석하여 관련성 높은 제안 제공
 - **자연어 처리**: 복잡한 요청도 자연어로 이해
 - **로컬 AI 처리**: Ollama 통합으로 완전한 오프라인 기능 제공
+
+### 🚀 **NEW in v4.6.0 - Plan Queue 관리 및 Bash 스크립트 실행 수정**
+
+#### **Plan Queue 관리**
+- **계획 모델 선택**: 계획 생성을 위해 로컬 Ollama 설치에서 특화된 추론 모델 선택
+- **Plan Queue 패널**: 실행/완료/취소/지속 기능으로 실행 가능한 할 일 항목을 관리하는 새로운 웹뷰 패널
+- **구조화된 계획 생성**: 추론 LLM을 사용하여 사용자 쿼리를 체계적이고 실행 가능한 계획 항목으로 변환
+- **계획 항목 관리**: 상태 추적 및 실행을 통한 각 계획 항목의 개별 제어
+
+#### **Bash 스크립트 실행 수정**
+- **다중 라인 스크립트 병합**: 복잡한 bash 구문(if/then/else/fi)이 자동으로 단일 명령어로 병합
+- **단일 세션 실행**: heredoc/here-string 구문을 사용하여 동일한 터미널 세션에서 스크립트 실행
+- **구문 오류 방지**: 라인별 실행으로 인한 "unexpected end of file" 및 "unexpected token" 오류 제거
+- **명령어 정규화**: 멱등성, OS별 셸 명령어를 위한 개선된 명령어 전처리
 
 ### 🚀 **NEW in v4.5.0 - 명령어 자동 실행 및 개별 Callout 실행 상태 표시**
 
@@ -573,6 +590,10 @@ npm run lint
 릴리즈 노트는 [RELEASE.ko.md](RELEASE.ko.md)를 참조하세요.
 
 ### 최신 릴리즈
+- **🚀 Version 4.6.0** (2025/01/15) - Plan Queue 관리 및 Bash 스크립트 실행 수정
+  - **Plan Queue 관리**: 추론 모델 선택, 실행 가능한 할 일 계획 생성, Plan Queue 패널에서 항목 관리
+  - **Bash 스크립트 실행 수정**: 다중 라인 bash 구문 병합, 단일 세션 실행, 구문 오류 방지
+  - **명령어 정규화**: 멱등성, OS별 셸 명령어를 위한 개선된 전처리
 - **🚀 Version 4.1.0** (2025/10/18) - 향상된 설정 UI 및 구성 관리
 - **🚀 Version 4.0.0** (2025/10/18) - 혁신적인 AI 기반 개발 경험
   - **혁신적인 터미널 자동 오류 수정 시스템**: 50개 이상의 오류 패턴을 지원하는 실시간 오류 감지 및 LLM 기반 수정

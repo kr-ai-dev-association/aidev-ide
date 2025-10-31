@@ -538,6 +538,11 @@ window.addEventListener('message', event => {
                 }
             }
             break;
+        case 'showGitInfo':
+            if (message.content) {
+                showGitRepositoryInfo(message.content);
+            }
+            break;
         case 'showErrorCorrection':
             console.log('Received error correction message:', message);
             showErrorCorrection(message.originalCommand, message.correctedCommand, message.retryCount);
@@ -1192,4 +1197,84 @@ if (chatMessages) {
             }
         }
     });
+}
+
+/**
+ * Git 리포지토리 정보를 채팅창에 표시
+ */
+function showGitRepositoryInfo(content) {
+    const chatContainer = document.getElementById('chat-container');
+    if (!chatContainer) return;
+
+    // 기존 Git 정보 메시지가 있으면 제거
+    const existingGitInfo = document.getElementById('git-repository-info');
+    if (existingGitInfo) {
+        existingGitInfo.remove();
+    }
+
+    // Git 정보 메시지 생성
+    const gitInfoDiv = document.createElement('div');
+    gitInfoDiv.id = 'git-repository-info';
+    gitInfoDiv.className = 'git-info-message';
+    gitInfoDiv.innerHTML = `
+        <div class="git-info-content">
+            <div class="git-info-header">
+                <span class="git-info-icon">🔗</span>
+                <span class="git-info-title">Git 리포지토리 연결됨</span>
+            </div>
+            <div class="git-info-body">
+                ${content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/`(.*?)`/g, '<code>$1</code>').replace(/\n/g, '<br>')}
+            </div>
+        </div>
+    `;
+
+    // 스타일 추가
+    const style = document.createElement('style');
+    style.textContent = `
+        .git-info-message {
+            margin: 10px 0;
+            padding: 12px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .git-info-content {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .git-info-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .git-info-icon {
+            font-size: 16px;
+            margin-right: 8px;
+        }
+        .git-info-title {
+            font-weight: 600;
+            color: #495057;
+        }
+        .git-info-body {
+            color: #6c757d;
+        }
+        .git-info-body code {
+            background: #f1f3f4;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        }
+        .git-info-body strong {
+            color: #495057;
+        }
+    `;
+
+    if (!document.getElementById('git-info-styles')) {
+        style.id = 'git-info-styles';
+        document.head.appendChild(style);
+    }
+
+    // 채팅 컨테이너 맨 위에 추가
+    chatContainer.insertBefore(gitInfoDiv, chatContainer.firstChild);
 }

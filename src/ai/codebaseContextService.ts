@@ -254,7 +254,7 @@ export class CodebaseContextService {
             // ... rest of existing logic remains ...
 
             return { fileContentsContext, includedFilesForContext, extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } };
-        } catch (error) {
+                } catch (error) {
             console.error('[CodebaseContextService] 관련 파일 컨텍스트 수집 중 오류:', error);
             return { fileContentsContext: fileContentsContext || '', includedFilesForContext: includedFilesForContext || [], extractedKeywords: [], selectedKeywords: { keywords: [], reasoning: '', confidence: 0 } };
         }
