@@ -1225,29 +1225,69 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                 const tempDir = os.tmpdir();
                 const tempBatPath = path.join(tempDir, `aidev-ide-${Date.now()}-${Math.random().toString(36).slice(2, 9)}.bat`);
 
-                // 배치 파일 작성 (UTF-8 without BOM 사용)
-                // Windows 배치 파일은 기본적으로 CP949를 사용하지만, UTF-8도 지원됨
-                // 하지만 BOM은 cmd.exe에서 문제를 일으킬 수 있으므로 BOM 없이 UTF-8 사용
-                // 한글이 포함된 경우에도 대부분의 경우 정상 작동
-                fs.writeFileSync(tempBatPath, block, 'utf8');
+                // 배치 파일 작성 전처리
+                // 1. 배치 파일 시작 부분에 인코딩 설정 추가
+                // 2. @echo off 추가 (출력 최소화)
+                // 3. chcp 65001 (UTF-8) 설정 (한글 지원)
+                // 4. 줄바꿈을 CRLF로 정규화 (Windows 배치 파일 표준)
+                // 5. 배치 파일 끝에 자체 삭제 명령 추가
 
-                // 임시 파일 실행 후 자동 정리 명령
-                // PowerShell에서 && 사용 불가하므로 배치 파일 내부에서 삭제 처리
-                // 경로에 공백이 없으면 따옴표 없이 사용 (더 안전함)
-                // 삭제 명령은 배치 파일 실행 후 별도로 처리하거나 배치 파일 끝에 추가
+                // 원본 블록의 @echo off와 pause 제거
+                let cleanedBlock = block
+                    .replace(/^@?echo\s+off\s*\r?\n?/i, '')
+                    .replace(/pause\s*>/gim, '')
+                    .trim();
+
+                // 배치 파일 내부의 pushd/popd 명령에서 임시 디렉토리로 이동하는 것 제거
+                // 임시 디렉토리는 %TEMP% 또는 AppData\Local\Temp를 포함
+                const tempDirPattern = /(pushd|cd\s+\/d)\s+[^&\r\n]*(?:%TEMP%|AppData[\\/]Local[\\/]Temp|TEMP)[^&\r\n]*/gi;
+                cleanedBlock = cleanedBlock.replace(tempDirPattern, '');
+
+                // 줄바꿈 정규화: 모든 줄바꿈을 CRLF로 변환
+                cleanedBlock = cleanedBlock.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n');
+
+                // 배치 파일 헤더 추가
+                // 배치 파일 경로를 변수에 저장 (나중에 자체 삭제를 위해)
+                const batPathEscaped = tempBatPath.replace(/"/g, '""');
+                let batchContent = `@echo off\r\n`;
+                batchContent += `chcp 65001 >nul 2>&1\r\n`;
+                batchContent += `setlocal EnableDelayedExpansion\r\n`;
+                batchContent += `set "BAT_FILE=${batPathEscaped}"\r\n`;
+                // 현재 작업 디렉토리 저장 (터미널에서 설정된 프로젝트 디렉토리)
+                // 배치 파일은 터미널에서 실행되므로 이미 올바른 디렉토리에 있음
+                // 하지만 배치 파일 내부의 pushd 등으로 이동할 수 있으므로 원본 디렉토리 저장
+                batchContent += `set "ORIGINAL_DIR=%CD%"\r\n`;
+                batchContent += cleanedBlock;
+
+                // 배치 파일 끝에 자체 삭제 명령 추가
+                // 배치 파일이 실행 중일 때는 자기 자신을 삭제할 수 없으므로
+                // 별도 프로세스로 지연 삭제 실행 (start 명령 사용)
+                batchContent += `\r\n\r\n@REM Auto cleanup after execution\r\n`;
+                batchContent += `@endlocal\r\n`;
+                batchContent += `@start /b "" cmd /c "timeout /t 3 /nobreak >nul 2>&1 && if exist "${batPathEscaped}" del /f /q "${batPathEscaped}" >nul 2>&1"\r\n`;
+
+                // 배치 파일을 UTF-8 with BOM으로 저장 (Windows cmd.exe에서 UTF-8 인식)
+                // BOM이 있으면 cmd.exe가 UTF-8로 인식
+                try {
+                    const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
+                    const utf8Buffer = Buffer.from(batchContent, 'utf8');
+                    const bomBuffer = Buffer.concat([BOM, utf8Buffer]);
+                    fs.writeFileSync(tempBatPath, bomBuffer);
+                    console.log(`[TerminalManager] 배치 파일 저장 (UTF-8 BOM): ${tempBatPath}`);
+                } catch (e) {
+                    // 실패 시 UTF-8 without BOM로 폴백
+                    console.warn('[TerminalManager] UTF-8 BOM 저장 실패, UTF-8로 폴백:', e);
+                    fs.writeFileSync(tempBatPath, batchContent, 'utf8');
+                }
 
                 // 경로에 공백이 있는지 확인
                 const hasSpaces = tempBatPath.includes(' ');
 
-                // 배치 파일 끝에 자동 삭제 명령 추가
-                // 배치 파일 내에서 자신을 삭제하려면 배치 파일 경로를 변수로 저장해야 함
-                // 하지만 더 간단하게는 배치 파일 실행 후 PowerShell에서 삭제하거나
-                // 배치 파일이 끝나면 자동으로 정리되도록 별도 프로세스로 처리
-                // 여기서는 일단 배치 파일만 저장하고, 삭제는 나중에 처리
-                fs.writeFileSync(tempBatPath, block, 'utf8');
+                // 배치 파일 실행 명령 생성
+                // 배치 파일은 프로젝트 디렉토리에서 실행되어야 하므로,
+                // cmd.exe 실행 시 /d 옵션으로 드라이브 변경 허용
+                // 배치 파일 내부에서 프로젝트 디렉토리로 이동하도록 처리됨
 
-                // 경로만 사용 (공백이 없으면 따옴표 불필요)
-                // PowerShell에서 && 사용 불가하므로 별도 명령으로 삭제 처리
                 if (hasSpaces) {
                     const escapedPath = tempBatPath.replace(/"/g, '""');
                     commands.push(`cmd.exe /d /c "${escapedPath}"`);
@@ -1255,18 +1295,18 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                     commands.push(`cmd.exe /d /c ${tempBatPath}`);
                 }
 
-                // 실행 후 별도 명령으로 임시 파일 삭제 (PowerShell의 ; 사용)
-                // 배치 파일 실행이 완료된 후에만 삭제되도록 지연
+                // 배치 파일이 자체적으로 삭제를 처리하므로 여기서는 추가 삭제 불필요
+                // 하지만 안전을 위해 60초 후에도 남아있으면 삭제 (백업 정리)
                 setTimeout(() => {
                     try {
                         if (fs.existsSync(tempBatPath)) {
                             fs.unlinkSync(tempBatPath);
-                            console.log(`[TerminalManager] 임시 배치 파일 삭제 완료: ${tempBatPath}`);
+                            console.log(`[TerminalManager] 임시 배치 파일 백업 정리 완료: ${tempBatPath}`);
                         }
                     } catch (cleanupError) {
-                        console.warn(`[TerminalManager] 임시 파일 삭제 실패: ${tempBatPath}`, cleanupError);
+                        // 조용히 실패 처리 (배치 파일이 이미 삭제되었을 수 있음)
                     }
-                }, 5000); // 5초 후 삭제
+                }, 60000); // 60초 후 백업 정리
 
                 console.log(`[TerminalManager] 복잡한 배치 스크립트를 임시 파일로 저장: ${tempBatPath}`);
             } catch (error) {
