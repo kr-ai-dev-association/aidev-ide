@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { runCommandCapture } from '../utils/processRunner';
 import { getTerminalMonitor } from '../ai/monitorBridge';
 import { TerminalMonitorService } from '../ai/terminalMonitorService';
@@ -235,9 +236,14 @@ function getCaptureOutputChannel(): vscode.OutputChannel {
 
 
 function sanitizeOutput(text: string): string {
+    if (!text) return text;
+
+    // VS Code 터미널 출력 디코딩 (Windows에서 CP949 처리)
+    let decoded = decodeTerminalOutput(text);
+
     // Strip ANSI escape sequences and control codes
-    const ansiPattern = /[\u001B\u009B][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-    return text.replace(/\r/g, '\n').replace(ansiPattern, '').replace(/\u0007/g, '').replace(/\u0008/g, '').trimEnd();
+    const ansiPattern = /[\u001B\u009B][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0-4})*)?[0-9A-ORZcf-nqry=><]/g;
+    return decoded.replace(/\r/g, '\n').replace(ansiPattern, '').replace(/\u0007/g, '').replace(/\u0008/g, '').trimEnd();
 }
 
 /**
@@ -312,12 +318,133 @@ async function readPackageJson(cwd: string | undefined): Promise<any | null> {
 
 // Note: We intentionally do not pre-validate npm scripts.
 
+/**
+ * OS별 명령어 전처리 및 정규화 함수
+ * - Windows/PowerShell: && 같은 특수 문자 자동 제거
+ * - 인코딩 문제 예방
+ * - 경로 정규화
+ */
+function normalizeCommandForOS(command: string): string {
+    if (!command || !command.trim()) return command;
+
+    let normalized = command.trim();
+    const isWindows = process.platform === 'win32';
+    const userOS = _userOS.toLowerCase();
+    const isPowerShellEnv = isWindows && (userOS.includes('windows') || userOS === 'win32');
+
+    // Windows/PowerShell 환경 전처리
+    if (isPowerShellEnv) {
+        // 1. cmd.exe 호출 외부의 && 제거
+        if (/cmd\.exe\s*\/d\s*\/c/i.test(normalized)) {
+            // 따옴표 안의 &&는 보존, 밖의 &&만 제거
+            // 복잡한 경우를 처리하기 위해 따옴표 상태 추적
+            let inQuotes = false;
+            let quoteChar = '';
+            let result = '';
+            let i = 0;
+
+            while (i < normalized.length) {
+                const char = normalized[i];
+                const nextTwo = normalized.substring(i, i + 3);
+
+                // 따옴표 상태 변경 감지
+                if (!inQuotes && (char === '"' || char === "'")) {
+                    inQuotes = true;
+                    quoteChar = char;
+                    result += char;
+                    i++;
+                    continue;
+                }
+
+                if (inQuotes && char === quoteChar) {
+                    inQuotes = false;
+                    quoteChar = '';
+                    result += char;
+                    i++;
+                    continue;
+                }
+
+                // 따옴표 밖에서 && 패턴 발견 시 제거
+                if (!inQuotes && nextTwo === ' &&') {
+                    // 뒤의 공백까지 건너뛰기
+                    i += 3;
+                    // 다음 명령 시작까지 건너뛰기 (공백 제거)
+                    while (i < normalized.length && normalized[i] === ' ') i++;
+                    // && 이후 모든 내용 제거
+                    break;
+                }
+
+                result += char;
+                i++;
+            }
+
+            if (result !== normalized) {
+                normalized = result;
+                console.log('[TerminalManager] PowerShell && 제거: 명령 전처리됨');
+            }
+        }
+
+        // 2. 경로 정규화 (공백이 없으면 따옴표 제거)
+        // cmd.exe /d /c "경로" 형식에서 경로에 공백이 없으면 따옴표 제거
+        normalized = normalized.replace(/cmd\.exe\s*\/d\s*\/c\s*"([^"\s&]+)"/gi, (match, path) => {
+            // 경로에 공백이나 &가 없으면 따옴표 제거
+            if (!/\s/.test(path) && !/&/.test(path)) {
+                return `cmd.exe /d /c ${path}`;
+            }
+            return match;
+        });
+    }
+
+    // Unix 계열 환경 전처리
+    if (!isWindows) {
+        // 경로 슬래시 정규화 (이미 슬래시 사용)
+        // 백슬래시를 슬래시로 변환 (Windows 경로 혼용 방지)
+        normalized = normalized.replace(/\\/g, '/');
+    }
+
+    return normalized;
+}
+
+/**
+ * VS Code 터미널 출력 디코딩 함수
+ * Windows에서 cmd.exe 출력은 CP949일 수 있으므로 올바르게 디코딩
+ */
+function decodeTerminalOutput(text: string, isWindows: boolean = process.platform === 'win32'): string {
+    if (!text || !isWindows) return text;
+
+    // 깨진 문자 패턴 감지
+    const brokenCharPattern = /[?][가-힣]|[가-힣][?]|[?][가-힣][?]|[ʾҽϴ]/;
+    if (brokenCharPattern.test(text)) {
+        try {
+            // CP949로 재디코딩 시도
+            const iconv = require('iconv-lite');
+            // 현재 텍스트를 바이너리 버퍼로 변환 후 CP949로 디코딩
+            const buffer = Buffer.from(text, 'binary');
+            const decoded = iconv.decode(buffer, 'cp949');
+            // 디코딩 결과가 더 나은지 확인 (깨진 문자 수 비교)
+            const originalBroken = (text.match(/[?]/g) || []).length;
+            const decodedBroken = (decoded.match(/[?]/g) || []).length;
+            if (decodedBroken < originalBroken) {
+                return decoded;
+            }
+        } catch (e) {
+            // iconv-lite가 없거나 변환 실패 시 원본 유지
+            console.warn('[TerminalManager] CP949 디코딩 실패:', e);
+        }
+    }
+
+    return text;
+}
+
 async function handleInteractiveCommand(command: string, projectRoot?: string): Promise<boolean> {
     // 명령어 실행 중지 상태 확인
     if ((globalThis as any).terminalMonitorService && (globalThis as any).terminalMonitorService.isExecutionStopped()) {
         console.log('[TerminalManager] 명령어 실행이 중지되었습니다:', command);
         return false;
     }
+
+    // OS별 명령어 전처리 및 정규화
+    command = normalizeCommandForOS(command);
 
     const lower = command.toLowerCase();
     const isDevLong = isLongRunningDevCommand(lower);
@@ -416,12 +543,46 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
     // 기본 경로: terminal-daemon 경유 실행 (비대화형)
     const channel = getCaptureOutputChannel();
-    channel.appendLine(`\n===== Executing: ${cleanCommand} (${new Date().toLocaleString()}) =====`);
+
+    // OS별 명령어 전처리
+    const normalizedCommand = normalizeCommandForOS(cleanCommand);
+
+    channel.appendLine(`\n===== Executing: ${normalizedCommand} (${new Date().toLocaleString()}) =====`);
     channel.appendLine(`CWD: ${cwd || '(not set)'}`);
-    channel.appendLine(`Command: ${cleanCommand}`);
+    channel.appendLine(`Command: ${normalizedCommand}`);
     channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
-    const isErrorLike = (text: string) => /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i.test(text);
+    const isErrorLike = (text: string) => {
+        // 기본 오류 패턴
+        const basicErrorPattern = /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i;
+
+        // 배치 스크립트 특화 오류 패턴
+        // - 깨진 문자나 인코딩 오류 (일반적으로 한글이 깨져서 나타남)
+        // - '앰퍼샌드' 또는 '&' 관련 오류
+        // - 배치 변수 관련 오류
+        const batchErrorPattern = /(앰퍼샌드|&.*사용할 수 없습니다|&.*예약|%.*%.*ʾҽ|%[^%]*%.*오류|batch.*error|cmd.*error|syntax.*error)/i;
+
+        // PowerShell 파서 오류 패턴
+        // - "토큰은 이 버전에서 올바른 문 구분 기호가 아닙니다"
+        // - "InvalidEndOfLine", "ParserError"
+        // - "CategoryInfo", "FullyQualifiedErrorId"
+        // - "&&" 같은 PowerShell 5.1에서 지원하지 않는 연산자
+        const powershellParserPattern = /(ParserError|InvalidEndOfLine|토큰.*올바른.*문 구분 기호|CategoryInfo|FullyQualifiedErrorId|&&.*토큰|&&.*이 버전)/i;
+
+        // 인코딩 오류 감지 (깨진 한글 문자 패턴)
+        // - ?가 포함된 명령어 (예: ?echo, ?행, ?류 등)
+        // - 특수 문자 패턴으로 깨진 문자
+        const encodingErrorPattern = /([ʾҽϴ]+|\\?[?][가-힣]|[가-힣][?]|[?][가-힣][?]|파일 이름.*구문|디렉터리 이름.*구문|볼륨 레이블.*구문)/i;
+
+        // 파일 이름 구문 오류 감지
+        const fileSyntaxErrorPattern = /(파일 이름.*구문|디렉터리 이름.*구문|볼륨 레이블.*구문|The filename.*syntax|The directory name.*syntax)/i;
+
+        return basicErrorPattern.test(text) ||
+            batchErrorPattern.test(text) ||
+            powershellParserPattern.test(text) ||
+            encodingErrorPattern.test(text) ||
+            fileSyntaxErrorPattern.test(text);
+    };
 
     let stderrAgg = '';
     let stdoutAgg = '';
@@ -430,17 +591,27 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         const id = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         // Normalize PowerShell -EncodedCommand into -Command with decoded script to avoid CLIXML and cmdlet-not-found
         cleanCommand = normalizeEncodedPowerShellCommand(cleanCommand);
-        console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${cleanCommand}"`);
-        channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${cleanCommand}`);
+
+        // OS별 명령어 전처리 및 정규화 (&& 제거, 경로 정규화 등)
+        const finalCommand = normalizeCommandForOS(cleanCommand);
+
+        console.log(`[TerminalManager] Starting via VS Code terminal. id=${id}, cwd=${cwd || '(not set)'}, cmd="${finalCommand}"`);
+        channel.appendLine(`[DEBUG] Executing command in VS Code terminal: ${finalCommand}`);
         channel.appendLine(`[DEBUG] Working directory: ${cwd || '(not set)'}`);
+
+        // 원본 명령과 다르면 로그 출력
+        if (finalCommand !== cleanCommand) {
+            console.log(`[TerminalManager] 명령 전처리됨: ${cleanCommand.substring(0, 100)}... → ${finalCommand.substring(0, 100)}...`);
+            channel.appendLine(`[DEBUG] Command normalized: && removed or path normalized`);
+        }
 
         // VS Code 터미널을 사용하여 명령어 실행
         const terminal = getAidevIdeTerminal(projectRoot, true);
 
-        // 터미널 모니터링 서비스에 명령어 저장
+        // 터미널 모니터링 서비스에 명령어 저장 (전처리된 명령 저장)
         if (_terminalMonitorService) {
-            console.log(`[TerminalManager] 명령어 저장: ${terminal.name} - ${cleanCommand}`);
-            _terminalMonitorService.storeRecentCommand(terminal.name, cleanCommand);
+            console.log(`[TerminalManager] 명령어 저장: ${terminal.name} - ${finalCommand}`);
+            _terminalMonitorService.storeRecentCommand(terminal.name, finalCommand);
             console.log(`[TerminalManager] 명령어 저장 완료`);
         } else {
             console.log(`[TerminalManager] 터미널 모니터링 서비스가 설정되지 않음`);
@@ -451,27 +622,30 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             terminal.sendText(`cd "${cwd}"`);
         }
 
-        // 명령어 실행
-        terminal.sendText(cleanCommand);
+        // 명령어 실행 (전처리된 명령 사용)
+        terminal.sendText(finalCommand);
 
         // 터미널을 보여주고 포커스
         terminal.show(true);
 
         // VS Code 터미널에서는 직접적인 출력 캡처가 어려우므로
         // processRunner를 사용하여 출력을 캡처
+        // 전처리된 명령 사용
         const runPromise = runCommandCapture(
-            cleanCommand,
-            { cwd, shell: selectShellForCapture(cleanCommand) || true },
-            // stdout 콜백
+            finalCommand, // 전처리된 명령 사용
+            { cwd, shell: selectShellForCapture(finalCommand) || true },
+            // stdout 콜백 (디코딩 적용)
             (data: string) => {
+                const decoded = decodeTerminalOutput(data);
                 if (_terminalMonitorService) {
-                    _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stdout`, data);
+                    _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stdout`, decoded);
                 }
             },
-            // stderr 콜백
+            // stderr 콜백 (디코딩 적용)
             (data: string) => {
+                const decoded = decodeTerminalOutput(data);
                 if (_terminalMonitorService) {
-                    _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stderr`, data);
+                    _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stderr`, decoded);
                 }
             }
         );
@@ -486,7 +660,9 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
                     channel.appendLine(`Exit code: ${res.code}`);
                     channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
                     if (res.stderr) {
-                        channel.appendLine(`Stderr: ${res.stderr}`);
+                        // stderr 디코딩 적용
+                        const decodedStderr = decodeTerminalOutput(res.stderr);
+                        channel.appendLine(`Stderr: ${decodedStderr}`);
                     }
                     try { getTerminalMonitor()?.ingestExternalOutput('stderr', msg); } catch { }
                     channel.show(true);
@@ -553,11 +729,13 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
         if (result.code !== 0 || isErrorLike(result.stderr || '')) {
             channel.appendLine(`----- Command Failed -----`);
-            channel.appendLine(`Command: ${cleanCommand}`);
+            channel.appendLine(`Command: ${finalCommand}`);
             channel.appendLine(`Exit code: ${result.code}`);
             channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
             if (result.stderr) {
-                channel.appendLine(`Stderr: ${result.stderr}`);
+                // stderr 디코딩 적용
+                const decodedStderr = decodeTerminalOutput(result.stderr);
+                channel.appendLine(`Stderr: ${decodedStderr}`);
             }
             try {
                 getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${cleanCommand}`);
@@ -1029,15 +1207,98 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
     while ((match = cmdBlockRegex.exec(llmResponse)) !== null) {
         const block = (match[1] || '').trim();
         if (!block) continue;
-        const joined = block
-            .split('\n')
-            .map(l => l.trim())
-            // drop CMD comments like ':: ...' or 'REM ...'
-            .filter(l => !!l && !/^::/.test(l) && !/^REM\b/i.test(l))
-            .join(' & ');
-        if (joined) {
-            // Force execution in cmd.exe to avoid PowerShell parsing '&' and '()'
-            commands.push(`cmd.exe /d /c ${joined}`);
+
+        // 복잡한 배치 스크립트 감지
+        // 다음 조건 중 하나라도 만족하면 복잡한 스크립트로 간주:
+        // 1. 길이가 500자 이상
+        // 2. %변수% 패턴이 3개 이상 포함
+        // 3. if/for/goto 같은 제어 구조가 포함
+        // 4. setlocal/endlocal 같은 환경 설정 명령 포함
+        const isComplexScript = block.length > 500 ||
+            (block.match(/%[^%]+%/g) || []).length >= 3 ||
+            /\b(if|for|goto|setlocal|endlocal|call)\b/i.test(block);
+
+        if (isComplexScript && process.platform === 'win32') {
+            // 복잡한 배치 스크립트는 임시 파일로 저장하여 실행
+            // 이렇게 하면 PowerShell 파싱 문제를 완전히 회피할 수 있음
+            try {
+                const tempDir = os.tmpdir();
+                const tempBatPath = path.join(tempDir, `aidev-ide-${Date.now()}-${Math.random().toString(36).slice(2, 9)}.bat`);
+
+                // 배치 파일 작성 (UTF-8 without BOM 사용)
+                // Windows 배치 파일은 기본적으로 CP949를 사용하지만, UTF-8도 지원됨
+                // 하지만 BOM은 cmd.exe에서 문제를 일으킬 수 있으므로 BOM 없이 UTF-8 사용
+                // 한글이 포함된 경우에도 대부분의 경우 정상 작동
+                fs.writeFileSync(tempBatPath, block, 'utf8');
+
+                // 임시 파일 실행 후 자동 정리 명령
+                // PowerShell에서 && 사용 불가하므로 배치 파일 내부에서 삭제 처리
+                // 경로에 공백이 없으면 따옴표 없이 사용 (더 안전함)
+                // 삭제 명령은 배치 파일 실행 후 별도로 처리하거나 배치 파일 끝에 추가
+
+                // 경로에 공백이 있는지 확인
+                const hasSpaces = tempBatPath.includes(' ');
+
+                // 배치 파일 끝에 자동 삭제 명령 추가
+                // 배치 파일 내에서 자신을 삭제하려면 배치 파일 경로를 변수로 저장해야 함
+                // 하지만 더 간단하게는 배치 파일 실행 후 PowerShell에서 삭제하거나
+                // 배치 파일이 끝나면 자동으로 정리되도록 별도 프로세스로 처리
+                // 여기서는 일단 배치 파일만 저장하고, 삭제는 나중에 처리
+                fs.writeFileSync(tempBatPath, block, 'utf8');
+
+                // 경로만 사용 (공백이 없으면 따옴표 불필요)
+                // PowerShell에서 && 사용 불가하므로 별도 명령으로 삭제 처리
+                if (hasSpaces) {
+                    const escapedPath = tempBatPath.replace(/"/g, '""');
+                    commands.push(`cmd.exe /d /c "${escapedPath}"`);
+                } else {
+                    commands.push(`cmd.exe /d /c ${tempBatPath}`);
+                }
+
+                // 실행 후 별도 명령으로 임시 파일 삭제 (PowerShell의 ; 사용)
+                // 배치 파일 실행이 완료된 후에만 삭제되도록 지연
+                setTimeout(() => {
+                    try {
+                        if (fs.existsSync(tempBatPath)) {
+                            fs.unlinkSync(tempBatPath);
+                            console.log(`[TerminalManager] 임시 배치 파일 삭제 완료: ${tempBatPath}`);
+                        }
+                    } catch (cleanupError) {
+                        console.warn(`[TerminalManager] 임시 파일 삭제 실패: ${tempBatPath}`, cleanupError);
+                    }
+                }, 5000); // 5초 후 삭제
+
+                console.log(`[TerminalManager] 복잡한 배치 스크립트를 임시 파일로 저장: ${tempBatPath}`);
+            } catch (error) {
+                console.warn('[TerminalManager] 임시 배치 파일 생성 실패, 인라인 실행으로 폴백:', error);
+                // 폴백: 기존 방식으로 실행
+                const joined = block
+                    .split('\n')
+                    .map(l => l.trim())
+                    .filter(l => !!l && !/^::/.test(l) && !/^REM\b/i.test(l))
+                    .join(' & ');
+                if (joined) {
+                    const escaped = joined.replace(/"/g, '""');
+                    commands.push(`cmd.exe /d /c "${escaped}"`);
+                }
+            }
+        } else {
+            // 간단한 배치 스크립트는 인라인으로 실행
+            const joined = block
+                .split('\n')
+                .map(l => l.trim())
+                // drop CMD comments like ':: ...' or 'REM ...'
+                .filter(l => !!l && !/^::/.test(l) && !/^REM\b/i.test(l))
+                .join(' & ');
+            if (joined) {
+                // Escape double quotes using cmd.exe style ("" for each ") to prevent PowerShell from parsing '&' and '()'
+                // This ensures cmd.exe receives the entire command string without PowerShell interference
+                // PowerShell will remove the outer quotes and pass the inner content to cmd.exe
+                // cmd.exe interprets "" as a single " in quoted strings
+                const escaped = joined.replace(/"/g, '""');
+                // Wrap entire command in quotes when running from PowerShell to prevent special character parsing
+                commands.push(`cmd.exe /d /c "${escaped}"`);
+            }
         }
     }
     return commands;
@@ -1142,7 +1403,57 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 
         // 항상 워크스페이스 루트를 가져옵니다.
         const projectRoot = await getEffectiveCwd();
-        
+
+        // OS별 가이드라인 준비
+        const isWindows = _userOS.toLowerCase().includes('windows') || _userOS.toLowerCase() === 'win32';
+        const isUnixLike = !isWindows; // Linux, macOS, Unix 계열
+
+        // 공통 가이드라인
+        const commonGuidelines = `1. 기본 명령어(echo, ls, pwd 등)가 실패하는 경우, 셸 환경 문제일 수 있습니다
+2. 경로 문제가 있는 경우 절대 경로나 상대 경로를 수정하세요
+3. 권한 문제가 있는 경우 ${isWindows ? 'icacls 또는 takeown 명령어를 사용하세요' : 'chmod 명령어를 추가하세요'}
+4. 환경 변수 문제가 있는 경우 ${isWindows ? 'set 명령어를 사용하세요' : 'export 명령어를 추가하세요'}
+5. ${isUnixLike ? '셸 문제가 있는 경우 /bin/bash 또는 /bin/zsh를 명시적으로 사용하세요' : '셸 문제가 있는 경우 PowerShell 또는 cmd.exe를 명시적으로 사용하세요'}
+6. "No such file or directory" 오류의 경우, 프로젝트 루트 경로를 재확인하고 올바른 디렉토리에서 명령어를 실행하세요
+7. Spring Boot 프로젝트의 경우 Maven(mvn) 또는 Gradle(./gradlew) 명령어를 사용하고, npm/node.js 명령어는 사용하지 마세요
+8. 프로젝트 타입에 맞는 빌드 도구를 사용하세요 (Spring Boot: Maven/Gradle, React: npm/yarn, Python: pip)
+9. "앱 빌드하고 실행해" 요청의 경우 Spring Boot 프로젝트일 가능성이 높으므로 Maven(mvn clean package) 또는 Gradle(./gradlew build) 명령어를 사용하세요
+10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요`;
+
+        // Windows 전용 가이드라인
+        const windowsGuidelines = `
+
+**Windows PowerShell 환경 특별 고려사항:**
+11. PowerShell에서 배치 스크립트(cmd.exe)를 실행할 때는 특수 문자(&, |, ;, () 등)가 PowerShell에 의해 먼저 파싱됩니다. 배치 스크립트를 실행할 때는 전체 명령을 큰따옴표로 감싸거나, 내부 따옴표를 이스케이프(\\")하세요
+12. **중요**: "앰퍼샌드(&) 문자를 사용할 수 없습니다" 또는 "&& 토큰은 이 버전에서 올바른 문 구분 기호가 아닙니다" 오류가 발생하면, **절대로 &&를 사용하지 마세요**. PowerShell 5.1은 &&를 지원하지 않습니다. 해결 방법:
+    - 배치 파일을 실행할 때는 경로만 사용: \`cmd.exe /d /c 경로.bat\` (경로에 공백이 없으면 따옴표 불필요)
+    - 여러 명령을 실행해야 하면 별도 명령으로 분리하거나, 배치 파일 내부에서 처리하세요
+    - 임시 파일 삭제는 배치 파일 끝에 추가하거나 별도로 처리하세요
+    - **절대 사용 금지**: \`cmd.exe /d /c "경로 && del ..."\` 같은 형식은 PowerShell에서 항상 실패합니다
+13. **복잡한 배치 스크립트 처리**: 다음 조건에 해당하는 배치 스크립트는 반드시 임시 .bat 파일로 생성하여 실행해야 합니다:
+    - 스크립트 길이가 500자 이상
+    - %변수% 패턴이 3개 이상 포함 (%errorlevel%, %JAR_FILE% 등)
+    - if/for/goto/setlocal/endlocal 같은 제어 구조 포함
+    - 여러 단계의 빌드/실행 프로세스를 포함하는 경우
+    복잡한 스크립트는 인라인으로 실행하지 말고 임시 .bat 파일을 생성하고 실행하세요. 예: 스크립트를 temp.bat 파일로 저장 후 \`cmd.exe /d /c "temp.bat"\`로 실행
+14. 배치 스크립트에서 오류 메시지가 깨져서 나타나거나(예: "?echo", "?행", "?류"), "파일 이름 구문이 잘못되었습니다" 오류가 발생하면:
+    - **경로에 공백이 없으면 따옴표 없이 실행**: \`cmd.exe /d /c 경로.bat\` (예: \`cmd.exe /d /c C:\\Temp\\script.bat\`)
+    - 경로에 공백이 있으면 따옴표로 감싸되, 이중화하지 마세요: \`cmd.exe /d /c "C:\\Program Files\\script.bat"\`
+    - **PowerShell에서는 && 연산자를 절대 사용하지 마세요**. 배치 파일 실행과 삭제는 별도 명령으로 처리하거나 배치 파일 끝에 추가하세요
+    - 복잡한 배치 스크립트는 임시 .bat 파일로 저장하고, 삭제는 시스템이 자동으로 처리합니다
+15. PowerShell 경로 구분자는 백슬래시(\\) 또는 슬래시(/) 모두 사용 가능하지만, 일관성을 위해 백슬래시를 권장합니다`;
+
+        // Unix 계열(Linux/macOS) 전용 가이드라인
+        const unixGuidelines = `
+
+**Unix 계열 환경 특별 고려사항:**
+11. 경로는 항상 슬래시(/)를 사용하고, 공백이 있는 경로는 따옴표로 감싸세요
+12. 실행 권한이 없는 스크립트의 경우 chmod +x를 사용하여 실행 권한을 부여하세요
+13. 환경 변수는 export로 설정하고, 스크립트 내에서 $변수명 형식으로 참조하세요
+14. 파이프(|)와 리다이렉션(>, >>) 사용 시 명령어 사이를 올바르게 구분하세요`;
+
+        const osSpecificGuidelines = isWindows ? windowsGuidelines : unixGuidelines;
+
         const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
@@ -1152,16 +1463,7 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 ${cleanedErrorOutput}
 
 ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제안해주세요:
-1. 기본 명령어(echo, ls, pwd 등)가 실패하는 경우, 셸 환경 문제일 수 있습니다
-2. 경로 문제가 있는 경우 절대 경로나 상대 경로를 수정하세요
-3. 권한 문제가 있는 경우 chmod 명령어를 추가하세요
-4. 환경 변수 문제가 있는 경우 export 명령어를 추가하세요
-5. 셸 문제가 있는 경우 /bin/bash 또는 /bin/zsh를 명시적으로 사용하세요
-6. "No such file or directory" 오류의 경우, 프로젝트 루트 경로를 재확인하고 올바른 디렉토리에서 명령어를 실행하세요
-7. Spring Boot 프로젝트의 경우 Maven(mvn) 또는 Gradle(./gradlew) 명령어를 사용하고, npm/node.js 명령어는 사용하지 마세요
-8. 프로젝트 타입에 맞는 빌드 도구를 사용하세요 (Spring Boot: Maven/Gradle, React: npm/yarn, Python: pip)
-9. "앱 빌드하고 실행해" 요청의 경우 Spring Boot 프로젝트일 가능성이 높으므로 Maven(mvn clean package) 또는 Gradle(./gradlew build) 명령어를 사용하세요
-10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요
+${commonGuidelines}${osSpecificGuidelines}
 
 **중요: 오직 하나의 JSON 객체만 응답해주세요. 다른 텍스트나 설명은 포함하지 마세요.**
 
@@ -1350,6 +1652,26 @@ export async function handleCommandError(
         if (!t) return false;
         if (t === '\\') return false;
         if (t === '""' || t === "''") return false;
+
+        // PowerShell 환경에서 && 사용 금지 (cmd.exe 호출 외부에서)
+        // cmd.exe /d /c "..." 내부의 &&는 허용되지만, 외부의 &&는 PowerShell에서 파싱 오류 발생
+        if (process.platform === 'win32' && /cmd\.exe/i.test(t)) {
+            // cmd.exe 호출 외부에 &&가 있으면 거부
+            // 예: cmd.exe /d /c "..." && del ... (거부)
+            // 예: cmd.exe /d /c "명령1 && 명령2" (허용 - cmd.exe 내부)
+            const cmdMatch = t.match(/cmd\.exe\s*\/d\s*\/c\s*"([^"]*)"(?:\s*&&)/i);
+            if (cmdMatch) {
+                // cmd.exe /d /c "..." 뒤에 &&가 있으면 거부
+                console.log('[TerminalManager] 명령어 검증 실패: PowerShell 환경에서 && 사용 감지');
+                return false;
+            }
+            // 명령 시작 부분에 &&가 있으면 거부
+            if (/^\s*&&/.test(t)) {
+                console.log('[TerminalManager] 명령어 검증 실패: 명령 시작에 && 사용');
+                return false;
+            }
+        }
+
         // Reject placeholders or angle-bracket templates often produced by LLM
         if (/[<>]/.test(t)) return false;
         if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
