@@ -556,6 +556,12 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         // 기본 오류 패턴
         const basicErrorPattern = /(npm\s+err!|^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|ERROR in|Traceback|panic:|Exit status [1-9]|BUILD FAILED|Missing script:)/i;
 
+        // 컴파일 오류 패턴 - 파일 수정이 필요한 오류
+        // - 패키지/의존성 오류, 컴파일 실패, 심볼을 찾을 수 없는 오류
+        // - 인코딩 오류: unmappable character, encoding x-windows-949 등
+        // - 구체적인 패키지 이름 패턴도 포함 (org.springframework, lombok, jakarta.persistence 등)
+        const compilationErrorPattern = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|symbol:.*class|symbol:.*method|symbol:.*variable|package.*is missing|unmappable character.*encoding|File encoding has not been set|platform encoding|x-windows-949|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*Table|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer|POM file.*does not exist)/i;
+
         // 배치 스크립트 특화 오류 패턴
         // - 깨진 문자나 인코딩 오류 (일반적으로 한글이 깨져서 나타남)
         // - '앰퍼샌드' 또는 '&' 관련 오류
@@ -567,7 +573,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         // - "InvalidEndOfLine", "ParserError"
         // - "CategoryInfo", "FullyQualifiedErrorId"
         // - "&&" 같은 PowerShell 5.1에서 지원하지 않는 연산자
-        const powershellParserPattern = /(ParserError|InvalidEndOfLine|토큰.*올바른.*문 구분 기호|CategoryInfo|FullyQualifiedErrorId|&&.*토큰|&&.*이 버전)/i;
+        // - cmdlet 인식 불가 오류 (CommandNotFoundException)
+        const powershellParserPattern = /(ParserError|InvalidEndOfLine|토큰.*올바른.*문 구분 기호|CategoryInfo|FullyQualifiedErrorId|&&.*토큰|&&.*이 버전|CommandNotFoundException|cmdlet.*인식되지|용어가.*cmdlet|CLIXML)/i;
 
         // 인코딩 오류 감지 (깨진 한글 문자 패턴)
         // - ?가 포함된 명령어 (예: ?echo, ?행, ?류 등)
@@ -581,7 +588,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             batchErrorPattern.test(text) ||
             powershellParserPattern.test(text) ||
             encodingErrorPattern.test(text) ||
-            fileSyntaxErrorPattern.test(text);
+            fileSyntaxErrorPattern.test(text) ||
+            compilationErrorPattern.test(text);
     };
 
     let stderrAgg = '';
@@ -727,7 +735,12 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
         const result = await runPromise;
 
-        if (result.code !== 0 || isErrorLike(result.stderr || '')) {
+        // stdout도 오류 검사에 포함 (Maven은 stdout에 오류를 출력함)
+        const hasErrorInStderr = isErrorLike(result.stderr || '');
+        const hasErrorInStdout = isErrorLike(result.stdout || '');
+        const hasError = result.code !== 0 || hasErrorInStderr || hasErrorInStdout;
+
+        if (hasError) {
             channel.appendLine(`----- Command Failed -----`);
             channel.appendLine(`Command: ${finalCommand}`);
             channel.appendLine(`Exit code: ${result.code}`);
@@ -737,6 +750,11 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
                 const decodedStderr = decodeTerminalOutput(result.stderr);
                 channel.appendLine(`Stderr: ${decodedStderr}`);
             }
+            if (result.stdout && hasErrorInStdout) {
+                // stdout도 오류가 있으면 출력
+                const decodedStdout = decodeTerminalOutput(result.stdout);
+                channel.appendLine(`Stdout (contains errors): ${decodedStdout.substring(0, 500)}...`);
+            }
             try {
                 getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${cleanCommand}`);
                 getTerminalMonitor()?.ingestExternalOutput('stderr', `Exit status ${result.code}`);
@@ -744,7 +762,10 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             channel.show(true);
 
             // 오류 수정 시도
+            // stdout과 stderr를 모두 포함 (Maven은 stdout에 오류 출력)
             const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
+            console.log(`[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`);
+            console.log(`[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || '').length}, stdout=${(result.stdout || '').length}`);
             const retrySuccess = await handleCommandError(
                 cleanCommand,
                 errorOutput,
@@ -1165,13 +1186,13 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
         const block = (match[1] || '').trim();
         if (!block) continue;
         // Prepend encoding and formatting prologue to avoid mojibake and CLIXML/progress artifacts
+        // Note: $PSModuleAutoLoadingPreference='None' is removed as it prevents basic cmdlets from loading
         const prologue = [
             "$ProgressPreference='SilentlyContinue'",
             "$WarningPreference='Continue'",
             "$InformationPreference='Continue'",
             "$ErrorActionPreference='Continue'",
             "$ErrorView='NormalView'",
-            "$PSModuleAutoLoadingPreference='None'",
             "try{ $PSStyle.OutputRendering='PlainText' } catch { }",
             "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
             "[Console]::InputEncoding=[System.Text.Encoding]::UTF8",
@@ -1233,15 +1254,51 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                 // 5. 배치 파일 끝에 자체 삭제 명령 추가
 
                 // 원본 블록의 @echo off와 pause 제거
+                // markdown 코드 블록 마커(```)가 포함된 줄도 제거
                 let cleanedBlock = block
                     .replace(/^@?echo\s+off\s*\r?\n?/i, '')
                     .replace(/pause\s*>/gim, '')
+                    .replace(/```[a-z]*\s*\r?\n?/gi, '')  // 마크다운 코드 블록 시작/끝 제거
+                    .replace(/\r?\n?\s*```\s*\r?\n?/g, '')  // 마크다운 코드 블록 종료 제거
+                    .split('\n')
+                    .filter(line => {
+                        const trimmed = line.trim();
+                        // markdown 형식의 텍스트 제거 (숫자로 시작하는 목록, 백틱 포함 등)
+                        if (/^\d+\.\s/.test(trimmed)) return false;  // "1. ", "2. " 같은 목록
+                        if (trimmed.includes('```')) return false;  // 백틱 포함
+                        if (/^[-*]\s/.test(trimmed)) return false;  // "- " 또는 "* " 같은 목록
+                        if (/^##?\s/.test(trimmed)) return false;  // "## " 같은 헤더
+                        // 단독으로 마이너스(-)만 있는 줄도 제거 (마크다운 리스트로 인식될 수 있음)
+                        if (/^-$/.test(trimmed)) return false;
+                        // 마크다운 체크박스 형식 제거
+                        if (/^[-*]\s\[[ xX]\]/.test(trimmed)) return false;
+                        return true;
+                    })
+                    .join('\n')
                     .trim();
 
                 // 배치 파일 내부의 pushd/popd 명령에서 임시 디렉토리로 이동하는 것 제거
                 // 임시 디렉토리는 %TEMP% 또는 AppData\Local\Temp를 포함
-                const tempDirPattern = /(pushd|cd\s+\/d)\s+[^&\r\n]*(?:%TEMP%|AppData[\\/]Local[\\/]Temp|TEMP)[^&\r\n]*/gi;
-                cleanedBlock = cleanedBlock.replace(tempDirPattern, '');
+                // ADMINI는 8.3 짧은 경로 형식 (ADMINISTRATOR -> ADMINI~1)
+                const tempDirPattern = /(pushd|cd\s+\/d)\s+[^&\r\n]*(?:%TEMP%|AppData[\\/]Local[\\/]Temp|TEMP|ADMINI)[^&\r\n]*/gi;
+                cleanedBlock = cleanedBlock.replace(tempDirPattern, 'REM Removed temp dir pushd');
+
+                // CURRENT_DIR 변수를 임시 디렉터리로 설정하는 것도 제거
+                cleanedBlock = cleanedBlock.replace(/set\s+"CURRENT_DIR=[^"]*(?:%TEMP%|AppData[\\/]Local[\\/]Temp|TEMP|ADMINI)[^"]*"/gi, 'REM Removed CURRENT_DIR temp dir setting');
+
+                // PROJECT_ROOT 변수를 임시 디렉터리로 설정하는 것 제거
+                cleanedBlock = cleanedBlock.replace(/set\s+"PROJECT_ROOT=[^"]*(?:%TEMP%|AppData[\\/]Local[\\/]Temp|TEMP|ADMINI)[^"]*"/gi, 'REM Removed PROJECT_ROOT temp dir setting');
+
+                // 임시 디렉터리로 이동하는 모든 명령어 제거 (더 강력한 패턴)
+                cleanedBlock = cleanedBlock.replace(/pushd\s+"?[^"\r\n]*(?:ADMINI|AppData[\\/]Local[\\/]Temp|%TEMP%|TEMP)[^"\r\n]*"?/gi, 'REM Removed pushd to temp dir');
+                cleanedBlock = cleanedBlock.replace(/cd\s+\/d\s+"?[^"\r\n]*(?:ADMINI|AppData[\\/]Local[\\/]Temp|%TEMP%|TEMP)[^"\r\n]*"?/gi, 'REM Removed cd to temp dir');
+
+                // 한글 주석(REM/::) 다음 줄의 한글이 명령어로 실행되는 것을 방지
+                cleanedBlock = cleanedBlock.replace(/((?:rem|REM|::)\s*[^\r\n]*[\uAC00-\uD7A3][^\r\n]*)\r?\n\s*([\uAC00-\uD7A3][^\r\n]*)/g, '$1\r\nREM Removed Korean text after comment');
+
+                // 백틱으로 감싼 파일명 제거 (예: `build_and_run.cmd`, `build_and_run.cmd`)
+                // 이것은 명령어가 아니라 파일 참조이므로 제거
+                cleanedBlock = cleanedBlock.replace(/`[^`\r\n]+\.(?:cmd|bat|exe|ps1|sh)`/gi, 'REM Removed backtick-wrapped filename');
 
                 // 줄바꿈 정규화: 모든 줄바꿈을 CRLF로 변환
                 cleanedBlock = cleanedBlock.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n');
@@ -1249,15 +1306,40 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                 // 배치 파일 헤더 추가
                 // 배치 파일 경로를 변수에 저장 (나중에 자체 삭제를 위해)
                 const batPathEscaped = tempBatPath.replace(/"/g, '""');
-                let batchContent = `@echo off\r\n`;
+                // BOM 없이 저장하고, 첫 줄에 chcp를 먼저 실행하여 UTF-8 활성화
+                // 이렇게 하면 BOM 없이도 UTF-8로 처리 가능하고, BOM으로 인한 첫 줄 오류 방지
+                let batchContent = ``;
                 batchContent += `chcp 65001 >nul 2>&1\r\n`;
+                batchContent += `@echo off\r\n`;
                 batchContent += `setlocal EnableDelayedExpansion\r\n`;
                 batchContent += `set "BAT_FILE=${batPathEscaped}"\r\n`;
-                // 현재 작업 디렉토리 저장 (터미널에서 설정된 프로젝트 디렉토리)
-                // 배치 파일은 터미널에서 실행되므로 이미 올바른 디렉토리에 있음
-                // 하지만 배치 파일 내부의 pushd 등으로 이동할 수 있으므로 원본 디렉토리 저장
-                batchContent += `set "ORIGINAL_DIR=%CD%"\r\n`;
-                batchContent += cleanedBlock;
+                // 배치 파일이 임시 디렉터리에서 실행될 수 있으므로, 프로젝트 루트를 찾아서 이동
+                // pom.xml 또는 build.gradle을 찾을 때까지 상위 디렉터리로 이동
+                batchContent += `set "PROJECT_ROOT=%CD%"\r\n`;
+                batchContent += `:findProjectRoot\r\n`;
+                batchContent += `if exist "!PROJECT_ROOT!\\pom.xml" goto foundRoot\r\n`;
+                batchContent += `if exist "!PROJECT_ROOT!\\build.gradle" goto foundRoot\r\n`;
+                batchContent += `if exist "!PROJECT_ROOT!\\build.gradle.kts" goto foundRoot\r\n`;
+                batchContent += `if exist "!PROJECT_ROOT!\\package.json" goto foundRoot\r\n`;
+                batchContent += `if "!PROJECT_ROOT!"=="!PROJECT_ROOT:\\!" goto notFoundRoot\r\n`;
+                batchContent += `set "PROJECT_ROOT=!PROJECT_ROOT!\\.."\r\n`;
+                batchContent += `cd /d "!PROJECT_ROOT!"\r\n`;
+                batchContent += `goto findProjectRoot\r\n`;
+                batchContent += `:foundRoot\r\n`;
+                batchContent += `cd /d "!PROJECT_ROOT!"\r\n`;
+                batchContent += `if errorlevel 1 (\r\n`;
+                batchContent += `  echo [ERROR] Cannot change to project root: !PROJECT_ROOT!\r\n`;
+                batchContent += `  exit /b 1\r\n`;
+                batchContent += `)\r\n`;
+                batchContent += `goto continue\r\n`;
+                batchContent += `:notFoundRoot\r\n`;
+                batchContent += `echo [WARNING] Project root not found, using current directory\r\n`;
+                batchContent += `:continue\r\n`;
+                // cleanedBlock에서 이미 임시 디렉터리로 이동하는 코드는 제거되었지만,
+                // LLM이 생성한 내용에 PROJECT_ROOT 관련 코드가 남아있을 수 있으므로 한 번 더 정리
+                let finalBlock = cleanedBlock.replace(/set\s+"PROJECT_ROOT=[^\r\n]*/gi, 'REM Removed PROJECT_ROOT setting');
+                finalBlock = finalBlock.replace(/cd\s+\/d\s+"?[^"\r\n]*(?:ADMINI|AppData[\\/]Local[\\/]Temp|%TEMP%|TEMP)[^"\r\n]*"?/gi, 'REM Removed cd to temp dir');
+                batchContent += finalBlock;
 
                 // 배치 파일 끝에 자체 삭제 명령 추가
                 // 배치 파일이 실행 중일 때는 자기 자신을 삭제할 수 없으므로
@@ -1266,31 +1348,29 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                 batchContent += `@endlocal\r\n`;
                 batchContent += `@start /b "" cmd /c "timeout /t 3 /nobreak >nul 2>&1 && if exist "${batPathEscaped}" del /f /q "${batPathEscaped}" >nul 2>&1"\r\n`;
 
-                // 배치 파일을 UTF-8 with BOM으로 저장 (Windows cmd.exe에서 UTF-8 인식)
-                // BOM이 있으면 cmd.exe가 UTF-8로 인식
-                try {
-                    const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
-                    const utf8Buffer = Buffer.from(batchContent, 'utf8');
-                    const bomBuffer = Buffer.concat([BOM, utf8Buffer]);
-                    fs.writeFileSync(tempBatPath, bomBuffer);
-                    console.log(`[TerminalManager] 배치 파일 저장 (UTF-8 BOM): ${tempBatPath}`);
-                } catch (e) {
-                    // 실패 시 UTF-8 without BOM로 폴백
-                    console.warn('[TerminalManager] UTF-8 BOM 저장 실패, UTF-8로 폴백:', e);
-                    fs.writeFileSync(tempBatPath, batchContent, 'utf8');
-                }
+                // 배치 파일을 UTF-8 without BOM으로 저장
+                // chcp 65001을 첫 줄에 넣었으므로 BOM 없이도 UTF-8로 처리됨
+                // BOM을 사용하면 cmd.exe가 첫 줄을 잘못 해석할 수 있음
+                fs.writeFileSync(tempBatPath, batchContent, 'utf8');
+                console.log(`[TerminalManager] 배치 파일 저장 (UTF-8, no BOM): ${tempBatPath}`);
 
                 // 경로에 공백이 있는지 확인
                 const hasSpaces = tempBatPath.includes(' ');
 
                 // 배치 파일 실행 명령 생성
                 // 배치 파일은 프로젝트 디렉토리에서 실행되어야 하므로,
-                // cmd.exe 실행 시 /d 옵션으로 드라이브 변경 허용
-                // 배치 파일 내부에서 프로젝트 디렉토리로 이동하도록 처리됨
+                // 먼저 프로젝트 디렉토리로 이동한 후 배치 파일 실행
+                // 배치 파일 내부에서도 ORIGINAL_DIR로 이동하지만, 실행 시점에도 확실히 하기 위해
+                // ORIGINAL_DIR는 배치 파일 내부에서 설정되므로, 여기서는 현재 워크스페이스 루트 사용
+                // 배치 파일 실행 시 %CD%는 터미널의 현재 작업 디렉토리일 것이므로,
+                // 배치 파일 내부의 ORIGINAL_DIR 설정에 의존
+                const batPathEscapedForCmd = tempBatPath.replace(/"/g, '""');
 
+                // 배치 파일은 내부에서 ORIGINAL_DIR로 이동하므로 여기서는 직접 실행
+                // ORIGINAL_DIR는 배치 파일 실행 시점의 %CD%로 설정되므로, 
+                // 터미널이 이미 프로젝트 디렉토리에 있다면 정상 작동
                 if (hasSpaces) {
-                    const escapedPath = tempBatPath.replace(/"/g, '""');
-                    commands.push(`cmd.exe /d /c "${escapedPath}"`);
+                    commands.push(`cmd.exe /d /c "${batPathEscapedForCmd}"`);
                 } else {
                     commands.push(`cmd.exe /d /c ${tempBatPath}`);
                 }
@@ -1395,9 +1475,14 @@ export function resetWorkingDirectory(): void {
 }
 
 /**
- * 명령어 실행 오류를 LLM에게 전송하여 수정된 명령어를 받아옵니다.
+ * 명령어 실행 오류를 LLM에게 전송하여 수정된 명령어와 파일 작업을 받아옵니다.
  */
-async function getCorrectedCommand(failedCommand: string, errorOutput: string, cwd: string): Promise<string | null> {
+interface CorrectedCommandResult {
+    correctedCommand: string | null;
+    fileOperations: { type: 'create' | 'modify' | 'delete'; path: string; content?: string }[];
+}
+
+async function getCorrectedCommand(failedCommand: string, errorOutput: string, cwd: string): Promise<CorrectedCommandResult | null> {
     if (!_llmService || !_currentWebview) {
         console.log('[TerminalManager] LLM 서비스 또는 웹뷰가 설정되지 않음');
         return null;
@@ -1414,7 +1499,10 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
                 // Remove from map after successful repair
                 _corruptedPowerShellScripts.delete(cmdHash);
                 console.log('[TerminalManager] LLM이 손상된 스크립트 복구 완료');
-                return repaired;
+                return {
+                    correctedCommand: repaired,
+                    fileOperations: []
+                };
             } else {
                 console.log('[TerminalManager] LLM 스크립트 복구 실패, 일반 오류 수정 시도');
                 // Continue with normal error correction
@@ -1444,6 +1532,129 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
         // 항상 워크스페이스 루트를 가져옵니다.
         const projectRoot = await getEffectiveCwd();
 
+        // 프로젝트 타입 감지 (프로젝트 타입별 설정 파일만 포함하기 위해)
+        let detectedProjectType = 'unknown';
+        try {
+            if (projectRoot && fs.existsSync(projectRoot)) {
+                // 프로젝트 타입별 설정 파일 확인 (우선순위 순서)
+                if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
+                    // Node.js 프로젝트 (React, Vite, 일반 Node.js 등)
+                    detectedProjectType = 'nodejs';
+                } else if (fs.existsSync(path.join(projectRoot, 'pom.xml'))) {
+                    // Java/Maven 프로젝트
+                    detectedProjectType = 'java';
+                } else if (fs.existsSync(path.join(projectRoot, 'build.gradle')) || fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
+                    // Java/Gradle 프로젝트
+                    detectedProjectType = 'java';
+                } else if (fs.existsSync(path.join(projectRoot, 'requirements.txt')) || fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
+                    // Python 프로젝트
+                    detectedProjectType = 'python';
+                } else if (fs.existsSync(path.join(projectRoot, 'go.mod'))) {
+                    // Go 프로젝트
+                    detectedProjectType = 'go';
+                } else {
+                    // .NET 프로젝트 확인 (.csproj 파일 찾기)
+                    try {
+                        const csprojFiles = fs.readdirSync(projectRoot, { recursive: false, withFileTypes: true })
+                            .filter(f => f.isFile() && f.name.endsWith('.csproj'));
+                        if (csprojFiles.length > 0) {
+                            detectedProjectType = 'dotnet';
+                        }
+                    } catch {
+                        // .NET 프로젝트가 아님, 다음 확인 계속
+                    }
+
+                    // .NET이 아니면 다른 프로젝트 타입 확인
+                    if (detectedProjectType === 'unknown') {
+                        if (fs.existsSync(path.join(projectRoot, 'Cargo.toml'))) {
+                            detectedProjectType = 'rust';
+                        } else if (fs.existsSync(path.join(projectRoot, 'composer.json'))) {
+                            detectedProjectType = 'php';
+                        } else if (fs.existsSync(path.join(projectRoot, 'Gemfile'))) {
+                            detectedProjectType = 'ruby';
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[TerminalManager] 프로젝트 타입 감지 실패:', e);
+        }
+
+        // 작업 디렉토리의 주요 파일 리스트 가져오기 (LLM이 프로젝트 구조를 이해할 수 있도록)
+        let projectFileList = '';
+        let configFileContent = '';
+        try {
+            if (projectRoot && fs.existsSync(projectRoot)) {
+                const files = fs.readdirSync(projectRoot, { withFileTypes: true });
+                const importantFiles: string[] = [];
+                const importantDirs: string[] = [];
+
+                // 주요 파일과 디렉토리만 수집 (너무 많으면 프롬프트가 길어짐)
+                for (const file of files) {
+                    const name = file.name;
+                    // 숨김 파일 제외 (.git, .idea 등)
+                    if (name.startsWith('.')) continue;
+
+                    if (file.isDirectory()) {
+                        // 주요 디렉토리만 포함
+                        if (/^(src|target|build|lib|resources|config|test|tests|node_modules)$/i.test(name)) {
+                            importantDirs.push(`${name}/`);
+                        }
+                    } else {
+                        // 주요 파일만 포함
+                        if (/\.(xml|gradle|properties|json|yml|yaml|java|kt|py|js|ts|tsx|jsx|md|txt|sh|bat|cmd|ps1|toml|mod)$/i.test(name)) {
+                            importantFiles.push(name);
+                        } else if (/^(pom|build|package|requirements|setup|Makefile|Dockerfile|Cargo|Gemfile|composer|go)$/i.test(name)) {
+                            // 파일 확장자 없지만 중요한 파일
+                            importantFiles.push(name);
+                        }
+                    }
+                }
+
+                // 최대 50개까지만 (프롬프트 길이 제한)
+                const allItems = [...importantDirs.sort(), ...importantFiles.sort()].slice(0, 50);
+
+                // 프로젝트 타입에 맞는 설정 파일 내용만 포함 (컴파일 오류 해결에 중요)
+                const configFiles: { [key: string]: string[] } = {
+                    'java': ['pom.xml', 'build.gradle', 'build.gradle.kts'],
+                    'nodejs': ['package.json'],
+                    'python': ['requirements.txt', 'pyproject.toml', 'setup.py'],
+                    'go': ['go.mod'],
+                    'dotnet': [], // .csproj는 여러 개일 수 있으므로 제외
+                    'rust': ['Cargo.toml'],
+                    'php': ['composer.json'],
+                    'ruby': ['Gemfile']
+                };
+
+                const relevantConfigFiles = configFiles[detectedProjectType] || [];
+                for (const configFileName of relevantConfigFiles) {
+                    try {
+                        const configPath = path.join(projectRoot, configFileName);
+                        if (fs.existsSync(configPath)) {
+                            const configContent = fs.readFileSync(configPath, 'utf8');
+                            // 처음 2000자만 (전체 내용이 너무 길 수 있음)
+                            const configPreview = configContent.length > 2000 ? configContent.substring(0, 2000) + '\n... (중간 생략) ...' : configContent;
+                            const lang = configFileName === 'pom.xml' ? 'xml' :
+                                configFileName.includes('gradle') ? 'gradle' :
+                                    configFileName === 'package.json' ? 'json' :
+                                        configFileName === 'Cargo.toml' || configFileName === 'pyproject.toml' ? 'toml' : 'txt';
+                            configFileContent += `\n\n**${configFileName} 내용 (일부):**\n\`\`\`${lang}\n${configPreview}\n\`\`\``;
+                            break; // 첫 번째로 발견된 설정 파일만 포함
+                        }
+                    } catch (e) {
+                        console.warn(`[TerminalManager] ${configFileName} 읽기 실패:`, e);
+                    }
+                }
+
+                if (allItems.length > 0 || configFileContent) {
+                    projectFileList = `\n\n**프로젝트 루트 디렉토리 파일 목록:**\n${allItems.join('\n')}${configFileContent}`;
+                }
+            }
+        } catch (e) {
+            console.warn('[TerminalManager] 파일 리스트 가져오기 실패:', e);
+            // 파일 리스트 가져오기 실패는 치명적이지 않으므로 계속 진행
+        }
+
         // OS별 가이드라인 준비
         const isWindows = _userOS.toLowerCase().includes('windows') || _userOS.toLowerCase() === 'win32';
         const isUnixLike = !isWindows; // Linux, macOS, Unix 계열
@@ -1458,7 +1669,15 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 7. Spring Boot 프로젝트의 경우 Maven(mvn) 또는 Gradle(./gradlew) 명령어를 사용하고, npm/node.js 명령어는 사용하지 마세요
 8. 프로젝트 타입에 맞는 빌드 도구를 사용하세요 (Spring Boot: Maven/Gradle, React: npm/yarn, Python: pip)
 9. "앱 빌드하고 실행해" 요청의 경우 Spring Boot 프로젝트일 가능성이 높으므로 Maven(mvn clean package) 또는 Gradle(./gradlew build) 명령어를 사용하세요
-10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요`;
+10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요
+11. **컴파일 오류가 발생한 경우 (package does not exist, cannot find symbol, unmappable character 등)**: 명령어를 다시 실행하는 것이 아니라 필요한 파일을 수정해야 합니다
+    - Maven 프로젝트: 
+      * pom.xml에 누락된 의존성 추가 (예: Spring Data JPA, Lombok, Jakarta Persistence 등)
+      * 인코딩 오류가 발생하면 pom.xml에 project.build.sourceEncoding을 UTF-8로 설정 추가
+      * maven-compiler-plugin에 encoding을 UTF-8로 설정 추가
+    - Gradle 프로젝트: build.gradle에 누락된 의존성 추가 및 인코딩 설정
+    - Java 소스 파일의 import 오류나 문법 오류를 수정
+    - 이런 경우 "correctedCommand"는 null로 설정하고, "fileOperations"에 필요한 파일 수정 작업을 포함하세요`;
 
         // Windows 전용 가이드라인
         const windowsGuidelines = `
@@ -1494,37 +1713,182 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 
         const osSpecificGuidelines = isWindows ? windowsGuidelines : unixGuidelines;
 
+        // 오류 출력이 너무 길면 중요한 부분만 추출 (최대 50000자)
+        // Maven 빌드 오류의 경우 마지막 부분에 요약이 있으므로, 전체를 포함하되 너무 길면 잘라냄
+        let errorOutputForPrompt = cleanedErrorOutput;
+        if (errorOutputForPrompt.length > 50000) {
+            // 시작 부분(명령어 정보)과 끝 부분(오류 요약)을 포함
+            const startPart = errorOutputForPrompt.substring(0, 10000);
+            const endPart = errorOutputForPrompt.substring(errorOutputForPrompt.length - 40000);
+            errorOutputForPrompt = `[오류 출력이 길어 일부만 표시합니다]\n${startPart}\n... (중간 생략) ...\n${endPart}`;
+        }
+
+        // 컴파일/인코딩 오류가 있는지 사전 확인
+        // MissingProjectException도 포함 (Maven이 잘못된 디렉토리에서 실행된 경우)
+        // 구체적인 패키지 이름 패턴도 추가 (org.springframework, lombok, jakarta.persistence 등)
+        const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|unmappable character.*encoding|File encoding has not been set|platform encoding|x-windows-949|MissingProjectException|no POM.*directory|requires a project.*POM|POM file.*does not exist|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*Table|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(cleanedErrorOutput);
+
+        const missingPomError = /(POM file.*does not exist|MissingProjectException|no POM.*directory|requires a project.*POM)/i.test(cleanedErrorOutput);
+
+        // 컴파일/인코딩/프로젝트 누락 가이드라인 조립
+        let compilationGuidelines = '';
+        if (hasCompilationError) {
+            if (missingPomError) {
+                compilationGuidelines = `**⚠️ 경고: 프로젝트 POM 파일이 없습니다! ⚠️**
+이 오류는 명령 재실행으로 해결되지 않습니다. 반드시 필요한 파일을 생성해야 합니다.
+
+**규칙**
+1. "correctedCommand"는 반드시 null로 설정하세요
+2. "fileOperations"에는 반드시 pom.xml(생성)을 포함하세요. 스크립트 파일(.cmd/.bat/.sh/.ps1)은 절대 포함하지 마세요.
+3. 작업은 create를 사용하세요 (pom.xml이 존재하지 않음)
+4. 내용에는 Spring Boot 3.x, Java 17, UTF-8 인코딩, maven-compiler-plugin(encoding=UTF-8), 필요한 의존성(spring-boot-starter-web, spring-boot-starter-data-jpa, spring-boot-starter-validation, lombok(optional), spring-boot-starter-security)을 포함하세요
+
+예시 JSON:
+{
+  "correctedCommand": null,
+  "fileOperations": [
+    { "type": "create", "path": "pom.xml", "content": "... pom.xml 전체 내용 ..." }
+  ]
+}`;
+            } else {
+                compilationGuidelines = `**⚠️ 경고: 컴파일/인코딩 오류가 감지되었습니다! ⚠️**
+이 오류는 명령어를 다시 실행하는 것으로 절대 해결되지 않습니다. 반드시 파일을 수정해야 합니다.
+
+**⚠️ 매우 중요: 다음 규칙을 절대적으로 준수하세요 ⚠️**
+1. "correctedCommand"는 반드시 null로 설정하세요
+2. "fileOperations"에는 반드시 pom.xml만 포함해야 합니다. 다른 파일(예: build_and_run.cmd, build.sh, 스크립트 파일 등)은 절대 생성하거나 수정하지 마세요.
+3. Maven 프로젝트의 경우 pom.xml만 수정하면 됩니다. 다른 파일은 필요 없습니다.
+4. 파일 작업은 반드시 modify만 사용하세요 (create는 사용하지 마세요. pom.xml은 이미 존재합니다).
+5. "fileOperations"에 다음 파일 수정 작업을 포함하세요:
+   ${errorOutputForPrompt.includes('unmappable character') || errorOutputForPrompt.includes('x-windows-949') ? `
+   **인코딩 오류 수정:**
+   - 파일: pom.xml
+   - 작업: modify
+   - 내용: properties 섹션에 <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> 추가
+   - maven-compiler-plugin에 <configuration><encoding>UTF-8</encoding></configuration> 추가
+   ` : ''}
+   ${(errorOutputForPrompt.includes('package') && errorOutputForPrompt.includes('does not exist')) || errorOutputForPrompt.includes('org.springframework.data') || errorOutputForPrompt.includes('package lombok') || errorOutputForPrompt.includes('jakarta.persistence') || errorOutputForPrompt.includes('Pageable') || errorOutputForPrompt.includes('Page') || errorOutputForPrompt.includes('Getter') || errorOutputForPrompt.includes('Setter') || errorOutputForPrompt.includes('Entity') || errorOutputForPrompt.includes('JpaRepository') || errorOutputForPrompt.includes('Customizer') ? `
+   **의존성 오류 수정 (필수):**
+   - 파일: pom.xml
+   - 작업: modify
+   - 내용: dependencies 섹션에 다음 의존성들을 반드시 추가하세요:
+     * Spring Data JPA (필수): 
+       <dependency>
+         <groupId>org.springframework.boot</groupId>
+         <artifactId>spring-boot-starter-data-jpa</artifactId>
+       </dependency>
+     * Lombok (선택, optional):
+       <dependency>
+         <groupId>org.projectlombok</groupId>
+         <artifactId>lombok</artifactId>
+         <optional>true</optional>
+       </dependency>
+     * Spring Security (오류가 있는 경우):
+       <dependency>
+         <groupId>org.springframework.boot</groupId>
+         <artifactId>spring-boot-starter-security</artifactId>
+       </dependency>
+     * Spring Web:
+       <dependency>
+         <groupId>org.springframework.boot</groupId>
+         <artifactId>spring-boot-starter-web</artifactId>
+       </dependency>
+   
+   **주의:** pom.xml의 기존 dependencies 섹션을 찾아서 위 의존성들을 추가하거나, 없으면 새로 생성하세요.
+   ` : ''}
+3. 파일 작업 예시 JSON 구조:
+   {
+     "correctedCommand": null,
+     "fileOperations": [
+       {
+         "operation": "modify",
+         "path": "pom.xml",
+         "content": "... 수정된 pom.xml 전체 내용 ..."
+       }
+     ]
+   }
+
+**절대로 명령어를 다시 실행하려고 시도하지 마세요!**`;
+            }
+        }
+
         const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
 프로젝트 루트: ${projectRoot || '(unknown)'}
-작업 디렉토리(CWD): ${cwd}
+작업 디렉토리(CWD): ${cwd}${projectFileList}
 오류 출력:
-${cleanedErrorOutput}
+${errorOutputForPrompt}
 
 ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제안해주세요:
 ${commonGuidelines}${osSpecificGuidelines}
 
 **중요: 오직 하나의 JSON 객체만 응답해주세요. 다른 텍스트나 설명은 포함하지 마세요.**
 
-수정된 명령어를 JSON 형식으로 응답해주세요:
+${compilationGuidelines || ''}
+${!hasCompilationError ? `
+**중요: 컴파일 오류나 패키지/의존성/인코딩 오류가 발생한 경우**
+- "package does not exist", "cannot find symbol", "BUILD FAILURE", "unmappable character" 같은 컴파일 오류는 명령어를 재실행하는 것으로 해결되지 않습니다
+- 반드시 파일을 수정해야 합니다:
+  - Maven: 
+    * pom.xml에 누락된 의존성 추가 (Spring Data JPA, Lombok, Jakarta Persistence 등)
+    * 인코딩 오류 발생 시: pom.xml에 project.build.sourceEncoding을 UTF-8로 설정 추가
+    * maven-compiler-plugin에 encoding을 UTF-8로 설정 추가
+  - Gradle: build.gradle에 누락된 의존성 추가 및 인코딩 설정
+  - Java 소스: import 문 수정 또는 누락된 클래스 추가
+- 이런 경우 "correctedCommand"는 null로 설정하고, "fileOperations"에 파일 수정 작업만 포함하세요
+` : ''}
+
+**일반 파일 작업이 필요한 경우**
+오류가 코드 파일의 문제(문법 오류, 누락된 파일, 잘못된 경로 등)로 인한 경우, 필요한 파일 작업(생성, 수정, 삭제)도 함께 제안해주세요.
+
+**중요: 파일 경로 지정 시 주의사항:**
+- 파일 경로에는 백틱(\`), 따옴표('"), 별표(*), 언더스코어(_) 등 마크다운 형식 문자를 사용하지 마세요
+- 경로는 슬래시(/) 또는 백슬래시(\\)로 구분된 일반 문자열로만 작성하세요
+- 예: "src/main/java/Example.java" (올바름)
+- 예: "\`src/main/java/Example.java\`" (잘못됨 - 백틱 제거)
+
+수정된 명령어와 파일 작업을 JSON 형식으로 응답해주세요:
 {
   "correctedCommand": "수정된 명령어",
   "reasoning": "수정 이유",
-  "confidence": 0.8
+  "confidence": 0.8,
+  "fileOperations": [
+    {
+      "type": "create",
+      "path": "src/main/java/Example.java",
+      "content": "파일 내용 전체"
+    },
+    {
+      "type": "modify",
+      "path": "src/main/java/Existing.java",
+      "content": "수정된 파일 내용 전체"
+    },
+    {
+      "type": "delete",
+      "path": "src/main/java/DeleteMe.java"
+    }
+  ]
 }
+
+파일 작업이 필요 없는 경우 fileOperations는 빈 배열 []로 설정하세요.
 
 만약 명령어를 수정할 수 없다면:
 {
   "correctedCommand": null,
   "reasoning": "수정 불가능한 이유",
-  "confidence": 0.0
+  "confidence": 0.0,
+  "fileOperations": []
 }`;
 
         console.log('[TerminalManager] LLM에게 오류 수정 요청 전송');
+        console.log(`[TerminalManager] 컴파일 오류 감지 여부: ${hasCompilationError}`);
+        console.log(`[TerminalManager] 오류 출력 샘플 (처음 500자): ${cleanedErrorOutput.substring(0, 500)}...`);
 
         // LLM 서비스를 통해 응답 받기
         const response = await _llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+        console.log(`[TerminalManager] LLM 응답 받음 (길이: ${response.length})`);
+        console.log(`[TerminalManager] LLM 응답 샘플 (처음 300자): ${response.substring(0, 300)}...`);
 
         // Strip code fences and language headers if present
         const fenceStripped = response
@@ -1543,11 +1907,68 @@ ${commonGuidelines}${osSpecificGuidelines}
                         result = JSON.parse(jsonStr);
                     } catch (firstError) {
                         // If parsing fails, try to fix common JSON escape issues
-                        // Fix invalid escape sequences (e.g., \' -> ', invalid \X -> X)
-                        let fixedJson = jsonStr.replace(/\\(?![\\/"bfnrtu])/g, (match, offset, str) => {
+                        // First, handle large content fields (XML, etc.) that might have unescaped newlines
+                        // Replace unescaped newlines in string values with \n
+                        let fixedJson = jsonStr;
+
+                        // Markdown code-fence 제거 (```json ... ``` 또는 ``` ... ```)
+                        try {
+                            const trimmed = fixedJson.trim();
+                            if (trimmed.startsWith('```')) {
+                                const firstNewline = trimmed.indexOf('\n');
+                                const fenceHeader = firstNewline !== -1 ? trimmed.substring(0, firstNewline) : trimmed;
+                                // fenceHeader 예: ```json, ```JSON, ```
+                                const closingIdx = trimmed.lastIndexOf('```');
+                                if (closingIdx > firstNewline && firstNewline !== -1) {
+                                    fixedJson = trimmed.substring(firstNewline + 1, closingIdx).trim();
+                                } else if (closingIdx > 0 && firstNewline === -1) {
+                                    fixedJson = trimmed.substring(3, closingIdx).trim();
+                                }
+                            }
+                        } catch (_) {
+                            // noop - 실패 시 원본 유지
+                        }
+
+                        // 먼저 JSON 문자열 내부의 실제 줄바꿈을 찾아 이스케이프 처리 (가장 먼저 수행)
+                        // 이는 나중에 content 필드를 찾을 때 이미 이스케이프되어 있어야 하기 때문
+                        let preprocessedJson = '';
+                        let inString2 = false;
+                        let escapeNext2 = false;
+                        for (let idx = 0; idx < fixedJson.length; idx++) {
+                            const char = fixedJson[idx];
+                            if (escapeNext2) {
+                                preprocessedJson += char;
+                                escapeNext2 = false;
+                                continue;
+                            }
+                            if (char === '\\') {
+                                escapeNext2 = true;
+                                preprocessedJson += char;
+                                continue;
+                            }
+                            if (char === '"') {
+                                inString2 = !inString2;
+                                preprocessedJson += char;
+                                continue;
+                            }
+                            // 문자열 내부에서 실제 줄바꿈 발견 시 이스케이프
+                            if (inString2 && (char === '\n' || char === '\r')) {
+                                if (char === '\r' && idx + 1 < fixedJson.length && fixedJson[idx + 1] === '\n') {
+                                    preprocessedJson += '\\n';
+                                    idx++; // \r\n 건너뛰기
+                                } else {
+                                    preprocessedJson += '\\n';
+                                }
+                                continue;
+                            }
+                            preprocessedJson += char;
+                        }
+                        fixedJson = preprocessedJson;
+
+                        // Method 1: Fix invalid escape sequences (e.g., \' -> ', invalid \X -> X)
+                        fixedJson = fixedJson.replace(/\\(?![\\/"bfnrtu])/g, (match, offset, str) => {
                             // Check if it's inside a string (between quotes)
                             const before = str.substring(0, offset);
-                            const after = str.substring(offset);
                             // Count unescaped quotes before this position
                             const quoteCount = (before.match(/(?:^|[^\\])(?:\\\\)*"/g) || []).length;
                             // If odd number of quotes, we're inside a string
@@ -1558,23 +1979,390 @@ ${commonGuidelines}${osSpecificGuidelines}
                             return match; // Keep backslash outside strings
                         });
 
+                        // Method 2는 이미 위에서 처리되었으므로 제거 (중복 방지)
+
+                        // 멀티라인 content 필드를 처리하기 위해 플레이스홀더 방식 사용
+                        const contentPlaceholders: Map<string, string> = new Map();
+                        let placeholderIndex = 0;
+
+                        // 멀티라인 content 필드 처리 - 직접 문자열 파싱 방식
+                        // "content":" 로 시작해서 다음 따옴표까지 찾되, 이스케이프된 따옴표와 멀티라인을 고려
+                        // XML 특수 문자도 고려하여 더 강력하게 처리
+                        let jsonIndex = 0;
+                        const MAX_CONTENT_LENGTH = 50000; // 최대 content 길이 제한 (매우 긴 XML 방지)
+
+                        while (jsonIndex < fixedJson.length) {
+                            const contentStart = fixedJson.indexOf('"content":', jsonIndex);
+                            if (contentStart === -1) break;
+
+                            // 콜론 뒤 공백 건너뛰기
+                            let valueStart = contentStart + 10;
+                            while (valueStart < fixedJson.length && /\s/.test(fixedJson[valueStart])) {
+                                valueStart++;
+                            }
+
+                            // 문자열이 아닌 경우 (null, {}, [] 등) 건너뛰기
+                            if (valueStart >= fixedJson.length || fixedJson[valueStart] !== '"') {
+                                jsonIndex = valueStart;
+                                continue;
+                            }
+
+                            valueStart++; // 따옴표 건너뛰기
+
+                            // 문자열 끝 찾기 (이스케이프와 멀티라인 고려)
+                            // 이스케이프된 따옴표와 실제 따옴표를 구분해야 함
+                            let i = valueStart;
+                            let escapeNext = false;
+                            let foundEnd = false;
+                            let consecutiveBackslashes = 0;
+                            let searchLimit = Math.min(valueStart + MAX_CONTENT_LENGTH, fixedJson.length);
+
+                            while (i < searchLimit) {
+                                if (escapeNext) {
+                                    // 이스케이프 다음 문자 처리
+                                    escapeNext = false;
+                                    i++;
+                                    continue;
+                                }
+                                if (fixedJson[i] === '\\') {
+                                    // 백슬래시 발견 - 이스케이프 시퀀스 시작 확인
+                                    // 연속된 백슬래시 개수 계산 (홀수면 다음 문자 이스케이프)
+                                    consecutiveBackslashes = 1;
+                                    let j = i + 1;
+                                    while (j < searchLimit && fixedJson[j] === '\\') {
+                                        consecutiveBackslashes++;
+                                        j++;
+                                    }
+                                    // 홀수 개의 백슬래시면 다음 문자가 이스케이프됨
+                                    if (consecutiveBackslashes % 2 === 1) {
+                                        escapeNext = true;
+                                        i++;
+                                        continue;
+                                    }
+                                    // 짝수 개의 백슬래시면 실제 백슬래시 문자들
+                                    i += consecutiveBackslashes;
+                                    continue;
+                                }
+                                if (fixedJson[i] === '"') {
+                                    // 따옴표 발견 - 실제 문자열 끝인지 확인
+                                    // 이전 문자가 백슬래시로 이스케이프되었는지 확인
+                                    let k = i - 1;
+                                    let backslashCount = 0;
+                                    while (k >= valueStart && fixedJson[k] === '\\') {
+                                        backslashCount++;
+                                        k--;
+                                    }
+                                    // 홀수 개의 백슬래시면 이스케이프된 따옴표
+                                    if (backslashCount % 2 === 1) {
+                                        i++;
+                                        continue;
+                                    }
+                                    // 실제 문자열 끝 발견
+                                    foundEnd = true;
+                                    break;
+                                }
+                                i++;
+                            }
+
+                            if (foundEnd) {
+                                const contentValue = fixedJson.substring(valueStart, i);
+                                // 플레이스홀더가 아니고 실제 content인 경우만 처리
+                                if (contentValue.length > 0 && (!contentValue.startsWith('__CONTENT_') || !contentValue.endsWith('__'))) {
+                                    // 이스케이프 해제
+                                    let unescaped = '';
+                                    let j = 0;
+                                    while (j < contentValue.length) {
+                                        if (contentValue[j] === '\\' && j + 1 < contentValue.length) {
+                                            const next = contentValue[j + 1];
+                                            switch (next) {
+                                                case 'n': unescaped += '\n'; j += 2; break;
+                                                case 'r': unescaped += '\r'; j += 2; break;
+                                                case 't': unescaped += '\t'; j += 2; break;
+                                                case '"': unescaped += '"'; j += 2; break;
+                                                case '\\': unescaped += '\\'; j += 2; break;
+                                                case '/': unescaped += '/'; j += 2; break;
+                                                case 'u': // Unicode escape
+                                                    if (j + 5 < contentValue.length) {
+                                                        const hex = contentValue.substring(j + 2, j + 6);
+                                                        unescaped += String.fromCharCode(parseInt(hex, 16));
+                                                        j += 6;
+                                                    } else {
+                                                        unescaped += contentValue[j];
+                                                        j++;
+                                                    }
+                                                    break;
+                                                default:
+                                                    // 잘못된 이스케이프 시도 - 백슬래시 무시
+                                                    unescaped += next;
+                                                    j += 2;
+                                                    break;
+                                            }
+                                        } else {
+                                            unescaped += contentValue[j];
+                                            j++;
+                                        }
+                                    }
+
+                                    // XML 특수 문자를 JSON 이스케이프된 형태로 변환 (나중에 JSON.stringify로 다시 처리할 때 필요)
+                                    // 하지만 이미 이스케이프된 값이므로, 실제로는 원본을 그대로 저장
+                                    const placeholder = `__CONTENT_${placeholderIndex++}__`;
+                                    contentPlaceholders.set(placeholder, unescaped);
+                                    fixedJson = fixedJson.substring(0, valueStart) + `"${placeholder}"` + fixedJson.substring(i);
+                                    // 다음 검색 위치 조정
+                                    jsonIndex = valueStart + placeholder.length + 2; // 따옴표 포함
+                                } else {
+                                    jsonIndex = i + 1;
+                                }
+                            } else {
+                                // 문자열 끝을 찾지 못함 - fallback: XML 본문(</project>) 기준으로 종료 지점 추정
+                                let fallbackEnd = -1;
+                                // 1) XML 종료 태그 탐색
+                                const xmlCloseTag = '</project>';
+                                const xmlIdx = fixedJson.indexOf(xmlCloseTag, valueStart);
+                                if (xmlIdx !== -1) {
+                                    fallbackEnd = xmlIdx + xmlCloseTag.length;
+                                }
+                                // 2) 그래도 못 찾으면, 객체 경계(}\s*,?\s*\n) 근처까지 잘라내기 시도
+                                if (fallbackEnd === -1) {
+                                    const boundaryRegex = /\"\s*,\s*\n|\n\s*}\s*(,|\n)/g; // 다음 속성 시작 또는 객체 종료 근처
+                                    boundaryRegex.lastIndex = valueStart;
+                                    const m = boundaryRegex.exec(fixedJson);
+                                    if (m && m.index > valueStart) {
+                                        fallbackEnd = m.index;
+                                    }
+                                }
+                                if (fallbackEnd !== -1) {
+                                    const placeholder = `__CONTENT_${placeholderIndex++}__`;
+                                    const unescaped = fixedJson.substring(valueStart, fallbackEnd);
+                                    contentPlaceholders.set(placeholder, unescaped);
+                                    // fallbackEnd 이후에 문자열 닫는 따옴표가 있으면 스킵
+                                    let after = fallbackEnd;
+                                    while (after < fixedJson.length && /\s/.test(fixedJson[after])) after++;
+                                    if (fixedJson[after] === '"') after++;
+                                    fixedJson = fixedJson.substring(0, valueStart) + `"${placeholder}"` + fixedJson.substring(after);
+                                    jsonIndex = valueStart + placeholder.length + 2;
+                                } else {
+                                    // 최종 실패: 해당 content 블록 건너뜀
+                                    console.warn('[TerminalManager] content 필드의 끝을 찾지 못함, 건너뜀');
+                                    jsonIndex = contentStart + 1;
+                                }
+                            }
+                        }
+
                         try {
                             result = JSON.parse(fixedJson);
+
+                            // 플레이스홀더를 원래 content로 복원
+                            if (contentPlaceholders.size > 0 && result.fileOperations) {
+                                if (Array.isArray(result.fileOperations)) {
+                                    result.fileOperations = result.fileOperations.map((op: any) => {
+                                        if (op.content && typeof op.content === 'string' && op.content.startsWith('__CONTENT_') && op.content.endsWith('__')) {
+                                            const restored = contentPlaceholders.get(op.content);
+                                            if (restored !== undefined) {
+                                                op.content = restored;
+                                            }
+                                        }
+                                        return op;
+                                    });
+                                }
+                            }
                         } catch (secondError) {
-                            // Last resort: try removing all backslashes followed by invalid escapes
-                            fixedJson = jsonStr.replace(/\\(?![\\/"bfnrtu\d])/g, '');
+                            // Method 3: Try to extract and replace large content fields using different approach
+                            // content 필드를 찾아서 JSON.stringify로 안전하게 이스케이프
                             try {
-                                result = JSON.parse(fixedJson);
+                                // 더 간단한 접근: content 필드 전체를 찾아서 JSON.stringify로 처리
+                                let rebuiltJson = '';
+                                let i = 0;
+                                let inContentField = false;
+                                let contentStart = 0;
+                                let contentDepth = 0;
+
+                                while (i < fixedJson.length) {
+                                    if (!inContentField && fixedJson.substr(i, 10) === '"content":') {
+                                        inContentField = true;
+                                        contentStart = i;
+                                        rebuiltJson += fixedJson.substring(i, i + 10);
+                                        i += 10;
+                                        // 공백 건너뛰기
+                                        while (i < fixedJson.length && /\s/.test(fixedJson[i])) {
+                                            rebuiltJson += fixedJson[i];
+                                            i++;
+                                        }
+                                        // " 찾기
+                                        if (fixedJson[i] === '"') {
+                                            rebuiltJson += '"';
+                                            i++;
+                                            // 문자열 내용 읽기 (이스케이프 고려)
+                                            let contentValue = '';
+                                            let escapeNext = false;
+                                            while (i < fixedJson.length) {
+                                                if (escapeNext) {
+                                                    contentValue += fixedJson[i];
+                                                    escapeNext = false;
+                                                    i++;
+                                                    continue;
+                                                }
+                                                if (fixedJson[i] === '\\') {
+                                                    escapeNext = true;
+                                                    contentValue += fixedJson[i];
+                                                    i++;
+                                                    continue;
+                                                }
+                                                if (fixedJson[i] === '"') {
+                                                    // 문자열 끝
+                                                    break;
+                                                }
+                                                contentValue += fixedJson[i];
+                                                i++;
+                                            }
+                                            // contentValue를 JSON.stringify로 안전하게 이스케이프
+                                            const safeContent = JSON.stringify(contentValue).slice(1, -1);
+                                            rebuiltJson += safeContent;
+                                            inContentField = false;
+                                        } else {
+                                            // JSON 값이 문자열이 아닌 경우 (null, {}, [] 등)
+                                            // 원본 유지
+                                            inContentField = false;
+                                        }
+                                    } else {
+                                        rebuiltJson += fixedJson[i];
+                                        i++;
+                                    }
+                                }
+
+                                result = JSON.parse(rebuiltJson);
                             } catch (thirdError) {
-                                console.warn('[TerminalManager] JSON 파싱 실패, 다음 JSON 시도:', thirdError);
-                                continue;
+                                // Last resort: try removing all backslashes followed by invalid escapes
+                                fixedJson = jsonStr.replace(/\\(?![\\/"bfnrtu\d])/g, '');
+                                try {
+                                    result = JSON.parse(fixedJson);
+                                } catch (fourthError) {
+                                    console.warn('[TerminalManager] JSON 파싱 실패, 다음 JSON 시도:', fourthError);
+                                    continue;
+                                }
                             }
                         }
                     }
 
-                    if (result.correctedCommand && result.confidence > 0.5) {
-                        console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
-                        return result.correctedCommand;
+                    // correctedCommand가 null이거나 없어도 파일 작업이 있으면 반환
+                    // 컴파일 오류의 경우 correctedCommand는 null이어야 함
+                    const hasValidCommand = result.correctedCommand && result.confidence && result.confidence > 0.5;
+                    const hasFileOps = result.fileOperations && Array.isArray(result.fileOperations) && result.fileOperations.length > 0;
+
+                    console.log(`[TerminalManager] JSON 파싱 결과: hasValidCommand=${hasValidCommand}, hasFileOps=${hasFileOps}, correctedCommand=${result.correctedCommand}, fileOperations.length=${result.fileOperations?.length || 0}`);
+
+                    if (hasValidCommand || (hasFileOps && (!result.correctedCommand || result.correctedCommand === null))) {
+                        if (hasValidCommand) {
+                            console.log(`[TerminalManager] LLM 오류 수정 성공: ${result.correctedCommand} (신뢰도: ${result.confidence})`);
+                        } else {
+                            console.log(`[TerminalManager] LLM 파일 수정 제안: ${hasFileOps ? result.fileOperations.length : 0}개 파일 작업`);
+                        }
+
+                        // 파일 작업 추출 및 경로 정규화
+                        const fileOperations: { type: 'create' | 'modify' | 'delete'; path: string; content?: string }[] = [];
+                        if (result.fileOperations && Array.isArray(result.fileOperations)) {
+                            // 컴파일 오류가 있는 경우 pom.xml 또는 build.gradle만 허용
+                            const allowedFilesForCompilationError = /\.(xml|gradle)$/i;
+                            const isPomOrGradle = (p: string) => /pom\.xml|build\.gradle/i.test(p);
+
+                            for (const op of result.fileOperations) {
+                                // operation 또는 type 필드 모두 지원
+                                const opType = op.type || op.operation;
+                                if (opType && op.path && (opType === 'create' || opType === 'modify' || opType === 'delete')) {
+                                    const pathLower = op.path.toLowerCase();
+
+                                    // 모든 경우에 스크립트 파일(.cmd, .bat, .sh, .ps1) 생성/수정 거부
+                                    if (/\.(cmd|bat|sh|ps1)$/i.test(pathLower)) {
+                                        console.log(`[TerminalManager] 스크립트 파일 작업 거부: ${op.path}`);
+                                        continue;
+                                    }
+
+                                    // 컴파일 오류가 있는 경우: pom.xml 또는 build.gradle만 허용
+                                    if (hasCompilationError) {
+                                        // pom.xml 또는 build.gradle만 허용
+                                        if (!isPomOrGradle(pathLower)) {
+                                            console.log(`[TerminalManager] 컴파일 오류 시 허용되지 않은 파일 작업 거부: ${op.path} (허용: pom.xml, build.gradle)`);
+                                            continue;
+                                        }
+                                        // create 작업 거부 (pom.xml은 이미 존재하므로)
+                                        if (opType === 'create') {
+                                            console.log(`[TerminalManager] 컴파일 오류 시 create 작업을 modify로 변경: ${op.path}`);
+                                            // opType을 modify로 변경하되 원래 opType은 유지
+                                        }
+                                    }
+                                    // 경로 정규화 (프로젝트 루트 기준)
+                                    let normalizedPath = op.path.trim();
+
+                                    // 불필요한 문자 제거 (백틱, 따옴표, 별표, 언더스코어, 대괄호, 괄호 등)
+                                    // LlmResponseProcessor의 cleanFilePath와 동일한 로직
+                                    normalizedPath = normalizedPath
+                                        // 백틱 제거 (앞뒤)
+                                        .replace(/^`+|`+$/g, '')
+                                        // 작은따옴표 제거 (앞뒤)
+                                        .replace(/^'+|'+$/g, '')
+                                        // 큰따옴표 제거 (앞뒤)
+                                        .replace(/^"+|"+$/g, '')
+                                        // 별표 제거 (앞뒤)
+                                        .replace(/^\*+|\*+$/g, '')
+                                        // 언더스코어 제거 (앞뒤)
+                                        .replace(/^_+|_+$/g, '')
+                                        // 대괄호 제거 (앞뒤)
+                                        .replace(/^\[+|\]+$/g, '')
+                                        // 괄호 제거 (앞뒤)
+                                        .replace(/^\(+|\)+$/g, '')
+                                        // 중괄호 제거 (앞뒤)
+                                        .replace(/^\{+|\}+$/g, '');
+
+                                    // 경로 끝의 공백 제거
+                                    normalizedPath = normalizedPath.trim();
+
+                                    // 경로를 분리하여 각 부분에서도 백틱 제거
+                                    // 특히 파일명 끝의 백틱 제거를 보장
+                                    const pathParts = normalizedPath.split(/[\/\\]/);
+                                    const cleanedParts = pathParts.map((part: string) => {
+                                        if (!part) return part; // 빈 부분은 유지 (경로 구분자 처리)
+                                        // 각 부분에서 앞뒤의 백틱 및 따옴표 제거
+                                        return part.replace(/^[`'"]+|[`'"]+$/g, '').trim();
+                                    });
+                                    normalizedPath = cleanedParts.join(path.sep);
+
+                                    // 절대 경로가 아닌 경우 프로젝트 루트 기준으로 변환
+                                    if (!path.isAbsolute(normalizedPath)) {
+                                        normalizedPath = path.join(projectRoot || cwd, normalizedPath);
+                                    }
+
+                                    // 컴파일 오류 시: 기본적으로 create→modify 변경하지만, POM 누락(missingPomError)일 땐 create 허용
+                                    const shouldForceModify = hasCompilationError && !missingPomError && opType === 'create' && isPomOrGradle(normalizedPath.toLowerCase());
+                                    const finalOpType = shouldForceModify ? 'modify' : (opType as 'create' | 'modify' | 'delete');
+
+                                    // 경로 검증: Windows에서 허용되지 않는 문자 확인
+                                    const invalidChars = /[<>:"|?*]/;
+                                    if (invalidChars.test(normalizedPath)) {
+                                        console.log(`[TerminalManager] 경로에 허용되지 않는 문자가 포함되어 거부: ${normalizedPath}`);
+                                        continue;
+                                    }
+
+                                    // 경로 길이 검증 (Windows 경로 최대 길이: 260자)
+                                    if (normalizedPath.length > 260) {
+                                        console.log(`[TerminalManager] 경로가 너무 길어서 거부: ${normalizedPath.length}자`);
+                                        continue;
+                                    }
+
+                                    fileOperations.push({
+                                        type: finalOpType,
+                                        path: normalizedPath,
+                                        content: op.content || undefined
+                                    });
+
+                                    console.log(`[TerminalManager] 파일 작업 추가: ${finalOpType} ${normalizedPath}`);
+                                }
+                            }
+                        }
+
+                        return {
+                            correctedCommand: result.correctedCommand || null,
+                            fileOperations: fileOperations
+                        };
                     }
                 } catch (parseError) {
                     console.warn('[TerminalManager] JSON 파싱 실패, 다음 JSON 시도:', parseError);
@@ -1600,7 +2388,10 @@ ${commonGuidelines}${osSpecificGuidelines}
             cmd = cmd.trim();
             if (cmd && cmd.length >= 4 && !cmd.match(/^(\\|""|''|```)/)) {
                 console.log('[TerminalManager] Fallback correctedCommand extracted via regex');
-                return cmd;
+                return {
+                    correctedCommand: cmd,
+                    fileOperations: []
+                };
             }
         }
         // Fallback 1b: 단일 따옴표 문자열 또는 이스케이프 없는 문자열
@@ -1609,8 +2400,43 @@ ${commonGuidelines}${osSpecificGuidelines}
             const cmd = singleQuoteMatch[1].trim();
             if (cmd && cmd.length >= 4 && !cmd.match(/^(\\|""|''|```)/)) {
                 console.log('[TerminalManager] Fallback correctedCommand extracted from single-quoted value');
-                return cmd;
+                return {
+                    correctedCommand: cmd,
+                    fileOperations: []
+                };
             }
+        }
+
+        // Fallback 2: fileOperations 없이도 pom.xml XML 본문을 직접 추출해 파일 작업 구성
+        // - LLM이 큰 XML을 포함한 JSON을 내보냈지만 파싱이 실패하는 경우 대응
+        try {
+            const hasPomPath = /"path"\s*:\s*"pom\.xml"/i.test(fenceStripped);
+            if (hasPomPath) {
+                // XML 본문 추출: 우선 XML 선언부터 종료 태그까지, 없으면 <project ...>부터 종료 태그까지
+                let xmlContent = '';
+                const xmlDeclStart = fenceStripped.indexOf('<?xml');
+                const projectStart = fenceStripped.indexOf('<project');
+                const projectEnd = fenceStripped.indexOf('</project>');
+                if (projectEnd !== -1) {
+                    if (xmlDeclStart !== -1 && xmlDeclStart < projectEnd) {
+                        xmlContent = fenceStripped.substring(xmlDeclStart, projectEnd + '</project>'.length);
+                    } else if (projectStart !== -1 && projectStart < projectEnd) {
+                        xmlContent = fenceStripped.substring(projectStart, projectEnd + '</project>'.length);
+                    }
+                }
+
+                if (xmlContent && xmlContent.length > 0) {
+                    console.log('[TerminalManager] Fallback: Extracted pom.xml content via regex');
+                    return {
+                        correctedCommand: null,
+                        fileOperations: [
+                            { type: 'create', path: 'pom.xml', content: xmlContent }
+                        ]
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn('[TerminalManager] Fallback fileOperations extraction failed:', e);
         }
 
         // Fallback 2: 응답이 순수 명령문으로만 온 경우(따옴표 없이 한 줄)
@@ -1619,7 +2445,10 @@ ${commonGuidelines}${osSpecificGuidelines}
             // 보수적으로 길이 체크
             if (singleLine.length >= 4) {
                 console.log('[TerminalManager] Fallback plain command used');
-                return singleLine;
+                return {
+                    correctedCommand: singleLine,
+                    fileOperations: []
+                };
             }
         }
 
@@ -1684,7 +2513,51 @@ export async function handleCommandError(
     _summarySent = false; // 새로운 오류 수정 세션 시작 시 플래그 리셋
     console.log(`[TerminalManager] 오류 수정 시도 ${_errorRetryCount}/${MAX_ERROR_RETRIES}`);
 
-    const correctedCommand = await getCorrectedCommand(failedCommand, errorOutput, cwd);
+    const correctionResult = await getCorrectedCommand(failedCommand, errorOutput, cwd);
+
+    if (!correctionResult) {
+        console.log('[TerminalManager] LLM에서 수정된 명령어를 받지 못함');
+        return false;
+    }
+
+    const { correctedCommand, fileOperations } = correctionResult;
+    console.log(`[TerminalManager] getCorrectedCommand 결과: correctedCommand=${correctedCommand ? '있음' : 'null'}, fileOperations.length=${fileOperations.length}`);
+    if (fileOperations.length > 0) {
+        console.log(`[TerminalManager] 파일 작업 목록:`, fileOperations.map(op => `${op.type} ${op.path}`));
+    }
+
+    // 파일 작업이 있는 경우 먼저 처리
+    if (fileOperations.length > 0) {
+        console.log(`[TerminalManager] ${fileOperations.length}개의 파일 작업을 큐에 추가`);
+        const fileOpTokens = buildFileOpTokens(fileOperations);
+        enqueueCommands(fileOpTokens, true); // 우선순위로 파일 작업 먼저 실행
+    }
+
+    // 컴파일 오류가 있고 correctedCommand가 null인 경우 파일 작업만 처리
+    // 구체적인 패키지 이름 패턴도 추가
+    const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(errorOutput);
+    if (!correctedCommand && fileOperations.length > 0) {
+        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업만 처리 (${fileOperations.length}개)`);
+
+        // 웹뷰에 상태 전송
+        if (_currentWebview) {
+            _currentWebview.postMessage({
+                command: 'updateProcessingStatus',
+                step: 'error_correction',
+                status: `파일 수정 중 (${fileOperations.length}개 파일)`
+            });
+
+            _currentWebview.postMessage({
+                command: 'showErrorCorrectionSuccess',
+                message: `파일 수정 작업이 큐에 추가되었습니다 (${fileOperations.length}개 파일)`,
+                retryCount: _errorRetryCount
+            });
+        }
+
+        // 파일 작업이 이미 큐에 추가되었으므로 성공 반환
+        _errorRetryCount = 0; // 성공적으로 처리되었으므로 재시도 카운트 리셋
+        return true;
+    }
 
     const isValidCorrected = async (cmd: string | null | undefined): Promise<boolean> => {
         if (!cmd) return false;
@@ -2041,7 +2914,7 @@ function normalizeEncodedPowerShellCommand(cmd: string): string {
             // Additional check: ensure variable names are reasonable length (not truncated)
             // Allow short vars only if full vars are also present
             const hasShortVars = /\$[a-zA-Z]{1,2}(['";\s=]|$)/.test(decoded);
-            const hasFullVars = /(\$ProgressPreference|\$ErrorActionPreference|\$OutputEncoding|\$WarningPreference|\$InformationPreference|\$PSModuleAutoLoadingPreference)/i.test(decoded);
+            const hasFullVars = /(\$ProgressPreference|\$ErrorActionPreference|\$OutputEncoding|\$WarningPreference|\$InformationPreference)/i.test(decoded);
             const variableNameCheck = !hasShortVars || hasFullVars;
 
             // Additional integrity check: ensure cmdlet calls are properly formatted

@@ -245,7 +245,12 @@ export class LlmResponseProcessor {
             } else if (originalDirective === '새 파일') {
                 operationType = 'create';
                 if (projectRoot) {
-                    absolutePath = path.join(projectRoot, llmSpecifiedPath);
+                    // 절대 경로 여부를 먼저 판단하여 중복 결합(C:\... -> projectRoot\C:\...)을 방지
+                    const rawPath = llmSpecifiedPath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '');
+                    const isAbsoluteWin = path.isAbsolute(rawPath) || /^[A-Za-z]:[\\\/]/.test(rawPath);
+                    absolutePath = isAbsoluteWin
+                        ? path.normalize(rawPath)
+                        : path.normalize(path.join(projectRoot, rawPath));
                     // console.log(`[LLM Response Processor] Resolved 'create' absolute path: "${absolutePath}" from project root "${projectRoot}"`);
                 } else {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 파일 생성을 건너뜀.`;
@@ -325,7 +330,11 @@ export class LlmResponseProcessor {
             } else if (originalDirective === '새 파일') {
                 operationType = 'create';
                 if (projectRoot) {
-                    absolutePath = path.join(projectRoot, llmSpecifiedPath);
+                    const rawPath = llmSpecifiedPath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '');
+                    const isAbsoluteWin = path.isAbsolute(rawPath) || /^[A-Za-z]:[\\\/]/.test(rawPath);
+                    absolutePath = isAbsoluteWin
+                        ? path.normalize(rawPath)
+                        : path.normalize(path.join(projectRoot, rawPath));
                 } else {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                     this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
@@ -387,7 +396,11 @@ export class LlmResponseProcessor {
                 } else if (originalDirective === '새 파일') {
                     operationType = 'create';
                     if (projectRoot) {
-                        absolutePath = path.join(projectRoot, llmSpecifiedPath);
+                        const rawPath = llmSpecifiedPath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '');
+                        const isAbsoluteWin = path.isAbsolute(rawPath) || /^[A-Za-z]:[\\\/]/.test(rawPath);
+                        absolutePath = isAbsoluteWin
+                            ? path.normalize(rawPath)
+                            : path.normalize(path.join(projectRoot, rawPath));
                     } else {
                         const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                         this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
@@ -954,7 +967,23 @@ export class LlmResponseProcessor {
 
             // autoUpdateEnabled=true이고 자동 실행이 활성화된 경우 bash 명령어 즉시 실행
             const autoExecuteEnabled = await this.configurationService.isAutoExecuteCommandsEnabled();
+            // 매니페스트(프로젝트 스캐폴딩) 존재 여부 확인
+            let needScaffold = false;
+            try {
+                if (projectRoot) {
+                    const hasPom = fs.existsSync(path.join(projectRoot, 'pom.xml'));
+                    const hasGradle = fs.existsSync(path.join(projectRoot, 'build.gradle')) || fs.existsSync(path.join(projectRoot, 'build.gradle.kts'));
+                    const hasPkg = fs.existsSync(path.join(projectRoot, 'package.json'));
+                    needScaffold = !(hasPom || hasGradle || hasPkg);
+                }
+            } catch {}
+
             if (autoUpdateEnabled && autoExecuteEnabled && hasBashCommands(llmResponse)) {
+                if (needScaffold && fileOperations.length === 0) {
+                    const warn = '프로젝트에 pom.xml/build.gradle/package.json 이 없어 명령 자동 실행을 중단했습니다.\nLLM 응답에 "새 파일: pom.xml" 등 파일 작업 지시어를 포함해 스캐폴딩을 먼저 생성하세요.';
+                    this.notificationService.showWarningMessage(`aidev-ide: ${warn}`);
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `⚠️ ${warn}` });
+                } else {
                 statusCallback?.('Executing bash commands immediately...');
                 safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
 
@@ -988,6 +1017,7 @@ export class LlmResponseProcessor {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
                     safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                }
                 }
             } else if (autoUpdateEnabled && !autoExecuteEnabled && hasBashCommands(llmResponse)) {
                 // 자동 실행이 비활성화된 경우 사용자에게 알림

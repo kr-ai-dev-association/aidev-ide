@@ -223,8 +223,8 @@ export class GitBranchAnalysisService {
             } catch (tscError: any) {
                 const errorOutput = tscError.stdout || tscError.stderr || '';
                 if (errorOutput.includes('error TS')) {
-                    const errors = errorOutput.split('\n').filter(line => line.includes('error TS'));
-                    errors.forEach(error => {
+                    const errors = errorOutput.split('\n').filter((line: string) => line.includes('error TS'));
+                    errors.forEach((error: string) => {
                         issues.push({
                             branch: 'current',
                             issue: `TypeScript 오류: ${error}`,
@@ -372,7 +372,7 @@ export class GitBranchAnalysisService {
                 passwordPatterns.forEach(pattern => {
                     const matches = content.match(pattern);
                     if (matches) {
-                        matches.forEach(match => {
+                        matches.forEach((match: string) => {
                             issues.push({
                                 branch: 'current',
                                 issue: '하드코딩된 비밀 정보',
@@ -605,8 +605,8 @@ export class GitBranchAnalysisService {
 
         // 브랜치별 우선순위 정렬
         const sortedBranches = branchAnalyses.sort((a, b) => {
-            const healthOrder = { 'critical': 4, 'needs_attention': 3, 'good': 2, 'excellent': 1 };
-            return healthOrder[b.health] - healthOrder[a.health];
+            const healthOrder: { [key: string]: number } = { 'critical': 4, 'needs_attention': 3, 'good': 2, 'excellent': 1 };
+            return (healthOrder[b.branchHealth] || 0) - (healthOrder[a.branchHealth] || 0);
         });
 
         // 가장 문제가 많은 브랜치 식별
@@ -659,7 +659,7 @@ export class GitBranchAnalysisService {
 
         const findFiles = (dir: string) => {
             const files = fs.readdirSync(dir);
-            files.forEach(file => {
+            files.forEach((file: string) => {
                 const filePath = path.join(dir, file);
                 const stat = fs.statSync(filePath);
 
@@ -682,7 +682,7 @@ export class GitBranchAnalysisService {
 
         const findFiles = (dir: string) => {
             const files = fs.readdirSync(dir);
-            files.forEach(file => {
+            files.forEach((file: string) => {
                 const filePath = path.join(dir, file);
                 const stat = fs.statSync(filePath);
 
@@ -712,7 +712,7 @@ export class GitBranchAnalysisService {
 
         const findFiles = (dir: string) => {
             const files = fs.readdirSync(dir);
-            files.forEach(file => {
+            files.forEach((file: string) => {
                 const filePath = path.join(dir, file);
                 const stat = fs.statSync(filePath);
 
