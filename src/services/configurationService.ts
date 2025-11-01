@@ -11,6 +11,7 @@ export class ConfigurationService {
     private readonly STOCK_API_KEY = 'stockApiKey';
     private readonly TERMINAL_DAEMON_ENABLED = 'terminalDaemonEnabled';
     private readonly OUTPUT_LOG_ENABLED = 'outputLogEnabled';
+    private readonly DEBUG_ENABLED = 'debugEnabled';
     private readonly ERROR_RETRY_COUNT = 'errorRetryCount';
     private readonly AUTO_CORRECTION_ENABLED = 'autoCorrectionEnabled';
     private readonly AUTO_EXECUTE_COMMANDS = 'autoExecuteCommands';
@@ -237,5 +238,21 @@ export class ConfigurationService {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
         console.log(`[ConfigurationService] Update autoExecuteCommands -> ${enabled} (Global)`);
         await config.update(this.AUTO_EXECUTE_COMMANDS, enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
+     * 디버그 모드 On/Off 상태를 가져옵니다.
+     */
+    public async isDebugEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        return config.get<boolean>(this.DEBUG_ENABLED) ?? false;
+    }
+
+    /**
+     * 디버그 모드 On/Off 상태를 저장합니다.
+     */
+    public async updateDebugEnabled(enabled: boolean): Promise<void> {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        await config.update(this.DEBUG_ENABLED, enabled, vscode.ConfigurationTarget.Global);
     }
 }

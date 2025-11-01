@@ -19,6 +19,7 @@ import { OllamaBlockerService } from './services/ollamaBlockerService';
 import { TerminalDaemonService } from './services/terminalDaemonService';
 import { TerminalMonitorService } from './ai/terminalMonitorService';
 import { GitRepositoryService } from './services/gitRepositoryService';
+import { DebugLogger } from './utils/debugLogger';
 
 // 전역 변수
 let storageService: StorageService;
@@ -233,6 +234,12 @@ export async function activate(context: vscode.ExtensionContext) {
     terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
     // console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
 
+    // 디버그 로그 설정 적용
+    const debugEnabled = await configurationService.isDebugEnabled();
+    const projectRootForDebug = await configurationService.getProjectRoot();
+    DebugLogger.setContext(debugEnabled, projectRootForDebug);
+    DebugLogger.startIfEnabled();
+
     // 자동 오류 수정 설정 로드 및 적용
     const autoCorrectionEnabled = await configurationService.isAutoCorrectionEnabled();
     console.log(`[Extension] isAutoCorrectionEnabled() -> ${autoCorrectionEnabled}`);
@@ -349,6 +356,12 @@ export async function activate(context: vscode.ExtensionContext) {
             const enabled = await configurationService.isAutoCorrectionEnabled();
             console.log(`[Extension] onDidChangeConfiguration: autoCorrectionEnabled -> ${enabled}`);
             terminalMonitorService.setAutoCorrectionEnabled(enabled);
+        }
+        if (event.affectsConfiguration('aidevIde.debugEnabled')) {
+            const debugEnabledNow = await configurationService.isDebugEnabled();
+            const projRoot = await configurationService.getProjectRoot();
+            DebugLogger.setContext(debugEnabledNow, projRoot);
+            DebugLogger.startIfEnabled();
         }
     }));
 
