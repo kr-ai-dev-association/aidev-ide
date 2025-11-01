@@ -684,7 +684,21 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
                     // Long-running 명령어에서도 오류 수정 시도
                     const errorOutput = `Exit code: ${res.code}\nStderr: ${res.stderr || ''}\nStdout: ${res.stdout || ''}`;
-                    const retrySuccess = await handleCommandError(
+                    // 자동 오류 수정이 비활성화된 경우 재시도 로직을 건너뜁니다.
+                    const allowAutoCorrection = (() => {
+                        try {
+                            if (_terminalMonitorService && (typeof (_terminalMonitorService as any).isOutputLogEnabled === 'function')) {
+                                // TerminalMonitorService는 autoCorrectionEnabled getter가 없으므로 구성 서비스 값 조회를 우선 시도
+                            }
+                        } catch { /* noop */ }
+                        return true;
+                    })();
+
+                    const isAutoCorrectionEnabled = await (async () => {
+                        try { return await _configService.isAutoCorrectionEnabled(); } catch { return true; }
+                    })();
+
+                    const retrySuccess = (allowAutoCorrection && isAutoCorrectionEnabled) ? await handleCommandError(
                         cleanCommand,
                         errorOutput,
                         cwd || '',
@@ -693,7 +707,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
                             channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
                             await handleInteractiveCommand(correctedCommand);
                         }
-                    );
+                    ) : false;
 
                     if (!retrySuccess) {
                         vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${cleanCommand})`);
@@ -717,7 +731,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
                 // Long-running 명령어에서도 오류 수정 시도
                 const errorOutput = `Process error: ${err?.message || String(err)}`;
-                const retrySuccess = await handleCommandError(
+                const isAutoCorrectionEnabled = await (async () => { try { return await _configService.isAutoCorrectionEnabled(); } catch { return true; } })();
+                const retrySuccess = isAutoCorrectionEnabled ? await handleCommandError(
                     cleanCommand,
                     errorOutput,
                     cwd || '',
@@ -726,7 +741,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
                         channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
                         await handleInteractiveCommand(correctedCommand);
                     }
-                );
+                ) : false;
 
                 if (!retrySuccess) {
                     vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${cleanCommand})`);
@@ -773,7 +788,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
             console.log(`[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`);
             console.log(`[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || '').length}, stdout=${(result.stdout || '').length}`);
-            const retrySuccess = await handleCommandError(
+            const isAutoCorrectionEnabled = await (async () => { try { return await _configService.isAutoCorrectionEnabled(); } catch { return true; } })();
+            const retrySuccess = isAutoCorrectionEnabled ? await handleCommandError(
                 cleanCommand,
                 errorOutput,
                 cwd || '',
@@ -782,7 +798,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
                     channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
                     await handleInteractiveCommand(correctedCommand);
                 }
-            );
+            ) : false;
 
             if (!retrySuccess) {
                 vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${cleanCommand})`);

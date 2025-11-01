@@ -16319,10 +16319,16 @@ function normalizeCommandForOS(command) {
  * VS Code 터미널 출력 디코딩 함수
  * Windows에서 cmd.exe 출력은 CP949일 수 있으므로 올바르게 디코딩
  */
-function decodeTerminalOutput(text, isWindows = process.platform === 'win32') {
+function decodeTerminalOutput(text, opts) {
+    const isWindows = opts?.isWindows ?? (process.platform === 'win32');
+    const isCmdExe = opts?.isCmdExe ?? false;
     if (!text || !isWindows)
         return text;
-    // 깨진 문자 패턴 감지
+    // cmd.exe 출력에 대해서만 CP949 재디코딩 시도
+    if (!isCmdExe) {
+        return text;
+    }
+    // 깨진 문자 패턴 감지 (Windows cmd.exe 환경에서만)
     const brokenCharPattern = /[?][가-힣]|[가-힣][?]|[?][가-힣][?]|[ʾҽϴ]/;
     if (brokenCharPattern.test(text)) {
         try {
@@ -16518,14 +16524,14 @@ async function handleInteractiveCommand(command, projectRoot) {
         { cwd, shell: selectShellForCapture(finalCommand) || true }, 
         // stdout 콜백 (디코딩 적용)
         (data) => {
-            const decoded = decodeTerminalOutput(data);
+            const decoded = decodeTerminalOutput(data, { isWindows: process.platform === 'win32', isCmdExe: /cmd\.exe/i.test(finalCommand) });
             if (_terminalMonitorService) {
                 _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stdout`, decoded);
             }
         }, 
         // stderr 콜백 (디코딩 적용)
         (data) => {
-            const decoded = decodeTerminalOutput(data);
+            const decoded = decodeTerminalOutput(data, { isWindows: process.platform === 'win32', isCmdExe: /cmd\.exe/i.test(finalCommand) });
             if (_terminalMonitorService) {
                 _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stderr`, decoded);
             }

@@ -713,7 +713,7 @@ ${osSpecificGuidelines}`;
             // 터미널이 여전히 활성 상태인지 확인
             if (terminal.exitStatus !== undefined) {
                 const exitCode = terminal.exitStatus.code;
-                console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
+                if (this.outputLogEnabled) console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
 
                 // 종료 코드가 0이 아니면 에러로 간주
                 if (exitCode !== 0) {
@@ -736,7 +736,7 @@ ${osSpecificGuidelines}`;
     private processTerminalOutput(terminalName: string, data: string): void {
         if (!this.isMonitoring) return;
 
-        // console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
+        // if (this.outputLogEnabled) console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
 
         const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|^npm\s+error\b|ERROR in|Traceback|panic:|Exit status [1-9]|^exit status [1-9-]|Process exited \(code\s*-?\d+\)|BUILD FAILED|Missing script:|Missing script\s*:\s*"\w+")/i.test(data);
         const level: 'info' | 'warn' | 'error' = isErrorLike ? 'error' : 'info';
@@ -757,45 +757,39 @@ ${osSpecificGuidelines}`;
             this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
         }
         const hasErr = this.checkForErrors(data);
-        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
+        if (this.outputLogEnabled) console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
 
         if (isErrorLike || hasErr) {
-            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
-            console.log(`[TerminalMonitorService] Error data: ${data}`);
-            console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Error detected, firing onError event`);
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Error data: ${data}`);
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
             // 에러가 감지되면 출력 채널 노출 (OUTPUT 로그가 활성화된 경우에만)
             if (this.outputLogEnabled) {
                 try { this.outputChannel.show(true); } catch { }
             }
             try {
                 const recent = this.getRecentErrors(30);
-                if (this.outputLogEnabled) {
-                    console.log(`[TerminalMonitorService] Recent errors:`, recent);
-                }
+                if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Recent errors:`, recent);
                 this.onErrorEmitter.fire({
                     time: Date.now(),
                     source: terminalName,
                     message: data.trim(),
                     recentLogs: recent
                 });
-                if (this.outputLogEnabled) {
-                    console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
-                }
+                if (this.outputLogEnabled) console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
 
                 // 자동 오류 수정 시도
                 if (this.autoCorrectionEnabled && this.llmService) {
-                    console.log('[TerminalMonitorService] Attempting auto correction...');
+                    if (this.outputLogEnabled) console.log('[TerminalMonitorService] Attempting auto correction...');
                     this.attemptAutoCorrection(terminalName, data.trim(), recent);
                 } else {
-                    console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
+                    if (this.outputLogEnabled) console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
                 }
             } catch (e) {
                 console.warn('[TerminalMonitorService] onError emit failed:', e);
             }
         } else {
-            if (this.outputLogEnabled) {
-                console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
-            }
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
         }
     }
 
