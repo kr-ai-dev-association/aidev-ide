@@ -162,6 +162,9 @@ export class TerminalMonitorService {
                 command: 'showErrorCorrectionStopped',
                 message: '자동 오류 수정이 중단되었습니다.'
             });
+            // processing steps 즉시 종료 알림
+            try { this.currentWebview.postMessage({ command: 'updateProcessingStatus', step: 'error_correction', status: 'stopped' }); } catch { }
+            try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
         }
     }
 
@@ -1262,6 +1265,11 @@ ${osSpecificGuidelines}`;
             if (!recentCommand) {
                 console.log('[TerminalMonitorService] 최근 명령어를 찾을 수 없음');
                 this.sendProcessingStatus('error_correction', '최근 명령어를 찾을 수 없어 자동 수정을 건너뜁니다.');
+                // 즉시 종료 상태 전달
+                this.sendProcessingStatus('error_correction', 'stopped');
+                if (this.currentWebview) {
+                    try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                }
                 return;
             }
 
@@ -1323,6 +1331,11 @@ ${osSpecificGuidelines}`;
             if (!correctedCommand) {
                 console.log('[TerminalMonitorService] LLM에서 수정된 명령어를 받지 못함');
                 this.sendProcessingStatus('error_correction', 'LLM에서 수정된 명령어를 받지 못했습니다.');
+                // 실패로 종료 전달
+                this.sendProcessingStatus('error_correction', 'failed');
+                if (this.currentWebview) {
+                    try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                }
                 return;
             }
 
@@ -1349,6 +1362,11 @@ ${osSpecificGuidelines}`;
             // 5단계: 결과 검증
             await this.showStepProgress(errorCorrectionSteps, 4);
             this.sendProcessingStatus('error_correction', '자동 오류 수정 완료');
+            // 완료 상태 및 UI 종료 전달
+            this.sendProcessingStatus('error_correction', 'completed');
+            if (this.currentWebview) {
+                try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+            }
 
             // 완료 메시지를 상태바에 표시
             vscode.window.setStatusBarMessage('✅ 오류 수정 완료!', 5000);
@@ -1356,6 +1374,10 @@ ${osSpecificGuidelines}`;
         } catch (error) {
             console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
             this.sendProcessingStatus('error_correction', `자동 오류 수정 실패: ${error instanceof Error ? error.message : String(error)}`);
+            this.sendProcessingStatus('error_correction', 'failed');
+            if (this.currentWebview) {
+                try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+            }
 
             // 실패 메시지를 상태바에 표시
             vscode.window.setStatusBarMessage('❌ 오류 수정 실패', 3000);

@@ -25909,6 +25909,21 @@ ${andGuidance}`;
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
                 if (parsed.correctedCommand) {
+                    const summarizeCommand = (cmd) => {
+                        if (!cmd)
+                            return '';
+                        if (/\b-EncodedCommand\b/i.test(cmd))
+                            return '[PowerShell EncodedCommand]';
+                        if (/\bmvn\b/i.test(cmd))
+                            return 'Maven build/run command';
+                        if (/cmd\.exe\b/i.test(cmd))
+                            return 'cmd.exe command';
+                        if (/powershell\b/i.test(cmd))
+                            return 'PowerShell command';
+                        if (cmd.length > 160)
+                            return cmd.slice(0, 160) + ' ...';
+                        return cmd;
+                    };
                     // 새로운 패턴 발견 시 처리
                     if (parsed.newPattern && parsed.newPattern.isNew) {
                         console.log(`[TerminalMonitorService] 새로운 오류 패턴 발견: ${parsed.newPattern.pattern}`);
@@ -25916,7 +25931,8 @@ ${andGuidance}`;
                         // 사용자에게 새로운 패턴 학습 알림
                         vscode.window.showInformationMessage(`🆕 새로운 오류 패턴을 발견했습니다: ${parsed.newPattern.pattern}`, '패턴 저장됨');
                     }
-                    console.log(`[TerminalMonitorService] LLM 수정 제안: ${parsed.correctedCommand}`);
+                    const display = summarizeCommand(parsed.correctedCommand);
+                    console.log(`[TerminalMonitorService] LLM 수정 제안(요약): ${display}`);
                     console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
                     return parsed.correctedCommand;
                 }
