@@ -1016,17 +1016,22 @@ export class LlmResponseProcessor {
                         setTimeout(() => {
                             safePostMessage(webview, { command: 'hideRunExecution' });
                             safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                            // ProcessingSteps도 종료 (보호성)
+                            safePostMessage(webview, { command: 'hideProcessingSteps' });
                         }, 2000); // 2초 후 숨김
                     } else {
                         console.log('[LLM Response Processor] 실행할 bash 명령어가 없습니다');
                         // 명령어가 없는 경우 즉시 숨김
                         safePostMessage(webview, { command: 'hideRunExecution' });
                         safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                        safePostMessage(webview, { command: 'hideProcessingSteps' });
                     }
                 } catch (error: any) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
                     safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                    // 오류 시에도 종료
+                    safePostMessage(webview, { command: 'hideProcessingSteps' });
                 }
                 }
             } else if (autoUpdateEnabled && !autoExecuteEnabled && hasBashCommands(llmResponse)) {

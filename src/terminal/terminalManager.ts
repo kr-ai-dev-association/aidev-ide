@@ -1777,6 +1777,7 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 2. "fileOperations"에는 반드시 pom.xml(생성)을 포함하세요. 스크립트 파일(.cmd/.bat/.sh/.ps1)은 절대 포함하지 마세요.
 3. 작업은 create를 사용하세요 (pom.xml이 존재하지 않음)
 4. 내용에는 Spring Boot 3.x, Java 17, UTF-8 인코딩, maven-compiler-plugin(encoding=UTF-8), 필요한 의존성(spring-boot-starter-web, spring-boot-starter-data-jpa, spring-boot-starter-validation, lombok(optional), spring-boot-starter-security)을 포함하세요
+ 5. pom.xml 변경/생성 시 절대로 쉘/배치/PowerShell 스크립트를 사용하지 마세요 (예: sed, echo, cat, heredoc, Out-File, Set-Content 등 금지). 오직 JSON의 fileOperations로만 전체 내용을 제공합니다.
 
 예시 JSON:
 {
@@ -1794,6 +1795,7 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 2. "fileOperations"에는 반드시 pom.xml만 포함해야 합니다. 다른 파일(예: build_and_run.cmd, build.sh, 스크립트 파일 등)은 절대 생성하거나 수정하지 마세요.
 3. Maven 프로젝트의 경우 pom.xml만 수정하면 됩니다. 다른 파일은 필요 없습니다.
 4. 파일 작업은 반드시 modify만 사용하세요 (create는 사용하지 마세요. pom.xml은 이미 존재합니다).
+ 5. pom.xml을 변경할 때는 절대로 쉘/배치/PowerShell 명령을 사용하지 마세요. sed/echo/heredoc/Out-File/Set-Content 등으로 편집하지 말고, 오직 JSON의 fileOperations로 전체 내용을 반환하세요.
 5. "fileOperations"에 다음 파일 수정 작업을 포함하세요:
    ${errorOutputForPrompt.includes('unmappable character') || errorOutputForPrompt.includes('x-windows-949') ? `
    **인코딩 오류 수정:**
@@ -1859,6 +1861,10 @@ ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제
 ${commonGuidelines}${osSpecificGuidelines}
 
 **중요: 오직 하나의 JSON 객체만 응답해주세요. 다른 텍스트나 설명은 포함하지 마세요.**
+
+**추가 중요 지침 (pom.xml 관련):**
+- pom.xml을 생성/수정해야 하는 경우, 어떠한 쉘/배치/PowerShell 스크립트도 포함하지 마세요. (sed, echo, cat, heredoc, Out-File, Set-Content 등 금지)
+- 오직 JSON의 fileOperations 배열만 사용하여 pom.xml의 전체 내용을 반환하세요.
 
 ${compilationGuidelines || ''}
 ${!hasCompilationError ? `
@@ -2555,6 +2561,7 @@ export async function handleCommandError(
                 command: 'hideProcessingSteps',
                 step: 'error_correction'
             });
+            debugLog('TerminalManager: hideProcessingSteps (max retry exceeded)');
         } else {
             console.log('[TerminalManager] _currentWebview가 설정되지 않음');
         }
@@ -2576,6 +2583,7 @@ export async function handleCommandError(
             try { _currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
             try { _currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
             try { _currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
+            debugLog('TerminalManager: hideProcessingSteps (no correctionResult)');
         }
         return false;
     }
@@ -2617,6 +2625,7 @@ export async function handleCommandError(
                 command: 'hideProcessingSteps',
                 step: 'error_correction'
             });
+            debugLog('TerminalManager: hideProcessingSteps (file ops only)');
         }
 
         // 파일 작업이 이미 큐에 추가되었으므로 성공 반환
@@ -2749,6 +2758,7 @@ export async function handleCommandError(
                 command: 'hideProcessingSteps',
                 step: 'error_correction'
             });
+            debugLog('TerminalManager: hideProcessingSteps (success)');
         } else {
             console.log('[TerminalManager] _currentWebview가 설정되지 않음');
         }
@@ -2765,6 +2775,7 @@ export async function handleCommandError(
             try { _currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
             try { _currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
             try { _currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
+            debugLog('TerminalManager: hideProcessingSteps (invalid corrected command)');
         }
         _errorRetryCount = 0;
         return false;
