@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { NotificationService } from '../services/notificationService';
 import { LlmService } from './llmService';
+import { debugLog } from '../utils/debugLogger';
 
 export interface LogEntry {
     timestamp: number;
@@ -758,6 +759,7 @@ ${osSpecificGuidelines}`;
 
             this.logEntries.push(logEntry);
             this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
+            debugLog(`TerminalMonitor: ${terminalName} ${level.toUpperCase()} -> ${data.trim().substring(0, 2000)}`);
         }
         const hasErr = this.checkForErrors(data);
         if (this.outputLogEnabled) console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
@@ -773,6 +775,7 @@ ${osSpecificGuidelines}`;
             try {
                 const recent = this.getRecentErrors(30);
                 if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Recent errors:`, recent);
+                debugLog(`TerminalMonitor: error detected, recent=${recent.length}`);
                 this.onErrorEmitter.fire({
                     time: Date.now(),
                     source: terminalName,
@@ -784,6 +787,7 @@ ${osSpecificGuidelines}`;
                 // 자동 오류 수정 시도
                 if (this.autoCorrectionEnabled && this.llmService) {
                     if (this.outputLogEnabled) console.log('[TerminalMonitorService] Attempting auto correction...');
+                    debugLog('TerminalMonitor: attempting auto-correction');
                     this.attemptAutoCorrection(terminalName, data.trim(), recent);
                 } else {
                     if (this.outputLogEnabled) console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
@@ -1577,6 +1581,7 @@ ${specificGuidance}
 ${andGuidance}`;
 
             const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+            debugLog(`TerminalMonitor:getCorrectedCommand LLM response length=${response?.length || 0}`);
 
             // JSON 응답 파싱 (코드펜스/트리플쿼트/잘못된 이스케이프 보정)
             const fenceStripped = response
@@ -1619,6 +1624,7 @@ ${andGuidance}`;
 
                     const display = summarizeCommand(parsed.correctedCommand as string);
                     console.log(`[TerminalMonitorService] LLM 수정 제안(요약): ${display}`);
+                    debugLog(`TerminalMonitor: suggestion -> ${display}`);
                     console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
                     return parsed.correctedCommand;
                 }
@@ -1626,6 +1632,7 @@ ${andGuidance}`;
             }
         } catch (error) {
             console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
+            debugLog(`TerminalMonitor: error-correction request failed: ${String(error)}`);
         }
 
         return null;
@@ -1654,6 +1661,7 @@ ${andGuidance}`;
 
             // 수정된 명령어 실행
             terminal.sendText(correctedCommand);
+            debugLog(`TerminalMonitor: execute corrected -> ${correctedCommand}`);
 
             // 사용자에게 알림
             this.notificationService.showInfoMessage(

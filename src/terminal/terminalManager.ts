@@ -7,6 +7,7 @@ import { getTerminalMonitor } from '../ai/monitorBridge';
 import { TerminalMonitorService } from '../ai/terminalMonitorService';
 import { ConfigurationService } from '../services/configurationService';
 import { LlmService } from '../ai/llmService';
+import { debugLog } from '../utils/debugLogger';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
@@ -639,6 +640,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
         // 명령어 실행 (전처리된 명령 사용)
         terminal.sendText(finalCommand);
+        debugLog(`TerminalManager: execute -> ${finalCommand}`);
 
         // 터미널을 보여주고 포커스
         terminal.show(true);
@@ -771,11 +773,13 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
                 // stderr 디코딩 적용
                 const decodedStderr = decodeTerminalOutput(result.stderr);
                 channel.appendLine(`Stderr: ${decodedStderr}`);
+                debugLog(`TerminalManager: stderr -> ${decodedStderr.substring(0, 2000)}`);
             }
             if (result.stdout && hasErrorInStdout) {
                 // stdout도 오류가 있으면 출력
                 const decodedStdout = decodeTerminalOutput(result.stdout);
                 channel.appendLine(`Stdout (contains errors): ${decodedStdout.substring(0, 500)}...`);
+                debugLog(`TerminalManager: stdout(error) -> ${decodedStdout.substring(0, 2000)}`);
             }
             try {
                 getTerminalMonitor()?.ingestExternalOutput('stderr', `Command failed (exit ${result.code}): ${cleanCommand}`);
@@ -787,6 +791,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             // stdout과 stderr를 모두 포함 (Maven은 stdout에 오류 출력)
             const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
             console.log(`[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`);
+            debugLog(`TerminalManager: error detected, exit=${result.code}, err=${hasErrorInStderr}, outErr=${hasErrorInStdout}`);
             console.log(`[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || '').length}, stdout=${(result.stdout || '').length}`);
             const isAutoCorrectionEnabled = await (async () => { try { return await _configService.isAutoCorrectionEnabled(); } catch { return true; } })();
             const retrySuccess = isAutoCorrectionEnabled ? await handleCommandError(
@@ -816,6 +821,7 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             channel.appendLine(`Output: ${result.stdout}`);
         }
         console.log(`[TerminalManager] Executed via VS Code terminal: ${cleanCommand}`);
+        debugLog(`TerminalManager: success -> ${cleanCommand}`);
         return true;
     } catch (e: any) {
         // VS Code 터미널 실행 실패 시 캡처 기반으로 폴백
@@ -1917,6 +1923,7 @@ ${!hasCompilationError ? `
         // LLM 서비스를 통해 응답 받기
         const response = await _llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
         console.log(`[TerminalManager] LLM 응답 받음 (길이: ${response.length})`);
+        debugLog(`TerminalManager:getCorrectedCommand LLM response length=${response.length}`);
         console.log(`[TerminalManager] LLM 응답 샘플 (처음 300자): ${response.substring(0, 300)}...`);
 
         // Strip code fences and language headers if present
@@ -2279,6 +2286,7 @@ ${!hasCompilationError ? `
                     const hasFileOps = result.fileOperations && Array.isArray(result.fileOperations) && result.fileOperations.length > 0;
 
                     console.log(`[TerminalManager] JSON 파싱 결과: hasValidCommand=${hasValidCommand}, hasFileOps=${hasFileOps}, correctedCommand=${result.correctedCommand}, fileOperations.length=${result.fileOperations?.length || 0}`);
+                    debugLog(`TerminalManager: parsed JSON -> cmd=${hasValidCommand}, fileOps=${hasFileOps}`);
 
                     if (hasValidCommand || (hasFileOps && (!result.correctedCommand || result.correctedCommand === null))) {
                         if (hasValidCommand) {
