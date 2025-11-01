@@ -2571,6 +2571,12 @@ export async function handleCommandError(
 
     if (!correctionResult) {
         console.log('[TerminalManager] LLM에서 수정된 명령어를 받지 못함');
+        // ProcessingSteps 강제 종료 (오류 수정 시도 후 결과 없음)
+        if (_currentWebview) {
+            try { _currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+            try { _currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
+            try { _currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
+        }
         return false;
     }
 
@@ -2753,6 +2759,12 @@ export async function handleCommandError(
             console.log(`[TerminalManager] 명령어 수정 불가능 (검증 실패): ${correctedCommand.substring(0, 100)}...`);
         } else {
             console.log('[TerminalManager] 명령어 수정 불가능 (LLM이 명령어를 반환하지 않음)');
+        }
+        // ProcessingSteps 강제 종료 (검증 실패/수정 불가)
+        if (_currentWebview) {
+            try { _currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+            try { _currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
+            try { _currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
         }
         _errorRetryCount = 0;
         return false;

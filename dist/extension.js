@@ -272,11 +272,9 @@ async function activate(context) {
     const outputLogEnabled = await configurationService.isOutputLogEnabled();
     terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
     // console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
-    // 디버그 로그 설정 적용
-    const debugEnabled = await configurationService.isDebugEnabled();
+    // 디버그 로그: VS Code Run/Debug 이벤트에만 연동 (설정 플래그 사용 중단)
     const projectRootForDebug = await configurationService.getProjectRoot();
-    debugLogger_1.DebugLogger.setContext(debugEnabled, projectRootForDebug);
-    debugLogger_1.DebugLogger.startIfEnabled();
+    debugLogger_1.DebugLogger.setContext(false, projectRootForDebug);
     // VS Code Run and Debug 연동: 디버그 세션 시작 시 자동으로 로그 파일 생성(덮어쓰기) 및 기록 시작
     context.subscriptions.push(vscode.debug.onDidStartDebugSession(async (session) => {
         try {
@@ -287,15 +285,12 @@ async function activate(context) {
         }
         catch { /* ignore */ }
     }));
-    // 디버그 세션 종료 시: 사용자가 설정으로 켜둔 상태를 존중하여 상태 재설정
+    // 디버그 세션 종료 시: 자동 기록 중단
     context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(async (session) => {
         try {
             const root = await configurationService.getProjectRoot();
-            const stillEnabled = await configurationService.isDebugEnabled();
-            debugLogger_1.DebugLogger.setContext(!!stillEnabled, root);
-            if (stillEnabled) {
-                debugLogger_1.DebugLogger.log(`VS Code debug session ended: ${session.name}`);
-            }
+            debugLogger_1.DebugLogger.log(`VS Code debug session ended: ${session.name}`);
+            debugLogger_1.DebugLogger.setContext(false, root);
         }
         catch { /* ignore */ }
     }));
@@ -383,12 +378,7 @@ async function activate(context) {
             console.log(`[Extension] onDidChangeConfiguration: autoCorrectionEnabled -> ${enabled}`);
             terminalMonitorService.setAutoCorrectionEnabled(enabled);
         }
-        if (event.affectsConfiguration('aidevIde.debugEnabled')) {
-            const debugEnabledNow = await configurationService.isDebugEnabled();
-            const projRoot = await configurationService.getProjectRoot();
-            debugLogger_1.DebugLogger.setContext(debugEnabledNow, projRoot);
-            debugLogger_1.DebugLogger.startIfEnabled();
-        }
+        // debugEnabled 설정은 더 이상 사용하지 않음 (Run/Debug 이벤트로만 제어)
     }));
     // ollama-blocker 관리 명령어들
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.startOllamaBlocker', async () => {
@@ -21972,6 +21962,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.debugLog = exports.DebugLogger = void 0;
 const fs = __importStar(__webpack_require__(25));
 const path = __importStar(__webpack_require__(10));
+const vscode = __importStar(__webpack_require__(1));
 class DebugLoggerImpl {
     enabled = false;
     workspaceRoot;
@@ -21981,7 +21972,19 @@ class DebugLoggerImpl {
         this.workspaceRoot = workspaceRoot;
     }
     startIfEnabled() {
-        if (!this.enabled || !this.workspaceRoot)
+        if (!this.enabled)
+            return;
+        // 워크스페이스 루트가 지정되지 않았다면 VS Code API로 조회
+        if (!this.workspaceRoot) {
+            try {
+                const ws = vscode.workspace.workspaceFolders;
+                if (ws && ws.length > 0) {
+                    this.workspaceRoot = ws[0].uri.fsPath;
+                }
+            }
+            catch { /* ignore */ }
+        }
+        if (!this.workspaceRoot)
             return;
         try {
             const dir = path.join(this.workspaceRoot, 'debug_log');
@@ -21996,7 +21999,13 @@ class DebugLoggerImpl {
         }
     }
     log(message) {
-        if (!this.enabled || !this.logFilePath)
+        if (!this.enabled)
+            return;
+        // 지연 초기화: 기록 시점에 파일 없으면 생성 시도
+        if (!this.logFilePath) {
+            this.startIfEnabled();
+        }
+        if (!this.logFilePath)
             return;
         try {
             const line = `[${new Date().toISOString()}] ${message}\n`;

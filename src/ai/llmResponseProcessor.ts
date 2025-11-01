@@ -983,6 +983,8 @@ export class LlmResponseProcessor {
                     const warn = '프로젝트에 pom.xml/build.gradle/package.json 이 없어 명령 자동 실행을 중단했습니다.\nLLM 응답에 "새 파일: pom.xml" 등 파일 작업 지시어를 포함해 스캐폴딩을 먼저 생성하세요.';
                     this.notificationService.showWarningMessage(`aidev-ide: ${warn}`);
                     safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `⚠️ ${warn}` });
+                    // ProcessingSteps 종료
+                    safePostMessage(webview, { command: 'hideProcessingSteps' });
                 } else {
                 statusCallback?.('Executing bash commands immediately...');
                 safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
@@ -1031,6 +1033,8 @@ export class LlmResponseProcessor {
                 // 자동 실행이 비활성화된 경우 사용자에게 알림
                 const infoMessage = `\n\nℹ️ 명령어 자동 실행이 비활성화되어 있습니다. 설정에서 "명령어 자동 실행"을 활성화하거나 수동으로 실행해주세요.`;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
+                // ProcessingSteps 종료
+                safePostMessage(webview, { command: 'hideProcessingSteps' });
             }
 
             // 파일 작업 결과를 추가로 채팅창에 표시
@@ -1138,9 +1142,12 @@ export class LlmResponseProcessor {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
+            // ProcessingSteps 종료
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
         } else {
             // 파일 작업이 없는 경우 thinking 애니메이션 제거
             safePostMessage(webview, { command: 'hideLoading' });
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
 
             // Bash 명령어 실행 처리
             if (hasBashCommands(llmResponse)) {
@@ -1182,6 +1189,8 @@ export class LlmResponseProcessor {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
+            // ProcessingSteps 종료
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
         }
 
         // 임시 파일 정리

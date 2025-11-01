@@ -234,11 +234,9 @@ export async function activate(context: vscode.ExtensionContext) {
     terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
     // console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
 
-    // 디버그 로그 설정 적용
-    const debugEnabled = await configurationService.isDebugEnabled();
+    // 디버그 로그: VS Code Run/Debug 이벤트에만 연동 (설정 플래그 사용 중단)
     const projectRootForDebug = await configurationService.getProjectRoot();
-    DebugLogger.setContext(debugEnabled, projectRootForDebug);
-    DebugLogger.startIfEnabled();
+    DebugLogger.setContext(false, projectRootForDebug);
 
     // VS Code Run and Debug 연동: 디버그 세션 시작 시 자동으로 로그 파일 생성(덮어쓰기) 및 기록 시작
     context.subscriptions.push(vscode.debug.onDidStartDebugSession(async (session) => {
@@ -250,15 +248,12 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch { /* ignore */ }
     }));
 
-    // 디버그 세션 종료 시: 사용자가 설정으로 켜둔 상태를 존중하여 상태 재설정
+    // 디버그 세션 종료 시: 자동 기록 중단
     context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(async (session) => {
         try {
             const root = await configurationService.getProjectRoot();
-            const stillEnabled = await configurationService.isDebugEnabled();
-            DebugLogger.setContext(!!stillEnabled, root);
-            if (stillEnabled) {
-                DebugLogger.log(`VS Code debug session ended: ${session.name}`);
-            }
+            DebugLogger.log(`VS Code debug session ended: ${session.name}`);
+            DebugLogger.setContext(false, root);
         } catch { /* ignore */ }
     }));
 
@@ -379,12 +374,7 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log(`[Extension] onDidChangeConfiguration: autoCorrectionEnabled -> ${enabled}`);
             terminalMonitorService.setAutoCorrectionEnabled(enabled);
         }
-        if (event.affectsConfiguration('aidevIde.debugEnabled')) {
-            const debugEnabledNow = await configurationService.isDebugEnabled();
-            const projRoot = await configurationService.getProjectRoot();
-            DebugLogger.setContext(debugEnabledNow, projRoot);
-            DebugLogger.startIfEnabled();
-        }
+        // debugEnabled 설정은 더 이상 사용하지 않음 (Run/Debug 이벤트로만 제어)
     }));
 
     // ollama-blocker 관리 명령어들
