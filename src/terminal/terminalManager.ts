@@ -1272,6 +1272,12 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
                         if (/^-$/.test(trimmed)) return false;
                         // 마크다운 체크박스 형식 제거
                         if (/^[-*]\s\[[ xX]\]/.test(trimmed)) return false;
+                        // 마크다운 테이블 행 제거: | a | b | 형태
+                        if (/^\|.+\|\s*$/.test(trimmed)) return false;
+                        // 마크다운 테이블 헤더 구분선 제거: --- | --- 형태
+                        if (/^:?[-]{2,}\s*\|\s*:?[-]{2,}/.test(trimmed)) return false;
+                        // 굵은 텍스트만 있는 마크다운 라인 제거: **text**
+                        if (/^\*\*[^*]+\*\*$/.test(trimmed)) return false;
                         return true;
                     })
                     .join('\n')
