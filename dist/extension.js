@@ -277,6 +277,28 @@ async function activate(context) {
     const projectRootForDebug = await configurationService.getProjectRoot();
     debugLogger_1.DebugLogger.setContext(debugEnabled, projectRootForDebug);
     debugLogger_1.DebugLogger.startIfEnabled();
+    // VS Code Run and Debug 연동: 디버그 세션 시작 시 자동으로 로그 파일 생성(덮어쓰기) 및 기록 시작
+    context.subscriptions.push(vscode.debug.onDidStartDebugSession(async (session) => {
+        try {
+            const root = await configurationService.getProjectRoot();
+            debugLogger_1.DebugLogger.setContext(true, root);
+            debugLogger_1.DebugLogger.startIfEnabled();
+            debugLogger_1.DebugLogger.log(`VS Code debug session started: ${session.name}`);
+        }
+        catch { /* ignore */ }
+    }));
+    // 디버그 세션 종료 시: 사용자가 설정으로 켜둔 상태를 존중하여 상태 재설정
+    context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(async (session) => {
+        try {
+            const root = await configurationService.getProjectRoot();
+            const stillEnabled = await configurationService.isDebugEnabled();
+            debugLogger_1.DebugLogger.setContext(!!stillEnabled, root);
+            if (stillEnabled) {
+                debugLogger_1.DebugLogger.log(`VS Code debug session ended: ${session.name}`);
+            }
+        }
+        catch { /* ignore */ }
+    }));
     // 자동 오류 수정 설정 로드 및 적용
     const autoCorrectionEnabled = await configurationService.isAutoCorrectionEnabled();
     console.log(`[Extension] isAutoCorrectionEnabled() -> ${autoCorrectionEnabled}`);
