@@ -1578,10 +1578,19 @@ ${andGuidance}`;
 
             const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
 
-            // JSON 응답 파싱
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
+            // JSON 응답 파싱 (코드펜스/트리플쿼트/잘못된 이스케이프 보정)
+            const fenceStripped = response
+                .replace(/```json[\s\S]*?\n([\s\S]*?)```/gi, '$1')
+                .replace(/```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)```/g, '$1')
+                .trim();
+            const candidates = fenceStripped.match(/\{[\s\S]*?\}/g) || [];
+            for (const raw of candidates) {
+                let s = raw;
+                try {
+                    // Python/Markdown 트리플쿼트 제거 및 잘못된 이스케이프 보정
+                    s = s.replace(/\\"\\"\\"/g, '"').replace(/"""/g, '"');
+                    s = s.replace(/\\(?![\\\/"bfnrtu])/g, '');
+                    const parsed = JSON.parse(s);
                 if (parsed.correctedCommand) {
                     const summarizeCommand = (cmd: string): string => {
                         if (!cmd) return '';
@@ -1613,6 +1622,7 @@ ${andGuidance}`;
                     console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
                     return parsed.correctedCommand;
                 }
+                } catch { /* 다음 후보 시도 */ }
             }
         } catch (error) {
             console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
@@ -1626,8 +1636,17 @@ ${andGuidance}`;
      */
     private async executeCorrectedCommand(terminalName: string, correctedCommand: string): Promise<void> {
         try {
+            // 터미널 이름 정규화 (ingestExternalOutput 소스 포맷 대응: "terminal:{name}:{stream}")
+            const extractName = (name: string): string => {
+                const m = name.match(/^terminal:(.*?):(stdout|stderr)$/i);
+                return m ? m[1] : name;
+            };
+            const targetName = extractName(terminalName);
             // 터미널 찾기
-            const terminal = vscode.window.terminals.find(t => t.name === terminalName);
+            let terminal = vscode.window.terminals.find(t => t.name === targetName);
+            if (!terminal) {
+                terminal = vscode.window.activeTerminal || vscode.window.terminals[0];
+            }
             if (!terminal) {
                 console.log(`[TerminalMonitorService] 터미널을 찾을 수 없음: ${terminalName}`);
                 return;

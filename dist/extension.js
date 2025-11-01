@@ -14565,7 +14565,20 @@ class LlmResponseProcessor {
                         if (executedCommands.length > 0) {
                             console.log(`[LLM Response Processor] ${executedCommands.length}개 명령어를 큐에 적재했습니다:`, executedCommands);
                             statusCallback?.(`Found ${executedCommands.length} bash commands`);
-                            const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                            const summarize = (cmd) => {
+                                if (/\b-EncodedCommand\b/i.test(cmd))
+                                    return '[PowerShell EncodedCommand]';
+                                if (/\bcmd\.exe\b/i.test(cmd))
+                                    return 'cmd.exe command';
+                                if (/\bpowershell(\.exe)?\b/i.test(cmd))
+                                    return 'PowerShell command';
+                                if (/\bmvn\b/i.test(cmd))
+                                    return 'Maven command';
+                                if (cmd.length > 160)
+                                    return cmd.slice(0, 160) + ' ...';
+                                return cmd;
+                            };
+                            const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                             // 명령어 실행 완료 후 Run 버튼 실행 상태 숨기기
                             setTimeout(() => {
@@ -14660,7 +14673,20 @@ class LlmResponseProcessor {
                         const executedCommands = (0, terminalManager_1.executeBashCommandsFromLlmResponse)(llmResponse, projectRoot);
                         if (executedCommands.length > 0) {
                             statusCallback?.(`Found ${executedCommands.length} bash commands`);
-                            const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                            const summarize = (cmd) => {
+                                if (/\b-EncodedCommand\b/i.test(cmd))
+                                    return '[PowerShell EncodedCommand]';
+                                if (/\bcmd\.exe\b/i.test(cmd))
+                                    return 'cmd.exe command';
+                                if (/\bpowershell(\.exe)?\b/i.test(cmd))
+                                    return 'PowerShell command';
+                                if (/\bmvn\b/i.test(cmd))
+                                    return 'Maven command';
+                                if (cmd.length > 160)
+                                    return cmd.slice(0, 160) + ' ...';
+                                return cmd;
+                            };
+                            const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                         }
                     }
@@ -14696,7 +14722,21 @@ class LlmResponseProcessor {
                         const executedCommands = (0, terminalManager_1.executeBashCommandsFromLlmResponse)(llmResponse, projectRoot);
                         if (executedCommands.length > 0) {
                             const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                            (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                            const summarize = (cmd) => {
+                                if (/\b-EncodedCommand\b/i.test(cmd))
+                                    return '[PowerShell EncodedCommand]';
+                                if (/\bcmd\.exe\b/i.test(cmd))
+                                    return 'cmd.exe command';
+                                if (/\bpowershell(\.exe)?\b/i.test(cmd))
+                                    return 'PowerShell command';
+                                if (/\bmvn\b/i.test(cmd))
+                                    return 'Maven command';
+                                if (cmd.length > 160)
+                                    return cmd.slice(0, 160) + ' ...';
+                                return cmd;
+                            };
+                            const summaryMsg = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
+                            (0, panelUtils_1.safePostMessage)(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMsg });
                         }
                     }
                     catch (error) {
@@ -24638,6 +24678,15 @@ class TerminalMonitorService {
                 command: 'showErrorCorrectionStopped',
                 message: '자동 오류 수정이 중단되었습니다.'
             });
+            // processing steps 즉시 종료 알림
+            try {
+                this.currentWebview.postMessage({ command: 'updateProcessingStatus', step: 'error_correction', status: 'stopped' });
+            }
+            catch { }
+            try {
+                this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' });
+            }
+            catch { }
         }
     }
     /**
@@ -25634,6 +25683,14 @@ ${osSpecificGuidelines}`;
             if (!recentCommand) {
                 console.log('[TerminalMonitorService] 최근 명령어를 찾을 수 없음');
                 this.sendProcessingStatus('error_correction', '최근 명령어를 찾을 수 없어 자동 수정을 건너뜁니다.');
+                // 즉시 종료 상태 전달
+                this.sendProcessingStatus('error_correction', 'stopped');
+                if (this.currentWebview) {
+                    try {
+                        this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' });
+                    }
+                    catch { }
+                }
                 return;
             }
             this.sendProcessingStatus('error_correction', `실패한 명령어 분석 중: ${recentCommand}`);
@@ -25675,6 +25732,14 @@ ${osSpecificGuidelines}`;
             if (!correctedCommand) {
                 console.log('[TerminalMonitorService] LLM에서 수정된 명령어를 받지 못함');
                 this.sendProcessingStatus('error_correction', 'LLM에서 수정된 명령어를 받지 못했습니다.');
+                // 실패로 종료 전달
+                this.sendProcessingStatus('error_correction', 'failed');
+                if (this.currentWebview) {
+                    try {
+                        this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' });
+                    }
+                    catch { }
+                }
                 return;
             }
             this.sendProcessingStatus('error_correction', `수정된 명령어 생성됨: ${correctedCommand}`);
@@ -25696,12 +25761,27 @@ ${osSpecificGuidelines}`;
             // 5단계: 결과 검증
             await this.showStepProgress(errorCorrectionSteps, 4);
             this.sendProcessingStatus('error_correction', '자동 오류 수정 완료');
+            // 완료 상태 및 UI 종료 전달
+            this.sendProcessingStatus('error_correction', 'completed');
+            if (this.currentWebview) {
+                try {
+                    this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' });
+                }
+                catch { }
+            }
             // 완료 메시지를 상태바에 표시
             vscode.window.setStatusBarMessage('✅ 오류 수정 완료!', 5000);
         }
         catch (error) {
             console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
             this.sendProcessingStatus('error_correction', `자동 오류 수정 실패: ${error instanceof Error ? error.message : String(error)}`);
+            this.sendProcessingStatus('error_correction', 'failed');
+            if (this.currentWebview) {
+                try {
+                    this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' });
+                }
+                catch { }
+            }
             // 실패 메시지를 상태바에 표시
             vscode.window.setStatusBarMessage('❌ 오류 수정 실패', 3000);
         }
