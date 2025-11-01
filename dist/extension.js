@@ -16557,11 +16557,29 @@ async function handleInteractiveCommand(command, projectRoot) {
                     channel.show(true);
                     // Long-running 명령어에서도 오류 수정 시도
                     const errorOutput = `Exit code: ${res.code}\nStderr: ${res.stderr || ''}\nStdout: ${res.stdout || ''}`;
-                    const retrySuccess = await handleCommandError(cleanCommand, errorOutput, cwd || '', async (correctedCommand) => {
+                    // 자동 오류 수정이 비활성화된 경우 재시도 로직을 건너뜁니다.
+                    const allowAutoCorrection = (() => {
+                        try {
+                            if (_terminalMonitorService && (typeof _terminalMonitorService.isOutputLogEnabled === 'function')) {
+                                // TerminalMonitorService는 autoCorrectionEnabled getter가 없으므로 구성 서비스 값 조회를 우선 시도
+                            }
+                        }
+                        catch { /* noop */ }
+                        return true;
+                    })();
+                    const isAutoCorrectionEnabled = await (async () => {
+                        try {
+                            return await _configService.isAutoCorrectionEnabled();
+                        }
+                        catch {
+                            return true;
+                        }
+                    })();
+                    const retrySuccess = (allowAutoCorrection && isAutoCorrectionEnabled) ? await handleCommandError(cleanCommand, errorOutput, cwd || '', async (correctedCommand) => {
                         // 수정된 명령어로 재시도
                         channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
                         await handleInteractiveCommand(correctedCommand);
-                    });
+                    }) : false;
                     if (!retrySuccess) {
                         vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${cleanCommand})`);
                     }
@@ -16590,11 +16608,17 @@ async function handleInteractiveCommand(command, projectRoot) {
                 catch { }
                 // Long-running 명령어에서도 오류 수정 시도
                 const errorOutput = `Process error: ${err?.message || String(err)}`;
-                const retrySuccess = await handleCommandError(cleanCommand, errorOutput, cwd || '', async (correctedCommand) => {
+                const isAutoCorrectionEnabled = await (async () => { try {
+                    return await _configService.isAutoCorrectionEnabled();
+                }
+                catch {
+                    return true;
+                } })();
+                const retrySuccess = isAutoCorrectionEnabled ? await handleCommandError(cleanCommand, errorOutput, cwd || '', async (correctedCommand) => {
                     // 수정된 명령어로 재시도
                     channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
                     await handleInteractiveCommand(correctedCommand);
-                });
+                }) : false;
                 if (!retrySuccess) {
                     vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${cleanCommand})`);
                 }
@@ -16640,11 +16664,17 @@ async function handleInteractiveCommand(command, projectRoot) {
             const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
             console.log(`[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`);
             console.log(`[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || '').length}, stdout=${(result.stdout || '').length}`);
-            const retrySuccess = await handleCommandError(cleanCommand, errorOutput, cwd || '', async (correctedCommand) => {
+            const isAutoCorrectionEnabled = await (async () => { try {
+                return await _configService.isAutoCorrectionEnabled();
+            }
+            catch {
+                return true;
+            } })();
+            const retrySuccess = isAutoCorrectionEnabled ? await handleCommandError(cleanCommand, errorOutput, cwd || '', async (correctedCommand) => {
                 // 수정된 명령어로 재시도
                 channel.appendLine(`\n===== Retrying with corrected command: ${correctedCommand} =====`);
                 await handleInteractiveCommand(correctedCommand);
-            });
+            }) : false;
             if (!retrySuccess) {
                 vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${cleanCommand})`);
                 return false;
@@ -25091,7 +25121,8 @@ ${osSpecificGuidelines}`;
             // 터미널이 여전히 활성 상태인지 확인
             if (terminal.exitStatus !== undefined) {
                 const exitCode = terminal.exitStatus.code;
-                console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
+                if (this.outputLogEnabled)
+                    console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
                 // 종료 코드가 0이 아니면 에러로 간주
                 if (exitCode !== 0) {
                     const errorMessage = `터미널 '${terminal.name}'이 에러 코드 ${exitCode}로 종료되었습니다.`;
@@ -25111,7 +25142,7 @@ ${osSpecificGuidelines}`;
     processTerminalOutput(terminalName, data) {
         if (!this.isMonitoring)
             return;
-        // console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
+        // if (this.outputLogEnabled) console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
         const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|^npm\s+error\b|ERROR in|Traceback|panic:|Exit status [1-9]|^exit status [1-9-]|Process exited \(code\s*-?\d+\)|BUILD FAILED|Missing script:|Missing script\s*:\s*"\w+")/i.test(data);
         const level = isErrorLike ? 'error' : 'info';
         // console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, level: ${level}`);
@@ -25128,11 +25159,15 @@ ${osSpecificGuidelines}`;
             this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
         }
         const hasErr = this.checkForErrors(data);
-        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
+        if (this.outputLogEnabled)
+            console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
         if (isErrorLike || hasErr) {
-            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
-            console.log(`[TerminalMonitorService] Error data: ${data}`);
-            console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
+            if (this.outputLogEnabled)
+                console.log(`[TerminalMonitorService] Error detected, firing onError event`);
+            if (this.outputLogEnabled)
+                console.log(`[TerminalMonitorService] Error data: ${data}`);
+            if (this.outputLogEnabled)
+                console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
             // 에러가 감지되면 출력 채널 노출 (OUTPUT 로그가 활성화된 경우에만)
             if (this.outputLogEnabled) {
                 try {
@@ -25142,25 +25177,25 @@ ${osSpecificGuidelines}`;
             }
             try {
                 const recent = this.getRecentErrors(30);
-                if (this.outputLogEnabled) {
+                if (this.outputLogEnabled)
                     console.log(`[TerminalMonitorService] Recent errors:`, recent);
-                }
                 this.onErrorEmitter.fire({
                     time: Date.now(),
                     source: terminalName,
                     message: data.trim(),
                     recentLogs: recent
                 });
-                if (this.outputLogEnabled) {
+                if (this.outputLogEnabled)
                     console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
-                }
                 // 자동 오류 수정 시도
                 if (this.autoCorrectionEnabled && this.llmService) {
-                    console.log('[TerminalMonitorService] Attempting auto correction...');
+                    if (this.outputLogEnabled)
+                        console.log('[TerminalMonitorService] Attempting auto correction...');
                     this.attemptAutoCorrection(terminalName, data.trim(), recent);
                 }
                 else {
-                    console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
+                    if (this.outputLogEnabled)
+                        console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
                 }
             }
             catch (e) {
@@ -25168,9 +25203,8 @@ ${osSpecificGuidelines}`;
             }
         }
         else {
-            if (this.outputLogEnabled) {
+            if (this.outputLogEnabled)
                 console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
-            }
         }
     }
     /**
