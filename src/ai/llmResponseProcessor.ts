@@ -1090,8 +1090,9 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
 
-            // 파일 작업 완료 후 hideLoading 호출
+            // 파일/명령 처리 완료 후 로딩 및 ProcessingSteps 종료
             safePostMessage(webview, { command: 'hideLoading' });
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
         } else if (llmResponse.includes("Copy") && !llmResponse.includes("수정 파일:") && !llmResponse.includes("새 파일:") && !llmResponse.includes("삭제 파일:")) {
             const infoMessage = "\n\n[정보] 코드 블록이 응답에 포함되어 있으나, '수정 파일:', '새 파일:', 또는 '삭제 파일:' 지시어가 없어 자동 업데이트가 시도되지 않았습니다. 필요시 수동으로 복사하여 사용해주세요.";
             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });

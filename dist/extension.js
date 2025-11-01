@@ -18261,10 +18261,23 @@ ${!hasCompilationError ? `
                                         console.log(`[TerminalManager] 경로가 너무 길어서 거부: ${normalizedPath.length}자`);
                                         continue;
                                     }
+                                    // contentEncoding 또는 별도 base64 필드 지원
+                                    let contentToUse = op.content || undefined;
+                                    const enc = (op.contentEncoding || op.encoding || '').toLowerCase();
+                                    const altB64 = op.contentBase64 || op.content_b64 || op.contentB64;
+                                    try {
+                                        if (enc === 'base64' && typeof contentToUse === 'string') {
+                                            contentToUse = Buffer.from(contentToUse, 'base64').toString('utf8');
+                                        }
+                                        else if (typeof altB64 === 'string' && !contentToUse) {
+                                            contentToUse = Buffer.from(altB64, 'base64').toString('utf8');
+                                        }
+                                    }
+                                    catch { /* ignore decode errors */ }
                                     fileOperations.push({
                                         type: finalOpType,
                                         path: normalizedPath,
-                                        content: op.content || undefined
+                                        content: contentToUse
                                     });
                                     console.log(`[TerminalManager] 파일 작업 추가: ${finalOpType} ${normalizedPath}`);
                                 }

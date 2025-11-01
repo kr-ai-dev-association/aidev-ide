@@ -2542,6 +2542,11 @@ export async function handleCommandError(
             _currentWebview.postMessage({
                 command: 'hideAutoCorrecting'
             });
+            // ProcessingSteps도 종료
+            _currentWebview.postMessage({
+                command: 'hideProcessingSteps',
+                step: 'error_correction'
+            });
         } else {
             console.log('[TerminalManager] _currentWebview가 설정되지 않음');
         }
@@ -2592,6 +2597,11 @@ export async function handleCommandError(
                 command: 'showErrorCorrectionSuccess',
                 message: `파일 수정 작업이 큐에 추가되었습니다 (${fileOperations.length}개 파일)`,
                 retryCount: _errorRetryCount
+            });
+            // 파일 작업만 처리 시에도 ProcessingSteps 종료
+            _currentWebview.postMessage({
+                command: 'hideProcessingSteps',
+                step: 'error_correction'
             });
         }
 
@@ -2719,6 +2729,11 @@ export async function handleCommandError(
             // 명시적으로 Auto Correcting 애니메이션 숨김
             _currentWebview.postMessage({
                 command: 'hideAutoCorrecting'
+            });
+            // ProcessingSteps 종료
+            _currentWebview.postMessage({
+                command: 'hideProcessingSteps',
+                step: 'error_correction'
             });
         } else {
             console.log('[TerminalManager] _currentWebview가 설정되지 않음');
