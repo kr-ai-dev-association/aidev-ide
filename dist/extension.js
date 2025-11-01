@@ -17131,6 +17131,15 @@ function extractBashCommandsFromLlmResponse(llmResponse) {
                     // 마크다운 체크박스 형식 제거
                     if (/^[-*]\s\[[ xX]\]/.test(trimmed))
                         return false;
+                    // 마크다운 테이블 행 제거: | a | b | 형태
+                    if (/^\|.+\|\s*$/.test(trimmed))
+                        return false;
+                    // 마크다운 테이블 헤더 구분선 제거: --- | --- 형태
+                    if (/^:?[-]{2,}\s*\|\s*:?[-]{2,}/.test(trimmed))
+                        return false;
+                    // 굵은 텍스트만 있는 마크다운 라인 제거: **text**
+                    if (/^\*\*[^*]+\*\*$/.test(trimmed))
+                        return false;
                     return true;
                 })
                     .join('\n')
@@ -25803,6 +25812,10 @@ ${osSpecificGuidelines}`;
             else if (errorOutput.includes('PluginExecutionException')) {
                 specificGuidance = 'Maven 플러그인 실행에 실패했습니다. 플러그인 설정을 확인하고 의존성을 정리한 후 재빌드하는 명령어를 제안해주세요.';
             }
+            const onWindows = process.platform === 'win32';
+            const andGuidance = onWindows
+                ? `PowerShell에서는 &&를 명령 연결자로 사용하지 마세요. 여러 명령을 연결해야 하면 cmd.exe /d /c "명령1 && 명령2" 형태로 cmd.exe 내부에서만 사용하세요.`
+                : `여러 명령이 필요하면 && 로 안전하게 연결하세요.`;
             const errorCorrectionPrompt = `다음 명령어가 터미널에서 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
@@ -25849,7 +25862,7 @@ ${specificGuidance}
   }
 }
 
-명령어는 &&로 연결하여 순차적으로 실행되도록 해주세요.`;
+${andGuidance}`;
             const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
             // JSON 응답 파싱
             const jsonMatch = response.match(/\{[\s\S]*\}/);
