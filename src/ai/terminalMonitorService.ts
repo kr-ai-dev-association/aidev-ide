@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { NotificationService } from '../services/notificationService';
 import { LlmService } from './llmService';
+import { debugLog } from '../utils/debugLogger';
 
 export interface LogEntry {
     timestamp: number;
@@ -162,6 +163,9 @@ export class TerminalMonitorService {
                 command: 'showErrorCorrectionStopped',
                 message: '자동 오류 수정이 중단되었습니다.'
             });
+            // processing steps 즉시 종료 알림
+            try { this.currentWebview.postMessage({ command: 'updateProcessingStatus', step: 'error_correction', status: 'stopped' }); } catch { }
+            try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
         }
     }
 
@@ -713,7 +717,7 @@ ${osSpecificGuidelines}`;
             // 터미널이 여전히 활성 상태인지 확인
             if (terminal.exitStatus !== undefined) {
                 const exitCode = terminal.exitStatus.code;
-                console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
+                if (this.outputLogEnabled) console.log(`[TerminalMonitorService] 터미널 종료됨: ${terminal.name} (exit code: ${exitCode})`);
 
                 // 종료 코드가 0이 아니면 에러로 간주
                 if (exitCode !== 0) {
@@ -736,7 +740,7 @@ ${osSpecificGuidelines}`;
     private processTerminalOutput(terminalName: string, data: string): void {
         if (!this.isMonitoring) return;
 
-        // console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
+        // if (this.outputLogEnabled) console.log(`[TerminalMonitorService] processTerminalOutput called: ${terminalName} - ${data}`);
 
         const isErrorLike = /(^error:|^fatal:|\berror\b|\bfail(ed)?\b|\bexception\b|npm ERR!|^npm\s+error\b|ERROR in|Traceback|panic:|Exit status [1-9]|^exit status [1-9-]|Process exited \(code\s*-?\d+\)|BUILD FAILED|Missing script:|Missing script\s*:\s*"\w+")/i.test(data);
         const level: 'info' | 'warn' | 'error' = isErrorLike ? 'error' : 'info';
@@ -755,47 +759,44 @@ ${osSpecificGuidelines}`;
 
             this.logEntries.push(logEntry);
             this.outputChannel.appendLine(`[${new Date().toISOString()}] ${terminalName} ${level.toUpperCase()}: ${data.trim()}`);
+            debugLog(`TerminalMonitor: ${terminalName} ${level.toUpperCase()} -> ${data.trim().substring(0, 2000)}`);
         }
         const hasErr = this.checkForErrors(data);
-        console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
+        if (this.outputLogEnabled) console.log(`[TerminalMonitorService] hasErr from checkForErrors: ${hasErr}`);
 
         if (isErrorLike || hasErr) {
-            console.log(`[TerminalMonitorService] Error detected, firing onError event`);
-            console.log(`[TerminalMonitorService] Error data: ${data}`);
-            console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Error detected, firing onError event`);
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Error data: ${data}`);
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] isErrorLike: ${isErrorLike}, hasErr: ${hasErr}`);
             // 에러가 감지되면 출력 채널 노출 (OUTPUT 로그가 활성화된 경우에만)
             if (this.outputLogEnabled) {
                 try { this.outputChannel.show(true); } catch { }
             }
             try {
                 const recent = this.getRecentErrors(30);
-                if (this.outputLogEnabled) {
-                    console.log(`[TerminalMonitorService] Recent errors:`, recent);
-                }
+                if (this.outputLogEnabled) console.log(`[TerminalMonitorService] Recent errors:`, recent);
+                debugLog(`TerminalMonitor: error detected, recent=${recent.length}`);
                 this.onErrorEmitter.fire({
                     time: Date.now(),
                     source: terminalName,
                     message: data.trim(),
                     recentLogs: recent
                 });
-                if (this.outputLogEnabled) {
-                    console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
-                }
+                if (this.outputLogEnabled) console.log(`[TerminalMonitorService] onErrorEmitter.fire() called successfully`);
 
                 // 자동 오류 수정 시도
                 if (this.autoCorrectionEnabled && this.llmService) {
-                    console.log('[TerminalMonitorService] Attempting auto correction...');
+                    if (this.outputLogEnabled) console.log('[TerminalMonitorService] Attempting auto correction...');
+                    debugLog('TerminalMonitor: attempting auto-correction');
                     this.attemptAutoCorrection(terminalName, data.trim(), recent);
                 } else {
-                    console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
+                    if (this.outputLogEnabled) console.log('[TerminalMonitorService] Auto correction disabled or LLM service not available');
                 }
             } catch (e) {
                 console.warn('[TerminalMonitorService] onError emit failed:', e);
             }
         } else {
-            if (this.outputLogEnabled) {
-                console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
-            }
+            if (this.outputLogEnabled) console.log(`[TerminalMonitorService] No error detected, not firing onError event`);
         }
     }
 
@@ -1268,6 +1269,11 @@ ${osSpecificGuidelines}`;
             if (!recentCommand) {
                 console.log('[TerminalMonitorService] 최근 명령어를 찾을 수 없음');
                 this.sendProcessingStatus('error_correction', '최근 명령어를 찾을 수 없어 자동 수정을 건너뜁니다.');
+                // 즉시 종료 상태 전달
+                this.sendProcessingStatus('error_correction', 'stopped');
+                if (this.currentWebview) {
+                    try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                }
                 return;
             }
 
@@ -1329,6 +1335,11 @@ ${osSpecificGuidelines}`;
             if (!correctedCommand) {
                 console.log('[TerminalMonitorService] LLM에서 수정된 명령어를 받지 못함');
                 this.sendProcessingStatus('error_correction', 'LLM에서 수정된 명령어를 받지 못했습니다.');
+                // 실패로 종료 전달
+                this.sendProcessingStatus('error_correction', 'failed');
+                if (this.currentWebview) {
+                    try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                }
                 return;
             }
 
@@ -1355,6 +1366,11 @@ ${osSpecificGuidelines}`;
             // 5단계: 결과 검증
             await this.showStepProgress(errorCorrectionSteps, 4);
             this.sendProcessingStatus('error_correction', '자동 오류 수정 완료');
+            // 완료 상태 및 UI 종료 전달
+            this.sendProcessingStatus('error_correction', 'completed');
+            if (this.currentWebview) {
+                try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+            }
 
             // 완료 메시지를 상태바에 표시
             vscode.window.setStatusBarMessage('✅ 오류 수정 완료!', 5000);
@@ -1362,6 +1378,10 @@ ${osSpecificGuidelines}`;
         } catch (error) {
             console.error('[TerminalMonitorService] 자동 오류 수정 실패:', error);
             this.sendProcessingStatus('error_correction', `자동 오류 수정 실패: ${error instanceof Error ? error.message : String(error)}`);
+            this.sendProcessingStatus('error_correction', 'failed');
+            if (this.currentWebview) {
+                try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+            }
 
             // 실패 메시지를 상태바에 표시
             vscode.window.setStatusBarMessage('❌ 오류 수정 실패', 3000);
@@ -1507,6 +1527,11 @@ ${osSpecificGuidelines}`;
                 specificGuidance = 'Maven 플러그인 실행에 실패했습니다. 플러그인 설정을 확인하고 의존성을 정리한 후 재빌드하는 명령어를 제안해주세요.';
             }
 
+            const onWindows = process.platform === 'win32';
+            const andGuidance = onWindows
+                ? `PowerShell에서는 &&를 명령 연결자로 사용하지 마세요. 여러 명령을 연결해야 하면 cmd.exe /d /c "명령1 && 명령2" 형태로 cmd.exe 내부에서만 사용하세요.`
+                : `여러 명령이 필요하면 && 로 안전하게 연결하세요.`;
+
             const errorCorrectionPrompt = `다음 명령어가 터미널에서 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
@@ -1553,15 +1578,34 @@ ${specificGuidance}
   }
 }
 
-명령어는 &&로 연결하여 순차적으로 실행되도록 해주세요.`;
+${andGuidance}`;
 
             const response = await this.llmService.sendMessageForErrorCorrection(errorCorrectionPrompt);
+            debugLog(`TerminalMonitor:getCorrectedCommand LLM response length=${response?.length || 0}`);
 
-            // JSON 응답 파싱
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
+            // JSON 응답 파싱 (코드펜스/트리플쿼트/잘못된 이스케이프 보정)
+            const fenceStripped = response
+                .replace(/```json[\s\S]*?\n([\s\S]*?)```/gi, '$1')
+                .replace(/```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)```/g, '$1')
+                .trim();
+            const candidates = fenceStripped.match(/\{[\s\S]*?\}/g) || [];
+            for (const raw of candidates) {
+                let s = raw;
+                try {
+                    // Python/Markdown 트리플쿼트 제거 및 잘못된 이스케이프 보정
+                    s = s.replace(/\\"\\"\\"/g, '"').replace(/"""/g, '"');
+                    s = s.replace(/\\(?![\\\/"bfnrtu])/g, '');
+                    const parsed = JSON.parse(s);
                 if (parsed.correctedCommand) {
+                    const summarizeCommand = (cmd: string): string => {
+                        if (!cmd) return '';
+                        if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
+                        if (/\bmvn\b/i.test(cmd)) return 'Maven build/run command';
+                        if (/cmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
+                        if (/powershell\b/i.test(cmd)) return 'PowerShell command';
+                        if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
+                        return cmd;
+                    };
                     // 새로운 패턴 발견 시 처리
                     if (parsed.newPattern && parsed.newPattern.isNew) {
                         console.log(`[TerminalMonitorService] 새로운 오류 패턴 발견: ${parsed.newPattern.pattern}`);
@@ -1578,13 +1622,17 @@ ${specificGuidance}
                         );
                     }
 
-                    console.log(`[TerminalMonitorService] LLM 수정 제안: ${parsed.correctedCommand}`);
+                    const display = summarizeCommand(parsed.correctedCommand as string);
+                    console.log(`[TerminalMonitorService] LLM 수정 제안(요약): ${display}`);
+                    debugLog(`TerminalMonitor: suggestion -> ${display}`);
                     console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
                     return parsed.correctedCommand;
                 }
+                } catch { /* 다음 후보 시도 */ }
             }
         } catch (error) {
             console.error('[TerminalMonitorService] LLM 오류 수정 요청 실패:', error);
+            debugLog(`TerminalMonitor: error-correction request failed: ${String(error)}`);
         }
 
         return null;
@@ -1595,8 +1643,17 @@ ${specificGuidance}
      */
     private async executeCorrectedCommand(terminalName: string, correctedCommand: string): Promise<void> {
         try {
+            // 터미널 이름 정규화 (ingestExternalOutput 소스 포맷 대응: "terminal:{name}:{stream}")
+            const extractName = (name: string): string => {
+                const m = name.match(/^terminal:(.*?):(stdout|stderr)$/i);
+                return m ? m[1] : name;
+            };
+            const targetName = extractName(terminalName);
             // 터미널 찾기
-            const terminal = vscode.window.terminals.find(t => t.name === terminalName);
+            let terminal = vscode.window.terminals.find(t => t.name === targetName);
+            if (!terminal) {
+                terminal = vscode.window.activeTerminal || vscode.window.terminals[0];
+            }
             if (!terminal) {
                 console.log(`[TerminalMonitorService] 터미널을 찾을 수 없음: ${terminalName}`);
                 return;
@@ -1604,6 +1661,7 @@ ${specificGuidance}
 
             // 수정된 명령어 실행
             terminal.sendText(correctedCommand);
+            debugLog(`TerminalMonitor: execute corrected -> ${correctedCommand}`);
 
             // 사용자에게 알림
             this.notificationService.showInfoMessage(

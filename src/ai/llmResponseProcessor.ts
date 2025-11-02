@@ -245,7 +245,12 @@ export class LlmResponseProcessor {
             } else if (originalDirective === '새 파일') {
                 operationType = 'create';
                 if (projectRoot) {
-                    absolutePath = path.join(projectRoot, llmSpecifiedPath);
+                    // 절대 경로 여부를 먼저 판단하여 중복 결합(C:\... -> projectRoot\C:\...)을 방지
+                    const rawPath = llmSpecifiedPath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '');
+                    const isAbsoluteWin = path.isAbsolute(rawPath) || /^[A-Za-z]:[\\\/]/.test(rawPath);
+                    absolutePath = isAbsoluteWin
+                        ? path.normalize(rawPath)
+                        : path.normalize(path.join(projectRoot, rawPath));
                     // console.log(`[LLM Response Processor] Resolved 'create' absolute path: "${absolutePath}" from project root "${projectRoot}"`);
                 } else {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 파일 생성을 건너뜀.`;
@@ -325,7 +330,11 @@ export class LlmResponseProcessor {
             } else if (originalDirective === '새 파일') {
                 operationType = 'create';
                 if (projectRoot) {
-                    absolutePath = path.join(projectRoot, llmSpecifiedPath);
+                    const rawPath = llmSpecifiedPath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '');
+                    const isAbsoluteWin = path.isAbsolute(rawPath) || /^[A-Za-z]:[\\\/]/.test(rawPath);
+                    absolutePath = isAbsoluteWin
+                        ? path.normalize(rawPath)
+                        : path.normalize(path.join(projectRoot, rawPath));
                 } else {
                     const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                     this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
@@ -387,7 +396,11 @@ export class LlmResponseProcessor {
                 } else if (originalDirective === '새 파일') {
                     operationType = 'create';
                     if (projectRoot) {
-                        absolutePath = path.join(projectRoot, llmSpecifiedPath);
+                        const rawPath = llmSpecifiedPath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '');
+                        const isAbsoluteWin = path.isAbsolute(rawPath) || /^[A-Za-z]:[\\\/]/.test(rawPath);
+                        absolutePath = isAbsoluteWin
+                            ? path.normalize(rawPath)
+                            : path.normalize(path.join(projectRoot, rawPath));
                     } else {
                         const warnMsg = `경고: '새 파일' 지시어 '${llmSpecifiedPath}'가 감지되었으나, 프로젝트 루트 경로를 찾을 수 없어 마크다운 파일 생성을 건너뜀.`;
                         this.notificationService.showWarningMessage(`aidev-ide: ${warnMsg}`);
@@ -954,7 +967,25 @@ export class LlmResponseProcessor {
 
             // autoUpdateEnabled=true이고 자동 실행이 활성화된 경우 bash 명령어 즉시 실행
             const autoExecuteEnabled = await this.configurationService.isAutoExecuteCommandsEnabled();
+            // 매니페스트(프로젝트 스캐폴딩) 존재 여부 확인
+            let needScaffold = false;
+            try {
+                if (projectRoot) {
+                    const hasPom = fs.existsSync(path.join(projectRoot, 'pom.xml'));
+                    const hasGradle = fs.existsSync(path.join(projectRoot, 'build.gradle')) || fs.existsSync(path.join(projectRoot, 'build.gradle.kts'));
+                    const hasPkg = fs.existsSync(path.join(projectRoot, 'package.json'));
+                    needScaffold = !(hasPom || hasGradle || hasPkg);
+                }
+            } catch {}
+
             if (autoUpdateEnabled && autoExecuteEnabled && hasBashCommands(llmResponse)) {
+                if (needScaffold && fileOperations.length === 0) {
+                    const warn = '프로젝트에 pom.xml/build.gradle/package.json 이 없어 명령 자동 실행을 중단했습니다.\nLLM 응답에 "새 파일: pom.xml" 등 파일 작업 지시어를 포함해 스캐폴딩을 먼저 생성하세요.';
+                    this.notificationService.showWarningMessage(`aidev-ide: ${warn}`);
+                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: `⚠️ ${warn}` });
+                    // ProcessingSteps 종료
+                    safePostMessage(webview, { command: 'hideProcessingSteps' });
+                } else {
                 statusCallback?.('Executing bash commands immediately...');
                 safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
 
@@ -970,29 +1001,45 @@ export class LlmResponseProcessor {
                     if (executedCommands.length > 0) {
                         console.log(`[LLM Response Processor] ${executedCommands.length}개 명령어를 큐에 적재했습니다:`, executedCommands);
                         statusCallback?.(`Found ${executedCommands.length} bash commands`);
-                        const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                        const summarize = (cmd: string): string => {
+                            if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
+                            if (/\bcmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
+                            if (/\bpowershell(\.exe)?\b/i.test(cmd)) return 'PowerShell command';
+                            if (/\bmvn\b/i.test(cmd)) return 'Maven command';
+                            if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
+                            return cmd;
+                        };
+                        const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                         safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
 
                         // 명령어 실행 완료 후 Run 버튼 실행 상태 숨기기
                         setTimeout(() => {
                             safePostMessage(webview, { command: 'hideRunExecution' });
                             safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                            // ProcessingSteps도 종료 (보호성)
+                            safePostMessage(webview, { command: 'hideProcessingSteps' });
                         }, 2000); // 2초 후 숨김
                     } else {
                         console.log('[LLM Response Processor] 실행할 bash 명령어가 없습니다');
                         // 명령어가 없는 경우 즉시 숨김
                         safePostMessage(webview, { command: 'hideRunExecution' });
                         safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                        safePostMessage(webview, { command: 'hideProcessingSteps' });
                     }
                 } catch (error: any) {
                     console.error('[LLM Response Processor] Bash command execution error:', error);
                     const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
                     safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                    // 오류 시에도 종료
+                    safePostMessage(webview, { command: 'hideProcessingSteps' });
+                }
                 }
             } else if (autoUpdateEnabled && !autoExecuteEnabled && hasBashCommands(llmResponse)) {
                 // 자동 실행이 비활성화된 경우 사용자에게 알림
                 const infoMessage = `\n\nℹ️ 명령어 자동 실행이 비활성화되어 있습니다. 설정에서 "명령어 자동 실행"을 활성화하거나 수동으로 실행해주세요.`;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
+                // ProcessingSteps 종료
+                safePostMessage(webview, { command: 'hideProcessingSteps' });
             }
 
             // 파일 작업 결과를 추가로 채팅창에 표시
@@ -1052,8 +1099,9 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
 
-            // 파일 작업 완료 후 hideLoading 호출
+            // 파일/명령 처리 완료 후 로딩 및 ProcessingSteps 종료
             safePostMessage(webview, { command: 'hideLoading' });
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
         } else if (llmResponse.includes("Copy") && !llmResponse.includes("수정 파일:") && !llmResponse.includes("새 파일:") && !llmResponse.includes("삭제 파일:")) {
             const infoMessage = "\n\n[정보] 코드 블록이 응답에 포함되어 있으나, '수정 파일:', '새 파일:', 또는 '삭제 파일:' 지시어가 없어 자동 업데이트가 시도되지 않았습니다. 필요시 수동으로 복사하여 사용해주세요.";
             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: infoMessage });
@@ -1067,7 +1115,15 @@ export class LlmResponseProcessor {
                         const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
                         if (executedCommands.length > 0) {
                             statusCallback?.(`Found ${executedCommands.length} bash commands`);
-                            const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
+                            const summarize = (cmd: string): string => {
+                                if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
+                                if (/\bcmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
+                                if (/\bpowershell(\.exe)?\b/i.test(cmd)) return 'PowerShell command';
+                                if (/\bmvn\b/i.test(cmd)) return 'Maven command';
+                                if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
+                                return cmd;
+                            };
+                            const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                         }
                     } catch (error: any) {
@@ -1091,9 +1147,12 @@ export class LlmResponseProcessor {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
+            // ProcessingSteps 종료
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
         } else {
             // 파일 작업이 없는 경우 thinking 애니메이션 제거
             safePostMessage(webview, { command: 'hideLoading' });
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
 
             // Bash 명령어 실행 처리
             if (hasBashCommands(llmResponse)) {
@@ -1103,7 +1162,16 @@ export class LlmResponseProcessor {
                         const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
                         if (executedCommands.length > 0) {
                             const bashMessage = `\n\n🚀 Bash 명령어 실행됨:\n${executedCommands.map(cmd => `• ${cmd}`).join('\n')}`;
-                            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                            const summarize = (cmd: string): string => {
+                                if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
+                                if (/\bcmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
+                                if (/\bpowershell(\.exe)?\b/i.test(cmd)) return 'PowerShell command';
+                                if (/\bmvn\b/i.test(cmd)) return 'Maven command';
+                                if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
+                                return cmd;
+                            };
+                            const summaryMsg = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
+                            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMsg });
                         }
                     } catch (error: any) {
                         console.error('[LLM Response Processor] Bash command execution error:', error);
@@ -1126,6 +1194,8 @@ export class LlmResponseProcessor {
                 const descriptionMessage = "\n\n💡 작업 수행 설명\n" + workDescription;
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
+            // ProcessingSteps 종료
+            safePostMessage(webview, { command: 'hideProcessingSteps' });
         }
 
         // 임시 파일 정리

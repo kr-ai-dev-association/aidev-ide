@@ -19,6 +19,7 @@ import { OllamaBlockerService } from './services/ollamaBlockerService';
 import { TerminalDaemonService } from './services/terminalDaemonService';
 import { TerminalMonitorService } from './ai/terminalMonitorService';
 import { GitRepositoryService } from './services/gitRepositoryService';
+import { DebugLogger } from './utils/debugLogger';
 
 // 전역 변수
 let storageService: StorageService;
@@ -233,6 +234,29 @@ export async function activate(context: vscode.ExtensionContext) {
     terminalMonitorService.setOutputLogEnabled(outputLogEnabled);
     // console.log(`[Extension] OUTPUT 로그 설정: ${outputLogEnabled ? '활성화' : '비활성화'}`);
 
+    // 디버그 로그: VS Code Run/Debug 이벤트에만 연동 (설정 플래그 사용 중단)
+    const projectRootForDebug = await configurationService.getProjectRoot();
+    DebugLogger.setContext(false, projectRootForDebug);
+
+    // VS Code Run and Debug 연동: 디버그 세션 시작 시 자동으로 로그 파일 생성(덮어쓰기) 및 기록 시작
+    context.subscriptions.push(vscode.debug.onDidStartDebugSession(async (session) => {
+        try {
+            const root = await configurationService.getProjectRoot();
+            DebugLogger.setContext(true, root);
+            DebugLogger.startIfEnabled();
+            DebugLogger.log(`VS Code debug session started: ${session.name}`);
+        } catch { /* ignore */ }
+    }));
+
+    // 디버그 세션 종료 시: 자동 기록 중단
+    context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(async (session) => {
+        try {
+            const root = await configurationService.getProjectRoot();
+            DebugLogger.log(`VS Code debug session ended: ${session.name}`);
+            DebugLogger.setContext(false, root);
+        } catch { /* ignore */ }
+    }));
+
     // 자동 오류 수정 설정 로드 및 적용
     const autoCorrectionEnabled = await configurationService.isAutoCorrectionEnabled();
     console.log(`[Extension] isAutoCorrectionEnabled() -> ${autoCorrectionEnabled}`);
@@ -350,6 +374,7 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log(`[Extension] onDidChangeConfiguration: autoCorrectionEnabled -> ${enabled}`);
             terminalMonitorService.setAutoCorrectionEnabled(enabled);
         }
+        // debugEnabled 설정은 더 이상 사용하지 않음 (Run/Debug 이벤트로만 제어)
     }));
 
     // ollama-blocker 관리 명령어들

@@ -75,7 +75,7 @@ export function openSettingsPanel(
                         const modelToUse = currentAiModel || aiModel || 'gemini';
                         const planningModelValue = await storageService.getPlanningModel();
                         const language = await storageService.getLanguage();
-                        const autoUpdateEnabled = await storageService.getAutoUpdateEnabled();
+                        const autoUpdateEnabled = await configurationService.isAutoUpdateEnabled();
                         const autoExecuteCommandsEnabled = await configurationService.isAutoExecuteCommandsEnabled();
 
                         // duplicate removed
@@ -479,7 +479,10 @@ export function openSettingsPanel(
                     const autoUpdateEnabledToSave = data.autoUpdateEnabled;
                     if (typeof autoUpdateEnabledToSave === 'boolean') {
                         try {
-                            await storageService.saveAutoUpdateEnabled(autoUpdateEnabledToSave);
+                            // 설정 저장을 ConfigurationService로 일원화
+                            await configurationService.updateAutoUpdateEnabled(autoUpdateEnabledToSave);
+                            // 과거 저장값과의 호환(필요 시 유지)
+                            try { await storageService.saveAutoUpdateEnabled(autoUpdateEnabledToSave); } catch {}
                             safePostMessage(panel, { command: 'autoUpdateEnabledSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Auto Update setting saved.');
                         } catch (error: any) {
