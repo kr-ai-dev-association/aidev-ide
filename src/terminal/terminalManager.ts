@@ -1142,7 +1142,7 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 
         // 항상 워크스페이스 루트를 가져옵니다.
         const projectRoot = await getEffectiveCwd();
-        
+
         const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
 
 실행된 명령어: ${failedCommand}
