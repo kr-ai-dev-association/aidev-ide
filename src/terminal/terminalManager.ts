@@ -1744,7 +1744,17 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
 11. 경로는 항상 슬래시(/)를 사용하고, 공백이 있는 경로는 따옴표로 감싸세요
 12. 실행 권한이 없는 스크립트의 경우 chmod +x를 사용하여 실행 권한을 부여하세요
 13. 환경 변수는 export로 설정하고, 스크립트 내에서 $변수명 형식으로 참조하세요
-14. 파이프(|)와 리다이렉션(>, >>) 사용 시 명령어 사이를 올바르게 구분하세요`;
+14. 파이프(|)와 리다이렉션(>, >>) 사용 시 명령어 사이를 올바르게 구분하세요
+15. **중요: 쉘 스크립트 생성 조건 및 오류 수정:**
+    - 쉘 스크립트는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
+    - 프로젝트 빌드/실행과 무관한 작업에는 절대 쉘 스크립트를 생성하지 마세요.
+    - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 필요한 경우:
+      * 반드시 해당 언어명 callout을 사용하세요 (예: \`\`\`python, \`\`\`javascript)
+      * "새 파일: [파일경로]" 형식으로 파일 생성 가이드를 따르세요
+    - 함수 정의(\`func() { ... }\`), 여러 줄 변수 설정, if/for/while 루프가 포함된 스크립트에서 "syntax error: unexpected end of file", "unexpected EOF while looking for matching" 같은 오류가 발생하면, 스크립트를 파일로 생성하도록 수정하세요
+    - 절대 각 줄을 개별 명령어로 다시 실행하려고 시도하지 마세요
+    - 수정 방법: "correctedCommand"를 null로 설정하고, "fileOperations"에 .sh 파일 생성 작업을 포함하세요
+    - 예시: \`usage() { echo "..." }\` 같은 함수 정의가 있는 명령어는 파일로 생성해야 합니다`;
 
         const osSpecificGuidelines = isWindows ? windowsGuidelines : unixGuidelines;
 
@@ -1888,6 +1898,13 @@ ${!hasCompilationError ? `
 - 경로는 슬래시(/) 또는 백슬래시(\\)로 구분된 일반 문자열로만 작성하세요
 - 예: "src/main/java/Example.java" (올바름)
 - 예: "\`src/main/java/Example.java\`" (잘못됨 - 백틱 제거)
+
+**중요: JSON 형식 응답 시 문자열 이스케이프 규칙:**
+- correctedCommand 필드에 작은따옴표(')가 포함된 명령어를 작성할 때는 반드시 이스케이프(\\')하거나, 큰따옴표(")를 사용하세요
+- 예시: \`/bin/bash -c 'usage() { echo "test"; }'\` → JSON에서: \`"/bin/bash -c 'usage() { echo \\"test\\"; }'"\`
+- 큰따옴표(")는 반드시 백슬래시로 이스케이프(\\")하세요
+- 백슬래시(\\)는 이중으로 이스케이프(\\\\)하세요
+- 줄바꿈 문자는 \\n으로 표현하세요
 
 수정된 명령어와 파일 작업을 JSON 형식으로 응답해주세요:
 {

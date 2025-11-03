@@ -187,6 +187,13 @@ export class TerminalMonitorService {
 9. 터미널 명령어가 필요한 경우 적절한 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
 10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
 11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
+12. **쉘 스크립트 생성 규칙 (매우 중요):**
+    - 쉘 스크립트(.sh, .bash, .zsh 등)는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
+    - 프로젝트 빌드/실행과 무관한 일반적인 작업(예: 파일 정리, 문서화, 설정 변경 등)에는 쉘 스크립트를 생성하지 마세요.
+    - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 포함되어야 하는 경우:
+      * 반드시 해당 프로그래밍 언어명을 명시한 callout 형식으로 제공하세요 (예: \`\`\`python, \`\`\`javascript 등)
+      * "새 파일: [파일경로]" 형식으로 스크립트 파일을 생성하세요
+      * 파일 생성/수정 가이드를 준수하세요 (코드 블록 형식 사용)
 
 현재 사용자 환경: ${this.userOS.toUpperCase()}`;
 
@@ -220,7 +227,15 @@ ${osSpecificGuidelines}`;
 - 포트 해제: lsof -ti:포트번호 | xargs kill -9
 - 프로세스 종료: pkill -f "프로세스명"
 - Homebrew 패키지 관리자 사용을 권장하세요.
-- 권한 문제 시 sudo 명령어 사용을 안내하세요.`;
+- 권한 문제 시 sudo 명령어 사용을 안내하세요.
+- **중요: 쉘 스크립트 생성 조건 및 규칙:**
+  - 쉘 스크립트는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
+  - 프로젝트 빌드/실행과 무관한 작업에는 절대 쉘 스크립트를 생성하지 마세요.
+  - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 필요한 경우:
+    * 반드시 해당 언어명 callout을 사용하세요 (예: \`\`\`python, \`\`\`javascript)
+    * "새 파일: [파일경로]" 형식으로 파일 생성 가이드를 따르세요
+  - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
+  - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`;
 
             case 'linux':
                 return `**Linux 환경 특화 가이드라인:**
@@ -230,7 +245,15 @@ ${osSpecificGuidelines}`;
 - 포트 해제: lsof -ti:포트번호 | xargs kill -9 또는 fuser -k 포트번호/tcp
 - 프로세스 종료: pkill -f "프로세스명" 또는 killall 프로세스명
 - 패키지 관리자: apt (Ubuntu/Debian), yum/dnf (RHEL/CentOS), pacman (Arch)
-- 권한 문제 시 sudo 명령어 사용을 안내하세요.`;
+- 권한 문제 시 sudo 명령어 사용을 안내하세요.
+- **중요: 쉘 스크립트 생성 조건 및 규칙:**
+  - 쉘 스크립트는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
+  - 프로젝트 빌드/실행과 무관한 작업에는 절대 쉘 스크립트를 생성하지 마세요.
+  - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 필요한 경우:
+    * 반드시 해당 언어명 callout을 사용하세요 (예: \`\`\`python, \`\`\`javascript)
+    * "새 파일: [파일경로]" 형식으로 파일 생성 가이드를 따르세요
+  - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
+  - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`;
 
             default:
                 return `**일반 환경 가이드라인:**
@@ -1566,6 +1589,13 @@ ${specificGuidance}
 - 향후 유사한 오류를 자동으로 감지할 수 있는 키워드
 - 이 패턴에 대한 일반적인 해결 방법
 
+**중요: JSON 형식 응답 시 문자열 이스케이프 규칙:**
+- correctedCommand 필드에 작은따옴표(')가 포함된 명령어를 작성할 때는 반드시 이스케이프(\\')하거나, 큰따옴표(")를 사용하세요
+- 예시: \`/bin/bash -c 'usage() { echo "test"; }'\` → JSON에서: \`"/bin/bash -c 'usage() { echo \\"test\\"; }'"\`
+- 큰따옴표(")는 반드시 백슬래시로 이스케이프(\\")하세요
+- 백슬래시(\\)는 이중으로 이스케이프(\\\\)하세요
+- 줄바꿈 문자는 \\n으로 표현하세요
+
 수정된 명령어를 JSON 형식으로 응답해주세요:
 {
   "correctedCommand": "수정된 명령어",
@@ -1596,38 +1626,38 @@ ${andGuidance}`;
                     s = s.replace(/\\"\\"\\"/g, '"').replace(/"""/g, '"');
                     s = s.replace(/\\(?![\\\/"bfnrtu])/g, '');
                     const parsed = JSON.parse(s);
-                if (parsed.correctedCommand) {
-                    const summarizeCommand = (cmd: string): string => {
-                        if (!cmd) return '';
-                        if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
-                        if (/\bmvn\b/i.test(cmd)) return 'Maven build/run command';
-                        if (/cmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
-                        if (/powershell\b/i.test(cmd)) return 'PowerShell command';
-                        if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
-                        return cmd;
-                    };
-                    // 새로운 패턴 발견 시 처리
-                    if (parsed.newPattern && parsed.newPattern.isNew) {
-                        console.log(`[TerminalMonitorService] 새로운 오류 패턴 발견: ${parsed.newPattern.pattern}`);
-                        await this.addErrorPattern(
-                            parsed.newPattern.pattern,
-                            'high',
-                            parsed.newPattern.description
-                        );
+                    if (parsed.correctedCommand) {
+                        const summarizeCommand = (cmd: string): string => {
+                            if (!cmd) return '';
+                            if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
+                            if (/\bmvn\b/i.test(cmd)) return 'Maven build/run command';
+                            if (/cmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
+                            if (/powershell\b/i.test(cmd)) return 'PowerShell command';
+                            if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
+                            return cmd;
+                        };
+                        // 새로운 패턴 발견 시 처리
+                        if (parsed.newPattern && parsed.newPattern.isNew) {
+                            console.log(`[TerminalMonitorService] 새로운 오류 패턴 발견: ${parsed.newPattern.pattern}`);
+                            await this.addErrorPattern(
+                                parsed.newPattern.pattern,
+                                'high',
+                                parsed.newPattern.description
+                            );
 
-                        // 사용자에게 새로운 패턴 학습 알림
-                        vscode.window.showInformationMessage(
-                            `🆕 새로운 오류 패턴을 발견했습니다: ${parsed.newPattern.pattern}`,
-                            '패턴 저장됨'
-                        );
+                            // 사용자에게 새로운 패턴 학습 알림
+                            vscode.window.showInformationMessage(
+                                `🆕 새로운 오류 패턴을 발견했습니다: ${parsed.newPattern.pattern}`,
+                                '패턴 저장됨'
+                            );
+                        }
+
+                        const display = summarizeCommand(parsed.correctedCommand as string);
+                        console.log(`[TerminalMonitorService] LLM 수정 제안(요약): ${display}`);
+                        debugLog(`TerminalMonitor: suggestion -> ${display}`);
+                        console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
+                        return parsed.correctedCommand;
                     }
-
-                    const display = summarizeCommand(parsed.correctedCommand as string);
-                    console.log(`[TerminalMonitorService] LLM 수정 제안(요약): ${display}`);
-                    debugLog(`TerminalMonitor: suggestion -> ${display}`);
-                    console.log(`[TerminalMonitorService] 수정 이유: ${parsed.reasoning}`);
-                    return parsed.correctedCommand;
-                }
                 } catch { /* 다음 후보 시도 */ }
             }
         } catch (error) {
