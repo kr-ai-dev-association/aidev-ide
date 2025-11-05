@@ -237,6 +237,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         webviewView.webview.postMessage({ command: 'displayUserMessage', text: data.text, imageData: data.imageData });
                     }
                     break;
+                case 'projectTypeSelected': // 사용자가 프로젝트 타입을 선택한 경우
+                    console.log('[ChatViewProvider] 프로젝트 타입 선택됨:', data.projectType);
+                    try {
+                        // 선택된 프로젝트 타입을 저장하고 현재 요청을 다시 처리
+                        // 이는 임시로 전역 변수나 storage에 저장하고 재요청하는 방식으로 구현 가능
+                        // 현재는 단순히 로그만 남기고, 향후 확장 가능하도록 구조화
+                        this.notificationService.showInfoMessage(`프로젝트 타입이 선택되었습니다: ${data.projectType}`);
+                        // TODO: 선택된 프로젝트 타입을 사용하여 요청 재처리
+                    } catch (error) {
+                        console.error('[ChatViewProvider] 프로젝트 타입 선택 처리 실패:', error);
+                    }
+                    break;
                 case 'getLanguage':
                     try {
                         const language = await this.configurationService.getLanguage();

@@ -976,7 +976,7 @@ export class LlmResponseProcessor {
                     const hasPkg = fs.existsSync(path.join(projectRoot, 'package.json'));
                     needScaffold = !(hasPom || hasGradle || hasPkg);
                 }
-            } catch {}
+            } catch { }
 
             if (autoUpdateEnabled && autoExecuteEnabled && hasBashCommands(llmResponse)) {
                 if (needScaffold && fileOperations.length === 0) {
@@ -986,53 +986,142 @@ export class LlmResponseProcessor {
                     // ProcessingSteps 종료
                     safePostMessage(webview, { command: 'hideProcessingSteps' });
                 } else {
-                statusCallback?.('Executing bash commands immediately...');
-                safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
+                    statusCallback?.('Executing bash commands immediately...');
+                    safePostMessage(webview, { command: 'updateProcessingStatus', step: 'file_processing', status: 'Executing bash commands immediately...' });
 
-                // Run 버튼 실행 상태 표시 (자동 실행 시)
-                safePostMessage(webview, { command: 'showRunExecution', status: 'Executing commands...' });
+                    // Run 버튼 실행 상태 표시 (자동 실행 시)
+                    safePostMessage(webview, { command: 'showRunExecution', status: 'Executing commands...' });
 
-                // 개별 callout 박스에 executing 상태 표시
-                safePostMessage(webview, { command: 'showCalloutExecuting', status: 'Executing commands...' });
+                    // 개별 callout 박스에 executing 상태 표시
+                    safePostMessage(webview, { command: 'showCalloutExecuting', status: 'Executing commands...' });
 
-                try {
-                    console.log('[LLM Response Processor] Bash 명령어 자동 실행 시작');
-                    const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
-                    if (executedCommands.length > 0) {
-                        console.log(`[LLM Response Processor] ${executedCommands.length}개 명령어를 큐에 적재했습니다:`, executedCommands);
-                        statusCallback?.(`Found ${executedCommands.length} bash commands`);
-                        const summarize = (cmd: string): string => {
-                            if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
-                            if (/\bcmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
-                            if (/\bpowershell(\.exe)?\b/i.test(cmd)) return 'PowerShell command';
-                            if (/\bmvn\b/i.test(cmd)) return 'Maven command';
-                            if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
-                            return cmd;
-                        };
-                        const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
-                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                    try {
+                        console.log('[LLM Response Processor] Bash 명령어 자동 실행 시작');
+                        const executedCommands = executeBashCommandsFromLlmResponse(llmResponse, projectRoot);
+                        if (executedCommands.length > 0) {
+                            console.log(`[LLM Response Processor] ${executedCommands.length}개 명령어를 큐에 적재했습니다:`, executedCommands);
+                            statusCallback?.(`Found ${executedCommands.length} bash commands`);
+                            const summarize = (cmd: string): string => {
+                                if (/\b-EncodedCommand\b/i.test(cmd)) return '[PowerShell EncodedCommand]';
+                                if (/\bcmd\.exe\b/i.test(cmd)) return 'cmd.exe command';
+                                if (/\bpowershell(\.exe)?\b/i.test(cmd)) return 'PowerShell command';
+                                if (/\bmvn\b/i.test(cmd)) return 'Maven command';
+                                if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
+                                return cmd;
+                            };
 
-                        // 명령어 실행 완료 후 Run 버튼 실행 상태 숨기기
-                        setTimeout(() => {
+                            const describeCommand = (cmd: string): string => {
+                                const lowerCmd = cmd.toLowerCase().trim();
+
+                                // 빌드 관련
+                                if (/\bmvn\s+(clean\s+)?(compile|package|install|test|build)/i.test(cmd)) {
+                                    if (/package/i.test(cmd)) return '프로젝트를 패키징하여 실행 가능한 JAR 파일 생성';
+                                    if (/compile/i.test(cmd)) return '프로젝트 소스 코드 컴파일';
+                                    if (/install/i.test(cmd)) return '프로젝트 빌드 및 로컬 저장소에 설치';
+                                    if (/test/i.test(cmd)) return '프로젝트 테스트 실행';
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    return 'Maven 빌드 작업 수행';
+                                }
+                                if (/\bgradle\s+(build|clean|test|run)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/clean/i.test(cmd)) return '빌드 결과물 정리';
+                                    if (/test/i.test(cmd)) return '프로젝트 테스트 실행';
+                                    if (/run/i.test(cmd)) return '프로젝트 실행';
+                                    return 'Gradle 빌드 작업 수행';
+                                }
+                                if (/\bnpm\s+(run\s+)?(build|start|dev|test)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/start/i.test(cmd)) return '프로젝트 시작';
+                                    if (/dev/i.test(cmd)) return '개발 서버 실행';
+                                    if (/test/i.test(cmd)) return '테스트 실행';
+                                    return 'npm 스크립트 실행';
+                                }
+                                if (/\byarn\s+(build|start|dev|test)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/start/i.test(cmd)) return '프로젝트 시작';
+                                    if (/dev/i.test(cmd)) return '개발 서버 실행';
+                                    if (/test/i.test(cmd)) return '테스트 실행';
+                                    return 'yarn 스크립트 실행';
+                                }
+
+                                // 설치 관련
+                                if (/\bnpm\s+install/i.test(cmd)) return 'npm 패키지 의존성 설치';
+                                if (/\byarn\s+install/i.test(cmd)) return 'yarn 패키지 의존성 설치';
+                                if (/\bpip\s+install/i.test(cmd)) return 'Python 패키지 설치';
+                                if (/\bbrew\s+install/i.test(cmd)) return 'Homebrew 패키지 설치';
+
+                                // 실행 관련
+                                if (/\bjava\s+-jar/i.test(cmd)) return 'Java 애플리케이션 실행';
+                                if (/\bnode\s+/i.test(cmd) && !/install/i.test(cmd)) return 'Node.js 스크립트 실행';
+                                if (/\bpython\s+/i.test(cmd) && !/install/i.test(cmd)) return 'Python 스크립트 실행';
+                                if (/\bgo\s+run/i.test(cmd)) return 'Go 프로그램 실행';
+                                if (/\bcargo\s+run/i.test(cmd)) return 'Rust 프로그램 실행';
+
+                                // 파일 작업
+                                if (/^\s*(cat|head|tail|grep|sed|awk)\s+/.test(cmd)) return '파일 내용 확인 또는 검색';
+                                if (/^\s*(mkdir|rmdir|rm|mv|cp|chmod)\s+/.test(cmd)) return '파일 시스템 작업 수행';
+
+                                // 포트/프로세스 관련
+                                if (/\blsof\s+-ti:/i.test(cmd)) return '포트 사용 중인 프로세스 확인';
+                                if (/\bkill\s+/i.test(cmd)) return '프로세스 종료';
+                                if (/\bpkill\s+/i.test(cmd)) return '프로세스 종료';
+
+                                // Git 관련
+                                if (/^\s*git\s+/.test(cmd)) {
+                                    if (/clone/i.test(cmd)) return 'Git 저장소 복제';
+                                    if (/pull/i.test(cmd)) return 'Git 원격 변경사항 가져오기';
+                                    if (/push/i.test(cmd)) return 'Git 원격 저장소에 푸시';
+                                    if (/commit/i.test(cmd)) return 'Git 커밋 생성';
+                                    return 'Git 작업 수행';
+                                }
+
+                                // Docker 관련
+                                if (/\bdocker\s+/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return 'Docker 이미지 빌드';
+                                    if (/run/i.test(cmd)) return 'Docker 컨테이너 실행';
+                                    if (/stop/i.test(cmd)) return 'Docker 컨테이너 중지';
+                                    return 'Docker 작업 수행';
+                                }
+
+                                // 일반적인 패턴
+                                if (/\.sh\s*$/.test(cmd)) return '쉘 스크립트 실행';
+                                if (/\.py\s*$/.test(cmd)) return 'Python 스크립트 실행';
+                                if (/\.js\s*$/.test(cmd)) return 'JavaScript 스크립트 실행';
+
+                                // 기본 설명
+                                return '명령어 실행';
+                            };
+
+                            const commandDescriptions = executedCommands.map(cmd => {
+                                const summary = summarize(cmd);
+                                const description = describeCommand(cmd);
+                                return `• ${summary} - ${description}`;
+                            }).join('\n');
+
+                            const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
+                            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+
+                            // 명령어 실행 완료 후 Run 버튼 실행 상태 숨기기
+                            setTimeout(() => {
+                                safePostMessage(webview, { command: 'hideRunExecution' });
+                                safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                                // ProcessingSteps도 종료 (보호성)
+                                safePostMessage(webview, { command: 'hideProcessingSteps' });
+                            }, 2000); // 2초 후 숨김
+                        } else {
+                            console.log('[LLM Response Processor] 실행할 bash 명령어가 없습니다');
+                            // 명령어가 없는 경우 즉시 숨김
                             safePostMessage(webview, { command: 'hideRunExecution' });
                             safePostMessage(webview, { command: 'hideCalloutExecuting' });
-                            // ProcessingSteps도 종료 (보호성)
                             safePostMessage(webview, { command: 'hideProcessingSteps' });
-                        }, 2000); // 2초 후 숨김
-                    } else {
-                        console.log('[LLM Response Processor] 실행할 bash 명령어가 없습니다');
-                        // 명령어가 없는 경우 즉시 숨김
-                        safePostMessage(webview, { command: 'hideRunExecution' });
-                        safePostMessage(webview, { command: 'hideCalloutExecuting' });
+                        }
+                    } catch (error: any) {
+                        console.error('[LLM Response Processor] Bash command execution error:', error);
+                        const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
+                        safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
+                        // 오류 시에도 종료
                         safePostMessage(webview, { command: 'hideProcessingSteps' });
                     }
-                } catch (error: any) {
-                    console.error('[LLM Response Processor] Bash command execution error:', error);
-                    const errorMessage = `\n\n❌ Bash 명령어 실행 중 오류 발생: ${error.message}`;
-                    safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: errorMessage });
-                    // 오류 시에도 종료
-                    safePostMessage(webview, { command: 'hideProcessingSteps' });
-                }
                 }
             } else if (autoUpdateEnabled && !autoExecuteEnabled && hasBashCommands(llmResponse)) {
                 // 자동 실행이 비활성화된 경우 사용자에게 알림
@@ -1123,7 +1212,96 @@ export class LlmResponseProcessor {
                                 if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
                                 return cmd;
                             };
-                            const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
+
+                            const describeCommand = (cmd: string): string => {
+                                const lowerCmd = cmd.toLowerCase().trim();
+
+                                // 빌드 관련
+                                if (/\bmvn\s+(clean\s+)?(compile|package|install|test|build)/i.test(cmd)) {
+                                    if (/package/i.test(cmd)) return '프로젝트를 패키징하여 실행 가능한 JAR 파일 생성';
+                                    if (/compile/i.test(cmd)) return '프로젝트 소스 코드 컴파일';
+                                    if (/install/i.test(cmd)) return '프로젝트 빌드 및 로컬 저장소에 설치';
+                                    if (/test/i.test(cmd)) return '프로젝트 테스트 실행';
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    return 'Maven 빌드 작업 수행';
+                                }
+                                if (/\bgradle\s+(build|clean|test|run)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/clean/i.test(cmd)) return '빌드 결과물 정리';
+                                    if (/test/i.test(cmd)) return '프로젝트 테스트 실행';
+                                    if (/run/i.test(cmd)) return '프로젝트 실행';
+                                    return 'Gradle 빌드 작업 수행';
+                                }
+                                if (/\bnpm\s+(run\s+)?(build|start|dev|test)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/start/i.test(cmd)) return '프로젝트 시작';
+                                    if (/dev/i.test(cmd)) return '개발 서버 실행';
+                                    if (/test/i.test(cmd)) return '테스트 실행';
+                                    return 'npm 스크립트 실행';
+                                }
+                                if (/\byarn\s+(build|start|dev|test)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/start/i.test(cmd)) return '프로젝트 시작';
+                                    if (/dev/i.test(cmd)) return '개발 서버 실행';
+                                    if (/test/i.test(cmd)) return '테스트 실행';
+                                    return 'yarn 스크립트 실행';
+                                }
+
+                                // 설치 관련
+                                if (/\bnpm\s+install/i.test(cmd)) return 'npm 패키지 의존성 설치';
+                                if (/\byarn\s+install/i.test(cmd)) return 'yarn 패키지 의존성 설치';
+                                if (/\bpip\s+install/i.test(cmd)) return 'Python 패키지 설치';
+                                if (/\bbrew\s+install/i.test(cmd)) return 'Homebrew 패키지 설치';
+
+                                // 실행 관련
+                                if (/\bjava\s+-jar/i.test(cmd)) return 'Java 애플리케이션 실행';
+                                if (/\bnode\s+/i.test(cmd) && !/install/i.test(cmd)) return 'Node.js 스크립트 실행';
+                                if (/\bpython\s+/i.test(cmd) && !/install/i.test(cmd)) return 'Python 스크립트 실행';
+                                if (/\bgo\s+run/i.test(cmd)) return 'Go 프로그램 실행';
+                                if (/\bcargo\s+run/i.test(cmd)) return 'Rust 프로그램 실행';
+
+                                // 파일 작업
+                                if (/^\s*(cat|head|tail|grep|sed|awk)\s+/.test(cmd)) return '파일 내용 확인 또는 검색';
+                                if (/^\s*(mkdir|rmdir|rm|mv|cp|chmod)\s+/.test(cmd)) return '파일 시스템 작업 수행';
+
+                                // 포트/프로세스 관련
+                                if (/\blsof\s+-ti:/i.test(cmd)) return '포트 사용 중인 프로세스 확인';
+                                if (/\bkill\s+/i.test(cmd)) return '프로세스 종료';
+                                if (/\bpkill\s+/i.test(cmd)) return '프로세스 종료';
+
+                                // Git 관련
+                                if (/^\s*git\s+/.test(cmd)) {
+                                    if (/clone/i.test(cmd)) return 'Git 저장소 복제';
+                                    if (/pull/i.test(cmd)) return 'Git 원격 변경사항 가져오기';
+                                    if (/push/i.test(cmd)) return 'Git 원격 저장소에 푸시';
+                                    if (/commit/i.test(cmd)) return 'Git 커밋 생성';
+                                    return 'Git 작업 수행';
+                                }
+
+                                // Docker 관련
+                                if (/\bdocker\s+/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return 'Docker 이미지 빌드';
+                                    if (/run/i.test(cmd)) return 'Docker 컨테이너 실행';
+                                    if (/stop/i.test(cmd)) return 'Docker 컨테이너 중지';
+                                    return 'Docker 작업 수행';
+                                }
+
+                                // 일반적인 패턴
+                                if (/\.sh\s*$/.test(cmd)) return '쉘 스크립트 실행';
+                                if (/\.py\s*$/.test(cmd)) return 'Python 스크립트 실행';
+                                if (/\.js\s*$/.test(cmd)) return 'JavaScript 스크립트 실행';
+
+                                // 기본 설명
+                                return '명령어 실행';
+                            };
+
+                            const commandDescriptions = executedCommands.map(cmd => {
+                                const summary = summarize(cmd);
+                                const description = describeCommand(cmd);
+                                return `• ${summary} - ${description}`;
+                            }).join('\n');
+
+                            const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                         }
                     } catch (error: any) {
@@ -1170,7 +1348,96 @@ export class LlmResponseProcessor {
                                 if (cmd.length > 160) return cmd.slice(0, 160) + ' ...';
                                 return cmd;
                             };
-                            const summaryMsg = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n${executedCommands.map(cmd => `• ${summarize(cmd)}`).join('\n')}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
+
+                            const describeCommand = (cmd: string): string => {
+                                const lowerCmd = cmd.toLowerCase().trim();
+
+                                // 빌드 관련
+                                if (/\bmvn\s+(clean\s+)?(compile|package|install|test|build)/i.test(cmd)) {
+                                    if (/package/i.test(cmd)) return '프로젝트를 패키징하여 실행 가능한 JAR 파일 생성';
+                                    if (/compile/i.test(cmd)) return '프로젝트 소스 코드 컴파일';
+                                    if (/install/i.test(cmd)) return '프로젝트 빌드 및 로컬 저장소에 설치';
+                                    if (/test/i.test(cmd)) return '프로젝트 테스트 실행';
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    return 'Maven 빌드 작업 수행';
+                                }
+                                if (/\bgradle\s+(build|clean|test|run)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/clean/i.test(cmd)) return '빌드 결과물 정리';
+                                    if (/test/i.test(cmd)) return '프로젝트 테스트 실행';
+                                    if (/run/i.test(cmd)) return '프로젝트 실행';
+                                    return 'Gradle 빌드 작업 수행';
+                                }
+                                if (/\bnpm\s+(run\s+)?(build|start|dev|test)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/start/i.test(cmd)) return '프로젝트 시작';
+                                    if (/dev/i.test(cmd)) return '개발 서버 실행';
+                                    if (/test/i.test(cmd)) return '테스트 실행';
+                                    return 'npm 스크립트 실행';
+                                }
+                                if (/\byarn\s+(build|start|dev|test)/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return '프로젝트 빌드';
+                                    if (/start/i.test(cmd)) return '프로젝트 시작';
+                                    if (/dev/i.test(cmd)) return '개발 서버 실행';
+                                    if (/test/i.test(cmd)) return '테스트 실행';
+                                    return 'yarn 스크립트 실행';
+                                }
+
+                                // 설치 관련
+                                if (/\bnpm\s+install/i.test(cmd)) return 'npm 패키지 의존성 설치';
+                                if (/\byarn\s+install/i.test(cmd)) return 'yarn 패키지 의존성 설치';
+                                if (/\bpip\s+install/i.test(cmd)) return 'Python 패키지 설치';
+                                if (/\bbrew\s+install/i.test(cmd)) return 'Homebrew 패키지 설치';
+
+                                // 실행 관련
+                                if (/\bjava\s+-jar/i.test(cmd)) return 'Java 애플리케이션 실행';
+                                if (/\bnode\s+/i.test(cmd) && !/install/i.test(cmd)) return 'Node.js 스크립트 실행';
+                                if (/\bpython\s+/i.test(cmd) && !/install/i.test(cmd)) return 'Python 스크립트 실행';
+                                if (/\bgo\s+run/i.test(cmd)) return 'Go 프로그램 실행';
+                                if (/\bcargo\s+run/i.test(cmd)) return 'Rust 프로그램 실행';
+
+                                // 파일 작업
+                                if (/^\s*(cat|head|tail|grep|sed|awk)\s+/.test(cmd)) return '파일 내용 확인 또는 검색';
+                                if (/^\s*(mkdir|rmdir|rm|mv|cp|chmod)\s+/.test(cmd)) return '파일 시스템 작업 수행';
+
+                                // 포트/프로세스 관련
+                                if (/\blsof\s+-ti:/i.test(cmd)) return '포트 사용 중인 프로세스 확인';
+                                if (/\bkill\s+/i.test(cmd)) return '프로세스 종료';
+                                if (/\bpkill\s+/i.test(cmd)) return '프로세스 종료';
+
+                                // Git 관련
+                                if (/^\s*git\s+/.test(cmd)) {
+                                    if (/clone/i.test(cmd)) return 'Git 저장소 복제';
+                                    if (/pull/i.test(cmd)) return 'Git 원격 변경사항 가져오기';
+                                    if (/push/i.test(cmd)) return 'Git 원격 저장소에 푸시';
+                                    if (/commit/i.test(cmd)) return 'Git 커밋 생성';
+                                    return 'Git 작업 수행';
+                                }
+
+                                // Docker 관련
+                                if (/\bdocker\s+/i.test(cmd)) {
+                                    if (/build/i.test(cmd)) return 'Docker 이미지 빌드';
+                                    if (/run/i.test(cmd)) return 'Docker 컨테이너 실행';
+                                    if (/stop/i.test(cmd)) return 'Docker 컨테이너 중지';
+                                    return 'Docker 작업 수행';
+                                }
+
+                                // 일반적인 패턴
+                                if (/\.sh\s*$/.test(cmd)) return '쉘 스크립트 실행';
+                                if (/\.py\s*$/.test(cmd)) return 'Python 스크립트 실행';
+                                if (/\.js\s*$/.test(cmd)) return 'JavaScript 스크립트 실행';
+
+                                // 기본 설명
+                                return '명령어 실행';
+                            };
+
+                            const commandDescriptions = executedCommands.map(cmd => {
+                                const summary = summarize(cmd);
+                                const description = describeCommand(cmd);
+                                return `• ${summary} - ${description}`;
+                            }).join('\n');
+
+                            const summaryMsg = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMsg });
                         }
                     } catch (error: any) {

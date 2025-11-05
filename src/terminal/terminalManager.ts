@@ -8,6 +8,8 @@ import { TerminalMonitorService } from '../ai/terminalMonitorService';
 import { ConfigurationService } from '../services/configurationService';
 import { LlmService } from '../ai/llmService';
 import { debugLog } from '../utils/debugLogger';
+import { PlanQueueService } from '../services/planQueueService';
+import { safePostMessage } from '../webview/panelUtils';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
@@ -32,6 +34,7 @@ let _outputLogEnabled = true; // OUTPUT 로그 활성화 상태
 let _userOS = 'unknown'; // 사용자 OS
 // 프로젝트 루트는 항상 워크스페이스 루트를 사용하므로 변수로 저장하지 않고 필요할 때마다 가져옵니다.
 let _terminalSeq = 0;
+let _planQueueService: PlanQueueService | undefined = undefined; // 작업 큐 서비스
 
 /**
  * 사용자 OS를 설정합니다.
@@ -47,6 +50,14 @@ export function setUserOS(os: string): void {
 export function setErrorCorrectionServices(llmService: LlmService, webview: vscode.Webview): void {
     _llmService = llmService;
     _currentWebview = webview;
+}
+
+/**
+ * 작업 큐 서비스를 설정합니다.
+ */
+export function setPlanQueueService(planQueueService: PlanQueueService): void {
+    _planQueueService = planQueueService;
+    console.log('[TerminalManager] PlanQueueService 설정 완료');
 }
 
 /**
@@ -909,7 +920,44 @@ async function processQueue(): Promise<void> {
             } else {
                 // 항상 워크스페이스 루트를 사용
                 const projectRoot = await getEffectiveCwd();
+
+                // 작업 큐 상태 업데이트: 첫 번째 pending 항목을 in_progress로 변경
+                let processingItemId: string | undefined = undefined;
+                if (_planQueueService && _currentWebview) {
+                    const queueItems = _planQueueService.list();
+                    const firstPendingItem = queueItems.find(item => item.status === 'pending');
+                    if (firstPendingItem) {
+                        processingItemId = firstPendingItem.id;
+                        console.log(`[TerminalManager] 작업 큐 항목 시작: ${firstPendingItem.id} - ${firstPendingItem.title.substring(0, 30)}`);
+                        _planQueueService.updateStatus(firstPendingItem.id, 'in_progress');
+                        safePostMessage(_currentWebview, {
+                            command: 'taskQueueUpdate',
+                            item: { id: firstPendingItem.id, status: 'in_progress' }
+                        });
+                        safePostMessage(_currentWebview, {
+                            command: 'updateTaskQueue',
+                            items: _planQueueService.list()
+                        });
+                    }
+                }
+
                 const ok = await handleInteractiveCommand(command, projectRoot);
+
+                // 작업 큐 상태 업데이트: 실행 완료된 항목을 done으로 변경
+                if (_planQueueService && _currentWebview && processingItemId) {
+                    const newStatus = ok ? 'done' : 'failed';
+                    console.log(`[TerminalManager] 작업 큐 항목 완료: ${processingItemId} (${newStatus})`);
+                    _planQueueService.updateStatus(processingItemId, newStatus);
+                    safePostMessage(_currentWebview, {
+                        command: 'taskQueueUpdate',
+                        item: { id: processingItemId, status: newStatus }
+                    });
+                    safePostMessage(_currentWebview, {
+                        command: 'updateTaskQueue',
+                        items: _planQueueService.list()
+                    });
+                }
+
                 if (!ok) {
                     // 실패 시 즉시 중단 (대기열은 유지)
                     try {

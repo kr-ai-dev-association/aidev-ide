@@ -2,6 +2,35 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.7.3 (2025/11/05) - 명령어 실행 요약 개선 및 작업 큐 완료 상태 표시
+
+<details>
+<summary>명령어 실행 요약 개선 및 작업 큐 완료 상태 표시</summary>
+
+### 추가
+- **명령어 실행 요약 설명**: 명령어 실행 요약에 각 명령어의 사용자 친화적 설명 phrase 추가
+  - Maven/Gradle 빌드 명령어: "프로젝트를 패키징하여 실행 가능한 JAR 파일 생성", "프로젝트 소스 코드 컴파일" 등
+  - npm/yarn 명령어: "프로젝트 빌드", "개발 서버 실행", "테스트 실행" 등
+  - 설치 명령어: "npm 패키지 의존성 설치", "Python 패키지 설치", "Homebrew 패키지 설치" 등
+  - 실행 명령어: "Java 애플리케이션 실행", "Node.js 스크립트 실행", "Python 스크립트 실행" 등
+  - Git/Docker 명령어: "Git 저장소 복제", "Docker 이미지 빌드" 등
+- **작업 큐 완료 상태 자동 업데이트**: 터미널 명령 실행 시 작업 큐 항목의 상태가 자동으로 업데이트됨
+  - 명령 실행 시작: `pending` → `in_progress`
+  - 명령 실행 완료: `in_progress` → `done` (성공) 또는 `failed` (실패)
+  - 실시간 웹뷰 업데이트: 작업 큐 상태 변경 시 즉시 웹뷰에 반영
+
+### 개선
+- **명령어 설명 패턴 매칭**: 다양한 명령어 패턴을 인식하여 적절한 설명 자동 생성
+- **작업 큐 통합**: TerminalManager와 PlanQueueService 간 통합으로 작업 큐 상태 관리 개선
+- **사용자 경험 향상**: 명령어 실행 요약이 더 명확하고 이해하기 쉬워짐
+
+### 기술적 개선
+- `llmResponseProcessor.ts`: `describeCommand()` 함수 추가로 명령어 패턴 분석 및 설명 생성
+- `terminalManager.ts`: `setPlanQueueService()` 함수 추가 및 `processQueue()`에서 작업 큐 상태 자동 업데이트
+- `llmService.ts`: 작업 큐 생성 시 TerminalManager에 PlanQueueService 인스턴스 전달
+
+</details>
+
 ## 🚀 Version 4.6.0 (2025/10/23) - 계획(Planning) & 플랜 큐
 
 <details>

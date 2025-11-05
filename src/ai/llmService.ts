@@ -208,112 +208,162 @@ export class LlmService {
 
     /**
      * OS별 시스템 프롬프트를 생성합니다.
+     * 모델 타입에 따라 최적화된 프롬프트를 제공합니다.
      */
     private generateOSSpecificSystemPrompt(): string {
-        // 현재 모델 타입과 모델명 확인
-        const currentModelName = this.ollamaApi.getModel?.() || '';
-        const isGPTOSS = currentModelName.includes('gpt-oss') || currentModelName.includes('gpt-oss-120b');
-        const isDeepSeek = currentModelName.includes('deepseek');
-        const isStandardModel = currentModelName.includes('glm') || currentModelName.includes('kimi') ||
-            currentModelName.includes('qwen3') || currentModelName.includes('gemini') ||
-            currentModelName.includes('gemma3');
-
-        let basePrompt = '';
-
-        if (isGPTOSS) {
-            // GPT-OSS 모델용 특화 프롬프트
-            basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
-
-주요 지침:
-1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
-2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
-3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
-4. 한글로 설명을 제공하세요.
-5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
-6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
-7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
-8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
-9. 터미널 명령어가 필요한 경우 OS에 맞는 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
-10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
-11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
-12. **쉘 스크립트 생성 규칙 (매우 중요):**
-    - 쉘 스크립트(.sh, .bash, .zsh 등)는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
-    - 프로젝트 빌드/실행과 무관한 일반적인 작업(예: 파일 정리, 문서화, 설정 변경 등)에는 쉘 스크립트를 생성하지 마세요.
-    - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 포함되어야 하는 경우:
-      * 반드시 해당 프로그래밍 언어명을 명시한 callout 형식으로 제공하세요 (예: \`\`\`python, \`\`\`javascript 등)
-      * "새 파일: [파일경로]" 형식으로 스크립트 파일을 생성하세요
-      * 파일 생성/수정 가이드를 준수하세요 (코드 블록 형식 사용)
-
-현재 사용자 환경: ${this.userOS.toUpperCase()}
-
-**GPT-OSS 모델 특화 지침:**
-- 응답 형식은 표준 마크다운 형식을 사용하세요.
-- 코드 블록은 \`\`\`언어 형식으로 명시하세요.
-- 파일 작업 시 명확한 구분자를 사용하세요.
-- GPT-OSS 모델의 출력 형식에 맞춰 응답하세요.`;
-        } else if (isDeepSeek) {
-            // DeepSeek 모델용 특화 프롬프트
-            basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
-
-주요 지침:
-1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
-2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
-3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
-4. 한글로 설명을 제공하세요.
-5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
-6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
-7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
-8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
-9. 터미널 명령어가 필요한 경우 OS에 맞는 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
-10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
-11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
-12. **쉘 스크립트 생성 규칙 (매우 중요):**
-    - 쉘 스크립트(.sh, .bash, .zsh 등)는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
-    - 프로젝트 빌드/실행과 무관한 일반적인 작업(예: 파일 정리, 문서화, 설정 변경 등)에는 쉘 스크립트를 생성하지 마세요.
-    - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 포함되어야 하는 경우:
-      * 반드시 해당 프로그래밍 언어명을 명시한 callout 형식으로 제공하세요 (예: \`\`\`python, \`\`\`javascript 등)
-      * "새 파일: [파일경로]" 형식으로 스크립트 파일을 생성하세요
-      * 파일 생성/수정 가이드를 준수하세요 (코드 블록 형식 사용)
-
-현재 사용자 환경: ${this.userOS.toUpperCase()}
-
-**DeepSeek 모델 특화 지침:**
-- 응답 형식은 표준 마크다운 형식을 사용하세요.
-- 코드 블록은 \`\`\`언어 형식으로 명시하세요.
-- 파일 작업 시 명확한 구분자를 사용하세요.
-- 반드시 한국어로만 답변하세요.`;
-        } else {
-            // 표준 모델들 (glm, kimi, qwen3, gemini, gemma3) 및 기타 모델용 프롬프트
-            basePrompt = `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
-
-주요 지침:
-1. 코드 생성 시 항상 완전하고 실행 가능한 코드를 제공하세요.
-2. 코드 수정 시 기존 코드의 구조와 스타일을 유지하세요.
-3. 파일 경로를 포함한 구체적인 수정 사항을 명시하세요.
-4. 한글로 설명을 제공하세요.
-5. 새 파일을 생성할 때는 반드시 "새 파일: [파일경로]" 형식으로 시작하고, 그 다음에 코드 블록을 포함하세요.
-6. 기존 파일을 수정할 때는 반드시 "수정 파일: [파일경로]" 형식으로 시작하고, 그 다음에 수정된 코드 블록을 포함하세요.
-7. 파일을 삭제할 때는 "삭제 파일: [파일경로]" 형식으로 명시하세요.
-8. 마크다운 파일(.md)을 생성할 때는 코드 블록 없이 마크다운 내용을 직접 포함하세요.
-9. 터미널 명령어가 필요한 경우 OS에 맞는 코드 블록으로 제공하세요. 이 명령어들은 자동으로 실행됩니다.
-10. Vite 프로젝트의 package.json 스크립트는 "vite" 대신 "npx vite"를 사용하세요.
-11. Spring Boot 프로젝트를 생성할 때는 반드시 Spring Boot 3.4.0 이상을 사용하세요.
-12. **쉘 스크립트 생성 규칙 (매우 중요):**
-    - 쉘 스크립트(.sh, .bash, .zsh 등)는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
-    - 프로젝트 빌드/실행과 무관한 일반적인 작업(예: 파일 정리, 문서화, 설정 변경 등)에는 쉘 스크립트를 생성하지 마세요.
-    - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 포함되어야 하는 경우:
-      * 반드시 해당 프로그래밍 언어명을 명시한 callout 형식으로 제공하세요 (예: \`\`\`python, \`\`\`javascript 등)
-      * "새 파일: [파일경로]" 형식으로 스크립트 파일을 생성하세요
-      * 파일 생성/수정 가이드를 준수하세요 (코드 블록 형식 사용)
-
-현재 사용자 환경: ${this.userOS.toUpperCase()}`;
-        }
-
+        const commonGuidelines = this.getCommonGuidelines();
+        const modelSpecificPrompt = this.getModelSpecificSystemPrompt();
         const osSpecificGuidelines = this.getOSSpecificGuidelines();
 
-        return `${basePrompt}
+        return `${commonGuidelines}
+
+${modelSpecificPrompt}
 
 ${osSpecificGuidelines}`;
+    }
+
+    /**
+     * 모든 모델에 공통으로 적용되는 기본 지침
+     */
+    private getCommonGuidelines(): string {
+        return `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+
+기본 규칙:
+- 완전하고 실행 가능한 코드 제공
+- 기존 코드 구조와 스타일 유지
+- 파일 경로 포함하여 구체적으로 명시
+- 한글로 설명 제공
+
+파일 작업 형식:
+- 새 파일: "새 파일: [파일경로]" + 코드 블록
+- 수정 파일: "수정 파일: [파일경로]" + 수정된 코드 블록
+- 삭제 파일: "삭제 파일: [파일경로]"
+- 마크다운(.md): 코드 블록 없이 마크다운 내용 직접 포함
+
+프로젝트 특화:
+- Vite: package.json에서 "vite" 대신 "npx vite" 사용
+- Spring Boot: 3.4.0 이상 사용
+
+**코드 작성 vs 쉘 스크립트 작업 구별 (절대 필수 - 최우선 규칙):**
+- **code_work**: 소스 코드 파일(.js, .ts, .py, .java, .go, .rs 등) 생성/수정만 수행.
+  - **절대로 쉘 스크립트(.sh, .bat, .ps1)를 생성하지 마세요.**
+  - **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**
+  - **프로젝트 생성 작업**: pom.xml, package.json, build.gradle 등 프로젝트 구조 파일과 소스 코드 파일만 생성. 빌드/실행 명령은 생성하지 마세요.
+- **execution_work**: 설치/빌드/배포/실행 스크립트(.sh, .bat, .ps1) 생성 또는 터미널 명령 실행만 수행. 소스 코드 생성 금지.
+- **사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.**
+
+쉘 스크립트 규칙:
+- 빌드/실행/테스트/배포 관련 작업일 때만 생성
+- 일반 작업(파일 정리, 문서화 등)에는 생성하지 않음
+- 스크립트 내 프로그래밍 코드는 언어명 callout 명시 (\`\`\`python, \`\`\`javascript 등)
+
+환경: ${this.userOS.toUpperCase()}`;
+    }
+
+    /**
+     * 모델 타입에 따른 특화 시스템 프롬프트
+     */
+    private getModelSpecificSystemPrompt(): string {
+        switch (this.currentModelType) {
+            case AiModelType.GEMINI:
+                return this.getGeminiSystemPrompt();
+
+            case AiModelType.OLLAMA_GPT_OSS:
+                return this.getGPTOSSSystemPrompt();
+
+            case AiModelType.OLLAMA_DeepSeek:
+                return this.getDeepSeekSystemPrompt();
+
+            case AiModelType.OLLAMA_Gemma:
+                return this.getGemmaSystemPrompt();
+
+            case AiModelType.OLLAMA_CodeLlama:
+                return this.getCodeLlamaSystemPrompt();
+
+            default:
+                return this.getDefaultSystemPrompt();
+        }
+    }
+
+    /**
+     * Gemini 모델용 특화 프롬프트
+     */
+    private getGeminiSystemPrompt(): string {
+        return `**Gemini 모델 특화 지침:**
+- 표준 마크다운 형식 사용
+- 코드 블록: \`\`\`언어 형식
+- 파일 작업 시 명확한 구분자 사용
+- 구조화된 응답 제공`;
+    }
+
+    /**
+     * GPT-OSS 모델용 특화 프롬프트
+     */
+    private getGPTOSSSystemPrompt(): string {
+        return `**GPT-OSS 모델 특화 지침:**
+- 표준 마크다운 형식 준수
+- 코드 블록: \`\`\`언어 형식으로 명시
+- 파일 작업 시 명확한 구분자 사용
+- GPT-OSS 출력 형식에 맞춰 응답
+- 간결하고 명확한 응답 선호`;
+    }
+
+    /**
+     * DeepSeek 모델용 특화 프롬프트
+     */
+    private getDeepSeekSystemPrompt(): string {
+        return `**DeepSeek 모델 특화 지침:**
+- 표준 마크다운 형식 사용
+- 코드 블록: \`\`\`언어 형식
+- 파일 작업 시 명확한 구분자 사용
+- 반드시 한국어로만 답변 (중국어, 영어, 일본어 사용 금지)
+- 간결하고 실용적인 응답 제공`;
+    }
+
+    /**
+     * Gemma 모델용 특화 프롬프트
+     */
+    private getGemmaSystemPrompt(): string {
+        return `**Gemma 모델 특화 지침:**
+- 표준 마크다운 형식 사용
+- 코드 블록: \`\`\`언어 형식
+- 간결하고 명확한 응답
+- 구조화된 형식 선호`;
+    }
+
+    /**
+     * CodeLlama 모델용 특화 프롬프트
+     */
+    private getCodeLlamaSystemPrompt(): string {
+        return `**CodeLlama 모델 특화 지침:**
+- 코드 중심 응답 제공
+- 표준 마크다운 형식 사용
+- 코드 블록: \`\`\`언어 형식
+- 코드 품질과 가독성 중시`;
+    }
+
+    /**
+     * 기본 모델용 프롬프트 (기타 모델)
+     */
+    private getDefaultSystemPrompt(): string {
+        return `**기본 지침:**
+- 표준 마크다운 형식 사용
+- 코드 블록: \`\`\`언어 형식
+- 명확하고 구조화된 응답 제공`;
+    }
+
+    /**
+     * TaskType을 한글 라벨로 변환합니다.
+     */
+    private getTaskTypeLabel(taskType: string): string {
+        const labels: Record<string, string> = {
+            'code_work': '코드작성',
+            'execution_work': '설치/빌드/배포/실행',
+            'analysis': '분석',
+            'documentation': '문서화',
+            'terminal': '터미널'
+        };
+        return labels[taskType] || taskType;
     }
 
     /**
@@ -394,6 +444,98 @@ ${osSpecificGuidelines}`;
     }
 
     /**
+     * 20자 넘는 지시사항을 행위 단위로 분리합니다 (reasoning LLM 사용)
+     */
+    private async splitUserInstructionIntoActions(userQuery: string): Promise<string[]> {
+        // 20자 이하인 경우 분리하지 않음
+        if (userQuery.length <= 20) {
+            return [userQuery];
+        }
+
+        const lang = (await this.configurationService.getLanguage?.()) || 'ko';
+        const forceKorean = lang.toLowerCase().startsWith('ko');
+
+        const splitPrompt = forceKorean
+            ? `다음 사용자 지시사항을 행위 단위로 분리하세요. 각 행위는 독립적으로 실행 가능한 단위여야 합니다.
+
+사용자 지시사항:
+"""
+${userQuery}
+"""
+
+요구사항:
+- 각 행위를 하나의 문장으로 표현하세요.
+- 행위는 동사로 시작하는 명확한 액션으로 작성하세요.
+- 각 행위는 순서대로 번호를 매겨주세요.
+- JSON 배열 형식으로 출력하세요.
+
+출력 형식 (JSON):
+{
+  "actions": [
+    "첫 번째 행위",
+    "두 번째 행위",
+    "세 번째 행위"
+  ]
+}`
+            : `Split the following user instruction into action units. Each action should be independently executable.
+
+User instruction:
+"""
+${userQuery}
+"""
+
+Requirements:
+- Express each action as a single sentence.
+- Actions should start with a verb and be clear actions.
+- Number each action in order.
+- Output in JSON array format.
+
+Output format (JSON):
+{
+  "actions": [
+    "First action",
+    "Second action",
+    "Third action"
+  ]
+}`;
+
+        try {
+            let reasoningModelName = '';
+            try {
+                reasoningModelName = (await this.storageService.getPlanningModel()) || (await this.storageService.getOllamaModel()) || '';
+            } catch { }
+
+            const parts = [{ text: splitPrompt }];
+            const systemPromptForSplit = forceKorean
+                ? '행위 단위로 지시사항을 분리하세요. JSON 형식으로 응답하세요.'
+                : 'Split instructions into action units. Respond in JSON format.';
+
+            let response: string;
+            if (this.currentModelType === AiModelType.GEMINI) {
+                response = await this.geminiApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: this.currentCallController?.signal });
+            } else {
+                try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
+                response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: this.currentCallController?.signal });
+            }
+
+            // JSON 파싱
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.actions && Array.isArray(parsed.actions) && parsed.actions.length > 0) {
+                    console.log(`[LlmService] Split ${userQuery.length} chars into ${parsed.actions.length} actions`);
+                    return parsed.actions;
+                }
+            }
+        } catch (error) {
+            console.warn('[LlmService] Failed to split user instruction:', error);
+        }
+
+        // 실패 시 원본 반환
+        return [userQuery];
+    }
+
+    /**
      * 사용자 질의/키워드/환경을 입력으로 받아 계획 수립 프롬프트를 생성합니다.
      */
     private async buildPlanPrompt(userQuery: string, keywords: string[], os: string, modelName: string, includedFiles: { name: string, fullPath: string }[]): Promise<string> {
@@ -420,33 +562,259 @@ ${topFiles || '- (none)'}
 - Keywords: ${kw}
 
 Requirements:
-- ${forceKorean ? '마크다운 불릿 또는 체크박스 형태의 간결한 할 일 목록(To-Do)으로 출력하세요.' : 'Output a concise to-do list as markdown bullet points or checkboxes.'}
+- ${forceKorean ? '**반드시 마크다운 체크박스 형식 "- [ ] 작업 내용"을 사용하세요.**' : '**MUST use markdown checkbox format "- [ ] task description".**'}
+- ${forceKorean ? '올바른 형식: "- [ ] 작업 내용" 또는 "- [x] 완료된 작업"' : 'Correct format: "- [ ] task description" or "- [x] completed task"'}
+- ${forceKorean ? '잘못된 형식: "- 작업", "- ✅ 작업", "1. 작업" 등은 사용하지 마세요.' : 'Wrong format: "- task", "- ✅ task", "1. task" etc. are not allowed.'}
 - ${forceKorean ? '각 항목은 원자적이고 테스트 가능하며 논리 순서로 정렬하세요.' : 'Each item should be atomic, testable, and ordered logically.'}
 - ${forceKorean ? '필요 전제조건과 리스크를 포함하세요.' : 'Capture any prerequisites and risks.'}
 - ${forceKorean ? '이 코드베이스에 실용적으로 적용 가능하도록 작성하세요.' : 'Keep it pragmatic for this codebase.'}
+- ${forceKorean ? '실행 가능한 코드 블록(```bash, ```sh 등)이나 터미널 명령어는 절대 포함하지 마세요.' : 'Do NOT include executable code blocks (```bash, ```sh, etc.) or terminal commands.'}
 ${languageRule}
 `);
     }
 
     /**
      * 간단한 Markdown 체크박스/불릿 리스트를 PlanItem 입력 형태로 파싱
+     * 최대 10개까지만 파싱하여 과도한 항목 수집 방지
      */
     private parsePlanToItems(planMarkdown: string): Array<{ title: string, detail?: string }> {
         const lines = planMarkdown.split('\n');
         const items: Array<{ title: string, detail?: string }> = [];
+        let itemCount = 0;
+        const maxItems = 10; // 최대 파싱 항목 수 제한
+
         for (const raw of lines) {
+            if (itemCount >= maxItems) break;
+
             const line = raw.trim();
             if (!line) continue;
+
             // - [ ] Task 또는 - Task, * Task, 1. Task 등 폭넓게 수용
             const match = line.match(/^([-*]|\d+\.)\s*(\[\s*[xX]?\s*\]\s*)?(.*)$/);
             if (match) {
                 const title = (match[3] || '').trim();
                 if (title) {
-                    items.push({ title });
+                    // 제목이 너무 길면 100자로 제한
+                    const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
+                    items.push({ title: trimmedTitle });
+                    itemCount++;
                 }
             }
         }
         return items;
+    }
+
+    /**
+     * Plan 텍스트에서 체크박스 항목만 추출하여 작업 큐 아이템으로 변환
+     * - [ ] 또는 - [x] 형식의 항목만 파싱
+     */
+    private parseCheckboxItemsFromPlan(planMarkdown: string): Array<{ title: string, detail?: string }> {
+        const lines = planMarkdown.split('\n');
+        const items: Array<{ title: string, detail?: string }> = [];
+        let itemCount = 0;
+        const maxItems = 20; // 최대 파싱 항목 수 제한 (모든 항목 표시를 위해 증가)
+
+        console.log('[LlmService] parseCheckboxItemsFromPlan 시작, 총 라인 수:', lines.length);
+        console.log('[LlmService] planText 샘플 (처음 500자):', planMarkdown.substring(0, 500));
+
+        for (const raw of lines) {
+            if (itemCount >= maxItems) break;
+
+            const line = raw.trim();
+            if (!line) continue;
+
+            // 체크박스 형식 우선 파싱 (더 정확한 패턴부터 시도)
+            // - [ ] Task
+            // - [x] Task  
+            // * [ ] Task
+            // 숫자. [ ] Task
+            // 들여쓰기 포함 형식
+
+            // 가장 일반적인 형식: - [ ] 또는 - [x] (공백이 0개 이상)
+            // 패턴: - [ ] 텍스트 또는 - [x] 텍스트
+            const checkboxMatch1 = line.match(/^[-*]\s*\[\s*([xX]?)\s*\]\s*(.+)$/);
+            if (checkboxMatch1) {
+                const title = (checkboxMatch1[2] || '').trim();
+                if (title && title.length > 0) {
+                    const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
+                    items.push({ title: trimmedTitle });
+                    itemCount++;
+                    console.log(`[LlmService] 체크박스 항목 파싱 (패턴1): "${line.substring(0, 60)}" -> "${trimmedTitle.substring(0, 50)}..."`);
+                    continue;
+                }
+            }
+
+            // 이모지 체크박스 형식: - ✅ 또는 - ☑️
+            const emojiCheckboxMatch = line.match(/^[-*]\s*[✅☑️✓]\s+(.+)$/);
+            if (emojiCheckboxMatch) {
+                const title = (emojiCheckboxMatch[1] || '').trim();
+                if (title && title.length > 0) {
+                    const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
+                    items.push({ title: trimmedTitle });
+                    itemCount++;
+                    console.log(`[LlmService] 이모지 체크박스 항목 파싱: "${line.substring(0, 60)}" -> "${trimmedTitle.substring(0, 50)}..."`);
+                    continue;
+                }
+            }
+
+            // 숫자로 시작하는 체크박스: 1. [ ] Task
+            const checkboxMatch2 = line.match(/^\d+\.\s*\[\s*([xX]?)\s*\]\s+(.+)$/);
+            if (checkboxMatch2) {
+                const title = (checkboxMatch2[2] || '').trim();
+                if (title && title.length > 0) {
+                    const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
+                    items.push({ title: trimmedTitle });
+                    itemCount++;
+                    console.log(`[LlmService] 체크박스 항목 파싱 (패턴2): ${trimmedTitle.substring(0, 50)}...`);
+                    continue;
+                }
+            }
+
+            // 들여쓰기 포함:   - [ ] Task
+            const checkboxMatch3 = line.match(/^\s+[-*]\s*\[\s*([xX]?)\s*\]\s+(.+)$/);
+            if (checkboxMatch3) {
+                const title = (checkboxMatch3[2] || '').trim();
+                if (title && title.length > 0) {
+                    const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
+                    items.push({ title: trimmedTitle });
+                    itemCount++;
+                    console.log(`[LlmService] 체크박스 항목 파싱 (패턴3): ${trimmedTitle.substring(0, 50)}...`);
+                    continue;
+                }
+            }
+
+            // 체크박스가 없는 경우 일반 불릿 포인트 파싱 (체크박스가 하나도 없을 때만)
+            if (items.length === 0 && itemCount < maxItems) {
+                // 일반 불릿 포인트: - Task 또는 * Task (단, [ ] 가 없는 경우만)
+                if (!line.includes('[') || !line.includes(']')) {
+                    const bulletMatch = line.match(/^[-*]\s+(.+)$/);
+                    if (bulletMatch) {
+                        const title = (bulletMatch[1] || '').trim();
+                        if (title && title.length > 0 &&
+                            !title.startsWith('**') &&
+                            !title.startsWith('##') &&
+                            !title.startsWith('[') &&
+                            !title.match(/^\d+\./)) {
+                            const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
+                            items.push({ title: trimmedTitle });
+                            itemCount++;
+                            console.log(`[LlmService] 불릿 포인트 항목 파싱: ${trimmedTitle.substring(0, 50)}...`);
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log(`[LlmService] parseCheckboxItemsFromPlan 완료: ${items.length}개 항목 파싱`);
+        if (items.length > 0) {
+            console.log('[LlmService] 파싱된 모든 항목:', items.map((item, idx) => `${idx + 1}. ${item.title.substring(0, 60)}`));
+        }
+        return items;
+    }
+
+    /**
+     * 작업 큐 아이템을 LLM에게 요약 요청하여 간결한 명령어 리스트로 변환
+     */
+    private async summarizePlanItemsForQueue(
+        items: Array<{ title: string, detail?: string }>,
+        abortSignal?: AbortSignal
+    ): Promise<Array<{ title: string, detail?: string }> | null> {
+        const lang = (await this.configurationService.getLanguage?.()) || 'ko';
+        const forceKorean = lang.toLowerCase().startsWith('ko');
+
+        const itemsText = items.map((item, idx) => `${idx + 1}. ${item.title}${item.detail ? ` - ${item.detail}` : ''}`).join('\n');
+
+        const summaryPrompt = forceKorean
+            ? `다음 작업 목록을 매우 간결하게 요약하세요.
+
+**중요 요구사항:**
+- 전체 요약을 정확히 100자 이하로 작성 (초과 금지)
+- 최대 3개의 핵심 명령어만 출력
+- 각 명령어는 30자 이내로 매우 간결하게
+- 마크다운 불릿 포인트 형식으로만 출력
+- 반복되는 내용은 제거하고 핵심만 추출
+
+**출력 형식 (정확히 이 형식으로만):**
+- 전체 요약 (100자 이하)
+- 명령어 1 (30자 이내)
+- 명령어 2 (30자 이내)
+- 명령어 3 (30자 이내)
+
+작업 목록:
+${itemsText}
+
+출력:`
+            : `Summarize the following task list very concisely.
+
+**Critical Requirements:**
+- Write a summary in exactly 100 characters or less (no exceed)
+- Output maximum 3 core commands only
+- Each command should be very concise within 30 characters
+- Output only in markdown bullet point format
+- Remove repetitive content and extract only core points
+
+**Output format (exactly this format only):**
+- Overall summary (100 chars or less)
+- Command 1 (30 chars or less)
+- Command 2 (30 chars or less)
+- Command 3 (30 chars or less)
+
+Task list:
+${itemsText}
+
+Output:`;
+
+        try {
+            const parts = [{ text: summaryPrompt }];
+            const systemPrompt = forceKorean
+                ? '작업 목록을 간결한 명령어 리스트로 요약하세요. 100자 이하 요약과 최대 3개의 핵심 명령어만 출력하세요.'
+                : 'Summarize task list into concise command list. Output summary under 100 chars and max 3 core commands.';
+
+            let response: string;
+            if (this.currentModelType === AiModelType.GEMINI) {
+                response = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
+            } else {
+                try { await this.ollamaApi.loadSettingsFromStorage(); } catch { }
+                response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
+            }
+
+            if (!response || !response.trim()) {
+                return null;
+            }
+
+            // 응답에서 요약과 명령어 파싱
+            const lines = response.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            const result: Array<{ title: string, detail?: string }> = [];
+
+            // 첫 줄은 요약으로 사용
+            let summaryLine = lines[0] || '';
+            // 마크다운 불릿 제거
+            summaryLine = summaryLine.replace(/^[-*]\s*/, '').trim();
+            if (summaryLine && summaryLine.length <= 100) {
+                result.push({ title: summaryLine });
+            }
+
+            // 나머지 줄에서 명령어 추출 (최대 3개)
+            let commandCount = 0;
+            for (const line of lines.slice(1)) {
+                if (commandCount >= 3) break;
+                const cleanLine = line.replace(/^[-*]\s*/, '').replace(/^\d+\.\s*/, '').trim();
+                if (cleanLine && cleanLine.length <= 50) {
+                    result.push({ title: cleanLine });
+                    commandCount++;
+                }
+            }
+
+            // 결과가 없으면 null 반환
+            if (result.length === 0) {
+                return null;
+            }
+
+            return result;
+        } catch (error) {
+            console.warn('[LlmService] 작업 큐 요약 실패:', error);
+            return null;
+        }
     }
 
     /**
@@ -529,18 +897,37 @@ ${languageRule}
                         try {
                             const projectRoot = await this.configurationService.getProjectRoot();
                             if (projectRoot) {
-                                // 1. LLM 기반 프로젝트 타입 감지 (질의어 분석)
-                                const llmBasedProjectType = await this.detectProjectTypeFromQuery(userQuery);
-                                console.log(`[LlmService] LLM 기반 프로젝트 타입: ${llmBasedProjectType}`);
+                                // 1. LLM 기반 프로젝트 타입 감지 (질의어 분석 + 로컬 파일 시스템)
+                                const projectTypeResult = await this.detectProjectTypeFromQuery(userQuery, projectRoot);
+                                console.log(`[LlmService] LLM 기반 프로젝트 타입: ${projectTypeResult.projectType}, confidence: ${projectTypeResult.confidence}, needsUserSelection: ${projectTypeResult.needsUserSelection}`);
 
-                                // 2. 파일 기반 프로젝트 타입 감지 (LLM 결과를 전달)
-                                const finalProjectType = await this.codebaseContextService.detectProjectType([projectRoot], llmBasedProjectType);
-                                console.log(`[LlmService] 최종 프로젝트 타입: ${finalProjectType}`);
-
-                                detectedProjectType = finalProjectType;
+                                // 2. 사용자 선택이 필요한 경우
+                                if (projectTypeResult.needsUserSelection || projectTypeResult.projectType === 'unknown') {
+                                    // 웹뷰에 프로젝트 타입 선택 UI 표시
+                                    safePostMessage(webviewToRespond, {
+                                        command: 'showProjectTypeSelection',
+                                        detectedType: projectTypeResult.projectType,
+                                        confidence: projectTypeResult.confidence,
+                                        supportedTypes: [
+                                            { id: 'nodejs-npm', label: 'Node.js (npm)' },
+                                            { id: 'python', label: 'Python' },
+                                            { id: 'java-maven', label: 'Java (Maven)' },
+                                            { id: 'java-gradle', label: 'Java (Gradle)' },
+                                            { id: 'go', label: 'Go' },
+                                            { id: 'android', label: 'Android' },
+                                            { id: 'ios', label: 'iOS' }
+                                        ]
+                                    });
+                                    this.sendProcessingStatus('intent', '프로젝트 타입 선택 필요 | OS: ' + this.userOS);
+                                    // 사용자 선택을 기다리기 위해 임시로 unknown 설정
+                                    detectedProjectType = 'unknown';
+                                } else {
+                                    // 프로젝트 타입이 확실한 경우
+                                    detectedProjectType = projectTypeResult.projectType;
+                                }
 
                                 projectTypeInfo = ` | Project Type: ${detectedProjectType}`;
-                                this.sendProcessingStatus('intent', `Detected project type: ${detectedProjectType} (LLM: ${llmBasedProjectType}) | OS: ${this.userOS}`);
+                                this.sendProcessingStatus('intent', `Detected project type: ${detectedProjectType} (confidence: ${projectTypeResult.confidence}) | OS: ${this.userOS}`);
                             }
                         } catch (error) {
                             console.warn('[LlmService] Failed to detect project type during intent analysis:', error);
@@ -552,9 +939,10 @@ ${languageRule}
                     if (intentResult) {
                         const confidence = Math.round(intentResult.confidence * 100);
                         const reasoning = intentResult.reasoning || 'No reasoning provided';
-                        this.sendProcessingStatus('intent', `Intent: ${intentResult.category}/${intentResult.subtype} (${confidence}%)${projectTypeInfo} | OS: ${this.userOS} - ${reasoning.substring(0, 100)}${reasoning.length > 100 ? '...' : ''}`);
+                        const taskTypeLabel = this.getTaskTypeLabel(intentResult.taskType);
+                        this.sendProcessingStatus('intent', `Intent: ${intentResult.category}/${intentResult.subtype} | TaskType: ${taskTypeLabel} (${confidence}%)${projectTypeInfo} | OS: ${this.userOS} - ${reasoning.substring(0, 100)}${reasoning.length > 100 ? '...' : ''}`);
                         // Debug Console 로그를 활용한 추가 정보
-                        console.log(`[LlmService] Intent analysis result: ${intentResult.category}/${intentResult.subtype} with ${confidence}% confidence${projectTypeInfo} | OS: ${this.userOS}`);
+                        console.log(`[LlmService] Intent analysis result: ${intentResult.category}/${intentResult.subtype} | TaskType: ${intentResult.taskType} with ${confidence}% confidence${projectTypeInfo} | OS: ${this.userOS}`);
                     } else {
                         this.sendProcessingStatus('intent', `Intent analysis completed - No specific intent detected${projectTypeInfo}`);
                         console.log('[LlmService] No specific intent detected from user query');
@@ -709,13 +1097,43 @@ ${languageRule}
                             let reasoningModelNameForPlan = '';
                             try { reasoningModelNameForPlan = (await this.storageService.getPlanningModel()) || (await this.storageService.getOllamaModel()) || ''; } catch { }
                             this.sendProcessingStatus('plan', `Reasoning 모델: ${reasoningModelNameForPlan || '(미설정)'} - 계획 생성 시작`);
+
                             const planPrompt = await this.buildPlanPrompt(userQuery, relevantContextResult.selectedKeywords.keywords, this.userOS, await this.getCurrentModelName(), includedFilesForContext);
                             const parts = [{ text: planPrompt }];
                             const lang = (await this.configurationService.getLanguage?.()) || 'ko';
                             const forceKorean = lang.toLowerCase().startsWith('ko');
                             const systemPromptForPlan = forceKorean
-                                ? 'Transform into an actionable plan (to-do list). Output in Korean. Use markdown bullets or checkboxes. Do NOT include any executable code blocks or terminal commands. Absolutely avoid triple-fenced code blocks (```), especially bash/sh/shell/powershell/pwsh/cmd/batch/bat. Provide only plain checklist and descriptions.'
-                                : 'Transform into an actionable plan (to-do list). Use bullets/checkboxes. Do NOT include any executable code or terminal commands. Avoid triple-fenced code blocks (```), especially bash/sh/shell/powershell/pwsh/cmd/batch/bat. Provide plain checklist only.';
+                                ? '**매우 중요: 반드시 체크박스 형식으로 출력하세요.**\n\n' +
+                                '계획을 작성할 때는 반드시 마크다운 체크박스 형식 "- [ ] 작업 내용"을 사용하세요.\n' +
+                                '- 올바른 형식: "- [ ] 작업 내용" 또는 "- [x] 완료된 작업"\n' +
+                                '- 잘못된 형식: "- 작업 내용", "- ✅ 작업", "1. 작업" 등\n\n' +
+                                '출력 규칙:\n' +
+                                '1. 반드시 "- [ ]" 형식의 체크박스를 사용하세요 (대시, 공백, 대괄호, 공백 순서)\n' +
+                                '2. 각 작업 항목은 "- [ ] 작업 설명" 형식으로 작성하세요\n' +
+                                '3. 실행 가능한 코드 블록은 절대 포함하지 마세요\n' +
+                                '4. 터미널 명령어나 코드 블록은 포함하지 마세요\n' +
+                                '5. 한글로 출력하세요\n' +
+                                '6. 간결하고 명확한 작업 설명만 제공하세요\n\n' +
+                                '예시:\n' +
+                                '- [ ] 전제조건 확인\n' +
+                                '- [ ] 프로젝트 빌드\n' +
+                                '- [ ] 테스트 실행\n' +
+                                '- [ ] 결과 검증'
+                                : '**CRITICAL: You MUST output in checkbox format.**\n\n' +
+                                'When writing a plan, you MUST use markdown checkbox format "- [ ] task description".\n' +
+                                '- Correct format: "- [ ] task description" or "- [x] completed task"\n' +
+                                '- Wrong format: "- task", "- ✅ task", "1. task", etc.\n\n' +
+                                'Output rules:\n' +
+                                '1. MUST use "- [ ]" checkbox format (dash, space, brackets, space)\n' +
+                                '2. Each task item must be written as "- [ ] task description"\n' +
+                                '3. Do NOT include executable code blocks\n' +
+                                '4. Do NOT include terminal commands or code blocks\n' +
+                                '5. Provide only concise and clear task descriptions\n\n' +
+                                'Example:\n' +
+                                '- [ ] Check prerequisites\n' +
+                                '- [ ] Build project\n' +
+                                '- [ ] Run tests\n' +
+                                '- [ ] Verify results';
                             let planText: string | null = null;
                             if (this.currentModelType === AiModelType.GEMINI) {
                                 planText = await this.geminiApi.sendMessageWithSystemPrompt(systemPromptForPlan, parts, { signal: abortSignal });
@@ -743,22 +1161,57 @@ ${languageRule}
                                 const firstLine = planText.split('\n').find(l => l.trim().length > 0)?.trim() || '';
                                 const summary = firstLine.length > 80 ? (firstLine.slice(0, 80) + '...') : firstLine;
                                 this.sendProcessingStatus('plan', `Reasoning 모델: ${reasoningModelNameForPlan || '(미설정)'} - ${summary || 'Plan ready.'}`);
-                                // 챗 패널에 우선 출력: 실행 가능한 코드/터미널 블록 제거 후 표시
-                                const displayPlan = stripTerminalBlocks(planText);
-                                safePostMessage(webviewToRespond, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: displayPlan });
+                                // 챗 패널에 plan 출력하지 않음 (작업 큐에만 표시)
 
-                                // 간단 파서: markdown 체크박스/불릿을 PlanItem으로 큐잉
+                                // 큐에 추가할 아이템 준비 - 체크박스 항목만 파싱 (원본 planText 사용)
+                                console.log('[LlmService] planText 파싱 시작, planText 길이:', planText.length);
+                                let itemsToEnqueue: Array<{ title: string, detail?: string }> = this.parseCheckboxItemsFromPlan(planText);
+                                console.log('[LlmService] 파싱된 항목 수:', itemsToEnqueue.length);
+                                console.log('[LlmService] 파싱된 항목:', itemsToEnqueue.map(i => i.title.substring(0, 30)));
+
+                                // 각 항목의 길이를 50자로 제한 (모든 항목 표시)
+                                itemsToEnqueue = itemsToEnqueue.map(item => ({
+                                    title: item.title.length > 50 ? item.title.substring(0, 47) + '...' : item.title,
+                                    detail: item.detail
+                                }));
+
+                                console.log('[LlmService] 최종 큐에 추가할 항목:', itemsToEnqueue.length, '개');
+
+                                // 큐에 추가
                                 try {
-                                    const items = this.parsePlanToItems(planText);
                                     if (!this.planQueueService && this.extensionContext) {
                                         this.planQueueService = new PlanQueueService(this.extensionContext);
                                     }
-                                    if (this.planQueueService && items.length > 0) {
-                                        this.planQueueService.enqueue(items.map(it => ({ title: it.title, detail: it.detail })), 'pending');
-                                        this.sendProcessingStatus('plan', `Queued ${items.length} to-do items.`);
+                                    if (this.planQueueService && itemsToEnqueue.length > 0) {
+                                        // 새로운 plan 생성 시 기존 큐 초기화
+                                        console.log('[LlmService] 기존 큐 초기화');
+                                        this.planQueueService.clear();
+
+                                        console.log('[LlmService] planQueueService.enqueue 호출, 항목 수:', itemsToEnqueue.length);
+                                        this.planQueueService.enqueue(itemsToEnqueue, 'pending');
+                                        this.sendProcessingStatus('plan', `Queued ${itemsToEnqueue.length} to-do items.`);
+
+                                        // 웹뷰에 작업 큐 업데이트 전송
+                                        const queueItems = this.planQueueService.list();
+                                        console.log('[LlmService] 웹뷰에 전송할 큐 아이템 수:', queueItems.length);
+                                        safePostMessage(webviewToRespond, {
+                                            command: 'updateTaskQueue',
+                                            items: queueItems
+                                        });
+                                        console.log('[LlmService] updateTaskQueue 메시지 전송 완료');
+
+                                        // TerminalManager에 PlanQueueService 설정
+                                        const { setPlanQueueService } = await import('../terminal/terminalManager.js');
+                                        setPlanQueueService(this.planQueueService);
+                                    } else {
+                                        console.warn('[LlmService] 큐에 추가할 항목이 없거나 planQueueService가 없음:', {
+                                            itemsCount: itemsToEnqueue.length,
+                                            hasService: !!this.planQueueService,
+                                            hasContext: !!this.extensionContext
+                                        });
                                     }
                                 } catch (e) {
-                                    console.warn('[LlmService] Failed to enqueue plan items:', e);
+                                    console.error('[LlmService] Failed to enqueue plan items:', e);
                                 }
                             } else {
                                 this.sendProcessingStatus('plan', 'Plan generation returned empty content.');
@@ -1183,6 +1636,7 @@ ${languageRule}
         const lines: string[] = [];
         lines.push(`카테고리: ${intent.category}`);
         lines.push(`세부 유형: ${intent.subtype}`);
+        lines.push(`작업 유형: ${intent.taskType}`);
         lines.push(`신뢰도: ${(intent.confidence * 100).toFixed(0)}%`);
         if (intent.keywords && intent.keywords.length > 0) {
             lines.push(`매칭 키워드: ${intent.keywords.join(', ')}`);
@@ -1190,6 +1644,25 @@ ${languageRule}
         if (intent.reasoning) {
             lines.push(`근거: ${intent.reasoning}`);
         }
+
+        // 작업 유형에 따른 명확한 지침 추가
+        if (intent.taskType === 'code_work') {
+            lines.push(`\n**작업 지침: 코드 작성 작업 (절대 필수)**`);
+            lines.push(`- 소스 코드 파일(.js, .ts, .py, .java, .go, .rs 등)을 생성/수정/삭제해야 합니다.`);
+            lines.push(`- **절대로 쉘 스크립트(.sh, .bat, .ps1)나 빌드 스크립트를 생성하지 마세요.**`);
+            lines.push(`- **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**`);
+            lines.push(`- 프로그래밍 언어의 소스 코드 파일만 작성하세요.`);
+            if (intent.subtype === 'code_generate' && (intent.reasoning?.includes('프로젝트 생성') || intent.reasoning?.includes('프로젝트 만들'))) {
+                lines.push(`- **프로젝트 생성 작업**: 프로젝트 구조 파일(pom.xml, package.json, build.gradle 등)과 소스 코드 파일을 먼저 생성하세요.`);
+                lines.push(`- 빌드나 실행은 소스 파일 생성 후 별도로 처리됩니다.`);
+            }
+        } else if (intent.taskType === 'execution_work') {
+            lines.push(`\n**작업 지침: 쉘 스크립트 작업 (설치/빌드/배포/실행)**`);
+            lines.push(`- 프로젝트의 설치, 빌드, 배포, 실행을 위한 스크립트(.sh, .bat, .ps1 등)를 생성하거나 터미널 명령을 실행해야 합니다.`);
+            lines.push(`- 소스 코드 파일을 생성/수정하지 마세요.`);
+            lines.push(`- 빌드/실행 스크립트나 터미널 명령어를 제공하세요.`);
+        }
+
         return lines.join('\n');
     }
 
@@ -1274,43 +1747,75 @@ ${gitContext}
 
     /**
      * 사용자 질의어에서 프로젝트 타입을 LLM으로 감지합니다.
+     * 하나의 프로젝트 타입만 선택하도록 강제합니다.
      */
-    private async detectProjectTypeFromQuery(userQuery: string): Promise<string> {
+    private async detectProjectTypeFromQuery(userQuery: string, projectRoot?: string): Promise<{ projectType: string, confidence: number, needsUserSelection: boolean }> {
         try {
-            const projectTypePrompt = `다음 사용자 요청을 분석하여 프로젝트 타입을 감지하세요.
+            // 로컬 파일 시스템 기반 감지 먼저 시도
+            let localProjectType = 'unknown';
+            if (projectRoot) {
+                const fs = require('fs');
+                const path = require('path');
+                try {
+                    if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
+                        localProjectType = 'nodejs-npm';
+                    } else if (fs.existsSync(path.join(projectRoot, 'requirements.txt')) || fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
+                        localProjectType = 'python';
+                    } else if (fs.existsSync(path.join(projectRoot, 'pom.xml'))) {
+                        localProjectType = 'java-maven';
+                    } else if (fs.existsSync(path.join(projectRoot, 'build.gradle'))) {
+                        localProjectType = 'java-gradle';
+                    } else if (fs.existsSync(path.join(projectRoot, 'go.mod'))) {
+                        localProjectType = 'go';
+                    } else if (fs.existsSync(path.join(projectRoot, 'build.gradle')) && fs.existsSync(path.join(projectRoot, 'app'))) {
+                        // Android 프로젝트 확인
+                        const androidManifest = fs.existsSync(path.join(projectRoot, 'app', 'src', 'main', 'AndroidManifest.xml'));
+                        if (androidManifest) {
+                            localProjectType = 'android';
+                        }
+                    } else if (fs.existsSync(path.join(projectRoot, 'Podfile')) || fs.existsSync(path.join(projectRoot, '*.xcodeproj'))) {
+                        localProjectType = 'ios';
+                    }
+                } catch (e) {
+                    console.warn('[LlmService] 로컬 프로젝트 타입 감지 실패:', e);
+                }
+            }
 
-지원하는 프로젝트 타입:
-- react: React 프로젝트
-- react-vite: React + Vite 프로젝트
-- vue: Vue.js 프로젝트
-- angular: Angular 프로젝트
-- next: Next.js 프로젝트
-- nuxt: Nuxt.js 프로젝트
-- svelte: Svelte 프로젝트
-- nodejs: 일반 Node.js 프로젝트
-- django: Django (Python) 프로젝트
-- flask: Flask (Python) 프로젝트
-- fastapi: FastAPI (Python) 프로젝트
-- python: 일반 Python 프로젝트
-- java: Java/Spring 프로젝트
-- spring: Spring Boot 프로젝트
-- spring-boot: Spring Boot 프로젝트
-- dotnet: .NET 프로젝트
-- go: Go 프로젝트
-- rust: Rust 프로젝트
-- php: PHP 프로젝트
-- ruby: Ruby 프로젝트
-- ios: iOS 프로젝트
-- android: Android 프로젝트
-- flutter: Flutter 프로젝트
-- react-native: React Native 프로젝트
-- unknown: 감지할 수 없음
+            const supportedTypes = [
+                'nodejs-npm',
+                'python',
+                'java-maven',
+                'java-gradle',
+                'go',
+                'android',
+                'ios'
+            ];
+
+            const projectTypePrompt = `다음 사용자 요청과 로컬 프로젝트 구성을 분석하여 프로젝트 타입을 정확히 하나만 선택하세요.
+
+지원하는 프로젝트 타입 (반드시 이 중 하나만 선택):
+1. nodejs-npm: Node.js 프로젝트 (package.json 존재)
+2. python: Python 프로젝트 (requirements.txt, pyproject.toml 등)
+3. java-maven: Java Maven 프로젝트 (pom.xml 존재)
+4. java-gradle: Java Gradle 프로젝트 (build.gradle 존재)
+5. go: Go 프로젝트 (go.mod 존재)
+6. android: Android 프로젝트 (AndroidManifest.xml, build.gradle 존재)
+7. ios: iOS 프로젝트 (Podfile, .xcodeproj 존재)
+
+로컬 프로젝트 구성: ${localProjectType !== 'unknown' ? localProjectType : '감지되지 않음'}
+
+**중요 규칙:**
+- 반드시 위 7개 타입 중 하나만 선택해야 합니다.
+- 여러 타입이 가능해 보이면 가장 확실한 하나만 선택하세요.
+- 확신이 없으면 (confidence < 0.7) needsUserSelection을 true로 설정하세요.
+- 로컬 파일 시스템에서 감지된 타입이 있으면 그것을 우선 고려하세요.
 
 출력 형식 (JSON):
 {
-  "projectType": "react-vite",
+  "projectType": "nodejs-npm",
   "confidence": 0.9,
-  "reasoning": "사용자가 'react javascript 템플릿으로 vite 프로젝트 생성'이라고 요청했으므로 React + Vite 프로젝트입니다."
+  "reasoning": "package.json 파일이 존재하고 사용자 요청에 npm 키워드가 포함되어 있습니다.",
+  "needsUserSelection": false
 }
 
 사용자 요청: "${userQuery}"`;
@@ -1322,7 +1827,11 @@ ${gitContext}
             } else if (this.currentModelType === AiModelType.OLLAMA_Gemma || this.currentModelType === AiModelType.OLLAMA_DeepSeek || this.currentModelType === AiModelType.OLLAMA_CodeLlama || this.currentModelType === AiModelType.OLLAMA_GPT_OSS) {
                 response = await this.ollamaApi.sendMessage(projectTypePrompt, { signal: this.currentCallController?.signal });
             } else {
-                return 'unknown';
+                return {
+                    projectType: 'unknown',
+                    confidence: 0,
+                    needsUserSelection: true
+                };
             }
 
             console.log(`[LlmService] LLM 프로젝트 타입 감지 응답: ${response}`);
@@ -1331,43 +1840,68 @@ ${gitContext}
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 const result = JSON.parse(jsonMatch[0]);
-                if (result.projectType && result.confidence > 0.5) {
-                    console.log(`[LlmService] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${result.confidence})`);
-                    return result.projectType;
+                if (result.projectType && supportedTypes.includes(result.projectType)) {
+                    console.log(`[LlmService] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${result.confidence}, 사용자 선택 필요: ${result.needsUserSelection || false})`);
+                    return {
+                        projectType: result.projectType,
+                        confidence: result.confidence || 0.5,
+                        needsUserSelection: result.needsUserSelection || (result.confidence < 0.7)
+                    };
                 }
             }
 
-            // JSON 파싱 실패 시 키워드 기반 감지
-            const lowerQuery = userQuery.toLowerCase();
-            if (lowerQuery.includes('react') && lowerQuery.includes('vite')) return 'react-vite';
-            if (lowerQuery.includes('react')) return 'react';
-            if (lowerQuery.includes('vue')) return 'vue';
-            if (lowerQuery.includes('angular')) return 'angular';
-            if (lowerQuery.includes('next')) return 'next';
-            if (lowerQuery.includes('nuxt')) return 'nuxt';
-            if (lowerQuery.includes('svelte')) return 'svelte';
-            if (lowerQuery.includes('django')) return 'django';
-            if (lowerQuery.includes('flask')) return 'flask';
-            if (lowerQuery.includes('fastapi')) return 'fastapi';
-            if (lowerQuery.includes('python')) return 'python';
-            if (lowerQuery.includes('spring') || lowerQuery.includes('spring-boot') || lowerQuery.includes('boot')) return 'spring';
-            if (lowerQuery.includes('앱') && (lowerQuery.includes('빌드') || lowerQuery.includes('실행'))) return 'spring';
-            if (lowerQuery.includes('java')) return 'java';
-            if (lowerQuery.includes('.net') || lowerQuery.includes('c#')) return 'dotnet';
-            if (lowerQuery.includes('go ') || lowerQuery.includes('golang')) return 'go';
-            if (lowerQuery.includes('rust')) return 'rust';
-            if (lowerQuery.includes('php')) return 'php';
-            if (lowerQuery.includes('ruby')) return 'ruby';
-            if (lowerQuery.includes('ios')) return 'ios';
-            if (lowerQuery.includes('android')) return 'android';
-            if (lowerQuery.includes('flutter')) return 'flutter';
-            if (lowerQuery.includes('react-native')) return 'react-native';
-            if (lowerQuery.includes('node') || lowerQuery.includes('javascript') || lowerQuery.includes('typescript')) return 'nodejs';
+            // 로컬에서 감지된 타입이 있으면 그것을 우선 사용
+            if (localProjectType !== 'unknown' && supportedTypes.includes(localProjectType)) {
+                console.log(`[LlmService] 로컬 프로젝트 타입 사용: ${localProjectType}`);
+                return {
+                    projectType: localProjectType,
+                    confidence: 0.8,
+                    needsUserSelection: false
+                };
+            }
 
-            return 'unknown';
+            // JSON 파싱 실패 및 로컬 감지 실패 시 키워드 기반 감지
+            const lowerQuery = userQuery.toLowerCase();
+            let detectedType = 'unknown';
+
+            if (lowerQuery.includes('node') || lowerQuery.includes('npm') || lowerQuery.includes('javascript') || lowerQuery.includes('typescript')) {
+                detectedType = 'nodejs-npm';
+            } else if (lowerQuery.includes('python')) {
+                detectedType = 'python';
+            } else if (lowerQuery.includes('maven') || (lowerQuery.includes('java') && lowerQuery.includes('maven'))) {
+                detectedType = 'java-maven';
+            } else if (lowerQuery.includes('gradle') || (lowerQuery.includes('java') && lowerQuery.includes('gradle'))) {
+                detectedType = 'java-gradle';
+            } else if (lowerQuery.includes('java')) {
+                detectedType = 'java-maven'; // 기본값
+            } else if (lowerQuery.includes('go ') || lowerQuery.includes('golang')) {
+                detectedType = 'go';
+            } else if (lowerQuery.includes('android')) {
+                detectedType = 'android';
+            } else if (lowerQuery.includes('ios')) {
+                detectedType = 'ios';
+            }
+
+            if (detectedType !== 'unknown') {
+                return {
+                    projectType: detectedType,
+                    confidence: 0.6,
+                    needsUserSelection: true // 키워드 기반이므로 사용자 확인 필요
+                };
+            }
+
+            return {
+                projectType: 'unknown',
+                confidence: 0,
+                needsUserSelection: true
+            };
         } catch (error) {
             console.warn('[LlmService] LLM 프로젝트 타입 감지 실패:', error);
-            return 'unknown';
+            return {
+                projectType: 'unknown',
+                confidence: 0,
+                needsUserSelection: true
+            };
         }
     }
 
@@ -1621,3 +2155,4 @@ ${gitContext}
         }
     }
 }
+

@@ -71,7 +71,8 @@
 
         #chat-container {
             /* 하단 고정 영역의 높이를 고려한 패딩 설정 */
-            padding: 10px 10px 220px 10px; /* 입력 영역 + Processing Steps를 고려해 하단 여백 확대 */
+            padding: 10px 10px 220px 10px;
+            /* 입력 영역 + Processing Steps를 고려해 하단 여백 확대 */
             /* 하단 패딩을 120px로 증가 (입력 영역 + 파일 선택 영역 고려) */
             overflow-y: auto;
             /* 내용 넘칠 시 세로 스크롤 생성 */
@@ -428,25 +429,32 @@
 
         /* 처리 단계 표시 UI */
         .processing-steps {
-            position: fixed; /* 오버레이 */
+            position: fixed;
+            /* 오버레이 */
             left: 50%;
-            bottom: 170px; /* 입력 영역 위로 띄움 */
+            bottom: 170px;
+            /* 입력 영역 위로 띄움 */
             transform: translateX(-50%);
             width: 85%;
+            max-width: 90vw;
+            height: 60px;
+            max-height: 60px;
             background: #1e1e1e;
             border: 1px solid #00ff00;
             border-radius: 8px;
-            padding: 10px;
-            z-index: 2147483647; /* 최상단 */
+            overflow: hidden;
+            padding: 8px 12px;
+            line-height: 22px;
+            z-index: 2147483647;
+            /* 최상단 */
             color: #ffffff;
             font-size: 13px;
-            min-height: 60px;
-            max-height: 50vh;
-            overflow-y: auto;
             box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
             opacity: 0.95;
-            display: block;
-            pointer-events: none; /* 아래 요소와 상호작용 방해 금지 */
+            display: flex;
+            align-items: center;
+            pointer-events: none;
+            /* 아래 요소와 상호작용 방해 금지 */
             transition: opacity 0.8s ease-out, transform 0.8s ease-out;
         }
 
@@ -503,6 +511,30 @@
             color: var(--vscode-descriptionForeground);
             margin-left: 0;
             margin-top: 2px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes lightGlow {
+
+            0%,
+            100% {
+                box-shadow: 0 0 8px rgba(0, 122, 204, 0.6), 0 0 12px rgba(0, 122, 204, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 12px rgba(0, 122, 204, 0.8), 0 0 18px rgba(0, 122, 204, 0.6);
+            }
         }
 
         @keyframes pulse {
@@ -1760,13 +1792,69 @@
             ]);
         }
 
-        // Processing Steps Component with Typing Animation
+        // Processing Steps Component with Horizontal Typing Animation
         function ProcessingSteps() {
             const [steps, setSteps] = useState([]);
             const [isVisible, setIsVisible] = useState(false);
             const [hasUserQuery, setHasUserQuery] = useState(false);
+            const [displayedText, setDisplayedText] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [fullText, setFullText] = useState('');
 
+            // 현재 활성 단계의 아이콘과 모든 단계를 하나의 텍스트로 결합 (아이콘 제외)
+            const [currentIcon, setCurrentIcon] = useState('');
 
+            useEffect(() => {
+                if (steps.length === 0) {
+                    setFullText('');
+                    setDisplayedText('');
+                    setCurrentIcon('');
+                    return;
+                }
+
+                // 현재 활성 단계의 아이콘 추출 (가장 마지막 또는 processing 상태인 단계)
+                const activeStep = steps[steps.length - 1];
+                if (activeStep) {
+                    const emoji = getStepEmoji(activeStep.step);
+                    setCurrentIcon(emoji);
+                }
+
+                // 단계별 텍스트를 가로 방향으로 결합 (이모지 제외)
+                const textParts = steps.map(s => {
+                    const stepName = s.step || '';
+                    const status = s.status || '';
+                    if (status && status !== 'processing' && status !== 'Waiting...') {
+                        return `${stepName}: ${status} | `;
+                    }
+                    return `${stepName} | `;
+                });
+
+                const newFullText = textParts.join('');
+                setFullText(newFullText);
+            }, [steps]);
+
+            // 타이핑 애니메이션
+            useEffect(() => {
+                if (!fullText) {
+                    setDisplayedText('');
+                    setIsTyping(false);
+                    return;
+                }
+
+                setIsTyping(true);
+                let index = 0;
+                const timer = setInterval(() => {
+                    if (index < fullText.length) {
+                        setDisplayedText(fullText.slice(0, index + 1));
+                        index++;
+                    } else {
+                        setIsTyping(false);
+                        clearInterval(timer);
+                    }
+                }, 30); // 타이핑 속도
+
+                return () => clearInterval(timer);
+            }, [fullText]);
 
             useEffect(() => {
                 const handleMessage = (event) => {
@@ -1775,9 +1863,9 @@
                         // 새로운 처리 세션 시작 시 steps 초기화
                         setSteps([{ step: data.step, status: 'processing' }]);
                         setIsVisible(true);
-                        setHasUserQuery(true); // 사용자 질의가 전송됨
+                        setHasUserQuery(true);
                     } else if (data.command === 'updateProcessingStatus') {
-                        setIsVisible(true); // 상태 업데이트 시에도 표시
+                        setIsVisible(true);
                         setSteps(prev => prev.map(s =>
                             s.step === data.step ? { ...s, status: data.status } : s
                         ));
@@ -1786,35 +1874,34 @@
                         const processingStepsElement = document.querySelector('.processing-steps');
                         if (processingStepsElement) {
                             processingStepsElement.classList.add('fade-out');
-                            // 애니메이션 완료 후 숨김
                             setTimeout(() => {
                                 setIsVisible(false);
-                            }, 800); // 0.8초 후 숨김
+                                setSteps([]);
+                                setDisplayedText('');
+                            }, 800);
                         } else {
                             setIsVisible(false);
+                            setSteps([]);
+                            setDisplayedText('');
                         }
                     } else if (data.command === 'cancelProcessing') {
-                        // cancel 후 상태 초기화
                         setIsVisible(false);
                         setSteps([]);
                         setHasUserQuery(false);
+                        setDisplayedText('');
                     } else if (data.command === 'resetProcessingState') {
-                        // 완전한 상태 초기화
                         setIsVisible(false);
                         setSteps([]);
                         setHasUserQuery(false);
+                        setDisplayedText('');
                     } else if (data.command === 'showErrorCorrectionSummary') {
-                        // 오류 수정 완료 보고서를 ProcessingSteps에 표시
                         const summaryStatus = `✅ 오류 수정 완료 보고서: ${data.summary.substring(0, 100)}...`;
                         setSteps(prev => [...prev, { step: 'error_correction_summary', status: summaryStatus }]);
                     } else if (data.command === 'showErrorCorrectionFailure') {
-                        // 오류 수정 실패 메시지를 ProcessingSteps에 표시
                         setSteps(prev => [...prev, { step: 'error_correction_failure', status: data.message }]);
                     } else if (data.command === 'showErrorCorrectionSuccess') {
-                        // 오류 수정 성공 메시지를 ProcessingSteps에 표시
                         setSteps(prev => [...prev, { step: 'error_correction_success', status: data.message }]);
                     } else if (data.command === 'showErrorCorrectionStopped') {
-                        // 오류 수정 중단 메시지를 ProcessingSteps에 표시
                         setSteps(prev => [...prev, { step: 'error_correction_stopped', status: data.message }]);
                     }
                 };
@@ -1825,89 +1912,503 @@
                 };
             }, []);
 
-            // 기존 처리 단계들을 React 컴포넌트로 변환
-            const defaultSteps = [
-                { step: 'Defining User Intent', status: 'Initializing...' },
-                { step: 'Selecting Keywords', status: 'Waiting...' },
-                { step: 'Analyzing Code', status: 'Waiting...' },
-                { step: 'Assembling Answer', status: 'Waiting...' },
-                { step: 'Parsing Markdown', status: 'Waiting...' },
-                { step: 'File Processing', status: 'Waiting...' },
-                { step: 'Preparing to Print', status: 'Waiting...' },
-                { step: 'Error Correction', status: 'Waiting...' }
-            ];
-
-            const displaySteps = steps.length > 0 ? steps : defaultSteps;
-
             if (!isVisible) return null;
 
             return React.createElement('div', {
                 className: 'processing-steps',
-                id: 'processing-steps-debug', // 디버깅용 ID 추가
+                id: 'processing-steps-debug',
                 style: {
                     background: '#1e1e1e',
                     border: '1px solid #00ff00',
                     borderRadius: '8px',
-                    padding: '10px',
+                    padding: '8px 12px',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
+                    alignItems: 'flex-start',
                     position: 'fixed',
                     left: '50%',
                     bottom: '170px',
                     transform: 'translateX(-50%)',
                     width: '85%',
+                    maxWidth: '90vw',
+                    height: '60px',
+                    maxHeight: '60px',
                     zIndex: 2147483647,
                     pointerEvents: 'none',
                     color: '#ffffff',
                     fontSize: '13px',
-                    minHeight: '60px',
-                    maxHeight: '50vh',
-                    overflowY: 'auto',
                     boxShadow: '0 4px 12px rgba(0, 255, 0, 0.3)',
-                    opacity: '0.95'
+                    opacity: '0.95',
+                    overflow: 'hidden',
+                    gap: '10px'
                 }
             }, [
+                // 좌측 아이콘 영역 (고정 너비)
+                React.createElement('div', {
+                    key: 'icon',
+                    style: {
+                        flexShrink: 0,
+                        width: '24px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'center',
+                        paddingTop: '2px'
+                    }
+                }, currentIcon || '🔹'),
+                // 우측 문자열 영역 (나머지 공간)
+                React.createElement('div', {
+                    key: 'content',
+                    style: {
+                        flex: 1,
+                        overflow: 'hidden',
+                        fontFamily: 'monospace',
+                        color: '#00ff00',
+                        lineHeight: '22px',
+                        maxHeight: '44px',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        wordBreak: 'break-all',
+                        textAlign: 'left',
+                        paddingRight: '30px' // 우측 로딩 아이콘과 겹치지 않도록 여백 확보
+                    }
+                }, [
+                    React.createElement('span', {
+                        key: 'text',
+                        style: {
+                            display: 'inline',
+                            wordBreak: 'break-all'
+                        }
+                    }, displayedText),
+                    isTyping && React.createElement('span', {
+                        key: 'cursor',
+                        style: {
+                            display: 'inline-block',
+                            width: '2px',
+                            height: '16px',
+                            background: '#00ff00',
+                            marginLeft: '2px',
+                            animation: 'blink 1s infinite',
+                            verticalAlign: 'middle'
+                        }
+                    })
+                ]),
                 // 상단 우측 로딩 스피너
                 React.createElement('div', {
                     key: 'spinner',
                     style: {
                         position: 'absolute',
                         top: '8px',
-                        right: '10px',
+                        right: '12px',
                         width: '14px',
                         height: '14px',
                         border: '2px solid #00ff00',
                         borderTop: '2px solid transparent',
                         borderRadius: '50%',
                         animation: 'spin 1s linear infinite',
-                        opacity: 0.9
+                        opacity: 0.9,
+                        flexShrink: 0
                     }
-                }),
+                })
+            ]);
+        }
+
+        // ProjectTypeSelection Component - 프로젝트 타입 선택 UI
+        function ProjectTypeSelection() {
+            const [isVisible, setIsVisible] = useState(false);
+            const [detectedType, setDetectedType] = useState('');
+            const [supportedTypes, setSupportedTypes] = useState([]);
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    if (data.command === 'showProjectTypeSelection') {
+                        setDetectedType(data.detectedType || 'unknown');
+                        setSupportedTypes(data.supportedTypes || []);
+                        setIsVisible(true);
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => {
+                    window.removeEventListener('message', handleMessage);
+                };
+            }, []);
+
+            if (!isVisible || supportedTypes.length === 0) return null;
+
+            const handleSelection = (selectedType) => {
+                // 선택한 프로젝트 타입을 확장 프로그램에 전송
+                if (window.vscode) {
+                    window.vscode.postMessage({
+                        command: 'projectTypeSelected',
+                        projectType: selectedType
+                    });
+                }
+                setIsVisible(false);
+            };
+
+            return React.createElement('div', {
+                className: 'project-type-selection',
+                style: {
+                    position: 'fixed',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '500px',
+                    maxWidth: '90vw',
+                    background: 'var(--vscode-editor-background)',
+                    border: '1px solid var(--vscode-panel-border)',
+                    borderRadius: '8px',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+                    zIndex: 2147483648, // Processing Steps(2147483647)보다 높게 설정
+                    padding: '20px',
+                    animation: 'fadeIn 0.3s ease'
+                }
+            }, [
                 React.createElement('div', {
                     key: 'header',
-                    style: { fontWeight: 'bold', marginBottom: '5px', color: '#00ff00' }
-                }, '🔧 Processing Steps'),
+                    style: {
+                        marginBottom: '16px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                    }
+                }, [
+                    React.createElement('h3', {
+                        key: 'title',
+                        style: {
+                            margin: 0,
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: 'var(--vscode-foreground)'
+                        }
+                    }, '프로젝트 타입을 선택하세요.'),
+                    React.createElement('button', {
+                        key: 'close',
+                        onClick: () => setIsVisible(false),
+                        style: {
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--vscode-foreground)',
+                            cursor: 'pointer',
+                            fontSize: '20px',
+                            padding: '0',
+                            width: '24px',
+                            height: '24px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '4px'
+                        }
+                    }, '×')
+                ]),
+                detectedType !== 'unknown' && React.createElement('div', {
+                    key: 'detected',
+                    style: {
+                        marginBottom: '16px',
+                        padding: '12px',
+                        background: 'var(--vscode-inputValidation-infoBackground)',
+                        border: '1px solid var(--vscode-inputValidation-infoBorder)',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        color: 'var(--vscode-foreground)'
+                    }
+                }, `감지된 프로젝트 타입: ${supportedTypes.find(t => t.id === detectedType)?.label || detectedType}`),
                 React.createElement('div', {
-                    key: 'titles',
-                    style: { marginBottom: '5px', paddingLeft: '24px' }
-                }, displaySteps.map((s, idx) =>
-                    React.createElement('div', {
-                        key: `t-${idx}`,
-                        style: { fontWeight: '600', color: 'var(--vscode-foreground)', fontFamily: 'monospace', fontSize: '13px', marginBottom: '5px' }
+                    key: 'list',
+                    style: {
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                    }
+                }, supportedTypes.map((type) => {
+                    const isDetected = type.id === detectedType;
+                    return React.createElement('button', {
+                        key: type.id,
+                        onClick: () => handleSelection(type.id),
+                        style: {
+                            padding: '12px 16px',
+                            background: isDetected
+                                ? 'var(--vscode-button-secondaryHoverBackground)'
+                                : 'var(--vscode-list-hoverBackground)',
+                            border: `1px solid ${isDetected ? 'var(--vscode-inputValidation-infoBorder)' : 'var(--vscode-panel-border)'}`,
+                            borderRadius: '6px',
+                            color: 'var(--vscode-foreground)',
+                            fontSize: '14px',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        },
+                        onMouseEnter: (e) => {
+                            if (!isDetected) {
+                                e.target.style.background = 'var(--vscode-list-activeSelectionBackground)';
+                            }
+                        },
+                        onMouseLeave: (e) => {
+                            if (!isDetected) {
+                                e.target.style.background = 'var(--vscode-list-hoverBackground)';
+                            }
+                        }
                     }, [
-                        React.createElement('span', { key: 'emoji', style: { marginRight: '6px' } }, getStepEmoji(s.step)),
-                        s.step
-                    ])
-                )),
-                ...displaySteps.map((step, index) =>
-                    React.createElement(ProcessingStep, {
-                        key: index,
-                        step: step.step,
-                        status: step.status
-                    })
-                )
+                        React.createElement('span', {
+                            key: 'label'
+                        }, type.label),
+                        isDetected && React.createElement('span', {
+                            key: 'badge',
+                            style: {
+                                fontSize: '11px',
+                                color: 'var(--vscode-inputValidation-infoForeground)',
+                                background: 'var(--vscode-inputValidation-infoBackground)',
+                                padding: '2px 8px',
+                                borderRadius: '12px'
+                            }
+                        }, '감지됨')
+                    ]);
+                }))
             ]);
+        }
+
+        // TaskQueue Component - 작업 큐를 표시하고 실행 상태를 추적
+        function TaskQueue() {
+            const [tasks, setTasks] = useState([]);
+            const [isVisible, setIsVisible] = useState(false);
+            const [isMinimized, setIsMinimized] = useState(false);
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    if (data.command === 'updateTaskQueue') {
+                        if (data.items && Array.isArray(data.items)) {
+                            setTasks(data.items);
+                            setIsVisible(data.items.length > 0);
+                        }
+                    } else if (data.command === 'taskQueueUpdate') {
+                        // 개별 작업 상태 업데이트
+                        if (data.item) {
+                            setTasks(prevTasks => {
+                                const updated = prevTasks.map(task =>
+                                    task.id === data.item.id ? { ...task, ...data.item } : task
+                                );
+                                return updated;
+                            });
+                        }
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => {
+                    window.removeEventListener('message', handleMessage);
+                };
+            }, []);
+
+            if (!isVisible || tasks.length === 0) return null;
+
+            return React.createElement('div', {
+                className: 'task-queue-container',
+                style: {
+                    position: 'fixed',
+                    top: '60px',
+                    right: '20px',
+                    width: isMinimized ? 'auto' : '400px',
+                    maxWidth: isMinimized ? 'auto' : 'calc(100vw - 40px)', // 화면 너비를 넘지 않도록
+                    height: isMinimized ? 'auto' : 'auto',
+                    maxHeight: isMinimized ? 'none' : '60vh',
+                    background: 'var(--vscode-editor-background)',
+                    border: '1px solid var(--vscode-panel-border)',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                    zIndex: 1000,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: 'all 0.3s ease'
+                }
+            }, (() => {
+                const children = [
+                    // 헤더
+                    React.createElement('div', {
+                        key: 'header',
+                        style: {
+                            padding: '12px 16px',
+                            borderBottom: isMinimized ? 'none' : '1px solid var(--vscode-panel-border)',
+                            background: 'var(--vscode-sideBar-background)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            minWidth: '120px'
+                        },
+                        onClick: () => {
+                            if (isMinimized) {
+                                setIsMinimized(false);
+                            }
+                        }
+                    }, [
+                        React.createElement('h3', {
+                            key: 'title',
+                            style: {
+                                margin: 0,
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: 'var(--vscode-foreground)'
+                            }
+                        }, '작업 큐'),
+                        React.createElement('div', {
+                            key: 'buttons',
+                            style: {
+                                display: 'flex',
+                                gap: '8px',
+                                alignItems: 'center'
+                            },
+                            onClick: (e) => e.stopPropagation()
+                        }, [
+                            React.createElement('button', {
+                                key: 'minimize',
+                                onClick: () => setIsMinimized(!isMinimized),
+                                style: {
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--vscode-foreground)',
+                                    cursor: 'pointer',
+                                    fontSize: '16px',
+                                    padding: '4px',
+                                    width: '24px',
+                                    height: '24px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '4px',
+                                    transition: 'background-color 0.2s'
+                                },
+                                onMouseEnter: (e) => {
+                                    e.target.style.background = 'var(--vscode-list-hoverBackground)';
+                                },
+                                onMouseLeave: (e) => {
+                                    e.target.style.background = 'none';
+                                },
+                                title: isMinimized ? '최대화' : '최소화'
+                            }, isMinimized ? '□' : '_'),
+                            React.createElement('button', {
+                                key: 'close',
+                                onClick: () => setIsVisible(false),
+                                style: {
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--vscode-foreground)',
+                                    cursor: 'pointer',
+                                    fontSize: '18px',
+                                    padding: '0',
+                                    width: '24px',
+                                    height: '24px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '4px',
+                                    transition: 'background-color 0.2s'
+                                },
+                                onMouseEnter: (e) => e.target.style.background = 'var(--vscode-list-hoverBackground)',
+                                onMouseLeave: (e) => e.target.style.background = 'none'
+                            }, '×')
+                        ])
+                    ])
+                ];
+
+                // 작업 목록 (최소화 상태가 아닐 때만 추가)
+                if (!isMinimized) {
+                    children.push(React.createElement('div', {
+                        key: 'list',
+                        style: {
+                            overflowY: 'auto',
+                            maxHeight: 'calc(60vh - 50px)',
+                            padding: '0',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0'
+                        }
+                    }, tasks.map((task, index) => {
+                        const isDone = task.status === 'done';
+                        const isInProgress = task.status === 'in_progress';
+                        const isPending = task.status === 'pending';
+
+                        return React.createElement('div', {
+                            key: task.id || index,
+                            className: `task-item task-${task.status}`,
+                            style: {
+                                padding: '12px',
+                                marginBottom: '0',
+                                borderRadius: '0',
+                                background: isDone
+                                    ? 'var(--vscode-editor-background)'
+                                    : isInProgress
+                                        ? 'var(--vscode-list-activeSelectionBackground)'
+                                        : 'var(--vscode-list-hoverBackground)',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '12px',
+                                transition: 'all 0.3s ease',
+                                animation: isInProgress ? 'pulse 2s ease-in-out infinite' : 'none'
+                            }
+                        }, [
+                            // 상태 표시기 (파란 불)
+                            React.createElement('div', {
+                                key: 'indicator',
+                                style: {
+                                    width: '12px',
+                                    height: '12px',
+                                    borderRadius: '50%',
+                                    background: isDone
+                                        ? '#007acc' // 파란색
+                                        : isInProgress
+                                            ? '#ffa500' // 주황색
+                                            : 'var(--vscode-input-foreground)',
+                                    flexShrink: 0,
+                                    marginTop: '4px',
+                                    boxShadow: isDone ? '0 0 8px rgba(0, 122, 204, 0.6), 0 0 12px rgba(0, 122, 204, 0.4)' : 'none',
+                                    animation: isDone ? 'lightGlow 2s ease-in-out infinite' : 'none',
+                                    transition: 'all 0.3s ease'
+                                }
+                            }),
+                            // 작업 내용
+                            React.createElement('div', {
+                                key: 'content',
+                                style: {
+                                    flex: 1,
+                                    minWidth: 0
+                                }
+                            }, [
+                                React.createElement('div', {
+                                    key: 'title',
+                                    style: {
+                                        fontSize: '13px',
+                                        fontWeight: isDone ? '500' : '500',
+                                        color: isDone
+                                            ? '#007acc' // 파란색
+                                            : 'var(--vscode-foreground)',
+                                        textDecoration: 'none',
+                                        marginBottom: task.detail ? '4px' : '0',
+                                        transition: 'all 0.3s ease'
+                                    }
+                                }, task.title || '작업'),
+                                task.detail && React.createElement('div', {
+                                    key: 'detail',
+                                    style: {
+                                        fontSize: '11px',
+                                        color: 'var(--vscode-descriptionForeground)',
+                                        marginTop: '4px'
+                                    }
+                                }, task.detail)
+                            ])
+                        ]);
+                    })));
+                }
+
+                return children;
+            })())
         }
 
         // Main React App Component
@@ -1968,7 +2469,9 @@
             }, [
                 React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
-                React.createElement(ProcessingSteps, { key: 'processing-steps' }) // 강제 렌더링
+                React.createElement(ProcessingSteps, { key: 'processing-steps' }),
+                React.createElement(TaskQueue, { key: 'task-queue' }),
+                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }) // 프로젝트 타입 선택 컴포넌트 추가
             ]);
         }
 
@@ -2015,10 +2518,10 @@
                 if (!nameEl) return;
                 const stepName = (nameEl.textContent || '').toLowerCase().replace(' ', '');
                 if (stepName.includes(String(step).toLowerCase())) {
-                        const statusElement = stepElement.querySelector('.step-status');
+                    const statusElement = stepElement.querySelector('.step-status');
                     if (!statusElement) return;
-                            statusElement.textContent = status;
-                            statusElement.className = 'step-status active';
+                    statusElement.textContent = status;
+                    statusElement.className = 'step-status active';
                 }
             });
         }
