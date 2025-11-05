@@ -2,6 +2,35 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.9.0 (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
+
+<details>
+<summary>Command Execution Summary Enhancement & Task Queue Completion Status</summary>
+
+### Added
+- **Command Execution Summary Descriptions**: Added user-friendly description phrases for each command in the execution summary
+  - Maven/Gradle build commands: "Package project into executable JAR file", "Compile project source code", etc.
+  - npm/yarn commands: "Build project", "Start development server", "Run tests", etc.
+  - Installation commands: "Install npm package dependencies", "Install Python packages", "Install Homebrew packages", etc.
+  - Execution commands: "Run Java application", "Execute Node.js script", "Run Python script", etc.
+  - Git/Docker commands: "Clone Git repository", "Build Docker image", etc.
+- **Automatic Task Queue Completion Status Updates**: Task queue item status automatically updates when terminal commands are executed
+  - Command execution start: `pending` → `in_progress`
+  - Command execution completion: `in_progress` → `done` (success) or `failed` (failure)
+  - Real-time webview updates: Task queue status changes are immediately reflected in the webview
+
+### Improved
+- **Command Description Pattern Matching**: Automatically generates appropriate descriptions by recognizing various command patterns
+- **Task Queue Integration**: Improved task queue status management through integration between TerminalManager and PlanQueueService
+- **Enhanced User Experience**: Command execution summaries are now clearer and easier to understand
+
+### Technical Improvements
+- `llmResponseProcessor.ts`: Added `describeCommand()` function for command pattern analysis and description generation
+- `terminalManager.ts`: Added `setPlanQueueService()` function and automatic task queue status updates in `processQueue()`
+- `llmService.ts`: Passes PlanQueueService instance to TerminalManager when creating task queue
+
+</details>
+
 ## 🚀 Version 4.6.0 (2025/10/23) - Planning & Plan Queue
 
 <details>

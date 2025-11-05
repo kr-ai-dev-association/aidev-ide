@@ -703,10 +703,11 @@ Calling out known issues can help limit users opening duplicate issues against y
 Please see [RELEASE.md](RELEASE.md).
 
 ### Latest Release
-- **🚀 Version 4.6.0** (2025/01/15) - Plan Queue Management & Bash Script Execution Fix
-  - **Plan Queue Management**: Reasoning model selection, actionable to-do plan generation, item management in Plan Queue panel
-  - **Bash Script Execution Fix**: Multi-line bash construct merging, single session execution, syntax error prevention
-  - **Command Normalization**: Improved preprocessing for idempotent, OS-specific shell commands
+- **🚀 Version 4.9.0** (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
+  - **Command Execution Summary Descriptions**: User-friendly description phrases for each command in execution summary
+  - **Automatic Task Queue Status Updates**: Task queue items automatically update status when terminal commands are executed
+  - **Real-time Webview Updates**: Task queue status changes are immediately reflected in the webview
+  - **Command Pattern Recognition**: Automatically recognizes Maven, Gradle, npm, yarn, Git, Docker, and more command patterns
 - **Version 3.0.0** (2025/10/04)
   - Terminal-daemon integration and command routing
   - Chat send queue with pending UI and per-item cancel
