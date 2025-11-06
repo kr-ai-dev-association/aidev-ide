@@ -63,6 +63,7 @@ export class TerminalMonitorService {
     private maxRecentErrors: number = 10;
     private errorRetryCount = 0;
     private recentCommands: Map<string, CommandErrorContext> = new Map();
+    private recentErrorPatterns: Map<string, { timestamp: number; retryCount: number }> = new Map(); // 오류 패턴별 재시도 추적
     private autoCorrectionEnabled = true;
     private currentWebview: vscode.Webview | undefined = undefined;
 
@@ -1305,6 +1306,45 @@ ${osSpecificGuidelines}`;
             // 2단계: 환경 확인
             await this.showStepProgress(errorCorrectionSteps, 1);
 
+            // 컴파일 오류 패턴 감지 (의존성 누락 등)
+            const compilationErrorPattern = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|MissingProjectException|MojoFailureException)/i;
+            const hasCompilationError = compilationErrorPattern.test(errorMessage);
+
+            // 오류 패턴별 중복 시도 방지
+            if (hasCompilationError) {
+                const errorPatternKey = 'compilation_error_dependency_missing';
+                if (this.recentErrorPatterns.has(errorPatternKey)) {
+                    const patternAttempt = this.recentErrorPatterns.get(errorPatternKey)!;
+                    const timeSinceLastAttempt = Date.now() - patternAttempt.timestamp;
+
+                    // 60초 내 동일 패턴 중복 방지
+                    if (timeSinceLastAttempt < 60000) {
+                        console.log(`[TerminalMonitorService] 동일한 컴파일 오류 패턴에 대한 최근 시도 감지 (${Math.round(timeSinceLastAttempt / 1000)}초 전)`);
+                        this.sendProcessingStatus('error_correction', '동일한 컴파일 오류 패턴이 최근에 이미 처리되었습니다.');
+                        this.sendProcessingStatus('error_correction', 'stopped');
+                        if (this.currentWebview) {
+                            try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                        }
+                        return;
+                    }
+
+                    // 동일 패턴에 대한 재시도 횟수 확인 (최대 2회)
+                    if (patternAttempt.retryCount >= 2) {
+                        console.log(`[TerminalMonitorService] 컴파일 오류 패턴에 대한 최대 재시도 횟수 초과`);
+                        vscode.window.showErrorMessage(
+                            `❌ 자동 오류 수정 실패`,
+                            `컴파일 오류 패턴에 대한 최대 재시도 횟수(2회)를 초과했습니다.`,
+                            '파일 수정이 필요합니다. 수동으로 pom.xml 또는 build.gradle을 확인해주세요.'
+                        );
+                        this.sendProcessingStatus('error_correction', 'stopped');
+                        if (this.currentWebview) {
+                            try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                        }
+                        return;
+                    }
+                }
+            }
+
             // 중복 수정 시도 방지 (명령어별로 개별 관리)
             const commandKey = `${terminalName}:${recentCommand}`;
             if (this.recentCommands.has(commandKey)) {
@@ -1380,6 +1420,26 @@ ${osSpecificGuidelines}`;
                 terminalName,
                 retryCount
             });
+
+            // 컴파일 오류 패턴인 경우 패턴별 재시도 추적
+            if (hasCompilationError) {
+                const errorPatternKey = 'compilation_error_dependency_missing';
+                const existingPatternAttempt = this.recentErrorPatterns.get(errorPatternKey);
+                const patternRetryCount = existingPatternAttempt ? existingPatternAttempt.retryCount + 1 : 1;
+
+                this.recentErrorPatterns.set(errorPatternKey, {
+                    timestamp: Date.now(),
+                    retryCount: patternRetryCount
+                });
+
+                // 오래된 패턴 기록 정리 (1시간 이상 된 기록 삭제)
+                const oneHourAgo = Date.now() - 3600000;
+                for (const [key, value] of this.recentErrorPatterns.entries()) {
+                    if (value.timestamp < oneHourAgo) {
+                        this.recentErrorPatterns.delete(key);
+                    }
+                }
+            }
 
             // 4단계: 수정된 명령어 실행
             await this.showStepProgress(errorCorrectionSteps, 3);

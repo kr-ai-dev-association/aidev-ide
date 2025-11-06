@@ -1183,26 +1183,37 @@ Output:`;
                                         this.planQueueService = new PlanQueueService(this.extensionContext);
                                     }
                                     if (this.planQueueService && itemsToEnqueue.length > 0) {
-                                        // 새로운 plan 생성 시 기존 큐 초기화
-                                        console.log('[LlmService] 기존 큐 초기화');
-                                        this.planQueueService.clear();
+                                        // 다중 큐: 기존 큐들과 매칭 시도, 없으면 새 큐 생성
+                                        const queueTitle = (userQuery || '새 작업 큐').split('\n')[0].slice(0, 60);
+                                        const activeQueueId = this.planQueueService.getActiveQueueId();
+                                        // 사용자가 명시적으로 "계속/이어서"를 말한 경우에만 활성 큐에 추가
+                                        const continueRegex = /(계속|이어서|이어|이전\s*작업|continue|keep\s+going)/i;
+                                        const isContinue = continueRegex.test(userQuery || '');
+                                        let queueId: string;
+                                        if (isContinue && activeQueueId) {
+                                            queueId = activeQueueId;
+                                            console.log('[LlmService] 사용자 요청에 따라 활성 큐에 이어서 추가:', queueId);
+                                            this.planQueueService.enqueueTo(queueId, itemsToEnqueue, 'pending');
+                                        } else {
+                                            queueId = this.planQueueService.createQueue(queueTitle, itemsToEnqueue, 'pending');
+                                            console.log('[LlmService] 새 작업 큐 생성:', queueId, queueTitle);
+                                        }
+                                        this.planQueueService.setActiveQueue(queueId);
+                                        this.sendProcessingStatus('plan', `Queued ${itemsToEnqueue.length} to-do items. (queue ${queueId})`);
 
-                                        console.log('[LlmService] planQueueService.enqueue 호출, 항목 수:', itemsToEnqueue.length);
-                                        this.planQueueService.enqueue(itemsToEnqueue, 'pending');
-                                        this.sendProcessingStatus('plan', `Queued ${itemsToEnqueue.length} to-do items.`);
-
-                                        // 웹뷰에 작업 큐 업데이트 전송
-                                        const queueItems = this.planQueueService.list();
-                                        console.log('[LlmService] 웹뷰에 전송할 큐 아이템 수:', queueItems.length);
+                                        // 웹뷰에 해당 큐 업데이트 전송 (queueId 포함)
+                                        const queueItems = this.planQueueService.getQueue(queueId);
                                         safePostMessage(webviewToRespond, {
                                             command: 'updateTaskQueue',
+                                            queueId,
+                                            title: queueTitle,
                                             items: queueItems
                                         });
-                                        console.log('[LlmService] updateTaskQueue 메시지 전송 완료');
+                                        console.log('[LlmService] updateTaskQueue 메시지 전송 완료 (queueId=', queueId, ')');
 
-                                        // TerminalManager에 PlanQueueService 설정
-                                        const { setPlanQueueService } = await import('../terminal/terminalManager.js');
-                                        setPlanQueueService(this.planQueueService);
+                                        // TerminalManager 설정은 ChatViewProvider에서 초기화되므로 여기서는 생략
+                                        // 활성 실행 큐 식별은 TerminalManager가 잠금 상태에 따라 처리
+                                        console.log('[LlmService] 작업 큐 준비 완료 (queueId=', queueId, ')');
                                     } else {
                                         console.warn('[LlmService] 큐에 추가할 항목이 없거나 planQueueService가 없음:', {
                                             itemsCount: itemsToEnqueue.length,

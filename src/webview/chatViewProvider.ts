@@ -6,7 +6,9 @@ import { PromptType } from '../ai/types'; // LlmService 및 PromptType 임포트
 import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { StorageService } from '../services/storage';
-import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices, getTerminalMonitorService } from '../terminal/terminalManager';
+import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices, getTerminalMonitorService, setPlanQueueService } from '../terminal/terminalManager';
+import { LicenseService } from '../services/licenseService';
+import { PlanQueueService } from '../services/planQueueService';
 import { GitRepositoryService } from '../services/gitRepositoryService';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -46,6 +48,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         setErrorCorrectionServices(this.llmService, webviewView.webview);
+
+        // PlanQueueService를 항상 설정하여 실행 경로에서도 작업 큐가 생성되도록 함
+        try {
+            const planQueue = new PlanQueueService(this.context);
+            setPlanQueueService(planQueue);
+            console.log('[ChatViewProvider] PlanQueueService 초기화 및 설정 완료');
+        } catch (e) {
+            console.warn('[ChatViewProvider] PlanQueueService 초기화 실패:', e);
+        }
 
         // 터미널 모니터링 서비스에 웹뷰 설정
         const terminalMonitorService = getTerminalMonitorService();
@@ -129,7 +140,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     }
 
                     // 시리얼 번호 검증 (ollama-blocker 방식)
-                    const licenseService = new (await import('../services/licenseService')).LicenseService();
+                    const licenseService = new LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
@@ -173,7 +184,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'cancelAutoCorrection':
                     console.log('[Extension Host] Received cancelAutoCorrection command.');
                     // 터미널 모니터링 서비스에서 자동 오류 수정 중지
-                    const { TerminalMonitorService } = await import('../ai/terminalMonitorService');
                     // 전역 터미널 모니터링 서비스 인스턴스를 통해 중지
                     if ((globalThis as any).terminalMonitorService) {
                         (globalThis as any).terminalMonitorService.stopErrorCorrection();

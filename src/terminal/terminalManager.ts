@@ -35,6 +35,8 @@ let _userOS = 'unknown'; // 사용자 OS
 // 프로젝트 루트는 항상 워크스페이스 루트를 사용하므로 변수로 저장하지 않고 필요할 때마다 가져옵니다.
 let _terminalSeq = 0;
 let _planQueueService: PlanQueueService | undefined = undefined; // 작업 큐 서비스
+let _activeQueueId: string | undefined = undefined; // 현재 활성 작업 큐 ID
+let _lockedQueueId: string | undefined = undefined; // 실행 중 잠금된 작업 큐 ID
 
 /**
  * 사용자 OS를 설정합니다.
@@ -58,6 +60,27 @@ export function setErrorCorrectionServices(llmService: LlmService, webview: vsco
 export function setPlanQueueService(planQueueService: PlanQueueService): void {
     _planQueueService = planQueueService;
     console.log('[TerminalManager] PlanQueueService 설정 완료');
+}
+
+/**
+ * 현재 활성 작업 큐 ID를 설정합니다.
+ */
+export function setActiveQueueId(queueId: string | undefined): void {
+    // 현재 잠금된 큐가 있고 아직 완료되지 않았다면 변경을 무시하여 큐 간 병행 실행을 방지
+    if (_lockedQueueId && _planQueueService) {
+        const pending = (_planQueueService.getQueue(_lockedQueueId) || []).some(it => it.status === 'pending' || it.status === 'in_progress');
+        if (pending && queueId && queueId !== _lockedQueueId) {
+            console.log('[TerminalManager] ActiveQueueId 변경 요청 무시 (locked):', queueId, 'locked=', _lockedQueueId);
+            return;
+        }
+    }
+    _activeQueueId = queueId;
+    if (_planQueueService) _planQueueService.setActiveQueue(queueId);
+    console.log('[TerminalManager] ActiveQueueId 설정:', queueId, 'locked=', _lockedQueueId);
+}
+
+function getExecutionQueueId(): string | undefined {
+    return _lockedQueueId || _activeQueueId;
 }
 
 /**
@@ -923,22 +946,50 @@ async function processQueue(): Promise<void> {
 
                 // 작업 큐 상태 업데이트: 첫 번째 pending 항목을 in_progress로 변경
                 let processingItemId: string | undefined = undefined;
+                let processingItemTitle: string | undefined = undefined;
                 if (_planQueueService && _currentWebview) {
-                    const queueItems = _planQueueService.list();
+                    const execQueueId = getExecutionQueueId();
+                    const queueItems = _planQueueService.getQueue(execQueueId);
+                    console.log(`[TerminalManager] 작업 큐 확인: 총 ${queueItems.length}개 항목 (queueId=${execQueueId || 'default'}), _planQueueService=${!!_planQueueService}, _currentWebview=${!!_currentWebview}`);
                     const firstPendingItem = queueItems.find(item => item.status === 'pending');
                     if (firstPendingItem) {
                         processingItemId = firstPendingItem.id;
+                        processingItemTitle = firstPendingItem.title;
                         console.log(`[TerminalManager] 작업 큐 항목 시작: ${firstPendingItem.id} - ${firstPendingItem.title.substring(0, 30)}`);
-                        _planQueueService.updateStatus(firstPendingItem.id, 'in_progress');
+                        // 실행 큐 잠금 (처음 실행 시)
+                        if (!_lockedQueueId) {
+                            _lockedQueueId = execQueueId || _activeQueueId || 'default';
+                            console.log('[TerminalManager] 작업 큐 잠금 설정:', _lockedQueueId);
+                        }
+                        if (_activeQueueId) {
+                            _planQueueService.updateStatusIn(_activeQueueId, firstPendingItem.id, 'in_progress');
+                        } else {
+                            _planQueueService.updateStatus(firstPendingItem.id, 'in_progress');
+                        }
+
+                        // Processing Steps에 작업 큐 실행 상태 표시
+                        safePostMessage(_currentWebview, {
+                            command: 'updateProcessingStatus',
+                            step: 'executing',
+                            status: `작업 큐 실행 중: ${firstPendingItem.title.substring(0, 50)}...`
+                        });
+
                         safePostMessage(_currentWebview, {
                             command: 'taskQueueUpdate',
+                            queueId: _activeQueueId,
                             item: { id: firstPendingItem.id, status: 'in_progress' }
                         });
                         safePostMessage(_currentWebview, {
                             command: 'updateTaskQueue',
-                            items: _planQueueService.list()
+                            queueId: _activeQueueId,
+                            items: _planQueueService.getQueue(_activeQueueId)
                         });
+                        console.log(`[TerminalManager] 작업 큐 상태 업데이트 메시지 전송 완료: in_progress`);
+                    } else {
+                        console.log(`[TerminalManager] pending 상태인 작업 큐 항목이 없음. 현재 상태:`, queueItems.map(item => `${item.id}: ${item.status}`));
                     }
+                } else {
+                    console.log(`[TerminalManager] 작업 큐 상태 업데이트 불가: _planQueueService=${!!_planQueueService}, _currentWebview=${!!_currentWebview}`);
                 }
 
                 const ok = await handleInteractiveCommand(command, projectRoot);
@@ -946,16 +997,46 @@ async function processQueue(): Promise<void> {
                 // 작업 큐 상태 업데이트: 실행 완료된 항목을 done으로 변경
                 if (_planQueueService && _currentWebview && processingItemId) {
                     const newStatus = ok ? 'done' : 'failed';
+                    const statusLabel = ok ? '완료' : '실패';
                     console.log(`[TerminalManager] 작업 큐 항목 완료: ${processingItemId} (${newStatus})`);
-                    _planQueueService.updateStatus(processingItemId, newStatus);
+                    if (_activeQueueId) {
+                        _planQueueService.updateStatusIn(_activeQueueId, processingItemId, newStatus);
+                    } else {
+                        _planQueueService.updateStatus(processingItemId, newStatus);
+                    }
+
+                    // Processing Steps에 작업 큐 완료 상태 표시
+                    if (processingItemTitle) {
+                        safePostMessage(_currentWebview, {
+                            command: 'updateProcessingStatus',
+                            step: 'executing',
+                            status: `작업 큐 ${statusLabel}: ${processingItemTitle.substring(0, 50)}...`
+                        });
+                    }
+
                     safePostMessage(_currentWebview, {
                         command: 'taskQueueUpdate',
+                        queueId: _activeQueueId,
                         item: { id: processingItemId, status: newStatus }
                     });
                     safePostMessage(_currentWebview, {
                         command: 'updateTaskQueue',
-                        items: _planQueueService.list()
+                        queueId: _activeQueueId,
+                        items: _planQueueService.getQueue(_activeQueueId)
                     });
+                    console.log(`[TerminalManager] 작업 큐 상태 업데이트 메시지 전송 완료: ${newStatus}`);
+                    // 큐 완료 시 잠금 해제
+                    try {
+                        const execQueueId = getExecutionQueueId();
+                        const remain = execQueueId ? _planQueueService.getQueue(execQueueId) : [];
+                        const hasPending = (remain || []).some(it => it.status === 'pending' || it.status === 'in_progress');
+                        if (!hasPending) {
+                            console.log('[TerminalManager] 작업 큐 완료, 잠금 해제:', _lockedQueueId);
+                            _lockedQueueId = undefined;
+                        }
+                    } catch { }
+                } else {
+                    console.log(`[TerminalManager] 작업 큐 완료 상태 업데이트 불가: processingItemId=${processingItemId}, _planQueueService=${!!_planQueueService}, _currentWebview=${!!_currentWebview}`);
                 }
 
                 if (!ok) {
@@ -1042,13 +1123,19 @@ export function enqueueCommandsBatch(commands: string[], priority = false, proje
     // projectRoot 파라미터는 이전 버전 호환성을 위해 유지하지만 실제로는 사용하지 않습니다.
     // 항상 워크스페이스 루트를 사용합니다.
 
+    // 1) 작업 전 프로젝트 루트 존재 및 권한 확인 프리플라이트 명령 추가 (macOS/Linux/Windows 공통)
+    const preflightCmd = process.platform === 'win32'
+        ? 'powershell -NoLogo -NoProfile -NonInteractive -Command "$p=(Get-Location).Path; Write-Output \"[AIDEV-IDE] CWD=$p\"; if(!(Test-Path -Path .)){Write-Error \"ERR: CWD not accessible\"; exit 2}; Write-Output \"OK: $p\""'
+        : 'bash -lc "printf \\"[AIDEV-IDE] CWD=%s\\\\n\\" \\"$PWD\\"; test -d \\"$PWD\\" && [ -r \\"$PWD\\" ] && [ -w \\"$PWD\\" ] && echo \\"OK: $PWD\\" || (echo \\"ERR: Project root not accessible\\"; exit 2)"';
+    const commandsWithPreflight = [preflightCmd, ...commands];
+
     try {
         const channel = getCaptureOutputChannel();
         const timestamp = new Date().toLocaleString();
         let fileOps: { type: string; path: string; size?: number }[] = [];
         const bash: string[] = [];
 
-        for (const c of commands) {
+        for (const c of commandsWithPreflight) {
             if (typeof c === 'string' && c.startsWith(FILE_OP_PREFIX)) {
                 try {
                     const b64 = c.substring(FILE_OP_PREFIX.length);
@@ -1064,7 +1151,7 @@ export function enqueueCommandsBatch(commands: string[], priority = false, proje
         }
 
         channel.appendLine(`\n===== Queue Enqueue (${timestamp}) =====`);
-        channel.appendLine(`Priority: ${priority ? 'yes' : 'no'} | Items: ${commands.length} | fileOps: ${fileOps.length} | bash: ${bash.length}`);
+        channel.appendLine(`Priority: ${priority ? 'yes' : 'no'} | Items: ${commandsWithPreflight.length} | fileOps: ${fileOps.length} | bash: ${bash.length}`);
         if (fileOps.length > 0) {
             channel.appendLine(`[QUEUE-ENQUEUE] FileOps:`);
             for (const f of fileOps) {
@@ -1082,7 +1169,58 @@ export function enqueueCommandsBatch(commands: string[], priority = false, proje
         }
     } catch { /* ignore logging errors */ }
 
-    enqueueCommands(commands, priority);
+    // 실행 전 작업 큐에 사용자 친화적 설명으로 항목 추가
+    try {
+        if (_planQueueService) {
+            const itemsToAdd: { title: string; detail?: string }[] = [];
+            const maxItems = 50; // 안전상 제한
+            let added = 0;
+
+            // 프리플라이트 체크 항목 추가
+            itemsToAdd.push({ title: '프로젝트 루트 디렉터리 존재 여부 및 접근 권한 확인' });
+            added++;
+
+            // 파일 작업 토큰을 사람이 읽기 쉬운 타이틀로 변환
+            for (const c of commands) {
+                if (added >= maxItems) break;
+                if (typeof c === 'string' && c.startsWith(FILE_OP_PREFIX)) {
+                    try {
+                        const b64 = c.substring(FILE_OP_PREFIX.length);
+                        const decoded = Buffer.from(b64, 'base64').toString('utf8');
+                        const payload = JSON.parse(decoded) as { type: string; path: string; content?: string };
+                        const title = `파일 ${payload.type}: ${payload.path}`;
+                        itemsToAdd.push({ title: title.length > 100 ? title.slice(0, 97) + '...' : title });
+                        added++;
+                    } catch { /* ignore */ }
+                } else {
+                    const cmd = String(c).trim().replace(/\s+/g, ' ');
+                    const short = cmd.length > 80 ? cmd.slice(0, 77) + '...' : cmd;
+                    const firstWord = short.split(' ')[0];
+                    const title = `명령 실행: ${firstWord} ${short.slice(firstWord.length).trim()}`.trim();
+                    itemsToAdd.push({ title });
+                    added++;
+                }
+            }
+
+            if (itemsToAdd.length > 0) {
+                if (_activeQueueId) {
+                    _planQueueService.enqueueTo(_activeQueueId, itemsToAdd, 'pending');
+                } else {
+                    _planQueueService.enqueue(itemsToAdd, 'pending');
+                    _activeQueueId = _planQueueService.getActiveQueueId();
+                }
+                if (_currentWebview) {
+                    safePostMessage(_currentWebview, {
+                        command: 'updateTaskQueue',
+                        queueId: _activeQueueId,
+                        items: _planQueueService.getQueue(_activeQueueId)
+                    });
+                }
+            }
+        }
+    } catch { /* ignore queue errors */ }
+
+    enqueueCommands(commandsWithPreflight, priority);
 }
 
 /**
@@ -1918,6 +2056,10 @@ ${errorOutputForPrompt}
 ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제안해주세요:
 ${commonGuidelines}${osSpecificGuidelines}
 
+**중요: 이전 작업 연속성 유지**
+- 이전 작업이 있으면 계속 이어 나가. 동일 세션에서 이미 성공한 단계는 반복하지 말고, 누락된 단계부터 이어서 수정/재시도하세요.
+- 동일 명령/스크립트를 중복 생성하지 말고, 직전 시도에서 생성된 파일/환경 변수/빌드 산출물을 재사용하세요.
+
 **중요: 오직 하나의 JSON 객체만 응답해주세요. 다른 텍스트나 설명은 포함하지 마세요.**
 
 **추가 중요 지침 (pom.xml 관련):**
@@ -2666,11 +2808,65 @@ export async function handleCommandError(
         enqueueCommands(fileOpTokens, true); // 우선순위로 파일 작업 먼저 실행
     }
 
-    // 컴파일 오류가 있고 correctedCommand가 null인 경우 파일 작업만 처리
+    // 컴파일 오류 감지: 의존성 누락, 패키지 없음, 심볼을 찾을 수 없음 등의 패턴
     // 구체적인 패키지 이름 패턴도 추가
-    const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(errorOutput);
+    const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer|MissingProjectException|MojoFailureException)/i.test(errorOutput);
+
+    // 컴파일 오류가 감지된 경우: 파일 작업이 있으면 파일 작업만 처리하고 명령 재시도는 하지 않음
+    if (hasCompilationError && fileOperations.length > 0) {
+        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업만 처리 (명령 재시도 건너뜀, ${fileOperations.length}개 파일)`);
+
+        // 웹뷰에 상태 전송
+        if (_currentWebview) {
+            _currentWebview.postMessage({
+                command: 'updateProcessingStatus',
+                step: 'error_correction',
+                status: `파일 수정 중 (${fileOperations.length}개 파일)`
+            });
+
+            _currentWebview.postMessage({
+                command: 'showErrorCorrectionSuccess',
+                message: `컴파일 오류 감지: 파일 수정 작업이 큐에 추가되었습니다 (${fileOperations.length}개 파일)`,
+                retryCount: _errorRetryCount
+            });
+            // 파일 작업만 처리 시에도 ProcessingSteps 종료
+            _currentWebview.postMessage({
+                command: 'hideProcessingSteps',
+                step: 'error_correction'
+            });
+            debugLog('TerminalManager: hideProcessingSteps (file ops only, compilation error)');
+        }
+
+        // 파일 작업이 이미 큐에 추가되었으므로 성공 반환
+        _errorRetryCount = 0; // 성공적으로 처리되었으므로 재시도 카운트 리셋
+        return true;
+    }
+
+    // 컴파일 오류가 있지만 파일 작업이 없는 경우: 명령 재시도도 하지 않음
+    if (hasCompilationError && fileOperations.length === 0) {
+        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업이 없어 수정 불가 (명령 재시도 건너뜀)`);
+
+        if (_currentWebview) {
+            _currentWebview.postMessage({
+                command: 'updateProcessingStatus',
+                step: 'error_correction',
+                status: '컴파일 오류: 파일 수정이 필요하지만 LLM이 파일 작업을 제안하지 않았습니다'
+            });
+
+            _currentWebview.postMessage({
+                command: 'hideProcessingSteps',
+                step: 'error_correction'
+            });
+            debugLog('TerminalManager: hideProcessingSteps (compilation error, no file ops)');
+        }
+
+        _errorRetryCount = 0;
+        return false;
+    }
+
+    // correctedCommand가 null이고 파일 작업만 있는 경우 (컴파일 오류가 아닌 경우)
     if (!correctedCommand && fileOperations.length > 0) {
-        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업만 처리 (${fileOperations.length}개)`);
+        console.log(`[TerminalManager] 파일 작업만 처리 (${fileOperations.length}개)`);
 
         // 웹뷰에 상태 전송
         if (_currentWebview) {
@@ -2763,6 +2959,28 @@ export async function handleCommandError(
         if (t.length < 2) return false;
         return true;
     };
+
+    // 컴파일 오류가 감지된 경우: correctedCommand가 있어도 명령 재시도를 하지 않음
+    if (hasCompilationError && correctedCommand) {
+        console.log(`[TerminalManager] 컴파일 오류 감지: correctedCommand가 있지만 명령 재시도 건너뜀`);
+
+        if (_currentWebview) {
+            _currentWebview.postMessage({
+                command: 'updateProcessingStatus',
+                step: 'error_correction',
+                status: '컴파일 오류: 파일 수정이 필요합니다. 명령 재시도는 건너뜁니다.'
+            });
+
+            _currentWebview.postMessage({
+                command: 'hideProcessingSteps',
+                step: 'error_correction'
+            });
+            debugLog('TerminalManager: hideProcessingSteps (compilation error, ignoring correctedCommand)');
+        }
+
+        _errorRetryCount = 0;
+        return false;
+    }
 
     const isValid = await isValidCorrected(correctedCommand);
     if (isValid && correctedCommand) {
