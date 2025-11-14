@@ -85,18 +85,8 @@ function App() {
     };
 
     return (
-        <div className="app">
-            {/* Auto Correcting Indicator */}
-            {autoCorrecting && (
-                <div className="auto-correcting-indicator">
-                    <div className="auto-correcting-content">
-                        <div className="auto-correcting-spinner"></div>
-                        <span className="auto-correcting-text">Auto Correcting...</span>
-                    </div>
-                </div>
-            )}
-
-            {/* Processing Steps */}
+        <>
+            {/* Processing Steps  */}
             {isProcessing && (
                 <div className="processing-steps">
                     <div className="processing-step">
@@ -109,43 +99,55 @@ function App() {
                 </div>
             )}
 
-            {/* Chat Messages */}
-            <div className="chat-container">
-                <div className="chat-messages">
-                    {messages.map((message, index) => (
-                        <div key={index} className={`message ${message.type}`}>
-                            <div className="message-content">
-                                {message.content}
-                            </div>
-                            <div className="message-timestamp">
-                                {message.timestamp}
-                            </div>
+            <div className="app">
+                {/* Auto Correcting Indicator */}
+                {autoCorrecting && (
+                    <div className="auto-correcting-indicator">
+                        <div className="auto-correcting-content">
+                            <div className="auto-correcting-spinner"></div>
+                            <span className="auto-correcting-text">Auto Correcting...</span>
                         </div>
-                    ))}
-                </div>
-            </div>
+                    </div>
+                )}
 
-            {/* Input Area */}
-            <div className="input-area">
-                <div className="input-container">
-                    <textarea
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyPress={handleKeyPress}
-                        placeholder="메시지를 입력하세요..."
-                        className="message-input"
-                        rows="3"
-                    />
-                    <button
-                        onClick={handleSendMessage}
-                        className="send-button"
-                        disabled={!inputValue.trim()}
-                    >
-                        전송
-                    </button>
+                {/* Chat Messages */}
+                <div className="chat-container">
+                    <div className="chat-messages">
+                        {messages.map((message, index) => (
+                            <div key={index} className={`message ${message.type}`}>
+                                <div className="message-content">
+                                    {message.content}
+                                </div>
+                                <div className="message-timestamp">
+                                    {message.timestamp}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Input Area */}
+                <div className="input-area">
+                    <div className="input-container">
+                        <textarea
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyPress={handleKeyPress}
+                            placeholder="메시지를 입력하세요..."
+                            className="message-input"
+                            rows="3"
+                        />
+                        <button
+                            onClick={handleSendMessage}
+                            className="send-button"
+                            disabled={!inputValue.trim()}
+                        >
+                            전송
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+        </>
     );
 }
 

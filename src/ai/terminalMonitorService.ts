@@ -860,6 +860,24 @@ ${osSpecificGuidelines}`;
 
         console.log(`[TerminalMonitorService] checkForErrors called with: "${output}"`);
 
+        // npm warn 메시지 필터링 (경고는 오류가 아님)
+        if (/^npm warn\s+/i.test(output.trim())) {
+            console.log(`[TerminalMonitorService] npm warn 메시지 무시: ${output.substring(0, 100)}`);
+            return false;
+        }
+
+        // node_modules 관련 ENOENT 오류 필터링 (npm install 중 정상적인 경고일 수 있음)
+        if (/ENOENT.*node_modules/i.test(output) || /TAR_ENTRY_ERROR.*ENOENT/i.test(output) || /tar TAR_ENTRY_ERROR.*ENOENT/i.test(output)) {
+            console.log(`[TerminalMonitorService] node_modules 관련 ENOENT 경고 무시: ${output.substring(0, 100)}`);
+            return false;
+        }
+
+        // Vite entry point 경고 필터링 (index.html이 없을 때 나타나는 경고는 오류가 아님)
+        if (/Vite.*entry point|entry point.*not found|index\.html.*not found|entry point.*automatically/i.test(output)) {
+            console.log(`[TerminalMonitorService] Vite entry point 경고 무시: ${output.substring(0, 100)}`);
+            return false;
+        }
+
         // Normalize CLIXML noise and extract human-readable error text
         const sanitize = (text: string): string => {
             if (!text) return '';
@@ -1496,6 +1514,30 @@ ${osSpecificGuidelines}`;
      * LLM에게 오류 수정을 요청합니다.
      */
     private async getCorrectedCommandFromLlm(failedCommand: string, errorOutput: string, terminalName: string): Promise<string | null> {
+        // esbuild 바이너리 손상 오류는 LLM을 거치지 않고 바로 복구 명령어 반환 (빠른 처리)
+        if ((errorOutput.includes('esbuild') && errorOutput.includes('SyntaxError')) ||
+            (errorOutput.includes('esbuild') && errorOutput.includes('Invalid or unexpected token')) ||
+            (errorOutput.includes('node_modules/esbuild') && errorOutput.includes('command failed')) ||
+            (errorOutput.includes('esbuild') && errorOutput.includes('spawn sh ENOENT')) ||
+            (errorOutput.includes('esbuild') && errorOutput.includes('enoent'))) {
+            console.log('[TerminalMonitorService] esbuild 관련 오류 감지 - 자동 복구 명령어 생성');
+            // esbuild 디렉토리 삭제, npm 캐시 정리, 재설치
+            const correctedCommand = process.platform === 'win32'
+                ? `rmdir /s /q node_modules\\esbuild 2>nul & npm cache clean --force & npm install`
+                : `rm -rf node_modules/esbuild && npm cache clean --force && npm install`;
+            return correctedCommand;
+        }
+
+        // ts-node-dev ESM 모듈 오류는 tsx로 대체 (type: module 유지)
+        if ((errorOutput.includes('Must use import to load ES Module') || errorOutput.includes('Cannot use import statement')) &&
+            (errorOutput.includes('ts-node-dev') || failedCommand.includes('ts-node-dev'))) {
+            console.log('[TerminalMonitorService] ts-node-dev ESM 모듈 오류 감지 - tsx로 대체');
+            // ts-node-dev를 tsx로 대체 (type: module과 호환)
+            let correctedCommand = failedCommand.replace(/ts-node-dev/g, 'tsx').replace(/ts-node/g, 'tsx');
+            // package.json scripts도 확인하고 수정 필요 시 안내
+            return correctedCommand;
+        }
+
         if (!this.llmService) {
             return null;
         }
@@ -1506,6 +1548,13 @@ ${osSpecificGuidelines}`;
 
             if (errorOutput.includes('esbuild') && errorOutput.includes('SyntaxError')) {
                 specificGuidance = 'esbuild 바이너리가 손상된 것 같습니다. node_modules를 완전히 삭제하고 재설치하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('ENOTEMPTY') && errorOutput.includes('node_modules') && failedCommand.includes('install')) {
+                // npm install 중 node_modules 관련 ENOTEMPTY 오류는 자동 복구
+                console.log('[TerminalMonitorService] npm install 중 ENOTEMPTY 오류 감지 - 자동 복구 명령어 생성');
+                const correctedCommand = process.platform === 'win32'
+                    ? `rmdir /s /q node_modules 2>nul & npm cache clean --force & npm install`
+                    : `rm -rf node_modules && npm cache clean --force && npm install`;
+                return correctedCommand;
             } else if (errorOutput.includes('ENOTEMPTY')) {
                 specificGuidance = '디렉토리가 비어있지 않아서 삭제할 수 없습니다. 강제 삭제 명령어를 제안해주세요.';
             } else if (errorOutput.includes('Cannot find package') && errorOutput.includes('vite')) {
@@ -1548,6 +1597,21 @@ ${osSpecificGuidelines}`;
                 specificGuidance = 'Java 버전 호환성 문제입니다. 빌드에 사용한 Java 버전과 실행에 사용한 Java 버전이 다릅니다. 같은 Java 버전으로 빌드하고 실행하는 명령어를 제안해주세요.';
             } else if (errorOutput.includes('PluginExecutionException')) {
                 specificGuidance = 'Maven 플러그인 실행에 실패했습니다. 플러그인 설정을 확인하고 의존성을 정리한 후 재빌드하는 명령어를 제안해주세요.';
+            } else if (errorOutput.includes('Failed to start process')) {
+                specificGuidance = '**중요: "Failed to start process" 오류는 주로 작업 디렉터리(CWD) 문제로 발생합니다.**\n' +
+                    '- 오류 메시지에 "cwd=$PROJECT_ROOT" 또는 "cwd=\\"$PROJECT_ROOT\\"" 같은 문자열이 포함되어 있다면, 이것이 문제입니다.\n' +
+                    '- $PROJECT_ROOT는 실제 경로가 아니라 변수 이름이므로, 명령어에 절대 경로를 명시적으로 포함해야 합니다.\n' +
+                    '- 예: `/bin/bash -c "cd /Users/hashbrand/src && npm run build"` (절대 경로 사용)\n' +
+                    '- 명령어 내부에서 cd를 사용하여 작업 디렉터리를 명시적으로 설정하세요.\n' +
+                    '- /bin/bash -c나 /usr/bin/env bash -c를 사용할 때는 내부에서 cd로 경로를 변경해야 합니다.';
+            } else if ((errorOutput.includes('Must use import to load ES Module') || errorOutput.includes('Cannot use import statement')) &&
+                (errorOutput.includes('ts-node-dev') || failedCommand.includes('ts-node-dev'))) {
+                specificGuidance = '**ts-node-dev ESM 모듈 오류**: ts-node-dev는 ESM 모듈(type: module)을 제대로 처리하지 못합니다.\n' +
+                    '- package.json에 "type": "module"이 있으면 ts-node-dev 대신 tsx를 사용해야 합니다.\n' +
+                    '- 해결 방법: ts-node-dev를 tsx로 대체하세요. 예: "ts-node-dev src/index.ts" → "tsx src/index.ts"\n' +
+                    '- tsx가 설치되어 있지 않으면: npm install -D tsx\n' +
+                    '- package.json의 scripts도 수정: "dev": "tsx src/index.ts" (또는 "tsx watch src/index.ts")\n' +
+                    '- **중요: "type": "module"은 유지하세요. tsx는 ESM을 완벽하게 지원합니다.';
             }
 
             const onWindows = process.platform === 'win32';
@@ -1563,6 +1627,14 @@ ${osSpecificGuidelines}`;
 ${errorOutput}
 
 ${specificGuidance}
+
+**중요 지시사항 (절대 필수)**:
+- **단순하고 직접적인 명령어만 생성하세요. 불필요한 조건문이나 체크를 포함하지 마세요.**
+- **if command -v npm >/dev/null; then ... else ... fi 같은 조건문은 절대 생성하지 마세요.**
+- **이미 설치되어 있는 도구(npm, node 등)에 대한 체크를 하지 마세요.**
+- **오직 오류를 해결하는 직접적인 명령어만 생성하세요.**
+- **예시: "npm install && npm run dev" (조건문 없이 직접 실행)**
+- **잘못된 예시: "if command -v npm >/dev/null; then npm install && npm run dev; else echo 'npm not found'; fi" (절대 사용 금지)**
 
 **MojoExecutionException 특별 분석:**
 이 오류는 주로 Maven POM 파일의 설정 문제로 발생합니다:

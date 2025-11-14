@@ -206,7 +206,8 @@ export class ConfigurationService {
      */
     public async isAutoCorrectionEnabled(): Promise<boolean> {
         const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
-        const value = config.get<boolean>(this.AUTO_CORRECTION_ENABLED) ?? true;
+        // 기본값을 false로 변경 (설정에서 명시적으로 켜야 활성화)
+        const value = config.get<boolean>(this.AUTO_CORRECTION_ENABLED) ?? false;
         console.log(`[ConfigurationService] Read autoCorrectionEnabled: ${value}`);
         return value;
     }

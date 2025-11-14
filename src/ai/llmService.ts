@@ -19,6 +19,7 @@ import { IntentDetectionService, IntentDetectionResult } from './intentDetection
 import { PlanQueueService } from '../services/planQueueService';
 import { GitRepositoryService } from '../services/gitRepositoryService';
 import { GitBranchAnalysisService } from '../services/gitBranchAnalysisService';
+import { setPlanQueueService } from '../terminal/terminalManager';
 
 export class LlmService {
     private storageService: StorageService;
@@ -116,6 +117,13 @@ export class LlmService {
             this.terminalMonitorService.startMonitoring();
             this.terminalMonitorService.onError(async (evt) => {
                 try {
+                    // 자동 오류 수정이 비활성화된 경우 처리하지 않음
+                    const autoCorrectionEnabled = await this.configurationService.isAutoCorrectionEnabled();
+                    if (!autoCorrectionEnabled) {
+                        console.log('[LlmService] Auto error correction is disabled, skipping error handling');
+                        return;
+                    }
+
                     const now = Date.now();
                     if (now - this.lastErrorHandledAt < 8000) {
                         console.log('[LlmService] Skipping terminal error due to cooldown');
@@ -241,14 +249,99 @@ ${osSpecificGuidelines}`;
 - 마크다운(.md): 코드 블록 없이 마크다운 내용 직접 포함
 
 프로젝트 특화:
-- Vite: package.json에서 "vite" 대신 "npx vite" 사용
+- Vite: 
+  * package.json에서 "vite" 대신 "npx vite" 사용
+  * **package.json에 반드시 "type": "module" 필드를 추가하여 ESM 모드 활성화s**
+  * App, App.css, index.css, main는 필수 입니다.
+  * React 프로젝트인 경우 @vitejs/plugin-react-swc "^4.2.2"가 설치되어 있지 않으면 자동으로 설치하고 vite.config.ts에 플러그인을 추가해야 합니다.
+  - tsconfig.json: ES 모듈 호환 설정 필수
+    * module: "CommonJS"
+    * moduleResolution: "node"
 - Spring Boot: 3.4.0 이상 사용
+- Node.js TypeScript:
+  * **ES 모듈(import/export) 방식 사용**: CommonJS(require/module.exports) 대신 ESM 모듈 문법 사용
+  * **package.json에 "type": "module" 필드 추가 필수
+  * **node 로 바로 실행 가능하도록 설정**: package.json의 scripts에  "dev": "tsx watch src/index.ts" + index.ts 경로 추가
+  * **Express 기반**: express 패키지 사용, 기본 Express 서버 구조 생성
+  * **Express 라우터 파일 분석 규칙 (API 경로 인식)**:
+    * 라우터 파일(src/routes/*.ts) 과 app 파일(src/index.ts) 을 모두 분석합니다.
+    * 주석에 명시된 API 경로(GET /api/refund/:orderId 등)이 있으면 이를 최우선으로 사용합니다.
+    * app.use() 마운트 경로와 router.get/post/put/delete 등 내부 경로를 결합해 최종 경로를 계산합니다.
+        - 예: app.use('/api/refund', refundRouter) + router.get('/:id') → GET /api/refund/:id
+    * 모든 HTTP 메서드(get, post, put, delete, patch)를 인식합니다.
+    * 요청 파라미터 구분:
+        - req.params: /api/users/:id
+        - req.query: /api/users?page=1
+        - req.body: POST/PUT JSON 데이터
+    *동적 파라미터(:id 등)를 정확히 인식합니다.
+    * 추측 금지 — 파일명이나 일부 경로만 보고 유추하지 않습니다.
+    * **올바른 분석 방법**:
+        - 모든 라우터 파일을 열어서 확인
+        - Express 앱 파일을 열어서 모든 app.use() 확인
+        - 주석, 마운트 경로, 라우터 경로를 모두 종합하여 정확한 API 경로 도출
+
+  * **필수 파일**:
+    - package.json: "type": "module", express, cors, @types/express, typescript, @types/node, @types/cors, @types/uuid 포함
+      * **매우 중요: 코드에서 import하는 모든 패키지는 반드시 package.json의 dependencies 또는 devDependencies에 포함되어야 합니다**
+      * **코드에서 사용하는 패키지 자동 감지 및 추가 규칙**:
+        - import 문에서 사용하는 패키지는 모두 package.json에 포함
+        - 예: import { Pool } from 'pg' → pg와 @types/pg 모두 dependencies에 추가
+        - 예: import cors from 'cors' → cors와 @types/cors 모두 dependencies에 추가
+        - 예: import express from 'express' → express와 @types/express 모두 dependencies에 추가
+        - 예: import dotenv from 'dotenv' → dotenv와 @types/dotenv 모두 dependencies에 추가
+      * 예외적으로 자체 타입을 포함한 패키지는 @types 설치를 생략합니다.
+        - axios, dayjs, zod, chalk
+      * **TypeScript 타입 정의 패키지 (@types/*) 규칙**:
+        - 모든 외부 패키지 사용 시 해당하는 @types 패키지도 함께 설치
+        - 예: pg 사용 → pg와 @types/pg 모두 dependencies에 추가
+        - 예: cors 사용 → cors와 @types/cors 모두 dependencies에 추가
+        - 예: express 사용 → express와 @types/express 모두 dependencies에 추가
+        - 예: uuid 사용 → uuid와 @types/uuid 모두 dependencies에 추가
+      * **package.json 생성 시 체크리스트**:
+        1. 생성/수정할 모든 코드 파일의 import 문을 먼저 확인했는가?
+        2. import 문에서 사용하는 모든 외부 패키지를 추출했는가? (Node.js 내장 모듈 제외)
+        3. 추출한 각 패키지가 package.json의 dependencies 또는 devDependencies에 있는지 확인했는가?
+        4. 누락된 패키지가 있으면 반드시 추가했는가?
+        5. TypeScript 프로젝트인 경우 각 패키지에 대응하는 @types 패키지도 확인하고 추가했는가? (자체 타입 포함 패키지 제외)
+        6. 최종 검증: 모든 import 문의 패키지가 package.json에 포함되었는지 다시 확인했는가?
+        7. 예시: pg 사용 시 → "pg": "^8.11.3", "@types/pg": "^8.10.9" 추가
+      * **기존 규칙 (참고)**:
+        - cors 사용 시 → cors와 @types/cors 모두 설치
+        - express 사용 시 → express와 @types/express 모두 설치
+    - tsconfig.json: ES 모듈 호환 설정 필수
+      * module: "CommonJS"
+      * target: "ES2022" 
+      * moduleResolution: "node"
+      * "strict": true, "esModuleInterop": true, "skipLibCheck": true, "forceConsistentCasingInFileNames": true 설정
+
+
+**JSON 파일 주석 금지 **:
+- **package.json, tsconfig.json, .eslintrc.json 등 모든 JSON 파일에는 주석을 절대 포함하지 마세요.**
+- JSON 표준은 주석을 지원하지 않습니다. 주석이 포함되면 파싱 오류가 발생합니다.
 
 **코드 작성 vs 쉘 스크립트 작업 구별 (절대 필수 - 최우선 규칙):**
 - **code_work**: 소스 코드 파일(.js, .ts, .py, .java, .go, .rs 등) 생성/수정만 수행.
   - **절대로 쉘 스크립트(.sh, .bat, .ps1)를 생성하지 마세요.**
   - **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**
   - **프로젝트 생성 작업**: pom.xml, package.json, build.gradle 등 프로젝트 구조 파일과 소스 코드 파일만 생성. 빌드/실행 명령은 생성하지 마세요.
+  - **프로젝트 생성 시 필수 (절대 금지 사항)**:
+    * "프로젝트 만들기", "프로젝트 생성", "react 프로젝트", "vite 프로젝트", "spring boot 프로젝트", "java 프로젝트", "maven 프로젝트" 등 프로젝트 생성 요청 시:
+      - **경고: 프로젝트 생성 요청은 반드시 파일 생성만 수행해야 합니다. **
+      - **반드시 "새 파일: [파일경로]" 형식으로 모든 필요한 파일을 생성하세요. 이것은 선택 사항이 아닌 필수입니다.**
+      - **모든 프로젝트 파일(pom.xml, build.gradle, package.json, src/main/java/.../*.java, src/main/resources/application.yml 등)을 "새 파일:" 지시어로 생성하세요.**
+      - **터미널 명령어 코드 블록(\`\`\`bash)은 절대 생성하지 마세요. 이것은 심각한 오류입니다.**
+      - **cat <<'EOF' > file 같은 heredoc 명령어는 절대 사용하지 마세요. 이것은 심각한 오류입니다.**
+      - **mkdir, cat, echo 같은 파일 생성 명령어는 절대 사용하지 마세요. 이것은 심각한 오류입니다.**
+      - **if ! command -v brew 같은 조건문이나 도구 설치 명령어는 절대 포함하지 마세요.**
+      - **brew install, apt install 같은 패키지 매니저 명령어도 절대 포함하지 마세요.**
+    * **올바른 형식 (반드시 이 형식을 사용하세요)**: 
+      - "새 파일: pom.xml" + 코드 블록 (xml)
+      - "새 파일: src/main/java/com/example/App.java" + 코드 블록 (java)
+      - "새 파일: src/main/resources/application.yml" + 코드 블록 (yaml)
+    * **잘못된 형식 (절대 사용 금지)**: 
+      - \`\`\`bash\ncat <<'EOF' > pom.xml ... EOF\n\`\`\`
+      - \`\`\`bash\nmkdir -p src/main/java\n\`\`\`
+      - \`\`\`bash\nif ! command -v brew; then ... fi\n\`\`\`
 - **execution_work**: 설치/빌드/배포/실행 스크립트(.sh, .bat, .ps1) 생성 또는 터미널 명령 실행만 수행. 소스 코드 생성 금지.
 - **사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.**
 
@@ -256,6 +349,12 @@ ${osSpecificGuidelines}`;
 - 빌드/실행/테스트/배포 관련 작업일 때만 생성
 - 일반 작업(파일 정리, 문서화 등)에는 생성하지 않음
 - 스크립트 내 프로그래밍 코드는 언어명 callout 명시 (\`\`\`python, \`\`\`javascript 등)
+- **중요: 사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:
+  - 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.
+  - chmod +x 같은 권한 설정 명령어를 포함하지 마세요.
+  - 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.
+  - 예시: 사용자가 "mvn spring-boot:run으로 실행해줘"라고 요청하면 \`\`\`bash\nmvn spring-boot:run\n\`\`\` 만 제공하세요.
+  - 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)
 
 환경: ${this.userOS.toUpperCase()}`;
     }
@@ -858,6 +957,26 @@ Output:`;
         const abortSignal = this.currentCallController.signal;
 
         try {
+            // 새로운 질문 시작 시 작업 큐 리셋
+            try {
+                if (!this.planQueueService && this.extensionContext) {
+                    this.planQueueService = new PlanQueueService(this.extensionContext);
+                }
+                if (this.planQueueService) {
+                    console.log('[LlmService] 새로운 질문 시작 - 작업 큐 리셋');
+                    this.planQueueService.clear();
+                    // 웹뷰에 빈 큐 전송
+                    safePostMessage(webviewToRespond, {
+                        command: 'updateTaskQueue',
+                        items: []
+                    });
+                    // TerminalManager에 PlanQueueService 설정
+                    setPlanQueueService(this.planQueueService);
+                }
+            } catch (e) {
+                console.warn('[LlmService] 작업 큐 리셋 실패:', e);
+            }
+
             // webviewToRespond를 currentPanel로 설정 (sendProcessingStep에서 사용)
             // webviewToRespond는 Webview이므로, 이를 WebviewPanel로 래핑
             this.currentPanel = { webview: webviewToRespond } as vscode.WebviewPanel;
@@ -901,29 +1020,14 @@ Output:`;
                                 const projectTypeResult = await this.detectProjectTypeFromQuery(userQuery, projectRoot);
                                 console.log(`[LlmService] LLM 기반 프로젝트 타입: ${projectTypeResult.projectType}, confidence: ${projectTypeResult.confidence}, needsUserSelection: ${projectTypeResult.needsUserSelection}`);
 
-                                // 2. 사용자 선택이 필요한 경우
-                                if (projectTypeResult.needsUserSelection || projectTypeResult.projectType === 'unknown') {
-                                    // 웹뷰에 프로젝트 타입 선택 UI 표시
-                                    safePostMessage(webviewToRespond, {
-                                        command: 'showProjectTypeSelection',
-                                        detectedType: projectTypeResult.projectType,
-                                        confidence: projectTypeResult.confidence,
-                                        supportedTypes: [
-                                            { id: 'nodejs-npm', label: 'Node.js (npm)' },
-                                            { id: 'python', label: 'Python' },
-                                            { id: 'java-maven', label: 'Java (Maven)' },
-                                            { id: 'java-gradle', label: 'Java (Gradle)' },
-                                            { id: 'go', label: 'Go' },
-                                            { id: 'android', label: 'Android' },
-                                            { id: 'ios', label: 'iOS' }
-                                        ]
-                                    });
-                                    this.sendProcessingStatus('intent', '프로젝트 타입 선택 필요 | OS: ' + this.userOS);
-                                    // 사용자 선택을 기다리기 위해 임시로 unknown 설정
-                                    detectedProjectType = 'unknown';
-                                } else {
-                                    // 프로젝트 타입이 확실한 경우
+                                // 2. 프로젝트 타입 자동 사용 (사용자 선택 UI 숨김)
+                                // 프로젝트 타입이 감지되었으면 자동으로 사용, unknown이면 unknown 유지
+                                if (projectTypeResult.projectType !== 'unknown') {
                                     detectedProjectType = projectTypeResult.projectType;
+                                    console.log(`[LlmService] 프로젝트 타입 자동 선택: ${detectedProjectType} (confidence: ${projectTypeResult.confidence})`);
+                                } else {
+                                    detectedProjectType = 'unknown';
+                                    console.log(`[LlmService] 프로젝트 타입 감지 실패: unknown`);
                                 }
 
                                 projectTypeInfo = ` | Project Type: ${detectedProjectType}`;
@@ -1037,6 +1141,9 @@ Output:`;
             // 의도 분석 결과 확인 - 코드 관련 질문일 때만 파일 컨텍스트 수집
             const isCodeRelated = intentResult && this.isCodeRelatedIntent(intentResult);
 
+            // 프로젝트 분석 결과 (CODE_GENERATION 탭에서만 사용)
+            let projectAnalysisResult: any = null;
+
             if (isCodeRelated) {
                 if (promptType === PromptType.CODE_GENERATION) {
                     // CODE 탭: 코드 관련 질문인 경우에만 파일 컨텍스트 수집
@@ -1044,11 +1151,11 @@ Output:`;
                     this.sendProcessingStatus('keywords', `Extracting keywords from query: "${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}"`);
 
                     // 새로운 프로젝트 분석 로직 사용
-                    const projectAnalysisResult = await this.codebaseContextService.getProjectFileListForAnalysis(userQuery, abortSignal);
+                    projectAnalysisResult = await this.codebaseContextService.getProjectFileListForAnalysis(userQuery, abortSignal);
 
                     let relevantContextResult: any = null;
 
-                    if (projectAnalysisResult.analysisResult) {
+                    if (projectAnalysisResult?.analysisResult) {
                         const analysis = projectAnalysisResult.analysisResult;
                         console.log(`[LlmService] 프로젝트 분석 결과:`, analysis);
 
@@ -1175,43 +1282,42 @@ Output:`;
                                     detail: item.detail
                                 }));
 
-                                console.log('[LlmService] 최종 큐에 추가할 항목:', itemsToEnqueue.length, '개');
+                                console.log('[LlmService] Plan 파싱 완료:', itemsToEnqueue.length, '개 확인 사항');
 
-                                // 큐에 추가
+                                // Plan은 확인 사항(체크리스트)이므로 작업 큐에 추가하지 않음
+                                // 실제 파일 작업/명령어만 작업 큐에 표시됨
+                                // Plan은 단순히 정보 제공 목적으로만 사용
+                                console.log('[LlmService] Plan은 확인 사항이므로 작업 큐에 추가하지 않음');
+                                this.sendProcessingStatus('plan', `Plan 생성 완료: ${itemsToEnqueue.length}개 확인 사항`);
+
+                                // PlanQueueService는 실제 작업이 실행될 때만 사용되도록 유지
+                                // (TerminalManager에서 실제 명령어/파일 작업 실행 시 상태 업데이트용)
                                 try {
                                     if (!this.planQueueService && this.extensionContext) {
                                         this.planQueueService = new PlanQueueService(this.extensionContext);
                                     }
-                                    if (this.planQueueService && itemsToEnqueue.length > 0) {
-                                        // 새로운 plan 생성 시 기존 큐 초기화
-                                        console.log('[LlmService] 기존 큐 초기화');
+                                    if (this.planQueueService) {
+                                        // 새로운 Plan 생성 시 기존 큐 초기화 (Plan은 작업 큐에 표시하지 않음)
+                                        console.log('[LlmService] Plan 생성 시 기존 작업 큐 초기화 (Plan은 작업 큐에 표시하지 않음)');
                                         this.planQueueService.clear();
 
-                                        console.log('[LlmService] planQueueService.enqueue 호출, 항목 수:', itemsToEnqueue.length);
-                                        this.planQueueService.enqueue(itemsToEnqueue, 'pending');
-                                        this.sendProcessingStatus('plan', `Queued ${itemsToEnqueue.length} to-do items.`);
-
-                                        // 웹뷰에 작업 큐 업데이트 전송
-                                        const queueItems = this.planQueueService.list();
-                                        console.log('[LlmService] 웹뷰에 전송할 큐 아이템 수:', queueItems.length);
+                                        // 웹뷰에 빈 큐 전송 (기존 Plan 항목 제거)
                                         safePostMessage(webviewToRespond, {
                                             command: 'updateTaskQueue',
-                                            items: queueItems
+                                            items: []
                                         });
-                                        console.log('[LlmService] updateTaskQueue 메시지 전송 완료');
 
-                                        // TerminalManager에 PlanQueueService 설정
-                                        const { setPlanQueueService } = await import('../terminal/terminalManager.js');
+                                        console.log('[LlmService] PlanQueueService 준비 완료 (실제 작업 실행 시 사용)');
+
+                                        // TerminalManager에 PlanQueueService 설정 (실제 작업 실행 시 상태 업데이트용)
                                         setPlanQueueService(this.planQueueService);
                                     } else {
-                                        console.warn('[LlmService] 큐에 추가할 항목이 없거나 planQueueService가 없음:', {
-                                            itemsCount: itemsToEnqueue.length,
-                                            hasService: !!this.planQueueService,
+                                        console.warn('[LlmService] planQueueService 초기화 실패:', {
                                             hasContext: !!this.extensionContext
                                         });
                                     }
                                 } catch (e) {
-                                    console.error('[LlmService] Failed to enqueue plan items:', e);
+                                    console.error('[LlmService] Failed to setup plan queue service:', e);
                                 }
                             } else {
                                 this.sendProcessingStatus('plan', 'Plan generation returned empty content.');
@@ -1326,16 +1432,31 @@ Output:`;
 
             // 프로젝트 타입 감지
             let detectedProjectType = '';
+            let llmDetectedProjectType = '';
+
+            // CODE_GENERATION 탭에서 프로젝트 분석 결과에서 프로젝트 타입 추출
+            if (projectAnalysisResult?.analysisResult?.projectType) {
+                llmDetectedProjectType = projectAnalysisResult.analysisResult.projectType;
+                console.log(`[LlmService] LLM 분석에서 프로젝트 타입 감지: ${llmDetectedProjectType}`);
+            }
+
             if (this.codebaseContextService) {
                 try {
                     const projectRoot = await this.configurationService.getProjectRoot();
                     if (projectRoot) {
-                        detectedProjectType = await this.codebaseContextService.detectProjectType([projectRoot]);
+                        // LLM이 감지한 타입이 있으면 우선 사용
+                        detectedProjectType = await this.codebaseContextService.detectProjectType([projectRoot], llmDetectedProjectType || undefined);
                         console.log(`[LlmService] 감지된 프로젝트 타입: ${detectedProjectType}`);
                     }
                 } catch (error) {
                     console.warn('[LlmService] Failed to detect project type:', error);
                 }
+            }
+
+            // 프로젝트 타입이 여전히 unknown이고 LLM 분석 결과가 있으면 사용
+            if ((!detectedProjectType || detectedProjectType === 'unknown') && llmDetectedProjectType && llmDetectedProjectType !== 'unknown') {
+                detectedProjectType = llmDetectedProjectType;
+                console.log(`[LlmService] LLM 분석 결과를 프로젝트 타입으로 사용: ${detectedProjectType}`);
             }
 
             // 시스템 프롬프트 생성
@@ -1353,7 +1474,39 @@ Output:`;
             }
 
             // 현재 질문 추가
-            userParts.push({ text: userQuery });
+            // 프로젝트 생성 요청인 경우 명시적인 지시를 사용자 메시지에 추가
+            // 프로젝트 생성 요청 감지: code_generate + code_work
+            // code_generate가 감지되면 항상 파일 생성 지시를 추가 (파일이 이미 있어도 새로 생성할 수 있음)
+            let finalUserQuery = userQuery;
+            const isCodeGen = intentResult && intentResult.taskType === 'code_work' && intentResult.subtype === 'code_generate';
+            const isEmptyProj = !fullFileContentsContext || fullFileContentsContext.trim().length === 0 ||
+                fullFileContentsContext.includes('파일 리스트: (비어 있음') ||
+                fullFileContentsContext.includes('파일 리스트: (empty)');
+            const isUnknownType = !detectedProjectType || detectedProjectType === 'unknown';
+
+            if (isCodeGen && (isEmptyProj || isUnknownType)) {
+                finalUserQuery = `매우 중요: 이 요청은 프로젝트 생성 요청입니다.
+
+**필수 사항 (반드시 준수해야 함)**:
+- 반드시 "새 파일: [파일경로]" 형식으로 모든 필요한 파일을 생성하세요.
+- 모든 프로젝트 파일(pom.xml, build.gradle, package.json, src/main/java/.../*.java, src/main/resources/application.yml 등)을 "새 파일:" 지시어로 생성하세요.
+- 이것은 선택 사항이 아닌 필수입니다.
+- **파일 생성이 완료된 후에만 실행 명령어를 제공하세요.**
+
+**절대 금지 사항 (이 규칙을 위반하면 심각한 오류 발생)**:
+- 터미널 명령어 코드 블록(\`\`\`bash)은 절대 생성하지 마세요.
+- cat <<'EOF' > file 같은 heredoc 명령어는 절대 사용하지 마세요.
+- mkdir -p, cat, echo 같은 파일 생성 명령어는 절대 사용하지 마세요.
+- if ! command -v brew, if ! java -version 같은 조건문이나 도구 설치/확인 명령어는 절대 포함하지 마세요.
+- brew install, apt install 같은 패키지 매니저 명령어도 절대 포함하지 마세요.
+- "Maven command" 같은 불완전한 명령어는 절대 포함하지 마세요.
+- **파일이 생성되지 않은 상태에서 npm install, npm run dev 같은 명령어만 제공하는 것은 절대 금지입니다.**
+
+**중요: 프로젝트 생성 요청에 대해 터미널 명령어만 반환하면 작업이 실패합니다. 반드시 파일을 생성하세요.**
+
+${userQuery}`;
+            }
+            userParts.push({ text: finalUserQuery });
 
             // 이미지가 있는 경우 추가
             if (imageData && imageMimeType) {
@@ -1448,7 +1601,7 @@ Output:`;
                     this.sendProcessingStep('executing');
                     this.sendProcessingStatus('executing', 'Generating OS-specific runnable commands...');
                     const isVenvTask = /venv|가상환경|virtual\s*env|virtualenv/i.test(userQuery || '');
-                    const baseGuide = `당신은 전문적인 셸 명령어 변환기입니다.\n\n현재 사용자 OS: ${this.userOS}\n\n출력 규칙(아주 엄격):\n1) 오직 하나의 코드블록만 출력하세요. 설명/주석/말머리/말미 금지.\n2) OS별로 정확한 셸을 사용하세요:\n   - Windows: \`\`\`powershell ...\`\`\` (cmd 아님, bash 아님)\n   - macOS/Linux: \`\`\`bash ...\`\`\` (powershell 아님)\n3) 서로 다른 OS의 명령을 혼합 금지. 현재 OS에 부적합한 명령은 동등한 대안으로 변환하세요.\n   - 패키지 관리자 예: Windows(winget/choco), macOS(brew), Linux(apt/yum 등)\n   - 경로/환경변수 표기: Windows(\\, $Env:VAR), macOS/Linux(/, $VAR)\n4) 실행 순서 고려(의존 명령 선행).\n5) 파일은 이미 생성/수정되었다고 가정하고 필요한 설치/실행 명령만.\n6) cd 명령 절대 사용 금지. 현재 작업 디렉토리를 기준으로만 작업.\n7) 불완전한 제어구문 금지. if/then/fi는 항상 완결형. 한 줄 if는 ; 로 닫고 PS2 프롬프트 유발 금지.\n8) 비정상 종료 금지. exit 1, set -e 등 사용 금지. 실패 안내는 echo/Write-Output으로만.\n9) 불필요한 빈 줄과 중복 echo 출력 금지.\n10) 반드시 해당 OS용 코드블록 언어 태그만 사용.`;
+                    const baseGuide = `당신은 전문적인 셸 명령어 변환기입니다.\n\n현재 사용자 OS: ${this.userOS}\n\n출력 규칙(아주 엄격):\n1) 오직 하나의 코드블록만 출력하세요. 설명/주석/말머리/말미 금지.\n2) OS별로 정확한 셸을 사용하세요:\n   - Windows: \`\`\`powershell ...\`\`\` (cmd 아님, bash 아님)\n   - macOS/Linux: \`\`\`bash ...\`\`\` (powershell 아님)\n3) 서로 다른 OS의 명령을 혼합 금지. 현재 OS에 부적합한 명령은 동등한 대안으로 변환하세요.\n   - 패키지 관리자 예: Windows(winget/choco), macOS(brew), Linux(apt/yum 등)\n   - 경로/환경변수 표기: Windows(\\, $Env:VAR), macOS/Linux(/, $VAR)\n4) 실행 순서 고려(의존 명령 선행).\n5) 파일은 이미 생성/수정되었다고 가정하고 필요한 설치/실행 명령만.\n6) cd 명령 절대 사용 금지. 현재 작업 디렉토리를 기준으로만 작업.\n7) 불완전한 제어구문 금지. if/then/fi는 항상 완결형. 한 줄 if는 ; 로 닫고 PS2 프롬프트 유발 금지.\n8) 비정상 종료 금지. exit 1, set -e 등 사용 금지. 실패 안내는 echo/Write-Output으로만.\n9) 불필요한 빈 줄과 중복 echo 출력 금지.\n10) 반드시 해당 OS용 코드블록 언어 태그만 사용.\n11) **중요: 사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:\n    - 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.\n    - chmod +x 같은 권한 설정 명령어를 포함하지 마세요.\n    - 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.\n    - 예시: 사용자가 "mvn spring-boot:run으로 실행해줘"라고 요청하면 \`\`\`bash\nmvn spring-boot:run\n\`\`\` 만 제공하세요.\n    - 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)`;
                     const venvGuide = this.userOS === 'Windows'
                         ? `\n\n[파이썬 가상환경(Windows 전용) 지침]\n- 가상환경 이름: 기본 .venv, $Env:VENV_NAME 가 있으면 그 값을 사용합니다.\n- 존재하면 재생성하지 말고 안내만 출력(idempotent).\n- python 또는 py 유무를 Get-Command로 확인하고 없으면 winget/choco 설치 안내는 Write-Output으로만 표시(강제 설치 금지).\n- 생성: python -m venv $venv\n- 활성화: & \"$venv\\Scripts\\Activate.ps1\"\n- 활성화 검증: $Env:VIRTUAL_ENV를 우선 확인하고 (Get-Command python).Path를 보조로 출력.\n- 불완전 if/블록 금지. 한 줄 if는 ; 로 닫습니다.\n- 실패(exit 1) 같은 비정상 종료 명령은 금지.\n- cd, 빈 echo, 중복 echo 출력 금지.`
                         : `\n\n[파이썬 가상환경(macOS/Linux 전용) 지침]\n- 가상환경 이름: 기본 .venv, $VENV_NAME 가 있으면 그 값을 사용합니다.\n- 존재하면 재생성하지 말고 안내만 출력(idempotent).\n- python3 유무 확인은 command -v python3로. 없으면 macOS(brew install python) 또는 Linux(apt install python3) 안내를 echo로만 표시(강제 설치 금지).\n- 생성: python3 -m venv \"$VENV_DIR\"\n- 활성화: . \"$VENV_DIR/bin/activate\"\n- 활성화 검증: [ -n \"$VIRTUAL_ENV\" ]를 우선 확인하고, 보조로 which python 또는 python -V를 간결히 출력. which python 단독으로 활성화 여부를 판단하지 말 것.\n- 모든 변수/경로는 인용부호로 감싸고, if/then/fi는 항상 완결형으로 작성(PS2 프롬프트 유발 금지).\n- 실패(exit 1) 같은 비정상 종료 명령은 금지.\n- cd, 빈 echo, 중복 echo 출력 금지.`;
@@ -1503,13 +1656,21 @@ Output:`;
             // GENERAL_ASK 타입일 때는 파일 업데이트를 위한 컨텍스트 파일을 넘기지 않음
             this.sendProcessingStep('parsing');
             this.sendProcessingStatus('parsing', 'Processing response format...');
+            // 프로젝트 생성 요청인지 확인
+            // 프로젝트 생성 요청 감지: code_generate + code_work + (파일 리스트가 비어있거나 프로젝트 타입이 unknown)
+            const isCodeGeneration = intentResult && intentResult.taskType === 'code_work' && intentResult.subtype === 'code_generate';
+            const isEmptyProject = deduplicatedFiles.length === 0;
+            const isUnknownProjectType = !detectedProjectType || detectedProjectType === 'unknown';
+            const isProjectCreation = isCodeGeneration && (isEmptyProject || isUnknownProjectType);
+
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(
                 llmResponse,
                 promptType === PromptType.CODE_GENERATION ? deduplicatedFiles : [],
                 webviewToRespond,
                 promptType,
-                (status: string) => this.sendProcessingStatus('parsing', status),
-                this // LLM 서비스 전달
+                (status: string) => this.sendProcessingStatus('parsing', status), // statusCallback
+                this, // llmService
+                isProjectCreation // isProjectCreationRequest
             );
             this.sendProcessingStatus('parsing', 'Response processed successfully');
             this.sendProcessingStep('printing');
@@ -1603,9 +1764,24 @@ Output:`;
 
     private buildProfileContext(profile: ProjectProfile, projectType?: string): string {
         const lines: string[] = [];
-        lines.push(`언어: ${profile.language}`);
-        if (projectType) {
+        // 언어가 Unknown이고 프로젝트 타입이 있으면 언어를 추론
+        let language = profile.language;
+        if (language === 'Unknown' && projectType) {
+            if (projectType.includes('react') || projectType.includes('vite') || projectType.includes('nodejs')) {
+                language = 'JavaScript/TypeScript';
+            } else if (projectType.includes('python')) {
+                language = 'Python';
+            } else if (projectType.includes('java')) {
+                language = 'Java';
+            } else if (projectType.includes('go')) {
+                language = 'Go';
+            }
+        }
+        lines.push(`언어: ${language}`);
+        if (projectType && projectType !== 'unknown') {
             lines.push(`프로젝트 타입: ${projectType}`);
+        } else if (projectType === 'unknown') {
+            lines.push(`프로젝트 타입: 감지되지 않음 (새 프로젝트 생성 중)`);
         }
         if (profile.frameworks.length > 0) {
             const formatted = profile.frameworks
@@ -1652,15 +1828,34 @@ Output:`;
             lines.push(`- **절대로 쉘 스크립트(.sh, .bat, .ps1)나 빌드 스크립트를 생성하지 마세요.**`);
             lines.push(`- **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**`);
             lines.push(`- 프로그래밍 언어의 소스 코드 파일만 작성하세요.`);
-            if (intent.subtype === 'code_generate' && (intent.reasoning?.includes('프로젝트 생성') || intent.reasoning?.includes('프로젝트 만들'))) {
-                lines.push(`- **프로젝트 생성 작업**: 프로젝트 구조 파일(pom.xml, package.json, build.gradle 등)과 소스 코드 파일을 먼저 생성하세요.`);
+            if (intent.subtype === 'code_generate' && (intent.reasoning?.includes('프로젝트 생성') || intent.reasoning?.includes('프로젝트 만들') || intent.reasoning?.includes('react') || intent.reasoning?.includes('vite') || intent.reasoning?.includes('타입스크립트') || intent.reasoning?.includes('spring') || intent.reasoning?.includes('java') || intent.reasoning?.includes('maven'))) {
+                lines.push(`- **⚠️ 프로젝트 생성 작업 (매우 중요 - 절대 금지 사항 - 이 규칙을 위반하면 심각한 오류 발생)**:`);
+                lines.push(`  * **필수 사항 (반드시 준수해야 함 - 이것을 지키지 않으면 작업이 실패합니다)**:`);
+                lines.push(`    - 프로젝트 구조 파일(pom.xml, build.gradle, package.json, vite.config.ts, tsconfig.json 등)과 소스 코드 파일을 "새 파일: [파일경로]" 형식으로 반드시 생성하세요.`);
+                lines.push(`    - 모든 필요한 파일을 "새 파일:" 지시어로 생성하세요. 이것은 선택 사항이 아닌 필수입니다.`);
+                lines.push(`    - 오직 "새 파일: [파일경로]" 지시어만 사용하세요. 다른 방법은 절대 사용하지 마세요.`);
+                lines.push(`    - 예시: "새 파일: pom.xml" + 코드 블록, "새 파일: src/main/java/com/example/App.java" + 코드 블록, "새 파일: package.json" + 코드 블록`);
+                lines.push(`  * **절대 금지 사항 (이 규칙을 위반하면 심각한 오류 발생 - 절대 사용하지 마세요)**:`);
+                lines.push(`    - 터미널 명령어 코드 블록(\`\`\`bash) 생성 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
+                lines.push(`    - cat <<'EOF' > file 같은 heredoc 명령어 사용 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
+                lines.push(`    - mkdir -p, cat, echo 같은 파일 생성 명령어 사용 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
+                lines.push(`    - if ! command -v brew 같은 조건문이나 도구 설치 명령어 포함 절대 금지`);
+                lines.push(`    - npm install, pnpm install, yarn install 같은 패키지 설치 명령어 포함 절대 금지 - 파일 생성 후 별도로 실행되므로 포함하지 마세요`);
+                lines.push(`    - brew install, apt install 같은 패키지 매니저 명령어 포함 절대 금지`);
                 lines.push(`- 빌드나 실행은 소스 파일 생성 후 별도로 처리됩니다.`);
+                lines.push(`- **중요: 프로젝트 생성 요청에 대해 터미널 명령어만 반환하면 작업이 실패합니다. 반드시 파일을 생성하세요.**`);
             }
         } else if (intent.taskType === 'execution_work') {
             lines.push(`\n**작업 지침: 쉘 스크립트 작업 (설치/빌드/배포/실행)**`);
             lines.push(`- 프로젝트의 설치, 빌드, 배포, 실행을 위한 스크립트(.sh, .bat, .ps1 등)를 생성하거나 터미널 명령을 실행해야 합니다.`);
             lines.push(`- 소스 코드 파일을 생성/수정하지 마세요.`);
-            lines.push(`- 빌드/실행 스크립트나 터미널 명령어를 제공하세요.`);
+            lines.push(`- **중요: 사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:`);
+            lines.push(`  * 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.`);
+            lines.push(`  * chmod +x 같은 권한 설정 명령어를 포함하지 마세요.`);
+            lines.push(`  * 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.`);
+            lines.push(`  * 예시: 사용자가 "mvn spring-boot:run으로 실행해줘"라고 요청하면 \`\`\`bash\nmvn spring-boot:run\n\`\`\` 만 제공하세요.`);
+            lines.push(`  * 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)`);
+            lines.push(`- 복잡한 빌드/배포 스크립트가 필요한 경우에만 스크립트 파일을 생성하세요.`);
         }
 
         return lines.join('\n');
@@ -1836,60 +2031,29 @@ ${gitContext}
 
             console.log(`[LlmService] LLM 프로젝트 타입 감지 응답: ${response}`);
 
-            // JSON 응답 파싱
+            // JSON 응답 파싱 (LLM 응답만 사용)
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                const result = JSON.parse(jsonMatch[0]);
-                if (result.projectType && supportedTypes.includes(result.projectType)) {
-                    console.log(`[LlmService] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${result.confidence}, 사용자 선택 필요: ${result.needsUserSelection || false})`);
-                    return {
-                        projectType: result.projectType,
-                        confidence: result.confidence || 0.5,
-                        needsUserSelection: result.needsUserSelection || (result.confidence < 0.7)
-                    };
+                try {
+                    const result = JSON.parse(jsonMatch[0]);
+                    if (result.projectType && supportedTypes.includes(result.projectType)) {
+                        const confidence = result.confidence || 0.5;
+                        // confidence가 0.5 미만이면 사용자 선택 필요
+                        const needsUserSelection = confidence < 0.5 || (result.needsUserSelection === true);
+                        console.log(`[LlmService] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${confidence}, 사용자 선택 필요: ${needsUserSelection})`);
+                        return {
+                            projectType: result.projectType,
+                            confidence: confidence,
+                            needsUserSelection: needsUserSelection
+                        };
+                    }
+                } catch (parseError) {
+                    console.warn('[LlmService] LLM 응답 JSON 파싱 실패:', parseError);
                 }
             }
 
-            // 로컬에서 감지된 타입이 있으면 그것을 우선 사용
-            if (localProjectType !== 'unknown' && supportedTypes.includes(localProjectType)) {
-                console.log(`[LlmService] 로컬 프로젝트 타입 사용: ${localProjectType}`);
-                return {
-                    projectType: localProjectType,
-                    confidence: 0.8,
-                    needsUserSelection: false
-                };
-            }
-
-            // JSON 파싱 실패 및 로컬 감지 실패 시 키워드 기반 감지
-            const lowerQuery = userQuery.toLowerCase();
-            let detectedType = 'unknown';
-
-            if (lowerQuery.includes('node') || lowerQuery.includes('npm') || lowerQuery.includes('javascript') || lowerQuery.includes('typescript')) {
-                detectedType = 'nodejs-npm';
-            } else if (lowerQuery.includes('python')) {
-                detectedType = 'python';
-            } else if (lowerQuery.includes('maven') || (lowerQuery.includes('java') && lowerQuery.includes('maven'))) {
-                detectedType = 'java-maven';
-            } else if (lowerQuery.includes('gradle') || (lowerQuery.includes('java') && lowerQuery.includes('gradle'))) {
-                detectedType = 'java-gradle';
-            } else if (lowerQuery.includes('java')) {
-                detectedType = 'java-maven'; // 기본값
-            } else if (lowerQuery.includes('go ') || lowerQuery.includes('golang')) {
-                detectedType = 'go';
-            } else if (lowerQuery.includes('android')) {
-                detectedType = 'android';
-            } else if (lowerQuery.includes('ios')) {
-                detectedType = 'ios';
-            }
-
-            if (detectedType !== 'unknown') {
-                return {
-                    projectType: detectedType,
-                    confidence: 0.6,
-                    needsUserSelection: true // 키워드 기반이므로 사용자 확인 필요
-                };
-            }
-
+            // LLM 응답 파싱 실패 시 unknown 반환 (로컬/키워드 기반 폴백 제거)
+            console.warn('[LlmService] LLM 프로젝트 타입 감지 실패 - LLM 응답을 파싱할 수 없음');
             return {
                 projectType: 'unknown',
                 confidence: 0,
@@ -2126,6 +2290,15 @@ ${gitContext}
                 return norm.startsWith(rootNorm) ? norm.substring(rootNorm.length + (rootNorm.endsWith('/') ? 0 : 1)) : norm;
             };
 
+            // 제외할 디렉토리 목록
+            const excludeDirs = new Set([
+                'node_modules', '.git', 'dist', 'out', 'target', 'build', '.gradle', 'gradle',
+                '__pycache__', 'venv', '.venv', 'vendor', 'bin', 'obj', 'packages', '.nuget',
+                'pkg', 'coverage', '.next', '.nuxt', '.output', '.cache', '.turbo',
+                '.idea', '.vscode', '.vs', '.sass-cache', '.parcel-cache', '.yarn',
+                'bower_components', '.pnp', '.pnp.js', '.yarn-integrity'
+            ]);
+
             const walk = async (dir: vscode.Uri, depth: number) => {
                 if (items.length >= maxEntries) return;
                 let entries: [string, vscode.FileType][] = [];
@@ -2134,6 +2307,12 @@ ${gitContext}
                 } catch { return; }
                 for (const [name, type] of entries) {
                     if (items.length >= maxEntries) break;
+
+                    // 제외할 디렉토리 스킵
+                    if (type === vscode.FileType.Directory && excludeDirs.has(name)) {
+                        continue;
+                    }
+
                     const child = vscode.Uri.joinPath(dir, name);
                     if (type === vscode.FileType.Directory) {
                         items.push(`[D] ${rel(child.fsPath)}`);

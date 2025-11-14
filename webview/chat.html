@@ -974,9 +974,8 @@
         /* Auto Correcting Indicator Styles */
         .auto-correcting-indicator {
             position: fixed;
-            bottom: 250px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 90px;
+            left: 20px;
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             padding: 12px 16px;
@@ -1561,8 +1560,8 @@
                 className: 'auto-correcting-indicator',
                 style: {
                     position: 'fixed',
-                    bottom: '80px',
-                    right: '20px',
+                    top: '90px',
+                    left: '20px',
                     background: 'var(--vscode-button-background)',
                     color: 'var(--vscode-button-foreground)',
                     padding: '12px 16px',
@@ -1926,7 +1925,7 @@
                     alignItems: 'flex-start',
                     position: 'fixed',
                     left: '50%',
-                    bottom: '170px',
+                    top: '10px',
                     transform: 'translateX(-50%)',
                     width: '85%',
                     maxWidth: '90vw',
@@ -2211,7 +2210,7 @@
                 className: 'task-queue-container',
                 style: {
                     position: 'fixed',
-                    top: '60px',
+                    top: '90px',
                     right: '20px',
                     width: isMinimized ? 'auto' : '400px',
                     maxWidth: isMinimized ? 'auto' : 'calc(100vw - 40px)', // 화면 너비를 넘지 않도록
