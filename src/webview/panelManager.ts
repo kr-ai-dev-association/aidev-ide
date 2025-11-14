@@ -44,7 +44,8 @@ export function openSettingsPanel(
     licenseService: LicenseService, // LicenseService 추가
     ollamaApi?: any, // OllamaApi 추가
     llmService?: any, // LlmService 추가
-    ollamaBlockerService?: OllamaBlockerService // OllamaBlockerService 추가
+    ollamaBlockerService?: OllamaBlockerService, // OllamaBlockerService 추가
+    terminalMonitorService?: any // TerminalMonitorService 추가
 ) {
     const panel = createAndSetupWebviewPanel(extensionUri, context, 'settings', 'AIDEV-IDE Settings', 'settings', viewColumn,
         async (data, panel: vscode.WebviewPanel) => {
@@ -531,7 +532,10 @@ export function openSettingsPanel(
                     const autoCorrectionEnabledToSave = data.autoCorrectionEnabled;
                     if (typeof autoCorrectionEnabledToSave === 'boolean') {
                         try {
+                            // StorageService에 저장 (설정 패널에서 사용하는 소스)
                             await storageService.saveAutoCorrectionEnabled(autoCorrectionEnabledToSave);
+                            // ConfigurationService에도 동기화 (다른 곳에서 읽을 수 있도록)
+                            await configurationService.updateAutoCorrectionEnabled(autoCorrectionEnabledToSave);
                             safePostMessage(panel, { command: 'autoCorrectionEnabledSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: Auto Correction setting saved.');
                         } catch (error: any) {
@@ -547,7 +551,15 @@ export function openSettingsPanel(
                     const autoCorrectionEnabledToSet = data.enabled;
                     if (typeof autoCorrectionEnabledToSet === 'boolean') {
                         try {
+                            // StorageService에 저장 (설정 패널에서 사용하는 소스)
                             await storageService.saveAutoCorrectionEnabled(autoCorrectionEnabledToSet);
+                            // ConfigurationService에도 동기화 (다른 곳에서 읽을 수 있도록)
+                            await configurationService.updateAutoCorrectionEnabled(autoCorrectionEnabledToSet);
+                            // TerminalMonitorService에도 즉시 반영
+                            if (terminalMonitorService) {
+                                terminalMonitorService.setAutoCorrectionEnabled(autoCorrectionEnabledToSet);
+                                console.log(`[Settings Panel] TerminalMonitorService 자동 오류 수정 설정 업데이트: ${autoCorrectionEnabledToSet ? '활성화' : '비활성화'}`);
+                            }
                             safePostMessage(panel, { command: 'autoCorrectionEnabledSet' });
                             // 토글에서는 알림을 표시하지 않음 (사용자 경험을 위해)
                         } catch (error: any) {

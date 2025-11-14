@@ -257,9 +257,9 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch { /* ignore */ }
     }));
 
-    // 자동 오류 수정 설정 로드 및 적용
-    const autoCorrectionEnabled = await configurationService.isAutoCorrectionEnabled();
-    console.log(`[Extension] isAutoCorrectionEnabled() -> ${autoCorrectionEnabled}`);
+    // 자동 오류 수정 설정 로드 및 적용 (StorageService에서 읽기 - 설정 패널과 동일한 소스 사용)
+    const autoCorrectionEnabled = await storageService.getAutoCorrectionEnabled();
+    console.log(`[Extension] getAutoCorrectionEnabled() from StorageService -> ${autoCorrectionEnabled}`);
     terminalMonitorService.setAutoCorrectionEnabled(autoCorrectionEnabled);
     console.log(`[Extension] 자동 오류 수정 적용 완료: ${autoCorrectionEnabled ? '활성화' : '비활성화'}`);
     const errorRetryCount = await configurationService.getErrorRetryCount();
@@ -279,8 +279,8 @@ export async function activate(context: vscode.ExtensionContext) {
         context.extensionUri,
         context,
         llmService,
-        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService),
-        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService),
+        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, undefined, terminalMonitorService),
+        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService, terminalMonitorService),
         configurationService,
         notificationService,
         storageService,
@@ -319,7 +319,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand(`${AskViewProvider.viewType}.focus`); // ASK 탭으로 포커스
     }));
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openSettingsPanel', () => {
-        openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService);
+        openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, configurationService, notificationService, storageService, geminiApi, licenseService, ollamaApi, llmService, ollamaBlockerService, terminalMonitorService);
     }));
     // context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openLicensePanel', () => {
     //     openLicensePanel(context.extensionUri, context, vscode.ViewColumn.One, storageService, geminiApi, notificationService, configurationService);
@@ -370,7 +370,8 @@ export async function activate(context: vscode.ExtensionContext) {
             // console.log(`[Extension] 오류 수정 횟수 설정 변경: ${errorRetryCount}`);
         }
         if (event.affectsConfiguration('aidevIde.autoCorrectionEnabled')) {
-            const enabled = await configurationService.isAutoCorrectionEnabled();
+            // StorageService에서 읽기 (설정 패널과 동일한 소스)
+            const enabled = await storageService.getAutoCorrectionEnabled();
             console.log(`[Extension] onDidChangeConfiguration: autoCorrectionEnabled -> ${enabled}`);
             terminalMonitorService.setAutoCorrectionEnabled(enabled);
         }

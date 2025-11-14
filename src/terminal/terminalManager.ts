@@ -32,11 +32,12 @@ let _terminalMonitorService: TerminalMonitorService | undefined = undefined;
 let _summarySent = false; // 종합 설명 출력 플래그
 let _outputLogEnabled = true; // OUTPUT 로그 활성화 상태
 let _userOS = 'unknown'; // 사용자 OS
+let _lastFailedCommand: string | undefined = undefined; // 마지막 실패한 명령어
+let _lastErrorOutput: string | undefined = undefined; // 마지막 오류 출력
+let _sameErrorRetryCount = 0; // 동일한 오류 반복 횟수
 // 프로젝트 루트는 항상 워크스페이스 루트를 사용하므로 변수로 저장하지 않고 필요할 때마다 가져옵니다.
 let _terminalSeq = 0;
 let _planQueueService: PlanQueueService | undefined = undefined; // 작업 큐 서비스
-let _activeQueueId: string | undefined = undefined; // 현재 활성 작업 큐 ID
-let _lockedQueueId: string | undefined = undefined; // 실행 중 잠금된 작업 큐 ID
 
 /**
  * 사용자 OS를 설정합니다.
@@ -60,27 +61,6 @@ export function setErrorCorrectionServices(llmService: LlmService, webview: vsco
 export function setPlanQueueService(planQueueService: PlanQueueService): void {
     _planQueueService = planQueueService;
     console.log('[TerminalManager] PlanQueueService 설정 완료');
-}
-
-/**
- * 현재 활성 작업 큐 ID를 설정합니다.
- */
-export function setActiveQueueId(queueId: string | undefined): void {
-    // 현재 잠금된 큐가 있고 아직 완료되지 않았다면 변경을 무시하여 큐 간 병행 실행을 방지
-    if (_lockedQueueId && _planQueueService) {
-        const pending = (_planQueueService.getQueue(_lockedQueueId) || []).some(it => it.status === 'pending' || it.status === 'in_progress');
-        if (pending && queueId && queueId !== _lockedQueueId) {
-            console.log('[TerminalManager] ActiveQueueId 변경 요청 무시 (locked):', queueId, 'locked=', _lockedQueueId);
-            return;
-        }
-    }
-    _activeQueueId = queueId;
-    if (_planQueueService) _planQueueService.setActiveQueue(queueId);
-    console.log('[TerminalManager] ActiveQueueId 설정:', queueId, 'locked=', _lockedQueueId);
-}
-
-function getExecutionQueueId(): string | undefined {
-    return _lockedQueueId || _activeQueueId;
 }
 
 /**
@@ -490,6 +470,125 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
     const lower = command.toLowerCase();
     const isDevLong = isLongRunningDevCommand(lower);
+
+    // npm install 실행 전 esbuild 사전 정리 (esbuild 바이너리 손상 방지)
+    if (lower.match(/^(npm|pnpm|yarn|bun)\s+install/)) {
+        try {
+            const effectiveCwd = await getEffectiveCwd();
+            const cwd = effectiveCwd || projectRoot;
+            console.log('[TerminalManager] npm install 감지 - esbuild 사전 정리 시작');
+
+            // esbuild 디렉토리와 npm 캐시 정리 (조용히 실행, 실패해도 계속 진행)
+            if (process.platform === 'win32') {
+                await runCommandCapture(`if exist node_modules\\esbuild rmdir /s /q node_modules\\esbuild 2>nul`, { cwd });
+            } else {
+                await runCommandCapture(`rm -rf node_modules/esbuild 2>/dev/null || true`, { cwd });
+            }
+            console.log('[TerminalManager] esbuild 사전 정리 완료');
+        } catch (error) {
+            // 사전 정리 실패해도 npm install은 계속 진행
+            console.log(`[TerminalManager] esbuild 사전 정리 실패 (계속 진행): ${error}`);
+        }
+    }
+
+    // 장기 실행 명령어 실행 전 기존 프로세스 종료
+    if (isDevLong) {
+        try {
+            console.log(`[TerminalManager] 장기 실행 명령어 감지: ${command}, 기존 프로세스 종료 시도`);
+            const effectiveCwd = await getEffectiveCwd();
+            const cwd = effectiveCwd || projectRoot;
+
+            // 1. VS Code 터미널에서 실행 중인 aidev-ide 터미널 찾아서 종료
+            try {
+                const aidevTerminals = vscode.window.terminals.filter(t =>
+                    t.name.startsWith('aidev-ide Terminal') && t.exitStatus === undefined
+                );
+                for (const terminal of aidevTerminals) {
+                    try {
+                        console.log(`[TerminalManager] 기존 aidev-ide 터미널 종료 시도: ${terminal.name}`);
+                        // 터미널에 Ctrl+C 전송 (명령어 중단)
+                        terminal.sendText('\x03'); // Ctrl+C
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        // 터미널 dispose
+                        terminal.dispose();
+                        console.log(`[TerminalManager] 터미널 종료 완료: ${terminal.name}`);
+                    } catch (e) {
+                        console.log(`[TerminalManager] 터미널 종료 중 오류 (무시): ${e}`);
+                    }
+                }
+            } catch (e) {
+                console.log(`[TerminalManager] VS Code 터미널 종료 시도 중 오류 (무시): ${e}`);
+            }
+
+
+
+            // 3. 프로세스 이름 기반 종료 (포트 기반이 실패한 경우 대비)
+            if (process.platform === 'win32') {
+                // Windows: npm run dev 관련 프로세스 종료
+                const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T 2>nul || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T 2>nul || echo "No process found"`;
+                try {
+                    await runCommandCapture(killCommand, { cwd });
+                } catch (e) {
+                    console.log(`[TerminalManager] Windows 프로세스 종료 시도 완료 (오류 무시): ${e}`);
+                }
+            } else {
+                // macOS/Linux: 현재 작업 디렉토리에서만 npm run dev 관련 프로세스 종료
+                // lsof를 사용하여 현재 디렉토리에서 실행 중인 프로세스만 찾아서 종료
+                try {
+                    // 현재 디렉토리의 절대 경로 가져오기
+                    const absCwd = path.resolve(cwd || '.');
+                    console.log(`[TerminalManager] 현재 디렉토리에서만 프로세스 종료: ${absCwd}`);
+
+                    // 현재 디렉토리에서 실행 중인 npm run dev 프로세스 찾기
+                    const findProcessCmd = `lsof -a -d cwd -c node -F p | grep -E "^p[0-9]+" | head -1 | sed 's/^p//'`;
+                    const processResult = await runCommandCapture(findProcessCmd, { cwd: absCwd });
+
+                    if (processResult.stdout && processResult.stdout.trim()) {
+                        const pids = processResult.stdout.trim().split('\n').filter(pid => pid && /^\d+$/.test(pid));
+                        for (const pid of pids) {
+                            try {
+                                // 프로세스의 실제 작업 디렉토리 확인
+                                const checkCwdCmd = `lsof -a -p ${pid} -d cwd -Fn | grep -E "^n" | head -1 | sed 's/^n//'`;
+                                const cwdResult = await runCommandCapture(checkCwdCmd, { cwd: absCwd });
+                                const processCwd = cwdResult.stdout.trim();
+
+                                // 현재 디렉토리와 일치하는 경우에만 종료
+                                if (processCwd === absCwd) {
+                                    console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid} (CWD: ${processCwd})`);
+                                    await runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
+                                } else {
+                                    console.log(`[TerminalManager] 다른 디렉토리 프로세스는 종료하지 않음: PID ${pid} (CWD: ${processCwd}, 현재: ${absCwd})`);
+                                }
+                            } catch (e) {
+                                // 개별 프로세스 확인 실패는 무시
+                            }
+                        }
+                    }
+
+                    // 더 안전한 방법: ps와 grep을 사용하여 현재 디렉토리에서 실행 중인 프로세스만 찾기
+                    const psCmd = `ps aux | grep -E "(npm run dev|vite|next dev|nuxt dev)" | grep -v grep | awk '{print $2}' | xargs -I {} sh -c 'lsof -a -p {} -d cwd -Fn 2>/dev/null | grep -E "^n" | head -1 | sed "s/^n//" | grep -q "^${absCwd}" && echo {}'`;
+                    const psResult = await runCommandCapture(psCmd, { cwd: absCwd });
+
+                    if (psResult.stdout && psResult.stdout.trim()) {
+                        const matchingPids = psResult.stdout.trim().split('\n').filter(pid => pid && /^\d+$/.test(pid));
+                        for (const pid of matchingPids) {
+                            console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid}`);
+                            await runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
+                        }
+                    }
+                } catch (e) {
+                    console.log(`[TerminalManager] 프로세스 종료 시도 완료 (오류 무시): ${e}`);
+                }
+            }
+
+            // 프로세스 종료 시간 확보
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log(`[TerminalManager] 기존 프로세스 종료 완료`);
+        } catch (error) {
+            console.warn(`[TerminalManager] 기존 프로세스 종료 실패 (계속 진행): ${error}`);
+        }
+    }
+
     let shouldUseTerminal = isInteractiveCommand(lower); // dev 서버 등 비대화형 장기 실행은 데몬 사용
 
     const selectShellForCapture = (cmd: string): string | undefined => {
@@ -527,7 +626,19 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
     // 현재 작업 디렉토리를 프로젝트 루트로 설정 (잘못된 cwd 방지)
     const effectiveCwd = await getEffectiveCwd();
-    const cwd = _currentWorkingDirectory && _currentWorkingDirectory !== 'bank-app-front' ? _currentWorkingDirectory : effectiveCwd;
+    let cwd = _currentWorkingDirectory && _currentWorkingDirectory !== 'bank-app-front' ? _currentWorkingDirectory : effectiveCwd;
+
+    // cwd가 "$PROJECT_ROOT" 문자열인 경우 실제 경로로 변환
+    if (cwd === '$PROJECT_ROOT' || cwd === '"$PROJECT_ROOT"') {
+        console.warn(`[TerminalManager] cwd가 "$PROJECT_ROOT" 문자열로 설정됨, 실제 경로로 변환: ${effectiveCwd}`);
+        cwd = effectiveCwd;
+    }
+
+    // cwd가 여전히 "$PROJECT_ROOT"를 포함하는 경우 제거
+    if (cwd && (cwd.includes('$PROJECT_ROOT') || cwd.includes('PROJECT_ROOT'))) {
+        console.warn(`[TerminalManager] cwd에 PROJECT_ROOT 변수 포함됨, 실제 경로로 변환: ${effectiveCwd}`);
+        cwd = effectiveCwd;
+    }
 
     // 명령어에서 cd 부분 제거 (이미 처리됨)
     let cleanCommand = command;
@@ -854,9 +965,17 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
         if (result.stdout) {
             channel.appendLine(`Output: ${result.stdout}`);
         }
-        console.log(`[TerminalManager] Executed via VS Code terminal: ${cleanCommand}`);
-        debugLog(`TerminalManager: success -> ${cleanCommand}`);
-        return true;
+        console.log(`[TerminalManager] Executed via VS Code terminal: ${cleanCommand} (exit code: ${result.code})`);
+        debugLog(`TerminalManager: success -> ${cleanCommand} (exit code: ${result.code})`);
+
+        // npm install 같은 명령어는 exit code 0이면 성공으로 간주
+        // npm warn 메시지가 있어도 exit code가 0이면 성공
+        if (result.code === 0) {
+            return true;
+        }
+
+        // exit code가 0이 아니면 실패로 간주
+        return false;
     } catch (e: any) {
         // VS Code 터미널 실행 실패 시 캡처 기반으로 폴백
         channel.appendLine(`[WARN] VS Code 터미널 실행 실패, 로컬 실행으로 폴백: ${e?.message || e}`);
@@ -931,9 +1050,83 @@ async function processQueue(): Promise<void> {
             _pendingCommands = [command];
             _currentCommandIndex = 0;
 
+            // 작업 큐 상태 업데이트: 명령어와 매칭되는 pending 항목을 in_progress로 변경
+            let processingItemId: string | undefined = undefined;
+            if (_planQueueService && _currentWebview) {
+                const queueItems = _planQueueService.list();
+
+                // 명령어 문자열 추출 (파일 작업이 아닌 경우)
+                let commandStr = '';
+                if (typeof command === 'string' && !command.startsWith(FILE_OP_PREFIX)) {
+                    commandStr = command.trim();
+                }
+
+                // 명령어와 매칭되는 항목 찾기
+                let matchingItem = null;
+                if (commandStr) {
+                    // 명령어 정규화 (패키지 설치 명령어는 npm install로 통일, 개발 서버 실행 명령어는 npm run dev로 통일)
+                    let normalizedCommandStr = commandStr.trim();
+                    const installCmdMatch = normalizedCommandStr.match(/^(npm|pnpm|yarn|bun)\s+install/);
+                    if (installCmdMatch) {
+                        normalizedCommandStr = 'npm install';
+                    }
+
+                    const devCmdMatch = normalizedCommandStr.match(/^(npm|pnpm|yarn|bun)\s+(run\s+)?dev(\s|$)/);
+                    if (devCmdMatch) {
+                        normalizedCommandStr = 'npm run dev';
+                    }
+
+                    // 명령어 실행 항목 중에서 명령어 내용이 일치하는 항목 찾기
+                    matchingItem = queueItems.find(item =>
+                        item.status === 'pending' &&
+                        (item.title.includes('명령어 실행:') || item.title.includes('명령어 실행')) &&
+                        (item.detail === normalizedCommandStr || item.detail === commandStr ||
+                            item.title.includes(commandStr) ||
+                            (item.detail && (item.detail.includes(normalizedCommandStr) || item.detail.includes(commandStr))))
+                    );
+                }
+
+                // 매칭되는 항목이 없으면 첫 번째 pending 항목 사용 (파일 작업 등)
+                if (!matchingItem) {
+                    matchingItem = queueItems.find(item => item.status === 'pending');
+                }
+
+                if (matchingItem) {
+                    processingItemId = matchingItem.id;
+                    console.log(`[TerminalManager] 작업 큐 항목 시작: ${matchingItem.id} - ${matchingItem.title.substring(0, 50)} (명령어: ${commandStr.substring(0, 50)})`);
+                    _planQueueService.updateStatus(matchingItem.id, 'in_progress');
+                    safePostMessage(_currentWebview, {
+                        command: 'taskQueueUpdate',
+                        item: { id: matchingItem.id, status: 'in_progress' }
+                    });
+                    safePostMessage(_currentWebview, {
+                        command: 'updateTaskQueue',
+                        items: _planQueueService.list()
+                    });
+                } else {
+                    console.log(`[TerminalManager] 매칭되는 작업 큐 항목을 찾을 수 없음 (명령어: ${commandStr.substring(0, 50)})`);
+                }
+            }
+
             // 파일 작업 토큰인지 확인
             if (typeof command === 'string' && command.startsWith(FILE_OP_PREFIX)) {
                 const ok = await executeFileOpFromToken(command);
+
+                // 작업 큐 상태 업데이트: 실행 완료된 항목을 done으로 변경
+                if (_planQueueService && _currentWebview && processingItemId) {
+                    const newStatus = ok ? 'done' : 'failed';
+                    console.log(`[TerminalManager] 파일 작업 완료: ${processingItemId} (${newStatus})`);
+                    _planQueueService.updateStatus(processingItemId, newStatus);
+                    safePostMessage(_currentWebview, {
+                        command: 'taskQueueUpdate',
+                        item: { id: processingItemId, status: newStatus }
+                    });
+                    safePostMessage(_currentWebview, {
+                        command: 'updateTaskQueue',
+                        items: _planQueueService.list()
+                    });
+                }
+
                 if (!ok) {
                     try {
                         getCaptureOutputChannel().appendLine(`[QUEUE] stop: file-op failed`);
@@ -944,99 +1137,48 @@ async function processQueue(): Promise<void> {
                 // 항상 워크스페이스 루트를 사용
                 const projectRoot = await getEffectiveCwd();
 
-                // 작업 큐 상태 업데이트: 첫 번째 pending 항목을 in_progress로 변경
-                let processingItemId: string | undefined = undefined;
-                let processingItemTitle: string | undefined = undefined;
-                if (_planQueueService && _currentWebview) {
-                    const execQueueId = getExecutionQueueId();
-                    const queueItems = _planQueueService.getQueue(execQueueId);
-                    console.log(`[TerminalManager] 작업 큐 확인: 총 ${queueItems.length}개 항목 (queueId=${execQueueId || 'default'}), _planQueueService=${!!_planQueueService}, _currentWebview=${!!_currentWebview}`);
-                    const firstPendingItem = queueItems.find(item => item.status === 'pending');
-                    if (firstPendingItem) {
-                        processingItemId = firstPendingItem.id;
-                        processingItemTitle = firstPendingItem.title;
-                        console.log(`[TerminalManager] 작업 큐 항목 시작: ${firstPendingItem.id} - ${firstPendingItem.title.substring(0, 30)}`);
-                        // 실행 큐 잠금 (처음 실행 시)
-                        if (!_lockedQueueId) {
-                            _lockedQueueId = execQueueId || _activeQueueId || 'default';
-                            console.log('[TerminalManager] 작업 큐 잠금 설정:', _lockedQueueId);
-                        }
-                        if (_activeQueueId) {
-                            _planQueueService.updateStatusIn(_activeQueueId, firstPendingItem.id, 'in_progress');
-                        } else {
-                            _planQueueService.updateStatus(firstPendingItem.id, 'in_progress');
-                        }
-
-                        // Processing Steps에 작업 큐 실행 상태 표시
-                        safePostMessage(_currentWebview, {
-                            command: 'updateProcessingStatus',
-                            step: 'executing',
-                            status: `작업 큐 실행 중: ${firstPendingItem.title.substring(0, 50)}...`
-                        });
-
-                        safePostMessage(_currentWebview, {
-                            command: 'taskQueueUpdate',
-                            queueId: _activeQueueId,
-                            item: { id: firstPendingItem.id, status: 'in_progress' }
-                        });
-                        safePostMessage(_currentWebview, {
-                            command: 'updateTaskQueue',
-                            queueId: _activeQueueId,
-                            items: _planQueueService.getQueue(_activeQueueId)
-                        });
-                        console.log(`[TerminalManager] 작업 큐 상태 업데이트 메시지 전송 완료: in_progress`);
-                    } else {
-                        console.log(`[TerminalManager] pending 상태인 작업 큐 항목이 없음. 현재 상태:`, queueItems.map(item => `${item.id}: ${item.status}`));
-                    }
-                } else {
-                    console.log(`[TerminalManager] 작업 큐 상태 업데이트 불가: _planQueueService=${!!_planQueueService}, _currentWebview=${!!_currentWebview}`);
-                }
+                // 장기 실행 명령어인지 먼저 확인
+                const isLongRunning = typeof command === 'string' && isLongRunningDevCommand(command);
 
                 const ok = await handleInteractiveCommand(command, projectRoot);
 
-                // 작업 큐 상태 업데이트: 실행 완료된 항목을 done으로 변경
+                // 작업 큐 상태 업데이트
                 if (_planQueueService && _currentWebview && processingItemId) {
-                    const newStatus = ok ? 'done' : 'failed';
-                    const statusLabel = ok ? '완료' : '실패';
-                    console.log(`[TerminalManager] 작업 큐 항목 완료: ${processingItemId} (${newStatus})`);
-                    if (_activeQueueId) {
-                        _planQueueService.updateStatusIn(_activeQueueId, processingItemId, newStatus);
-                    } else {
-                        _planQueueService.updateStatus(processingItemId, newStatus);
-                    }
-
-                    // Processing Steps에 작업 큐 완료 상태 표시
-                    if (processingItemTitle) {
+                    if (isLongRunning) {
+                        // 장기 실행 명령어는 시작되면 완료로 표시 (서버가 시작되었으므로)
+                        console.log(`[TerminalManager] 장기 실행 명령어 시작 완료: ${processingItemId} - ${String(command).substring(0, 50)}`);
+                        _planQueueService.updateStatus(processingItemId, 'done');
                         safePostMessage(_currentWebview, {
-                            command: 'updateProcessingStatus',
-                            step: 'executing',
-                            status: `작업 큐 ${statusLabel}: ${processingItemTitle.substring(0, 50)}...`
+                            command: 'taskQueueUpdate',
+                            item: { id: processingItemId, status: 'done' }
                         });
-                    }
+                        safePostMessage(_currentWebview, {
+                            command: 'updateTaskQueue',
+                            items: _planQueueService.list()
+                        });
+                    } else {
+                        // 일반 명령어는 실행 완료 후 상태 업데이트
+                        const newStatus = ok ? 'done' : 'failed';
+                        console.log(`[TerminalManager] 작업 큐 항목 완료: ${processingItemId} (${newStatus}) - ${String(command).substring(0, 50)}`);
+                        console.log(`[TerminalManager] handleInteractiveCommand 반환값: ok=${ok}, 명령어: ${String(command).substring(0, 50)}`);
 
-                    safePostMessage(_currentWebview, {
-                        command: 'taskQueueUpdate',
-                        queueId: _activeQueueId,
-                        item: { id: processingItemId, status: newStatus }
-                    });
-                    safePostMessage(_currentWebview, {
-                        command: 'updateTaskQueue',
-                        queueId: _activeQueueId,
-                        items: _planQueueService.getQueue(_activeQueueId)
-                    });
-                    console.log(`[TerminalManager] 작업 큐 상태 업데이트 메시지 전송 완료: ${newStatus}`);
-                    // 큐 완료 시 잠금 해제
-                    try {
-                        const execQueueId = getExecutionQueueId();
-                        const remain = execQueueId ? _planQueueService.getQueue(execQueueId) : [];
-                        const hasPending = (remain || []).some(it => it.status === 'pending' || it.status === 'in_progress');
-                        if (!hasPending) {
-                            console.log('[TerminalManager] 작업 큐 완료, 잠금 해제:', _lockedQueueId);
-                            _lockedQueueId = undefined;
+                        if (processingItemId) {
+                            _planQueueService.updateStatus(processingItemId, newStatus);
+                            console.log(`[TerminalManager] 작업 큐 상태 업데이트 완료: ${processingItemId} -> ${newStatus}`);
+
+                            safePostMessage(_currentWebview, {
+                                command: 'taskQueueUpdate',
+                                item: { id: processingItemId, status: newStatus }
+                            });
+                            safePostMessage(_currentWebview, {
+                                command: 'updateTaskQueue',
+                                items: _planQueueService.list()
+                            });
+                            console.log(`[TerminalManager] 웹뷰에 작업 큐 업데이트 전송 완료`);
+                        } else {
+                            console.warn(`[TerminalManager] processingItemId가 없어 상태 업데이트 불가: ${String(command).substring(0, 50)}`);
                         }
-                    } catch { }
-                } else {
-                    console.log(`[TerminalManager] 작업 큐 완료 상태 업데이트 불가: processingItemId=${processingItemId}, _planQueueService=${!!_planQueueService}, _currentWebview=${!!_currentWebview}`);
+                    }
                 }
 
                 if (!ok) {
@@ -1046,16 +1188,17 @@ async function processQueue(): Promise<void> {
                     } catch { }
                     break;
                 }
-            }
 
-            // 장기 실행(dev server 등) 명령이면 큐를 일시 정지 (사용자 종료 시 재개 가능)
-            if (isLongRunningDevCommand(command)) {
-                _queuePausedForLongRunning = true;
-                // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
-                try {
-                    getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`);
-                } catch { }
-                return;
+                // 장기 실행(dev server 등) 명령이면 큐를 일시 정지 (사용자 종료 시 재개 가능)
+                if (isLongRunning) {
+                    _queuePausedForLongRunning = true;
+
+                    // 장기 실행 중에는 즉시 루프를 종료하여 중복 실행 방지
+                    try {
+                        getCaptureOutputChannel().appendLine(`[QUEUE] paused for long-running command`);
+                    } catch { }
+                    return;
+                }
             }
 
             // 다음 항목 처리 (완료 후에만 진행) — 불필요한 대기 제거
@@ -1123,35 +1266,67 @@ export function enqueueCommandsBatch(commands: string[], priority = false, proje
     // projectRoot 파라미터는 이전 버전 호환성을 위해 유지하지만 실제로는 사용하지 않습니다.
     // 항상 워크스페이스 루트를 사용합니다.
 
-    // 1) 작업 전 프로젝트 루트 존재 및 권한 확인 프리플라이트 명령 추가 (macOS/Linux/Windows 공통)
-    const preflightCmd = process.platform === 'win32'
-        ? 'powershell -NoLogo -NoProfile -NonInteractive -Command "$p=(Get-Location).Path; Write-Output \"[AIDEV-IDE] CWD=$p\"; if(!(Test-Path -Path .)){Write-Error \"ERR: CWD not accessible\"; exit 2}; Write-Output \"OK: $p\""'
-        : 'bash -lc "printf \\"[AIDEV-IDE] CWD=%s\\\\n\\" \\"$PWD\\"; test -d \\"$PWD\\" && [ -r \\"$PWD\\" ] && [ -w \\"$PWD\\" ] && echo \\"OK: $PWD\\" || (echo \\"ERR: Project root not accessible\\"; exit 2)"';
-    const commandsWithPreflight = [preflightCmd, ...commands];
+    // fileOps와 bash를 try 블록 밖에서 선언하여 스코프 문제 해결
+    let fileOps: { type: string; path: string; size?: number }[] = [];
+    const bash: string[] = [];
+
+    // 중복 제거를 위한 Set
+    const seenCommands = new Set<string>();
 
     try {
         const channel = getCaptureOutputChannel();
         const timestamp = new Date().toLocaleString();
-        let fileOps: { type: string; path: string; size?: number }[] = [];
-        const bash: string[] = [];
 
-        for (const c of commandsWithPreflight) {
+        for (const c of commands) {
             if (typeof c === 'string' && c.startsWith(FILE_OP_PREFIX)) {
                 try {
                     const b64 = c.substring(FILE_OP_PREFIX.length);
                     const decoded = Buffer.from(b64, 'base64').toString('utf8');
                     const payload = JSON.parse(decoded) as { type: string; path: string; content?: string };
-                    fileOps.push({ type: payload.type, path: payload.path, size: (payload.content || '').length });
+                    // 중복 제거: 같은 경로의 같은 타입 작업은 한 번만 추가
+                    const key = `${payload.type}:${payload.path}`;
+                    if (!seenCommands.has(key)) {
+                        seenCommands.add(key);
+                        fileOps.push({ type: payload.type, path: payload.path, size: (payload.content || '').length });
+                    }
                 } catch (e: any) {
                     channel.appendLine(`[QUEUE-ENQUEUE] failed to parse file-op token: ${e?.message || String(e)}`);
                 }
             } else {
-                bash.push(String(c));
+                const cmdStr = String(c).trim();
+                // 패키지 설치 명령어 정규화 (npm install, pnpm install, yarn install 등은 동일한 작업)
+                let normalizedCmd = cmdStr;
+                const installCmdMatch = normalizedCmd.match(/^(npm|pnpm|yarn|bun)\s+install/);
+                if (installCmdMatch) {
+                    // 패키지 매니저가 다르더라도 같은 작업이므로 하나로 통일
+                    normalizedCmd = 'npm install'; // 표준화된 형태로 정규화
+                }
+
+                // 개발 서버 실행 명령어 정규화 (npm run dev, yarn dev, pnpm dev 등은 동일한 작업)
+                const devCmdMatch = normalizedCmd.match(/^(npm|pnpm|yarn|bun)\s+(run\s+)?dev(\s|$)/);
+                if (devCmdMatch) {
+                    // 패키지 매니저가 다르더라도 같은 작업이므로 하나로 통일
+                    // 옵션 제거 (--port 3000 등)
+                    normalizedCmd = 'npm run dev'; // 표준화된 형태로 정규화
+                }
+
+                // 정규화된 명령어로 중복 체크 (bash 배열에 추가할 때)
+                if (!seenCommands.has(normalizedCmd)) {
+                    seenCommands.add(normalizedCmd);
+                    // 정규화된 명령어로 저장 (패키지 설치/개발 서버 실행 명령어는 npm으로 통일)
+                    if (installCmdMatch || devCmdMatch) {
+                        bash.push(normalizedCmd); // 정규화된 명령어로 저장 (npm install 또는 npm run dev)
+                    } else {
+                        bash.push(cmdStr); // 다른 명령어는 원본 유지
+                    }
+                } else {
+                    console.log(`[TerminalManager] bash 배열에서 중복 명령어 제거됨: ${cmdStr.substring(0, 50)} (정규화: ${normalizedCmd})`);
+                }
             }
         }
 
         channel.appendLine(`\n===== Queue Enqueue (${timestamp}) =====`);
-        channel.appendLine(`Priority: ${priority ? 'yes' : 'no'} | Items: ${commandsWithPreflight.length} | fileOps: ${fileOps.length} | bash: ${bash.length}`);
+        channel.appendLine(`Priority: ${priority ? 'yes' : 'no'} | Items: ${commands.length} | fileOps: ${fileOps.length} | bash: ${bash.length}`);
         if (fileOps.length > 0) {
             channel.appendLine(`[QUEUE-ENQUEUE] FileOps:`);
             for (const f of fileOps) {
@@ -1169,58 +1344,189 @@ export function enqueueCommandsBatch(commands: string[], priority = false, proje
         }
     } catch { /* ignore logging errors */ }
 
-    // 실행 전 작업 큐에 사용자 친화적 설명으로 항목 추가
-    try {
-        if (_planQueueService) {
-            const itemsToAdd: { title: string; detail?: string }[] = [];
-            const maxItems = 50; // 안전상 제한
-            let added = 0;
+    // 실제 작업을 작업 큐에 추가 (Plan이 아닌 실제 파일 작업/명령어만)
+    if (_planQueueService && _currentWebview) {
+        const taskItems: Array<{ title: string, detail?: string }> = [];
 
-            // 프리플라이트 체크 항목 추가
-            itemsToAdd.push({ title: '프로젝트 루트 디렉터리 존재 여부 및 접근 권한 확인' });
-            added++;
+        // 중복 제거를 위한 Set
+        const seenTaskItems = new Set<string>();
 
-            // 파일 작업 토큰을 사람이 읽기 쉬운 타이틀로 변환
-            for (const c of commands) {
-                if (added >= maxItems) break;
-                if (typeof c === 'string' && c.startsWith(FILE_OP_PREFIX)) {
-                    try {
-                        const b64 = c.substring(FILE_OP_PREFIX.length);
-                        const decoded = Buffer.from(b64, 'base64').toString('utf8');
-                        const payload = JSON.parse(decoded) as { type: string; path: string; content?: string };
-                        const title = `파일 ${payload.type}: ${payload.path}`;
-                        itemsToAdd.push({ title: title.length > 100 ? title.slice(0, 97) + '...' : title });
-                        added++;
-                    } catch { /* ignore */ }
+        // 파일 작업 항목 추가 (중복 제거)
+        for (const f of fileOps) {
+            const key = `file:${f.type}:${f.path}`;
+            if (!seenTaskItems.has(key)) {
+                seenTaskItems.add(key);
+                const typeLabel = f.type === 'create' ? '생성' : f.type === 'modify' ? '수정' : '삭제';
+                const fileName = path.basename(f.path);
+                taskItems.push({
+                    title: `파일 ${typeLabel}: ${fileName}`,
+                    detail: f.path
+                });
+            }
+        }
+
+        // 명령어 항목 추가
+        // heredoc 명령어를 추적하여 중복 제거
+        const heredocFilePaths = new Set<string>();
+
+        // 작업 큐에 추가할 때 사용할 중복 체크 Set (정규화된 명령어 기준)
+        const seenTaskCommands = new Set<string>();
+
+        for (const b of bash) {
+            // shebang 스크립트 실행 명령어인지 확인 (임시 파일 실행 패턴)
+            const isShebangScript = /^bash\s+"[^"]*aidev-script-[^"]*\.sh"\s+&&\s+rm\s+-f\s+"[^"]*"$/.test(b.trim());
+            if (isShebangScript) {
+                // shebang 스크립트는 "스크립트 실행" 하나로 표시
+                if (!seenCommands.has('shebang_script')) {
+                    seenCommands.add('shebang_script');
+                    taskItems.push({
+                        title: `스크립트 실행`,
+                        detail: b
+                    });
+                }
+                continue;
+            }
+
+            // heredoc 명령어인지 확인 (여러 줄로 구성된 명령어)
+            // 패턴: cat >file <<'EOF' 또는 cat <<'EOF' > file
+            const firstLine = b.split('\n')[0]?.trim() || '';
+            const isHeredoc = b.includes('\n') && /^cat\s+.*<</.test(firstLine);
+
+            console.log(`[TerminalManager] 작업 큐 항목 처리: firstLine="${firstLine.substring(0, 50)}", isHeredoc=${isHeredoc}, length=${b.length}, hasNewline=${b.includes('\n')}`);
+
+            if (isHeredoc) {
+                // heredoc 명령어는 파일 생성 작업으로 처리
+                // 파일 경로 추출: cat >file <<'EOF' 또는 cat <<'EOF' > file
+                let filePath: string | null = null;
+
+                // 패턴 1: cat >file <<'EOF'
+                const match1 = /^cat\s+>([^\s<]+)\s*<</.exec(firstLine);
+                if (match1) {
+                    filePath = match1[1];
                 } else {
-                    const cmd = String(c).trim().replace(/\s+/g, ' ');
-                    const short = cmd.length > 80 ? cmd.slice(0, 77) + '...' : cmd;
-                    const firstWord = short.split(' ')[0];
-                    const title = `명령 실행: ${firstWord} ${short.slice(firstWord.length).trim()}`.trim();
-                    itemsToAdd.push({ title });
-                    added++;
+                    // 패턴 2: cat <<'EOF' > file
+                    const match2 = /^cat\s+<<[^>]+\s+>([^\s]+)/.exec(firstLine);
+                    if (match2) {
+                        filePath = match2[1];
+                    }
+                }
+
+                if (filePath) {
+                    // 중복 제거: 같은 파일 경로는 한 번만 추가 (fileOps와도 중복 제거)
+                    const key = `file:create:${filePath}`;
+                    if (!heredocFilePaths.has(filePath) && !seenTaskItems.has(key)) {
+                        heredocFilePaths.add(filePath);
+                        seenTaskItems.add(key);
+                        const fileName = path.basename(filePath);
+                        taskItems.push({
+                            title: `파일 생성: ${fileName}`,
+                            detail: filePath
+                        });
+                    }
+                    // heredoc 명령어는 파일 생성으로 표시했으므로 여기서 종료 (명령어로 표시하지 않음)
+                    continue;
                 }
             }
 
-            if (itemsToAdd.length > 0) {
-                if (_activeQueueId) {
-                    _planQueueService.enqueueTo(_activeQueueId, itemsToAdd, 'pending');
-                } else {
-                    _planQueueService.enqueue(itemsToAdd, 'pending');
-                    _activeQueueId = _planQueueService.getActiveQueueId();
+            // heredoc이 아니거나 파일 경로를 추출할 수 없는 경우
+            // heredoc 내부 줄 필터링 (더 강력한 필터링)
+            const trimmed = b.trim();
+            const isHeredocContent =
+                // JSON 구조 (단일 문자 또는 짧은 줄)
+                (/^[{}[\],:]$/.test(trimmed) ||
+                    /^[\s]*["'][^"']*["']\s*:/.test(trimmed) || // JSON 키:값
+                    /^[\s]*["'][^"']*["']\s*,?\s*$/.test(trimmed)) || // JSON 문자열 값
+                // HTML 태그
+                /^[\s]*<\/?[a-zA-Z][^>]*>/.test(trimmed) ||
+                // 주석
+                /^[\s]*\/\//.test(trimmed) ||
+                /^[\s]*\/\*/.test(trimmed) ||
+                /^[\s]*\*/.test(trimmed) ||
+                // CSS 속성
+                /^[\s]*[a-zA-Z-]+\s*:/.test(trimmed) ||
+                // JavaScript import/export/function
+                (/^[\s]*(import|export|function|const|let|var)\s+/.test(trimmed) && trimmed.length < 100) ||
+                // JSX 태그
+                /^[\s]*<[A-Z]/.test(trimmed) ||
+                /^[\s]*<\/[A-Z]/.test(trimmed) ||
+                // 단일 문자 또는 매우 짧은 줄 (heredoc 내부일 가능성 높음)
+                (trimmed.length < 3 && /^[{}[\],:;()]/.test(trimmed)) ||
+                // heredoc 전체 내용이 하나의 명령어로 들어온 경우 (여러 줄 포함)
+                // 단, heredoc 명령어 자체는 이미 위에서 처리했으므로 제외
+                (b.includes('\n') && b.length > 200 && !/^cat\s+.*<</.test(firstLine));
+
+            if (!isHeredocContent) {
+                // 일반 명령어는 기존대로 처리
+                // 중복 제거: 같은 명령어는 한 번만 추가
+                let normalizedCmd = b.trim();
+                let isNormalized = false;
+
+                // 패키지 설치 명령어 정규화 (npm install, pnpm install, yarn install 등은 동일한 작업)
+                const installCmdMatch = normalizedCmd.match(/^(npm|pnpm|yarn|bun)\s+install/);
+                if (installCmdMatch) {
+                    // 패키지 매니저가 다르더라도 같은 작업이므로 하나로 통일
+                    normalizedCmd = 'npm install'; // 표준화된 형태로 정규화
+                    isNormalized = true;
                 }
+
+                // 개발 서버 실행 명령어 정규화 (npm run dev, yarn dev, pnpm dev 등은 동일한 작업)
+                const devCmdMatch = normalizedCmd.match(/^(npm|pnpm|yarn|bun)\s+(run\s+)?dev(\s|$)/);
+                if (devCmdMatch) {
+                    // 패키지 매니저가 다르더라도 같은 작업이므로 하나로 통일
+                    // 옵션 제거 (--port 3000 등)
+                    normalizedCmd = 'npm run dev'; // 표준화된 형태로 정규화
+                    isNormalized = true;
+                }
+
+                // 정규화된 명령어로 중복 체크 (작업 큐에 추가할 때)
+                if (!seenTaskCommands.has(normalizedCmd)) {
+                    seenTaskCommands.add(normalizedCmd);
+                    // displayCmd는 정규화된 명령어 사용 (사용자에게 보여주기 위해)
+                    const displayCmd = isNormalized
+                        ? normalizedCmd
+                        : (b.length > 50 ? b.substring(0, 47) + '...' : b);
+                    // detail에는 정규화된 명령어 저장 (매칭을 위해)
+                    taskItems.push({
+                        title: `명령어 실행: ${displayCmd}`,
+                        detail: normalizedCmd
+                    });
+                } else {
+                    console.log(`[TerminalManager] 작업 큐에서 중복 명령어 제거됨: ${b.substring(0, 50)} (정규화: ${normalizedCmd})`);
+                }
+            } else {
+                console.log(`[TerminalManager] heredoc 내부 줄 필터링됨: ${trimmed.substring(0, 50)}`);
+            }
+        }
+
+        if (taskItems.length > 0) {
+            console.log(`[TerminalManager] 작업 큐에 ${taskItems.length}개 항목 추가`);
+
+            // 기존 작업 큐를 모두 지우고 새로 추가 (중복 방지 및 이전 질문의 작업 제거)
+            if (_planQueueService) {
+                const existingCount = _planQueueService.list().length;
+                if (existingCount > 0) {
+                    console.log(`[TerminalManager] 기존 작업 큐에 ${existingCount}개 항목 존재 - 완전히 리셋`);
+                }
+                _planQueueService.clear();
+                console.log(`[TerminalManager] 기존 작업 큐 초기화 후 새 항목 추가`);
+
+                _planQueueService.enqueue(taskItems, 'pending');
+
+                // 웹뷰에 작업 큐 업데이트 전송
                 if (_currentWebview) {
                     safePostMessage(_currentWebview, {
                         command: 'updateTaskQueue',
-                        queueId: _activeQueueId,
-                        items: _planQueueService.getQueue(_activeQueueId)
+                        items: _planQueueService.list()
                     });
+                    console.log(`[TerminalManager] 웹뷰에 작업 큐 업데이트 전송 완료`);
                 }
+            } else {
+                console.warn(`[TerminalManager] _planQueueService가 설정되지 않음 - 작업 큐 업데이트 불가`);
             }
         }
-    } catch { /* ignore queue errors */ }
+    }
 
-    enqueueCommands(commandsWithPreflight, priority);
+    enqueueCommands(commands, priority);
 }
 
 /**
@@ -1319,31 +1625,108 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
     while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
         const block = match[1].trim();
         if (!block) continue;
+
+        // shebang이 있는 경우 전체 스크립트를 하나의 명령어로 처리
+        const hasShebang = /^#!\s*(?:\/usr\/bin\/env\s+)?(?:bash|sh)\s*$/m.test(block);
+        if (hasShebang) {
+            // 전체 스크립트를 임시 파일로 저장하고 실행
+            try {
+                const tempScriptPath = path.join(os.tmpdir(), `aidev-script-${Date.now()}-${Math.random().toString(36).substring(7)}.sh`);
+                fs.writeFileSync(tempScriptPath, block, { mode: 0o755 });
+                // 스크립트 실행 후 임시 파일 삭제
+                commands.push(`bash "${tempScriptPath}" && rm -f "${tempScriptPath}"`);
+                console.log(`[TerminalManager] shebang 스크립트 감지: 임시 파일로 저장 후 실행: ${tempScriptPath}`);
+                continue;
+            } catch (error) {
+                console.error(`[TerminalManager] shebang 스크립트 임시 파일 생성 실패:`, error);
+                // 폴백: 기존 방식으로 처리
+            }
+        }
+
         const lines = block.split('\n');
         let buffer: string[] = [];
         let ifDepth = 0;
+        let bufferHasIfBlock = false; // if 블록이 포함되어 있는지 추적
         const flushBufferIfDone = () => {
             if (ifDepth === 0 && buffer.length > 0) {
-                // join with '; ' and push as single command
+                // if 블록이 포함된 경우 개행으로 연결, 그 외에는 '; '로 연결
                 const joined = buffer
                     .map(l => removeInlineComment(l.trim()))
                     .filter(l => !!l && !/^exit(\s+\d+)?$/i.test(l) && !/^echo\s*"?"?$/i.test(l))
-                    .join('; ')
+                    .join(bufferHasIfBlock ? '\n' : '; ')
                     .trim();
                 if (joined) {
                     commands.push(joined);
                 }
                 buffer = [];
+                bufferHasIfBlock = false;
             }
         };
 
+        let heredocBuffer: string[] = [];
+        let heredocDelimiter: string | null = null;
+        let heredocCommand: string | null = null;
+
         for (let raw of lines) {
-            const line = removeInlineComment(raw.trim());
+            const trimmedRaw = raw.trim();
+
+            // heredoc 종료: delimiter 감지 (trim 후 확인) - 먼저 확인해야 함
+            if (heredocDelimiter && trimmedRaw === heredocDelimiter) {
+                if (heredocCommand) {
+                    // heredoc 내용을 하나의 명령어로 합치기
+                    const heredocContent = heredocBuffer.join('\n');
+                    const fullCommand = `${heredocCommand}\n${heredocContent}\n${heredocDelimiter}`;
+                    console.log(`[TerminalManager] heredoc 완료: ${heredocCommand}, 내용 줄 수: ${heredocBuffer.length}`);
+                    commands.push(fullCommand);
+                    heredocCommand = null;
+                    heredocDelimiter = null;
+                    heredocBuffer = [];
+                }
+                continue;
+            }
+
+            // heredoc 내부 내용 수집 (원본 줄 유지) - heredoc 종료 확인 후 처리
+            if (heredocDelimiter && heredocCommand) {
+                heredocBuffer.push(raw); // 원본 줄 유지 (들여쓰기, 특수문자 등)
+                // heredoc 내부는 개별 명령어로 처리하지 않음
+                continue;
+            }
+
+            // heredoc 처리: cat >file <<'EOF' 또는 cat <<'EOF' > file 형식 감지
+            // 패턴: 
+            //   - cat >file <<'EOF'
+            //   - cat <<'EOF' > file
+            //   - cat <<'EOF' (표준 출력)
+            if (/^cat\s+.*<</.test(trimmedRaw)) {
+                // heredoc 시작 줄에서 delimiter 추출
+                // 패턴: <<'EOF', <<EOF, <<"EOF" 등 (줄 끝일 필요 없음, 중간에 있어도 됨)
+                const delimiterMatch = /<<(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(trimmedRaw);
+                if (delimiterMatch) {
+                    heredocCommand = trimmedRaw;
+                    heredocDelimiter = delimiterMatch[2]; // delimiter만 추출 (따옴표 제외)
+                    heredocBuffer = [];
+                    console.log(`[TerminalManager] heredoc 감지: ${heredocCommand}, delimiter: ${heredocDelimiter}`);
+                    continue;
+                } else {
+                    console.log(`[TerminalManager] heredoc 패턴은 맞지만 delimiter 추출 실패: ${trimmedRaw}`);
+                }
+            }
+
+            // heredoc이 아닌 경우에만 일반 처리
+            const line = removeInlineComment(trimmedRaw);
             if (!line || line.startsWith('#')) continue;
 
             // Skip standalone control tokens that break shells when isolated
+            // 단, if 블록 내부의 then은 허용
             if (/^(then|fi|else|elif\b)/.test(line) && ifDepth === 0) {
                 // ignore stray control tokens
+                continue;
+            }
+
+            // then이 별도 줄에 있는 경우 처리
+            if (/^then\b/.test(line) && ifDepth > 0) {
+                bufferHasIfBlock = true;
+                buffer.push(line);
                 continue;
             }
 
@@ -1353,17 +1736,16 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
 
             if (startsIf) {
                 ifDepth += 1;
-                // ensure 'then' present in same line for one-liner semantics; if not, add ' then'
-                let normalized = line;
-                if (!endsWithThen) {
-                    normalized = line.replace(/;?\s*$/, ' ; then');
-                }
-                buffer.push(normalized);
+                bufferHasIfBlock = true; // if 블록이 포함됨
+                // if 블록은 개행으로 연결해야 하므로 '; then' 추가하지 않음
+                // 대신 원본 줄을 그대로 사용 (then이 별도 줄에 있을 수 있음)
+                buffer.push(line);
                 continue;
             }
 
             // elif/else within if-block
             if (ifDepth > 0 && /^(elif\b|else\b)/.test(line)) {
+                bufferHasIfBlock = true; // if 블록이 포함됨
                 buffer.push(line);
                 continue;
             }
@@ -1371,6 +1753,7 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
             // fi closes one level
             if (/^fi\b/.test(line)) {
                 ifDepth = Math.max(0, ifDepth - 1);
+                bufferHasIfBlock = true; // if 블록이 포함됨
                 buffer.push('fi');
                 flushBufferIfDone();
                 continue;
@@ -1378,6 +1761,7 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
 
             // Inside if-block: collect lines
             if (ifDepth > 0) {
+                bufferHasIfBlock = true; // if 블록이 포함됨
                 // Drop hard exits inside the block
                 if (/^exit(\s+\d+)?$/i.test(line)) {
                     continue;
@@ -1387,9 +1771,17 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
             }
 
             // Outside if-block: standalone command
-            if (line && !/^exit(\s+\d+)?$/i.test(line) && !/^echo\s*"?"?$/i.test(line)) {
+            // heredoc 내부가 아닌 경우에만 추가
+            if (line && !heredocDelimiter && !heredocCommand && !/^exit(\s+\d+)?$/i.test(line) && !/^echo\s*"?"?$/i.test(line)) {
                 commands.push(line);
             }
+        }
+
+        // 미완료된 heredoc이 있으면 처리
+        if (heredocDelimiter && heredocCommand && heredocBuffer.length > 0) {
+            const heredocContent = heredocBuffer.join('\n');
+            const fullCommand = `${heredocCommand}\n${heredocContent}\n${heredocDelimiter}`;
+            commands.push(fullCommand);
         }
 
         // Flush any dangling buffer (defensive)
@@ -1651,13 +2043,42 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
  * 항상 워크스페이스 루트를 사용합니다.
  */
 export function executeBashCommandsFromLlmResponse(llmResponse: string, projectRoot?: string): string[] {
-    const executedCommands: string[] = extractBashCommandsFromLlmResponse(llmResponse);
-    if (executedCommands.length > 0) {
+    const extractedCommands: string[] = extractBashCommandsFromLlmResponse(llmResponse);
+
+    // 정규화된 명령어 배열 생성 (중복 제거 및 통일)
+    const normalizedCommands: string[] = [];
+    const seenNormalized = new Set<string>();
+
+    for (const cmd of extractedCommands) {
+        let normalizedCmd = cmd.trim();
+
+        // 패키지 설치 명령어 정규화
+        const installCmdMatch = normalizedCmd.match(/^(npm|pnpm|yarn|bun)\s+install/);
+        if (installCmdMatch) {
+            normalizedCmd = 'npm install';
+        }
+
+        // 개발 서버 실행 명령어 정규화
+        const devCmdMatch = normalizedCmd.match(/^(npm|pnpm|yarn|bun)\s+(run\s+)?dev(\s|$)/);
+        if (devCmdMatch) {
+            normalizedCmd = 'npm run dev';
+        }
+
+        // 정규화된 명령어로 중복 체크
+        if (!seenNormalized.has(normalizedCmd)) {
+            seenNormalized.add(normalizedCmd);
+            normalizedCommands.push(normalizedCmd); // 정규화된 명령어로 반환
+        }
+    }
+
+    if (normalizedCommands.length > 0) {
         resetWorkingDirectory();
         // 항상 워크스페이스 루트를 사용하므로 projectRoot 파라미터는 무시됩니다.
-        enqueueCommandsBatch(executedCommands, true);
+        enqueueCommandsBatch(normalizedCommands, true);
     }
-    return executedCommands;
+
+    // 정규화된 명령어 배열 반환 (로깅용)
+    return normalizedCommands;
 }
 
 /**
@@ -2056,10 +2477,6 @@ ${errorOutputForPrompt}
 ${_userOS} 환경에서 다음 사항을 고려하여 수정된 명령어를 제안해주세요:
 ${commonGuidelines}${osSpecificGuidelines}
 
-**중요: 이전 작업 연속성 유지**
-- 이전 작업이 있으면 계속 이어 나가. 동일 세션에서 이미 성공한 단계는 반복하지 말고, 누락된 단계부터 이어서 수정/재시도하세요.
-- 동일 명령/스크립트를 중복 생성하지 말고, 직전 시도에서 생성된 파일/환경 변수/빌드 산출물을 재사용하세요.
-
 **중요: 오직 하나의 JSON 객체만 응답해주세요. 다른 텍스트나 설명은 포함하지 마세요.**
 
 **추가 중요 지침 (pom.xml 관련):**
@@ -2095,6 +2512,15 @@ ${!hasCompilationError ? `
 - 큰따옴표(")는 반드시 백슬래시로 이스케이프(\\")하세요
 - 백슬래시(\\)는 이중으로 이스케이프(\\\\)하세요
 - 줄바꿈 문자는 \\n으로 표현하세요
+
+**매우 중요: fileOperations의 content 필드 이스케이프 규칙:**
+- content 필드에는 파일의 실제 내용을 문자열로 넣어야 합니다
+- 큰따옴표(")는 반드시 백슬래시로 이스케이프(\\")하세요 (이중 이스케이프 금지)
+- 백슬래시(\\)는 이중으로 이스케이프(\\\\)하세요
+- 줄바꿈 문자는 \\n으로 표현하세요
+- **잘못된 예**: "content": "<!DOCTYPE html>\\n<html lang=\\\"en\\\">..." (이중 이스케이프)
+- **올바른 예**: "content": "<!DOCTYPE html>\\n<html lang=\\"en\\">..." (단일 이스케이프)
+- HTML/XML 특수 문자(<, >, &)는 이스케이프할 필요 없습니다 (JSON 문자열 내부이므로)
 
 수정된 명령어와 파일 작업을 JSON 형식으로 응답해주세요:
 {
@@ -2465,7 +2891,16 @@ ${!hasCompilationError ? `
                                                 i++;
                                             }
                                             // contentValue를 JSON.stringify로 안전하게 이스케이프
-                                            const safeContent = JSON.stringify(contentValue).slice(1, -1);
+                                            // 이중 이스케이프 제거: \\\" -> \"
+                                            let unescapedContent = contentValue;
+                                            // 이중 이스케이프된 따옴표 수정: \\\" -> \"
+                                            unescapedContent = unescapedContent.replace(/\\\\"/g, '\\"');
+                                            // 이중 이스케이프된 백슬래시 수정: \\\\ -> \\
+                                            unescapedContent = unescapedContent.replace(/\\\\\\\\/g, '\\\\');
+                                            // 이중 이스케이프된 줄바꿈 수정: \\n -> \n (그런 다음 다시 이스케이프)
+                                            unescapedContent = unescapedContent.replace(/\\\\n/g, '\n');
+                                            // 최종적으로 JSON.stringify로 안전하게 이스케이프
+                                            const safeContent = JSON.stringify(unescapedContent).slice(1, -1);
                                             rebuiltJson += safeContent;
                                             inContentField = false;
                                         } else {
@@ -2731,6 +3166,44 @@ export async function handleCommandError(
     cwd: string,
     onRetry: (correctedCommand: string) => Promise<void>
 ): Promise<boolean> {
+    // 동일한 오류가 반복되는지 확인
+    if (_lastFailedCommand === failedCommand && _lastErrorOutput === errorOutput) {
+        _sameErrorRetryCount++;
+        console.log(`[TerminalManager] 동일한 오류 반복 감지: ${_sameErrorRetryCount}회`);
+
+        // 동일한 오류가 2회 이상 반복되면 재시도 중단
+        if (_sameErrorRetryCount >= 2) {
+            console.log(`[TerminalManager] 동일한 오류가 ${_sameErrorRetryCount}회 반복되어 재시도 중단`);
+
+            if (_currentWebview) {
+                const failureMessage = `❌ 오류 수정 실패: 동일한 오류가 반복되어 재시도를 중단했습니다. 수동 확인이 필요합니다.`;
+                _currentWebview.postMessage({
+                    command: 'showErrorCorrectionFailure',
+                    message: failureMessage,
+                    retryCount: _errorRetryCount
+                });
+            }
+
+            // ProcessingSteps 숨김
+            if (_currentWebview) {
+                try { _currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
+                try { _currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
+                try { _currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
+            }
+
+            _errorRetryCount = 0;
+            _sameErrorRetryCount = 0;
+            _lastFailedCommand = undefined;
+            _lastErrorOutput = undefined;
+            return false;
+        }
+    } else {
+        // 다른 오류가 발생하면 카운터 리셋
+        _sameErrorRetryCount = 0;
+        _lastFailedCommand = failedCommand;
+        _lastErrorOutput = errorOutput;
+    }
+
     if (_errorRetryCount >= MAX_ERROR_RETRIES) {
         console.log(`[TerminalManager] 최대 재시도 횟수(${MAX_ERROR_RETRIES}) 초과`);
 
@@ -2774,6 +3247,9 @@ export async function handleCommandError(
         }
 
         _errorRetryCount = 0;
+        _sameErrorRetryCount = 0;
+        _lastFailedCommand = undefined;
+        _lastErrorOutput = undefined;
         return false;
     }
 
@@ -2808,65 +3284,11 @@ export async function handleCommandError(
         enqueueCommands(fileOpTokens, true); // 우선순위로 파일 작업 먼저 실행
     }
 
-    // 컴파일 오류 감지: 의존성 누락, 패키지 없음, 심볼을 찾을 수 없음 등의 패턴
+    // 컴파일 오류가 있고 correctedCommand가 null인 경우 파일 작업만 처리
     // 구체적인 패키지 이름 패턴도 추가
-    const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer|MissingProjectException|MojoFailureException)/i.test(errorOutput);
-
-    // 컴파일 오류가 감지된 경우: 파일 작업이 있으면 파일 작업만 처리하고 명령 재시도는 하지 않음
-    if (hasCompilationError && fileOperations.length > 0) {
-        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업만 처리 (명령 재시도 건너뜀, ${fileOperations.length}개 파일)`);
-
-        // 웹뷰에 상태 전송
-        if (_currentWebview) {
-            _currentWebview.postMessage({
-                command: 'updateProcessingStatus',
-                step: 'error_correction',
-                status: `파일 수정 중 (${fileOperations.length}개 파일)`
-            });
-
-            _currentWebview.postMessage({
-                command: 'showErrorCorrectionSuccess',
-                message: `컴파일 오류 감지: 파일 수정 작업이 큐에 추가되었습니다 (${fileOperations.length}개 파일)`,
-                retryCount: _errorRetryCount
-            });
-            // 파일 작업만 처리 시에도 ProcessingSteps 종료
-            _currentWebview.postMessage({
-                command: 'hideProcessingSteps',
-                step: 'error_correction'
-            });
-            debugLog('TerminalManager: hideProcessingSteps (file ops only, compilation error)');
-        }
-
-        // 파일 작업이 이미 큐에 추가되었으므로 성공 반환
-        _errorRetryCount = 0; // 성공적으로 처리되었으므로 재시도 카운트 리셋
-        return true;
-    }
-
-    // 컴파일 오류가 있지만 파일 작업이 없는 경우: 명령 재시도도 하지 않음
-    if (hasCompilationError && fileOperations.length === 0) {
-        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업이 없어 수정 불가 (명령 재시도 건너뜀)`);
-
-        if (_currentWebview) {
-            _currentWebview.postMessage({
-                command: 'updateProcessingStatus',
-                step: 'error_correction',
-                status: '컴파일 오류: 파일 수정이 필요하지만 LLM이 파일 작업을 제안하지 않았습니다'
-            });
-
-            _currentWebview.postMessage({
-                command: 'hideProcessingSteps',
-                step: 'error_correction'
-            });
-            debugLog('TerminalManager: hideProcessingSteps (compilation error, no file ops)');
-        }
-
-        _errorRetryCount = 0;
-        return false;
-    }
-
-    // correctedCommand가 null이고 파일 작업만 있는 경우 (컴파일 오류가 아닌 경우)
+    const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(errorOutput);
     if (!correctedCommand && fileOperations.length > 0) {
-        console.log(`[TerminalManager] 파일 작업만 처리 (${fileOperations.length}개)`);
+        console.log(`[TerminalManager] 컴파일 오류 감지: 파일 작업만 처리 (${fileOperations.length}개)`);
 
         // 웹뷰에 상태 전송
         if (_currentWebview) {
@@ -2960,28 +3382,6 @@ export async function handleCommandError(
         return true;
     };
 
-    // 컴파일 오류가 감지된 경우: correctedCommand가 있어도 명령 재시도를 하지 않음
-    if (hasCompilationError && correctedCommand) {
-        console.log(`[TerminalManager] 컴파일 오류 감지: correctedCommand가 있지만 명령 재시도 건너뜀`);
-
-        if (_currentWebview) {
-            _currentWebview.postMessage({
-                command: 'updateProcessingStatus',
-                step: 'error_correction',
-                status: '컴파일 오류: 파일 수정이 필요합니다. 명령 재시도는 건너뜁니다.'
-            });
-
-            _currentWebview.postMessage({
-                command: 'hideProcessingSteps',
-                step: 'error_correction'
-            });
-            debugLog('TerminalManager: hideProcessingSteps (compilation error, ignoring correctedCommand)');
-        }
-
-        _errorRetryCount = 0;
-        return false;
-    }
-
     const isValid = await isValidCorrected(correctedCommand);
     if (isValid && correctedCommand) {
         console.log(`[TerminalManager] 수정된 명령어로 재시도: ${correctedCommand}`);
@@ -3070,6 +3470,9 @@ export async function handleCommandError(
  */
 export function resetErrorRetryCount(): void {
     _errorRetryCount = 0;
+    _sameErrorRetryCount = 0;
+    _lastFailedCommand = undefined;
+    _lastErrorOutput = undefined;
 }
 
 /**

@@ -974,9 +974,8 @@
         /* Auto Correcting Indicator Styles */
         .auto-correcting-indicator {
             position: fixed;
-            bottom: 250px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 90px;
+            left: 20px;
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             padding: 12px 16px;
@@ -1561,8 +1560,8 @@
                 className: 'auto-correcting-indicator',
                 style: {
                     position: 'fixed',
-                    bottom: '80px',
-                    right: '20px',
+                    top: '90px',
+                    left: '20px',
                     background: 'var(--vscode-button-background)',
                     color: 'var(--vscode-button-foreground)',
                     padding: '12px 16px',
@@ -1866,14 +1865,9 @@
                         setHasUserQuery(true);
                     } else if (data.command === 'updateProcessingStatus') {
                         setIsVisible(true);
-                        setSteps(prev => {
-                            const exists = prev.some(s => s.step === data.step);
-                            if (exists) {
-                                return prev.map(s => s.step === data.step ? { ...s, status: data.status } : s);
-                            }
-                            // 이전에 setProcessingStep 없이 바로 상태 업데이트가 온 경우 새 단계로 추가하여 빈 표시를 방지
-                            return [...prev, { step: data.step, status: data.status || 'processing' }];
-                        });
+                        setSteps(prev => prev.map(s =>
+                            s.step === data.step ? { ...s, status: data.status } : s
+                        ));
                     } else if (data.command === 'hideLoading') {
                         // 페이드아웃 애니메이션 적용
                         const processingStepsElement = document.querySelector('.processing-steps');
@@ -1931,7 +1925,7 @@
                     alignItems: 'flex-start',
                     position: 'fixed',
                     left: '50%',
-                    bottom: '170px',
+                    top: '10px',
                     transform: 'translateX(-50%)',
                     width: '85%',
                     maxWidth: '90vw',
@@ -2177,29 +2171,30 @@
             ]);
         }
 
-        // 다중 작업 큐 렌더러
-        function TaskQueues() {
-            const [queues, setQueues] = useState({}); // { [queueId]: { title, items, isVisible, isMinimized } }
+        // TaskQueue Component - 작업 큐를 표시하고 실행 상태를 추적
+        function TaskQueue() {
+            const [tasks, setTasks] = useState([]);
+            const [isVisible, setIsVisible] = useState(false);
+            const [isMinimized, setIsMinimized] = useState(false);
 
             useEffect(() => {
                 const handleMessage = (event) => {
-                    const data = event.data || {};
+                    const data = event.data;
                     if (data.command === 'updateTaskQueue') {
-                        const qid = data.queueId || 'default';
-                        const items = Array.isArray(data.items) ? data.items : [];
-                        const title = data.title || '작업 큐';
-                        setQueues(prev => ({
-                            ...prev,
-                            [qid]: { ...(prev[qid] || {}), title, items, isVisible: items.length > 0, isMinimized: prev[qid]?.isMinimized || false }
-                        }));
-                    } else if (data.command === 'taskQueueUpdate' && data.item) {
-                        const qid = data.queueId || 'default';
-                        setQueues(prev => {
-                            const q = prev[qid];
-                            if (!q) return prev;
-                            const items = (q.items || []).map(t => t.id === data.item.id ? { ...t, ...data.item } : t);
-                            return { ...prev, [qid]: { ...q, items } };
-                        });
+                        if (data.items && Array.isArray(data.items)) {
+                            setTasks(data.items);
+                            setIsVisible(data.items.length > 0);
+                        }
+                    } else if (data.command === 'taskQueueUpdate') {
+                        // 개별 작업 상태 업데이트
+                        if (data.item) {
+                            setTasks(prevTasks => {
+                                const updated = prevTasks.map(task =>
+                                    task.id === data.item.id ? { ...task, ...data.item } : task
+                                );
+                                return updated;
+                            });
+                        }
                     }
                 };
 
@@ -2209,13 +2204,29 @@
                 };
             }, []);
 
-            const entries = Object.entries(queues).filter(([_, v]) => v && v.isVisible && Array.isArray(v.items) && v.items.length > 0);
-            if (entries.length === 0) return null;
+            if (!isVisible || tasks.length === 0) return null;
 
-            return React.createElement(React.Fragment, {}, entries.map(([qid, q], idx) => {
-                const isMinimized = !!q.isMinimized;
-                const items = q.items || [];
-                const topOffset = 60 + idx * 320;
+            return React.createElement('div', {
+                className: 'task-queue-container',
+                style: {
+                    position: 'fixed',
+                    top: '90px',
+                    right: '20px',
+                    width: isMinimized ? 'auto' : '400px',
+                    maxWidth: isMinimized ? 'auto' : 'calc(100vw - 40px)', // 화면 너비를 넘지 않도록
+                    height: isMinimized ? 'auto' : 'auto',
+                    maxHeight: isMinimized ? 'none' : '60vh',
+                    background: 'var(--vscode-editor-background)',
+                    border: '1px solid var(--vscode-panel-border)',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                    zIndex: 1000,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: 'all 0.3s ease'
+                }
+            }, (() => {
                 const children = [
                     // 헤더
                     React.createElement('div', {
@@ -2232,7 +2243,7 @@
                         },
                         onClick: () => {
                             if (isMinimized) {
-                                setQueues(prev => ({ ...prev, [qid]: { ...q, isMinimized: false } }));
+                                setIsMinimized(false);
                             }
                         }
                     }, [
@@ -2244,7 +2255,7 @@
                                 fontWeight: '600',
                                 color: 'var(--vscode-foreground)'
                             }
-                        }, q.title || '작업 큐'),
+                        }, '작업 큐'),
                         React.createElement('div', {
                             key: 'buttons',
                             style: {
@@ -2256,7 +2267,7 @@
                         }, [
                             React.createElement('button', {
                                 key: 'minimize',
-                                onClick: () => setQueues(prev => ({ ...prev, [qid]: { ...q, isMinimized: !isMinimized } })),
+                                onClick: () => setIsMinimized(!isMinimized),
                                 style: {
                                     background: 'none',
                                     border: 'none',
@@ -2282,7 +2293,7 @@
                             }, isMinimized ? '□' : '_'),
                             React.createElement('button', {
                                 key: 'close',
-                                onClick: () => setQueues(prev => ({ ...prev, [qid]: { ...q, isVisible: false } })),
+                                onClick: () => setIsVisible(false),
                                 style: {
                                     background: 'none',
                                     border: 'none',
@@ -2317,10 +2328,10 @@
                             flexDirection: 'column',
                             gap: '0'
                         }
-                    }, items.map((task, index) => {
+                    }, tasks.map((task, index) => {
                         const isDone = task.status === 'done';
                         const isInProgress = task.status === 'in_progress';
-                        const isFailed = task.status === 'failed';
+                        const isPending = task.status === 'pending';
 
                         return React.createElement('div', {
                             key: task.id || index,
@@ -2342,27 +2353,25 @@
                                 animation: isInProgress ? 'pulse 2s ease-in-out infinite' : 'none'
                             }
                         }, [
-                            // 상태 표시기 (완료: 파란 불, 실패: X)
+                            // 상태 표시기 (파란 불)
                             React.createElement('div', {
                                 key: 'indicator',
                                 style: {
-                                    position: 'relative',
                                     width: '12px',
                                     height: '12px',
                                     borderRadius: '50%',
-                                    background: isFailed ? '#ff4d4f' : (isDone ? '#007acc' : (isInProgress ? '#ffa500' : 'var(--vscode-input-foreground)')),
+                                    background: isDone
+                                        ? '#007acc' // 파란색
+                                        : isInProgress
+                                            ? '#ffa500' // 주황색
+                                            : 'var(--vscode-input-foreground)',
                                     flexShrink: 0,
                                     marginTop: '4px',
-                                    boxShadow: isDone ? '0 0 8px rgba(0, 122, 204, 0.6), 0 0 12px rgba(0, 122, 204, 0.4)' : (isFailed ? '0 0 6px rgba(255, 77, 79, 0.6)' : 'none'),
+                                    boxShadow: isDone ? '0 0 8px rgba(0, 122, 204, 0.6), 0 0 12px rgba(0, 122, 204, 0.4)' : 'none',
                                     animation: isDone ? 'lightGlow 2s ease-in-out infinite' : 'none',
-                                    transition: 'all 0.3s ease',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
+                                    transition: 'all 0.3s ease'
                                 }
-                            }, [
-                                isFailed ? React.createElement('span', { key: 'x', style: { color: '#ffffff', fontSize: '10px', lineHeight: '12px', fontWeight: '700' } }, '×') : null
-                            ]),
+                            }),
                             // 작업 내용
                             React.createElement('div', {
                                 key: 'content',
@@ -2397,28 +2406,8 @@
                     })));
                 }
 
-                return React.createElement('div', {
-                    className: 'task-queue-container',
-                    style: {
-                        position: 'fixed',
-                        top: `${topOffset}px`,
-                        right: '20px',
-                        width: isMinimized ? 'auto' : '400px',
-                        maxWidth: isMinimized ? 'auto' : 'calc(100vw - 40px)',
-                        height: isMinimized ? 'auto' : 'auto',
-                        maxHeight: isMinimized ? 'none' : '60vh',
-                        background: 'var(--vscode-editor-background)',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-                        zIndex: 1000,
-                        overflow: 'hidden',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        transition: 'all 0.3s ease'
-                    }
-                }, children);
-            }))
+                return children;
+            })())
         }
 
         // Main React App Component
@@ -2480,7 +2469,7 @@
                 React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
                 React.createElement(ProcessingSteps, { key: 'processing-steps' }),
-                React.createElement(TaskQueues, { key: 'task-queues' }),
+                React.createElement(TaskQueue, { key: 'task-queue' }),
                 React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }) // 프로젝트 타입 선택 컴포넌트 추가
             ]);
         }

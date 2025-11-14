@@ -369,6 +369,10 @@ export class StorageService {
     // 추가된 메서드들
     async getAutoCorrectionEnabled(): Promise<boolean> {
         const enabled = await this.secretStorage.get('aidev-ide.autoCorrectionEnabled');
+        // 값이 없으면 기본값 false 반환 (설정에서 OFF가 기본값)
+        if (enabled === undefined || enabled === null) {
+            return false;
+        }
         return enabled === 'true';
     }
 

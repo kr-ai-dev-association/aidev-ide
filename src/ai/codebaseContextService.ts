@@ -874,23 +874,36 @@ export class CodebaseContextService {
         try {
             // 파일 리스트를 상대 경로로 변환
             const relativeFileList = fileList.map(filePath => path.relative(projectRoot, filePath));
+            const hasFiles = relativeFileList.length > 0;
 
-            const analysisPrompt = `다음은 프로젝트의 파일 리스트입니다. 이 파일들을 분석하여 다음을 수행해주세요:
+            // 파일 리스트가 비어 있는 경우 사용자 요청에서 프로젝트 타입을 추출하도록 강조
+            const fileListSection = hasFiles 
+                ? `파일 리스트:\n${relativeFileList.slice(0, 100).join('\n')}${relativeFileList.length > 100 ? `\n... (총 ${relativeFileList.length}개 파일)` : ''}`
+                : `파일 리스트: (비어 있음 - 새 프로젝트 생성 중)`;
 
-파일 리스트:
-${relativeFileList.slice(0, 100).join('\n')}${relativeFileList.length > 100 ? `\n... (총 ${relativeFileList.length}개 파일)` : ''}
+            const analysisPrompt = `다음은 프로젝트의 파일 리스트와 사용자 질의입니다. 이를 분석하여 다음을 수행해주세요:
+
+${fileListSection}
 
 사용자 질의: "${userQuery}"
 
 다음 3가지 분석을 수행해주세요:
 
 1. 프로그래밍 관련 여부 분석:
-   - 파일명들을 보고 이 프로젝트가 프로그래밍 관련인지 판단
+   ${hasFiles 
+     ? '- 파일명들을 보고 이 프로젝트가 프로그래밍 관련인지 판단'
+     : '- 사용자 질의를 보고 이 요청이 프로그래밍 관련인지 판단 (예: "프로젝트 만들기", "코드 생성" 등은 프로그래밍 관련)'
+   }
    - 프로그래밍 관련이면 "CODE", 그렇지 않으면 "GENERAL" 반환
 
 2. 프로젝트 타입 분석:
-   - 파일명들을 보고 프로젝트 타입을 분석
+   ${hasFiles
+     ? '- 파일명들을 보고 프로젝트 타입을 분석'
+     : '- **중요**: 파일 리스트가 비어 있으므로 사용자 질의 텍스트에서 프로젝트 타입을 추출하세요.\n  예: "react 프로젝트" → react, "vite 프로젝트" → react-vite, "spring boot" → spring-boot, "vue 프로젝트" → vue 등'
+   }
    - 가능한 타입: react, react-vite, vue, angular, next, nuxt, svelte, nodejs, django, flask, fastapi, python, java, spring, spring-boot, dotnet, go, rust, php, ruby, ios, android, flutter, react-native, unknown
+   - 사용자 질의에 명시적으로 언급된 프레임워크나 기술 스택을 우선적으로 사용하세요
+   - 예: "react vite 프로젝트" → react-vite, "spring boot 프로젝트" → spring-boot
 
 3. 추천 플랜:
    - 1, 2번 분석 결과를 바탕으로 사용자에게 추천할 다음 단계 플랜을 제안
