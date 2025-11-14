@@ -2235,7 +2235,7 @@ ${match.trim()}
             const commands = extractBashCommandsFromLlmResponse(normalizedResponse);
             if (commands.length > 0) {
                 // enqueueCommandsBatch 함수 import 필요
-                const { enqueueCommandsBatch } = await import('../terminal/terminalManager.js');
+                const { enqueueCommandsBatch } = await import('../terminal/terminalManager');
                 enqueueCommandsBatch(commands, false);
             }
         }
