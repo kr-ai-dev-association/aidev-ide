@@ -2,6 +2,59 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.9.1 (2025/11/14) - Terminal Management Improvements & Debugging Guide
+
+<details>
+<summary>Terminal Management Improvements & Debugging Guide</summary>
+
+### Added
+- **LLM_TASK_QUEUE_FLOW.md**: Comprehensive documentation for LLM code generation → TASK creation → queue execution flow
+  - Complete architecture overview with two queue systems (PlanQueueService and TerminalManager)
+  - Step-by-step detailed flow documentation
+  - Data structures and core configuration values
+  - Error handling and troubleshooting guide
+- **Debugging Guide**: Added detailed debugging guide for LLM task queue flow
+
+### Improved
+- **CWD (Current Working Directory) Handling**: Enhanced CWD processing in terminalManager
+  - Automatic conversion of `$PROJECT_ROOT` string variables to actual paths
+  - Improved CWD validation and error handling
+  - Better handling of project root path resolution
+- **Terminal Error Filtering**: Enhanced error detection and filtering
+  - npm warn messages are now filtered (not treated as errors)
+  - node_modules related ENOENT errors are filtered
+  - Vite entry point warnings are filtered
+- **Auto Error Recovery**: Improved automatic error recovery mechanisms
+  - esbuild binary corruption auto-recovery
+  - ts-node-dev ESM module error handling (auto-replace with tsx)
+  - npm install ENOTEMPTY error auto-recovery
+- **Process Management**: Enhanced process termination for long-running commands
+  - Automatic termination of existing processes before starting new long-running dev commands
+  - Improved VS Code terminal cleanup
+  - Better process detection and termination on macOS/Linux
+- **npm Install Optimization**: Added esbuild pre-cleanup before npm install
+  - Prevents esbuild binary corruption issues
+  - Automatic cleanup of esbuild directories and npm cache
+- **File Path Resolution**: Enhanced file path resolution in llmResponseProcessor
+  - Improved file system search when files are not found in context
+  - Better project root-based path resolution
+  - Enhanced markdown file parsing with better whitespace handling
+- **Project Type Detection**: Improved project type auto-selection
+  - Removed user selection UI for project type
+  - Automatic project type detection and usage
+- **Task Queue Reset**: Added automatic task queue reset when starting new questions
+  - PlanQueueService integration with TerminalManager
+  - Better queue state management
+
+### Technical Improvements
+- `terminalManager.ts`: Enhanced CWD handling, esbuild pre-cleanup, process termination improvements
+- `llmResponseProcessor.ts`: Improved file path resolution and markdown parsing
+- `llmService.ts`: Added task queue reset, project type auto-selection
+- `terminalMonitorService.ts`: Enhanced error filtering and auto-recovery
+- `extension.ts`, `storage.ts`: Improved auto-correction setting management
+
+</details>
+
 ## 🚀 Version 4.9.0 (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
 
 <details>
