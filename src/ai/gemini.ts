@@ -54,15 +54,22 @@ export class GeminiApi {
         }
     }
 
-    updateApiKey(apiKey: string | undefined): void {
+    updateApiKey(apiKey: string | undefined): boolean {
         this.apiKey = apiKey;
         if (apiKey && apiKey.trim() !== '') {
             this.initializeApi(apiKey);
-            console.log('AIDEV-IDE API Key updated.');
+            const initialized = this.isInitialized();
+            if (initialized) {
+                console.log('AIDEV-IDE API Key updated and initialized successfully.');
+            } else {
+                console.error('AIDEV-IDE API Key updated but initialization failed. Please check your API key.');
+            }
+            return initialized;
         } else {
             this.genAI = undefined;
             this.model = undefined;
             console.warn('AIDEV-IDE API Key removed. API is now uninitialized.');
+            return false;
         }
     }
 
@@ -88,6 +95,16 @@ export class GeminiApi {
             return text;
         } catch (error: any) {
             console.error('Error calling AIDEV-IDE API (sendMessage):', error);
+            console.error('API Key present:', !!this.apiKey);
+            console.error('API Key length:', this.apiKey?.length || 0);
+            console.error('Is initialized:', this.isInitialized());
+            console.error('Error details:', {
+                name: error?.name,
+                message: error?.message,
+                status: error?.status,
+                statusText: error?.statusText,
+                code: error?.code
+            });
             return this.handleApiError(error);
         }
     }
@@ -96,8 +113,8 @@ export class GeminiApi {
     // <-- 수정: sendMessageWithSystemPrompt 메서드에서 webSearch 기능 제거 -->
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
-        if (!this.genAI) {
-            throw new Error("AIDEV-IDE is not initialized. Please set your API Key.");
+        if (!this.isInitialized()) {
+            throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
         }
 
         try {
@@ -124,6 +141,16 @@ export class GeminiApi {
 
         } catch (error: any) {
             console.error('Error calling AIDEV-IDE API (sendMessageWithSystemPrompt):', error);
+            console.error('API Key present:', !!this.apiKey);
+            console.error('API Key length:', this.apiKey?.length || 0);
+            console.error('Is initialized:', this.isInitialized());
+            console.error('Error details:', {
+                name: error?.name,
+                message: error?.message,
+                status: error?.status,
+                statusText: error?.statusText,
+                code: error?.code
+            });
             return this.handleApiError(error);
         }
     }
@@ -133,6 +160,12 @@ export class GeminiApi {
         if (error.name === 'AbortError') {
             return "Error: AIDEV-IDE API call was cancelled.";
         }
+        
+        // API 키가 없거나 초기화되지 않은 경우
+        if (!this.apiKey || !this.isInitialized()) {
+            return "Error: AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).";
+        }
+        
         if (error.message) {
             const lowerMsg = String(error.message).toLowerCase();
             const isOffline =
@@ -162,11 +195,27 @@ export class GeminiApi {
                 return error.message;
             }
             // Auth / key / permission patterns
-            if (lowerMsg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('invalid api key') || lowerMsg.includes('apikey') || lowerMsg.includes('api key')) {
-                return 'Error: Authentication failed. Check your Gemini API key in Settings.';
+            // HTTP 상태 코드나 에러 코드도 확인
+            const statusCode = error.status || error.code || error.response?.status;
+            if (statusCode === 401 || lowerMsg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('invalid api key') || lowerMsg.includes('apikey') || lowerMsg.includes('api key') || lowerMsg.includes('api_key')) {
+                console.error('Authentication error detected. API Key status:', {
+                    hasApiKey: !!this.apiKey,
+                    apiKeyLength: this.apiKey?.length || 0,
+                    apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
+                    isInitialized: this.isInitialized()
+                });
+                return 'Error: Authentication failed. Please verify your Gemini API key in Settings. The API key may be invalid or expired.';
             }
-            if (lowerMsg.includes('403') || lowerMsg.includes('forbidden') || lowerMsg.includes('permission') || lowerMsg.includes('permission denied')) {
-                return 'Error: Access forbidden. Check project permissions and billing enablement.';
+            if (statusCode === 403 || lowerMsg.includes('403') || lowerMsg.includes('forbidden')) {
+                // API 키가 유출되었다고 보고된 경우
+                if (lowerMsg.includes('leaked') || lowerMsg.includes('reported as leaked')) {
+                    return 'Error: Your API key was reported as leaked. Please generate a new API key from Google AI Studio and update it in Settings.';
+                }
+                // 일반적인 권한 문제
+                if (lowerMsg.includes('permission') || lowerMsg.includes('permission denied')) {
+                    return 'Error: Access forbidden. Check project permissions and billing enablement.';
+                }
+                return 'Error: Access forbidden (403). Please check your API key permissions and billing account status.';
             }
             // Model/endpoint issues
             if (lowerMsg.includes('404') || lowerMsg.includes('not found') || lowerMsg.includes('model not found')) {

@@ -233,9 +233,14 @@ export function openSettingsPanel(
                     if (apiKeyToSave && typeof apiKeyToSave === 'string') {
                         try {
                             await storageService.saveApiKey(apiKeyToSave);
-                            geminiApi.updateApiKey(apiKeyToSave);
-                            safePostMessage(panel, { command: 'apiKeySaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Gemini API Key saved.');
+                            const initialized = geminiApi.updateApiKey(apiKeyToSave);
+                            if (initialized) {
+                                safePostMessage(panel, { command: 'apiKeySaved' });
+                                notificationService.showInfoMessage('AIDEV-IDE: Gemini API Key saved and initialized successfully.');
+                            } else {
+                                safePostMessage(panel, { command: 'apiKeySaveError', error: 'API key saved but initialization failed. Please check your API key.' });
+                                notificationService.showWarningMessage('AIDEV-IDE: API key saved but initialization failed. Please verify your API key is correct.');
+                            }
                         } catch (error: any) {
                             safePostMessage(panel, { command: 'apiKeySaveError', error: error.message });
                             notificationService.showErrorMessage(`Error saving Gemini API Key: ${error.message}`);
