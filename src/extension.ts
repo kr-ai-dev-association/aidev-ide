@@ -120,6 +120,23 @@ export async function activate(context: vscode.ExtensionContext) {
             geminiApi = new GeminiApi();
         } else {
             geminiApi = new GeminiApi(initialApiKey);
+            // 초기화 상태 확인
+            if (!geminiApi.isInitialized()) {
+                console.error('AIDEV-IDE API initialization failed on extension activation. API Key status:', {
+                    hasApiKey: !!initialApiKey,
+                    apiKeyLength: initialApiKey?.length || 0,
+                    apiKeyPrefix: initialApiKey ? `${initialApiKey.substring(0, 10)}...` : 'N/A'
+                });
+                // 재시도
+                geminiApi.updateApiKey(initialApiKey);
+                if (!geminiApi.isInitialized()) {
+                    console.error('AIDEV-IDE API reinitialization also failed on extension activation.');
+                } else {
+                    console.log('AIDEV-IDE API reinitialized successfully on extension activation.');
+                }
+            } else {
+                console.log('AIDEV-IDE API initialized successfully on extension activation.');
+            }
         }
     } else {
         // Gemini가 선택되지 않은 경우 키 유무와 상관없이 조용히 초기화 (경고 출력 안 함)

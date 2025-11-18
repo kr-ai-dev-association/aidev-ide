@@ -41,14 +41,26 @@ export class GeminiApi {
 
     private initializeApi(apiKey: string, systemInstructionText?: string): void {
         try {
+            if (!apiKey || apiKey.trim() === '') {
+                console.error('AIDEV-IDE API initialization failed: API key is empty');
+                this.genAI = undefined;
+                this.model = undefined;
+                return;
+            }
             this.genAI = new GoogleGenerativeAI(apiKey);
             this.model = this.genAI.getGenerativeModel({
                 model: this.MODEL_NAME,
                 safetySettings: this.defaultSafetySettings,
             });
-            // console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            // 초기화 후 검증
+            if (!this.genAI || !this.model) {
+                console.error('AIDEV-IDE API initialization failed: genAI or model is null/undefined');
+            }
         } catch (error) {
             console.error('Error initializing AIDEV-IDE API:', error);
+            console.error('API Key length:', apiKey?.length || 0);
+            console.error('API Key prefix:', apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A');
             this.genAI = undefined;
             this.model = undefined;
         }
@@ -78,8 +90,23 @@ export class GeminiApi {
     }
 
     async sendMessage(message: string, generationConfigParam?: GenerationConfig, options?: RequestOptions): Promise<string> {
+        // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
-            throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+            if (this.apiKey && this.apiKey.trim() !== '') {
+                console.warn('AIDEV-IDE API not initialized but API key exists. Attempting to reinitialize...');
+                this.initializeApi(this.apiKey);
+                if (!this.isInitialized()) {
+                    console.error('AIDEV-IDE API reinitialization failed. API Key status:', {
+                        hasApiKey: !!this.apiKey,
+                        apiKeyLength: this.apiKey?.length || 0,
+                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A'
+                    });
+                    throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+                }
+                console.log('AIDEV-IDE API reinitialized successfully.');
+            } else {
+                throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+            }
         }
 
         try {
@@ -113,8 +140,23 @@ export class GeminiApi {
     // <-- 수정: sendMessageWithSystemPrompt 메서드에서 webSearch 기능 제거 -->
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
+        // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
-            throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+            if (this.apiKey && this.apiKey.trim() !== '') {
+                console.warn('AIDEV-IDE API not initialized but API key exists. Attempting to reinitialize...');
+                this.initializeApi(this.apiKey);
+                if (!this.isInitialized()) {
+                    console.error('AIDEV-IDE API reinitialization failed. API Key status:', {
+                        hasApiKey: !!this.apiKey,
+                        apiKeyLength: this.apiKey?.length || 0,
+                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A'
+                    });
+                    throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+                }
+                console.log('AIDEV-IDE API reinitialized successfully.');
+            } else {
+                throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+            }
         }
 
         try {
