@@ -28,8 +28,21 @@ export class StorageService {
      * @param apiKey 저장할 API Key
      */
     async saveApiKey(apiKey: string): Promise<void> {
+        console.log('[StorageService] saveApiKey called', {
+            apiKeyLength: apiKey?.length || 0,
+            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
+            apiKeyTrimmed: apiKey ? apiKey.trim() : 'N/A'
+        });
         await this.secretStorage.store(API_KEY_SECRET_KEY, apiKey);
-        console.log('API Key saved to SecretStorage.');
+        console.log('[StorageService] API Key saved to SecretStorage.');
+        
+        // 저장 후 확인
+        const verifyKey = await this.secretStorage.get(API_KEY_SECRET_KEY);
+        console.log('[StorageService] API Key verification after save:', {
+            saved: !!verifyKey,
+            length: verifyKey?.length || 0,
+            matches: verifyKey === apiKey
+        });
     }
 
     /**
@@ -37,11 +50,18 @@ export class StorageService {
      * @returns 저장된 API Key 또는 없을 경우 undefined
      */
     async getApiKey(): Promise<string | undefined> {
+        console.log('[StorageService] getApiKey called');
         const apiKey = await this.secretStorage.get(API_KEY_SECRET_KEY);
+        console.log('[StorageService] getApiKey result:', {
+            hasApiKey: !!apiKey,
+            apiKeyLength: apiKey?.length || 0,
+            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
+            apiKeyTrimmed: apiKey ? apiKey.trim() : 'N/A'
+        });
         if (apiKey) {
-            // console.log('API Key loaded from SecretStorage.');
+            console.log('[StorageService] API Key loaded from SecretStorage.');
         } else {
-            // no-op: absence is normal when Gemini is not selected
+            console.log('[StorageService] No API Key found in SecretStorage.');
         }
         return apiKey;
     }

@@ -1435,6 +1435,29 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
 
+            // 구체적인 설명 섹션 추가
+            const executedCommands = extractBashCommandsFromLlmResponse(llmResponse);
+            const detailedExplanation = this.generateDetailedExplanation(
+                fileOperations,
+                executedCommands,
+                updateSummaryMessages
+            );
+            if (detailedExplanation) {
+                const explanationMessage = "\n\n--- 구체적인 설명 ---\n" + detailedExplanation;
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: explanationMessage });
+            }
+
+            // 추천 작업 리스트 추가
+            const recommendedActions = this.generateRecommendedActions(
+                fileOperations,
+                executedCommands,
+                updateSummaryMessages
+            );
+            if (recommendedActions.length > 0) {
+                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.map((action, index) => `${index + 1}. ${action}`).join('\n');
+                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: recommendationsMessage });
+            }
+
             // 파일/명령 처리 완료 후 로딩 및 ProcessingSteps 종료
             safePostMessage(webview, { command: 'hideLoading' });
             safePostMessage(webview, { command: 'hideProcessingSteps' });
@@ -1550,6 +1573,28 @@ export class LlmResponseProcessor {
 
                             const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
+                            
+                            // 구체적인 설명 섹션 추가
+                            const detailedExplanation = this.generateDetailedExplanation(
+                                [],
+                                executedCommands,
+                                []
+                            );
+                            if (detailedExplanation) {
+                                const explanationMessage = "\n\n--- 구체적인 설명 ---\n" + detailedExplanation;
+                                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: explanationMessage });
+                            }
+
+                            // 추천 작업 리스트 추가
+                            const recommendedActions = this.generateRecommendedActions(
+                                [],
+                                executedCommands,
+                                []
+                            );
+                            if (recommendedActions.length > 0) {
+                                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.map((action, index) => `${index + 1}. ${action}`).join('\n');
+                                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: recommendationsMessage });
+                            }
                         }
                     } catch (error: any) {
                         console.error('[LLM Response Processor] Bash command execution error:', error);
@@ -1686,6 +1731,28 @@ export class LlmResponseProcessor {
 
                             const summaryMsg = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMsg });
+                            
+                            // 구체적인 설명 섹션 추가
+                            const detailedExplanation = this.generateDetailedExplanation(
+                                [],
+                                executedCommands,
+                                []
+                            );
+                            if (detailedExplanation) {
+                                const explanationMessage = "\n\n--- 구체적인 설명 ---\n" + detailedExplanation;
+                                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: explanationMessage });
+                            }
+
+                            // 추천 작업 리스트 추가
+                            const recommendedActions = this.generateRecommendedActions(
+                                [],
+                                executedCommands,
+                                []
+                            );
+                            if (recommendedActions.length > 0) {
+                                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.map((action, index) => `${index + 1}. ${action}`).join('\n');
+                                safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: recommendationsMessage });
+                            }
                         }
                     } catch (error: any) {
                         console.error('[LLM Response Processor] Bash command execution error:', error);
@@ -1745,6 +1812,127 @@ export class LlmResponseProcessor {
         }
 
         return null;
+    }
+
+    /**
+     * 파일 작업 또는 명령어 작업에 대한 구체적인 설명을 생성합니다.
+     * @param fileOperations 파일 작업 목록
+     * @param executedCommands 실행된 명령어 목록
+     * @param updateSummaryMessages 업데이트 요약 메시지 목록
+     * @returns 구체적인 설명 문자열
+     */
+    private generateDetailedExplanation(
+        fileOperations: FileOperation[],
+        executedCommands: string[],
+        updateSummaryMessages: string[]
+    ): string {
+        const explanations: string[] = [];
+        
+        // 파일 작업에 대한 설명
+        if (fileOperations.length > 0) {
+            const createCount = fileOperations.filter(op => op.type === 'create').length;
+            const modifyCount = fileOperations.filter(op => op.type === 'modify').length;
+            const deleteCount = fileOperations.filter(op => op.type === 'delete').length;
+            
+            explanations.push(`총 ${fileOperations.length}개의 파일 작업이 수행되었습니다:`);
+            if (createCount > 0) explanations.push(`  - ${createCount}개 파일 생성`);
+            if (modifyCount > 0) explanations.push(`  - ${modifyCount}개 파일 수정`);
+            if (deleteCount > 0) explanations.push(`  - ${deleteCount}개 파일 삭제`);
+            
+            // 성공/실패 통계
+            const successCount = updateSummaryMessages.filter(msg => msg.includes('✅')).length;
+            const errorCount = updateSummaryMessages.filter(msg => msg.includes('❌')).length;
+            if (successCount > 0 || errorCount > 0) {
+                explanations.push(`\n작업 결과: ${successCount}개 성공${errorCount > 0 ? `, ${errorCount}개 실패` : ''}`);
+            }
+        }
+        
+        // 명령어 실행에 대한 설명
+        if (executedCommands.length > 0) {
+            explanations.push(`\n총 ${executedCommands.length}개의 명령어가 실행 대기 중입니다.`);
+            explanations.push(`명령어 실행 로그는 OUTPUT 창에서 확인할 수 있습니다.`);
+        }
+        
+        return explanations.length > 0 ? explanations.join('\n') : '';
+    }
+
+    /**
+     * 파일 작업 또는 명령어 작업에 대한 추천 작업 리스트를 생성합니다.
+     * @param fileOperations 파일 작업 목록
+     * @param executedCommands 실행된 명령어 목록
+     * @param updateSummaryMessages 업데이트 요약 메시지 목록
+     * @returns 추천 작업 리스트 문자열
+     */
+    private generateRecommendedActions(
+        fileOperations: FileOperation[],
+        executedCommands: string[],
+        updateSummaryMessages: string[]
+    ): string[] {
+        const recommendations: string[] = [];
+        
+        // 파일 작업 관련 추천
+        if (fileOperations.length > 0) {
+            const hasErrors = updateSummaryMessages.some(msg => msg.includes('❌'));
+            const hasNewFiles = fileOperations.some(op => op.type === 'create');
+            const hasModifiedFiles = fileOperations.some(op => op.type === 'modify');
+            
+            if (hasErrors) {
+                recommendations.push('실패한 파일 작업을 확인하고 수동으로 수정하거나 다시 시도하세요.');
+            }
+            
+            if (hasNewFiles) {
+                recommendations.push('새로 생성된 파일의 내용을 검토하고 필요한 경우 추가 수정을 진행하세요.');
+            }
+            
+            if (hasModifiedFiles) {
+                recommendations.push('수정된 파일의 변경사항을 확인하고 코드 리뷰를 진행하세요.');
+                recommendations.push('변경된 파일에 대한 테스트를 실행하여 정상 동작을 확인하세요.');
+            }
+            
+            // 프로젝트 타입별 추천
+            const hasPackageJson = fileOperations.some(op => 
+                op.llmSpecifiedPath.includes('package.json') || op.absolutePath.includes('package.json')
+            );
+            const hasPomXml = fileOperations.some(op => 
+                op.llmSpecifiedPath.includes('pom.xml') || op.absolutePath.includes('pom.xml')
+            );
+            
+            if (hasPackageJson) {
+                recommendations.push('package.json이 변경되었다면 `npm install` 또는 `yarn install`을 실행하여 의존성을 업데이트하세요.');
+            }
+            
+            if (hasPomXml) {
+                recommendations.push('pom.xml이 변경되었다면 `mvn clean install`을 실행하여 의존성을 업데이트하세요.');
+            }
+        }
+        
+        // 명령어 실행 관련 추천
+        if (executedCommands.length > 0) {
+            const hasBuildCommands = executedCommands.some(cmd => 
+                /mvn|gradle|npm.*build|yarn.*build/i.test(cmd)
+            );
+            const hasTestCommands = executedCommands.some(cmd => 
+                /mvn.*test|gradle.*test|npm.*test|yarn.*test/i.test(cmd)
+            );
+            
+            if (hasBuildCommands) {
+                recommendations.push('빌드 명령어 실행 후 생성된 결과물을 확인하세요.');
+            }
+            
+            if (hasTestCommands) {
+                recommendations.push('테스트 실행 결과를 확인하고 실패한 테스트가 있다면 수정하세요.');
+            }
+            
+            recommendations.push('명령어 실행이 완료되면 애플리케이션을 실행하여 정상 동작을 확인하세요.');
+        }
+        
+        // 일반적인 추천
+        if (fileOperations.length > 0 || executedCommands.length > 0) {
+            recommendations.push('변경사항을 Git에 커밋하기 전에 모든 기능이 정상 동작하는지 확인하세요.');
+            recommendations.push('필요한 경우 코드 포맷팅 및 린터를 실행하여 코드 품질을 유지하세요.');
+        }
+        
+        return recommendations;
     }
 
     private removeWorkSummaryAndDescription(llmResponse: string): string {

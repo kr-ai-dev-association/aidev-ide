@@ -111,36 +111,79 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     let currentAiModelInit = await storageService.getCurrentAiModel();
+    console.log('[Extension] Current AI model from storage:', currentAiModelInit);
+    
     // fallback: 설정에서 모델 타입을 유추하거나 기본값 처리 가능 (여기서는 문자열 비교만)
     const isGeminiSelected = (currentAiModelInit || '').toLowerCase() === 'gemini';
+    console.log('[Extension] Is Gemini selected:', isGeminiSelected);
+    
     const initialApiKey = await storageService.getApiKey();
+    console.log('[Extension] Initial API key from storage:', {
+        hasApiKey: !!initialApiKey,
+        apiKeyLength: initialApiKey?.length || 0,
+        apiKeyPrefix: initialApiKey ? `${initialApiKey.substring(0, 10)}...` : 'N/A',
+        apiKeyTrimmed: initialApiKey ? initialApiKey.trim() : 'N/A'
+    });
+    
     if (isGeminiSelected) {
         if (!initialApiKey || initialApiKey.trim() === '') {
+            console.warn('[Extension] Gemini selected but API key is empty');
             notificationService.showWarningMessage('aidev-ide: Gemini API Key is not set. Please set it in the Settings.');
             geminiApi = new GeminiApi();
         } else {
+            console.log('[Extension] Creating GeminiApi with API key...');
             geminiApi = new GeminiApi(initialApiKey);
+            
             // 초기화 상태 확인
-            if (!geminiApi.isInitialized()) {
-                console.error('AIDEV-IDE API initialization failed on extension activation. API Key status:', {
+            const isInitialized = geminiApi.isInitialized();
+            console.log('[Extension] GeminiApi initialization check after construction:', {
+                isInitialized: isInitialized,
+                hasApiKey: !!initialApiKey,
+                apiKeyLength: initialApiKey?.length || 0
+            });
+            
+            if (!isInitialized) {
+                console.error('[Extension] API initialization failed on extension activation. API Key status:', {
                     hasApiKey: !!initialApiKey,
                     apiKeyLength: initialApiKey?.length || 0,
-                    apiKeyPrefix: initialApiKey ? `${initialApiKey.substring(0, 10)}...` : 'N/A'
+                    apiKeyPrefix: initialApiKey ? `${initialApiKey.substring(0, 10)}...` : 'N/A',
+                    apiKeyTrimmed: initialApiKey ? initialApiKey.trim() : 'N/A'
                 });
+                
                 // 재시도
-                geminiApi.updateApiKey(initialApiKey);
-                if (!geminiApi.isInitialized()) {
-                    console.error('AIDEV-IDE API reinitialization also failed on extension activation.');
+                console.log('[Extension] Attempting to reinitialize with updateApiKey...');
+                const reinitialized = geminiApi.updateApiKey(initialApiKey);
+                console.log('[Extension] Reinitialization result:', {
+                    success: reinitialized,
+                    isInitialized: geminiApi.isInitialized()
+                });
+                
+                if (!reinitialized) {
+                    console.error('[Extension] API reinitialization also failed on extension activation. Full status:', {
+                        hasApiKey: !!initialApiKey,
+                        apiKeyLength: initialApiKey?.length || 0,
+                        apiKeyPrefix: initialApiKey ? `${initialApiKey.substring(0, 10)}...` : 'N/A',
+                        geminiApiHasApiKey: !!geminiApi.apiKey,
+                        geminiApiKeyLength: geminiApi.apiKey?.length || 0
+                    });
                 } else {
-                    console.log('AIDEV-IDE API reinitialized successfully on extension activation.');
+                    console.log('[Extension] API reinitialized successfully on extension activation.');
                 }
             } else {
-                console.log('AIDEV-IDE API initialized successfully on extension activation.');
+                console.log('[Extension] API initialized successfully on extension activation.');
             }
         }
     } else {
         // Gemini가 선택되지 않은 경우 키 유무와 상관없이 조용히 초기화 (경고 출력 안 함)
+        console.log('[Extension] Gemini not selected, creating GeminiApi without warning...', {
+            hasApiKey: !!initialApiKey,
+            apiKeyLength: initialApiKey?.length || 0
+        });
         geminiApi = new GeminiApi(initialApiKey);
+        console.log('[Extension] GeminiApi created (non-Gemini mode):', {
+            isInitialized: geminiApi.isInitialized(),
+            hasApiKey: !!geminiApi.apiKey
+        });
     }
 
     // Ollama API 초기화

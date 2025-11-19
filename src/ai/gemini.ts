@@ -14,8 +14,10 @@ export class GeminiApi {
     private model: any; // SDK의 GenerativeModel 타입으로 지정 권장 (GenerativeModel)
     public apiKey: string | undefined;
 
-    private readonly MODEL_NAME = "gemini-2.5-flash-preview-05-20";
-    //private readonly MODEL_NAME = "gemini-2.5-pro-preview-05-06";
+    private readonly MODEL_NAME = "gemini-flash-latest";
+    //private readonly MODEL_NAME = "gemini-1.5-flash";
+    //private readonly MODEL_NAME = "gemini-1.5-pro";
+    //private readonly MODEL_NAME = "gemini-2.0-flash-exp"; // Experimental
 
     private readonly defaultGenerationConfig: GenerationConfig = {
         temperature: 0.7,
@@ -32,79 +34,199 @@ export class GeminiApi {
     ];
 
     constructor(apiKey?: string) {
+        console.log('[GeminiApi] Constructor called', {
+            hasApiKey: !!apiKey,
+            apiKeyLength: apiKey?.length || 0,
+            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
+            apiKeyTrimmed: apiKey ? apiKey.trim() : 'N/A'
+        });
         if (apiKey && apiKey.trim() !== '') {
+            this.apiKey = apiKey; // API 키를 인스턴스 변수에 저장
             this.initializeApi(apiKey);
         } else {
-            console.warn('AIDEV-IDE API Key is not provided at construction.');
+            console.warn('[GeminiApi] API Key is not provided at construction.');
+            this.apiKey = undefined;
         }
     }
 
     private initializeApi(apiKey: string, systemInstructionText?: string): void {
+        console.log('[GeminiApi] initializeApi called', {
+            hasApiKey: !!apiKey,
+            apiKeyLength: apiKey?.length || 0,
+            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
+            apiKeyTrimmed: apiKey ? apiKey.trim() : 'N/A',
+            hasSystemInstruction: !!systemInstructionText
+        });
         try {
             if (!apiKey || apiKey.trim() === '') {
-                console.error('AIDEV-IDE API initialization failed: API key is empty');
+                console.error('[GeminiApi] API initialization failed: API key is empty');
                 this.genAI = undefined;
                 this.model = undefined;
+                console.log('[GeminiApi] Initialization state after failure:', {
+                    genAI: !!this.genAI,
+                    model: !!this.model,
+                    isInitialized: this.isInitialized()
+                });
                 return;
             }
+            console.log('[GeminiApi] Creating GoogleGenerativeAI instance...');
             this.genAI = new GoogleGenerativeAI(apiKey);
+            console.log('[GeminiApi] GoogleGenerativeAI instance created', {
+                genAI: !!this.genAI,
+                modelName: this.MODEL_NAME
+            });
+            
+            console.log('[GeminiApi] Getting generative model...');
             this.model = this.genAI.getGenerativeModel({
                 model: this.MODEL_NAME,
                 safetySettings: this.defaultSafetySettings,
             });
-            console.log(`AIDEV-IDE API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            console.log('[GeminiApi] Generative model obtained', {
+                model: !!this.model
+            });
+            
+            console.log(`[GeminiApi] API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
+            
             // 초기화 후 검증
-            if (!this.genAI || !this.model) {
-                console.error('AIDEV-IDE API initialization failed: genAI or model is null/undefined');
+            const isInitialized = this.isInitialized();
+            console.log('[GeminiApi] Initialization verification', {
+                genAI: !!this.genAI,
+                model: !!this.model,
+                isInitialized: isInitialized
+            });
+            
+            if (!isInitialized) {
+                console.error('[GeminiApi] API initialization failed: genAI or model is null/undefined', {
+                    genAI: !!this.genAI,
+                    model: !!this.model,
+                    genAIType: typeof this.genAI,
+                    modelType: typeof this.model
+                });
             }
         } catch (error) {
-            console.error('Error initializing AIDEV-IDE API:', error);
-            console.error('API Key length:', apiKey?.length || 0);
-            console.error('API Key prefix:', apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A');
+            console.error('[GeminiApi] Error initializing API:', error);
+            console.error('[GeminiApi] Error details:', {
+                errorName: (error as any)?.name,
+                errorMessage: (error as any)?.message,
+                errorStack: (error as any)?.stack,
+                apiKeyLength: apiKey?.length || 0,
+                apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A'
+            });
             this.genAI = undefined;
             this.model = undefined;
+            console.log('[GeminiApi] Initialization state after error:', {
+                genAI: !!this.genAI,
+                model: !!this.model,
+                isInitialized: this.isInitialized()
+            });
         }
     }
 
     updateApiKey(apiKey: string | undefined): boolean {
+        console.log('[GeminiApi] updateApiKey called', {
+            hasApiKey: !!apiKey,
+            apiKeyLength: apiKey?.length || 0,
+            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
+            previousApiKeyExists: !!this.apiKey
+        });
+        
         this.apiKey = apiKey;
         if (apiKey && apiKey.trim() !== '') {
+            console.log('[GeminiApi] Updating API key and initializing...');
             this.initializeApi(apiKey);
             const initialized = this.isInitialized();
+            console.log('[GeminiApi] updateApiKey result', {
+                initialized: initialized,
+                hasModel: !!this.model,
+                hasGenAI: !!this.genAI
+            });
+            
             if (initialized) {
-                console.log('AIDEV-IDE API Key updated and initialized successfully.');
+                console.log('[GeminiApi] API Key updated and initialized successfully.');
             } else {
-                console.error('AIDEV-IDE API Key updated but initialization failed. Please check your API key.');
+                console.error('[GeminiApi] API Key updated but initialization failed. Full status:', {
+                    hasApiKey: !!this.apiKey,
+                    apiKeyLength: this.apiKey?.length || 0,
+                    apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
+                    hasModel: !!this.model,
+                    hasGenAI: !!this.genAI,
+                    modelType: typeof this.model,
+                    genAIType: typeof this.genAI
+                });
             }
             return initialized;
         } else {
+            console.log('[GeminiApi] Removing API key...');
             this.genAI = undefined;
             this.model = undefined;
-            console.warn('AIDEV-IDE API Key removed. API is now uninitialized.');
+            console.warn('[GeminiApi] API Key removed. API is now uninitialized.');
             return false;
         }
     }
 
     public isInitialized(): boolean {
-        return !!this.model && !!this.genAI;
+        const initialized = !!this.model && !!this.genAI;
+        if (!initialized) {
+            console.log('[GeminiApi] isInitialized check', {
+                hasModel: !!this.model,
+                hasGenAI: !!this.genAI,
+                hasApiKey: !!this.apiKey,
+                apiKeyLength: this.apiKey?.length || 0,
+                modelType: typeof this.model,
+                genAIType: typeof this.genAI
+            });
+        }
+        return initialized;
     }
 
     async sendMessage(message: string, generationConfigParam?: GenerationConfig, options?: RequestOptions): Promise<string> {
+        console.log('[GeminiApi] sendMessage called', {
+            messageLength: message?.length || 0,
+            isInitialized: this.isInitialized(),
+            hasApiKey: !!this.apiKey,
+            apiKeyLength: this.apiKey?.length || 0
+        });
+        
         // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
+            console.warn('[GeminiApi] API not initialized, checking API key...', {
+                hasApiKey: !!this.apiKey,
+                apiKeyLength: this.apiKey?.length || 0,
+                apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
+                apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A'
+            });
+            
             if (this.apiKey && this.apiKey.trim() !== '') {
-                console.warn('AIDEV-IDE API not initialized but API key exists. Attempting to reinitialize...');
+                console.warn('[GeminiApi] API not initialized but API key exists. Attempting to reinitialize...');
                 this.initializeApi(this.apiKey);
-                if (!this.isInitialized()) {
-                    console.error('AIDEV-IDE API reinitialization failed. API Key status:', {
+                
+                const reinitialized = this.isInitialized();
+                console.log('[GeminiApi] Reinitialization result', {
+                    success: reinitialized,
+                    hasModel: !!this.model,
+                    hasGenAI: !!this.genAI
+                });
+                
+                if (!reinitialized) {
+                    console.error('[GeminiApi] API reinitialization failed. Full status:', {
                         hasApiKey: !!this.apiKey,
                         apiKeyLength: this.apiKey?.length || 0,
-                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A'
+                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
+                        apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A',
+                        hasModel: !!this.model,
+                        hasGenAI: !!this.genAI,
+                        modelType: typeof this.model,
+                        genAIType: typeof this.genAI
                     });
                     throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
                 }
-                console.log('AIDEV-IDE API reinitialized successfully.');
+                console.log('[GeminiApi] API reinitialized successfully.');
             } else {
+                console.error('[GeminiApi] API not initialized and no API key available', {
+                    hasApiKey: !!this.apiKey,
+                    apiKeyValue: this.apiKey || 'undefined',
+                    apiKeyType: typeof this.apiKey
+                });
                 throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
             }
         }
@@ -140,21 +262,54 @@ export class GeminiApi {
     // <-- 수정: sendMessageWithSystemPrompt 메서드에서 webSearch 기능 제거 -->
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
+        console.log('[GeminiApi] sendMessageWithSystemPrompt called', {
+            systemInstructionLength: systemInstructionText?.length || 0,
+            userPartsCount: userParts?.length || 0,
+            isInitialized: this.isInitialized(),
+            hasApiKey: !!this.apiKey,
+            apiKeyLength: this.apiKey?.length || 0
+        });
+        
         // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
+            console.warn('[GeminiApi] API not initialized, checking API key...', {
+                hasApiKey: !!this.apiKey,
+                apiKeyLength: this.apiKey?.length || 0,
+                apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
+                apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A'
+            });
+            
             if (this.apiKey && this.apiKey.trim() !== '') {
-                console.warn('AIDEV-IDE API not initialized but API key exists. Attempting to reinitialize...');
-                this.initializeApi(this.apiKey);
-                if (!this.isInitialized()) {
-                    console.error('AIDEV-IDE API reinitialization failed. API Key status:', {
+                console.warn('[GeminiApi] API not initialized but API key exists. Attempting to reinitialize...');
+                this.initializeApi(this.apiKey, systemInstructionText);
+                
+                const reinitialized = this.isInitialized();
+                console.log('[GeminiApi] Reinitialization result', {
+                    success: reinitialized,
+                    hasModel: !!this.model,
+                    hasGenAI: !!this.genAI
+                });
+                
+                if (!reinitialized) {
+                    console.error('[GeminiApi] API reinitialization failed. Full status:', {
                         hasApiKey: !!this.apiKey,
                         apiKeyLength: this.apiKey?.length || 0,
-                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A'
+                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
+                        apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A',
+                        hasModel: !!this.model,
+                        hasGenAI: !!this.genAI,
+                        modelType: typeof this.model,
+                        genAIType: typeof this.genAI
                     });
                     throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
                 }
-                console.log('AIDEV-IDE API reinitialized successfully.');
+                console.log('[GeminiApi] API reinitialized successfully.');
             } else {
+                console.error('[GeminiApi] API not initialized and no API key available', {
+                    hasApiKey: !!this.apiKey,
+                    apiKeyValue: this.apiKey || 'undefined',
+                    apiKeyType: typeof this.apiKey
+                });
                 throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
             }
         }
