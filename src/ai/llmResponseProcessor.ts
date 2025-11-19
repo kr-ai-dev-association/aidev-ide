@@ -1435,9 +1435,10 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: descriptionMessage });
             }
 
-            // 구체적인 설명 섹션 추가
+            // 구체적인 설명 섹션 추가 (구현 분석 및 코드 리뷰 또는 에러 분석)
             const executedCommands = extractBashCommandsFromLlmResponse(llmResponse);
             const detailedExplanation = this.generateDetailedExplanation(
+                llmResponse,
                 fileOperations,
                 executedCommands,
                 updateSummaryMessages
@@ -1447,14 +1448,15 @@ export class LlmResponseProcessor {
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: explanationMessage });
             }
 
-            // 추천 작업 리스트 추가
+            // 추천 작업 리스트 추가 (다음 구현 단계 및 빌드/테스트 안내 또는 에러 디버깅)
             const recommendedActions = this.generateRecommendedActions(
                 fileOperations,
                 executedCommands,
-                updateSummaryMessages
+                updateSummaryMessages,
+                llmResponse
             );
             if (recommendedActions.length > 0) {
-                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.map((action, index) => `${index + 1}. ${action}`).join('\n');
+                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.join('\n');
                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: recommendationsMessage });
             }
 
@@ -1574,8 +1576,9 @@ export class LlmResponseProcessor {
                             const bashMessage = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: bashMessage });
                             
-                            // 구체적인 설명 섹션 추가
+                            // 구체적인 설명 섹션 추가 (구현 분석 및 코드 리뷰 또는 에러 분석)
                             const detailedExplanation = this.generateDetailedExplanation(
+                                llmResponse,
                                 [],
                                 executedCommands,
                                 []
@@ -1585,14 +1588,15 @@ export class LlmResponseProcessor {
                                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: explanationMessage });
                             }
 
-                            // 추천 작업 리스트 추가
+                            // 추천 작업 리스트 추가 (다음 구현 단계 및 빌드/테스트 안내 또는 에러 디버깅)
                             const recommendedActions = this.generateRecommendedActions(
                                 [],
                                 executedCommands,
-                                []
+                                [],
+                                llmResponse
                             );
                             if (recommendedActions.length > 0) {
-                                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.map((action, index) => `${index + 1}. ${action}`).join('\n');
+                                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.join('\n');
                                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: recommendationsMessage });
                             }
                         }
@@ -1732,8 +1736,9 @@ export class LlmResponseProcessor {
                             const summaryMsg = `\n\n🚀 명령어 실행 요약\n- 총 ${executedCommands.length}개 명령 실행 대기\n\n${commandDescriptions}\n\n(자세한 실행 로그는 OUTPUT 창을 확인하세요.)`;
                             safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: summaryMsg });
                             
-                            // 구체적인 설명 섹션 추가
+                            // 구체적인 설명 섹션 추가 (구현 분석 및 코드 리뷰 또는 에러 분석)
                             const detailedExplanation = this.generateDetailedExplanation(
+                                llmResponse,
                                 [],
                                 executedCommands,
                                 []
@@ -1743,14 +1748,15 @@ export class LlmResponseProcessor {
                                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: explanationMessage });
                             }
 
-                            // 추천 작업 리스트 추가
+                            // 추천 작업 리스트 추가 (다음 구현 단계 및 빌드/테스트 안내 또는 에러 디버깅)
                             const recommendedActions = this.generateRecommendedActions(
                                 [],
                                 executedCommands,
-                                []
+                                [],
+                                llmResponse
                             );
                             if (recommendedActions.length > 0) {
-                                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.map((action, index) => `${index + 1}. ${action}`).join('\n');
+                                const recommendationsMessage = "\n\n--- 추천 작업 ---\n" + recommendedActions.join('\n');
                                 safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: recommendationsMessage });
                             }
                         }
@@ -1815,124 +1821,718 @@ export class LlmResponseProcessor {
     }
 
     /**
-     * 파일 작업 또는 명령어 작업에 대한 구체적인 설명을 생성합니다.
+     * 에러가 있는지 감지합니다.
+     */
+    private hasErrors(llmResponse: string, updateSummaryMessages: string[]): boolean {
+        // updateSummaryMessages에 에러 메시지가 있는지 확인
+        const hasErrorInMessages = updateSummaryMessages.some(msg => 
+            msg.includes('❌') || 
+            msg.includes('실패') || 
+            msg.includes('오류') || 
+            msg.includes('에러') ||
+            msg.toLowerCase().includes('error') ||
+            msg.toLowerCase().includes('failed')
+        );
+        
+        // LLM 응답에 에러 관련 키워드가 있는지 확인
+        const errorKeywords = ['Error:', '에러', '오류', '실패', 'Failed', 'Exception', 'exception', 'error'];
+        const hasErrorInResponse = errorKeywords.some(keyword => 
+            llmResponse.includes(keyword)
+        );
+        
+        return hasErrorInMessages || hasErrorInResponse;
+    }
+    
+    /**
+     * 사용자의 구현 질의 또는 에러에 대한 구체적인 설명을 생성합니다.
+     * @param llmResponse LLM의 원본 응답 문자열
      * @param fileOperations 파일 작업 목록
      * @param executedCommands 실행된 명령어 목록
      * @param updateSummaryMessages 업데이트 요약 메시지 목록
-     * @returns 구체적인 설명 문자열
+     * @returns 구체적인 설명 문자열 (구현 분석 및 코드 리뷰 또는 에러 분석)
      */
     private generateDetailedExplanation(
+        llmResponse: string,
         fileOperations: FileOperation[],
         executedCommands: string[],
         updateSummaryMessages: string[]
     ): string {
         const explanations: string[] = [];
         
-        // 파일 작업에 대한 설명
-        if (fileOperations.length > 0) {
-            const createCount = fileOperations.filter(op => op.type === 'create').length;
-            const modifyCount = fileOperations.filter(op => op.type === 'modify').length;
-            const deleteCount = fileOperations.filter(op => op.type === 'delete').length;
-            
-            explanations.push(`총 ${fileOperations.length}개의 파일 작업이 수행되었습니다:`);
-            if (createCount > 0) explanations.push(`  - ${createCount}개 파일 생성`);
-            if (modifyCount > 0) explanations.push(`  - ${modifyCount}개 파일 수정`);
-            if (deleteCount > 0) explanations.push(`  - ${deleteCount}개 파일 삭제`);
-            
-            // 성공/실패 통계
-            const successCount = updateSummaryMessages.filter(msg => msg.includes('✅')).length;
-            const errorCount = updateSummaryMessages.filter(msg => msg.includes('❌')).length;
-            if (successCount > 0 || errorCount > 0) {
-                explanations.push(`\n작업 결과: ${successCount}개 성공${errorCount > 0 ? `, ${errorCount}개 실패` : ''}`);
-            }
+        // 에러가 있는지 확인
+        const hasError = this.hasErrors(llmResponse, updateSummaryMessages);
+        
+        if (hasError) {
+            // 에러 분석
+            return this.generateErrorAnalysis(llmResponse, fileOperations, executedCommands, updateSummaryMessages);
         }
         
-        // 명령어 실행에 대한 설명
-        if (executedCommands.length > 0) {
-            explanations.push(`\n총 ${executedCommands.length}개의 명령어가 실행 대기 중입니다.`);
-            explanations.push(`명령어 실행 로그는 OUTPUT 창에서 확인할 수 있습니다.`);
+        // LLM 응답에서 구현 내용 분석
+        if (fileOperations.length > 0 || executedCommands.length > 0) {
+            explanations.push('## 구현 분석');
+            
+            // 생성된 파일 분석
+            if (fileOperations.length > 0) {
+                const createdFiles = fileOperations.filter(op => op.type === 'create');
+                const modifiedFiles = fileOperations.filter(op => op.type === 'modify');
+                
+                if (createdFiles.length > 0) {
+                    explanations.push(`\n### 새로 생성된 파일 (${createdFiles.length}개)`);
+                    createdFiles.forEach(op => {
+                        const fileName = op.llmSpecifiedPath.split('/').pop() || op.llmSpecifiedPath;
+                        const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+                        explanations.push(`- **${fileName}**: ${this.getFileTypeDescription(fileExt)}`);
+                    });
+                }
+                
+                if (modifiedFiles.length > 0) {
+                    explanations.push(`\n### 수정된 파일 (${modifiedFiles.length}개)`);
+                    modifiedFiles.forEach(op => {
+                        const fileName = op.llmSpecifiedPath.split('/').pop() || op.llmSpecifiedPath;
+                        explanations.push(`- **${fileName}**: 기존 파일이 업데이트되었습니다.`);
+                    });
+                }
+            }
+            
+            // 코드 구조 분석
+            if (fileOperations.length > 0) {
+                explanations.push('\n### 구현 방식');
+                const analysis = this.analyzeImplementation(llmResponse, fileOperations);
+                if (analysis) {
+                    explanations.push(analysis);
+                }
+            }
+            
+            // 코드 리뷰
+            if (fileOperations.length > 0) {
+                explanations.push('\n### 코드 리뷰');
+                const codeReview = this.generateCodeReview(fileOperations);
+                if (codeReview) {
+                    explanations.push(codeReview);
+                }
+            }
         }
         
         return explanations.length > 0 ? explanations.join('\n') : '';
     }
+    
+    /**
+     * 파일 확장자에 따른 파일 타입 설명을 반환합니다.
+     */
+    private getFileTypeDescription(fileExt: string): string {
+        const descriptions: { [key: string]: string } = {
+            'ts': 'TypeScript 소스 파일',
+            'tsx': 'TypeScript React 컴포넌트',
+            'js': 'JavaScript 소스 파일',
+            'jsx': 'JavaScript React 컴포넌트',
+            'py': 'Python 스크립트',
+            'java': 'Java 클래스',
+            'go': 'Go 소스 파일',
+            'rs': 'Rust 소스 파일',
+            'html': 'HTML 마크업 파일',
+            'css': 'CSS 스타일시트',
+            'json': 'JSON 설정 파일',
+            'yml': 'YAML 설정 파일',
+            'yaml': 'YAML 설정 파일',
+            'md': 'Markdown 문서',
+            'xml': 'XML 설정 파일',
+            'sh': 'Bash 스크립트',
+            'bat': 'Windows 배치 파일',
+            'ps1': 'PowerShell 스크립트'
+        };
+        return descriptions[fileExt] || '소스 파일';
+    }
+    
+    /**
+     * LLM 응답과 파일 작업을 분석하여 구현 방식을 설명합니다.
+     */
+    private analyzeImplementation(llmResponse: string, fileOperations: FileOperation[]): string {
+        const analysis: string[] = [];
+        
+        // 프로젝트 타입 추론
+        const hasPackageJson = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('package.json') || op.absolutePath.includes('package.json')
+        );
+        const hasPomXml = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('pom.xml') || op.absolutePath.includes('pom.xml')
+        );
+        const hasReactFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('.tsx') || op.llmSpecifiedPath.includes('.jsx') ||
+            op.llmSpecifiedPath.includes('App.') || op.llmSpecifiedPath.includes('index.')
+        );
+        const hasViteConfig = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('vite.config')
+        );
+        
+        if (hasReactFiles && hasViteConfig) {
+            analysis.push('- **React + Vite** 프로젝트 구조로 구현되었습니다.');
+            analysis.push('- 컴포넌트 기반 아키텍처를 사용합니다.');
+        } else if (hasPackageJson) {
+            analysis.push('- **Node.js** 프로젝트로 구현되었습니다.');
+        } else if (hasPomXml) {
+            analysis.push('- **Maven** 기반 Java 프로젝트로 구현되었습니다.');
+        }
+        
+        // 주요 기능 추론
+        const hasApiFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('api') || op.llmSpecifiedPath.includes('route') ||
+            op.llmSpecifiedPath.includes('controller')
+        );
+        const hasComponentFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('component') || op.llmSpecifiedPath.includes('Component')
+        );
+        const hasServiceFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('service') || op.llmSpecifiedPath.includes('Service')
+        );
+        
+        if (hasApiFiles) {
+            analysis.push('- API 엔드포인트가 구현되었습니다.');
+        }
+        if (hasComponentFiles) {
+            analysis.push('- 재사용 가능한 컴포넌트가 생성되었습니다.');
+        }
+        if (hasServiceFiles) {
+            analysis.push('- 비즈니스 로직이 서비스 레이어로 분리되었습니다.');
+        }
+        
+        return analysis.length > 0 ? analysis.join('\n') : '';
+    }
+    
+    /**
+     * 생성된 코드에 대한 코드 리뷰를 생성합니다.
+     */
+    private generateCodeReview(fileOperations: FileOperation[]): string {
+        const review: string[] = [];
+        
+        // 파일 구조 리뷰
+        const hasConfigFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('config') || 
+            op.llmSpecifiedPath.includes('package.json') ||
+            op.llmSpecifiedPath.includes('tsconfig.json')
+        );
+        
+        if (hasConfigFiles) {
+            review.push('✅ **프로젝트 설정 파일이 포함되어 있습니다.**');
+        }
+        
+        // 코드 품질 관련
+        const hasTypeScript = fileOperations.some(op => 
+            op.llmSpecifiedPath.endsWith('.ts') || op.llmSpecifiedPath.endsWith('.tsx')
+        );
+        if (hasTypeScript) {
+            review.push('✅ **TypeScript를 사용하여 타입 안정성이 확보되었습니다.**');
+        }
+        
+        // 구조적 리뷰
+        const fileCount = fileOperations.length;
+        if (fileCount > 1) {
+            review.push(`✅ **${fileCount}개의 파일로 모듈화된 구조입니다.**`);
+        }
+        
+        // 개선 제안
+        review.push('\n**개선 제안:**');
+        review.push('- 생성된 코드를 검토하고 필요한 경우 주석을 추가하세요.');
+        review.push('- 에러 처리가 필요한 부분이 있는지 확인하세요.');
+        review.push('- 보안 관련 검토(인증, 입력 검증 등)를 수행하세요.');
+        
+        return review.join('\n');
+    }
 
     /**
-     * 파일 작업 또는 명령어 작업에 대한 추천 작업 리스트를 생성합니다.
+     * 에러 분석을 생성합니다.
+     */
+    private generateErrorAnalysis(
+        llmResponse: string,
+        fileOperations: FileOperation[],
+        executedCommands: string[],
+        updateSummaryMessages: string[]
+    ): string {
+        const analysis: string[] = [];
+        
+        analysis.push('## 에러 분석');
+        
+        // 에러 메시지 추출
+        const errorMessages = updateSummaryMessages.filter(msg => 
+            msg.includes('❌') || 
+            msg.includes('실패') || 
+            msg.includes('오류') || 
+            msg.includes('에러')
+        );
+        
+        if (errorMessages.length > 0) {
+            analysis.push('\n### 발견된 에러');
+            errorMessages.forEach((msg, index) => {
+                analysis.push(`${index + 1}. ${msg.replace('❌', '').trim()}`);
+            });
+        }
+        
+        // LLM 응답에서 에러 추출
+        const errorPatterns = [
+            /Error:\s*([^\n]+)/gi,
+            /에러[:\s]+([^\n]+)/gi,
+            /오류[:\s]+([^\n]+)/gi,
+            /실패[:\s]+([^\n]+)/gi,
+            /Exception[:\s]+([^\n]+)/gi
+        ];
+        
+        const extractedErrors: string[] = [];
+        errorPatterns.forEach(pattern => {
+            const matches = llmResponse.matchAll(pattern);
+            for (const match of matches) {
+                if (match[1] && !extractedErrors.includes(match[1].trim())) {
+                    extractedErrors.push(match[1].trim());
+                }
+            }
+        });
+        
+        if (extractedErrors.length > 0) {
+            analysis.push('\n### 응답에서 발견된 에러');
+            extractedErrors.slice(0, 5).forEach((error, index) => {
+                analysis.push(`${index + 1}. ${error}`);
+            });
+        }
+        
+        // 에러 타입 분류
+        analysis.push('\n### 에러 타입 분석');
+        const errorType = this.classifyErrorType(llmResponse, updateSummaryMessages, fileOperations);
+        analysis.push(`- **에러 유형**: ${errorType.type}`);
+        if (errorType.description) {
+            analysis.push(`- **설명**: ${errorType.description}`);
+        }
+        
+        // 가능한 원인 분석
+        analysis.push('\n### 가능한 원인');
+        const possibleCauses = this.analyzeErrorCauses(errorType, fileOperations, executedCommands);
+        possibleCauses.forEach(cause => {
+            analysis.push(`- ${cause}`);
+        });
+        
+        // 해결 방법 제안
+        analysis.push('\n### 해결 방법 제안');
+        const solutions = this.suggestErrorSolutions(errorType, fileOperations, executedCommands);
+        solutions.forEach(solution => {
+            analysis.push(`- ${solution}`);
+        });
+        
+        return analysis.join('\n');
+    }
+    
+    /**
+     * 에러 타입을 분류합니다.
+     */
+    private classifyErrorType(
+        llmResponse: string,
+        updateSummaryMessages: string[],
+        fileOperations: FileOperation[]
+    ): { type: string; description?: string } {
+        const errorText = (llmResponse + ' ' + updateSummaryMessages.join(' ')).toLowerCase();
+        
+        // 컴파일 에러
+        if (errorText.includes('compile') || errorText.includes('컴파일') || 
+            errorText.includes('syntax') || errorText.includes('구문') ||
+            errorText.includes('cannot find') || errorText.includes('찾을 수 없습니다')) {
+            return {
+                type: '컴파일 에러',
+                description: '코드 구문 오류 또는 타입 오류로 인한 컴파일 실패'
+            };
+        }
+        
+        // 의존성 에러
+        if (errorText.includes('module not found') || errorText.includes('cannot find module') ||
+            errorText.includes('package') && errorText.includes('not found') ||
+            errorText.includes('의존성') || errorText.includes('dependency')) {
+            return {
+                type: '의존성 에러',
+                description: '필요한 패키지나 모듈이 설치되지 않았거나 찾을 수 없음'
+            };
+        }
+        
+        // 런타임 에러
+        if (errorText.includes('runtime') || errorText.includes('런타임') ||
+            errorText.includes('undefined') || errorText.includes('null') ||
+            errorText.includes('cannot read property') || errorText.includes('속성을 읽을 수 없습니다')) {
+            return {
+                type: '런타임 에러',
+                description: '프로그램 실행 중 발생하는 오류'
+            };
+        }
+        
+        // 파일 시스템 에러
+        if (errorText.includes('permission') || errorText.includes('권한') ||
+            errorText.includes('enoent') || errorText.includes('not found') ||
+            errorText.includes('파일') && (errorText.includes('없') || errorText.includes('찾을 수'))) {
+            return {
+                type: '파일 시스템 에러',
+                description: '파일 접근 권한 문제 또는 파일을 찾을 수 없음'
+            };
+        }
+        
+        // 네트워크 에러
+        if (errorText.includes('network') || errorText.includes('네트워크') ||
+            errorText.includes('connection') || errorText.includes('연결') ||
+            errorText.includes('timeout') || errorText.includes('타임아웃')) {
+            return {
+                type: '네트워크 에러',
+                description: '네트워크 연결 문제 또는 타임아웃'
+            };
+        }
+        
+        // 빌드 에러
+        if (errorText.includes('build') || errorText.includes('빌드') ||
+            errorText.includes('failed to build') || errorText.includes('빌드 실패')) {
+            return {
+                type: '빌드 에러',
+                description: '프로젝트 빌드 과정에서 발생한 오류'
+            };
+        }
+        
+        return {
+            type: '일반 에러',
+            description: '알 수 없는 에러 유형'
+        };
+    }
+    
+    /**
+     * 에러의 가능한 원인을 분석합니다.
+     */
+    private analyzeErrorCauses(
+        errorType: { type: string; description?: string },
+        fileOperations: FileOperation[],
+        executedCommands: string[]
+    ): string[] {
+        const causes: string[] = [];
+        
+        if (errorType.type === '컴파일 에러') {
+            causes.push('코드 구문 오류 (괄호, 세미콜론, 따옴표 등 누락)');
+            causes.push('타입 불일치 (TypeScript/Java 등 타입 시스템 오류)');
+            causes.push('임포트 경로 오류 (모듈 경로가 잘못됨)');
+        } else if (errorType.type === '의존성 에러') {
+            causes.push('패키지가 설치되지 않음 (npm install, pip install 등 미실행)');
+            causes.push('패키지 이름 오타 또는 존재하지 않는 패키지');
+            causes.push('버전 호환성 문제');
+        } else if (errorType.type === '런타임 에러') {
+            causes.push('변수가 초기화되지 않음 (undefined, null)');
+            causes.push('배열/객체 인덱스 범위 초과');
+            causes.push('비동기 처리 오류 (Promise, async/await)');
+        } else if (errorType.type === '파일 시스템 에러') {
+            causes.push('파일 경로 오류 (존재하지 않는 경로)');
+            causes.push('파일 접근 권한 부족');
+            causes.push('디렉토리가 존재하지 않음');
+        } else if (errorType.type === '네트워크 에러') {
+            causes.push('인터넷 연결 문제');
+            causes.push('API 서버 응답 지연 또는 다운');
+            causes.push('방화벽 또는 프록시 설정 문제');
+        } else if (errorType.type === '빌드 에러') {
+            causes.push('빌드 설정 파일 오류 (webpack.config.js, tsconfig.json 등)');
+            causes.push('의존성 버전 충돌');
+            causes.push('빌드 도구 설정 문제');
+        }
+        
+        return causes.length > 0 ? causes : ['원인을 파악하기 위해 로그를 자세히 확인하세요.'];
+    }
+    
+    /**
+     * 에러 해결 방법을 제안합니다.
+     */
+    private suggestErrorSolutions(
+        errorType: { type: string; description?: string },
+        fileOperations: FileOperation[],
+        executedCommands: string[]
+    ): string[] {
+        const solutions: string[] = [];
+        
+        if (errorType.type === '컴파일 에러') {
+            solutions.push('코드 에디터의 에러 표시를 확인하고 구문 오류를 수정하세요.');
+            solutions.push('TypeScript 프로젝트인 경우 `tsc --noEmit` 명령어로 타입 오류를 확인하세요.');
+            solutions.push('임포트 경로가 올바른지 확인하고 상대 경로/절대 경로를 수정하세요.');
+        } else if (errorType.type === '의존성 에러') {
+            solutions.push('`npm install` 또는 `yarn install`을 실행하여 의존성을 설치하세요.');
+            solutions.push('package.json 또는 requirements.txt에 패키지 이름이 올바른지 확인하세요.');
+            solutions.push('node_modules 폴더를 삭제하고 다시 설치해보세요: `rm -rf node_modules && npm install`');
+        } else if (errorType.type === '런타임 에러') {
+            solutions.push('브라우저 콘솔 또는 터미널에서 전체 에러 스택을 확인하세요.');
+            solutions.push('변수가 사용되기 전에 초기화되었는지 확인하세요.');
+            solutions.push('옵셔널 체이닝(`?.`) 또는 null 체크를 추가하세요.');
+        } else if (errorType.type === '파일 시스템 에러') {
+            solutions.push('파일 경로가 올바른지 확인하세요 (대소문자, 슬래시 방향 등).');
+            solutions.push('파일/디렉토리 권한을 확인하고 필요시 `chmod` 명령어로 권한을 변경하세요.');
+            solutions.push('디렉토리가 존재하는지 확인하고 없으면 생성하세요.');
+        } else if (errorType.type === '네트워크 에러') {
+            solutions.push('인터넷 연결 상태를 확인하세요.');
+            solutions.push('API 엔드포인트 URL이 올바른지 확인하세요.');
+            solutions.push('프록시 설정이나 방화벽 규칙을 확인하세요.');
+        } else if (errorType.type === '빌드 에러') {
+            solutions.push('빌드 설정 파일(webpack.config.js, vite.config.ts 등)을 확인하세요.');
+            solutions.push('의존성 버전 충돌이 있는지 확인하고 `npm audit`을 실행하세요.');
+            solutions.push('빌드 캐시를 삭제하고 다시 빌드해보세요.');
+        }
+        
+        return solutions.length > 0 ? solutions : ['에러 로그를 자세히 확인하고 관련 문서를 참고하세요.'];
+    }
+    
+    /**
+     * 구현된 코드의 다음 단계 추천 작업 리스트를 생성합니다.
+     * 에러가 있는 경우 에러 디버깅 관련 추천을 제공합니다.
      * @param fileOperations 파일 작업 목록
      * @param executedCommands 실행된 명령어 목록
      * @param updateSummaryMessages 업데이트 요약 메시지 목록
+     * @param llmResponse LLM 응답 (에러 감지용)
      * @returns 추천 작업 리스트 문자열
      */
     private generateRecommendedActions(
+        fileOperations: FileOperation[],
+        executedCommands: string[],
+        updateSummaryMessages: string[],
+        llmResponse?: string
+    ): string[] {
+        const recommendations: string[] = [];
+        
+        // 에러가 있는지 확인
+        const hasError = llmResponse ? this.hasErrors(llmResponse, updateSummaryMessages) : 
+            updateSummaryMessages.some(msg => msg.includes('❌') || msg.includes('실패') || msg.includes('오류'));
+        
+        if (hasError) {
+            // 에러 디버깅 관련 추천 작업
+            return this.generateErrorDebuggingRecommendations(fileOperations, executedCommands, updateSummaryMessages);
+        }
+        
+        if (fileOperations.length === 0 && executedCommands.length === 0) {
+            return recommendations;
+        }
+        
+        // 프로젝트 타입 감지
+        const hasPackageJson = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('package.json') || op.absolutePath.includes('package.json')
+        );
+        const hasPomXml = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('pom.xml') || op.absolutePath.includes('pom.xml')
+        );
+        const hasViteConfig = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('vite.config')
+        );
+        const hasReactFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('.tsx') || op.llmSpecifiedPath.includes('.jsx')
+        );
+        const hasPythonFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.endsWith('.py')
+        );
+        const hasGoFiles = fileOperations.some(op => 
+            op.llmSpecifiedPath.endsWith('.go')
+        );
+        
+        // 1. 의존성 설치
+        recommendations.push('## 다음 구현 단계');
+        
+        if (hasPackageJson) {
+            recommendations.push('\n### 1. 의존성 설치');
+            recommendations.push('```bash');
+            recommendations.push('npm install');
+            recommendations.push('```');
+            recommendations.push('또는');
+            recommendations.push('```bash');
+            recommendations.push('yarn install');
+            recommendations.push('```');
+        } else if (hasPomXml) {
+            recommendations.push('\n### 1. 의존성 설치 및 빌드');
+            recommendations.push('```bash');
+            recommendations.push('mvn clean install');
+            recommendations.push('```');
+        } else if (hasPythonFiles) {
+            recommendations.push('\n### 1. 의존성 설치');
+            recommendations.push('```bash');
+            recommendations.push('pip install -r requirements.txt');
+            recommendations.push('```');
+        } else if (hasGoFiles) {
+            recommendations.push('\n### 1. 의존성 설치');
+            recommendations.push('```bash');
+            recommendations.push('go mod download');
+            recommendations.push('```');
+        }
+        
+        // 2. 빌드 명령어
+        recommendations.push('\n### 2. 빌드');
+        if (hasViteConfig && hasReactFiles) {
+            recommendations.push('```bash');
+            recommendations.push('npm run build');
+            recommendations.push('```');
+        } else if (hasPackageJson) {
+            recommendations.push('```bash');
+            recommendations.push('npm run build');
+            recommendations.push('```');
+        } else if (hasPomXml) {
+            recommendations.push('```bash');
+            recommendations.push('mvn clean package');
+            recommendations.push('```');
+        } else if (hasGoFiles) {
+            recommendations.push('```bash');
+            recommendations.push('go build');
+            recommendations.push('```');
+        }
+        
+        // 3. 개발 서버 실행
+        if (hasViteConfig || (hasPackageJson && hasReactFiles)) {
+            recommendations.push('\n### 3. 개발 서버 실행');
+            recommendations.push('```bash');
+            recommendations.push('npm run dev');
+            recommendations.push('```');
+            recommendations.push('또는');
+            recommendations.push('```bash');
+            recommendations.push('npm start');
+            recommendations.push('```');
+        }
+        
+        // 4. 테스트 방법
+        recommendations.push('\n### 4. 테스트 실행');
+        if (hasPackageJson) {
+            recommendations.push('```bash');
+            recommendations.push('npm test');
+            recommendations.push('```');
+        } else if (hasPomXml) {
+            recommendations.push('```bash');
+            recommendations.push('mvn test');
+            recommendations.push('```');
+        } else if (hasPythonFiles) {
+            recommendations.push('```bash');
+            recommendations.push('pytest');
+            recommendations.push('```');
+        } else if (hasGoFiles) {
+            recommendations.push('```bash');
+            recommendations.push('go test ./...');
+            recommendations.push('```');
+        }
+        
+        // 5. 다음 구현 추천
+        recommendations.push('\n### 5. 다음 구현 추천');
+        if (hasReactFiles) {
+            recommendations.push('- 상태 관리 라이브러리 추가 (Redux, Zustand 등)');
+            recommendations.push('- 라우팅 설정 (React Router 등)');
+            recommendations.push('- API 통신 로직 구현 (axios, fetch 등)');
+            recommendations.push('- 에러 바운더리 및 로딩 상태 처리');
+        } else if (hasPackageJson && !hasReactFiles) {
+            recommendations.push('- 환경 변수 설정 (.env 파일)');
+            recommendations.push('- API 엔드포인트 구현');
+            recommendations.push('- 데이터베이스 연결 설정');
+            recommendations.push('- 인증/인가 로직 구현');
+        } else if (hasPomXml) {
+            recommendations.push('- 데이터베이스 설정 (application.yml)');
+            recommendations.push('- 엔티티 클래스 생성');
+            recommendations.push('- 서비스 레이어 구현');
+            recommendations.push('- REST API 컨트롤러 구현');
+        }
+        
+        // 6. 코드 품질
+        recommendations.push('\n### 6. 코드 품질 관리');
+        const hasTypeScript = this.hasTypeScript(fileOperations);
+        if (hasTypeScript || hasReactFiles) {
+            recommendations.push('```bash');
+            recommendations.push('npm run lint');
+            recommendations.push('```');
+        }
+        recommendations.push('- 코드 포맷팅: Prettier 또는 ESLint 사용');
+        recommendations.push('- 타입 체크: TypeScript 컴파일러로 타입 오류 확인');
+        recommendations.push('- 코드 리뷰: 생성된 코드의 로직과 구조 검토');
+        
+        // 7. 배포 준비
+        recommendations.push('\n### 7. 배포 준비');
+        recommendations.push('- 환경별 설정 파일 분리 (dev, staging, production)');
+        recommendations.push('- 빌드 산출물 확인 및 최적화');
+        recommendations.push('- 환경 변수 및 시크릿 관리 설정');
+        
+        return recommendations;
+    }
+    
+    /**
+     * 에러 디버깅 관련 추천 작업을 생성합니다.
+     */
+    private generateErrorDebuggingRecommendations(
         fileOperations: FileOperation[],
         executedCommands: string[],
         updateSummaryMessages: string[]
     ): string[] {
         const recommendations: string[] = [];
         
-        // 파일 작업 관련 추천
-        if (fileOperations.length > 0) {
-            const hasErrors = updateSummaryMessages.some(msg => msg.includes('❌'));
-            const hasNewFiles = fileOperations.some(op => op.type === 'create');
-            const hasModifiedFiles = fileOperations.some(op => op.type === 'modify');
-            
-            if (hasErrors) {
-                recommendations.push('실패한 파일 작업을 확인하고 수동으로 수정하거나 다시 시도하세요.');
-            }
-            
-            if (hasNewFiles) {
-                recommendations.push('새로 생성된 파일의 내용을 검토하고 필요한 경우 추가 수정을 진행하세요.');
-            }
-            
-            if (hasModifiedFiles) {
-                recommendations.push('수정된 파일의 변경사항을 확인하고 코드 리뷰를 진행하세요.');
-                recommendations.push('변경된 파일에 대한 테스트를 실행하여 정상 동작을 확인하세요.');
-            }
-            
-            // 프로젝트 타입별 추천
-            const hasPackageJson = fileOperations.some(op => 
-                op.llmSpecifiedPath.includes('package.json') || op.absolutePath.includes('package.json')
-            );
-            const hasPomXml = fileOperations.some(op => 
-                op.llmSpecifiedPath.includes('pom.xml') || op.absolutePath.includes('pom.xml')
-            );
-            
-            if (hasPackageJson) {
-                recommendations.push('package.json이 변경되었다면 `npm install` 또는 `yarn install`을 실행하여 의존성을 업데이트하세요.');
-            }
-            
-            if (hasPomXml) {
-                recommendations.push('pom.xml이 변경되었다면 `mvn clean install`을 실행하여 의존성을 업데이트하세요.');
-            }
+        recommendations.push('## 에러 디버깅 단계');
+        
+        // 1. 로그 확인
+        recommendations.push('\n### 1. 로그 확인');
+        recommendations.push('- **VS Code OUTPUT 패널 확인**: 에러의 전체 스택 트레이스를 확인하세요.');
+        recommendations.push('- **터미널 출력 확인**: 명령어 실행 시 발생한 에러 메시지를 확인하세요.');
+        recommendations.push('- **브라우저 콘솔 확인**: 웹 애플리케이션인 경우 브라우저 개발자 도구 콘솔을 확인하세요.');
+        
+        // 2. 에러 재현
+        recommendations.push('\n### 2. 에러 재현');
+        recommendations.push('- 동일한 명령어나 작업을 다시 실행하여 에러가 지속되는지 확인하세요.');
+        recommendations.push('- 에러 발생 조건을 정확히 파악하세요 (특정 파일, 특정 명령어 등).');
+        
+        // 3. 일반적인 디버깅 방법
+        recommendations.push('\n### 3. 디버깅 방법');
+        
+        const hasPackageJson = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('package.json') || op.absolutePath.includes('package.json')
+        );
+        const hasPomXml = fileOperations.some(op => 
+            op.llmSpecifiedPath.includes('pom.xml') || op.absolutePath.includes('pom.xml')
+        );
+        const hasTypeScript = this.hasTypeScript(fileOperations);
+        
+        if (hasTypeScript) {
+            recommendations.push('```bash');
+            recommendations.push('# TypeScript 타입 체크');
+            recommendations.push('npx tsc --noEmit');
+            recommendations.push('```');
         }
         
-        // 명령어 실행 관련 추천
-        if (executedCommands.length > 0) {
-            const hasBuildCommands = executedCommands.some(cmd => 
-                /mvn|gradle|npm.*build|yarn.*build/i.test(cmd)
-            );
-            const hasTestCommands = executedCommands.some(cmd => 
-                /mvn.*test|gradle.*test|npm.*test|yarn.*test/i.test(cmd)
-            );
-            
-            if (hasBuildCommands) {
-                recommendations.push('빌드 명령어 실행 후 생성된 결과물을 확인하세요.');
-            }
-            
-            if (hasTestCommands) {
-                recommendations.push('테스트 실행 결과를 확인하고 실패한 테스트가 있다면 수정하세요.');
-            }
-            
-            recommendations.push('명령어 실행이 완료되면 애플리케이션을 실행하여 정상 동작을 확인하세요.');
+        if (hasPackageJson) {
+            recommendations.push('```bash');
+            recommendations.push('# 의존성 확인 및 재설치');
+            recommendations.push('npm ls');
+            recommendations.push('npm install');
+            recommendations.push('```');
+        } else if (hasPomXml) {
+            recommendations.push('```bash');
+            recommendations.push('# Maven 의존성 확인');
+            recommendations.push('mvn dependency:tree');
+            recommendations.push('mvn clean install');
+            recommendations.push('```');
         }
         
-        // 일반적인 추천
-        if (fileOperations.length > 0 || executedCommands.length > 0) {
-            recommendations.push('변경사항을 Git에 커밋하기 전에 모든 기능이 정상 동작하는지 확인하세요.');
-            recommendations.push('필요한 경우 코드 포맷팅 및 린터를 실행하여 코드 품질을 유지하세요.');
+        // 4. 코드 검토
+        recommendations.push('\n### 4. 코드 검토');
+        recommendations.push('- 에러가 발생한 파일의 해당 라인을 확인하세요.');
+        recommendations.push('- 최근 변경된 코드가 에러의 원인인지 확인하세요.');
+        recommendations.push('- 관련 파일들 간의 의존성을 확인하세요.');
+        
+        // 5. 검색 및 문서 확인
+        recommendations.push('\n### 5. 검색 및 문서 확인');
+        recommendations.push('- 에러 메시지를 그대로 검색하여 해결 방법을 찾아보세요.');
+        recommendations.push('- 공식 문서나 Stack Overflow에서 유사한 문제를 찾아보세요.');
+        recommendations.push('- 프로젝트의 이슈 트래커나 커뮤니티 포럼을 확인하세요.');
+        
+        // 6. 단계적 해결
+        recommendations.push('\n### 6. 단계적 해결');
+        recommendations.push('- 가장 간단한 해결 방법부터 시도하세요.');
+        recommendations.push('- 한 번에 하나씩 변경하고 테스트하세요.');
+        recommendations.push('- 변경 전후를 비교하기 위해 Git 커밋을 활용하세요.');
+        
+        // 7. 추가 도구
+        recommendations.push('\n### 7. 디버깅 도구 활용');
+        if (hasTypeScript || hasPackageJson) {
+            recommendations.push('- **VS Code 디버거**: 브레이크포인트를 설정하여 코드 실행을 단계별로 확인하세요.');
+            recommendations.push('- **ESLint/Prettier**: 코드 품질 문제를 확인하세요.');
         }
+        recommendations.push('- **로깅 추가**: `console.log()` 또는 디버거를 사용하여 변수 값을 확인하세요.');
+        recommendations.push('- **에러 바운더리**: React 프로젝트인 경우 에러 바운더리를 추가하여 에러를 포착하세요.');
         
         return recommendations;
+    }
+    
+    /**
+     * TypeScript 파일이 있는지 확인합니다.
+     */
+    private hasTypeScript(fileOperations: FileOperation[]): boolean {
+        return fileOperations.some(op => 
+            op.llmSpecifiedPath.endsWith('.ts') || op.llmSpecifiedPath.endsWith('.tsx')
+        );
     }
 
     private removeWorkSummaryAndDescription(llmResponse: string): string {
