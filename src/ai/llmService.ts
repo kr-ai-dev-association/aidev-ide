@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { StorageService } from '../services/storage';
 import { CodebaseContextService } from './codebaseContextService';
 import { LlmKeywordSelectionService } from './llmKeywordSelectionService';
@@ -945,6 +946,107 @@ Output:`;
         }
     }
 
+    /**
+     * execution 계열 의도(execution_build / execution_run / execution_install / execution_deploy)에 대해
+     * ActionPlannerService + ActionExecutionEngine을 사용하여 단계별로 실행합니다.
+     * 일반 LLM 응답 경로 대신, 실제 명령 실행/검증 위주로 동작합니다.
+     */
+    private async handleExecutionIntentWithActionPlan(
+        userQuery: string,
+        webviewToRespond: vscode.Webview,
+        intentResult: IntentDetectionResult,
+        abortSignal: AbortSignal
+    ): Promise<void> {
+        try {
+            this.sendProcessingStep('plan');
+            this.sendProcessingStatus('plan', `실행 플랜 생성 중... (${intentResult.category}/${intentResult.subtype})`);
+
+            // 대화 히스토리 로드 (CODE/ASK 구분 없이 최근 맥락만 전달)
+            let history: { userQuery: string, aiResponse?: string, timestamp: number }[] = [];
+            if (this.extensionContext) {
+                const codeHistory = this.extensionContext.globalState.get('codeTabHistory', [] as any[]);
+                const askHistory = this.extensionContext.globalState.get('askTabHistory', [] as any[]);
+                history = [...codeHistory, ...askHistory].slice(-5);
+            }
+
+            // 프로젝트 루트 및 파일 리스트 수집
+            const projectRoot = (await this.configurationService.getProjectRoot()) || '';
+            const analysis = await this.codebaseContextService.getProjectFileListForAnalysis(userQuery, abortSignal);
+            const includedFiles = (analysis.fileList || []).map(fullPath => ({
+                name: path.basename(fullPath),
+                fullPath
+            }));
+
+            const plan = await this.actionPlannerService.createActionPlan(
+                userQuery,
+                history,
+                includedFiles,
+                projectRoot,
+                intentResult
+            );
+            this.activePlans.set(plan.id, plan);
+
+            // Plan 내용을 PlanQueueService와 Webview에 투영
+            try {
+                if (!this.planQueueService && this.extensionContext) {
+                    this.planQueueService = new PlanQueueService(this.extensionContext);
+                }
+                if (this.planQueueService) {
+                    this.planQueueService.clear();
+                    const items = plan.steps.map(step => ({
+                        title: step.description,
+                        detail: step.command || step.filePath
+                    }));
+                    this.planQueueService.enqueue(items);
+                    safePostMessage(webviewToRespond, {
+                        command: 'updateTaskQueue',
+                        items: this.planQueueService.list()
+                    });
+                    setPlanQueueService(this.planQueueService);
+                }
+            } catch (e) {
+                console.warn('[LlmService] 실행 플랜을 작업 큐에 반영하는 중 오류:', e);
+            }
+
+            this.sendProcessingStatus('plan', `실행 플랜 생성 완료: ${plan.steps.length}개 단계`);
+
+            // 실제 실행 단계
+            this.sendProcessingStep('executing');
+            this.sendProcessingStatus('executing', '실행 엔진을 통해 단계를 순차적으로 실행합니다...');
+
+            const result = await this.actionExecutionEngine.executePlan(plan);
+
+            // 실행 결과를 사용자에게 요약해서 전달
+            const summaryLines: string[] = [];
+            summaryLines.push(`### 실행 플랜 결과`);
+            summaryLines.push(`- 플랜 ID: ${plan.id}`);
+            summaryLines.push(`- 단계 수: ${plan.steps.length}`);
+            summaryLines.push(`- 상태: ${plan.status}`);
+            summaryLines.push(`- 메시지: ${result.message}`);
+            if (result.error) {
+                summaryLines.push('');
+                summaryLines.push(`에러: ${result.error}`);
+            }
+
+            safePostMessage(webviewToRespond, {
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: summaryLines.join('\n')
+            });
+
+            this.sendProcessingStatus('executing', '실행 플랜 처리가 완료되었습니다.');
+            this.sendProcessingStep('completed');
+        } catch (error) {
+            console.error('[LlmService] 실행 의도 처리 중 오류:', error);
+            const msg = error instanceof Error ? error.message : String(error);
+            safePostMessage(webviewToRespond, {
+                command: 'receiveMessage',
+                sender: 'AIDEV-IDE',
+                text: `실행 플랜 처리 중 오류가 발생했습니다: ${msg}`
+            });
+        }
+    }
+
     public async handleUserMessageAndRespond(
         userQuery: string,
         webviewToRespond: vscode.Webview,
@@ -1054,6 +1156,27 @@ Output:`;
                 } catch (error) {
                     console.warn('[LlmService] Intent detection failed:', error);
                     this.sendProcessingStatus('intent', 'Intent analysis failed, using default behavior');
+                }
+            }
+
+            // 실행(intent.category === 'execution') 관련 요청은 액션 플랜 기반으로 처리 시도
+            if (intentResult && intentResult.category === 'execution') {
+                try {
+                    const autoExecute = await this.configurationService.isAutoExecuteCommandsEnabled?.();
+                    if (autoExecute) {
+                        console.log('[LlmService] 실행 의도 감지 - ActionPlanner/ExecutionEngine 경로로 처리합니다.');
+                        await this.handleExecutionIntentWithActionPlan(
+                            userQuery,
+                            webviewToRespond,
+                            intentResult,
+                            abortSignal
+                        );
+                        return;
+                    } else {
+                        console.log('[LlmService] 실행 의도 감지 - autoExecuteCommands 설정이 비활성화되어 일반 경로로 처리합니다.');
+                    }
+                } catch (e) {
+                    console.warn('[LlmService] 실행 의도 처리 중 오류 - 일반 경로로 폴백합니다:', e);
                 }
             }
 

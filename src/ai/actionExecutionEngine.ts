@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { ActionPlan, ActionStep } from './actionPlannerService';
 import { TerminalMonitorService } from './terminalMonitorService';
 import { runCommandCapture } from '../utils/processRunner';
@@ -203,9 +204,9 @@ export class ActionExecutionEngine {
      */
     private async executeCodeGeneration(step: ActionStep, context: ExecutionContext): Promise<ExecutionResult> {
         console.log(`[ActionExecutionEngine] 코드 생성 실행: ${step.description}`);
-        
+
         try {
-            if (!step.filePath || !step.content) {
+            if (!step.filePath || step.content === undefined) {
                 return {
                     success: false,
                     message: '파일 경로 또는 내용이 지정되지 않았습니다.',
@@ -213,10 +214,33 @@ export class ActionExecutionEngine {
                 };
             }
 
-            // TODO: 실제 코드 생성 로직 구현
-            // 현재는 성공으로 처리
-            await new Promise(resolve => setTimeout(resolve, 2000)); // 시뮬레이션
-            
+            const projectRoot = context.plan.context.projectRoot;
+            if (!projectRoot) {
+                return {
+                    success: false,
+                    message: '프로젝트 루트가 설정되지 않았습니다.',
+                    error: 'Missing projectRoot'
+                };
+            }
+
+            // projectRoot 기준 절대 경로 계산
+            const absolutePath = path.isAbsolute(step.filePath)
+                ? step.filePath
+                : path.join(projectRoot, step.filePath);
+
+            const fileUri = vscode.Uri.file(absolutePath);
+            const dirUri = vscode.Uri.file(path.dirname(absolutePath));
+
+            // 디렉터리가 없으면 생성
+            try {
+                await vscode.workspace.fs.stat(dirUri);
+            } catch {
+                await vscode.workspace.fs.createDirectory(dirUri);
+            }
+
+            // 파일 내용 쓰기 (기존 파일이 있으면 덮어쓰기)
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(step.content, 'utf8'));
+
             return {
                 success: true,
                 message: '코드 생성 완료',
@@ -240,17 +264,42 @@ export class ActionExecutionEngine {
      */
     private async executeFileOperation(step: ActionStep, context: ExecutionContext): Promise<ExecutionResult> {
         console.log(`[ActionExecutionEngine] 파일 작업 실행: ${step.description}`);
-        
+
+        // 현재는 구체적인 작업 타입(create/modify/delete)을 구분하는 필드가 없으므로,
+        // code_generation 단계에서 처리하지 못한 단순 파일 삭제 정도만 지원한다.
         try {
-            // TODO: 실제 파일 작업 로직 구현
-            // 현재는 성공으로 처리
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 시뮬레이션
-            
-            return {
-                success: true,
-                message: '파일 작업 완료',
-                output: '파일 작업이 완료되었습니다.'
-            };
+            const projectRoot = context.plan.context.projectRoot;
+            if (!projectRoot || !step.filePath) {
+                return {
+                    success: false,
+                    message: '파일 작업을 위한 projectRoot 또는 filePath가 없습니다.',
+                    error: 'Missing projectRoot or filePath'
+                };
+            }
+
+            const absolutePath = path.isAbsolute(step.filePath)
+                ? step.filePath
+                : path.join(projectRoot, step.filePath);
+            const fileUri = vscode.Uri.file(absolutePath);
+
+            try {
+                // 파일이 존재하면 삭제
+                await vscode.workspace.fs.stat(fileUri);
+                await vscode.workspace.fs.delete(fileUri, { recursive: false, useTrash: false });
+                return {
+                    success: true,
+                    message: '파일 작업 완료',
+                    output: `파일 ${step.filePath}가 삭제되었습니다.`
+                };
+            } catch {
+                // 존재하지 않으면 경고만 남기고 성공 처리
+                console.warn(`[ActionExecutionEngine] 삭제할 파일을 찾을 수 없음: ${absolutePath}`);
+                return {
+                    success: true,
+                    message: '파일 작업 완료 (대상 파일이 존재하지 않음)',
+                    output: `파일 ${step.filePath}가 이미 존재하지 않습니다.`
+                };
+            }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             return {
