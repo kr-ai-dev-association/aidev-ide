@@ -2,6 +2,35 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.10.0 (2025/11/26) - ActionPlanner 및 ActionExecutionEngine 메인 플로우 통합
+
+<details>
+<summary>에이전트 루프 기반 실행 시스템 통합</summary>
+
+### 추가
+- **실행 의도 기반 ActionPlan 경로**: 실행(intent category `execution`) 의도가 감지되면 ActionPlannerService와 ActionExecutionEngine을 통한 단계별 실행 루프로 자동 라우팅
+  - `LlmService.handleExecutionIntentWithActionPlan()` 메서드 추가
+  - 사용자 요청을 ActionPlan으로 변환하여 단계별 실행 가능한 작업 목록 생성
+  - 각 ActionStep을 PlanQueueService에 등록하여 UI 작업 큐와 실시간 동기화
+- **실제 파일 작업 구현**: ActionExecutionEngine의 더미 구현을 실제 VS Code FS API 기반으로 교체
+  - `executeCodeGeneration`: VS Code `workspace.fs.writeFile`을 사용한 실제 파일 생성/수정
+  - `executeFileOperation`: 파일 삭제 및 디렉터리 자동 생성 지원
+  - `executeTerminalCommand`: 기존 TerminalMonitorService와 통합된 명령 실행
+  - `executeVerification`: 터미널 로그 기반 에러 패턴 검증
+
+### 개선
+- **에이전트 루프 완성**: 사용자 요청 → 의도 분석 → ActionPlan 생성 → 단계별 실행 → 검증의 완전한 에이전트 루프 구현
+- **작업 큐 연동**: ActionPlan의 각 단계가 PlanQueueService에 등록되어 UI에서 실시간 진행 상황 확인 가능
+- **파일 작업 안정성**: 실제 파일 시스템 API를 사용하여 더 안정적이고 예측 가능한 파일 작업 수행
+
+### 기술적 개선
+- `llmService.ts`: `handleExecutionIntentWithActionPlan()` 메서드 추가로 실행 의도를 ActionPlanner 경로로 라우팅
+- `actionExecutionEngine.ts`: `executeCodeGeneration`, `executeFileOperation`에서 실제 VS Code FS API 사용
+- `actionPlannerService.ts`: 생성된 ActionPlan을 PlanQueueService와 연동하여 UI에 표시
+- 더미 setTimeout 구현 제거 및 실제 파일 시스템 작업으로 교체
+
+</details>
+
 ## 🚀 Version 4.9.0 (2025/11/05) - 명령어 실행 요약 개선 및 작업 큐 완료 상태 표시
 
 <details>

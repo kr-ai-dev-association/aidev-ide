@@ -2,6 +2,35 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.10.0 (2025/11/26) - ActionPlanner and ActionExecutionEngine Main Flow Integration
+
+<details>
+<summary>Agent Loop-Based Execution System Integration</summary>
+
+### Added
+- **Execution Intent-Based ActionPlan Route**: When execution intent (intent category `execution`) is detected, automatically routes through ActionPlannerService and ActionExecutionEngine for step-by-step execution loop
+  - Added `LlmService.handleExecutionIntentWithActionPlan()` method
+  - Converts user requests into ActionPlan to generate executable step-by-step task lists
+  - Registers each ActionStep to PlanQueueService for real-time synchronization with UI task queue
+- **Real File Operation Implementation**: Replaced dummy implementations in ActionExecutionEngine with actual VS Code FS API-based operations
+  - `executeCodeGeneration`: Actual file creation/modification using VS Code `workspace.fs.writeFile`
+  - `executeFileOperation`: File deletion and automatic directory creation support
+  - `executeTerminalCommand`: Command execution integrated with existing TerminalMonitorService
+  - `executeVerification`: Error pattern validation based on terminal logs
+
+### Improved
+- **Complete Agent Loop**: Full implementation of agent loop: user request → intent analysis → ActionPlan generation → step-by-step execution → verification
+- **Task Queue Integration**: Each step of ActionPlan is registered to PlanQueueService, enabling real-time progress tracking in UI
+- **File Operation Stability**: More stable and predictable file operations using actual file system APIs
+
+### Technical Improvements
+- `llmService.ts`: Added `handleExecutionIntentWithActionPlan()` method to route execution intents through ActionPlanner path
+- `actionExecutionEngine.ts`: Uses actual VS Code FS API in `executeCodeGeneration` and `executeFileOperation`
+- `actionPlannerService.ts`: Integrates generated ActionPlan with PlanQueueService for UI display
+- Removed dummy setTimeout implementations and replaced with actual file system operations
+
+</details>
+
 ## 🚀 Version 4.9.1 (2025/11/14) - Terminal Management Improvements & Debugging Guide
 
 <details>
