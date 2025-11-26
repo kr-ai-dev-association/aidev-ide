@@ -21,6 +21,7 @@ import { PlanQueueService } from '../services/planQueueService';
 import { GitRepositoryService } from '../services/gitRepositoryService';
 import { GitBranchAnalysisService } from '../services/gitBranchAnalysisService';
 import { setPlanQueueService } from '../terminal/terminalManager';
+import { getAbstractionService } from '../abstractions';
 
 export class LlmService {
     private storageService: StorageService;
@@ -220,11 +221,25 @@ export class LlmService {
      * 모델 타입에 따라 최적화된 프롬프트를 제공합니다.
      */
     private generateOSSpecificSystemPrompt(): string {
+        // 추상화 서비스에서 OS 정보 가져오기
+        const abstractionService = getAbstractionService();
+        const osDetectionResult = abstractionService.getOSDetectionResult();
+
+        // 프로젝트별 상세 가이드라인은 기존 로직 사용
         const commonGuidelines = this.getCommonGuidelines();
         const modelSpecificPrompt = this.getModelSpecificSystemPrompt();
         const osSpecificGuidelines = this.getOSSpecificGuidelines();
 
-        return `${commonGuidelines}
+        // 추상화 서비스의 기본 컨텍스트 추가 (간결한 OS 정보)
+        const osContextInfo = `**실행 환경:**
+- OS: ${osDetectionResult.osName} (${osDetectionResult.osType})
+- 셸: ${osDetectionResult.shellType}
+- 아키텍처: ${osDetectionResult.architecture}
+`;
+
+        return `${osContextInfo}
+
+${commonGuidelines}
 
 ${modelSpecificPrompt}
 
@@ -1552,6 +1567,46 @@ Output:`;
                     fullFileContentsContext += `\n${inventory}`;
                 }
             } catch { /* ignore inventory errors */ }
+
+            // Tree-sitter 기반 코드 구조 추가 (토큰 절약) - 3초 타임아웃
+            if (isCodeRelated && promptType === PromptType.CODE_GENERATION) {
+                try {
+                    console.log('[LlmService] Tree-sitter 파싱 시작...');
+                    this.sendProcessingStep('analyzing');
+                    this.sendProcessingStatus('analyzing', 'Parsing project code structure (with 5s timeout)...');
+
+                    const abstractionService = getAbstractionService();
+
+                    // 3초 타임아웃 적용
+                    const codeSummaryPromise = abstractionService.getProjectCodeSummary({
+                        maxFiles: 30,
+                        includeTests: false,
+                    });
+
+                    const timeoutPromise = new Promise<string>((_, reject) =>
+                        setTimeout(() => reject(new Error('Tree-sitter timeout (3s)')), 3000)
+                    );
+
+                    const codeSummary = await Promise.race([codeSummaryPromise, timeoutPromise]);
+
+                    if (codeSummary && codeSummary.trim() && !codeSummary.includes('파일을 파싱할 수 없습니다')) {
+                        fullFileContentsContext += `\n--- 프로젝트 코드 구조 (Tree-sitter로 추출한 정의만) ---\n${codeSummary}\n`;
+                        console.log('[LlmService] Tree-sitter 코드 구조 추가됨 (길이:', codeSummary.length, '자)');
+                        this.sendProcessingStatus('analyzing', `Code structure parsed successfully`);
+                    } else {
+                        console.log('[LlmService] Tree-sitter 코드 구조 없음 (파싱 가능한 파일 없음)');
+                        this.sendProcessingStatus('analyzing', `No parseable code files found`);
+                    }
+                } catch (error: any) {
+                    if (error?.message?.includes('timeout')) {
+                        console.warn('[LlmService] ⏱Tree-sitter 파싱 타임아웃 (3초) - 스킵');
+                        this.sendProcessingStatus('analyzing', `Code parsing skipped (timeout)`);
+                    } else {
+                        console.warn('[LlmService] Tree-sitter 코드 구조 추출 실패:', error);
+                        this.sendProcessingStatus('analyzing', `Code parsing failed, continuing without it`);
+                    }
+                }
+            }
 
             // 프로젝트 타입 감지
             let detectedProjectType = '';

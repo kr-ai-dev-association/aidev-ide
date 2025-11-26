@@ -5,6 +5,7 @@ import * as os from 'os';
 import { NotificationService } from '../services/notificationService';
 import { LlmService } from './llmService';
 import { debugLog } from '../utils/debugLogger';
+import { getAbstractionService } from '../abstractions';
 
 export interface LogEntry {
     timestamp: number;
@@ -81,7 +82,8 @@ export class TerminalMonitorService {
      * 사용자의 운영체제를 감지합니다.
      */
     private detectOperatingSystem(): OperatingSystem {
-        const platform = os.platform();
+        const osAdapter = getAbstractionService().getOSAdapter();
+        const platform = osAdapter.osType;
         switch (platform) {
             case 'win32':
                 return 'windows';
@@ -1582,7 +1584,8 @@ ${osSpecificGuidelines}`;
             (errorOutput.includes('esbuild') && errorOutput.includes('enoent'))) {
             console.log('[TerminalMonitorService] esbuild 관련 오류 감지 - 자동 복구 명령어 생성');
             // esbuild 디렉토리 삭제, npm 캐시 정리, 재설치
-            const correctedCommand = process.platform === 'win32'
+            const osAdapter = getAbstractionService().getOSAdapter();
+            const correctedCommand = osAdapter.osType === 'win32'
                 ? `rmdir /s /q node_modules\\esbuild 2>nul & npm cache clean --force & npm install`
                 : `rm -rf node_modules/esbuild && npm cache clean --force && npm install`;
             return correctedCommand;
@@ -1611,7 +1614,8 @@ ${osSpecificGuidelines}`;
             } else if (errorOutput.includes('ENOTEMPTY') && errorOutput.includes('node_modules') && failedCommand.includes('install')) {
                 // npm install 중 node_modules 관련 ENOTEMPTY 오류는 자동 복구
                 console.log('[TerminalMonitorService] npm install 중 ENOTEMPTY 오류 감지 - 자동 복구 명령어 생성');
-                const correctedCommand = process.platform === 'win32'
+                const osAdapter = getAbstractionService().getOSAdapter();
+                const correctedCommand = osAdapter.osType === 'win32'
                     ? `rmdir /s /q node_modules 2>nul & npm cache clean --force & npm install`
                     : `rm -rf node_modules && npm cache clean --force && npm install`;
                 return correctedCommand;
@@ -1674,7 +1678,8 @@ ${osSpecificGuidelines}`;
                     '- **중요: "type": "module"은 유지하세요. tsx는 ESM을 완벽하게 지원합니다.';
             }
 
-            const onWindows = process.platform === 'win32';
+            const osAdapter = getAbstractionService().getOSAdapter();
+            const onWindows = osAdapter.osType === 'win32';
             const andGuidance = onWindows
                 ? `PowerShell에서는 &&를 명령 연결자로 사용하지 마세요. 여러 명령을 연결해야 하면 cmd.exe /d /c "명령1 && 명령2" 형태로 cmd.exe 내부에서만 사용하세요.`
                 : `여러 명령이 필요하면 && 로 안전하게 연결하세요.`;

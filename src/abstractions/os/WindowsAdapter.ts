@@ -13,9 +13,9 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
 
     getDefaultShell(): string {
         // PowerShell Core > PowerShell > cmd 우선순위
-        return process.env.SHELL || 
-               'C:\\Program Files\\PowerShell\\7\\pwsh.exe' ||
-               'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+        return process.env.SHELL ||
+            'C:\\Program Files\\PowerShell\\7\\pwsh.exe' ||
+            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
     }
 
     getShellType(): 'bash' | 'zsh' | 'powershell' | 'cmd' | 'sh' {

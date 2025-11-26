@@ -42,6 +42,28 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.9.3 - Tree-sitter Code Parsing & Framework Abstraction**
+
+#### **Tree-sitter Integration**
+- **Code Structure Parsing**: Automatically extracts code definitions (classes, functions, interfaces) from project files
+- **Token Optimization**: Sends only code structure instead of full file contents to LLM (70-80% token reduction)
+- **Multi-language Support**: TypeScript, JavaScript, Python, Java, and more via WASM parsers
+- **Smart Timeout**: 3-second timeout for parsing to prevent blocking
+- **On-premise Ready**: All WASM files bundled, no external dependencies required
+
+#### **Framework Abstraction Layer**
+- **Unified Architecture**: Clean abstraction layers for OS, LLM, and Framework detection
+- **Framework Detection**: Automatic detection of TypeScript, Spring Boot, and other frameworks
+- **OS-Specific Handling**: Darwin (macOS), Windows, Linux adapters for terminal/file operations
+- **LLM Adapters**: Pluggable LLM adapters (GPT, Gemini, Ollama) with model-specific prompts
+- **Build Tool Awareness**: Framework-specific commands (npm, maven, gradle) automatically detected
+
+#### **Enhanced Code Context**
+- **Definition-Only Context**: LLM receives class/function signatures without implementation details
+- **Faster Response**: Reduced token usage leads to faster LLM responses
+- **Better Understanding**: Structured code definitions help LLM understand project architecture
+- **Automatic Integration**: Works seamlessly in CODE tab for code-related queries
+
 ### 🚀 **NEW in v4.6.0 - Plan Queue Management & Bash Script Execution Fix**
 
 #### **Plan Queue Management**

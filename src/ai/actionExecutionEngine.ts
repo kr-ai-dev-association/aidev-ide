@@ -4,6 +4,7 @@ import { ActionPlan, ActionStep } from './actionPlannerService';
 import { TerminalMonitorService } from './terminalMonitorService';
 import { runCommandCapture } from '../utils/processRunner';
 import { NotificationService } from '../services/notificationService';
+import { getAbstractionService } from '../abstractions';
 
 export interface ExecutionResult {
     success: boolean;
@@ -223,10 +224,12 @@ export class ActionExecutionEngine {
                 };
             }
 
-            // projectRoot 기준 절대 경로 계산
-            const absolutePath = path.isAbsolute(step.filePath)
+            // projectRoot 기준 절대 경로 계산 (OS별 경로 정규화)
+            const osAdapter = getAbstractionService().getOSAdapter();
+            let absolutePath = path.isAbsolute(step.filePath)
                 ? step.filePath
                 : path.join(projectRoot, step.filePath);
+            absolutePath = osAdapter.normalizePath(absolutePath);
 
             const fileUri = vscode.Uri.file(absolutePath);
             const dirUri = vscode.Uri.file(path.dirname(absolutePath));
@@ -277,9 +280,11 @@ export class ActionExecutionEngine {
                 };
             }
 
-            const absolutePath = path.isAbsolute(step.filePath)
+            const osAdapter = getAbstractionService().getOSAdapter();
+            let absolutePath = path.isAbsolute(step.filePath)
                 ? step.filePath
                 : path.join(projectRoot, step.filePath);
+            absolutePath = osAdapter.normalizePath(absolutePath);
             const fileUri = vscode.Uri.file(absolutePath);
 
             try {

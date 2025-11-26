@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import * as os from 'os';
+import { getAbstractionService } from '../abstractions';
 
 export interface RunCommandOptions {
     cwd?: string;
@@ -15,9 +16,10 @@ export interface RunCommandResult {
 }
 
 export function runCommandCapture(command: string, options: RunCommandOptions = {}, onData?: (chunk: string) => void, onErrorData?: (chunk: string) => void): Promise<RunCommandResult> {
+    const osAdapter = getAbstractionService().getOSAdapter();
     const shell = options.shell ?? true;
     // Windows에서 cmd.exe를 사용하는 경우 코드 페이지를 UTF-8로 설정
-    const env = process.platform === 'win32' && /cmd\.exe/i.test(command)
+    const env = osAdapter.osType === 'win32' && /cmd\.exe/i.test(command)
         ? { ...process.env, ...options.env, 'CHCP': '65001' } // UTF-8 코드 페이지
         : { ...process.env, ...options.env };
     const child = spawn(command, { cwd: options.cwd, env, shell });
@@ -27,7 +29,7 @@ export function runCommandCapture(command: string, options: RunCommandOptions = 
 
     // Windows에서 cmd.exe 출력은 CP949일 수 있으므로 처리
     const decodeOutput = (data: Buffer): string => {
-        if (process.platform === 'win32' && /cmd\.exe/i.test(command)) {
+        if (osAdapter.osType === 'win32' && /cmd\.exe/i.test(command)) {
             try {
                 // CP949로 디코딩 시도
                 const iconv = require('iconv-lite');

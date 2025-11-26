@@ -8,6 +8,7 @@ import { executeBashCommandsFromLlmResponse, hasBashCommands, buildFileOpTokens,
 import { PlanQueueService } from '../services/planQueueService';
 import * as fs from 'fs';
 import * as os from 'os';
+import { getAbstractionService } from '../abstractions';
 // Removed unused imports and non-existent bridge
 
 // Define a type for file operations
@@ -1037,7 +1038,8 @@ export class LlmResponseProcessor {
 
                                 // 권한/경로 관련 추가 안내 (플랫폼별)
                                 if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
-                                    const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+                                    const osAdapter = getAbstractionService().getOSAdapter();
+                                    const isWindows = osAdapter.osType === 'win32';
                                     const permissionMsg = isWindows
                                         ? `권한 문제가 발생했습니다. Windows에서는 VS Code를 관리자 권한으로 실행하거나 대상 폴더의 쓰기 권한을 부여하세요. Program Files/Windows/OneDrive 동기화 폴더 등은 쓰기가 제한될 수 있습니다.`
                                         : `권한 문제가 발생했습니다. Remote SSH/로컬 환경에서 파일 권한(chmod/chown)과 소유자를 확인해주세요.`;
@@ -1183,7 +1185,8 @@ export class LlmResponseProcessor {
                             // 권한/경로 관련 추가 안내 (자동 업데이트 경로에서도 동일하게 적용)
                             if (err && typeof err.message === 'string') {
                                 if (err.message.includes('permission') || err.message.includes('EACCES') || err.message.includes('EPERM')) {
-                                    const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+                                    const osAdapter = getAbstractionService().getOSAdapter();
+                                    const isWindows = osAdapter.osType === 'win32';
                                     const permissionMsg = isWindows
                                         ? `권한 문제가 발생했습니다. Windows에서는 VS Code를 관리자 권한으로 실행하거나 대상 폴더의 쓰기 권한을 부여하세요. Program Files/Windows/OneDrive 동기화 폴더 등은 쓰기가 제한될 수 있습니다.`
                                         : `권한 문제가 발생했습니다. Remote SSH/로컬 환경에서 파일 권한(chmod/chown)과 소유자를 확인해주세요.`;

@@ -10,6 +10,7 @@ import { LlmService } from '../ai/llmService';
 import { debugLog } from '../utils/debugLogger';
 import { PlanQueueService } from '../services/planQueueService';
 import { safePostMessage } from '../webview/panelUtils';
+import { getAbstractionService } from '../abstractions';
 
 let _codePilotTerminal: vscode.Terminal | undefined;
 let _isWaitingForInput = false;
@@ -343,7 +344,8 @@ function normalizeCommandForOS(command: string): string {
     if (!command || !command.trim()) return command;
 
     let normalized = command.trim();
-    const isWindows = process.platform === 'win32';
+    const osAdapter = getAbstractionService().getOSAdapter();
+    const isWindows = osAdapter.osType === 'win32';
     const userOS = _userOS.toLowerCase();
     const isPowerShellEnv = isWindows && (userOS.includes('windows') || userOS === 'win32');
 
@@ -425,7 +427,8 @@ function normalizeCommandForOS(command: string): string {
  * Windows에서 cmd.exe 출력은 CP949일 수 있으므로 올바르게 디코딩
  */
 function decodeTerminalOutput(text: string, opts?: { isWindows?: boolean; isCmdExe?: boolean }): string {
-    const isWindows = opts?.isWindows ?? (process.platform === 'win32');
+    const osAdapter = getAbstractionService().getOSAdapter();
+    const isWindows = opts?.isWindows ?? (osAdapter.osType === 'win32');
     const isCmdExe = opts?.isCmdExe ?? false;
     if (!text || !isWindows) return text;
 
@@ -479,7 +482,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             console.log('[TerminalManager] npm install 감지 - esbuild 사전 정리 시작');
 
             // esbuild 디렉토리와 npm 캐시 정리 (조용히 실행, 실패해도 계속 진행)
-            if (process.platform === 'win32') {
+            const osAdapter = getAbstractionService().getOSAdapter();
+            if (osAdapter.osType === 'win32') {
                 await runCommandCapture(`if exist node_modules\\esbuild rmdir /s /q node_modules\\esbuild 2>nul`, { cwd });
             } else {
                 await runCommandCapture(`rm -rf node_modules/esbuild 2>/dev/null || true`, { cwd });
@@ -523,7 +527,8 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
 
             // 3. 프로세스 이름 기반 종료 (포트 기반이 실패한 경우 대비)
-            if (process.platform === 'win32') {
+            const osAdapter = getAbstractionService().getOSAdapter();
+            if (osAdapter.osType === 'win32') {
                 // Windows: npm run dev 관련 프로세스 종료
                 const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T 2>nul || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T 2>nul || echo "No process found"`;
                 try {
@@ -593,12 +598,13 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
 
     const selectShellForCapture = (cmd: string): string | undefined => {
         const c = cmd.trim();
+        const osAdapter = getAbstractionService().getOSAdapter();
         // Force PowerShell for PowerShell-style invocations
-        if (/^(powershell|pwsh)\b/i.test(c) || /-encodedcommand\b/i.test(c)) return process.platform === 'win32' ? 'powershell.exe' : undefined;
+        if (/^(powershell|pwsh)\b/i.test(c) || /-encodedcommand\b/i.test(c)) return osAdapter.osType === 'win32' ? 'powershell.exe' : undefined;
         // Force CMD for explicit cmd.exe invocations
-        if (/^cmd\.exe\b/i.test(c) || /^cmd\b/i.test(c)) return process.platform === 'win32' ? 'cmd.exe' : undefined;
+        if (/^cmd\.exe\b/i.test(c) || /^cmd\b/i.test(c)) return osAdapter.osType === 'win32' ? 'cmd.exe' : undefined;
         // Default: on Windows prefer PowerShell for better Unicode handling
-        if (process.platform === 'win32') return 'powershell.exe';
+        if (osAdapter.osType === 'win32') return 'powershell.exe';
         return undefined;
     };
 
@@ -798,14 +804,16 @@ async function handleInteractiveCommand(command: string, projectRoot?: string): 
             { cwd, shell: selectShellForCapture(finalCommand) || true },
             // stdout 콜백 (디코딩 적용)
             (data: string) => {
-                const decoded = decodeTerminalOutput(data, { isWindows: process.platform === 'win32', isCmdExe: /cmd\.exe/i.test(finalCommand) });
+                const osAdapter = getAbstractionService().getOSAdapter();
+                const decoded = decodeTerminalOutput(data, { isWindows: osAdapter.osType === 'win32', isCmdExe: /cmd\.exe/i.test(finalCommand) });
                 if (_terminalMonitorService) {
                     _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stdout`, decoded);
                 }
             },
             // stderr 콜백 (디코딩 적용)
             (data: string) => {
-                const decoded = decodeTerminalOutput(data, { isWindows: process.platform === 'win32', isCmdExe: /cmd\.exe/i.test(finalCommand) });
+                const osAdapter = getAbstractionService().getOSAdapter();
+                const decoded = decodeTerminalOutput(data, { isWindows: osAdapter.osType === 'win32', isCmdExe: /cmd\.exe/i.test(finalCommand) });
                 if (_terminalMonitorService) {
                     _terminalMonitorService.ingestExternalOutput(`terminal:${terminal.name}:stderr`, decoded);
                 }
@@ -1846,7 +1854,8 @@ export function extractBashCommandsFromLlmResponse(llmResponse: string): string[
             (block.match(/%[^%]+%/g) || []).length >= 3 ||
             /\b(if|for|goto|setlocal|endlocal|call)\b/i.test(block);
 
-        if (isComplexScript && process.platform === 'win32') {
+        const osAdapter = getAbstractionService().getOSAdapter();
+        if (isComplexScript && osAdapter.osType === 'win32') {
             // 복잡한 배치 스크립트는 임시 파일로 저장하여 실행
             // 이렇게 하면 PowerShell 파싱 문제를 완전히 회피할 수 있음
             try {
@@ -2298,7 +2307,8 @@ async function getCorrectedCommand(failedCommand: string, errorOutput: string, c
         }
 
         // OS별 가이드라인 준비
-        const isWindows = _userOS.toLowerCase().includes('windows') || _userOS.toLowerCase() === 'win32';
+        const osAdapter = getAbstractionService().getOSAdapter();
+        const isWindows = osAdapter.osType === 'win32' || _userOS.toLowerCase().includes('windows') || _userOS.toLowerCase() === 'win32';
         const isUnixLike = !isWindows; // Linux, macOS, Unix 계열
 
         // 공통 가이드라인
@@ -3325,7 +3335,8 @@ export async function handleCommandError(
 
         // PowerShell 환경에서 && 사용 금지 (cmd.exe 호출 외부에서)
         // cmd.exe /d /c "..." 내부의 &&는 허용되지만, 외부의 &&는 PowerShell에서 파싱 오류 발생
-        if (process.platform === 'win32' && /cmd\.exe/i.test(t)) {
+        const osAdapter = getAbstractionService().getOSAdapter();
+        if (osAdapter.osType === 'win32' && /cmd\.exe/i.test(t)) {
             // cmd.exe 호출 외부에 &&가 있으면 거부
             // 예: cmd.exe /d /c "..." && del ... (거부)
             // 예: cmd.exe /d /c "명령1 && 명령2" (허용 - cmd.exe 내부)

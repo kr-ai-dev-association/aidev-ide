@@ -2,6 +2,49 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.9.3 (2025/11/26) - Tree-sitter Integration & Framework Abstraction
+
+<details>
+<summary>Code Parsing System & Architecture Refactoring</summary>
+
+### Added
+- **Tree-sitter Code Parser Integration**: Automatic code structure extraction for token-efficient LLM context
+  - Multi-language support: TypeScript, JavaScript, Python, Java via WASM parsers
+  - Definition-only extraction (classes, functions, interfaces) without implementation details
+  - 70-80% token reduction by sending only code structure to LLM
+  - 3-second timeout to prevent blocking
+  - On-premise ready: All WASM files bundled with webpack
+- **Framework Abstraction Layer**: Clean separation of OS, LLM, and Framework concerns
+  - `IFrameworkAdapter` interface with TypeScript and Spring Boot implementations
+  - `FrameworkAdapterFactory` for automatic framework detection
+  - Framework-specific commands, templates, and error handling
+- **Code Parser Abstraction**: `ICodeParserAdapter` and `TreeSitterAdapter` for extensible parsing
+  - `getProjectCodeSummary()`: Generate formatted project structure summary
+  - `parseFile()`: Extract definitions from individual files
+  - `findDefinition()`: Search for specific classes/functions across project
+
+### Improved
+- **LLM Context Efficiency**: Only sends code definitions instead of full file contents (3-second timeout)
+- **Framework Detection**: Automatic detection of TypeScript, Spring Boot projects with improved accuracy
+- **Build Command Generation**: Framework-aware build/dev/test command generation
+- **Error Messages**: Framework-specific error patterns and fix suggestions
+
+### Technical Improvements
+- `webpack.config.js`: Added `copy-webpack-plugin` to bundle tree-sitter WASM files
+- `llmService.ts`: Integrated tree-sitter parsing with timeout in CODE tab flow
+- `AbstractionIntegrationService.ts`: Centralized access to all abstraction layers
+- `languageParser.ts`: Dynamic WASM loading for multiple programming languages
+- `TreeSitterAdapter.ts`: Implementation of tree-sitter queries for definition extraction
+
+### Renamed
+- **TechStack → Framework**: Comprehensive renaming for clearer domain modeling
+  - `ITechStackAdapter` → `IFrameworkAdapter`
+  - `TechStackAdapterFactory` → `FrameworkAdapterFactory`
+  - `stackId` → `frameworkId`, `stackName` → `frameworkName`
+  - Updated all references across codebase
+
+</details>
+
 ## 🚀 Version 4.10.0 (2025/11/26) - ActionPlanner and ActionExecutionEngine Main Flow Integration
 
 <details>

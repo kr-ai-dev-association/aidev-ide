@@ -12,13 +12,18 @@ export * from './os/OSAdapterFactory';
 
 // ==================== LLM 추상화 ====================
 export * from './llm/ILLMAdapter';
-export * from './llm/GptOssAdapter';
+export * from './llm/GptAdapter';
 
 // ==================== 기술 스택 추상화 ====================
-export * from './techStack/ITechStackAdapter';
-export * from './techStack/TypeScriptAdapter';
-export * from './techStack/SpringBootAdapter';
-export * from './techStack/TechStackAdapterFactory';
+export * from './framework/IFrameworkAdapter';
+export * from './framework/TypeScriptAdapter';
+export * from './framework/SpringBootAdapter';
+export * from './framework/FrameworkAdapterFactory';
+
+// ==================== 코드 파서 추상화 ====================
+export * from './codeParser/ICodeParserAdapter';
+export * from './codeParser/TreeSitterAdapter';
+export * from './codeParser/languageParser';
 
 // ==================== 통합 서비스 ====================
 export * from './AbstractionIntegrationService';

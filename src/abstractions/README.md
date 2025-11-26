@@ -15,12 +15,22 @@ abstractions/
 │   └── OSAdapterFactory.ts
 ├── llm/                         # LLM별 추상화
 │   ├── ILLMAdapter.ts
-│   └── GptOssAdapter.ts        # GPT-OSS (현재 기본)
-├── techStack/                   # 기술 스택별 추상화
-│   ├── ITechStackAdapter.ts
+│   └── GptAdapter.ts           # GPT (현재 기본)
+├── framework/                   # 기술 스택별 추상화
+│   ├── IFrameworkAdapter.ts
 │   ├── TypeScriptAdapter.ts
 │   ├── SpringBootAdapter.ts
-│   └── TechStackAdapterFactory.ts
+│   └── FrameworkAdapterFactory.ts
+├── codeParser/                  # 코드 파서 (Tree-sitter)
+│   ├── ICodeParserAdapter.ts
+│   ├── TreeSitterAdapter.ts
+│   ├── languageParser.ts
+│   ├── queries/
+│   │   ├── typescript.ts
+│   │   ├── javascript.ts
+│   │   ├── python.ts
+│   │   └── java.ts
+│   └── README.md
 ├── AbstractionIntegrationService.ts  # 통합 서비스
 ├── index.ts                     # Export 통합
 ├── README.md                    # 이 파일
@@ -75,9 +85,28 @@ if (projectType === 'Spring Boot') {
 }
 
 // After
-const command = techStackAdapter.getDevCommand();
+const command = frameworkAdapter.getDevCommand();
 // Spring Boot: ./mvnw spring-boot:run
 // TypeScript: npm run dev
+```
+
+### 4. 코드 파서 (Tree-sitter)
+- **문제**: LLM에 전체 코드를 전달하면 토큰 낭비, 느린 응답
+- **해결**: Tree-sitter로 정의만 추출하여 90% 토큰 절약
+
+```typescript
+// Before
+const fileContent = await fs.readFile('UserService.ts'); // 500줄, 2000 토큰
+await llm.chat(`다음 코드를 분석해줘: ${fileContent}`);
+
+// After
+const definitions = await codeParser.parseFile('UserService.ts'); // 20줄, 100 토큰
+await llm.chat(`다음 정의를 보고 분석해줘: ${definitions}`);
+// |----
+// │export class UserService {
+// │  async findById(id: string): Promise<User> {
+// │  async create(data: CreateUserDto): Promise<User> {
+// |----
 ```
 
 ## 🚀 사용 방법
@@ -106,6 +135,10 @@ const userPrompt = service.buildUserPrompt({
 // 4. 기술 스택 기능 사용
 const buildCommand = service.generateCommand('build');
 const template = service.generateFileTemplate('component', 'MyComponent');
+
+// 5. 코드 파서 기능 사용
+const projectSummary = await service.getProjectCodeSummary({ maxFiles: 30 });
+const classDefinition = await service.findClass('UserService');
 ```
 
 ### 고급 사용
@@ -117,10 +150,10 @@ console.log(osResult.osType); // 'darwin' | 'win32' | 'linux'
 console.log(osResult.shellType); // 'bash' | 'zsh' | 'powershell' | 'cmd'
 
 // 기술 스택 어댑터 직접 접근
-const techAdapter = service.getTechStackAdapter();
-if (techAdapter) {
-    const errorPatterns = techAdapter.getErrorPatterns();
-    const fix = techAdapter.suggestErrorFix(error);
+const frameworkAdapter = service.getFrameworkAdapter();
+if (frameworkAdapter) {
+    const errorPatterns = frameworkAdapter.getErrorPatterns();
+    const fix = frameworkAdapter.suggestErrorFix(error);
 }
 
 // LLM 어댑터 직접 접근
@@ -128,7 +161,7 @@ const llmAdapter = service.getLLMAdapter();
 const codePrompt = llmAdapter.buildCodeGenerationPrompt({
     intent: 'code_generation',
     projectType: 'Spring Boot',
-    techStack: ['Java', 'Spring Boot'],
+    framework: ['Java', 'Spring Boot'],
     requirements: 'Create a REST API'
 });
 ```
@@ -179,8 +212,8 @@ service.setLLMAdapter(new GeminiAdapter());
 ### 새로운 기술 스택 추가
 
 ```typescript
-// src/abstractions/techStack/PythonDjangoAdapter.ts
-export class PythonDjangoAdapter implements ITechStackAdapter {
+// src/abstractions/framework/PythonDjangoAdapter.ts
+export class PythonDjangoAdapter implements IFrameworkAdapter {
     readonly stackId = 'python-django';
     readonly stackName = 'Django';
     readonly language = 'Python';
@@ -194,10 +227,10 @@ export class PythonDjangoAdapter implements ITechStackAdapter {
         return 'python manage.py runserver';
     }
     
-    // ... ITechStackAdapter의 모든 메서드 구현
+    // ... IFrameworkAdapter의 모든 메서드 구현
 }
 
-// TechStackAdapterFactory.ts에 추가
+// FrameworkAdapterFactory.ts에 추가
 const detectors = [
     { 
         detect: PythonDjangoAdapter.detect, 
@@ -218,7 +251,7 @@ const detectors = [
         ┌─────────┼─────────┐
         │         │         │
     ┌───▼───┐ ┌──▼──┐ ┌────▼────┐
-    │  OS   │ │ LLM │ │TechStack│
+    │  OS   │ │ LLM │ │framework│
     │Adapter│ │Adapt│ │ Adapter │
     └───┬───┘ └──┬──┘ └────┬────┘
         │        │         │
@@ -261,9 +294,9 @@ describe('AbstractionIntegrationService', () => {
         const service = AbstractionIntegrationService.getInstance();
         await service.setProjectPath('/path/to/typescript/project');
         
-        const techAdapter = service.getTechStackAdapter();
-        expect(techAdapter).not.toBeNull();
-        expect(techAdapter?.language).toBe('TypeScript');
+        const frameworkAdapter = service.getFrameworkAdapter();
+        expect(frameworkAdapter).not.toBeNull();
+        expect(frameworkAdapter?.language).toBe('TypeScript');
     });
 });
 ```
@@ -293,11 +326,11 @@ console.log('OS Name:', osAdapter.osName);
 console.log('Shell:', osAdapter.getShellType());
 
 // 기술 스택 정보
-const techAdapter = service.getTechStackAdapter();
-if (techAdapter) {
-    console.log('Stack:', techAdapter.stackName);
-    console.log('Language:', techAdapter.language);
-    console.log('Required Files:', techAdapter.getRequiredConfigFiles());
+const frameworkAdapter = service.getFrameworkAdapter();
+if (frameworkAdapter) {
+    console.log('Stack:', frameworkAdapter.stackName);
+    console.log('Language:', frameworkAdapter.language);
+    console.log('Required Files:', frameworkAdapter.getRequiredConfigFiles());
 }
 ```
 
@@ -306,7 +339,7 @@ if (techAdapter) {
 - [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) - 기존 코드 마이그레이션 가이드
 - [OS Adapter Interface](./os/IOperatingSystemAdapter.ts) - OS 추상화 인터페이스
 - [LLM Adapter Interface](./llm/ILLMAdapter.ts) - LLM 추상화 인터페이스
-- [TechStack Adapter Interface](./techStack/ITechStackAdapter.ts) - 기술 스택 추상화 인터페이스
+- [framework Adapter Interface](./framework/IFrameworkAdapter.ts) - 기술 스택 추상화 인터페이스
 
 ## ⚠️ 주의사항
 

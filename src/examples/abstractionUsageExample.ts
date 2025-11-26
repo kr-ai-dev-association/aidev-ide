@@ -40,10 +40,10 @@ export async function initializeAbstractions(context: vscode.ExtensionContext) {
     console.log('[Example] Shell:', osAdapter.getShellType());
 
     // 기술 스택 정보 출력
-    const techAdapter = abstractionService.getTechStackAdapter();
-    if (techAdapter) {
-        console.log('[Example] Tech Stack:', techAdapter.stackName);
-        console.log('[Example] Language:', techAdapter.language);
+    const frameworkAdapter = abstractionService.getFrameworkAdapter();
+    if (frameworkAdapter) {
+        console.log('[Example] Tech Stack:', frameworkAdapter.frameworkName);
+        console.log('[Example] Language:', frameworkAdapter.language);
     } else {
         console.warn('[Example] Tech stack not detected');
     }
@@ -131,12 +131,12 @@ export function generateUserPrompt(
 export function generateCodeGenerationPrompt(requirements: string): string {
     const abstractionService = getAbstractionService();
     const llmAdapter = abstractionService.getLLMAdapter();
-    const techAdapter = abstractionService.getTechStackAdapter();
+    const frameworkAdapter = abstractionService.getFrameworkAdapter();
 
     const context: CodeGenerationContext = {
         intent: 'code_generation',
-        projectType: techAdapter?.stackName || 'Unknown',
-        techStack: techAdapter ? [techAdapter.language] : [],
+        projectType: frameworkAdapter?.frameworkName || 'Unknown',
+        framework: frameworkAdapter ? [frameworkAdapter.language] : [],
         requirements,
     };
 
@@ -179,13 +179,13 @@ export function generateCommandExecutionPrompt(intent: string): string {
     const abstractionService = getAbstractionService();
     const llmAdapter = abstractionService.getLLMAdapter();
     const osAdapter = abstractionService.getOSAdapter();
-    const techAdapter = abstractionService.getTechStackAdapter();
+    const frameworkAdapter = abstractionService.getFrameworkAdapter();
 
     const context: CommandExecutionContext = {
         intent,
         osType: osAdapter.osType,
         shellType: osAdapter.getShellType(),
-        projectType: techAdapter?.stackName || 'Unknown',
+        projectType: frameworkAdapter?.frameworkName || 'Unknown',
         currentDirectory: abstractionService.getProjectPath() || process.cwd(),
     };
 
@@ -278,29 +278,29 @@ export function generateOSSpecificCommands() {
  */
 export async function displayProjectInfo() {
     const abstractionService = getAbstractionService();
-    const techAdapter = abstractionService.getTechStackAdapter();
+    const frameworkAdapter = abstractionService.getFrameworkAdapter();
 
-    if (!techAdapter) {
+    if (!frameworkAdapter) {
         console.log('[Example] No tech stack detected');
         return;
     }
 
     console.log('[Example] Project Information:');
-    console.log('  Stack:', techAdapter.stackName);
-    console.log('  Language:', techAdapter.language);
-    console.log('  Required files:', techAdapter.getRequiredConfigFiles().join(', '));
-    console.log('  Source dirs:', techAdapter.getSourceDirectories().join(', '));
-    console.log('  Build output:', techAdapter.getBuildOutputDirectories().join(', '));
+    console.log('  Stack:', frameworkAdapter.frameworkName);
+    console.log('  Language:', frameworkAdapter.language);
+    console.log('  Required files:', frameworkAdapter.getRequiredConfigFiles().join(', '));
+    console.log('  Source dirs:', frameworkAdapter.getSourceDirectories().join(', '));
+    console.log('  Build output:', frameworkAdapter.getBuildOutputDirectories().join(', '));
 
     console.log('\n[Example] Available Commands:');
-    console.log('  Install:', techAdapter.getInstallCommand());
-    console.log('  Build:', techAdapter.getBuildCommand());
-    console.log('  Dev:', techAdapter.getDevCommand());
-    console.log('  Test:', techAdapter.getTestCommand());
+    console.log('  Install:', frameworkAdapter.getInstallCommand());
+    console.log('  Build:', frameworkAdapter.getBuildCommand());
+    console.log('  Dev:', frameworkAdapter.getDevCommand());
+    console.log('  Test:', frameworkAdapter.getTestCommand());
 
     const projectPath = abstractionService.getProjectPath();
     if (projectPath) {
-        const metadata = await techAdapter.extractProjectMetadata(projectPath);
+        const metadata = await frameworkAdapter.extractProjectMetadata(projectPath);
         console.log('\n[Example] Project Metadata:');
         console.log('  Name:', metadata.name);
         console.log('  Version:', metadata.version);

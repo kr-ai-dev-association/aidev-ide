@@ -7,6 +7,7 @@ import { ConfigurationService } from '../services/configurationService';
 import { NotificationService } from '../services/notificationService';
 import { StorageService } from '../services/storage';
 import { executeBashCommandsFromLlmResponse, setErrorCorrectionServices, getTerminalMonitorService } from '../terminal/terminalManager';
+import { getAbstractionService } from '../abstractions';
 
 export class AskViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.askView'; // 새로운 뷰 타입
@@ -257,17 +258,18 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
 
             if (userOS === 'windows') {
                 shellPath = 'powershell.exe';
-                terminalName = '🚀 AIDEV-IDE PowerShell Commands';
+                terminalName = 'AIDEV-IDE PowerShell Commands';
             } else if (userOS === 'macos') {
                 shellPath = '/bin/bash';
-                terminalName = '🚀 AIDEV-IDE Bash Commands';
+                terminalName = 'AIDEV-IDE Bash Commands';
             } else if (userOS === 'linux') {
                 shellPath = '/bin/bash';
-                terminalName = '🚀 AIDEV-IDE Bash Commands';
+                terminalName = 'AIDEV-IDE Bash Commands';
             } else {
                 // 기본값 (unknown OS)
-                shellPath = process.platform === 'win32' ? 'powershell.exe' : '/bin/bash';
-                terminalName = process.platform === 'win32' ? '🚀 AIDEV-IDE PowerShell Commands' : '🚀 AIDEV-IDE Bash Commands';
+                const osAdapter = getAbstractionService().getOSAdapter();
+                shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
+                terminalName = osAdapter.osType === 'win32' ? 'AIDEV-IDE PowerShell Commands' : 'AIDEV-IDE Bash Commands';
             }
 
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.

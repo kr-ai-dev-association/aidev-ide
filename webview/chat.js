@@ -634,7 +634,7 @@ function displayUserMessage(text, imageData = null) { // imageData 파라미터 
         const textNode = document.createElement('span');
         // DOMPurify.sanitize(text)는 HTML 태그를 제거하고 안전한 텍스트를 반환합니다.
         // .replace(/\n/g, '<br>')를 사용하여 줄바꿈을 HTML <br> 태그로 변환합니다.
-        textNode.innerHTML = '🧇 ' + DOMPurify.sanitize(text).replace(/\n/g, '<br>');
+        textNode.innerHTML = DOMPurify.sanitize(text).replace(/\n/g, '<br>');
         userMessageElement.appendChild(textNode);
     }
 

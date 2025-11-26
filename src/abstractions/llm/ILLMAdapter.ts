@@ -119,7 +119,7 @@ export interface SystemPromptContext {
     osName: string;
     shellType: 'bash' | 'zsh' | 'powershell' | 'cmd' | 'sh';
     projectType?: string;
-    techStack?: string[];
+    framework?: string[];
     codebaseContext?: string;
 }
 
@@ -139,7 +139,7 @@ export interface UserPromptContext {
 export interface CodeGenerationContext {
     intent: string;
     projectType: string;
-    techStack: string[];
+    framework: string[];
     existingFiles?: Array<{ path: string; content: string }>;
     requirements: string;
 }

@@ -2,6 +2,49 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.9.3 (2025/11/26) - Tree-sitter 통합 및 프레임워크 추상화
+
+<details>
+<summary>코드 파싱 시스템 및 아키텍처 리팩토링</summary>
+
+### 추가
+- **Tree-sitter 코드 파서 통합**: 토큰 효율적인 LLM 컨텍스트를 위한 자동 코드 구조 추출
+  - 다중 언어 지원: WASM 파서를 통한 TypeScript, JavaScript, Python, Java 지원
+  - 구현 세부사항 없이 정의만 추출 (클래스, 함수, 인터페이스)
+  - LLM에 코드 구조만 전송하여 70-80% 토큰 절감
+  - 블로킹 방지를 위한 3초 타임아웃
+  - 온프레미스 지원: webpack으로 모든 WASM 파일 번들링
+- **프레임워크 추상화 레이어**: OS, LLM, 프레임워크 관심사의 깔끔한 분리
+  - TypeScript 및 Spring Boot 구현을 포함한 `IFrameworkAdapter` 인터페이스
+  - 자동 프레임워크 감지를 위한 `FrameworkAdapterFactory`
+  - 프레임워크별 명령어, 템플릿, 에러 처리
+- **코드 파서 추상화**: 확장 가능한 파싱을 위한 `ICodeParserAdapter` 및 `TreeSitterAdapter`
+  - `getProjectCodeSummary()`: 포맷된 프로젝트 구조 요약 생성
+  - `parseFile()`: 개별 파일에서 정의 추출
+  - `findDefinition()`: 프로젝트 전체에서 특정 클래스/함수 검색
+
+### 개선
+- **LLM 컨텍스트 효율성**: 전체 파일 내용 대신 코드 정의만 전송 (3초 타임아웃)
+- **프레임워크 감지**: 향상된 정확도로 TypeScript, Spring Boot 프로젝트 자동 감지
+- **빌드 명령어 생성**: 프레임워크 인식 빌드/개발/테스트 명령어 생성
+- **에러 메시지**: 프레임워크별 에러 패턴 및 수정 제안
+
+### 기술적 개선
+- `webpack.config.js`: tree-sitter WASM 파일 번들링을 위한 `copy-webpack-plugin` 추가
+- `llmService.ts`: CODE 탭 플로우에 타임아웃이 적용된 tree-sitter 파싱 통합
+- `AbstractionIntegrationService.ts`: 모든 추상화 레이어에 대한 중앙집중식 접근
+- `languageParser.ts`: 여러 프로그래밍 언어를 위한 동적 WASM 로딩
+- `TreeSitterAdapter.ts`: 정의 추출을 위한 tree-sitter 쿼리 구현
+
+### 이름 변경
+- **TechStack → Framework**: 더 명확한 도메인 모델링을 위한 전면 이름 변경
+  - `ITechStackAdapter` → `IFrameworkAdapter`
+  - `TechStackAdapterFactory` → `FrameworkAdapterFactory`
+  - `stackId` → `frameworkId`, `stackName` → `frameworkName`
+  - 코드베이스 전체의 모든 참조 업데이트
+
+</details>
+
 ## 🚀 Version 4.10.0 (2025/11/26) - ActionPlanner 및 ActionExecutionEngine 메인 플로우 통합
 
 <details>

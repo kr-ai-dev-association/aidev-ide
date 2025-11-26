@@ -3,13 +3,14 @@
 'use strict';
 
 const path = require('path');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
 
 /** @type WebpackConfig */
 const extensionConfig = {
   target: 'node', // VS Code extensions run in a Node.js-context
-	mode: 'none', // will be overridden by npm scripts (e.g., development or production)
+  mode: 'none', // will be overridden by npm scripts (e.g., development or production)
 
   entry: './src/extension.ts', // the entry point of the extension's main process
   output: {
@@ -32,13 +33,27 @@ const extensionConfig = {
       {
         test: /\.ts$/, // rule for TypeScript files
         exclude: /node_modules/,
-        use: [ { loader: 'ts-loader' } ] // use ts-loader for TypeScript
+        use: [{ loader: 'ts-loader' }] // use ts-loader for TypeScript
       }
       // Add other rules here for different file types (e.g., CSS, images) if needed by the extension's main code
     ]
   },
   devtool: 'nosources-source-map', // Source maps for debugging (adjust as needed)
   infrastructureLogging: { level: "log" }, // Logging level for webpack
+  plugins: [
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: 'node_modules/tree-sitter-wasms/out/*.wasm',
+          to: 'tree-sitter/[name][ext]',
+        },
+        {
+          from: 'node_modules/web-tree-sitter/tree-sitter.wasm',
+          to: 'tree-sitter.wasm',
+        },
+      ],
+    }),
+  ],
 };
 
 
@@ -46,7 +61,7 @@ const extensionConfig = {
 const webviewConfig = {
   target: 'web', // Webview runs in a browser-like environment
 
-	mode: 'none', // will be overridden by npm scripts (e.g., development or production)
+  mode: 'none', // will be overridden by npm scripts (e.g., development or production)
 
   // <-- 수정: 웹뷰 스크립트 entry point를 객체로 설정 -->
   // chat.js, codeCopy.js, settings.js를 각각 별도의 번들로 출력합니다.
@@ -88,16 +103,16 @@ const webviewConfig = {
       // <-- 추가: 웹뷰 JS 파일에 필요한 로더 (babel 등) -->
       // `.js` 파일을 babel 등으로 트랜스파일링 할 필요가 있다면 여기에 추가합니다.
       // ES 모듈 import 및 async/await 등이 사용되므로, 브라우저 호환성을 위해 babel-loader가 필요할 수 있습니다.
-       {
-         test: /\.js$/,
-         exclude: /node_modules/,
-         use: {
-           loader: 'babel-loader', // npm install -D babel-loader @babel/core @babel/preset-env
-           options: {
-             presets: [['@babel/preset-env', { targets: "defaults" }]] // 기본 브라우저 지원 설정
-           }
-         }
-       }
+      {
+        test: /\.js$/,
+        exclude: /node_modules/,
+        use: {
+          loader: 'babel-loader', // npm install -D babel-loader @babel/core @babel/preset-env
+          options: {
+            presets: [['@babel/preset-env', { targets: "defaults" }]] // 기본 브라우저 지원 설정
+          }
+        }
+      }
       // <-- 추가 끝 -->
       // 만약 웹뷰 코드를 TypeScript로 작성했다면 여기에 TypeScript 로더 규칙 추가
       // {
@@ -115,4 +130,4 @@ const webviewConfig = {
 };
 
 // <-- Webpack이 두 개의 설정을 모두 처리하도록 배열로 내보냅니다. -->
-module.exports = [ extensionConfig, webviewConfig ];
+module.exports = [extensionConfig, webviewConfig];
