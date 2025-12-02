@@ -12089,7 +12089,7 @@ window.addEventListener('message', event => {
       break;
     case 'showGitInfo':
       if (message.content) {
-        showGitRepositoryInfo(message.content);
+        showGitRepositoryInfo(message.content, message.hasGit !== false);
       }
       break;
     case 'showErrorCorrection':
@@ -12734,7 +12734,7 @@ if (chatMessages) {
 /**
  * Git 리포지토리 정보를 채팅창에 표시
  */
-function showGitRepositoryInfo(content) {
+function showGitRepositoryInfo(content, hasGit = true) {
   const chatContainer = document.getElementById('chat-container');
   if (!chatContainer) return;
 
@@ -12747,12 +12747,14 @@ function showGitRepositoryInfo(content) {
   // Git 정보 메시지 생성
   const gitInfoDiv = document.createElement('div');
   gitInfoDiv.id = 'git-repository-info';
-  gitInfoDiv.className = 'git-info-message';
+  gitInfoDiv.className = hasGit ? 'git-info-message' : 'git-info-message git-info-warning';
+  const title = hasGit ? 'Git 리포지토리 연결됨' : 'Git 리포지토리가 없습니다';
+  const icon = hasGit ? '🔗' : '⚠️';
   gitInfoDiv.innerHTML = `
         <div class="git-info-content">
             <div class="git-info-header">
-                <span class="git-info-icon">🔗</span>
-                <span class="git-info-title">Git 리포지토리 연결됨</span>
+                <span class="git-info-icon">${icon}</span>
+                <span class="git-info-title">${title}</span>
             </div>
             <div class="git-info-body">
                 ${content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/`(.*?)`/g, '<code>$1</code>').replace(/\n/g, '<br>')}
@@ -12770,6 +12772,10 @@ function showGitRepositoryInfo(content) {
             border: 1px solid #dee2e6;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .git-info-message.git-info-warning {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            border: 1px solid #ffc107;
         }
         .git-info-content {
             font-size: 14px;

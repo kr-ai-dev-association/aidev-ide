@@ -471,8 +471,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
                 webview.postMessage({
                     command: 'showGitInfo',
-                    content: message
+                    content: message,
+                    hasGit: true
                 });
+            } else {
+                // Git 리포지토리가 없을 때 초기화 안내 메시지 표시
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    const codeBlock = '```bash\ngit init\n```';
+                    const message = `⚠️ **Git 리포지토리가 없습니다**
+
+현재 워크스페이스에 Git 리포지토리가 초기화되지 않았습니다.
+
+Git을 초기화하려면 다음 명령어를 사용하세요:
+${codeBlock}
+
+또는 자연어로 요청할 수 있습니다:
+- "Git 리포지토리를 초기화해줘"
+- "이 프로젝트에 Git을 설정해줘"`;
+
+                    webview.postMessage({
+                        command: 'showGitInfo',
+                        content: message,
+                        hasGit: false
+                    });
+                }
             }
         } catch (error) {
             console.error('[ChatViewProvider] Git 리포지토리 정보 표시 실패:', error);

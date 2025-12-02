@@ -24,7 +24,8 @@ import { setPlanQueueService } from '../terminal/terminalManager';
 import { getAbstractionService } from '../abstractions';
 
 export class LlmService {
-    private storageService: StorageService;
+    private storageService: StorageService
+    private isActionPlanExecuting: boolean = false; // ActionPlan 실행 중 플래그;
     private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
     private codebaseContextService: CodebaseContextService;
@@ -1180,17 +1181,23 @@ Output:`;
                     const autoExecute = await this.configurationService.isAutoExecuteCommandsEnabled?.();
                     if (autoExecute) {
                         console.log('[LlmService] 실행 의도 감지 - ActionPlanner/ExecutionEngine 경로로 처리합니다.');
-                        await this.handleExecutionIntentWithActionPlan(
-                            userQuery,
-                            webviewToRespond,
-                            intentResult,
-                            abortSignal
-                        );
+                        this.isActionPlanExecuting = true; // ActionPlan 실행 시작
+                        try {
+                            await this.handleExecutionIntentWithActionPlan(
+                                userQuery,
+                                webviewToRespond,
+                                intentResult,
+                                abortSignal
+                            );
+                        } finally {
+                            this.isActionPlanExecuting = false; // ActionPlan 실행 종료
+                        }
                         return;
                     } else {
                         console.log('[LlmService] 실행 의도 감지 - autoExecuteCommands 설정이 비활성화되어 일반 경로로 처리합니다.');
                     }
                 } catch (e) {
+                    this.isActionPlanExecuting = false; // 에러 발생 시 플래그 리셋
                     console.warn('[LlmService] 실행 의도 처리 중 오류 - 일반 경로로 폴백합니다:', e);
                 }
             }

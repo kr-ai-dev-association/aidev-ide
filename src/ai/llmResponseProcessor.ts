@@ -67,6 +67,14 @@ export class LlmResponseProcessor {
         llmService?: any, // Add LLM service for diff rewriting
         isProjectCreationRequest?: boolean // 프로젝트 생성 요청 여부
     ): Promise<void> {
+        // ActionPlan 실행 중이면 파일 작업 스킵 (중복 생성 방지)
+        if (llmService?.isActionPlanExecuting) {
+            console.log('[LlmResponseProcessor] ActionPlan 실행 중이므로 파일 작업을 스킵합니다.');
+            statusCallback?.('ActionPlan 실행 중 - 파일 작업 스킵');
+            // 응답 텍스트만 표시
+            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: llmResponse });
+            return;
+        }
         // 현재 모델 타입 감지
         const currentModelName = llmService?.ollamaApi?.getModel?.() || '';
         const isGPTOSS = currentModelName.includes('gpt-oss') || currentModelName.includes('gpt-oss-120b');
