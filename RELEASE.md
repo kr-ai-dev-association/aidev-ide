@@ -2,6 +2,58 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.10.0 (2025/12/02) - Manager-Based Architecture & Smart Action System
+
+<details>
+<summary>Complete Architecture Refactoring with Manager System</summary>
+
+### Added
+- **Manager-Based Architecture**: Clean separation of concerns with 3 core managers
+  - **Action Manager**: LLM response → executable actions transformation
+    - ActionRegistry: Plugin-based action registration
+    - ActionValidator: Validation with dependency checking, circular dependency detection
+    - ActionMapper: Automatic extraction from code blocks, commands, file operations
+    - 7 action types: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
+  - **Execution Manager**: Process lifecycle and error detection
+    - ProcessManager: PID tracking, long-running process support (11 patterns)
+    - StreamManager: stdout/stderr capture with 1MB buffer, handler registration
+    - ErrorDetector: 10 error types with auto-suggestions
+    - Sync/async execution, timeout handling, grace period shutdown
+  - **Terminal Manager**: Terminal session management
+    - TerminalSession: Individual session with command history
+    - TerminalHistory: Global history (1000 entries), statistics, import/export
+    - Multi-session support, session reuse, VS Code event integration
+- **Integration Layer**: Seamless integration with existing code
+  - ManagerAdapter: Unified interface for all managers
+  - Flag-based control: `useNewManagerSystem` toggle
+  - Graceful fallback on errors
+  - Example implementations with 5 use cases
+- **Smart Action Extraction**: 85-95% confidence action recognition
+  - Code block pattern: ` ```lang:path ... ``` `
+  - Command pattern: ` ```bash ... ``` `, "Run: \`cmd\`"
+  - File operation: "Create/Delete/Rename/Move file ..."
+- **llmService.ts Integration**: New manager system integrated into main LLM flow
+  - Automatic action extraction from LLM responses
+  - Action validation before execution
+  - Parallel execution with legacy UI processor
+
+### Improved
+- **Error Detection**: 10 error types with intelligent fix suggestions
+  - PORT_CONFLICT, COMMAND_NOT_FOUND, PERMISSION_DENIED, SYNTAX_ERROR, RUNTIME_ERROR
+  - NETWORK_ERROR, FILE_NOT_FOUND, OUT_OF_MEMORY, TIMEOUT, UNKNOWN
+- **Process Management**: Long-running command support (npm dev, Spring Boot, Django, Flask, etc.)
+- **Terminal History**: Command tracking with statistics and search
+- **Type Safety**: 200+ interfaces, complete type coverage
+
+### Technical Details
+- **Total Code**: ~6,500 lines across 28 files
+- **Type System**: 1,666 lines, 200+ interfaces
+- **Compilation**: 0 errors, ~4s build time
+- **Architecture**: Singleton patterns, clean dependency injection
+- **Documentation**: 4 comprehensive docs (1,000+ lines)
+
+</details>
+
 ## 🚀 Version 4.9.3 (2025/11/26) - Tree-sitter Integration & Framework Abstraction
 
 <details>

@@ -2,6 +2,58 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.10.0 (2025/12/02) - 매니저 기반 아키텍처 & 스마트 액션 시스템
+
+<details>
+<summary>매니저 시스템을 통한 완전한 아키텍처 리팩토링</summary>
+
+### 추가
+- **매니저 기반 아키텍처**: 3개 핵심 매니저로 명확한 관심사 분리
+  - **Action Manager**: LLM 응답 → 실행 가능한 액션 변환
+    - ActionRegistry: 플러그인 방식 액션 등록
+    - ActionValidator: 의존성 체크, 순환 의존성 감지를 통한 검증
+    - ActionMapper: 코드 블록, 명령어, 파일 작업 자동 추출
+    - 7가지 액션 타입: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
+  - **Execution Manager**: 프로세스 생명주기 및 에러 감지
+    - ProcessManager: PID 추적, 장기 실행 프로세스 지원 (11개 패턴)
+    - StreamManager: stdout/stderr 캡처 (1MB 버퍼), 핸들러 등록
+    - ErrorDetector: 10가지 에러 타입 및 자동 수정 제안
+    - 동기/비동기 실행, 타임아웃 처리, grace period 종료
+  - **Terminal Manager**: 터미널 세션 관리
+    - TerminalSession: 명령어 히스토리를 가진 개별 세션
+    - TerminalHistory: 전역 히스토리 (1000 엔트리), 통계, import/export
+    - 멀티 세션 지원, 세션 재사용, VS Code 이벤트 통합
+- **통합 레이어**: 기존 코드와 완벽한 통합
+  - ManagerAdapter: 모든 매니저를 위한 통합 인터페이스
+  - 플래그 기반 제어: `useNewManagerSystem` 토글
+  - 에러 시 안전한 폴백
+  - 5가지 사용 예제 구현
+- **스마트 액션 추출**: 85-95% 신뢰도 액션 인식
+  - 코드 블록 패턴: ` ```lang:path ... ``` `
+  - 명령어 패턴: ` ```bash ... ``` `, "Run: \`cmd\`"
+  - 파일 작업: "Create/Delete/Rename/Move file ..."
+- **llmService.ts 통합**: 메인 LLM 플로우에 새 매니저 시스템 통합
+  - LLM 응답에서 자동 액션 추출
+  - 실행 전 액션 검증
+  - 기존 UI 프로세서와 병렬 실행
+
+### 개선
+- **에러 감지**: 지능형 수정 제안을 가진 10가지 에러 타입
+  - PORT_CONFLICT, COMMAND_NOT_FOUND, PERMISSION_DENIED, SYNTAX_ERROR, RUNTIME_ERROR
+  - NETWORK_ERROR, FILE_NOT_FOUND, OUT_OF_MEMORY, TIMEOUT, UNKNOWN
+- **프로세스 관리**: 장기 실행 명령어 지원 (npm dev, Spring Boot, Django, Flask 등)
+- **터미널 히스토리**: 통계 및 검색 기능을 가진 명령어 추적
+- **타입 안전성**: 200+ 인터페이스, 완전한 타입 커버리지
+
+### 기술 세부사항
+- **총 코드**: 28개 파일에 걸쳐 ~6,500 라인
+- **타입 시스템**: 1,666 라인, 200+ 인터페이스
+- **컴파일**: 0 에러, ~4초 빌드 시간
+- **아키텍처**: 싱글톤 패턴, 깔끔한 의존성 주입
+- **문서**: 4개의 포괄적인 문서 (1,000+ 라인)
+
+</details>
+
 ## 🚀 Version 4.9.3 (2025/11/26) - Tree-sitter 통합 및 프레임워크 추상화
 
 <details>

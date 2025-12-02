@@ -42,6 +42,46 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
 
+### 🚀 **NEW in v4.10.0 - Manager-Based Architecture & Smart Action System**
+
+#### **Manager-Based Architecture**
+- **Action Manager**: Automatically extracts and validates actions from LLM responses
+  - 7 action types: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
+  - Smart validation with dependency checking
+  - Circular dependency detection
+  - Permission control and dangerous command detection
+- **Execution Manager**: Process lifecycle management with error detection
+  - Synchronous/asynchronous command execution
+  - Process monitoring (PID tracking)
+  - 10 error types auto-detection (port conflict, permission denied, syntax error, etc.)
+  - Long-running process support (dev servers, build processes)
+  - Grace period shutdown (SIGTERM → SIGKILL)
+- **Terminal Manager**: Terminal session lifecycle management
+  - Multi-terminal session management
+  - Command history tracking (1000 entries)
+  - Most-used command statistics
+  - Session reuse and auto-creation
+
+#### **Smart Action Extraction**
+- **Code Block Recognition**: Automatically detects ` ```language:path/to/file ... ``` ` patterns
+- **Command Extraction**: Recognizes bash/shell code blocks and execution requests
+- **File Operation Detection**: Identifies create/delete/rename/move operations
+- **Confidence Scoring**: Action extraction with 85-95% confidence scores
+- **Validation System**: Required field checking, path validation, dangerous command blocking
+
+#### **Error Detection & Recovery**
+- **10 Error Types Supported**: PORT_CONFLICT, COMMAND_NOT_FOUND, PERMISSION_DENIED, SYNTAX_ERROR, RUNTIME_ERROR, NETWORK_ERROR, FILE_NOT_FOUND, OUT_OF_MEMORY, TIMEOUT, UNKNOWN
+- **Port Conflict Detection**: Automatically detects EADDRINUSE and suggests solutions
+- **Stack Trace Parsing**: Extracts file/line/column from error messages
+- **Auto Fix Suggestions**: Intelligent fix recommendations for common errors
+- **Error History**: Tracks and analyzes error patterns
+
+#### **Integration Layer**
+- **ManagerAdapter**: Seamless integration with existing code
+- **Flag-Based Control**: Enable/disable new system via `useNewManagerSystem` flag
+- **Graceful Fallback**: Falls back to legacy system on error
+- **Dual Execution**: New action system + legacy UI processor run in parallel
+
 ### 🚀 **NEW in v4.9.3 - Tree-sitter Code Parsing & Framework Abstraction**
 
 #### **Tree-sitter Integration**

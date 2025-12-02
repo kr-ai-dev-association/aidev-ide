@@ -22,6 +22,7 @@ import { GitRepositoryService } from '../services/gitRepositoryService';
 import { GitBranchAnalysisService } from '../services/gitBranchAnalysisService';
 import { setPlanQueueService } from '../terminal/terminalManager';
 import { getAbstractionService } from '../abstractions';
+import { getManagerAdapter } from '../managers/integration/ManagerAdapter';
 
 export class LlmService {
     private storageService: StorageService;
@@ -71,6 +72,10 @@ export class LlmService {
     private userOS: string = 'unknown';
     // 전역 디버그 플래그 (필요 시 true로)
     private readonly debug: boolean = false;
+
+    // 🆕 새로운 매니저 시스템
+    private managerAdapter = getManagerAdapter();
+    private useNewManagerSystem: boolean = true; // 🔧 플래그로 on/off 제어
 
     constructor(
         storageService: StorageService,
@@ -1841,6 +1846,72 @@ ${userQuery}`;
             const isUnknownProjectType = !detectedProjectType || detectedProjectType === 'unknown';
             const isProjectCreation = isCodeGeneration && (isEmptyProject || isUnknownProjectType);
 
+            // 🆕 새로운 매니저 시스템 통합
+            if (this.useNewManagerSystem && promptType === PromptType.CODE_GENERATION) {
+                try {
+                    console.log('[LlmService] 🆕 Using new Manager System for action processing');
+                    
+                    // Action Manager로 액션 추출
+                    const actionResult = await this.managerAdapter.processLLMResponse(
+                        llmResponse,
+                        {
+                            projectRoot: vscode.workspace.workspaceFolders?.[0].uri.fsPath || '',
+                            workspaceRoot: vscode.workspace.workspaceFolders?.[0].uri.fsPath || '',
+                            currentFile: vscode.window.activeTextEditor?.document.uri.fsPath
+                        }
+                    );
+
+                    console.log(`[LlmService] 📦 Extracted ${actionResult.actions.length} actions (confidence: ${actionResult.confidence})`);
+
+                    if (actionResult.actions.length > 0) {
+                        this.sendProcessingStatus('parsing', `Found ${actionResult.actions.length} actions to execute`);
+
+                        // 액션 실행
+                        const actionManager = this.managerAdapter.getActionManager();
+                        
+                        for (const action of actionResult.actions) {
+                            console.log(`[LlmService] 🔄 Executing action: ${action.type}`);
+                            
+                            // 액션 검증
+                            const validation = await actionManager.validateAction(action);
+                            if (!validation.valid) {
+                                console.error('[LlmService] ❌ Action validation failed:', validation.errors);
+                                // 웹뷰에 에러 표시
+                                const errorMsg = validation.errors.map(e => e.message).join(', ');
+                                safePostMessage(webviewToRespond, {
+                                    command: 'receiveMessage',
+                                    sender: 'AIDEV-IDE',
+                                    text: `⚠️ Action validation failed: ${errorMsg}`
+                                });
+                                continue;
+                            }
+
+                            // 액션 실행
+                            const result = await actionManager.executeAction(action);
+                            
+                            if (result.success) {
+                                console.log(`[LlmService] ✅ Action executed successfully: ${action.type}`);
+                            } else {
+                                console.error(`[LlmService] ❌ Action execution failed: ${result.message}`);
+                                // 실패 메시지 표시
+                                safePostMessage(webviewToRespond, {
+                                    command: 'receiveMessage',
+                                    sender: 'AIDEV-IDE',
+                                    text: `❌ Action failed: ${result.message}`
+                                });
+                            }
+                        }
+
+                        this.sendProcessingStatus('parsing', `Executed ${actionResult.actions.length} actions`);
+                    }
+                } catch (error) {
+                    console.error('[LlmService] ❌ Manager system error:', error);
+                    // 에러 발생 시 기존 방식으로 폴백
+                    console.log('[LlmService] Falling back to legacy response processor');
+                }
+            }
+
+            // 기존 llmResponseProcessor 호출 (항상 실행 - 웹뷰 표시용)
             await this.llmResponseProcessor.processLlmResponseAndApplyUpdates(
                 llmResponse,
                 promptType === PromptType.CODE_GENERATION ? deduplicatedFiles : [],
