@@ -2,6 +2,34 @@
 
 This document contains the complete release history for aidev-ide VSCode extension.
 
+## 🚀 Version 4.9.5 (2025/12/2) - Bug Fixes: Duplicate File Operations & Git Repository Connection
+
+<details>
+<summary>Bug Fixes and Improvements</summary>
+
+### Fixed
+- **Duplicate File Operations**: Fixed issue where files were being created/modified multiple times during ActionPlan execution
+  - Added `isActionPlanExecuting` flag to prevent duplicate file operations
+  - ActionPlan execution path now skips file operations in general LLM response path
+  - Prevents conflicts between ActionExecutionEngine and LlmResponseProcessor
+- **Git Repository Connection**: Fixed issue where extension's own Git repository was shown instead of current workspace
+  - `getRepositoryInfo()` now only checks current workspace Git information
+  - Removed fallback to stored Git information when workspace has no Git
+  - Shows Git initialization message when workspace has no Git repository
+
+### Improved
+- **Git Repository Detection**: Real-time detection of current workspace Git repository
+- **File Operation Stability**: Eliminated duplicate file creation/modification during planning phase
+- **User Experience**: Clear messaging when Git repository is not initialized
+
+### Technical Improvements
+- `llmService.ts`: Added `isActionPlanExecuting` flag to track ActionPlan execution state
+- `llmResponseProcessor.ts`: Skip file operations when ActionPlan is executing
+- `gitRepositoryService.ts`: Only use current workspace Git information, no fallback to stored info
+- `chatViewProvider.ts`: Show Git initialization message when repository is missing
+
+</details>
+
 ## 🚀 Version 4.9.3 (2025/11/26) - Tree-sitter Integration & Framework Abstraction
 
 <details>

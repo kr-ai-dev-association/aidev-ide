@@ -2,6 +2,34 @@
 
 이 문서는 aidev-ide VSCode 확장의 완전한 릴리즈 히스토리를 포함합니다.
 
+## 🚀 Version 4.9.5 (2025/11/26) - 버그 수정: 중복 파일 작업 및 Git 리포지토리 연결
+
+<details>
+<summary>버그 수정 및 개선</summary>
+
+### 수정됨
+- **중복 파일 작업**: ActionPlan 실행 중 파일이 여러 번 생성/수정되는 문제 수정
+  - `isActionPlanExecuting` 플래그 추가로 중복 파일 작업 방지
+  - ActionPlan 실행 경로에서 일반 LLM 응답 경로의 파일 작업 스킵
+  - ActionExecutionEngine과 LlmResponseProcessor 간 충돌 방지
+- **Git 리포지토리 연결**: 확장 자체의 Git 리포지토리가 표시되던 문제 수정
+  - `getRepositoryInfo()`가 현재 워크스페이스 Git 정보만 확인하도록 수정
+  - 워크스페이스에 Git이 없을 때 저장된 정보 사용하지 않음
+  - Git 리포지토리가 없을 때 초기화 안내 메시지 표시
+
+### 개선됨
+- **Git 리포지토리 감지**: 현재 워크스페이스 Git 리포지토리 실시간 감지
+- **파일 작업 안정성**: 계획 단계에서 중복 파일 생성/수정 제거
+- **사용자 경험**: Git 리포지토리가 초기화되지 않았을 때 명확한 메시지 표시
+
+### 기술적 개선
+- `llmService.ts`: ActionPlan 실행 상태 추적을 위한 `isActionPlanExecuting` 플래그 추가
+- `llmResponseProcessor.ts`: ActionPlan 실행 중 파일 작업 스킵
+- `gitRepositoryService.ts`: 현재 워크스페이스 Git 정보만 사용, 저장된 정보로 폴백하지 않음
+- `chatViewProvider.ts`: Git 리포지토리가 없을 때 초기화 안내 메시지 표시
+
+</details>
+
 ## 🚀 Version 4.9.3 (2025/11/26) - Tree-sitter 통합 및 프레임워크 추상화
 
 <details>
