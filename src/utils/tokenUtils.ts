@@ -1,4 +1,5 @@
-import { AiModelType } from '../ai/types';
+// 순환 참조 방지: services/types에서 직접 import
+import { AiModelType } from '../services/types';
 
 // 모델별 토큰 제한
 export const MODEL_TOKEN_LIMITS = {

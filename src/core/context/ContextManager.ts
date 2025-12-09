@@ -1,0 +1,526 @@
+/**
+ * Context Manager
+ * LLM에게 제공할 컨텍스트를 수집하는 메인 매니저
+ */
+
+import * as vscode from 'vscode';
+import {
+    ContextData,
+    ContextType,
+    ContextCollectionOptions,
+    ContextFilter,
+    FileContext,
+    CursorContext,
+    SelectionContext,
+    TerminalContext,
+    ErrorContext,
+    EditHistoryContext,
+    RelatedFilesContext,
+    ProjectContext
+} from './types';
+import { ErrorSource } from '../error/types';
+import { FileContextCollector } from './FileContext';
+import { EditorContextCollector } from './EditorContext';
+import { TerminalContextCollector } from './TerminalContext';
+import { TerminalManager } from '../terminal';
+import { ErrorManager } from '../error';
+import { ProjectManager } from '../project';
+import { estimateTokens } from '../../utils';
+import { RelevantFilesFinder, RelevantFilesResult } from './RelevantFilesFinder';
+
+export class ContextManager {
+    private static instance: ContextManager;
+    private fileCollector: FileContextCollector;
+    private editorCollector: EditorContextCollector;
+    private terminalCollector?: TerminalContextCollector;
+    private terminalManager?: TerminalManager;
+    private errorManager?: ErrorManager;
+    private projectManager?: ProjectManager;
+    private relevantFilesService?: RelevantFilesFinder;
+
+    private constructor() {
+        this.fileCollector = new FileContextCollector();
+        this.editorCollector = new EditorContextCollector();
+    }
+
+    public static getInstance(): ContextManager {
+        if (!ContextManager.instance) {
+            ContextManager.instance = new ContextManager();
+        }
+        return ContextManager.instance;
+    }
+
+    /**
+     * Terminal Manager를 설정합니다
+     */
+    public setTerminalManager(terminalManager: TerminalManager): void {
+        this.terminalManager = terminalManager;
+        this.terminalCollector = new TerminalContextCollector(terminalManager);
+        console.log('[ContextManager] Terminal Manager set');
+    }
+
+    /**
+     * Error Manager를 설정합니다
+     */
+    public setErrorManager(errorManager: ErrorManager): void {
+        this.errorManager = errorManager;
+        console.log('[ContextManager] Error Manager set');
+    }
+
+    /**
+     * Project Manager를 설정합니다
+     */
+    public setProjectManager(projectManager: ProjectManager): void {
+        this.projectManager = projectManager;
+        this.relevantFilesService = new RelevantFilesFinder(projectManager);
+        console.log('[ContextManager] Project Manager set');
+    }
+
+    /**
+     * 관련 파일 컨텍스트를 가져옵니다
+     */
+    public async getRelevantFilesContext(
+        userQuery: string,
+        abortSignal: AbortSignal,
+        conversationHistory?: { userQuery: string; aiResponse?: string; timestamp: number }[]
+    ): Promise<RelevantFilesResult> {
+        if (!this.relevantFilesService || !this.projectManager) {
+            throw new Error('Project Manager not set');
+        }
+
+        const projectInfo = this.projectManager.getCurrentProject();
+        if (!projectInfo) {
+            throw new Error('Project not initialized');
+        }
+
+        return await this.relevantFilesService.getRelevantFilesContext(
+            userQuery,
+            projectInfo.root,
+            abortSignal,
+            conversationHistory
+        );
+    }
+
+    /**
+     * 컨텍스트를 수집합니다
+     */
+    public async collectContext(
+        options: ContextCollectionOptions = {}
+    ): Promise<ContextData> {
+        console.log('[ContextManager] Collecting context...');
+
+        const types = options.types || Object.values(ContextType);
+        const contextData: ContextData = {
+            metadata: {
+                collectedAt: Date.now(),
+                types: [],
+                tokenEstimate: 0,
+                compressed: false
+            }
+        };
+
+        // 파일 컨텍스트
+        if (types.includes(ContextType.FILE)) {
+            const fileContext = await this.collectFileContext(options);
+            if (fileContext) {
+                contextData.file = fileContext;
+                contextData.metadata.types.push(ContextType.FILE);
+            }
+        }
+
+        // 선택 텍스트 컨텍스트
+        if (types.includes(ContextType.SELECTION)) {
+            const selectionContext = await this.collectSelectionContext();
+            if (selectionContext) {
+                contextData.selection = selectionContext;
+                contextData.metadata.types.push(ContextType.SELECTION);
+            }
+        }
+
+        // 커서 컨텍스트
+        if (types.includes(ContextType.CURSOR)) {
+            const cursorContext = await this.collectCursorContext();
+            if (cursorContext) {
+                contextData.cursor = cursorContext;
+                contextData.metadata.types.push(ContextType.CURSOR);
+            }
+        }
+
+        // 터미널 컨텍스트
+        if (types.includes(ContextType.TERMINAL) && this.terminalCollector) {
+            const terminalContext = await this.collectTerminalContext();
+            if (terminalContext) {
+                contextData.terminal = terminalContext;
+                contextData.metadata.types.push(ContextType.TERMINAL);
+            }
+        }
+
+        // 에러 컨텍스트
+        if (types.includes(ContextType.ERROR) && this.errorManager) {
+            const errorContexts = await this.collectErrorContext(options);
+            if (errorContexts.length > 0) {
+                contextData.errors = errorContexts;
+                contextData.metadata.types.push(ContextType.ERROR);
+            }
+        }
+
+        // 관련 파일 컨텍스트
+        if (types.includes(ContextType.RELATED_FILES) && contextData.file) {
+            const relatedFiles = await this.collectRelatedFiles(contextData.file.path, options);
+            if (relatedFiles) {
+                contextData.relatedFiles = relatedFiles;
+                contextData.metadata.types.push(ContextType.RELATED_FILES);
+            }
+        }
+
+        // 프로젝트 컨텍스트
+        if (types.includes(ContextType.PROJECT)) {
+            const projectContext = await this.collectProjectContext();
+            if (projectContext) {
+                contextData.project = projectContext;
+                contextData.metadata.types.push(ContextType.PROJECT);
+            }
+        }
+
+        // 토큰 추정
+        contextData.metadata.tokenEstimate = this.estimateTokens(contextData);
+
+        // 토큰 제한 확인
+        if (options.maxTokens && contextData.metadata.tokenEstimate > options.maxTokens) {
+            console.warn(`[ContextManager] Token estimate (${contextData.metadata.tokenEstimate}) exceeds max (${options.maxTokens})`);
+            // 압축 필요 (나중에 구현)
+        }
+
+        console.log(`[ContextManager] Context collected: ${contextData.metadata.types.length} types, ${contextData.metadata.tokenEstimate} tokens`);
+
+        return contextData;
+    }
+
+    /**
+     * 파일 컨텍스트를 수집합니다
+     */
+    private async collectFileContext(options: ContextCollectionOptions): Promise<FileContext | null> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return null;
+        }
+
+        const filePath = editor.document.uri.fsPath;
+
+        // 파일 크기 확인
+        if (options.maxFileSize) {
+            const stats = require('fs').statSync(filePath);
+            if (stats.size > options.maxFileSize) {
+                console.warn(`[ContextManager] File too large: ${stats.size} bytes, max: ${options.maxFileSize}`);
+                return null;
+            }
+        }
+
+        const fileContext = await this.fileCollector.collect(filePath);
+
+        // 내용 포함 여부 확인
+        if (!options.includeContent && fileContext) {
+            fileContext.content = ''; // 내용 제거
+        }
+
+        return fileContext;
+    }
+
+    /**
+     * 선택 텍스트 컨텍스트를 수집합니다
+     */
+    private async collectSelectionContext(): Promise<SelectionContext | null> {
+        return await this.editorCollector.collectSelectionContext();
+    }
+
+    /**
+     * 커서 컨텍스트를 수집합니다
+     */
+    private async collectCursorContext(): Promise<CursorContext | null> {
+        return await this.editorCollector.collectCursorContext();
+    }
+
+    /**
+     * 터미널 컨텍스트를 수집합니다
+     */
+    private async collectTerminalContext(): Promise<TerminalContext | null> {
+        if (!this.terminalCollector) {
+            return null;
+        }
+        return await this.terminalCollector.collect();
+    }
+
+    /**
+     * 에러 컨텍스트를 수집합니다
+     */
+    private async collectErrorContext(options: ContextCollectionOptions): Promise<ErrorContext[]> {
+        if (!this.errorManager) {
+            return [];
+        }
+
+        const unresolvedErrors = this.errorManager.getUnresolvedErrors();
+        const maxErrors = options.maxFiles || 5;
+
+        return unresolvedErrors.slice(0, maxErrors).map(error => ({
+            message: error.message,
+            type: error.category,
+            source: this.mapErrorSourceToString(error.source),
+            file: error.location?.file,
+            line: error.location?.line,
+            column: error.location?.column,
+            stackTrace: error.stackTrace?.raw,
+            timestamp: error.timestamp
+        }));
+    }
+
+    /**
+     * 관련 파일 컨텍스트를 수집합니다
+     */
+    private async collectRelatedFiles(
+        filePath: string,
+        options: ContextCollectionOptions
+    ): Promise<RelatedFilesContext | null> {
+        const maxFiles = options.maxRelatedFiles || 10;
+
+        // Import된 파일 찾기
+        const imports = await this.fileCollector.findImportedFiles(filePath);
+        const limitedImports = imports.slice(0, maxFiles);
+
+        // 같은 디렉토리 파일
+        const relatedFiles = await this.fileCollector['findRelatedFiles'](filePath);
+        const limitedRelated = relatedFiles.slice(0, maxFiles - limitedImports.length);
+
+        if (limitedImports.length === 0 && limitedRelated.length === 0) {
+            return null;
+        }
+
+        return {
+            imports: limitedImports,
+            importedBy: [], // TODO: 역참조 구현
+            sameDirectory: limitedRelated,
+            sameType: [] // TODO: 같은 타입 파일 찾기
+        };
+    }
+
+    /**
+     * 프로젝트 컨텍스트를 수집합니다
+     */
+    private async collectProjectContext(): Promise<ProjectContext | null> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return null;
+        }
+
+        // 간단한 프로젝트 정보
+        return {
+            type: 'unknown', // TODO: Project Manager와 통합
+            framework: undefined,
+            buildTool: undefined,
+            dependencies: [],
+            structure: ''
+        };
+    }
+
+    /**
+     * 토큰을 추정합니다
+     */
+    private estimateTokens(contextData: ContextData): number {
+        let tokens = 0;
+
+        if (contextData.file?.content) {
+            tokens += estimateTokens(contextData.file.content);
+        }
+
+        if (contextData.selection?.text) {
+            tokens += estimateTokens(contextData.selection.text);
+        }
+
+        if (contextData.cursor?.surroundingLines) {
+            tokens += estimateTokens(contextData.cursor.surroundingLines.join('\n'));
+        }
+
+        if (contextData.terminal?.lastOutput) {
+            tokens += estimateTokens(contextData.terminal.lastOutput);
+        }
+
+        if (contextData.errors) {
+            for (const error of contextData.errors) {
+                tokens += estimateTokens(error.message);
+                if (error.stackTrace) {
+                    tokens += estimateTokens(error.stackTrace);
+                }
+            }
+        }
+
+        return tokens;
+    }
+
+    /**
+     * 현재 파일 컨텍스트를 가져옵니다
+     */
+    public async getCurrentFileContext(): Promise<FileContext | null> {
+        return await this.collectFileContext({ includeContent: true });
+    }
+
+    /**
+     * 선택된 텍스트 컨텍스트를 가져옵니다
+     */
+    public async getSelectedTextContext(): Promise<SelectionContext | null> {
+        return await this.collectSelectionContext();
+    }
+
+    /**
+     * 커서 컨텍스트를 가져옵니다
+     */
+    public async getCursorContext(): Promise<CursorContext | null> {
+        return await this.collectCursorContext();
+    }
+
+    /**
+     * 최근 에러 컨텍스트를 가져옵니다
+     */
+    public async getRecentErrors(maxCount: number = 5): Promise<ErrorContext[]> {
+        return await this.collectErrorContext({ maxFiles: maxCount });
+    }
+
+    /**
+     * 관련 파일을 가져옵니다
+     */
+    public async getRelatedFiles(filePath: string, maxFiles: number = 10): Promise<string[]> {
+        const relatedFiles = await this.collectRelatedFiles(filePath, { maxRelatedFiles: maxFiles });
+        if (!relatedFiles) {
+            return [];
+        }
+
+        return [
+            ...relatedFiles.imports,
+            ...relatedFiles.importedBy,
+            ...relatedFiles.sameDirectory,
+            ...relatedFiles.sameType
+        ];
+    }
+
+    /**
+     * LLM 요청을 위한 컨텍스트를 빌드합니다
+     */
+    public async buildLLMContext(
+        request: {
+            includeFile?: boolean;
+            includeSelection?: boolean;
+            includeCursor?: boolean;
+            includeTerminal?: boolean;
+            includeErrors?: boolean;
+            maxTokens?: number;
+        }
+    ): Promise<ContextData> {
+        const options: ContextCollectionOptions = {
+            types: [],
+            includeContent: true,
+            maxTokens: request.maxTokens
+        };
+
+        if (request.includeFile) {
+            options.types!.push(ContextType.FILE);
+        }
+        if (request.includeSelection) {
+            options.types!.push(ContextType.SELECTION);
+        }
+        if (request.includeCursor) {
+            options.types!.push(ContextType.CURSOR);
+        }
+        if (request.includeTerminal) {
+            options.types!.push(ContextType.TERMINAL);
+        }
+        if (request.includeErrors) {
+            options.types!.push(ContextType.ERROR);
+        }
+
+        return await this.collectContext(options);
+    }
+
+    /**
+     * 프로필 컨텍스트를 빌드합니다
+     */
+    public buildProfileContext(profile: any, projectType?: string): string {
+        if (!this.projectManager) {
+            throw new Error('Project Manager not set');
+        }
+        return this.projectManager.buildProfileContext(profile, projectType);
+    }
+
+    /**
+     * 의도 컨텍스트를 빌드합니다
+     */
+    public buildIntentContext(intent: any): string {
+        const lines: string[] = [];
+        lines.push(`카테고리: ${intent.category}`);
+        lines.push(`세부 유형: ${intent.subtype}`);
+        lines.push(`작업 유형: ${intent.taskType}`);
+        lines.push(`신뢰도: ${(intent.confidence * 100).toFixed(0)}%`);
+        if (intent.keywords && intent.keywords.length > 0) {
+            lines.push(`매칭 키워드: ${intent.keywords.join(', ')}`);
+        }
+        if (intent.reasoning) {
+            lines.push(`근거: ${intent.reasoning}`);
+        }
+
+        // 작업 유형에 따른 명확한 지침 추가
+        if (intent.taskType === 'code_work') {
+            lines.push(`\n**작업 지침: 코드 작성 작업 (절대 필수)**`);
+            lines.push(`- 소스 코드 파일(.js, .ts, .py, .java, .go, .rs 등)을 생성/수정/삭제해야 합니다.`);
+            lines.push(`- **절대로 쉘 스크립트(.sh, .bat, .ps1)나 빌드 스크립트를 생성하지 마세요.**`);
+            lines.push(`- **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**`);
+            lines.push(`- 프로그래밍 언어의 소스 코드 파일만 작성하세요.`);
+            if (intent.subtype === 'code_generate' && (intent.reasoning?.includes('프로젝트 생성') || intent.reasoning?.includes('프로젝트 만들') || intent.reasoning?.includes('react') || intent.reasoning?.includes('vite') || intent.reasoning?.includes('타입스크립트') || intent.reasoning?.includes('spring') || intent.reasoning?.includes('java') || intent.reasoning?.includes('maven'))) {
+                lines.push(`- **⚠️ 프로젝트 생성 작업 (매우 중요 - 절대 금지 사항 - 이 규칙을 위반하면 심각한 오류 발생)**:`);
+                lines.push(`  * **필수 사항 (반드시 준수해야 함 - 이것을 지키지 않으면 작업이 실패합니다)**:`);
+                lines.push(`    - 프로젝트 구조 파일(pom.xml, build.gradle, package.json, vite.config.ts, tsconfig.json 등)과 소스 코드 파일을 "새 파일: [파일경로]" 형식으로 반드시 생성하세요.`);
+                lines.push(`    - 모든 필요한 파일을 "새 파일:" 지시어로 생성하세요. 이것은 선택 사항이 아닌 필수입니다.`);
+                lines.push(`    - 오직 "새 파일: [파일경로]" 지시어만 사용하세요. 다른 방법은 절대 사용하지 마세요.`);
+                lines.push(`    - 예시: "새 파일: pom.xml" + 코드 블록, "새 파일: src/main/java/com/example/App.java" + 코드 블록, "새 파일: package.json" + 코드 블록`);
+                lines.push(`  * **절대 금지 사항 (이 규칙을 위반하면 심각한 오류 발생 - 절대 사용하지 마세요)**:`);
+                lines.push(`    - 터미널 명령어 코드 블록(\`\`\`bash) 생성 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
+                lines.push(`    - cat <<'EOF' > file 같은 heredoc 명령어 사용 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
+                lines.push(`    - mkdir -p, cat, echo 같은 파일 생성 명령어 사용 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
+                lines.push(`    - if ! command -v brew 같은 조건문이나 도구 설치 명령어 포함 절대 금지`);
+                lines.push(`    - npm install, pnpm install, yarn install 같은 패키지 설치 명령어 포함 절대 금지 - 파일 생성 후 별도로 실행되므로 포함하지 마세요`);
+                lines.push(`    - brew install, apt install 같은 패키지 매니저 명령어 포함 절대 금지`);
+                lines.push(`- 빌드나 실행은 소스 파일 생성 후 별도로 처리됩니다.`);
+                lines.push(`- **중요: 프로젝트 생성 요청에 대해 터미널 명령어만 반환하면 작업이 실패합니다. 반드시 파일을 생성하세요.**`);
+            }
+        } else if (intent.taskType === 'execution_work') {
+            lines.push(`\n**작업 지침: 쉘 스크립트 작업 (설치/빌드/배포/실행)**`);
+            lines.push(`- 프로젝트의 설치, 빌드, 배포, 실행을 위한 스크립트(.sh, .bat, .ps1 등)를 생성하거나 터미널 명령을 실행해야 합니다.`);
+            lines.push(`- 소스 코드 파일을 생성/수정하지 마세요.`);
+            lines.push(`- **중요: 사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:`);
+            lines.push(`  * 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.`);
+            lines.push(`  * chmod +x 같은 권한 설정 명령어를 포함하지 마세요.`);
+            lines.push(`  * 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.`);
+            lines.push(`  * 예시: 사용자가 "mvn spring-boot:run으로 실행해줘"라고 요청하면 \`\`\`bash\nmvn spring-boot:run\n\`\`\` 만 제공하세요.`);
+            lines.push(`  * 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)`);
+            lines.push(`- 복잡한 빌드/배포 스크립트가 필요한 경우에만 스크립트 파일을 생성하세요.`);
+        }
+
+        return lines.join('\n');
+    }
+
+    /**
+     * ErrorSource를 문자열로 변환합니다
+     */
+    private mapErrorSourceToString(source: ErrorSource): 'terminal' | 'diagnostic' | 'runtime' {
+        switch (source) {
+            case ErrorSource.TERMINAL:
+                return 'terminal';
+            case ErrorSource.DIAGNOSTIC:
+                return 'diagnostic';
+            case ErrorSource.RUNTIME:
+            case ErrorSource.COMPILE:
+            case ErrorSource.LINT:
+            case ErrorSource.SYSTEM:
+                return 'runtime';
+            default:
+                return 'runtime';
+        }
+    }
+}
+

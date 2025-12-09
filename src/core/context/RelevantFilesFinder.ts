@@ -1,0 +1,464 @@
+/**
+ * Relevant Files Finder
+ * 사용자 쿼리와 관련된 파일을 찾는 서비스
+ */
+
+import * as path from 'path';
+import { glob } from 'glob';
+import { ProjectManager } from '../project';
+import { KeywordSelector } from './KeywordSelector';
+import { estimateTokens } from '../../utils';
+
+export interface RelevantFilesResult {
+    fileContentsContext: string;
+    includedFilesForContext: { name: string; fullPath: string }[];
+    extractedKeywords?: string[];
+    selectedKeywords?: { keywords: string[]; reasoning: string; confidence: number };
+}
+
+export class RelevantFilesFinder {
+    private projectManager: ProjectManager;
+    private keywordService?: KeywordSelector;
+    private readonly MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
+
+    constructor(projectManager: ProjectManager) {
+        this.projectManager = projectManager;
+    }
+
+    /**
+     * 키워드 선택 서비스를 설정합니다
+     */
+    public setKeywordService(keywordService: KeywordSelector): void {
+        this.keywordService = keywordService;
+    }
+
+    /**
+     * 사용자 질의와 관련된 파일들을 자동으로 찾아서 컨텍스트에 추가합니다
+     */
+    public async getRelevantFilesContext(
+        userQuery: string,
+        projectRoot: string,
+        abortSignal: AbortSignal,
+        conversationHistory?: { userQuery: string; aiResponse?: string; timestamp: number }[]
+    ): Promise<RelevantFilesResult> {
+        const defaultResult: RelevantFilesResult = {
+            fileContentsContext: '',
+            includedFilesForContext: [],
+            extractedKeywords: [],
+            selectedKeywords: { keywords: [], reasoning: '', confidence: 0 }
+        };
+
+        let fileContentsContext = '';
+        let currentTotalContentLength = 0;
+        const includedFilesForContext: { name: string; fullPath: string }[] = [];
+        const includedPathSet: Set<string> = new Set();
+
+        try {
+            // 키워드 추출
+            const keywords = this.extractKeywordsFromQuery(userQuery);
+            console.log(`[RelevantFilesFinder] 추출된 키워드: ${keywords.join(', ')}`);
+
+            // 대화 히스토리에서 키워드 확장
+            const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
+
+            // 관련 파일 찾기
+            const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
+
+            // 토큰 제한 기반 파일 선택
+            const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
+
+            // 파일 내용 수집
+            for (const filePath of selectedFiles) {
+                if (abortSignal.aborted) break;
+                if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
+                    fileContentsContext += '\n[INFO] 컨텍스트 길이 제한으로 일부 파일 내용이 생략되었습니다.\n';
+                    break;
+                }
+
+                try {
+                    const fs = await import('fs/promises');
+                    const content = await fs.readFile(filePath, 'utf8');
+                    const relativePath = path.relative(projectRoot, filePath);
+
+                    if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
+                        const fileExtension = path.extname(filePath).substring(1);
+                        fileContentsContext += `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
+                        currentTotalContentLength += content.length;
+                        includedFilesForContext.push({ name: relativePath, fullPath: filePath });
+                    } else {
+                        fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다.\n\n`;
+                    }
+                } catch (error) {
+                    console.warn(`[RelevantFilesFinder] 파일 읽기 실패: ${filePath}`, error);
+                }
+            }
+
+            // LLM을 통한 키워드 선택 (선택적)
+            let selectedKeywords: { keywords: string[]; reasoning: string; confidence: number } = { keywords: [], reasoning: '', confidence: 0 };
+            if (this.keywordService && expandedKeywords.length > 0) {
+                try {
+                    selectedKeywords = await this.selectKeywordsWithLLM(userQuery, expandedKeywords, projectRoot);
+                } catch (error) {
+                    console.warn('[RelevantFilesFinder] LLM 키워드 선택 실패:', error);
+                }
+            }
+
+            return {
+                fileContentsContext,
+                includedFilesForContext,
+                extractedKeywords: expandedKeywords,
+                selectedKeywords
+            };
+        } catch (error) {
+            console.error('[RelevantFilesFinder] 관련 파일 컨텍스트 수집 중 오류:', error);
+            return {
+                fileContentsContext: fileContentsContext || '',
+                includedFilesForContext: includedFilesForContext || [],
+                extractedKeywords: [],
+                selectedKeywords: { keywords: [], reasoning: '', confidence: 0 }
+            };
+        }
+    }
+
+    /**
+     * 키워드를 추출합니다
+     */
+    private extractKeywordsFromQuery(userQuery: string): string[] {
+        const cleanQuery = userQuery.toLowerCase()
+            .replace(/[^\w\s가-힣]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // 한국어 형태소 분석을 통한 키워드 추출
+        const koreanStems = this.extractKoreanStems(cleanQuery);
+
+        // 영어 단어들 추출
+        const englishWords = cleanQuery.split(' ')
+            .filter(word => word.length > 1)
+            .filter(word => !this.isStopWord(word))
+            .filter(word => !/^[가-힣]+$/.test(word));
+
+        // 개발 관련 키워드 추가
+        const developmentKeywords = this.getDevelopmentKeywords(userQuery);
+
+        // 모든 키워드 결합
+        const allKeywords = [...koreanStems, ...englishWords, ...developmentKeywords];
+
+        // 키워드 우선순위 기반 필터링
+        return this.prioritizeKeywords(allKeywords, userQuery);
+    }
+
+    /**
+     * 한국어 형태소 분석을 통해 어간을 추출합니다
+     */
+    private extractKoreanStems(text: string): string[] {
+        const koreanWords = text.split(' ')
+            .filter(word => /^[가-힣]+$/.test(word))
+            .filter(word => word.length > 1)
+            .filter(word => !this.isKoreanStopWord(word));
+
+        return koreanWords.map(word => this.extractKoreanStem(word));
+    }
+
+    /**
+     * 한국어 어간 추출 (간단한 버전)
+     */
+    private extractKoreanStem(word: string): string {
+        // 간단한 어간 추출 (실제로는 형태소 분석 라이브러리 사용 권장)
+        if (word.length > 2) {
+            return word.slice(0, -1); // 마지막 글자 제거
+        }
+        return word;
+    }
+
+    /**
+     * 한국어 불용어 확인
+     */
+    private isKoreanStopWord(word: string): boolean {
+        const stopWords = ['이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '은', '는', '이다', '다', '하다', '되다', '있다', '없다'];
+        return stopWords.includes(word);
+    }
+
+    /**
+     * 영어 불용어 확인
+     */
+    private isStopWord(word: string): boolean {
+        const stopWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where', 'when', 'why', 'how'];
+        return stopWords.includes(word.toLowerCase());
+    }
+
+    /**
+     * 개발 관련 키워드를 추출합니다
+     */
+    private getDevelopmentKeywords(userQuery: string): string[] {
+        const keywords: string[] = [];
+        const queryLower = userQuery.toLowerCase();
+
+        const techKeywords = [
+            'react', 'vue', 'angular', 'node', 'express', 'typescript', 'javascript', 'python', 'java',
+            'spring', 'springboot', 'boot', 'django', 'flask', 'vite', 'webpack', 'babel', 'eslint',
+            'prettier', 'maven', 'gradle', 'npm', 'yarn', 'pnpm', 'bun'
+        ];
+
+        for (const keyword of techKeywords) {
+            if (queryLower.includes(keyword)) {
+                keywords.push(keyword);
+            }
+        }
+
+        return keywords;
+    }
+
+    /**
+     * 키워드 우선순위를 기반으로 필터링합니다
+     */
+    private prioritizeKeywords(keywords: string[], userQuery: string): string[] {
+        const keywordScores = new Map<string, number>();
+
+        for (const keyword of keywords) {
+            let score = 0;
+
+            if (userQuery.toLowerCase().includes(keyword.toLowerCase())) {
+                score += 10;
+            }
+
+            const techKeywords = ['react', 'vue', 'angular', 'node', 'express', 'typescript', 'javascript', 'python', 'java', 'spring', 'springboot', 'boot', 'django', 'flask', 'vite', 'webpack', 'babel', 'eslint', 'prettier', 'maven', 'gradle'];
+            if (techKeywords.includes(keyword.toLowerCase())) {
+                score += 5;
+            }
+
+            const fileKeywords = ['src', 'package', 'config', 'main', 'index', 'app', 'component', 'service', 'util', 'helper', 'controller', 'repository', 'entity', 'application', 'resources'];
+            if (fileKeywords.includes(keyword.toLowerCase())) {
+                score += 2;
+            }
+
+            if (/^[가-힣]+$/.test(keyword)) {
+                score += 3;
+            }
+
+            if (keyword.length < 2) {
+                score -= 5;
+            } else if (keyword.length > 20) {
+                score -= 2;
+            }
+
+            keywordScores.set(keyword, score);
+        }
+
+        return Array.from(keywordScores.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([keyword]) => keyword);
+    }
+
+    /**
+     * 대화 히스토리에서 키워드를 확장합니다
+     */
+    private expandKeywordsWithHistory(
+        keywords: string[],
+        conversationHistory?: { userQuery: string; aiResponse?: string; timestamp: number }[]
+    ): string[] {
+        if (!conversationHistory || conversationHistory.length === 0) {
+            return keywords;
+        }
+
+        const expandedKeywords = new Set(keywords);
+
+        // 최근 대화에서 키워드 추출
+        for (const entry of conversationHistory.slice(-5)) {
+            const historyKeywords = this.extractKeywordsFromQuery(entry.userQuery);
+            historyKeywords.forEach(k => expandedKeywords.add(k));
+        }
+
+        return Array.from(expandedKeywords);
+    }
+
+    /**
+     * 관련 파일을 찾습니다
+     */
+    private async findRelevantFiles(
+        projectRoot: string,
+        keywords: string[],
+        abortSignal: AbortSignal
+    ): Promise<string[]> {
+        const relevantFiles: string[] = [];
+        const projectInfo = this.projectManager.getCurrentProject();
+
+        // 프로젝트 타입에 따른 검색 패턴
+        let searchPatterns: string[];
+
+        if (projectInfo?.type === 'spring-boot' || projectInfo?.type === 'java') {
+            searchPatterns = [
+                'pom.xml', 'build.gradle', 'build.gradle.kts',
+                'src/main/resources/application.properties',
+                'src/main/resources/application.yml',
+                'src/main/resources/application.yaml',
+                'src/main/java/**/*.java',
+                'src/test/java/**/*.java'
+            ];
+        } else if (projectInfo?.type === 'react' || projectInfo?.type === 'vue' || projectInfo?.type === 'angular') {
+            searchPatterns = [
+                'package.json',
+                'src/**/*.ts', 'src/**/*.js', 'src/**/*.tsx', 'src/**/*.jsx', 'src/**/*.vue',
+                'src/**/*.css', 'src/**/*.scss', 'src/**/*.html'
+            ];
+        } else {
+            searchPatterns = [
+                '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java',
+                '**/*.html', '**/*.css', '**/*.json', '**/*.yaml', '**/*.yml'
+            ];
+        }
+
+        // 키워드 패턴 생성
+        const keywordPatterns = this.generateKeywordPatterns(keywords);
+        const allPatterns = [...searchPatterns, ...keywordPatterns];
+
+        try {
+            const indexer = (this.projectManager as any).indexer;
+            if (!indexer) {
+                return [];
+            }
+
+            for (const pattern of allPatterns) {
+                if (abortSignal.aborted) break;
+
+                try {
+                    const files = await glob(pattern, { cwd: projectRoot, nodir: true });
+                    const fullPaths = files.map((file: string) => path.join(projectRoot, file));
+
+                    for (const filePath of fullPaths) {
+                        if (abortSignal.aborted) break;
+
+                        if (indexer.isLibraryPath && indexer.isLibraryPath(filePath, projectRoot)) {
+                            continue;
+                        }
+
+                        const fileName = path.basename(filePath).toLowerCase();
+                        const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+
+                        const isRelevant = keywords.some(keyword =>
+                            fileName.includes(keyword.toLowerCase()) ||
+                            relativePath.includes(keyword.toLowerCase())
+                        );
+
+                        if (isRelevant && !relevantFiles.includes(filePath)) {
+                            relevantFiles.push(filePath);
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`[RelevantFilesFinder] 패턴 검색 중 오류: ${pattern}`, error);
+                }
+            }
+        } catch (error) {
+            console.error('[RelevantFilesFinder] 파일 검색 중 오류:', error);
+        }
+
+        return relevantFiles;
+    }
+
+    /**
+     * 키워드 기반 검색 패턴을 생성합니다
+     */
+    private generateKeywordPatterns(keywords: string[]): string[] {
+        const patterns: string[] = [];
+        const addedPatterns = new Set<string>();
+
+        const topKeywords = keywords.slice(0, 5);
+
+        for (const keyword of topKeywords) {
+            const basicPatterns = [
+                `**/*${keyword}*`,
+                `**/${keyword}/**/*`
+            ];
+
+            for (const pattern of basicPatterns) {
+                if (!addedPatterns.has(pattern)) {
+                    patterns.push(pattern);
+                    addedPatterns.add(pattern);
+                }
+            }
+        }
+
+        return patterns;
+    }
+
+    /**
+     * 토큰 제한 기반 파일 선택
+     */
+    private selectFilesBasedOnTokenLimit(
+        relevantFiles: string[],
+        userQuery: string,
+        projectRoot: string
+    ): string[] {
+        const fileScores = new Map<string, number>();
+        const indexer = (this.projectManager as any).indexer;
+
+        for (const filePath of relevantFiles) {
+            if (indexer && indexer.isLibraryPath && indexer.isLibraryPath(filePath, projectRoot)) {
+                continue;
+            }
+
+            let score = 0;
+            const fileName = path.basename(filePath).toLowerCase();
+            const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+
+            if (userQuery.toLowerCase().includes(fileName.split('.')[0])) {
+                score += 20;
+            }
+
+            if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'pom.xml' || fileName === 'build.gradle') {
+                score += 15;
+            }
+
+            if (fileName.endsWith('.ts') || fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx') || fileName.endsWith('.java')) {
+                score += 10;
+            }
+
+            if (relativePath.includes('src/main/java') || relativePath.includes('src/main/resources')) {
+                score += 8;
+            }
+
+            fileScores.set(filePath, score);
+        }
+
+        return Array.from(fileScores.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 20)
+            .map(([filePath]) => filePath);
+    }
+
+    /**
+     * LLM을 통한 키워드 선택
+     */
+    private async selectKeywordsWithLLM(
+        userQuery: string,
+        keywords: string[],
+        projectRoot: string
+    ): Promise<{ keywords: string[]; reasoning: string; confidence: number }> {
+        if (!this.keywordService) {
+            return {
+                keywords: keywords.slice(0, 5),
+                reasoning: 'LLM 서비스 미설정으로 기본 키워드 사용',
+                confidence: 0.3
+            };
+        }
+
+        try {
+            // KeywordSelector를 사용하여 키워드 선택
+            // 실제 구현은 KeywordSelector에 위임
+            return {
+                keywords: keywords.slice(0, 5),
+                reasoning: 'LLM 키워드 선택 (구현 예정)',
+                confidence: 0.7
+            };
+        } catch (error) {
+            console.warn('[RelevantFilesFinder] LLM 키워드 선택 실패:', error);
+            return {
+                keywords: keywords.slice(0, 5),
+                reasoning: 'LLM 키워드 선택 실패',
+                confidence: 0.3
+            };
+        }
+    }
+}
+

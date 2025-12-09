@@ -1,2 +1,0 @@
-[2025-11-19T02:09:12.371Z] Debug session started
-[2025-11-19T02:09:12.464Z] VS Code debug session started: [worker 1]
