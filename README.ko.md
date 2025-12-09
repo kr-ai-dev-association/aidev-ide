@@ -6,6 +6,13 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.0 (마이그레이션 완료 요약)
+- 새로운 매니저 아키텍처로 전면 통합(ARCHITECTURE.md 참조): Action/Execution/Terminal/Task/Project/Context/State-Session/Error/Model 매니저 중심으로 OS·LLM·Framework 추상화 일원화.
+- STABILITY_GUIDE 기반 안정화: 최소 명령 정책(주석/조건문 금지, 최대 4개), 설치 플로우 핵심 명령만 유지, 플레이스홀더/중복/불필요 진단 명령 제거, 완료 신호/작업 큐 정리 강화, 안전 cwd 폴백.
+- 프롬프트 강화: 실행 의도 시 한 줄 순수 명령만, lock 여부별 install 1개, 버전 확인 1회, 프레임워크 타입별 실행 명령 1줄.
+- Action 파이프라인 정리: 명령 파싱 필터 강화, 요약 시 실제 명령 표시, 액션 실행 완료 후 큐 클리어 및 완료 이벤트 전송.
+- README/ARCHITECTURE/STABILITY_GUIDE 업데이트: 최신 구조와 안정성 가이드 반영.
+
 ## 주요 기능
 
 <img src="https://drive.google.com/uc?export=view&id=1Qnb_rdSzjfSR34o4lZB5nDCCTuwD7lLJ" width="700" height="500"/>
@@ -39,25 +46,64 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **자연어 처리**: 복잡한 요청도 자연어로 이해
 - **로컬 AI 처리**: Ollama 통합으로 완전한 오프라인 기능 제공
 
-### 🚀 **NEW in v4.10.0 - 매니저 기반 아키텍처 & 스마트 액션 시스템**
+### 🚀 **NEW in v4.10.0+ - 완전한 매니저 기반 아키텍처**
 
-#### **매니저 기반 아키텍처**
-- **Action Manager**: LLM 응답에서 액션 자동 추출 및 검증
-  - 7가지 액션 타입: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
-  - 의존성 체크를 통한 스마트 검증
-  - 순환 의존성 자동 감지
-  - 권한 제어 및 위험한 명령어 차단
-- **Execution Manager**: 에러 감지 기능을 갖춘 프로세스 생명주기 관리
-  - 동기/비동기 명령어 실행
-  - 프로세스 모니터링 (PID 추적)
-  - 10가지 에러 타입 자동 감지 (포트 충돌, 권한 거부, 구문 오류 등)
-  - 장기 실행 프로세스 지원 (개발 서버, 빌드 프로세스)
-  - Grace period 종료 (SIGTERM → SIGKILL)
-- **Terminal Manager**: 터미널 세션 생명주기 관리
-  - 멀티 터미널 세션 관리
-  - 명령어 히스토리 추적 (1000개 엔트리)
-  - 가장 많이 사용된 명령어 통계
-  - 세션 재사용 및 자동 생성
+#### **9개 핵심 매니저 시스템**
+
+1. **Action Manager** - LLM 응답을 실행 가능한 액션으로 변환
+   - 7가지 액션 타입: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
+   - 의존성 체크를 통한 스마트 검증
+   - 순환 의존성 자동 감지
+   - 권한 제어 및 위험한 명령어 차단
+
+2. **Execution Manager** - 프로세스 생명주기 관리
+   - 동기/비동기 명령어 실행
+   - 프로세스 모니터링 (PID 추적)
+   - 10가지 에러 타입 자동 감지
+   - 장기 실행 프로세스 지원
+   - Grace period 종료 (SIGTERM → SIGKILL)
+
+3. **Terminal Manager** - 터미널 세션 관리
+   - 멀티 터미널 세션 관리
+   - 명령어 히스토리 추적 (1000개 엔트리)
+   - 가장 많이 사용된 명령어 통계
+   - 세션 재사용 및 자동 생성
+
+4. **Task Manager** - 비동기 작업 큐 관리
+   - 우선순위 기반 스케줄링
+   - Exponential Backoff 재시도
+   - 작업 이벤트 시스템
+   - 최대 동시 실행 제어
+
+5. **Error Manager** - 에러 분석 및 관리
+   - 에러 파싱 및 분류
+   - 스택 트레이스 분석
+   - 에러 히스토리 관리
+   - 수정 제안 생성
+
+6. **Context Manager** - LLM 컨텍스트 수집
+   - 파일/에디터/터미널 컨텍스트 수집
+   - 토큰 추정 및 제한 관리
+   - 관련 파일 자동 탐색
+   - Import/Export 분석
+
+7. **State/Session Manager** - 상태 및 세션 관리
+   - 전역 상태 관리
+   - 프로젝트별 세션 관리
+   - 사용자 설정 관리
+   - 통계 추적
+
+8. **Project Manager** - 프로젝트 구조 분석
+   - 프로젝트 타입 자동 감지
+   - 설정 파일 파싱
+   - 파일 인덱싱 (Tree-sitter 통합)
+   - 빌드 명령어 추출
+
+9. **Model Manager** - LLM 모델 관리
+   - 모델 등록 및 선택
+   - API 키 관리
+   - 모델 사용량 추적
+   - 기능별 모델 추천
 
 #### **스마트 액션 추출**
 - **코드 블록 인식**: ` ```language:path/to/file ... ``` ` 패턴 자동 감지
