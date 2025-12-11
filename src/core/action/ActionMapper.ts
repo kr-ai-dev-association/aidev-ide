@@ -172,7 +172,7 @@ export class ActionMapper {
             const commands = block.split('\n');
 
             for (const cmd of commands) {
-                const cleanCmd = cmd.trim();
+                const cleanCmd = this.stripInlineComment(cmd.trim());
                 if (cleanCmd && !cleanCmd.startsWith('#') && !cleanCmd.startsWith('//') && this.isLikelyCommand(cleanCmd)) {
                     actions.push(this.createTerminalCommandAction(cleanCmd));
                 }
@@ -183,7 +183,7 @@ export class ActionMapper {
         const commandPattern = /(?:Run|Execute|Command):\s*`([^`]+)`/gi;
 
         while ((match = commandPattern.exec(content)) !== null) {
-            const command = match[1].trim();
+            const command = this.stripInlineComment(match[1].trim());
             if (command) {
                 actions.push(this.createTerminalCommandAction(command));
             }
@@ -192,7 +192,7 @@ export class ActionMapper {
         // 인라인 백틱에 포함된 쉘 명령 추출 (테이블/문단 내 `npm install`, `npm run dev` 등)
         const inlineCommandPattern = /`([^`]+)`/g;
         while ((match = inlineCommandPattern.exec(content)) !== null) {
-            const command = match[1].trim();
+            const command = this.stripInlineComment(match[1].trim());
             if (this.isLikelyCommand(command)) {
                 actions.push(this.createTerminalCommandAction(command));
             }
@@ -214,6 +214,16 @@ export class ActionMapper {
         let normalized = block.replace(/\r/g, '');
         normalized = normalized.replace(/\\n/g, '\n');
         return normalized.trim();
+    }
+
+    /**
+     * 한 줄 명령에서 인라인 주석(#, //)을 제거합니다.
+     */
+    private stripInlineComment(command: string): string {
+        if (!command) return '';
+        // 공백 뒤에 오는 주석만 제거해 URL(https://) 등은 보존
+        let cleaned = command.replace(/\s+#.*$/, '').replace(/\s+\/\/.*$/, '');
+        return cleaned.trim();
     }
 
     /**

@@ -1,0 +1,322 @@
+import {
+    ILLMAdapter,
+    SystemPromptContext,
+    UserPromptContext,
+    CodeGenerationContext,
+    ErrorCorrectionContext,
+    CommandExecutionContext,
+    ParsedLLMResponse,
+    StreamingChunk,
+    LLMRequestOptions,
+    LLMFeature,
+} from './ILLMAdapter';
+import { AiModelType } from '../../../services';
+import { PromptComposer } from '../../context/prompts/PromptComposer';
+import { ProjectManager } from '../../project/ProjectManager';
+import {
+    BASE_GUIDE,
+    CODE_GENERATION_GUIDE,
+    ERROR_CORRECTION_GUIDE,
+    COMMAND_EXECUTION_GUIDE,
+    buildOSSpecificPrompt,
+    buildShellSpecificPrompt,
+    buildProjectContextPrompt,
+    getDefaultOutputFormat,
+} from './commonGuides';
+
+/**
+ * Gemma LLM 어댑터
+ * Gemma 계열 모델용 프롬프트/응답 처리
+ */
+export class GemmaAdapter implements ILLMAdapter {
+    readonly llmId = 'gemma';
+    readonly llmName = 'Gemma';
+    readonly modelName = 'gemma';
+
+    // ==================== 프롬프트 생성 ====================
+
+    buildSystemPrompt(context: SystemPromptContext): string {
+        try {
+            const projectManager = ProjectManager.getInstance();
+            const frameworkAdapter = projectManager.getFrameworkAdapter();
+
+            const composerOptions = {
+                userOS: context.osName,
+                modelType: AiModelType.OLLAMA_Gemma,
+                taskType: undefined as 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal' | undefined,
+                frameworkName: context.framework && context.framework.length > 0 ? context.framework[0].toLowerCase() : undefined,
+                projectType: context.projectType,
+                frameworkAdapter: frameworkAdapter,
+            };
+
+            return PromptComposer.composeSystemPrompt(composerOptions);
+        } catch (error) {
+            console.warn('[GemmaAdapter] PromptComposer 사용 실패, 기본 프롬프트 사용:', error);
+
+            const parts: string[] = [];
+            parts.push(BASE_GUIDE);
+            parts.push(buildOSSpecificPrompt(context));
+            parts.push(CODE_GENERATION_GUIDE);
+            parts.push(this.getGemmaSpecificPrompt());
+            if (context.projectType) {
+                parts.push(
+                    buildProjectContextPrompt(
+                        context.projectType,
+                        context.framework,
+                        ProjectManager.getInstance().getFrameworkAdapter() ?? undefined,
+                    ),
+                );
+            }
+            return parts.join('\n\n');
+        }
+    }
+
+    buildUserPrompt(context: UserPromptContext): string {
+        const parts: string[] = [];
+
+        if (context.conversationHistory && context.conversationHistory.length > 0) {
+            parts.push('## 대화 기록:');
+            context.conversationHistory.forEach((msg, idx) => {
+                parts.push(`[${idx + 1}] ${msg.role}: ${msg.content}`);
+            });
+            parts.push('');
+        }
+
+        if (context.includedFiles && context.includedFiles.length > 0) {
+            parts.push('## 컨텍스트 파일:');
+            context.includedFiles.forEach(file => {
+                parts.push(`### ${file.name}`);
+                parts.push('```');
+                parts.push(file.content);
+                parts.push('```');
+                parts.push('');
+            });
+        }
+
+        parts.push('## 사용자 요청:');
+        parts.push(context.query);
+
+        return parts.join('\n');
+    }
+
+    buildCodeGenerationPrompt(context: CodeGenerationContext): string {
+        const parts: string[] = [
+            CODE_GENERATION_GUIDE,
+            '',
+            `프로젝트 타입: ${context.projectType}`,
+            `기술 스택: ${context.framework.join(', ')}`,
+            '',
+            '## 요구사항:',
+            context.requirements,
+        ];
+
+        if (context.existingFiles && context.existingFiles.length > 0) {
+            parts.push('', '## 기존 파일:');
+            context.existingFiles.forEach(file => {
+                parts.push(`### ${file.path}`);
+                parts.push('```');
+                parts.push(file.content);
+                parts.push('```');
+            });
+        }
+
+        parts.push('', '## 출력 형식:', getDefaultOutputFormat());
+        return parts.join('\n');
+    }
+
+    buildErrorCorrectionPrompt(context: ErrorCorrectionContext): string {
+        const parts: string[] = [
+            ERROR_CORRECTION_GUIDE,
+            '',
+            `에러 타입: ${context.errorType}`,
+            '',
+            '## 에러 메시지:',
+            context.errorMessage,
+        ];
+
+        if (context.commandExecuted) {
+            parts.push('', '## 실행된 명령어:', context.commandExecuted);
+        }
+
+        if (context.terminalOutput) {
+            parts.push('', '## 터미널 출력:', context.terminalOutput);
+        }
+
+        if (context.relevantFiles && context.relevantFiles.length > 0) {
+            parts.push('', '## 관련 파일:');
+            context.relevantFiles.forEach(file => {
+                parts.push(`### ${file.path}`);
+                parts.push('```');
+                parts.push(file.content);
+                parts.push('```');
+            });
+        }
+
+        parts.push('', '## 수정 방법:', '에러를 분석하고 수정된 명령어 또는 코드를 제공해주세요.');
+
+        return parts.join('\n');
+    }
+
+    buildCommandExecutionPrompt(context: CommandExecutionContext): string {
+        const parts: string[] = [
+            COMMAND_EXECUTION_GUIDE,
+            '',
+            buildShellSpecificPrompt(context.shellType),
+            '',
+            `프로젝트 타입: ${context.projectType}`,
+            `현재 디렉토리: ${context.currentDirectory}`,
+            '',
+            '## 요청:',
+            context.intent,
+        ];
+
+        return parts.join('\n');
+    }
+
+    // ==================== 응답 처리 ====================
+
+    parseResponse(response: string): ParsedLLMResponse {
+        const result: ParsedLLMResponse = {
+            text: response,
+            codeBlocks: [],
+            fileOperations: [],
+            commands: [],
+        };
+
+        const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+        let match;
+        while ((match = codeBlockRegex.exec(response)) !== null) {
+            result.codeBlocks!.push({
+                language: match[1] || 'text',
+                code: match[2],
+            });
+        }
+
+        const fileOperationRegex = /(?:##\s*)?(새 파일|수정 파일|삭제 파일):\s+([^\r\n]+?)(?:\r?\n\s*\r?\n```[^\n]*\r?\n([\s\S]*?)\r?\n```)/g;
+        while ((match = fileOperationRegex.exec(response)) !== null) {
+            const operation = match[1].includes('새') ? 'create' : match[1].includes('수정') ? 'modify' : 'delete';
+            result.fileOperations!.push({
+                operation,
+                path: match[2].trim().replace(/\*\*$/, ''),
+                content: match[3],
+            });
+        }
+
+        const commandRegex = /```(?:bash|powershell|sh|cmd)\n([\s\S]*?)```/g;
+        while ((match = commandRegex.exec(response)) !== null) {
+            const commands = match[1]
+                .split('\n')
+                .map(line => this.stripInlineComment(line.trim()))
+                .filter(line => line && !line.startsWith('#'));
+            result.commands!.push(...commands);
+        }
+
+        return result;
+    }
+
+    /**
+     * 한 줄 명령에서 인라인 주석(#, //)을 제거합니다.
+     */
+    private stripInlineComment(command: string): string {
+        if (!command) return '';
+        let cleaned = command.replace(/\s+#.*$/, '').replace(/\s+\/\/.*$/, '');
+        return cleaned.trim();
+    }
+
+    handleStreamingChunk(chunk: string): StreamingChunk | null {
+        if (chunk.includes('[DONE]')) {
+            return { type: 'complete', content: '' };
+        }
+
+        try {
+            const data = JSON.parse(chunk);
+            if (data.response) {
+                return { type: 'text', content: data.response };
+            }
+        } catch (e) {
+            return { type: 'text', content: chunk };
+        }
+
+        return null;
+    }
+
+    // ==================== 토큰 관리 ====================
+
+    getMaxInputTokens(): number {
+        return 128000;
+    }
+
+    getMaxOutputTokens(): number {
+        return 8192;
+    }
+
+    estimateTokenCount(text: string): number {
+        return Math.ceil(text.length / 4);
+    }
+
+    // ==================== API 설정 ====================
+
+    getApiEndpoint(): string {
+        return '/api/generate';
+    }
+
+    getApiHeaders(): Record<string, string> {
+        return {
+            'Content-Type': 'application/json',
+        };
+    }
+
+    buildApiRequestBody(prompt: string, options?: LLMRequestOptions): any {
+        return {
+            model: this.modelName,
+            prompt: prompt,
+            stream: options?.stream ?? true,
+            options: {
+                temperature: options?.temperature ?? 0.7,
+                num_predict: options?.maxTokens ?? 4096,
+                top_p: options?.topP ?? 0.9,
+                stop: options?.stopSequences ?? [],
+            },
+        };
+    }
+
+    // ==================== LLM별 특화 기능 ====================
+
+    getSupportedFeatures(): LLMFeature[] {
+        return [
+            LLMFeature.STREAMING,
+            LLMFeature.CODE_GENERATION,
+            LLMFeature.ERROR_CORRECTION,
+            LLMFeature.MULTI_TURN,
+            LLMFeature.FILE_OPERATIONS,
+            LLMFeature.COMMAND_EXECUTION,
+        ];
+    }
+
+    supportsFeature(feature: LLMFeature): boolean {
+        return this.getSupportedFeatures().includes(feature);
+    }
+
+    getModelSpecificSettings(): Record<string, any> {
+        return {
+            temperature: 0.7,
+            topP: 0.9,
+            maxTokens: 4096,
+            streamingEnabled: true,
+            contextWindow: 128000,
+        };
+    }
+
+    // ==================== Private 헬퍼 메서드 ====================
+
+    private getGemmaSpecificPrompt(): string {
+        return `## Gemma 특화 가이드라인:
+
+1. **간결한 표현**: 불필요한 수식을 피하고 핵심만 전달
+2. **표준 마크다운**: 코드블록 언어 지정 준수
+3. **명확한 단계**: 실행/수정 단계를 번호로 구분
+4. **보수적 명령 실행**: 파괴적 명령어 제안 금지`;
+    }
+
+}
+

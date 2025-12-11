@@ -13,26 +13,16 @@ import {
 import { AiModelType } from '../../../services';
 import { PromptComposer } from '../../context/prompts/PromptComposer';
 import { ProjectManager } from '../../project/ProjectManager';
-
-const BASE_GUIDE = `당신은 AIDEV-IDE, VS Code에 통합된 AI 코딩 어시스턴트입니다.
-코드 생성, 디버깅, 프로젝트 관리에 도움을 줍니다.`;
-
-const CODE_GENERATION_GUIDE = `코드 생성/수정 지침:
-- 항상 전체 파일 내용을 제공합니다 (부분 코드 금지)
-- 파일 작업 지시어를 명확히 사용: "새 파일:", "수정 파일:", "삭제 파일:"
-- 생성/수정/삭제한 파일 목록을 요약에 포함
-- 변경 이유와 테스트 방법을 함께 제공합니다`;
-
-const ERROR_CORRECTION_GUIDE = `에러 수정 지침:
-- 에러 메시지와 터미널 출력을 면밀히 분석
-- 근본 원인을 먼저 파악한 뒤 수정안을 제시
-- 수정된 명령어나 코드 변화를 함께 제공
-- 왜 문제가 발생했고 수정안이 어떻게 해결하는지 설명`;
-
-const COMMAND_EXECUTION_GUIDE = `명령 생성 지침:
-- 사용자의 OS와 셸 타입에 맞는 문법 사용 (macOS/Linux: bash, Windows: PowerShell/CMD)
-- 안전하고 비파괴적인 명령만 제시
-- 각 명령이 수행하는 작업을 간단히 설명`;
+import {
+    BASE_GUIDE,
+    CODE_GENERATION_GUIDE,
+    ERROR_CORRECTION_GUIDE,
+    COMMAND_EXECUTION_GUIDE,
+    buildOSSpecificPrompt,
+    buildShellSpecificPrompt,
+    buildProjectContextPrompt,
+    getDefaultOutputFormat,
+} from './commonGuides';
 
 /**
  * GPT LLM 어댑터
@@ -69,11 +59,17 @@ export class GptAdapter implements ILLMAdapter {
             // 기존 로직을 fallback으로 유지
             const parts: string[] = [];
             parts.push(BASE_GUIDE);
-            parts.push(this.getOSSpecificPrompt(context));
+            parts.push(buildOSSpecificPrompt(context));
             parts.push(CODE_GENERATION_GUIDE);
             parts.push(this.getGptSpecificPrompt(context));
             if (context.projectType) {
-                parts.push(this.getProjectTypePrompt(context.projectType, context.framework));
+                parts.push(
+                    buildProjectContextPrompt(
+                        context.projectType,
+                        context.framework,
+                        ProjectManager.getInstance().getFrameworkAdapter() ?? undefined,
+                    ),
+                );
             }
             return parts.join('\n\n');
         }
@@ -132,7 +128,7 @@ export class GptAdapter implements ILLMAdapter {
         }
 
         // GPT 특화: 명확한 출력 형식 지정
-        parts.push('', '## 출력 형식:', this.getGptOutputFormat());
+        parts.push('', '## 출력 형식:', getDefaultOutputFormat());
 
         return parts.join('\n');
     }
@@ -171,12 +167,10 @@ export class GptAdapter implements ILLMAdapter {
     }
 
     buildCommandExecutionPrompt(context: CommandExecutionContext): string {
-        const shellPrompt = this.getShellSpecificPrompt(context.shellType, context.osType);
-
         const parts: string[] = [
             COMMAND_EXECUTION_GUIDE,
             '',
-            shellPrompt,
+            buildShellSpecificPrompt(context.shellType),
             '',
             `프로젝트 타입: ${context.projectType}`,
             `현재 디렉토리: ${context.currentDirectory}`,
@@ -224,12 +218,21 @@ export class GptAdapter implements ILLMAdapter {
         while ((match = commandRegex.exec(response)) !== null) {
             const commands = match[1]
                 .split('\n')
-                .filter(line => line.trim() && !line.trim().startsWith('#'))
-                .map(line => line.trim());
+                .map(line => this.stripInlineComment(line.trim()))
+                .filter(line => line && !line.startsWith('#'));
             result.commands!.push(...commands);
         }
 
         return result;
+    }
+
+    /**
+     * 한 줄 명령에서 인라인 주석(#, //)을 제거합니다.
+     */
+    private stripInlineComment(command: string): string {
+        if (!command) return '';
+        let cleaned = command.replace(/\s+#.*$/, '').replace(/\s+\/\/.*$/, '');
+        return cleaned.trim();
     }
 
     handleStreamingChunk(chunk: string): StreamingChunk | null {
@@ -323,18 +326,6 @@ export class GptAdapter implements ILLMAdapter {
 
     // ==================== Private 헬퍼 메서드 ====================
 
-    private getOSSpecificPrompt(context: SystemPromptContext): string {
-        const osInfo = `당신은 ${context.osName} (${context.osType}) 환경에서 작동하고 있습니다.
-셸 타입: ${context.shellType}
-
-명령어 생성 시 다음을 준수하세요:
-${context.osType === 'win32' ?
-                '- Windows PowerShell 또는 CMD 문법 사용\n- 경로 구분자로 백슬래시(\\) 사용\n- .exe 확장자 포함' :
-                '- Bash/Zsh 문법 사용\n- 경로 구분자로 슬래시(/) 사용\n- Unix 스타일 명령어 사용'}`;
-
-        return osInfo;
-    }
-
     private getGptSpecificPrompt(context: SystemPromptContext): string {
         return `## GPT 특화 가이드라인:
 
@@ -345,49 +336,5 @@ ${context.osType === 'win32' ?
 5. **테스트 방법**: 생성한 코드의 테스트 방법을 포함하세요`;
     }
 
-    private getProjectTypePrompt(projectType: string, framework?: string[]): string {
-        let prompt = `\n## 프로젝트 컨텍스트:\n프로젝트 타입: ${projectType}`;
-
-        if (framework && framework.length > 0) {
-            prompt += `\n기술 스택: ${framework.join(', ')}`;
-        }
-
-        // 프로젝트 타입별 특화 가이드
-        const typeGuides: Record<string, string> = {
-            'Node.js': '- package.json 의존성을 고려하세요\n- ES6+ 문법을 사용하세요',
-            'TypeScript': '- 타입 안정성을 보장하세요\n- tsconfig.json 설정을 준수하세요',
-            'Spring Boot': '- Spring 어노테이션을 적절히 사용하세요\n- 의존성 주입 패턴을 따르세요',
-            'React': '- React Hooks를 활용하세요\n- 컴포넌트 재사용성을 고려하세요',
-            'Vue': '- Composition API를 우선 사용하세요\n- Vue 3 문법을 따르세요',
-        };
-
-        if (typeGuides[projectType]) {
-            prompt += `\n\n${projectType} 특화 가이드:\n${typeGuides[projectType]}`;
-        }
-
-        return prompt;
-    }
-
-    private getShellSpecificPrompt(shellType: string, osType: string): string {
-        const shellGuides: Record<string, string> = {
-            bash: '```bash\n# Bash 명령어 예시\ncommand --option value\n```',
-            zsh: '```zsh\n# Zsh 명령어 예시\ncommand --option value\n```',
-            powershell: '```powershell\n# PowerShell 명령어 예시\nCommand-Verb -Parameter Value\n```',
-            cmd: '```cmd\n# CMD 명령어 예시\ncommand /option value\n```',
-        };
-
-        return `명령어는 **${shellType}** 문법으로 작성하세요.\n\n예시:\n${shellGuides[shellType] || shellGuides.bash}`;
-    }
-
-    private getGptOutputFormat(): string {
-        return `1. **작업 요약**: 수행할 작업의 개요를 먼저 작성
-2. **파일 작업**: 각 파일마다 다음 형식 사용:
-   - 새 파일: 파일경로
-   - 수정 파일: 파일경로
-   - 삭제 파일: 파일경로
-3. **코드**: 마크다운 코드 블록으로 전체 내용 제공
-4. **설명**: 변경사항에 대한 상세 설명
-5. **테스트**: 동작 확인 방법`;
-    }
 }
 
