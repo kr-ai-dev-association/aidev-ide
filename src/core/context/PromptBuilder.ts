@@ -2,66 +2,72 @@
  * Prompt Builder
  * LLM 프롬프트 생성을 담당하는 서비스
  * OS별, 모델별, 프로젝트별 프롬프트 생성
+ * 
+ * @deprecated 이 클래스는 PromptComposer를 사용하도록 리팩토링되었습니다.
+ * 새로운 코드에서는 PromptComposer를 직접 사용하세요.
  */
 
 import { AiModelType, PromptType } from '../../services';
-import { OSAdapterFactory } from '../execution/os/OSAdapterFactory';
+import { PromptComposer, PromptComposerOptions } from './prompts/PromptComposer';
+import { ProjectManager } from '../project/ProjectManager';
 
 export interface PromptBuilderOptions {
-    userOS: string;
-    modelType: AiModelType;
-    promptType: PromptType;
-    codebaseContext?: string;
-    realTimeInfo?: string;
-    profileContext?: string;
-    intentContext?: string;
-    gitContext?: string;
-    languageInstruction?: string;
+  userOS: string;
+  modelType: AiModelType;
+  promptType: PromptType;
+  codebaseContext?: string;
+  realTimeInfo?: string;
+  profileContext?: string;
+  intentContext?: string;
+  gitContext?: string;
+  languageInstruction?: string;
+  taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
 }
 
 export class PromptBuilder {
-    private userOS: string;
-    private modelType: AiModelType;
+  private userOS: string;
+  private modelType: AiModelType;
 
-    constructor(userOS: string, modelType: AiModelType) {
-        this.userOS = userOS;
-        this.modelType = modelType;
+  constructor(userOS: string, modelType: AiModelType) {
+    this.userOS = userOS;
+    this.modelType = modelType;
+  }
+
+  /**
+   * OS별 시스템 프롬프트를 생성합니다.
+   * 모델 타입에 따라 최적화된 프롬프트를 제공합니다.
+   * 
+   * @deprecated PromptComposer.composeSystemPrompt()를 사용하세요.
+   */
+  public generateOSSpecificSystemPrompt(options?: { taskType?: string; frameworkName?: string }): string {
+    const projectManager = ProjectManager.getInstance();
+    const currentProject = projectManager.getCurrentProject();
+
+    // 프레임워크 감지
+    let frameworkName: string | undefined;
+    if (currentProject?.framework) {
+      frameworkName = currentProject.framework.toLowerCase();
+    } else if (options?.frameworkName) {
+      frameworkName = options.frameworkName;
     }
 
-    /**
-     * OS별 시스템 프롬프트를 생성합니다.
-     * 모델 타입에 따라 최적화된 프롬프트를 제공합니다.
-     */
-    public generateOSSpecificSystemPrompt(): string {
-        // 추상화 서비스에서 OS 정보 가져오기
-        const osDetectionResult = OSAdapterFactory.detect();
+    const composerOptions: PromptComposerOptions = {
+      userOS: this.userOS,
+      modelType: this.modelType,
+      taskType: options?.taskType as any,
+      frameworkName,
+      projectType: currentProject?.type
+    };
 
-        // 프로젝트별 상세 가이드라인은 기존 로직 사용
-        const commonGuidelines = this.getCommonGuidelines();
-        const modelSpecificPrompt = this.getModelSpecificSystemPrompt();
-        const osSpecificGuidelines = this.getOSSpecificGuidelines();
+    return PromptComposer.composeSystemPrompt(composerOptions);
+  }
 
-        // 추상화 서비스의 기본 컨텍스트 추가 (간결한 OS 정보)
-        const osContextInfo = `**실행 환경:**
-- OS: ${osDetectionResult.osName} (${osDetectionResult.osType})
-- 셸: ${osDetectionResult.shellType}
-- 아키텍처: ${osDetectionResult.architecture}
-`;
-
-        return `${osContextInfo}
-
-${commonGuidelines}
-
-${modelSpecificPrompt}
-
-${osSpecificGuidelines}`;
-    }
-
-    /**
-     * 모든 모델에 공통으로 적용되는 기본 지침
-     */
-    private getCommonGuidelines(): string {
-        return `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
+  /**
+   * 모든 모델에 공통으로 적용되는 기본 지침
+   * @deprecated PromptComposer를 사용하세요. 이 메서드는 하위 호환성을 위해 유지됩니다.
+   */
+  private getCommonGuidelines(): string {
+    return `당신은 전문적인 소프트웨어 개발자입니다. 사용자의 요청에 따라 코드를 생성하고 수정하는 작업을 수행합니다.
 
 기본 규칙:
 - 완전하고 실행 가능한 코드 제공
@@ -70,7 +76,7 @@ ${osSpecificGuidelines}`;
 - 한글로 설명 제공
 
 실행 의도/터미널 명령 출력 규칙 (중요):
-- 실행 명령은 한 줄 순수 명령만 코드블록/백틱에 제공합니다. 주석/echo/if/elif/else/플레이스홀더 경로 금지.
+- 실행 명령은 한 줄 순수 명령만 코드블록/백틱에 제공합니다. **명령 내 주석(#, // 등)이나 설명 텍스트를 절대 넣지 마세요.** echo/if/elif/else/플레이스홀더 경로 금지.
 - 최대 4개 이하 명령만 반환하세요.
 - 버전 확인은 1회만(예: node -v && npm -v).
 - package.json이 없을 때만 init 명령을 포함합니다.
@@ -193,107 +199,109 @@ ${osSpecificGuidelines}`;
   - 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)
 
 환경: ${this.userOS.toUpperCase()}`;
+  }
+
+  /**
+   * 모델 타입에 따른 특화 시스템 프롬프트
+   * @deprecated PromptComposer를 사용하세요. 이 메서드는 하위 호환성을 위해 유지됩니다.
+   */
+  private getModelSpecificSystemPrompt(): string {
+    switch (this.modelType) {
+      case AiModelType.GEMINI:
+        return this.getGeminiSystemPrompt();
+
+      case AiModelType.OLLAMA_GPT_OSS:
+        return this.getGPTOSSSystemPrompt();
+
+      case AiModelType.OLLAMA_DeepSeek:
+        return this.getDeepSeekSystemPrompt();
+
+      case AiModelType.OLLAMA_Gemma:
+        return this.getGemmaSystemPrompt();
+
+      case AiModelType.OLLAMA_CodeLlama:
+        return this.getCodeLlamaSystemPrompt();
+
+      default:
+        return this.getDefaultSystemPrompt();
     }
+  }
 
-    /**
-     * 모델 타입에 따른 특화 시스템 프롬프트
-     */
-    private getModelSpecificSystemPrompt(): string {
-        switch (this.modelType) {
-            case AiModelType.GEMINI:
-                return this.getGeminiSystemPrompt();
-
-            case AiModelType.OLLAMA_GPT_OSS:
-                return this.getGPTOSSSystemPrompt();
-
-            case AiModelType.OLLAMA_DeepSeek:
-                return this.getDeepSeekSystemPrompt();
-
-            case AiModelType.OLLAMA_Gemma:
-                return this.getGemmaSystemPrompt();
-
-            case AiModelType.OLLAMA_CodeLlama:
-                return this.getCodeLlamaSystemPrompt();
-
-            default:
-                return this.getDefaultSystemPrompt();
-        }
-    }
-
-    /**
-     * Gemini 모델용 특화 프롬프트
-     */
-    private getGeminiSystemPrompt(): string {
-        return `**Gemini 모델 특화 지침:**
+  /**
+   * Gemini 모델용 특화 프롬프트
+   */
+  private getGeminiSystemPrompt(): string {
+    return `**Gemini 모델 특화 지침:**
 - 표준 마크다운 형식 사용
 - 코드 블록: \`\`\`언어 형식
 - 파일 작업 시 명확한 구분자 사용
 - 구조화된 응답 제공`;
-    }
+  }
 
-    /**
-     * GPT-OSS 모델용 특화 프롬프트
-     */
-    private getGPTOSSSystemPrompt(): string {
-        return `**GPT-OSS 모델 특화 지침:**
+  /**
+   * GPT-OSS 모델용 특화 프롬프트
+   */
+  private getGPTOSSSystemPrompt(): string {
+    return `**GPT-OSS 모델 특화 지침:**
 - 표준 마크다운 형식 준수
 - 코드 블록: \`\`\`언어 형식으로 명시
 - 파일 작업 시 명확한 구분자 사용
 - GPT-OSS 출력 형식에 맞춰 응답
 - 간결하고 명확한 응답 선호`;
-    }
+  }
 
-    /**
-     * DeepSeek 모델용 특화 프롬프트
-     */
-    private getDeepSeekSystemPrompt(): string {
-        return `**DeepSeek 모델 특화 지침:**
+  /**
+   * DeepSeek 모델용 특화 프롬프트
+   */
+  private getDeepSeekSystemPrompt(): string {
+    return `**DeepSeek 모델 특화 지침:**
 - 표준 마크다운 형식 사용
 - 코드 블록: \`\`\`언어 형식
 - 파일 작업 시 명확한 구분자 사용
 - 반드시 한국어로만 답변 (중국어, 영어, 일본어 사용 금지)
 - 간결하고 실용적인 응답 제공`;
-    }
+  }
 
-    /**
-     * Gemma 모델용 특화 프롬프트
-     */
-    private getGemmaSystemPrompt(): string {
-        return `**Gemma 모델 특화 지침:**
+  /**
+   * Gemma 모델용 특화 프롬프트
+   */
+  private getGemmaSystemPrompt(): string {
+    return `**Gemma 모델 특화 지침:**
 - 표준 마크다운 형식 사용
 - 코드 블록: \`\`\`언어 형식
 - 간결하고 명확한 응답
 - 구조화된 형식 선호`;
-    }
+  }
 
-    /**
-     * CodeLlama 모델용 특화 프롬프트
-     */
-    private getCodeLlamaSystemPrompt(): string {
-        return `**CodeLlama 모델 특화 지침:**
+  /**
+   * CodeLlama 모델용 특화 프롬프트
+   */
+  private getCodeLlamaSystemPrompt(): string {
+    return `**CodeLlama 모델 특화 지침:**
 - 코드 중심 응답 제공
 - 표준 마크다운 형식 사용
 - 코드 블록: \`\`\`언어 형식
 - 코드 품질과 가독성 중시`;
-    }
+  }
 
-    /**
-     * 기본 모델용 프롬프트 (기타 모델)
-     */
-    private getDefaultSystemPrompt(): string {
-        return `**기본 지침:**
+  /**
+   * 기본 모델용 프롬프트 (기타 모델)
+   */
+  private getDefaultSystemPrompt(): string {
+    return `**기본 지침:**
 - 표준 마크다운 형식 사용
 - 코드 블록: \`\`\`언어 형식
 - 명확하고 구조화된 응답 제공`;
-    }
+  }
 
-    /**
-     * OS별 특화 가이드라인을 반환합니다.
-     */
-    private getOSSpecificGuidelines(): string {
-        switch (this.userOS.toLowerCase()) {
-            case 'windows':
-                return `**Windows 환경 특화 가이드라인:**
+  /**
+   * OS별 특화 가이드라인을 반환합니다.
+   * @deprecated PromptComposer를 사용하세요. 이 메서드는 하위 호환성을 위해 유지됩니다.
+   */
+  private getOSSpecificGuidelines(): string {
+    switch (this.userOS.toLowerCase()) {
+      case 'windows':
+        return `**Windows 환경 특화 가이드라인:**
 - PowerShell 또는 Command Prompt 명령어를 사용하세요.
 - 파일 경로는 백슬래시(\\) 또는 슬래시(/) 모두 사용 가능합니다.
 - 환경변수는 %VARIABLE_NAME% 형식을 사용하세요.
@@ -303,8 +311,8 @@ ${osSpecificGuidelines}`;
 - 서비스 관리: net start/stop 서비스명
 - 권한 문제 시 관리자 권한으로 실행하도록 안내하세요.`;
 
-            case 'macos':
-                return `**macOS 환경 특화 가이드라인:**
+      case 'macos':
+        return `**macOS 환경 특화 가이드라인:**
 - Bash/Zsh 쉘 명령어를 사용하세요.
 - 파일 경로는 슬래시(/)를 사용하세요.
 - 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
@@ -322,8 +330,8 @@ ${osSpecificGuidelines}`;
   - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
   - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`;
 
-            case 'linux':
-                return `**Linux 환경 특화 가이드라인:**
+      case 'linux':
+        return `**Linux 환경 특화 가이드라인:**
 - Bash 쉘 명령어를 사용하세요.
 - 파일 경로는 슬래시(/)를 사용하세요.
 - 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
@@ -341,24 +349,24 @@ ${osSpecificGuidelines}`;
   - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
   - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`;
 
-            default:
-                return `**일반 환경 가이드라인:**
+      default:
+        return `**일반 환경 가이드라인:**
 - 플랫폼에 독립적인 명령어를 사용하세요.
 - 파일 경로는 슬래시(/)를 사용하세요.
 - 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
 - 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
 - 포트 해제 및 프로세스 종료 명령어는 OS별로 다를 수 있으니 주의하세요.`;
-        }
     }
+  }
 
-    /**
-     * 최종 시스템 프롬프트를 생성합니다.
-     */
-    public generateSystemPrompt(options: PromptBuilderOptions): string {
-        const { promptType, codebaseContext, realTimeInfo, profileContext, intentContext, gitContext, languageInstruction } = options;
+  /**
+   * 최종 시스템 프롬프트를 생성합니다.
+   */
+  public generateSystemPrompt(options: PromptBuilderOptions): string {
+    const { promptType, codebaseContext, realTimeInfo, profileContext, intentContext, gitContext, languageInstruction, taskType } = options;
 
-        if (promptType === PromptType.GENERAL_ASK) {
-            return `당신은 전문적인 소프트웨어 개발자이자 기술 전문가입니다. 사용자의 질문에 대해 정확하고 유용한 답변을 제공합니다.
+    if (promptType === PromptType.GENERAL_ASK) {
+      return `당신은 전문적인 소프트웨어 개발자이자 기술 전문가입니다. 사용자의 질문에 대해 정확하고 유용한 답변을 제공합니다.
 
 주요 지침:
 1. 기술적 질문에 대해 명확하고 이해하기 쉬운 답변을 제공하세요.
@@ -383,24 +391,45 @@ ${realTimeInfo || ''}
 ${gitContext || ''}
 
 사용자의 질문에 대해 전문적이고 유용한 답변을 제공해주세요.${languageInstruction || ''}`;
-        }
-
-        // CODE_GENERATION 타입은 generateOSSpecificSystemPrompt 사용
-        return this.generateOSSpecificSystemPrompt();
     }
 
-    /**
-     * 모델 타입을 업데이트합니다.
-     */
-    public setModelType(modelType: AiModelType): void {
-        this.modelType = modelType;
+    // CODE_GENERATION 타입은 PromptComposer 사용
+    const projectManager = ProjectManager.getInstance();
+    const currentProject = projectManager.getCurrentProject();
+
+    // FrameworkAdapter 가져오기 (추상화 레이어 활용)
+    const frameworkAdapter = projectManager.getFrameworkAdapter();
+
+    // 프레임워크 감지 (fallback)
+    let frameworkName: string | undefined;
+    if (currentProject?.framework) {
+      frameworkName = currentProject.framework.toLowerCase();
     }
 
-    /**
-     * OS를 업데이트합니다.
-     */
-    public setUserOS(userOS: string): void {
-        this.userOS = userOS;
-    }
+    const composerOptions: PromptComposerOptions = {
+      userOS: this.userOS,
+      modelType: this.modelType,
+      taskType: taskType,
+      frameworkName,
+      projectType: currentProject?.type,
+      frameworkAdapter // FrameworkAdapter 직접 전달
+    };
+
+    return PromptComposer.composeSystemPrompt(composerOptions);
+  }
+
+  /**
+   * 모델 타입을 업데이트합니다.
+   */
+  public setModelType(modelType: AiModelType): void {
+    this.modelType = modelType;
+  }
+
+  /**
+   * OS를 업데이트합니다.
+   */
+  public setUserOS(userOS: string): void {
+    this.userOS = userOS;
+  }
 }
 

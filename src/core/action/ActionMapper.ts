@@ -15,7 +15,7 @@ import {
 
 export class ActionMapper {
     private actionIdCounter = 0;
-    private readonly MAX_TERMINAL_COMMANDS = 8;
+    private readonly MAX_TERMINAL_COMMANDS = 10;
 
     /**
      * LLM 응답을 액션 배열로 매핑합니다
@@ -200,7 +200,8 @@ export class ActionMapper {
 
         // 개수 제한 및 중복 제거
         const deduped = this.deduplicateTerminalCommands(actions);
-        const filtered = this.filterInstallFlow(deduped);
+        const limitedDiagnostics = this.limitDiagnosticCommands(deduped);
+        const filtered = this.filterInstallFlow(limitedDiagnostics);
         return filtered.slice(0, this.MAX_TERMINAL_COMMANDS);
     }
 
@@ -336,6 +337,12 @@ export class ActionMapper {
         ];
 
         const lower = command.toLowerCase();
+        const lowerTrim = lower.trim();
+
+        // 빈 실행 셸 호출(bash/sh 단독)은 제외
+        if (lowerTrim === 'bash' || lowerTrim === 'sh') {
+            return false;
+        }
         const startsWithKeyword = keywords.some(k => lower.startsWith(k + ' ') || lower === k);
         const containsKeyword = keywords.some(k => lower.includes(` ${k} `) || lower.endsWith(` ${k}`));
         const hasPathPrefix = lower.startsWith('./') || lower.startsWith('../') || lower.startsWith('cd ');
@@ -364,6 +371,36 @@ export class ActionMapper {
         }
 
         return true;
+    }
+
+    /**
+     * 진단성 명령어를 제한합니다 (pwd/ls/which 류 1~2회만 허용)
+     */
+    private limitDiagnosticCommands(actions: Action[]): Action[] {
+        const diagnosticPrefixes = ['pwd', 'ls', 'which'];
+        let diagnosticCount = 0;
+        const result: Action[] = [];
+
+        for (const action of actions) {
+            if (action.type !== ActionType.TERMINAL_COMMAND) {
+                result.push(action);
+                continue;
+            }
+
+            const cmd = (action.params.command || '').trim().toLowerCase();
+            const isDiagnostic = diagnosticPrefixes.some(prefix => cmd === prefix || cmd.startsWith(prefix + ' '));
+
+            if (isDiagnostic) {
+                if (diagnosticCount >= 2) {
+                    continue;
+                }
+                diagnosticCount++;
+            }
+
+            result.push(action);
+        }
+
+        return result;
     }
 
     /**

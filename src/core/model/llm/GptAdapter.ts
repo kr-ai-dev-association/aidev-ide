@@ -9,8 +9,30 @@ import {
     StreamingChunk,
     LLMRequestOptions,
     LLMFeature,
-    COMMON_SYSTEM_PROMPTS,
 } from './ILLMAdapter';
+import { AiModelType } from '../../../services';
+import { PromptComposer } from '../../context/prompts/PromptComposer';
+import { ProjectManager } from '../../project/ProjectManager';
+
+const BASE_GUIDE = `당신은 AIDEV-IDE, VS Code에 통합된 AI 코딩 어시스턴트입니다.
+코드 생성, 디버깅, 프로젝트 관리에 도움을 줍니다.`;
+
+const CODE_GENERATION_GUIDE = `코드 생성/수정 지침:
+- 항상 전체 파일 내용을 제공합니다 (부분 코드 금지)
+- 파일 작업 지시어를 명확히 사용: "새 파일:", "수정 파일:", "삭제 파일:"
+- 생성/수정/삭제한 파일 목록을 요약에 포함
+- 변경 이유와 테스트 방법을 함께 제공합니다`;
+
+const ERROR_CORRECTION_GUIDE = `에러 수정 지침:
+- 에러 메시지와 터미널 출력을 면밀히 분석
+- 근본 원인을 먼저 파악한 뒤 수정안을 제시
+- 수정된 명령어나 코드 변화를 함께 제공
+- 왜 문제가 발생했고 수정안이 어떻게 해결하는지 설명`;
+
+const COMMAND_EXECUTION_GUIDE = `명령 생성 지침:
+- 사용자의 OS와 셸 타입에 맞는 문법 사용 (macOS/Linux: bash, Windows: PowerShell/CMD)
+- 안전하고 비파괴적인 명령만 제시
+- 각 명령이 수행하는 작업을 간단히 설명`;
 
 /**
  * GPT LLM 어댑터
@@ -24,26 +46,37 @@ export class GptAdapter implements ILLMAdapter {
     // ==================== 프롬프트 생성 ====================
 
     buildSystemPrompt(context: SystemPromptContext): string {
-        const parts: string[] = [];
+        // PromptComposer를 사용하여 일관된 프롬프트 생성
+        try {
+            const projectManager = ProjectManager.getInstance();
+            const frameworkAdapter = projectManager.getFrameworkAdapter();
 
-        // 공통 베이스 프롬프트
-        parts.push(COMMON_SYSTEM_PROMPTS.BASE);
+            // SystemPromptContext를 PromptComposerOptions로 변환
+            const composerOptions = {
+                userOS: context.osName,
+                modelType: AiModelType.OLLAMA_GPT_OSS, // GptAdapter이므로 GPT-OSS 모델 타입 사용
+                taskType: undefined as 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal' | undefined, // 컨텍스트에서 추론 불가능하므로 optional
+                frameworkName: context.framework && context.framework.length > 0 ? context.framework[0].toLowerCase() : undefined,
+                projectType: context.projectType,
+                frameworkAdapter: frameworkAdapter
+            };
 
-        // OS별 프롬프트
-        parts.push(this.getOSSpecificPrompt(context));
+            return PromptComposer.composeSystemPrompt(composerOptions);
+        } catch (error) {
+            // ProjectManager가 초기화되지 않았거나 오류 발생 시 fallback
+            console.warn('[GptAdapter] PromptComposer 사용 실패, 기본 프롬프트 사용:', error);
 
-        // 코드 생성 가이드
-        parts.push(COMMON_SYSTEM_PROMPTS.CODE_GENERATION);
-
-        // GPT 특화 프롬프트
-        parts.push(this.getGptSpecificPrompt(context));
-
-        // 프로젝트 타입별 프롬프트
-        if (context.projectType) {
-            parts.push(this.getProjectTypePrompt(context.projectType, context.framework));
+            // 기존 로직을 fallback으로 유지
+            const parts: string[] = [];
+            parts.push(BASE_GUIDE);
+            parts.push(this.getOSSpecificPrompt(context));
+            parts.push(CODE_GENERATION_GUIDE);
+            parts.push(this.getGptSpecificPrompt(context));
+            if (context.projectType) {
+                parts.push(this.getProjectTypePrompt(context.projectType, context.framework));
+            }
+            return parts.join('\n\n');
         }
-
-        return parts.join('\n\n');
     }
 
     buildUserPrompt(context: UserPromptContext): string {
@@ -79,7 +112,7 @@ export class GptAdapter implements ILLMAdapter {
 
     buildCodeGenerationPrompt(context: CodeGenerationContext): string {
         const parts: string[] = [
-            COMMON_SYSTEM_PROMPTS.CODE_GENERATION,
+            CODE_GENERATION_GUIDE,
             '',
             `프로젝트 타입: ${context.projectType}`,
             `기술 스택: ${context.framework.join(', ')}`,
@@ -106,7 +139,7 @@ export class GptAdapter implements ILLMAdapter {
 
     buildErrorCorrectionPrompt(context: ErrorCorrectionContext): string {
         const parts: string[] = [
-            COMMON_SYSTEM_PROMPTS.ERROR_CORRECTION,
+            ERROR_CORRECTION_GUIDE,
             '',
             `에러 타입: ${context.errorType}`,
             '',
@@ -141,7 +174,7 @@ export class GptAdapter implements ILLMAdapter {
         const shellPrompt = this.getShellSpecificPrompt(context.shellType, context.osType);
 
         const parts: string[] = [
-            COMMON_SYSTEM_PROMPTS.COMMAND_EXECUTION,
+            COMMAND_EXECUTION_GUIDE,
             '',
             shellPrompt,
             '',

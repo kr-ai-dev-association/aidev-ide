@@ -330,7 +330,7 @@ export class ExecutionManager {
                 timeoutHandle = setTimeout(() => {
                     console.warn(`[ExecutionManager] Timeout after ${timeout}ms for PID=${pid}`);
                     childProcess.kill('SIGTERM');
-                    
+
                     doResolve({
                         success: false,
                         exitCode: -1,

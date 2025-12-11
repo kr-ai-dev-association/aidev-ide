@@ -6,6 +6,12 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.1 (Prompt system refactor)
+- New modular prompt stack (`PromptComposer`) combining base/OS/LLM/framework/task components.
+- OSAdapter & FrameworkAdapter context is now injected into prompts for consistent instructions.
+- GptAdapter uses PromptComposer; legacy `COMMON_SYSTEM_PROMPTS` removed.
+- Version bumped to 5.0.1.
+
 ## Features
 
 <img src="https://drive.google.com/uc?export=view&id=1Qnb_rdSzjfSR34o4lZB5nDCCTuwD7lLJ" width="700" height="500"/>

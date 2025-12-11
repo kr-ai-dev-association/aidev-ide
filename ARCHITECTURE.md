@@ -70,10 +70,40 @@ src/
 │   │
 │   ├── context/                     # 6. Context Manager
 │   │   ├── ContextManager.ts        # LLM 컨텍스트 관리
-│   │   ├── PromptBuilder.ts         # 프롬프트 생성 (OS별, 모델별)
+│   │   ├── PromptBuilder.ts         # 프롬프트 생성 (OS별, 모델별) @deprecated
 │   │   ├── FileContext.ts           # 파일 컨텍스트
 │   │   ├── EditorContext.ts         # 에디터 컨텍스트
 │   │   ├── TerminalContext.ts       # 터미널 로그 컨텍스트
+│   │   ├── prompts/                 # 프롬프트 컴포넌트 시스템
+│   │   │   ├── PromptComposer.ts    # 프롬프트 조합기 (OS/LLM/Framework/Task 조합)
+│   │   │   ├── base/                # 베이스 프롬프트 컴포넌트
+│   │   │   │   ├── agentRole.ts     # 에이전트 역할 정의
+│   │   │   │   ├── objective.ts     # 목표 정의
+│   │   │   │   ├── rules.ts         # 기본 규칙
+│   │   │   │   ├── fileOperations.ts # 파일 작업 규칙
+│   │   │   │   ├── terminalCommands.ts # 터미널 명령 규칙
+│   │   │   │   └── codeVsScript.ts  # 코드 vs 스크립트 구별 규칙
+│   │   │   ├── os/                  # OS별 프롬프트
+│   │   │   │   ├── WindowsPrompt.ts
+│   │   │   │   ├── MacOSPrompt.ts
+│   │   │   │   ├── LinuxPrompt.ts
+│   │   │   │   └── DefaultOSPrompt.ts
+│   │   │   ├── llm/                 # LLM별 프롬프트
+│   │   │   │   ├── GeminiPrompt.ts
+│   │   │   │   ├── GPTOSSPrompt.ts
+│   │   │   │   ├── DeepSeekPrompt.ts
+│   │   │   │   ├── GemmaPrompt.ts
+│   │   │   │   ├── CodeLlamaPrompt.ts
+│   │   │   │   └── DefaultLLMPrompt.ts
+│   │   │   ├── framework/           # 프레임워크별 프롬프트
+│   │   │   │   ├── FrameworkPromptBuilder.ts # FrameworkAdapter 기반 프롬프트 생성
+│   │   │   │   ├── VitePrompt.ts
+│   │   │   │   ├── SpringBootPrompt.ts
+│   │   │   │   ├── NodeTypeScriptPrompt.ts
+│   │   │   │   └── ExpressPrompt.ts
+│   │   │   └── task/                # 작업 타입별 프롬프트
+│   │   │       ├── CodeWorkPrompt.ts
+│   │   │       └── ExecutionWorkPrompt.ts
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
@@ -377,12 +407,26 @@ class ContextManager {
 - 편집 기록
 - 관련 파일 자동 탐색 (import 분석)
 - 토큰 추정 및 제한 관리
+- 프롬프트 생성 및 조합 (OS별, LLM별, 프레임워크별)
 
 **구현 파일**:
 - `ContextManager.ts` - 컨텍스트 관리
 - `FileContext.ts` - 파일 컨텍스트 수집
 - `EditorContext.ts` - 에디터 컨텍스트 수집
 - `TerminalContext.ts` - 터미널 컨텍스트 수집
+- `PromptBuilder.ts` - 프롬프트 생성 (deprecated, PromptComposer 사용 권장)
+- `prompts/PromptComposer.ts` - 프롬프트 조합기
+- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript)
+- `prompts/os/` - OS별 프롬프트 (Windows, macOS, Linux)
+- `prompts/llm/` - LLM별 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
+- `prompts/framework/` - 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express)
+- `prompts/task/` - 작업 타입별 프롬프트 (code_work, execution_work)
+
+**프롬프트 시스템 아키텍처**:
+- **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성
+- **동적 조합**: `PromptComposer`가 OSAdapter, FrameworkAdapter 정보를 활용하여 동적으로 프롬프트 조합
+- **추상화 레이어 통합**: OSAdapter와 FrameworkAdapter의 정보를 프롬프트에 자동 반영
+- **일관성 보장**: 모든 LLM 어댑터(GptAdapter 등)가 PromptComposer를 통해 일관된 프롬프트 사용
 
 ---
 
@@ -512,12 +556,20 @@ class LLMManager {
 - 기능별 모델 추천
 - LLM 서버 통신 (로컬/원격)
 - 응답 포맷팅 및 정제
+- 프롬프트 생성 (PromptComposer 통합)
 
 **구현 파일**:
 - `ModelManager.ts` - 모델 관리
 - `LLMService.ts` - LLM API 호출 서비스 (Gemini, Ollama 래핑)
 - `LLMManager.ts` - LLM 서버 통신 및 응답 포맷팅 통합
-- `llm/` - LLM 추상화 통합 (GPT 어댑터)
+- `llm/` - LLM 추상화 통합
+  - `ILLMAdapter.ts` - LLM 어댑터 인터페이스
+  - `GptAdapter.ts` - GPT 어댑터 (PromptComposer 사용)
+
+**LLM 어댑터와 프롬프트 시스템**:
+- `ILLMAdapter` 인터페이스: `buildSystemPrompt()` 메서드로 시스템 프롬프트 생성
+- `GptAdapter`: `PromptComposer`를 사용하여 일관된 프롬프트 생성
+- OSAdapter, FrameworkAdapter 정보를 자동으로 프롬프트에 반영
 
 ---
 
@@ -828,6 +880,13 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
   - Configuration 반복 호출 추상화: `ConfigurationService` 생성 및 `SettingsManager`에서 사용
   - 에러 처리 패턴 추상화: `SafeSettingsHelper` 생성 및 `TerminalManager`에서 사용
   - `ManagerAdapter` 제거: 불필요한 추상화 레이어 제거, 각 매니저 직접 사용
+- ✅ 프롬프트 시스템 리팩토링 완료:
+  - `PromptComposer` 생성: OS별, LLM별, 프레임워크별, 작업 타입별 프롬프트 컴포넌트를 동적으로 조합
+  - 프롬프트 컴포넌트 모듈화: `base/`, `os/`, `llm/`, `framework/`, `task/` 디렉토리로 분리
+  - OSAdapter 통합: OS 정보를 프롬프트에 자동 반영
+  - FrameworkAdapter 통합: `FrameworkPromptBuilder`를 통해 프레임워크별 프롬프트 동적 생성
+  - GptAdapter 통합: `GptAdapter.buildSystemPrompt()`가 `PromptComposer`를 사용하도록 수정
+  - COMMON_SYSTEM_PROMPTS 제거: 중복 프롬프트 제거, 일관된 프롬프트 시스템으로 통합
 
 ## 📅 완료 일자
 
@@ -841,4 +900,5 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
 **2024년 12월** - `src/utils` 배럴 파일 생성 및 정리 완료
 **2024년 12월** - Deprecated 주석 제거 및 `core/index.ts` export 충돌 해결 완료
 **2024년 12월** - 추상화 개선 완료 (BaseManager, ConfigurationService, SafeSettingsHelper, ManagerAdapter 제거)
+**2024년 12월** - 프롬프트 시스템 리팩토링 완료 (PromptComposer, 프롬프트 컴포넌트 모듈화, OSAdapter/FrameworkAdapter 통합, COMMON_SYSTEM_PROMPTS 제거)
 

@@ -6,6 +6,12 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.1 (프롬프트 시스템 리팩토링)
+- 모듈형 프롬프트 스택(`PromptComposer`)으로 베이스/OS/LLM/프레임워크/작업 타입 컴포넌트 조합.
+- OSAdapter, FrameworkAdapter 정보를 프롬프트에 자동 반영하여 지침 일관성 강화.
+- GptAdapter가 PromptComposer를 사용하도록 통합, `COMMON_SYSTEM_PROMPTS` 제거.
+- 버전 5.0.1 반영.
+
 ## v5.0.0 (마이그레이션 완료 요약)
 - 새로운 매니저 아키텍처로 전면 통합(ARCHITECTURE.md 참조): Action/Execution/Terminal/Task/Project/Context/State-Session/Error/Model 매니저 중심으로 OS·LLM·Framework 추상화 일원화.
 - STABILITY_GUIDE 기반 안정화: 최소 명령 정책(주석/조건문 금지, 최대 4개), 설치 플로우 핵심 명령만 유지, 플레이스홀더/중복/불필요 진단 명령 제거, 완료 신호/작업 큐 정리 강화, 안전 cwd 폴백.

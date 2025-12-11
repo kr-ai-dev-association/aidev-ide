@@ -52,7 +52,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         // Git 리포지토리 정보 표시
-        this.showGitRepositoryInfo(webviewView.webview);
+        // this.showGitRepositoryInfo(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
@@ -499,32 +499,32 @@ ${JSON.stringify(errorContext, null, 2)}
     /**
      * Git 리포지토리 정보를 웹뷰에 표시
      */
-    private async showGitRepositoryInfo(webview: vscode.Webview): Promise<void> {
-        try {
-            const gitInfo = await this.gitRepositoryService.getRepositoryInfo();
+    //     private async showGitRepositoryInfo(webview: vscode.Webview): Promise<void> {
+    //         try {
+    //             const gitInfo = await this.gitRepositoryService.getRepositoryInfo();
 
-            if (gitInfo) {
-                const message = `
-🔗 **Git 리포지토리 연결됨**
-- 리포지토리: \`${gitInfo.owner}/${gitInfo.repo}\`
-- 현재 브랜치: \`${gitInfo.branch}\`
-- URL: ${gitInfo.url}
+    //             if (gitInfo) {
+    //                 const message = `
+    // 🔗 **Git 리포지토리 연결됨**
+    // - 리포지토리: \`${gitInfo.owner}/${gitInfo.repo}\`
+    // - 현재 브랜치: \`${gitInfo.branch}\`
+    // - URL: ${gitInfo.url}
 
-이제 다음과 같은 Git 명령어를 자연어로 요청할 수 있습니다:
-- "변경사항을 커밋해줘"
-- "새 브랜치를 만들어줘"
-- "PR을 생성해줘"
-- "이슈를 만들어줘"
-- "코드를 리뷰해줘"
-                `;
+    // 이제 다음과 같은 Git 명령어를 자연어로 요청할 수 있습니다:
+    // - "변경사항을 커밋해줘"
+    // - "새 브랜치를 만들어줘"
+    // - "PR을 생성해줘"
+    // - "이슈를 만들어줘"
+    // - "코드를 리뷰해줘"
+    //                 `;
 
-                webview.postMessage({
-                    command: 'showGitInfo',
-                    content: message
-                });
-            }
-        } catch (error) {
-            console.error('[ChatViewProvider] Git 리포지토리 정보 표시 실패:', error);
-        }
-    }
+    //                 webview.postMessage({
+    //                     command: 'showGitInfo',
+    //                     content: message
+    //                 });
+    //             }
+    //         } catch (error) {
+    //             console.error('[ChatViewProvider] Git 리포지토리 정보 표시 실패:', error);
+    //         }
+    //     }
 }

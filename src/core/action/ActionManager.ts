@@ -697,10 +697,6 @@ export class ActionManager {
 
         let cleaned = command.trim();
 
-        // 안내용 주석 제거
-        cleaned = cleaned.replace(/#\s*←\s*실제\s*경로로\s*바꿔\s*주세요.*/gi, '').trim();
-        cleaned = cleaned.replace(/#\s*replace\s+with\s+actual\s+path.*/gi, '').trim();
-
         // 플레이스홀더 경로 패턴
         const placeholderPatterns = [
             /\/path\/to\/your\/project/gi,
