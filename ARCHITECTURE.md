@@ -177,6 +177,7 @@ src/
 │       ├── index.ts                 # 배럴 파일
 │       ├── SupportedModelService.ts # 지원 모델 파일 로더
 │       └── LocaleService.ts        # 언어(locale) 파일 로더
+│   # UI note: Chat webview message bubbles are now text-only and stretch full width (background/border removed) for better readability.
 │
 ├── utils/                           # 유틸리티
 │   ├── index.ts                     # 배럴 파일

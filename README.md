@@ -6,6 +6,9 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.4 (Chat bubble layout fix)
+- Chat webview bubbles now stretch to full panel width and remove background/border padding for clearer, text-first display.
+
 ## v5.0.3 (Framework prompt improvements & fixes)
 - Framework prompt improvements: Added "check files first" priority and "new project only" conditions to Vite, NodeTypeScript, and Express prompts.
 - Removed hardcoded versions from framework prompts: LLM now reads project files to determine appropriate configurations.
