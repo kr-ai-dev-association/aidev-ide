@@ -4,6 +4,8 @@
 
 export function getExpressPrompt(): string {
   return `**Express 기반 프로젝트 특화 규칙:**
+- 프로젝트 컨텍스트: Node.js / TypeScript / Express
+- package.json 의존성 정확히 명시 (express, @types/express 등)
 - express 패키지 사용, 기본 Express 서버 구조 생성
 - **Express 라우터 파일 분석 규칙 (API 경로 인식)**:
   * 라우터 파일(src/routes/*.ts) 과 app 파일(src/index.ts) 을 모두 분석합니다.

@@ -78,8 +78,9 @@ export class PromptComposer {
 
     /**
      * OS별 프롬프트 가져오기
+     * public으로 노출하여 어댑터의 fallback 경로에서도 사용 가능
      */
-    private static getOSPrompt(userOS: string): string {
+    public static getOSPrompt(userOS: string): string {
         const osLower = userOS.toLowerCase();
         if (osLower.includes('windows')) {
             return os.getWindowsPrompt();

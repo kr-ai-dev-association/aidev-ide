@@ -4,6 +4,7 @@
 
 export function getVitePrompt(): string {
     return `**Vite 프로젝트 특화 규칙:**
+- 프로젝트 컨텍스트: React/Vite (TypeScript)
 - package.json에서 "vite" 대신 "npx vite" 사용
 - **package.json에 반드시 "type": "module" 필드를 추가하여 ESM 모드 활성화**
 - App, App.css, index.css, main는 필수 입니다.

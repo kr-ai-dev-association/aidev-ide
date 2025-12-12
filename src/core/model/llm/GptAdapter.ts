@@ -14,15 +14,14 @@ import { AiModelType } from '../../../services';
 import { PromptComposer } from '../../context/prompts/PromptComposer';
 import { ProjectManager } from '../../project/ProjectManager';
 import {
-    BASE_GUIDE,
-    CODE_GENERATION_GUIDE,
-    ERROR_CORRECTION_GUIDE,
-    COMMAND_EXECUTION_GUIDE,
-    buildOSSpecificPrompt,
+    getAgentRole,
+    getCodeGenerationGuide,
+    getErrorCorrectionGuide,
+    getCommandExecutionGuide,
     buildShellSpecificPrompt,
-    buildProjectContextPrompt,
     getDefaultOutputFormat,
-} from './commonGuides';
+} from '../../context/prompts/base';
+import { FrameworkPromptBuilder } from '../../context/prompts/framework/FrameworkPromptBuilder';
 
 /**
  * GPT LLM 어댑터
@@ -58,13 +57,13 @@ export class GptAdapter implements ILLMAdapter {
 
             // 기존 로직을 fallback으로 유지
             const parts: string[] = [];
-            parts.push(BASE_GUIDE);
-            parts.push(buildOSSpecificPrompt(context));
-            parts.push(CODE_GENERATION_GUIDE);
-            parts.push(this.getGptSpecificPrompt(context));
+            parts.push(getAgentRole());
+            parts.push(PromptComposer.getOSPrompt(context.osName));
+            parts.push(getCodeGenerationGuide());
+            // GPT 특화 프롬프트는 PromptComposer에서 이미 포함됨
             if (context.projectType) {
                 parts.push(
-                    buildProjectContextPrompt(
+                    FrameworkPromptBuilder.buildProjectContextPrompt(
                         context.projectType,
                         context.framework,
                         ProjectManager.getInstance().getFrameworkAdapter() ?? undefined,
@@ -108,7 +107,7 @@ export class GptAdapter implements ILLMAdapter {
 
     buildCodeGenerationPrompt(context: CodeGenerationContext): string {
         const parts: string[] = [
-            CODE_GENERATION_GUIDE,
+            getCodeGenerationGuide(),
             '',
             `프로젝트 타입: ${context.projectType}`,
             `기술 스택: ${context.framework.join(', ')}`,
@@ -135,7 +134,7 @@ export class GptAdapter implements ILLMAdapter {
 
     buildErrorCorrectionPrompt(context: ErrorCorrectionContext): string {
         const parts: string[] = [
-            ERROR_CORRECTION_GUIDE,
+            getErrorCorrectionGuide(),
             '',
             `에러 타입: ${context.errorType}`,
             '',
@@ -167,8 +166,10 @@ export class GptAdapter implements ILLMAdapter {
     }
 
     buildCommandExecutionPrompt(context: CommandExecutionContext): string {
+        const shellPrompt = buildShellSpecificPrompt(context.shellType);
+
         const parts: string[] = [
-            COMMAND_EXECUTION_GUIDE,
+            getCommandExecutionGuide(),
             '',
             buildShellSpecificPrompt(context.shellType),
             '',
@@ -322,18 +323,6 @@ export class GptAdapter implements ILLMAdapter {
             streamingEnabled: true,
             contextWindow: 128000,
         };
-    }
-
-    // ==================== Private 헬퍼 메서드 ====================
-
-    private getGptSpecificPrompt(context: SystemPromptContext): string {
-        return `## GPT 특화 가이드라인:
-
-1. **명확한 구조**: 응답은 명확한 섹션으로 구분하세요
-2. **완전한 코드**: 부분 코드가 아닌 전체 파일 내용을 제공하세요
-3. **단계별 설명**: 복잡한 작업은 단계별로 나누어 설명하세요
-4. **에러 예방**: 잠재적 문제점과 해결책을 함께 제시하세요
-5. **테스트 방법**: 생성한 코드의 테스트 방법을 포함하세요`;
     }
 
 }

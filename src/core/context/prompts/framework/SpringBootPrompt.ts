@@ -4,6 +4,10 @@
 
 export function getSpringBootPrompt(): string {
   return `**Spring Boot 프로젝트 특화 규칙:**
-- Spring Boot 3.4.0 이상 사용`;
+- Spring Boot 3.4.0 이상 사용
+- 프로젝트 컨텍스트: Spring Boot / Java
+- 의존성 관리: build.gradle 또는 pom.xml에 모든 외부 라이브러리 명시
+- 빈/의존성 주입 패턴 준수 (@Configuration, @Bean, @ComponentScan)
+- REST API 작성 시 @RestController / @RequestMapping 명확히 지정`;
 }
 

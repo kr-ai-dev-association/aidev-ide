@@ -6,6 +6,10 @@
 import { IFrameworkAdapter } from '../../../project/framework/IFrameworkAdapter';
 import * as framework from './index';
 
+/**
+ * Framework Prompt Builder
+ * FrameworkAdapter의 정보를 활용하여 동적 프롬프트 생성
+ */
 export class FrameworkPromptBuilder {
   /**
    * FrameworkAdapter 정보를 활용하여 프레임워크 프롬프트 생성
@@ -116,6 +120,31 @@ export class FrameworkPromptBuilder {
     }
     
     return info.length > 1 ? info.join('\n') : '';
+  }
+  
+  /**
+   * 프로젝트 컨텍스트 프롬프트 생성
+   * FrameworkAdapter 우선 사용, 없으면 기본 정보만
+   */
+  public static buildProjectContextPrompt(
+    projectType: string,
+    framework?: string[],
+    frameworkAdapter?: IFrameworkAdapter | null,
+  ): string {
+    let prompt = `\n## 프로젝트 컨텍스트:\n프로젝트 타입: ${projectType}`;
+
+    if (framework && framework.length > 0) {
+      prompt += `\n기술 스택: ${framework.join(', ')}`;
+    }
+
+    // FrameworkAdapter 우선 사용
+    const fromAdapter = frameworkAdapter ? this.buildFromAdapter(frameworkAdapter) : '';
+    if (fromAdapter) {
+      return `${prompt}\n\n${fromAdapter}`;
+    }
+
+    // 이름 기반 프롬프트 (Adapter 없을 때)
+    return prompt;
   }
 }
 

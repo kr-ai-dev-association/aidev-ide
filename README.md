@@ -6,6 +6,12 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.2 (Complete prompt system integration)
+- All prompts consolidated into `context/prompts/`: removed `commonGuides.ts` and `helpers.ts`, moved all prompt guides to appropriate component directories.
+- Unified OS prompt access: removed `os/helpers.ts`, integrated into `PromptComposer.getOSPrompt()` public method.
+- Adapter simplification: GptAdapter and GemmaAdapter now directly use PromptComposer for consistent prompt generation.
+- Complete deduplication: eliminated all prompt-related code duplication, simplified architecture.
+
 ## v5.0.1 (Prompt system refactor)
 - New modular prompt stack (`PromptComposer`) combining base/OS/LLM/framework/task components.
 - OSAdapter & FrameworkAdapter context is now injected into prompts for consistent instructions.

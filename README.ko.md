@@ -6,6 +6,12 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.2 (프롬프트 시스템 완전 통합)
+- 모든 프롬프트를 `context/prompts/`로 통합: `commonGuides.ts`, `helpers.ts` 제거, 모든 프롬프트 가이드를 적절한 컴포넌트 디렉토리로 이동.
+- OS 프롬프트 접근 통합: `os/helpers.ts` 제거, `PromptComposer.getOSPrompt()` public 메서드로 통합.
+- 어댑터 단순화: GptAdapter와 GemmaAdapter가 PromptComposer를 직접 사용하여 일관된 프롬프트 생성.
+- 중복 완전 제거: 프롬프트 관련 코드 중복 완전 제거, 아키텍처 단순화.
+
 ## v5.0.1 (프롬프트 시스템 리팩토링)
 - 모듈형 프롬프트 스택(`PromptComposer`)으로 베이스/OS/LLM/프레임워크/작업 타입 컴포넌트 조합.
 - OSAdapter, FrameworkAdapter 정보를 프롬프트에 자동 반영하여 지침 일관성 강화.

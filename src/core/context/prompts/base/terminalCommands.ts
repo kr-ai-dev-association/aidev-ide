@@ -14,3 +14,29 @@ export function getTerminalCommandRules(): string {
 - 프레임워크/프로젝트 타입에 맞는 실행 명령을 한 줄만 제시하세요(예: react/vite/next → npm run dev, nest → npm run start:dev 등).`;
 }
 
+/**
+ * Command Execution 가이드
+ * 명령 생성 지침
+ */
+export function getCommandExecutionGuide(): string {
+    return `명령 생성 지침:
+- 사용자의 OS와 셸 타입에 맞는 문법 사용 (macOS/Linux: bash, Windows: PowerShell/CMD)
+- 안전하고 비파괴적인 명령만 제시
+- 각 명령이 수행하는 작업을 간단히 설명
+- 명령은 한 줄로만 작성하고, 주석(#, // 등)이나 설명 텍스트는 포함하지 않음`;
+}
+
+/**
+ * Shell별 프롬프트 생성 헬퍼
+ */
+export function buildShellSpecificPrompt(shellType: string): string {
+    const shellGuides: Record<string, string> = {
+        bash: '```bash\n# Bash 명령어 예시\ncommand --option value\n```',
+        zsh: '```zsh\n# Zsh 명령어 예시\ncommand --option value\n```',
+        powershell: '```powershell\n# PowerShell 명령어 예시\nCommand-Verb -Parameter Value\n```',
+        cmd: '```cmd\n# CMD 명령어 예시\ncommand /option value\n```',
+    };
+
+    return `명령어는 **${shellType}** 문법으로 작성하세요.\n\n예시:\n${shellGuides[shellType] || shellGuides.bash}`;
+}
+

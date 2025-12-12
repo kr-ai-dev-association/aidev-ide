@@ -416,7 +416,7 @@ class ContextManager {
 - `TerminalContext.ts` - 터미널 컨텍스트 수집
 - `PromptBuilder.ts` - 프롬프트 생성 (deprecated, PromptComposer 사용 권장)
 - `prompts/PromptComposer.ts` - 프롬프트 조합기
-- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript)
+- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)
 - `prompts/os/` - OS별 프롬프트 (Windows, macOS, Linux)
 - `prompts/llm/` - LLM별 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
 - `prompts/framework/` - 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express)
@@ -426,7 +426,14 @@ class ContextManager {
 - **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성
 - **동적 조합**: `PromptComposer`가 OSAdapter, FrameworkAdapter 정보를 활용하여 동적으로 프롬프트 조합
 - **추상화 레이어 통합**: OSAdapter와 FrameworkAdapter의 정보를 프롬프트에 자동 반영
-- **일관성 보장**: 모든 LLM 어댑터(GptAdapter 등)가 PromptComposer를 통해 일관된 프롬프트 사용
+- **일관성 보장**: 모든 LLM 어댑터(GptAdapter, GemmaAdapter 등)가 PromptComposer를 통해 일관된 프롬프트 사용
+- **완전 통합**: 모든 프롬프트 관련 코드가 `context/prompts/`에 위치하여 중복 제거 및 구조 단순화
+  - `base/`: 베이스 프롬프트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)
+  - `os/`: OS별 프롬프트 (Windows, macOS, Linux, DefaultOS) - PromptComposer.getOSPrompt()로 통합 접근
+  - `llm/`: LLM별 특화 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
+  - `framework/`: 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express) + FrameworkPromptBuilder
+  - `task/`: 작업 타입별 프롬프트 (code_work, execution_work)
+- **중복 제거**: `commonGuides.ts`, `helpers.ts` 제거, 모든 프롬프트가 적절한 컴포넌트로 분산
 
 ---
 
@@ -887,6 +894,11 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
   - FrameworkAdapter 통합: `FrameworkPromptBuilder`를 통해 프레임워크별 프롬프트 동적 생성
   - GptAdapter 통합: `GptAdapter.buildSystemPrompt()`가 `PromptComposer`를 사용하도록 수정
   - COMMON_SYSTEM_PROMPTS 제거: 중복 프롬프트 제거, 일관된 프롬프트 시스템으로 통합
+- ✅ 프롬프트 시스템 완전 통합 완료:
+  - 모든 프롬프트를 `context/prompts/`로 통합: `commonGuides.ts` 제거, 프롬프트 가이드들을 `base/`로 이동
+  - OS 프롬프트 헬퍼 통합: `os/helpers.ts` 제거, `PromptComposer.getOSPrompt()` public 메서드로 통합
+  - 어댑터 단순화: GptAdapter, GemmaAdapter가 PromptComposer를 직접 사용하도록 변경
+  - 중복 제거: 프롬프트 관련 코드 중복 완전 제거, 구조 단순화
 
 ## 📅 완료 일자
 
@@ -901,4 +913,5 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
 **2024년 12월** - Deprecated 주석 제거 및 `core/index.ts` export 충돌 해결 완료
 **2024년 12월** - 추상화 개선 완료 (BaseManager, ConfigurationService, SafeSettingsHelper, ManagerAdapter 제거)
 **2024년 12월** - 프롬프트 시스템 리팩토링 완료 (PromptComposer, 프롬프트 컴포넌트 모듈화, OSAdapter/FrameworkAdapter 통합, COMMON_SYSTEM_PROMPTS 제거)
+**2024년 12월** - 프롬프트 시스템 완전 통합 완료 (commonGuides.ts 제거, helpers.ts 제거, 모든 프롬프트를 context/prompts/로 통합, 중복 제거)
 

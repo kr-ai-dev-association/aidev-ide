@@ -14,15 +14,14 @@ import { AiModelType } from '../../../services';
 import { PromptComposer } from '../../context/prompts/PromptComposer';
 import { ProjectManager } from '../../project/ProjectManager';
 import {
-    BASE_GUIDE,
-    CODE_GENERATION_GUIDE,
-    ERROR_CORRECTION_GUIDE,
-    COMMAND_EXECUTION_GUIDE,
-    buildOSSpecificPrompt,
+    getAgentRole,
+    getCodeGenerationGuide,
+    getErrorCorrectionGuide,
+    getCommandExecutionGuide,
     buildShellSpecificPrompt,
-    buildProjectContextPrompt,
     getDefaultOutputFormat,
-} from './commonGuides';
+} from '../../context/prompts/base';
+import { FrameworkPromptBuilder } from '../../context/prompts/framework/FrameworkPromptBuilder';
 
 /**
  * Gemma LLM 어댑터
@@ -54,13 +53,13 @@ export class GemmaAdapter implements ILLMAdapter {
             console.warn('[GemmaAdapter] PromptComposer 사용 실패, 기본 프롬프트 사용:', error);
 
             const parts: string[] = [];
-            parts.push(BASE_GUIDE);
-            parts.push(buildOSSpecificPrompt(context));
-            parts.push(CODE_GENERATION_GUIDE);
-            parts.push(this.getGemmaSpecificPrompt());
+            parts.push(getAgentRole());
+            parts.push(PromptComposer.getOSPrompt(context.osName));
+            parts.push(getCodeGenerationGuide());
+            // Gemma 특화 프롬프트는 PromptComposer에서 이미 포함됨
             if (context.projectType) {
                 parts.push(
-                    buildProjectContextPrompt(
+                    FrameworkPromptBuilder.buildProjectContextPrompt(
                         context.projectType,
                         context.framework,
                         ProjectManager.getInstance().getFrameworkAdapter() ?? undefined,
@@ -101,7 +100,7 @@ export class GemmaAdapter implements ILLMAdapter {
 
     buildCodeGenerationPrompt(context: CodeGenerationContext): string {
         const parts: string[] = [
-            CODE_GENERATION_GUIDE,
+            getCodeGenerationGuide(),
             '',
             `프로젝트 타입: ${context.projectType}`,
             `기술 스택: ${context.framework.join(', ')}`,
@@ -126,7 +125,7 @@ export class GemmaAdapter implements ILLMAdapter {
 
     buildErrorCorrectionPrompt(context: ErrorCorrectionContext): string {
         const parts: string[] = [
-            ERROR_CORRECTION_GUIDE,
+            getErrorCorrectionGuide(),
             '',
             `에러 타입: ${context.errorType}`,
             '',
@@ -159,7 +158,7 @@ export class GemmaAdapter implements ILLMAdapter {
 
     buildCommandExecutionPrompt(context: CommandExecutionContext): string {
         const parts: string[] = [
-            COMMAND_EXECUTION_GUIDE,
+            getCommandExecutionGuide(),
             '',
             buildShellSpecificPrompt(context.shellType),
             '',
@@ -305,17 +304,6 @@ export class GemmaAdapter implements ILLMAdapter {
             streamingEnabled: true,
             contextWindow: 128000,
         };
-    }
-
-    // ==================== Private 헬퍼 메서드 ====================
-
-    private getGemmaSpecificPrompt(): string {
-        return `## Gemma 특화 가이드라인:
-
-1. **간결한 표현**: 불필요한 수식을 피하고 핵심만 전달
-2. **표준 마크다운**: 코드블록 언어 지정 준수
-3. **명확한 단계**: 실행/수정 단계를 번호로 구분
-4. **보수적 명령 실행**: 파괴적 명령어 제안 금지`;
     }
 
 }
