@@ -6,6 +6,12 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.3 (Framework prompt improvements & fixes)
+- Framework prompt improvements: Added "check files first" priority and "new project only" conditions to Vite, NodeTypeScript, and Express prompts.
+- Removed hardcoded versions from framework prompts: LLM now reads project files to determine appropriate configurations.
+- Fixed ESM import errors in extension.ts: Added explicit `.js` extensions to all dynamic imports for Node16/NodeNext module resolution.
+- Task queue display: Actions are now registered in task queue and status updates in real-time during execution.
+
 ## v5.0.2 (Complete prompt system integration)
 - All prompts consolidated into `context/prompts/`: removed `commonGuides.ts` and `helpers.ts`, moved all prompt guides to appropriate component directories.
 - Unified OS prompt access: removed `os/helpers.ts`, integrated into `PromptComposer.getOSPrompt()` public method.

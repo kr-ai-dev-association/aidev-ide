@@ -6,6 +6,12 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.3 (프레임워크 프롬프트 개선 및 수정)
+- 프레임워크 프롬프트 개선: Vite, NodeTypeScript, Express 프롬프트에 "먼저 확인하고" 우선순위 및 "새 프로젝트 생성 시에만" 조건 추가.
+- 프레임워크 프롬프트에서 버전 하드코딩 제거: LLM이 프로젝트 파일을 읽어 적절한 설정을 판단하도록 개선.
+- extension.ts의 ESM import 에러 수정: Node16/NodeNext 모듈 해석을 위해 모든 동적 import에 명시적 `.js` 확장자 추가.
+- 작업 큐 표시 기능: 액션 실행 시 작업 큐에 등록되고 실행 상태가 실시간으로 업데이트됩니다.
+
 ## v5.0.2 (프롬프트 시스템 완전 통합)
 - 모든 프롬프트를 `context/prompts/`로 통합: `commonGuides.ts`, `helpers.ts` 제거, 모든 프롬프트 가이드를 적절한 컴포넌트 디렉토리로 이동.
 - OS 프롬프트 접근 통합: `os/helpers.ts` 제거, `PromptComposer.getOSPrompt()` public 메서드로 통합.

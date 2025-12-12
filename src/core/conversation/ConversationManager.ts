@@ -464,6 +464,30 @@ export class ConversationManager {
                     if (actionResult.actions.length > 0) {
                         WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', `Found ${actionResult.actions.length} actions to execute`);
 
+                        // Plan 내용을 TaskManager와 Webview에 투영
+                        try {
+                            const taskManager = TaskManager.getInstance(extensionContext);
+                            if (taskManager) {
+                                taskManager.clearPlanQueue();
+                                const items = actionResult.actions.map(action => ({
+                                    title: this.formatActionTitle(action),
+                                    detail: `${action.id}|${action.params?.command || action.params?.filePath || action.params?.content?.substring(0, 100) || 'N/A'}`
+                                }));
+                                taskManager.enqueuePlanItems(items);
+                                // detail에서 액션 ID 제거하여 표시
+                                const displayItems = taskManager.listPlanItems().map(item => ({
+                                    ...item,
+                                    detail: item.detail?.includes('|') ? item.detail.split('|').slice(1).join('|') : item.detail
+                                }));
+                                safePostMessage(webviewToRespond, {
+                                    command: 'updateTaskQueue',
+                                    items: displayItems
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('[ConversationManager] 실행 플랜을 작업 큐에 반영하는 중 오류:', e);
+                        }
+
                         let successCount = 0;
                         let failCount = 0;
 
@@ -481,6 +505,30 @@ export class ConversationManager {
                             }
 
                             const result = await actionManager.executeAction(action);
+
+                            // 작업 큐 상태 업데이트
+                            try {
+                                const taskManager = TaskManager.getInstance(extensionContext);
+                                if (taskManager) {
+                                    const items = taskManager.listPlanItems();
+                                    const actionDetail = `${action.id}|${action.params?.command || action.params?.filePath || 'N/A'}`;
+                                    const item = items.find(item => item.detail?.startsWith(`${action.id}|`));
+                                    if (item) {
+                                        taskManager.updatePlanItemStatus(item.id, result.success ? 'done' : 'failed');
+                                        // detail에서 액션 ID 제거하여 표시
+                                        const displayItems = taskManager.listPlanItems().map(i => ({
+                                            ...i,
+                                            detail: i.detail?.includes('|') ? i.detail.split('|').slice(1).join('|') : i.detail
+                                        }));
+                                        safePostMessage(webviewToRespond, {
+                                            command: 'updateTaskQueue',
+                                            items: displayItems
+                                        });
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('[ConversationManager] 작업 큐 상태 업데이트 실패:', e);
+                            }
 
                             if (result.success) {
                                 successCount++;
@@ -691,13 +739,18 @@ export class ConversationManager {
                 if (taskManager) {
                     taskManager.clearPlanQueue();
                     const items = actionResult.actions.map(action => ({
-                        title: action.type,
-                        detail: action.params?.command || action.params?.filePath || 'N/A'
+                        title: this.formatActionTitle(action),
+                        detail: `${action.id}|${action.params?.command || action.params?.filePath || 'N/A'}`
                     }));
                     taskManager.enqueuePlanItems(items);
+                    // detail에서 액션 ID 제거하여 표시
+                    const displayItems = taskManager.listPlanItems().map(item => ({
+                        ...item,
+                        detail: item.detail?.includes('|') ? item.detail.split('|').slice(1).join('|') : item.detail
+                    }));
                     safePostMessage(webviewToRespond, {
                         command: 'updateTaskQueue',
-                        items: taskManager.listPlanItems()
+                        items: displayItems
                     });
                 }
             } catch (e) {
@@ -724,6 +777,29 @@ export class ConversationManager {
                 }
 
                 const result = await actionManager.executeAction(action);
+
+                // 작업 큐 상태 업데이트
+                try {
+                    const taskManager = TaskManager.getInstance(extensionContext);
+                    if (taskManager) {
+                        const items = taskManager.listPlanItems();
+                        const item = items.find(item => item.detail?.startsWith(`${action.id}|`));
+                        if (item) {
+                            taskManager.updatePlanItemStatus(item.id, result.success ? 'done' : 'failed');
+                            // detail에서 액션 ID 제거하여 표시
+                            const displayItems = taskManager.listPlanItems().map(i => ({
+                                ...i,
+                                detail: i.detail?.includes('|') ? i.detail.split('|').slice(1).join('|') : i.detail
+                            }));
+                            safePostMessage(webviewToRespond, {
+                                command: 'updateTaskQueue',
+                                items: displayItems
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[ConversationManager] 작업 큐 상태 업데이트 실패:', e);
+                }
 
                 const detail = this.formatActionDetail(action);
 
@@ -791,6 +867,19 @@ export class ConversationManager {
     /**
      * 액션별 요약 정보를 만듭니다.
      */
+    private formatActionTitle(action: any): string {
+        switch (action.type) {
+            case 'code_generation':
+                return `코드 생성: ${action.params?.filePath || 'N/A'}`;
+            case 'file_operation':
+                return `파일 작업: ${action.params?.filePath || 'N/A'}`;
+            case 'terminal_command':
+                return `터미널 명령: ${action.params?.command || 'N/A'}`;
+            default:
+                return `${action.type}: ${action.params?.filePath || action.params?.command || 'N/A'}`;
+        }
+    }
+
     private formatActionDetail(action: any): string {
         if (action.type === 'terminal_command') {
             return this.sanitizeCommandText(action.params?.command || 'command');

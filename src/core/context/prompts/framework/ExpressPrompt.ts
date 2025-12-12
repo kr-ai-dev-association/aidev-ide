@@ -5,6 +5,7 @@
 export function getExpressPrompt(): string {
   return `**Express 기반 프로젝트 특화 규칙:**
 - 프로젝트 컨텍스트: Node.js / TypeScript / Express
+- **중요: package.json과 기존 Express 서버 파일들을 먼저 확인하고, 현재 설정에 맞게 작업 수행**
 - package.json 의존성 정확히 명시 (express, @types/express 등)
 - express 패키지 사용, 기본 Express 서버 구조 생성
 - **Express 라우터 파일 분석 규칙 (API 경로 인식)**:

@@ -6,8 +6,9 @@ export function getNodeTypeScriptPrompt(): string {
   return `**Node.js TypeScript 프로젝트 특화 규칙:**
 - 프로젝트 컨텍스트: Node.js / TypeScript
 - 타입 안정성: tsconfig 준수, 타입 경고 해결 우선
+- **중요: package.json과 tsconfig.json을 먼저 확인하고, 현재 설정에 맞게 작업 수행**
 - **ES 모듈(import/export) 방식 사용**: CommonJS(require/module.exports) 대신 ESM 모듈 문법 사용
-- **package.json에 "type": "module" 필드 추가 필수**
+- **새 프로젝트 생성 시에만** package.json에 "type": "module" 필드 추가 (기존 프로젝트는 현재 설정 유지)
 - **node 로 바로 실행 가능하도록 설정**: package.json의 scripts에 "dev": "tsx watch src/index.ts" + index.ts 경로 추가
 - **필수 파일**:
   - package.json: "type": "module", express, cors, @types/express, typescript, @types/node, @types/cors, @types/uuid 포함
