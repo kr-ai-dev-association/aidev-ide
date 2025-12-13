@@ -595,18 +595,11 @@ window.addEventListener('message', event => {
             break;
         case 'languageDataReceived':
             if (message.language && message.data) {
-                console.log('=== languageDataReceived ===');
-                console.log('Language:', message.language);
-                console.log('Data keys:', Object.keys(message.data));
-                console.log('inputPlaceholder in received data:', message.data['inputPlaceholder']);
-
                 languageData = message.data;
                 currentLanguage = message.language;
                 sessionStorage.setItem('aidev-ideLang', message.language);
 
-                console.log('About to call applyLanguage...');
                 applyLanguage();
-                console.log('applyLanguage called');
             }
             break;
     }

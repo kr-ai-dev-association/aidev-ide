@@ -21,6 +21,11 @@ import {
     AutoFix,
     AutoFixLlmClient
 } from './core';
+import { PromptBuilder } from './core/context/PromptBuilder';
+import { ConversationManager } from './core/conversation/ConversationManager';
+import { LLMApiClient } from './core/model/LLMApiClient';
+import { IntentDetector } from './core/action/IntentDetector';
+import { ExternalApiService } from './services/external/ExternalApiService';
 
 
 // 전역 변수
@@ -157,7 +162,6 @@ export async function activate(context: vscode.ExtensionContext) {
         require('os').platform() === 'win32' ? 'Windows' :
             require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
 
-    const { PromptBuilder } = await import('./core/context/PromptBuilder.js');
     // AiModelType이 제대로 로드되었는지 확인
     let defaultModelForPrompt: AiModelType = 'gemini' as AiModelType;
     if (AiModelType && AiModelType.GEMINI) {
@@ -196,7 +200,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 `전체 오류 출력:\n${error.rawOutput}\n`;
 
             // ErrorManager를 통해 오류 수정 메시지 전송
-            const { ErrorManager } = await import('./core/error/ErrorManager.js');
             const errorManager = ErrorManager.getInstance();
             // AiModelType이 제대로 로드되었는지 확인
             let defaultModelForError: AiModelType = 'gemini' as AiModelType;
@@ -213,7 +216,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             const raw = await errorManager.sendMessageForErrorCorrection(
                 prompt,
-                new (await import('./core/model/LLMApiClient.js')).LLMApiClient(geminiApi, ollamaApi, (currentAiModel as AiModelType) || defaultModelForError),
+                new LLMApiClient(geminiApi, ollamaApi, (currentAiModel as AiModelType) || defaultModelForError),
                 undefined
             );
             if (!raw) {
@@ -336,10 +339,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // ModelManager는 ConversationManager 초기화 시 설정됨
 
     // ConversationManager 초기화 및 설정
-    const { ConversationManager } = await import('./core/conversation/ConversationManager.js');
-    const { LLMApiClient } = await import('./core/model/LLMApiClient.js');
-    const { IntentDetector } = await import('./core/action/IntentDetector.js');
-    const { ExternalApiService } = await import('./services/external/ExternalApiService.js');
 
     const conversationManager = ConversationManager.getInstance();
     const llmApiClient = new LLMApiClient(geminiApi, ollamaApi, currentAiModel as any);
@@ -354,7 +353,6 @@ export async function activate(context: vscode.ExtensionContext) {
     conversationManager.setExternalApiService(externalApiService);
     conversationManager.configurePlanManager(llmApiClient, currentAiModel);
 
-    // ConversationManager initialized successfully
 
     // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 

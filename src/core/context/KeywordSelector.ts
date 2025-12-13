@@ -116,7 +116,7 @@ ${availableKeywords.map((keyword, index) => `${index + 1}. ${keyword}`).join('\n
             // 임시로 기본 응답 반환 (실제 구현에서는 ModelManager/LLM 어댑터 사용)
             return JSON.stringify({
                 keywords: availableKeywords.slice(0, 3),
-                reasoning: 'LLM 키워드 선택 (임시 구현)',
+                reasoning: 'LLM 키워드 선택',
                 confidence: 0.7
             });
         } catch (error) {

@@ -450,6 +450,7 @@ export class ContextManager {
 
     /**
      * 의도 컨텍스트를 빌드합니다
+     * 작업 유형별 지침은 PromptComposer의 task 프롬프트에서 자동으로 포함됩니다.
      */
     public buildIntentContext(intent: any): string {
         const lines: string[] = [];
@@ -462,43 +463,6 @@ export class ContextManager {
         }
         if (intent.reasoning) {
             lines.push(`근거: ${intent.reasoning}`);
-        }
-
-        // 작업 유형에 따른 명확한 지침 추가
-        if (intent.taskType === 'code_work') {
-            lines.push(`\n**작업 지침: 코드 작성 작업 (절대 필수)**`);
-            lines.push(`- 소스 코드 파일(.js, .ts, .py, .java, .go, .rs 등)을 생성/수정/삭제해야 합니다.`);
-            lines.push(`- **절대로 쉘 스크립트(.sh, .bat, .ps1)나 빌드 스크립트를 생성하지 마세요.**`);
-            lines.push(`- **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**`);
-            lines.push(`- 프로그래밍 언어의 소스 코드 파일만 작성하세요.`);
-            if (intent.subtype === 'code_generate' && (intent.reasoning?.includes('프로젝트 생성') || intent.reasoning?.includes('프로젝트 만들') || intent.reasoning?.includes('react') || intent.reasoning?.includes('vite') || intent.reasoning?.includes('타입스크립트') || intent.reasoning?.includes('spring') || intent.reasoning?.includes('java') || intent.reasoning?.includes('maven'))) {
-                lines.push(`- **⚠️ 프로젝트 생성 작업 (매우 중요 - 절대 금지 사항 - 이 규칙을 위반하면 심각한 오류 발생)**:`);
-                lines.push(`  * **필수 사항 (반드시 준수해야 함 - 이것을 지키지 않으면 작업이 실패합니다)**:`);
-                lines.push(`    - 프로젝트 구조 파일(pom.xml, build.gradle, package.json, vite.config.ts, tsconfig.json 등)과 소스 코드 파일을 "새 파일: [파일경로]" 형식으로 반드시 생성하세요.`);
-                lines.push(`    - 모든 필요한 파일을 "새 파일:" 지시어로 생성하세요. 이것은 선택 사항이 아닌 필수입니다.`);
-                lines.push(`    - 오직 "새 파일: [파일경로]" 지시어만 사용하세요. 다른 방법은 절대 사용하지 마세요.`);
-                lines.push(`    - 예시: "새 파일: pom.xml" + 코드 블록, "새 파일: src/main/java/com/example/App.java" + 코드 블록, "새 파일: package.json" + 코드 블록`);
-                lines.push(`  * **절대 금지 사항 (이 규칙을 위반하면 심각한 오류 발생 - 절대 사용하지 마세요)**:`);
-                lines.push(`    - 터미널 명령어 코드 블록(\`\`\`bash) 생성 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
-                lines.push(`    - cat <<'EOF' > file 같은 heredoc 명령어 사용 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
-                lines.push(`    - mkdir -p, cat, echo 같은 파일 생성 명령어 사용 절대 금지 - 이것을 사용하면 심각한 오류 발생`);
-                lines.push(`    - if ! command -v brew 같은 조건문이나 도구 설치 명령어 포함 절대 금지`);
-                lines.push(`    - npm install, pnpm install, yarn install 같은 패키지 설치 명령어 포함 절대 금지 - 파일 생성 후 별도로 실행되므로 포함하지 마세요`);
-                lines.push(`    - brew install, apt install 같은 패키지 매니저 명령어 포함 절대 금지`);
-                lines.push(`- 빌드나 실행은 소스 파일 생성 후 별도로 처리됩니다.`);
-                lines.push(`- **중요: 프로젝트 생성 요청에 대해 터미널 명령어만 반환하면 작업이 실패합니다. 반드시 파일을 생성하세요.**`);
-            }
-        } else if (intent.taskType === 'execution_work') {
-            lines.push(`\n**작업 지침: 쉘 스크립트 작업 (설치/빌드/배포/실행)**`);
-            lines.push(`- 프로젝트의 설치, 빌드, 배포, 실행을 위한 스크립트(.sh, .bat, .ps1 등)를 생성하거나 터미널 명령을 실행해야 합니다.`);
-            lines.push(`- 소스 코드 파일을 생성/수정하지 마세요.`);
-            lines.push(`- **중요: 사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:`);
-            lines.push(`  * 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.`);
-            lines.push(`  * chmod +x 같은 권한 설정 명령어를 포함하지 마세요.`);
-            lines.push(`  * 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.`);
-            lines.push(`  * 예시: 사용자가 "mvn spring-boot:run으로 실행해줘"라고 요청하면 \`\`\`bash\nmvn spring-boot:run\n\`\`\` 만 제공하세요.`);
-            lines.push(`  * 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)`);
-            lines.push(`- 복잡한 빌드/배포 스크립트가 필요한 경우에만 스크립트 파일을 생성하세요.`);
         }
 
         return lines.join('\n');
