@@ -6,6 +6,12 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.5 (FrameworkAdapter removal - cline style)
+- Removed FrameworkAdapter structure: Transitioned to cline-style approach where LLM reads project files (package.json, pom.xml, etc.) to determine appropriate commands and configurations.
+- Framework directory removed: Eliminated `src/core/project/framework/` directory (TypeScriptAdapter, SpringBootAdapter, IFrameworkAdapter, FrameworkAdapterFactory).
+- Prompt improvements: Added instructions for LLM to read project files first before generating commands or configurations.
+- Simplified architecture: Framework-specific prompts now use name-based matching only, with LLM handling dynamic detection from project files.
+
 ## v5.0.4 (Chat bubble layout fix)
 - Chat webview bubbles now stretch to full panel width and remove background/border padding for clearer, text-first display.
 

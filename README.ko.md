@@ -6,6 +6,12 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.5 (FrameworkAdapter 제거 - cline 스타일)
+- FrameworkAdapter 구조 제거: LLM이 프로젝트 파일(package.json, pom.xml 등)을 읽어서 적절한 명령어와 설정을 판단하도록 cline 스타일로 전환했습니다.
+- framework 디렉토리 삭제: `src/core/project/framework/` 디렉토리 제거 (TypeScriptAdapter, SpringBootAdapter, IFrameworkAdapter, FrameworkAdapterFactory).
+- 프롬프트 개선: LLM이 명령어나 설정을 생성하기 전에 프로젝트 파일을 먼저 읽도록 지시를 추가했습니다.
+- 아키텍처 단순화: 프레임워크별 프롬프트는 이름 기반 매칭만 사용하며, LLM이 프로젝트 파일에서 동적으로 감지하도록 처리합니다.
+
 ## v5.0.4 (채팅 버블 레이아웃 수정)
 - 채팅 웹뷰 버블을 패널 전체 폭으로 확장하고 배경/테두리/패딩을 제거해 텍스트 가독성을 개선했습니다.
 
