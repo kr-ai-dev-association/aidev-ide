@@ -71,10 +71,7 @@ ${gitContext || ''}
     const projectManager = ProjectManager.getInstance();
     const currentProject = projectManager.getCurrentProject();
 
-    // FrameworkAdapter 가져오기 (추상화 레이어 활용)
-    const frameworkAdapter = projectManager.getFrameworkAdapter();
-
-    // 프레임워크 감지 (fallback)
+    // 프레임워크 감지
     let frameworkName: string | undefined;
     if (currentProject?.framework) {
       frameworkName = currentProject.framework.toLowerCase();
@@ -86,7 +83,6 @@ ${gitContext || ''}
       taskType: taskType,
       frameworkName,
       projectType: currentProject?.type,
-      frameworkAdapter // FrameworkAdapter 직접 전달
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

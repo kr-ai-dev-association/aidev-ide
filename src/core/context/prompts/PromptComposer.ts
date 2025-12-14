@@ -6,7 +6,6 @@
 import { AiModelType } from '../../../services';
 import { OSAdapterFactory } from '../../execution/os/OSAdapterFactory';
 import { ProjectManager } from '../../project/ProjectManager';
-import { IFrameworkAdapter } from '../../project/framework/IFrameworkAdapter';
 import * as base from './base';
 import * as os from './os';
 import * as llm from './llm';
@@ -20,7 +19,6 @@ export interface PromptComposerOptions {
     taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
     frameworkName?: string; // 'vite', 'spring-boot', 'node-typescript', 'express' 등 (옵션, 자동 감지 가능)
     projectType?: string; // 프로젝트 타입 정보
-    frameworkAdapter?: IFrameworkAdapter | null; // FrameworkAdapter 직접 전달 (옵션)
 }
 
 export class PromptComposer {
@@ -28,7 +26,7 @@ export class PromptComposer {
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, frameworkName, projectType, frameworkAdapter } = options;
+        const { userOS, modelType, taskType, frameworkName, projectType } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -56,8 +54,8 @@ export class PromptComposer {
         // 작업 타입별 프롬프트
         const taskPrompt = taskType ? this.getTaskPrompt(taskType) : '';
 
-        // 프레임워크별 프롬프트 (FrameworkAdapter 우선 사용)
-        const frameworkPrompt = this.getFrameworkPromptFromAdapter(frameworkAdapter, frameworkName);
+        // 프레임워크별 프롬프트 (이름 기반)
+        const frameworkPrompt = frameworkName ? this.getFrameworkPrompt(frameworkName) : '';
 
         // 터미널 명령 규칙 (execution_work일 때만 포함)
         const terminalCommandRules = taskType === 'execution_work' ? base.getTerminalCommandRules() : '';
@@ -127,37 +125,6 @@ export class PromptComposer {
         }
     }
 
-    /**
-     * 프레임워크별 프롬프트 가져오기
-     * FrameworkAdapter를 우선 사용하고, 없으면 frameworkName으로 감지
-     */
-    private static getFrameworkPromptFromAdapter(
-        frameworkAdapter: IFrameworkAdapter | null | undefined,
-        frameworkName?: string
-    ): string {
-        // FrameworkAdapter가 있으면 FrameworkPromptBuilder 사용 (추상화 레이어 활용)
-        if (frameworkAdapter) {
-            return FrameworkPromptBuilder.buildFromAdapter(frameworkAdapter);
-        }
-
-        // FrameworkAdapter가 없으면 frameworkName으로 감지 (기존 로직)
-        if (frameworkName) {
-            return this.getFrameworkPrompt(frameworkName);
-        }
-
-        // ProjectManager에서 자동 감지 시도
-        try {
-            const projectManager = ProjectManager.getInstance();
-            const adapter = projectManager.getFrameworkAdapter();
-            if (adapter) {
-                return FrameworkPromptBuilder.buildFromAdapter(adapter);
-            }
-        } catch (error) {
-            // ProjectManager가 초기화되지 않았을 수 있음
-        }
-
-        return '';
-    }
 
     /**
      * 프레임워크별 프롬프트 가져오기 (frameworkName 문자열 기반)

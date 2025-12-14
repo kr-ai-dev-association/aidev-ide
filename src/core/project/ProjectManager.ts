@@ -21,8 +21,6 @@ import {
 import { ProjectDetector } from './ProjectDetector';
 import { ProjectIndexer } from './ProjectIndexer';
 import { ConfigParser } from './ConfigParser';
-import { IFrameworkAdapter } from './framework/IFrameworkAdapter';
-import { FrameworkAdapterFactory } from './framework/FrameworkAdapterFactory';
 import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
@@ -35,7 +33,6 @@ export class ProjectManager {
     private parser: ConfigParser;
     private currentProject?: ProjectInfo;
     private projectRoot?: string;
-    private frameworkAdapter: IFrameworkAdapter | null = null;
     private codeParserAdapter: ICodeParserAdapter;
 
     private constructor() {
@@ -63,12 +60,6 @@ export class ProjectManager {
 
         // 프로젝트 타입 감지
         const detection = await this.detector.detectProjectType(projectRoot);
-
-        // Framework 어댑터 감지 및 생성
-        this.frameworkAdapter = await FrameworkAdapterFactory.detectAndCreate(projectRoot);
-        if (this.frameworkAdapter) {
-            console.log(`[ProjectManager] Detected framework: ${this.frameworkAdapter.frameworkName}`);
-        }
 
         // 설정 파일 파싱
         const configFiles = await this.parseConfigFiles(projectRoot, detection.type);
@@ -552,15 +543,6 @@ export class ProjectManager {
      * 프레임워크를 감지합니다
      */
     private detectFramework(projectRoot: string, projectType: ProjectType): string | undefined {
-        return this.frameworkAdapter?.frameworkName;
-    }
-
-    /**
-     * Framework 어댑터를 가져옵니다
-     */
-    public getFrameworkAdapter(): IFrameworkAdapter | null {
-        return this.frameworkAdapter;
-    }
 
     /**
      * Code Parser 어댑터를 가져옵니다

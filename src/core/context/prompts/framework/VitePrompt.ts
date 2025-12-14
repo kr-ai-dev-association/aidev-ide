@@ -4,6 +4,10 @@
 
 export function getVitePrompt(): string {
   return `**Vite 프로젝트 특화 규칙:**
+
+**중요**: 프로젝트의 package.json과 vite.config.ts를 먼저 확인하여 현재 설정에 맞게 작업을 수행하세요.
+
+- 프로젝트 컨텍스트: React/Vite (TypeScript)
 - 프로젝트 컨텍스트: React/Vite (TypeScript)
 - **중요: vite.config.ts와 package.json을 먼저 확인하고, 현재 설정에 맞게 작업 수행**
 - package.json에서 "vite" 대신 "npx vite" 사용

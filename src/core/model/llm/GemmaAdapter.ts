@@ -36,16 +36,12 @@ export class GemmaAdapter implements ILLMAdapter {
 
     buildSystemPrompt(context: SystemPromptContext): string {
         try {
-            const projectManager = ProjectManager.getInstance();
-            const frameworkAdapter = projectManager.getFrameworkAdapter();
-
             const composerOptions = {
                 userOS: context.osName,
-                modelType: AiModelType.OLLAMA_Gemma,
+                modelType: AiModelType.OLLAMA_GEMMA,
                 taskType: undefined as 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal' | undefined,
                 frameworkName: context.framework && context.framework.length > 0 ? context.framework[0].toLowerCase() : undefined,
                 projectType: context.projectType,
-                frameworkAdapter: frameworkAdapter,
             };
 
             return PromptComposer.composeSystemPrompt(composerOptions);
@@ -62,7 +58,6 @@ export class GemmaAdapter implements ILLMAdapter {
                     FrameworkPromptBuilder.buildProjectContextPrompt(
                         context.projectType,
                         context.framework,
-                        ProjectManager.getInstance().getFrameworkAdapter() ?? undefined,
                     ),
                 );
             }

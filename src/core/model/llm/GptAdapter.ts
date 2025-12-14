@@ -37,9 +37,6 @@ export class GptAdapter implements ILLMAdapter {
     buildSystemPrompt(context: SystemPromptContext): string {
         // PromptComposer를 사용하여 일관된 프롬프트 생성
         try {
-            const projectManager = ProjectManager.getInstance();
-            const frameworkAdapter = projectManager.getFrameworkAdapter();
-
             // SystemPromptContext를 PromptComposerOptions로 변환
             const composerOptions = {
                 userOS: context.osName,
@@ -47,7 +44,6 @@ export class GptAdapter implements ILLMAdapter {
                 taskType: undefined as 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal' | undefined, // 컨텍스트에서 추론 불가능하므로 optional
                 frameworkName: context.framework && context.framework.length > 0 ? context.framework[0].toLowerCase() : undefined,
                 projectType: context.projectType,
-                frameworkAdapter: frameworkAdapter
             };
 
             return PromptComposer.composeSystemPrompt(composerOptions);
@@ -66,7 +62,6 @@ export class GptAdapter implements ILLMAdapter {
                     FrameworkPromptBuilder.buildProjectContextPrompt(
                         context.projectType,
                         context.framework,
-                        ProjectManager.getInstance().getFrameworkAdapter() ?? undefined,
                     ),
                 );
             }

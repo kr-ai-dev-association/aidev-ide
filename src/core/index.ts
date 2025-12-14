@@ -114,11 +114,6 @@ export * from './model/llm/ILLMAdapter';
 export * from './model/llm/GptAdapter';
 
 // =============== Framework Abstraction (from project) ===============
-export { IFrameworkAdapter } from './project/framework/IFrameworkAdapter';
-export type { ComponentOptions, ErrorPattern as FrameworkErrorPattern, FrameworkError, ErrorFixSuggestion, ProjectMetadata as FrameworkProjectMetadata } from './project/framework/IFrameworkAdapter';
-export { TypeScriptAdapter } from './project/framework/TypeScriptAdapter';
-export { SpringBootAdapter } from './project/framework/SpringBootAdapter';
-export { FrameworkAdapterFactory } from './project/framework/FrameworkAdapterFactory';
 
 // =============== Code Parser Abstraction (from project) ===============
 export * from './project/codeParser/ICodeParserAdapter';
