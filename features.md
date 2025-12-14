@@ -172,105 +172,6 @@ class LockManager {
 
 ---
 
-### 5. 컨텍스트 히스토리 관리 및 자동 요약 ⭐⭐⭐
-
-**현재 상태**: 기본적인 컨텍스트 관리만 지원
-
-**구현 방식**:
-- 메시지별 컨텍스트 변경사항 추적
-- 타임스탬프 기반 컨텍스트 업데이트 기록
-- 체크포인트 복원 시 컨텍스트도 함께 복원
-- 컨텍스트 윈도우 관리 및 최적화
-- **컨텍스트 크기 초과 시 자동 요약 및 히스토리 저장**
-  - 토큰/문자 수 임계값 감지
-  - LLM을 통한 대화 요약 생성 (`summarize_task`)
-  - 요약된 컨텍스트로 히스토리 교체
-  - 요약된 세션 재개 기능 (`continuationPrompt`)
-
-**추가 필요 기능**:
-```typescript
-// src/core/context/ContextHistoryManager.ts
-class ContextHistoryManager {
-  // 컨텍스트 변경사항 기록
-  recordContextUpdate(
-    messageIndex: number,
-    updateType: 'add' | 'remove' | 'modify',
-    content: string,
-    metadata?: any
-  ): void
-  
-  // 특정 시점의 컨텍스트 복원
-  restoreContextToCheckpoint(checkpointId: string): void
-  
-  // 컨텍스트 히스토리 조회
-  getContextHistory(messageIndex: number): ContextUpdate[]
-  
-  // 컨텍스트 크기 확인
-  checkContextSize(): { 
-    currentSize: number, 
-    maxSize: number, 
-    isExceeded: boolean 
-  }
-  
-  // 자동 요약 트리거
-  async triggerAutoSummarization(
-    conversationHistory: Message[],
-    taskProgress?: TaskProgress
-  ): Promise<ConversationSummary>
-  
-  // 요약된 세션 재개
-  createContinuationPrompt(summary: ConversationSummary): string
-}
-
-// src/core/context/ConversationSummarizer.ts
-class ConversationSummarizer {
-  // 대화 요약 생성
-  async summarizeConversation(
-    messages: Message[],
-    options: {
-      includeTechnicalDetails: boolean,
-      includeCodeSnippets: boolean,
-      includeFileChanges: boolean
-    }
-  ): Promise<ConversationSummary>
-  
-  // 요약 형식 검증
-  validateSummaryFormat(summary: ConversationSummary): boolean
-  
-  // 요약에서 필수 정보 추출
-  extractEssentialInfo(summary: ConversationSummary): {
-    primaryRequest: string,
-    keyConcepts: string[],
-    filesModified: string[],
-    pendingTasks: string[],
-    nextSteps: string[]
-  }
-}
-```
-
-**요약 프롬프트 구조**:
-- Primary Request and Intent: 사용자의 명시적 요청 및 의도
-- Key Technical Concepts: 기술 개념, 프레임워크, 패턴
-- Files and Code Sections: 검토/수정/생성된 파일 및 코드 섹션
-- Problem Solving: 해결된 문제 및 진행 중인 트러블슈팅
-- Pending Tasks: 명시적으로 요청받은 미완료 작업
-- Task Evolution: 작업의 진화 과정 (원본 → 수정 → 현재)
-- Current Work: 요약 직전 작업 내용
-- Next Step: 다음 단계 (사용자 요청과 직접 연관)
-- Required Files: 다음 단계에 필요한 파일 목록
-
-**기대 효과**:
-- 컨텍스트 변경 이력 추적
-- 체크포인트 복원 시 정확한 컨텍스트 상태 유지
-- **장기 대화에서 컨텍스트 윈도우 초과 방지**
-- **요약을 통한 핵심 정보 보존**
-- **대규모 프로젝트에서도 연속 작업 가능**
-- 디버깅 및 문제 해결 용이
-
-**구현 난이도**: 중-높음
-
----
-
 ## 정확도 향상 기능
 
 ### 6. 도구 실행 검증 강화 ⭐⭐⭐
@@ -694,7 +595,6 @@ class TaskHistoryReconstructor {
 1. **체크포인트/스냅샷 시스템** ⭐⭐⭐
 2. **진단(Diagnostics) 모니터링** ⭐⭐⭐
 3. **파일 변경 추적 및 검증** ⭐⭐⭐
-4. **컨텍스트 히스토리 관리 및 자동 요약** ⭐⭐⭐
 
 ### Phase 2: 정확도 향상 (단기)
 5. **도구 실행 검증 강화** ⭐⭐⭐

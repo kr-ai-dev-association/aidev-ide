@@ -38,7 +38,7 @@ export class GemmaAdapter implements ILLMAdapter {
         try {
             const composerOptions = {
                 userOS: context.osName,
-                modelType: AiModelType.OLLAMA_GEMMA,
+                modelType: AiModelType.OLLAMA_Gemma,
                 taskType: undefined as 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal' | undefined,
                 frameworkName: context.framework && context.framework.length > 0 ? context.framework[0].toLowerCase() : undefined,
                 projectType: context.projectType,

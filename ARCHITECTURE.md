@@ -65,10 +65,14 @@ src/
 │   │
 │   ├── context/                     # 6. Context Manager
 │   │   ├── ContextManager.ts        # LLM 컨텍스트 관리
+│   │   ├── ContextHistoryManager.ts # 컨텍스트 히스토리 관리 및 자동 요약
+│   │   ├── ConversationSummarizer.ts # 대화 요약 생성
 │   │   ├── PromptBuilder.ts         # 프롬프트 생성 (OS별, 모델별) @deprecated
 │   │   ├── FileContext.ts           # 파일 컨텍스트
 │   │   ├── EditorContext.ts         # 에디터 컨텍스트
 │   │   ├── TerminalContext.ts       # 터미널 로그 컨텍스트
+│   │   ├── types/                   # 컨텍스트 히스토리 타입 정의
+│   │   │   └── contextHistory.ts    # ContextUpdate, ConversationSummary 등
 │   │   ├── prompts/                 # 프롬프트 컴포넌트 시스템
 │   │   │   ├── PromptComposer.ts    # 프롬프트 조합기 (OS/LLM/Framework/Task 조합)
 │   │   │   ├── base/                # 베이스 프롬프트 컴포넌트
@@ -98,7 +102,8 @@ src/
 │   │   │   │   └── ExpressPrompt.ts
 │   │   │   └── task/                # 작업 타입별 프롬프트
 │   │   │       ├── CodeWorkPrompt.ts
-│   │   │       └── ExecutionWorkPrompt.ts
+│   │   │       ├── ExecutionWorkPrompt.ts
+│   │   │       └── summarize.ts     # 요약 프롬프트
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
@@ -407,16 +412,26 @@ class ContextManager {
 
 **구현 파일**:
 - `ContextManager.ts` - 컨텍스트 관리
+- `ContextHistoryManager.ts` - 컨텍스트 히스토리 관리 및 자동 요약
+  - 컨텍스트 업데이트 기록 및 추적
+  - 컨텍스트 크기 모니터링 및 압축
+  - 체크포인트 관리
+  - 자동 요약 트리거
+  - 요약 저장 및 조회
+- `ConversationSummarizer.ts` - 대화 요약 생성
+  - LLM을 통한 대화 요약 생성
+  - 요약 형식 검증 및 파싱
 - `FileContext.ts` - 파일 컨텍스트 수집
 - `EditorContext.ts` - 에디터 컨텍스트 수집
 - `TerminalContext.ts` - 터미널 컨텍스트 수집
 - `PromptBuilder.ts` - 프롬프트 생성 (deprecated, PromptComposer 사용 권장)
 - `prompts/PromptComposer.ts` - 프롬프트 조합기
+- `types/contextHistory.ts` - 컨텍스트 히스토리 타입 정의
 - `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)
 - `prompts/os/` - OS별 프롬프트 (Windows, macOS, Linux)
 - `prompts/llm/` - LLM별 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
 - `prompts/framework/` - 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express)
-- `prompts/task/` - 작업 타입별 프롬프트 (code_work, execution_work)
+- `prompts/task/` - 작업 타입별 프롬프트 (code_work, execution_work, summarize)
 
 **프롬프트 시스템 아키텍처**:
 - **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성
@@ -429,8 +444,19 @@ class ContextManager {
   - `os/`: OS별 프롬프트 (Windows, macOS, Linux, DefaultOS) - PromptComposer.getOSPrompt()로 통합 접근
   - `llm/`: LLM별 특화 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
   - `framework/`: 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express) - 이름 기반 프롬프트만 제공, LLM이 프로젝트 파일 읽어 판단
-  - `task/`: 작업 타입별 프롬프트 (code_work, execution_work)
+  - `task/`: 작업 타입별 프롬프트 (code_work, execution_work, summarize)
 - **중복 제거**: `commonGuides.ts`, `helpers.ts`, `framework/` 어댑터 디렉토리 제거, 모든 프롬프트가 적절한 컴포넌트로 분산
+
+**컨텍스트 히스토리 관리 및 자동 요약**:
+- **컨텍스트 추적**: 메시지별 컨텍스트 변경사항 추적 (파일, 선택, 커서, 터미널, 에러)
+- **크기 모니터링**: 컨텍스트 크기(문자 수, 토큰 수) 실시간 모니터링
+- **자동 압축**: 토큰 사용량 기반 자동 압축 전략 (none, lastTwo, half, quarter)
+- **체크포인트 관리**: 특정 시점의 컨텍스트 스냅샷 저장 및 복원
+- **자동 요약**: 컨텍스트 크기 초과 시 LLM을 통한 대화 요약 자동 생성
+- **요약 저장**: 요약을 영구 저장소에 저장 (VS Code globalState)
+- **세션 재개**: 요약된 세션을 continuation prompt로 변환하여 다음 대화에 포함
+- **삭제 범위 추적**: `conversationHistoryDeletedRange`로 삭제된 메시지 범위 관리
+- **이중 히스토리 구조**: API 히스토리와 UI 메시지 분리 (향후 확장용)
 
 ---
 

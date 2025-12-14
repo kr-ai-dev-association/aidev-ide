@@ -10,4 +10,7 @@ export type { PromptBuilderOptions } from './PromptBuilder';
 export { FileContextCollector } from './FileContext';
 export { EditorContextCollector } from './EditorContext';
 export { TerminalContextCollector } from './TerminalContext';
+export { ContextHistoryManager } from './ContextHistoryManager';
+export { ConversationSummarizer } from './ConversationSummarizer';
+export * from './types/contextHistory';
 

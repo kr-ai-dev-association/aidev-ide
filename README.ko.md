@@ -6,6 +6,25 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.6 (컨텍스트 히스토리 관리 및 자동 요약)
+- **컨텍스트 히스토리 관리**: 메시지별 컨텍스트 변경사항 추적, 컨텍스트 크기 모니터링, 체크포인트 관리
+  - 컨텍스트 업데이트 추적: 파일, 선택, 커서, 터미널, 에러 컨텍스트 변경사항 기록
+  - 크기 모니터링: 컨텍스트 크기 실시간 모니터링 (문자 수, 토큰 수)
+  - 자동 압축: 토큰 사용량 기반 자동 압축 전략 (none, lastTwo, half, quarter)
+  - 체크포인트 관리: 특정 시점의 컨텍스트 스냅샷 저장 및 복원
+- **자동 요약**: 컨텍스트 크기 초과 시 대화 자동 요약
+  - LLM 기반 요약: LLM을 사용한 포괄적인 요약 생성 (10개 섹션 구조)
+  - 자동 트리거: 토큰 사용량이 95% 초과 시 자동 실행
+  - 요약 저장: VS Code globalState에 영구 저장
+  - 세션 재개: 요약을 continuation prompt로 변환하여 원활한 세션 재개
+  - 삭제 범위 추적: `conversationHistoryDeletedRange`로 삭제된 메시지 범위 추적
+- **이중 히스토리 구조**: 향후 확장을 위한 API 히스토리와 UI 메시지 분리
+- **추가된 파일**:
+  - `src/core/context/ContextHistoryManager.ts` - 컨텍스트 히스토리 관리
+  - `src/core/context/ConversationSummarizer.ts` - 대화 요약 생성
+  - `src/core/context/types/contextHistory.ts` - 타입 정의
+  - `src/core/context/prompts/task/summarize.ts` - 요약 프롬프트
+
 ## v5.0.5 (FrameworkAdapter 제거 )
 - FrameworkAdapter 구조 제거: LLM이 프로젝트 파일(package.json, pom.xml 등)을 읽어서 적절한 명령어와 설정을 판단하도록 전환했습니다.
 - framework 디렉토리 삭제: `src/core/project/framework/` 디렉토리 제거 (TypeScriptAdapter, SpringBootAdapter, IFrameworkAdapter, FrameworkAdapterFactory).
@@ -61,6 +80,16 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
   - **동적 모델 선택**: 설정에서 클라우드와 로컬 AI 모델 간 전환 가능
 - **스마트 컨텍스트 관리**:
   - **지능형 파일 필터링**: `src/` 디렉토리 파일을 자동으로 포함하고 키워드 기반으로 다른 파일 필터링
+  - **컨텍스트 히스토리 관리**: 대화 전반에 걸친 컨텍스트 변경사항 추적 및 관리
+    - 메시지별 컨텍스트 업데이트 추적 (파일, 선택, 커서, 터미널, 에러)
+    - 컨텍스트 크기 실시간 모니터링 (문자 수, 토큰 수)
+    - 한계에 도달 시 자동 압축
+    - 컨텍스트 스냅샷을 위한 체크포인트 관리
+  - **자동 요약**: 컨텍스트 윈도우 초과를 방지하기 위한 긴 대화 자동 요약
+    - LLM 기반 포괄적인 요약 (10개 섹션 구조)
+    - 토큰 사용량이 95% 초과 시 자동 트리거
+    - VS Code globalState에 영구 요약 저장
+    - continuation prompt를 통한 원활한 세션 재개
   - **프레임워크 인식 컨텍스트**: 프로젝트 타입을 자동 감지하고 관련 설정 파일 포함
     - Node.js: `package.json`, `tsconfig.json`, 빌드 설정
     - Java/Spring: `pom.xml`, `build.gradle`, 애플리케이션 속성

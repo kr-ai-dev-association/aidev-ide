@@ -26,6 +26,8 @@ import { ConversationManager } from './core/conversation/ConversationManager';
 import { LLMApiClient } from './core/model/LLMApiClient';
 import { IntentDetector } from './core/action/IntentDetector';
 import { ExternalApiService } from './services/external/ExternalApiService';
+import { ContextHistoryManager } from './core/context/ContextHistoryManager';
+import { ConversationSummarizer } from './core/context/ConversationSummarizer';
 
 
 // 전역 변수
@@ -352,6 +354,15 @@ export async function activate(context: vscode.ExtensionContext) {
     conversationManager.setIntentDetector(intentDetector);
     conversationManager.setExternalApiService(externalApiService);
     conversationManager.configurePlanManager(llmApiClient, currentAiModel);
+    
+    // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
+    const contextHistoryManager = ContextHistoryManager.getInstance(context);
+    conversationManager.setContextHistoryManager(contextHistoryManager);
+    
+    // ConversationSummarizer 초기화 및 설정 (Phase 4.4)
+    const conversationSummarizer = new ConversationSummarizer();
+    conversationSummarizer.setLLMClient(llmApiClient);
+    conversationManager.setConversationSummarizer(conversationSummarizer);
 
 
     // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨

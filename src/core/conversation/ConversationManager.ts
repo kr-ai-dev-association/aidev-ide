@@ -21,6 +21,10 @@ import { TaskManager } from '../task/TaskManager';
 import { PlanManager } from '../task/PlanManager';
 import { checkTokenLimit, logTokenUsage, estimateTokens, safePostMessage } from '../../utils';
 import { TerminalManager } from '../terminal/TerminalManager';
+import { ContextHistoryManager } from '../context/ContextHistoryManager';
+import { ConversationSummarizer } from '../context/ConversationSummarizer';
+import { ContextType } from '../context/types';
+import { ConversationEntry } from '../state/types';
 
 export interface ConversationOptions {
     userQuery: string;
@@ -51,6 +55,8 @@ export class ConversationManager {
     private intentDetector?: IntentDetector;
     private planManager: PlanManager;
     private externalApiService?: ExternalApiService;
+    private contextHistoryManager?: ContextHistoryManager;
+    private conversationSummarizer?: ConversationSummarizer;
 
     private constructor() {
         this.contextManager = ContextManager.getInstance();
@@ -73,6 +79,10 @@ export class ConversationManager {
      */
     public setLLMService(llmService: LLMApiClient): void {
         this.llmService = llmService;
+        // Conversation Summarizer에도 LLM 클라이언트 설정
+        if (this.conversationSummarizer) {
+            this.conversationSummarizer.setLLMClient(llmService);
+        }
     }
 
     /**
@@ -101,6 +111,23 @@ export class ConversationManager {
      */
     public setExternalApiService(externalApiService: ExternalApiService): void {
         this.externalApiService = externalApiService;
+    }
+
+    /**
+     * Context History Manager를 설정합니다
+     */
+    public setContextHistoryManager(contextHistoryManager: ContextHistoryManager): void {
+        this.contextHistoryManager = contextHistoryManager;
+    }
+
+    /**
+     * Conversation Summarizer를 설정합니다
+     */
+    public setConversationSummarizer(conversationSummarizer: ConversationSummarizer): void {
+        this.conversationSummarizer = conversationSummarizer;
+        if (this.contextHistoryManager) {
+            this.contextHistoryManager.setSummarizer(conversationSummarizer);
+        }
     }
 
     /**
@@ -351,6 +378,145 @@ export class ConversationManager {
             let fullFileContentsContext = fileContentsContext;
             if (selectedFilesContext) {
                 fullFileContentsContext += `\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`;
+            }
+
+            // 컨텍스트 수집 및 히스토리 기록 (Phase 2.1)
+            let contextData: any = null;
+            let conversationHistory: ConversationEntry[] = [];
+            
+            // ContextHistoryManager 초기화 (필요시)
+            if (extensionContext && !this.contextHistoryManager) {
+                this.contextHistoryManager = ContextHistoryManager.getInstance(extensionContext);
+            }
+            
+            if (extensionContext && this.contextHistoryManager) {
+                try {
+
+                    // 컨텍스트 데이터 수집
+                    contextData = await this.contextManager.collectContext({
+                        types: [ContextType.FILE, ContextType.SELECTION, ContextType.CURSOR, ContextType.ERROR, ContextType.TERMINAL],
+                        includeContent: true,
+                        maxTokens: 50000
+                    });
+
+                    // 대화 히스토리 가져오기
+                    if (this.sessionManager) {
+                        const session = this.sessionManager.getCurrentSession();
+                        if (session) {
+                            conversationHistory = session.conversationHistory || [];
+                        }
+                    }
+
+                    // 컨텍스트 업데이트 기록
+                    const messageIndex = conversationHistory.length;
+                    if (contextData.file) {
+                        this.contextHistoryManager.recordContextUpdate(
+                            messageIndex,
+                            'add',
+                            'file',
+                            contextData.file.content || '',
+                            { path: contextData.file.path }
+                        );
+                    }
+                    if (contextData.selection) {
+                        this.contextHistoryManager.recordContextUpdate(
+                            messageIndex,
+                            'add',
+                            'selection',
+                            contextData.selection.text || '',
+                            { file: contextData.selection.file }
+                        );
+                    }
+                    if (contextData.cursor) {
+                        this.contextHistoryManager.recordContextUpdate(
+                            messageIndex,
+                            'add',
+                            'cursor',
+                            contextData.cursor.surroundingLines?.join('\n') || '',
+                            { file: contextData.cursor.file, line: contextData.cursor.line }
+                        );
+                    }
+                    if (contextData.terminal) {
+                        this.contextHistoryManager.recordContextUpdate(
+                            messageIndex,
+                            'add',
+                            'terminal',
+                            contextData.terminal.lastOutput || '',
+                            { cwd: contextData.terminal.currentWorkingDirectory }
+                        );
+                    }
+                    if (contextData.errors && contextData.errors.length > 0) {
+                        for (const error of contextData.errors) {
+                            this.contextHistoryManager.recordContextUpdate(
+                                messageIndex,
+                                'add',
+                                'error',
+                                error.message || '',
+                                { 
+                                    type: error.type,
+                                    source: error.source,
+                                    file: error.file,
+                                    line: error.line
+                                }
+                            );
+                        }
+                    }
+
+                    // 컨텍스트 크기 확인 및 압축 (Phase 2.2)
+                    const sizeInfo = this.contextHistoryManager.checkContextSize(contextData, conversationHistory);
+                    if (sizeInfo.isExceeded) {
+                        const maxTokenSize = this.contextHistoryManager.getMaxTokenSize();
+                        console.log(`[ConversationManager] Context size exceeded (${sizeInfo.characterCount}/${sizeInfo.maxSize} chars, ${sizeInfo.tokenCount}/${maxTokenSize} tokens)`);
+                        
+                        // 압축 전략 결정
+                        const apiHistory = this.contextHistoryManager.getApiConversationHistory();
+                        const currentDeletedRange = this.contextHistoryManager.getConversationHistoryDeletedRange();
+                        
+                        // 토큰 사용량에 따라 압축 전략 선택
+                        const tokenUsageRatio = sizeInfo.tokenCount! / maxTokenSize;
+                        let keepStrategy: 'none' | 'lastTwo' | 'half' | 'quarter' = 'half';
+                        if (tokenUsageRatio > 0.9) {
+                            keepStrategy = 'quarter'; // 90% 이상이면 1/4만 유지
+                        } else if (tokenUsageRatio > 0.75) {
+                            keepStrategy = 'half'; // 75% 이상이면 절반 유지
+                        } else {
+                            keepStrategy = 'lastTwo'; // 그 외는 마지막 2개만 유지
+                        }
+
+                        const newDeletedRange = this.contextHistoryManager.getNextTruncationRange(
+                            apiHistory,
+                            currentDeletedRange,
+                            keepStrategy
+                        );
+
+                        this.contextHistoryManager.setConversationHistoryDeletedRange(newDeletedRange);
+                        console.log(`[ConversationManager] Context compressed with strategy: ${keepStrategy}, deleted range: [${newDeletedRange[0]}, ${newDeletedRange[1]}]`);
+                        
+                        // 압축으로도 부족하면 요약 트리거 (Phase 3.3)
+                        if (tokenUsageRatio > 0.95 && this.conversationSummarizer) {
+                            console.log('[ConversationManager] Token usage very high (>95%), triggering summarization...');
+                            WebviewBridge.sendProcessingStep(webviewToRespond, 'summarizing');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'summarizing', 'Summarizing conversation history...');
+                            
+                            const summary = await this.contextHistoryManager.triggerAutoSummarization(
+                                conversationHistory,
+                                contextData
+                            );
+
+                            if (summary) {
+                                // 요약된 세션 재개 프롬프트 생성
+                                const continuationPrompt = this.contextHistoryManager.createContinuationPrompt(summary);
+                                
+                                // 히스토리 컨텍스트에 요약 추가
+                                historyContext = continuationPrompt + '\n\n--- 최근 대화 ---\n' + historyContext;
+                                
+                                WebviewBridge.sendProcessingStatus(webviewToRespond, 'summarizing', `Summarized ${conversationHistory.length} messages`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[ConversationManager] Context history management failed:', error);
+                }
             }
 
             // 프로젝트 타입 감지

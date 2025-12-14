@@ -6,6 +6,25 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.6 (Context History Management & Auto Summarization)
+- **Context History Management**: Track context changes per message, monitor context size, and manage checkpoints
+  - Context update tracking: Record file, selection, cursor, terminal, and error context changes
+  - Size monitoring: Real-time monitoring of context size (character count, token count)
+  - Automatic compression: Token usage-based automatic compression strategies (none, lastTwo, half, quarter)
+  - Checkpoint management: Save and restore context snapshots at specific points
+- **Automatic Summarization**: Automatically summarize conversations when context size exceeds limits
+  - LLM-powered summarization: Generate comprehensive summaries using LLM (10-section structure)
+  - Auto-trigger: Automatically triggers when token usage exceeds 95%
+  - Summary storage: Permanently stores summaries in VS Code globalState
+  - Session continuation: Converts summaries to continuation prompts for seamless session resumption
+  - Deleted range tracking: Tracks deleted message ranges with `conversationHistoryDeletedRange`
+- **Dual History Structure**: Separate API history and UI messages for future expansion
+- **Files Added**:
+  - `src/core/context/ContextHistoryManager.ts` - Context history management
+  - `src/core/context/ConversationSummarizer.ts` - Conversation summarization
+  - `src/core/context/types/contextHistory.ts` - Type definitions
+  - `src/core/context/prompts/task/summarize.ts` - Summarization prompt
+
 ## v5.0.5 (FrameworkAdapter removal )
 - Removed FrameworkAdapter structure: Transitioned to approach where LLM reads project files (package.json, pom.xml, etc.) to determine appropriate commands and configurations.
 - Framework directory removed: Eliminated `src/core/project/framework/` directory (TypeScriptAdapter, SpringBootAdapter, IFrameworkAdapter, FrameworkAdapterFactory).
@@ -60,6 +79,16 @@ VSCode base code assistant plugin with LLM and LM support.
     - Java/Spring: `pom.xml`, `build.gradle`, application properties
     - Python Django/Flask/FastAPI: `manage.py`, `requirements.txt`, `main.py`
     - And more frameworks supported
+  - **Context History Management**: Track and manage context changes across conversations
+    - Context update tracking per message (file, selection, cursor, terminal, error)
+    - Real-time context size monitoring (character count, token count)
+    - Automatic compression when approaching limits
+    - Checkpoint management for context snapshots
+  - **Automatic Summarization**: Automatically summarize long conversations to prevent context window overflow
+    - LLM-powered comprehensive summaries (10-section structure)
+    - Auto-trigger when token usage exceeds 95%
+    - Permanent summary storage in VS Code globalState
+    - Seamless session continuation with continuation prompts
   - **Dynamic Model Selection**: Switch between cloud and local AI models in settings
   - **Intuitive UI**: Simplified model selection (Gemini vs Ollama) with specific model selection below
 - **Dual-Mode Interface**: 
