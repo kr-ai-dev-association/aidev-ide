@@ -1,7 +1,6 @@
 /**
  * Framework Prompt Builder
  * 프레임워크 이름 기반으로 프롬프트 생성
- * (cline 스타일: LLM이 프로젝트 파일을 읽어서 판단하도록)
  */
 
 import * as framework from './index';
@@ -23,7 +22,7 @@ export class FrameworkPromptBuilder {
 
     if (framework && framework.length > 0) {
       prompt += `\n기술 스택: ${framework.join(', ')}`;
-      
+
       // 프레임워크별 프롬프트 추가
       const frameworkPrompt = this.getFrameworkPromptByName(framework);
       if (frameworkPrompt) {
@@ -36,16 +35,16 @@ export class FrameworkPromptBuilder {
 
     return prompt;
   }
-  
+
   /**
    * 프레임워크 이름으로 프롬프트 가져오기
    */
   private static getFrameworkPromptByName(frameworkNames: string[]): string {
     const prompts: string[] = [];
-    
+
     for (const name of frameworkNames) {
       const lowerName = name.toLowerCase();
-      
+
       if (lowerName.includes('vite')) {
         prompts.push(framework.getVitePrompt());
       } else if (lowerName.includes('express')) {
@@ -56,7 +55,7 @@ export class FrameworkPromptBuilder {
         prompts.push(framework.getNodeTypeScriptPrompt());
       }
     }
-    
+
     return prompts.join('\n\n');
   }
 }

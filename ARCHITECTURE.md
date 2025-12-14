@@ -91,7 +91,7 @@ src/
 │   │   │   │   ├── CodeLlamaPrompt.ts
 │   │   │   │   └── DefaultLLMPrompt.ts
 │   │   │   ├── framework/           # 프레임워크별 프롬프트
-│   │   │   │   ├── FrameworkPromptBuilder.ts # 프레임워크 이름 기반 프롬프트 생성 (cline 스타일)
+│   │   │   │   ├── FrameworkPromptBuilder.ts # 프레임워크 이름 기반 프롬프트 생성
 │   │   │   │   ├── VitePrompt.ts
 │   │   │   │   ├── SpringBootPrompt.ts
 │   │   │   │   ├── NodeTypeScriptPrompt.ts
@@ -375,7 +375,7 @@ class ProjectManager {
 - `ConfigParser.ts` - 설정 파일 파싱
 - `codeParser/` - Code Parser 추상화 통합 (Tree-sitter)
 
-**참고**: FrameworkAdapter는 v5.0.5에서 제거되었습니다. cline 스타일로 전환하여 LLM이 프로젝트 파일을 읽어서 판단하도록 프롬프트로 지시합니다.
+**참고**: FrameworkAdapter는 v5.0.5에서 제거되었습니다. LLM이 프로젝트 파일을 읽어서 판단하도록 프롬프트로 지시합니다.
 
 ---
 
@@ -422,7 +422,7 @@ class ContextManager {
 - **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성
 - **동적 조합**: `PromptComposer`가 OSAdapter 정보를 활용하여 동적으로 프롬프트 조합
 - **추상화 레이어 통합**: OSAdapter의 정보를 프롬프트에 자동 반영
-- **cline 스타일 프레임워크 처리**: FrameworkAdapter 제거, LLM이 프로젝트 파일(package.json, pom.xml 등)을 읽어서 판단하도록 프롬프트 지시
+- **프레임워크 처리**: FrameworkAdapter 제거, LLM이 프로젝트 파일(package.json, pom.xml 등)을 읽어서 판단하도록 프롬프트 지시
 - **일관성 보장**: 모든 LLM 어댑터(GptAdapter, GemmaAdapter 등)가 PromptComposer를 통해 일관된 프롬프트 사용
 - **완전 통합**: 모든 프롬프트 관련 코드가 `context/prompts/`에 위치하여 중복 제거 및 구조 단순화
   - `base/`: 베이스 프롬프트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)
@@ -911,5 +911,5 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
 **2024년 12월** - 추상화 개선 완료 (BaseManager, ConfigurationService, SafeSettingsHelper, ManagerAdapter 제거)
 **2024년 12월** - 프롬프트 시스템 리팩토링 완료 (PromptComposer, 프롬프트 컴포넌트 모듈화, OSAdapter/FrameworkAdapter 통합, COMMON_SYSTEM_PROMPTS 제거)
 **2024년 12월** - 프롬프트 시스템 완전 통합 완료 (commonGuides.ts 제거, helpers.ts 제거, 모든 프롬프트를 context/prompts/로 통합, 중복 제거)
-**2024년 12월** - FrameworkAdapter 구조 제거 완료 (cline 스타일로 전환, LLM이 프로젝트 파일을 읽어서 판단하도록 프롬프트 개선, framework/ 디렉토리 삭제)
+**2024년 12월** - FrameworkAdapter 구조 제거 완료 ( LLM이 프로젝트 파일을 읽어서 판단하도록 프롬프트 개선, framework/ 디렉토리 삭제)
 
