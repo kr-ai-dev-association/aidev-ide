@@ -18,7 +18,11 @@ src/
 │   │   ├── ActionValidator.ts        # 액션 검증
 │   │   ├── ActionMapper.ts           # LLM 요청 → 액션 매핑
 │   │   ├── types.ts                  # 액션 타입 정의
-│   │   └── index.ts
+│   │   ├── index.ts
+│   │   └── file/                     # 파일 변경 추적
+│   │       ├── FileChangeTracker.ts  # 파일 변경 추적 및 검증
+│   │       ├── types.ts               # 파일 변경 타입 정의
+│   │       └── index.ts
 │   │
 │   ├── execution/                   # 2. Execution Manager
 │   │   ├── ExecutionManager.ts       # 메인 실행 매니저
@@ -68,9 +72,13 @@ src/
 │   │   ├── ContextHistoryManager.ts # 컨텍스트 히스토리 관리 및 자동 요약
 │   │   ├── ConversationSummarizer.ts # 대화 요약 생성
 │   │   ├── PromptBuilder.ts         # 프롬프트 생성 (OS별, 모델별) @deprecated
-│   │   ├── FileContext.ts           # 파일 컨텍스트
 │   │   ├── EditorContext.ts         # 에디터 컨텍스트
 │   │   ├── TerminalContext.ts       # 터미널 로그 컨텍스트
+│   │   ├── file/                    # 파일 관련 컨텍스트 수집
+│   │   │   ├── FileContext.ts       # 파일 컨텍스트 수집
+│   │   │   ├── RelevantFilesFinder.ts # 관련 파일 찾기
+│   │   │   ├── FileSearcher.ts      # Regex 기반 파일 검색
+│   │   │   └── index.ts
 │   │   ├── types/                   # 컨텍스트 히스토리 타입 정의
 │   │   │   └── contextHistory.ts    # ContextUpdate, ConversationSummary 등
 │   │   ├── prompts/                 # 프롬프트 컴포넌트 시스템
@@ -140,10 +148,6 @@ src/
 │   │       ├── ILLMAdapter.ts
 │   │       └── GptAdapter.ts
 │   │
-│   ├── file/                        # 10. File Change Tracker
-│   │   ├── FileChangeTracker.ts     # 파일 변경 추적 및 검증
-│   │   ├── types.ts                 # 파일 변경 타입 정의
-│   │   └── index.ts
 │   │
 │   ├── base/                        # 공통 추상화 레이어
 │   │   ├── BaseManager.ts           # 싱글톤 패턴 공통 제공
@@ -195,7 +199,7 @@ src/
 └── extension.ts                     # 진입점
 ```
 
-## 🎭 매니저별 상세 책임 (v5.0.7, 파일 변경 추적 추가)
+## 🎭 매니저별 상세 책임 (v5.0.8, 코드 분석 및 구조 리팩토링)
 
 ### 1️⃣ Action Manager
 **역할**: LLM 요청을 실행 가능한 액션으로 변환
@@ -600,7 +604,7 @@ class LLMManager {
 
 ---
 
-### 🔟 File Change Tracker
+### 🔟 File Change Tracker (Action Manager 내부)
 **역할**: 파일 변경사항 추적 및 검증
 
 ```typescript
@@ -631,13 +635,14 @@ class FileChangeTracker {
 - 변경사항 리스너 등록 및 알림
 
 **구현 파일**:
-- `FileChangeTracker.ts` - 파일 변경 추적 및 검증
-- `types.ts` - 파일 변경 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+- `action/file/FileChangeTracker.ts` - 파일 변경 추적 및 검증
+- `action/file/types.ts` - 파일 변경 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
 
 **통합**:
 - `ActionManager`에 통합되어 파일 생성/수정/삭제 시 자동 추적
 - 변경 전후 내용 자동 저장
 - 메타데이터 기록 (taskId, source 등)
+- 위치: `src/core/action/file/` (ActionManager 전용)
 - `llm/` - LLM 추상화 통합
   - `ILLMAdapter.ts` - LLM 어댑터 인터페이스
   - `GptAdapter.ts` - GPT 어댑터 (PromptComposer 사용)

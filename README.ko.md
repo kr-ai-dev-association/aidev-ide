@@ -6,6 +6,28 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.8 (코드 분석 및 파일 검색 강화, 구조 리팩토링)
+- **AST 기반 코드 분석**: Tree-sitter를 통한 고급 코드 분석 기능 추가
+  - 코드 정의 이름 목록 추출 (`listCodeDefinitionNames`)
+  - 정의 사용 위치 검색 (`findDefinitionUsages`) - import, call, reference, extend, implement
+  - import/export 관계 기반 관련 파일 찾기 (`findRelatedFiles`)
+- **Regex 기반 파일 검색**: ripgrep을 통한 빠른 파일 검색 기능 추가
+  - VS Code 내장 ripgrep 또는 시스템 ripgrep 사용
+  - ripgrep 없을 때 네이티브 검색으로 자동 폴백
+  - 검색 결과에 주변 컨텍스트 포함
+  - 파일 패턴 필터링 (include/exclude)
+- **구조 리팩토링**:
+  - `src/core/file/` → `src/core/action/file/`로 이동 (FileChangeTracker)
+  - `src/core/context/file/` 구조로 파일 관련 컨텍스트 수집 기능 통합
+    - FileContext, RelevantFilesFinder, FileSearcher를 한 곳에 모음
+- **추가된 파일**:
+  - `src/core/context/file/FileSearcher.ts` - Regex 기반 파일 검색
+  - `src/core/project/codeParser/types.ts` - AST 분석 타입 정의
+- **이동된 파일**:
+  - `src/core/file/` → `src/core/action/file/` (FileChangeTracker)
+  - `src/core/context/FileContext.ts` → `src/core/context/file/FileContext.ts`
+  - `src/core/context/RelevantFilesFinder.ts` → `src/core/context/file/RelevantFilesFinder.ts`
+
 ## v5.0.7 (파일 변경 추적 및 검증)
 - **파일 변경 추적**: 파일 변경 전후 상태를 추적하여 모든 변경사항 기록
   - 자동 추적: ActionManager를 통한 모든 파일 작업이 자동으로 추적됨
@@ -15,9 +37,9 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
   - 영구 저장: 모든 변경 이력이 VS Code globalState에 저장됨
   - 변경 리스너: 파일 변경 시 알림을 받을 수 있는 콜백 등록
 - **추가된 파일**:
-  - `src/core/file/FileChangeTracker.ts` - 파일 변경 추적 및 검증
-  - `src/core/file/types.ts` - 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
-  - `src/core/file/index.ts` - 배럴 파일
+  - `src/core/action/file/FileChangeTracker.ts` - 파일 변경 추적 및 검증
+  - `src/core/action/file/types.ts` - 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+  - `src/core/action/file/index.ts` - 배럴 파일
 
 ## v5.0.6 (컨텍스트 히스토리 관리 및 자동 요약)
 - **컨텍스트 히스토리 관리**: 메시지별 컨텍스트 변경사항 추적, 컨텍스트 크기 모니터링, 체크포인트 관리

@@ -6,6 +6,28 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.8 (Code Analysis & File Search Enhancement, Structure Refactoring)
+- **AST 기반 코드 분석**: Tree-sitter를 통한 고급 코드 분석 기능 추가
+  - 코드 정의 이름 목록 추출 (`listCodeDefinitionNames`)
+  - 정의 사용 위치 검색 (`findDefinitionUsages`) - import, call, reference, extend, implement
+  - import/export 관계 기반 관련 파일 찾기 (`findRelatedFiles`)
+- **Regex 기반 파일 검색**: ripgrep을 통한 빠른 파일 검색 기능 추가
+  - VS Code 내장 ripgrep 또는 시스템 ripgrep 사용
+  - ripgrep 없을 때 네이티브 검색으로 자동 폴백
+  - 검색 결과에 주변 컨텍스트 포함
+  - 파일 패턴 필터링 (include/exclude)
+- **구조 리팩토링**:
+  - `src/core/file/` → `src/core/action/file/`로 이동 (FileChangeTracker)
+  - `src/core/context/file/` 구조로 파일 관련 컨텍스트 수집 기능 통합
+    - FileContext, RelevantFilesFinder, FileSearcher를 한 곳에 모음
+- **Files Added**:
+  - `src/core/context/file/FileSearcher.ts` - Regex 기반 파일 검색
+  - `src/core/project/codeParser/types.ts` - AST 분석 타입 정의
+- **Files Moved**:
+  - `src/core/file/` → `src/core/action/file/` (FileChangeTracker)
+  - `src/core/context/FileContext.ts` → `src/core/context/file/FileContext.ts`
+  - `src/core/context/RelevantFilesFinder.ts` → `src/core/context/file/RelevantFilesFinder.ts`
+
 ## v5.0.7 (File Change Tracking & Verification)
 - **File Change Tracking**: Track all file changes (create, modify, delete) with before/after states
   - Automatic tracking: All file operations through ActionManager are automatically tracked
@@ -15,9 +37,9 @@ VSCode base code assistant plugin with LLM and LM support.
   - Persistent storage: All change history stored in VS Code globalState
   - Change listeners: Register callbacks to be notified of file changes
 - **Files Added**:
-  - `src/core/file/FileChangeTracker.ts` - File change tracking and verification
-  - `src/core/file/types.ts` - Type definitions (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
-  - `src/core/file/index.ts` - Barrel file
+  - `src/core/action/file/FileChangeTracker.ts` - File change tracking and verification
+  - `src/core/action/file/types.ts` - Type definitions (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+  - `src/core/action/file/index.ts` - Barrel file
 
 ## v5.0.6 (Context History Management & Auto Summarization)
 - **Context History Management**: Track context changes per message, monitor context size, and manage checkpoints
