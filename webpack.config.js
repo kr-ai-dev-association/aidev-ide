@@ -68,8 +68,7 @@ const webviewConfig = {
   entry: {
     chat: './webview/chat.js', // chat 번들
     codeCopy: './webview/codeCopy.js', // codeCopy 번들
-    settings: './webview/settings.js', // settings.js 번들 엔트리 포인트
-    ask: './webview/ask.js' // ask.js 번들 엔트리 포인트
+    settings: './webview/settings.js' // settings.js 번들 엔트리 포인트
   },
   // <-- 수정 끝 -->
 

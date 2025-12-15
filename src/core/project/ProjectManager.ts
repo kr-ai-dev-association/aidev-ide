@@ -544,7 +544,7 @@ export class ProjectManager {
      */
     private detectFramework(projectRoot: string, projectType: ProjectType): string | undefined {
         // LLM이 파일을 읽어 판단하도록 하기 위해, 여기서는 간단한 추론만 수행
-        if (projectType === ProjectType.NODEJS) {
+        if (projectType === ProjectType.NODE) {
             // package.json을 읽어 React, Vue, Angular 등 프레임워크를 추론
             // 이 부분은 LLM이 직접 파일을 읽어 판단하도록 위임
             return 'Node.js';

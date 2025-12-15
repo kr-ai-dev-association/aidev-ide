@@ -210,7 +210,7 @@ export async function activate(context: vscode.ExtensionContext) {
             if (AiModelType && AiModelType.GEMINI) {
                 defaultModelForError = AiModelType.GEMINI;
             } else {
-                const typesModule = await import('./services/types.js');
+                const typesModule = await import('./services/types');
                 if (typesModule.AiModelType) {
                     const geminiValue = typesModule.AiModelType.GEMINI;
                     if (geminiValue) {
