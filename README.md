@@ -6,6 +6,11 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.9 (Unified Code Panel & Live Ollama Selector)
+- **Single Codepilot panel**: CODE/ASK 모드를 하나의 Codepilot 패널에서 드롭다운으로 전환
+- **Live Ollama model picker**: 상단 Model 드롭다운이 로컬 Ollama `/api/tags`에서 실시간 모델 목록을 불러와 선택/저장
+- **UI 정리**: 기존 ASK 패널 제거, 코드 입력창/아이콘 정돈
+
 ## v5.0.8 (Code Analysis & File Search Enhancement, Structure Refactoring)
 - **AST 기반 코드 분석**: Tree-sitter를 통한 고급 코드 분석 기능 추가
   - 코드 정의 이름 목록 추출 (`listCodeDefinitionNames`)

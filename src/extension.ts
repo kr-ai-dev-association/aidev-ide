@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { GeminiApi, NotificationService, OllamaApi, LicenseService, OllamaBlockerService, GitRepositoryService } from './services';
 import { AiModelType } from './services/types';
-import { ChatViewProvider, AskViewProvider } from './webview/providers';
+import { ChatViewProvider } from './webview/providers';
 import { openSettingsPanel } from './core/webview/SettingsPanelProvider';
 import { DebugLogger } from './utils';
 
@@ -420,28 +420,10 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // AskViewProvider 인스턴스 생성 및 등록 (ASK 탭)
-    const askViewProvider = new AskViewProvider(
-        context.extensionUri,
-        context,
-        settingsManager,
-        notificationService
-    );
-
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(AskViewProvider.viewType, askViewProvider, {
-            webviewOptions: { retainContextWhenHidden: true }
-        })
-    );
-
     // Command 등록
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openChatView', () => {
         vscode.commands.executeCommand('workbench.view.extension.aidevIdeCode');
         vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`); // CODE 탭으로 포커스
-    }));
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeAsk.openAskView', () => {
-        vscode.commands.executeCommand('workbench.view.extension.aidevIdeAsk');
-        vscode.commands.executeCommand(`${AskViewProvider.viewType}.focus`); // ASK 탭으로 포커스
     }));
     // Registering commands
 

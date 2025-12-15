@@ -6,6 +6,11 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.9 (단일 Codepilot 패널 & 실시간 Ollama 선택기)
+- **Codepilot 단일 패널**: CODE/ASK 모드를 하나의 Codepilot 패널에서 드롭다운으로 전환
+- **실시간 Ollama 모델 선택**: 상단 Model 드롭다운이 로컬 Ollama `/api/tags`에서 실시간 모델 목록을 불러와 선택/저장
+- **UI 정리**: 기존 ASK 패널 제거, 입력창/아이콘 정돈
+
 ## v5.0.8 (코드 분석 및 파일 검색 강화, 구조 리팩토링)
 - **AST 기반 코드 분석**: Tree-sitter를 통한 고급 코드 분석 기능 추가
   - 코드 정의 이름 목록 추출 (`listCodeDefinitionNames`)

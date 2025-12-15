@@ -3,6 +3,8 @@ import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
 import { PromptType, NotificationService, LicenseService, GitRepositoryService } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
+import { SupportedModelService } from '../services/SupportedModelService';
+import { ModelConnectionService } from '../../core/model/ModelConnectionService';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.chatView';
@@ -24,7 +26,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
-        try { webviewView.title = 'CODE'; } catch { }
+        try { webviewView.title = 'Codepilot'; } catch { }
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
@@ -71,6 +73,61 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         }
                     } catch (e) {
                         console.warn('[ChatViewProvider] priorityErrorPrompt failed:', e);
+                    }
+                    break;
+                }
+                case 'getOllamaModels': {
+                    try {
+                        const stateManager = StateManager.getInstance(this.context);
+                        const apiUrl = await stateManager.getOllamaApiUrl();
+                        // SettingsPanel과 동일하게 Ollama API(/api/tags) 호출
+                        const rawModels = await ModelConnectionService.getOllamaModels(apiUrl);
+                        // strings -> objects로 정규화
+                        const models = (rawModels || []).map((m: any) => {
+                            if (typeof m === 'string') {
+                                return { name: m, displayName: m };
+                            }
+                            return {
+                                name: m?.name || '',
+                                displayName: m?.displayName || m?.name || ''
+                            };
+                        }).filter((m: any) => m.name);
+
+                        const current = await stateManager.getOllamaModel();
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModels',
+                            models,
+                            current
+                        });
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] getOllamaModels failed:', e);
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModels',
+                            models: [],
+                            current: ''
+                        });
+                    }
+                    break;
+                }
+                case 'setOllamaModel': {
+                    try {
+                        const modelName = typeof data.model === 'string' ? data.model : '';
+                        if (!modelName) {
+                            throw new Error('Invalid model name');
+                        }
+                        const stateManager = StateManager.getInstance(this.context);
+                        await stateManager.saveOllamaModel(modelName);
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged',
+                            model: modelName
+                        });
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] setOllamaModel failed:', e);
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged',
+                            model: '',
+                            error: '모델을 저장하지 못했습니다.'
+                        });
                     }
                     break;
                 }
@@ -207,10 +264,12 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
 
                     // ConversationService를 통해 메시지 처리
+                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : PromptType.CODE_GENERATION;
+
                     await ConversationService.handleUserMessage({
                         userQuery: data.text,
                         webviewToRespond: webviewView.webview,
-                        promptType: PromptType.CODE_GENERATION,
+                        promptType,
                         imageData: data.imageData,
                         imageMimeType: data.imageMimeType,
                         selectedFiles: data.selectedFiles,

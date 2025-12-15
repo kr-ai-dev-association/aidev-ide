@@ -11707,12 +11707,18 @@ const cancelButton = document.getElementById('cancel-call-button'); // Cancel �
 const imagePreviewContainer = document.getElementById('image-preview-container');
 const imagePreview = document.getElementById('image-preview');
 const removeImageButton = document.getElementById('remove-image-button');
+const modelSelectorButton = document.getElementById('model-selector');
+const modelDropdown = document.getElementById('model-dropdown');
+const modelLabel = document.getElementById('model-label');
 
 // 파일 선택 관련 요소들
 const fileSelectionArea = document.getElementById('file-selection-area');
 const selectedFilesContainer = document.getElementById('selected-files-container');
 const clearFilesButton = document.getElementById('clear-files-button');
 const filePickerButton = document.getElementById('file-picker-button');
+let currentMode = window.chatMode || 'CODE';
+let currentOllamaModel = '';
+let availableOllamaModels = [];
 
 // 채팅 컨테이너 참조 추가
 const chatContainer = document.getElementById('chat-container');
@@ -11777,6 +11783,7 @@ function doSendUserMessage(payload) {
   const img = payload.imageData || null;
   const imgMime = payload.imageMimeType || null;
   const files = payload.selectedFiles || [];
+  const mode = payload.mode || currentMode || 'CODE';
   updateSendCancelButtons(true); // 전송 시작 시 중지 버튼으로 스왑
   window.displayUserMessage(text, img);
   window.showLoading();
@@ -11785,7 +11792,8 @@ function doSendUserMessage(payload) {
     text: text,
     imageData: img,
     imageMimeType: imgMime,
-    selectedFiles: files
+    selectedFiles: files,
+    mode
   });
 }
 const md = (0,markdown_it__WEBPACK_IMPORTED_MODULE_2__["default"])({
@@ -11916,7 +11924,8 @@ function handleSendMessage() {
       text: text,
       imageData: selectedImageBase64,
       imageMimeType: selectedImageMimeType,
-      selectedFiles: selectedFiles.map(file => file.path)
+      selectedFiles: selectedFiles.map(file => file.path),
+      mode: currentMode
     };
     if (loadingDepth > 0) {
       // AI 응답 대기 중: 채팅창에 먼저 출력하고, 큐에 적재(전송은 응답 후)
@@ -11980,6 +11989,92 @@ function autoResizeTextarea() {
   // 입력창 높이가 변경되면 하단 고정 영역 높이도 재계산
   updateChatContainerPadding();
 }
+function requestOllamaModels() {
+  if (vscode) {
+    vscode.postMessage({
+      command: 'getOllamaModels'
+    });
+  }
+}
+function setModelLabel(name) {
+  if (modelLabel) {
+    modelLabel.textContent = name || 'Model';
+  }
+}
+function populateModelDropdown(models, current) {
+  // models: [{name, displayName}] 또는 ["name", ...]
+  availableOllamaModels = (models || []).map(m => {
+    if (typeof m === 'string') return {
+      name: m,
+      displayName: m
+    };
+    return {
+      name: m?.name || '',
+      displayName: m?.displayName || m?.name || ''
+    };
+  }).filter(m => m.name);
+  currentOllamaModel = current || '';
+  if (!modelDropdown) return;
+  modelDropdown.innerHTML = '';
+  availableOllamaModels.forEach(m => {
+    const display = m.displayName || m.name;
+    const item = document.createElement('div');
+    item.className = 'dropdown-option';
+    item.dataset.model = m.name;
+    item.textContent = display;
+    item.style.padding = '6px 10px';
+    item.style.cursor = 'pointer';
+    item.addEventListener('click', () => {
+      currentOllamaModel = m.name;
+      setModelLabel(display);
+      if (modelDropdown) {
+        modelDropdown.classList.add('hidden');
+        modelDropdown.style.display = 'none';
+      }
+      vscode.postMessage({
+        command: 'setOllamaModel',
+        model: m.name
+      });
+    });
+    modelDropdown.appendChild(item);
+  });
+  const currentDisplay = availableOllamaModels.find(m => m.name === currentOllamaModel)?.displayName || currentOllamaModel || 'Model';
+  setModelLabel(currentDisplay);
+  if (!availableOllamaModels.length) {
+    const empty = document.createElement('div');
+    empty.className = 'dropdown-option';
+    empty.textContent = '모델을 불러올 수 없습니다';
+    empty.style.padding = '6px 10px';
+    modelDropdown.appendChild(empty);
+  }
+}
+function bindModelDropdownEvents() {
+  if (!modelSelectorButton || !modelDropdown) return;
+  const closeDropdown = () => {
+    modelDropdown.classList.add('hidden');
+    modelDropdown.style.display = 'none';
+  };
+  modelSelectorButton.addEventListener('click', e => {
+    e.stopPropagation();
+    const willShow = modelDropdown.classList.contains('hidden');
+    if (willShow) {
+      modelDropdown.classList.remove('hidden');
+      modelDropdown.style.display = 'block';
+    } else {
+      closeDropdown();
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!modelDropdown.contains(e.target) && e.target !== modelSelectorButton) {
+      closeDropdown();
+    }
+  });
+}
+
+// 모드 변경 이벤트 수신
+window.addEventListener('chat-mode-changed', () => {
+  currentMode = window.chatMode || 'CODE';
+});
 
 // 하단 고정 영역의 높이를 계산하고 채팅 컨테이너의 패딩을 조정하는 함수
 function updateChatContainerPadding() {
@@ -12030,6 +12125,10 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     updateChatContainerPadding();
   }, 100); // DOM이 완전히 로드된 후 실행
+
+  // 모델 목록 요청 및 드롭다운 초기화
+  bindModelDropdownEvents();
+  requestOllamaModels();
 });
 window.addEventListener('message', event => {
   const message = event.data;
@@ -12097,6 +12196,19 @@ window.addEventListener('message', event => {
       if (message.text !== undefined || message.imageData !== undefined) {
         // 텍스트 또는 이미지가 있을 때
         window.displayUserMessage(message.text, message.imageData);
+      }
+      break;
+    case 'ollamaModels':
+      populateModelDropdown(message.models || [], message.current || '');
+      break;
+    case 'ollamaModelChanged':
+      if (message.model) {
+        const display = availableOllamaModels.find(m => m.name === message.model)?.displayName || message.model;
+        currentOllamaModel = message.model;
+        setModelLabel(display);
+      }
+      if (message.error) {
+        console.warn('[chat] ollamaModelChanged error:', message.error);
       }
       break;
     case 'receiveMessage':

@@ -174,8 +174,8 @@
             flex: 1;
             min-width: 0;
             width: 100%;
-            padding: 12px 0 18px 0;
-            /* 하단 여백 추가 */
+            padding: 10px 0 18px 0;
+            /* 상단 여백 소폭 축소, 하단 여백 유지 */
             border: none;
             background: transparent;
             color: var(--vscode-input-foreground);
@@ -226,7 +226,7 @@
             height: 12px;
             object-fit: contain;
             filter: brightness(0) invert(1);
-            opacity: 0.8;
+            opacity: 0.9;
         }
 
         .dropdown-button:hover {
@@ -1290,10 +1290,17 @@
                     <span id="mode-label">CODE</span>
                     <img src="{{dropdownIconUri}}" class="dropdown-icon-img" alt="dropdown" />
                 </button>
+                <button class="dropdown-button" id="model-selector">
+                    <span id="model-label">Model</span>
+                    <img src="{{dropdownIconUri}}" class="dropdown-icon-img" alt="dropdown" />
+                </button>
                 <div id="mode-dropdown" class="hidden"
                     style="display:none; position:absolute; margin-top:38px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
                     <div class="dropdown-option" data-mode="CODE" style="padding:6px 10px; cursor:pointer;">CODE</div>
                     <div class="dropdown-option" data-mode="ASK" style="padding:6px 10px; cursor:pointer;">ASK</div>
+                </div>
+                <div id="model-dropdown" class="hidden"
+                    style="display:none; position:absolute; margin-top:38px; left: 110px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
                 </div>
             </div>
 
@@ -1354,12 +1361,23 @@
             const dropdown = document.getElementById('mode-dropdown');
             if (!modeBtn || !dropdown || !modeLabel) return;
 
+            // 전역 모드 상태
+            window.chatMode = window.chatMode || 'CODE';
+
+            const applyMode = (mode) => {
+                const normalized = mode === 'ASK' ? 'ASK' : 'CODE';
+                window.chatMode = normalized;
+                modeLabel.textContent = normalized;
+                window.dispatchEvent(new Event('chat-mode-changed'));
+            };
+
             const closeDropdown = () => {
                 dropdown.classList.add('hidden');
                 dropdown.style.display = 'none';
             };
 
-            // 초기에는 항상 닫힘 상태
+            // 초기 라벨/모드 세팅
+            applyMode(window.chatMode);
             closeDropdown();
 
             modeBtn.addEventListener('click', (e) => {
@@ -1376,7 +1394,7 @@
             dropdown.querySelectorAll('.dropdown-option').forEach(opt => {
                 opt.addEventListener('click', () => {
                     const mode = opt.getAttribute('data-mode') || 'CODE';
-                    modeLabel.textContent = mode;
+                    applyMode(mode);
                     closeDropdown();
                 });
             });

@@ -77,12 +77,13 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
             const sendIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'send.svg')).toString();
             const dropdownIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'dropdown.svg')).toString();
 
+            // 아이콘 URI 치환 (여러 위치 대응 위해 replaceAll)
             htmlContent = htmlContent
-                .replace('{{clipIconUri}}', clipIconUri)
-                .replace('{{historyIconUri}}', historyIconUri)
-                .replace('{{stopIconUri}}', stopIconUri)
-                .replace('{{sendIconUri}}', sendIconUri)
-                .replace('{{dropdownIconUri}}', dropdownIconUri);
+                .replace(/{{clipIconUri}}/g, clipIconUri)
+                .replace(/{{historyIconUri}}/g, historyIconUri)
+                .replace(/{{stopIconUri}}/g, stopIconUri)
+                .replace(/{{sendIconUri}}/g, sendIconUri)
+                .replace(/{{dropdownIconUri}}/g, dropdownIconUri);
         } else if (htmlFileName === 'ask') {
             mainScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'ask.js')).toString();
             secondaryScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'codeCopy.js')).toString();
