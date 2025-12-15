@@ -12,7 +12,10 @@ export enum ActionType {
     TERMINAL_COMMAND = 'terminal_command',
     ANALYSIS = 'analysis',
     VERIFICATION = 'verification',
-    SEARCH = 'search',
+    SEARCH = 'search',           // 일반 검색/코드 검색
+    FILE_READ = 'file_read',     // 단일/복수 파일 읽기
+    FILE_LIST = 'file_list',     // 디렉터리/글롭 기반 파일 목록 조회
+    FILE_SEARCH = 'file_search', // 파일 내용 검색 (정규식/키워드)
     REFACTOR = 'refactor'
 }
 
@@ -75,6 +78,13 @@ export interface ActionParams {
     // SEARCH 파라미터
     query?: string;
     scope?: 'file' | 'project' | 'workspace';
+    // FILE_READ / FILE_LIST / FILE_SEARCH 파라미터
+    paths?: string[];                // 읽거나 나열할 파일/디렉터리 경로 목록
+    path?: string;                   // 단일 경로 (파일 또는 디렉터리)
+    includeGlobs?: string[];         // 포함할 글롭 패턴
+    excludeGlobs?: string[];         // 제외할 글롭 패턴
+    pattern?: string;                // 내용 검색용 정규식/키워드
+    maxResults?: number;             // 검색/목록 결과 최대 개수
 
     // REFACTOR 파라미터
     refactorType?: 'rename' | 'extract' | 'inline' | 'move';

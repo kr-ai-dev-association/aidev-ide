@@ -29,7 +29,7 @@ import { ExternalApiService } from './services/external/ExternalApiService';
 import { ContextHistoryManager } from './core/context/ContextHistoryManager';
 import { ConversationSummarizer } from './core/context/ConversationSummarizer';
 import { FileChangeTracker } from './core/action/file/FileChangeTracker';
-import { ActionManager } from './core/action/ActionManager';
+import { FileContextTracker } from './core/context/file/FileContextTracker';
 
 
 // 전역 변수
@@ -366,10 +366,12 @@ export async function activate(context: vscode.ExtensionContext) {
     conversationSummarizer.setLLMClient(llmApiClient);
     conversationManager.setConversationSummarizer(conversationSummarizer);
 
-    // FileChangeTracker 초기화 및 설정
+    // FileChangeTracker / FileContextTracker 초기화 및 ActionManager에 설정
     const fileChangeTracker = FileChangeTracker.getInstance(context);
+    const fileContextTracker = FileContextTracker.getInstance(context);
     const actionManager = ActionManager.getInstance();
     actionManager.setFileChangeTracker(fileChangeTracker);
+    actionManager.setFileContextTracker(fileContextTracker);
 
 
     // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨

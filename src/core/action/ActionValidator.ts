@@ -242,13 +242,47 @@ export class ActionValidator {
             }
         }
 
-        // SEARCH 검증
+        // SEARCH 검증 (일반 코드 검색)
         if (action.type === 'search') {
             if (!params.query) {
                 errors.push({
                     field: 'query',
                     message: 'Search query is required',
                     code: 'MISSING_QUERY'
+                });
+            }
+        }
+
+        // FILE_READ 검증
+        if (action.type === 'file_read') {
+            if (!params.path && (!params.paths || params.paths.length === 0)) {
+                errors.push({
+                    field: 'path',
+                    message: 'At least one file path is required for file_read action',
+                    code: 'MISSING_FILE_PATH'
+                });
+            }
+        }
+
+        // FILE_LIST 검증
+        if (action.type === 'file_list') {
+            if (!params.path && (!params.paths || params.paths.length === 0) &&
+                (!params.includeGlobs || params.includeGlobs.length === 0)) {
+                errors.push({
+                    field: 'path',
+                    message: 'Directory path or includeGlobs is required for file_list action',
+                    code: 'MISSING_LIST_TARGET'
+                });
+            }
+        }
+
+        // FILE_SEARCH 검증
+        if (action.type === 'file_search') {
+            if (!params.pattern && !params.query) {
+                errors.push({
+                    field: 'pattern',
+                    message: 'Search pattern or query is required for file_search action',
+                    code: 'MISSING_SEARCH_PATTERN'
                 });
             }
         }

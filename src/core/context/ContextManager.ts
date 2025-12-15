@@ -27,6 +27,7 @@ import { ErrorManager } from '../error';
 import { ProjectManager } from '../project';
 import { estimateTokens } from '../../utils';
 import { RelevantFilesFinder, RelevantFilesResult } from './file/RelevantFilesFinder';
+import { FileContextTracker } from './file/FileContextTracker';
 
 export class ContextManager {
     private static instance: ContextManager;
@@ -37,10 +38,12 @@ export class ContextManager {
     private errorManager?: ErrorManager;
     private projectManager?: ProjectManager;
     private relevantFilesService?: RelevantFilesFinder;
+    private fileContextTracker?: FileContextTracker;
 
     private constructor() {
         this.fileCollector = new FileContextCollector();
         this.editorCollector = new EditorContextCollector();
+        this.fileContextTracker = FileContextTracker.getInstance();
     }
 
     public static getInstance(): ContextManager {
@@ -213,6 +216,16 @@ export class ContextManager {
             if (stats.size > options.maxFileSize) {
                 console.warn(`[ContextManager] File too large: ${stats.size} bytes, max: ${options.maxFileSize}`);
                 return null;
+            }
+        }
+
+        // 파일이 완전히 써질 때까지 잠시 대기 (큰 파일/저장 지연 대비)
+        if (this.fileContextTracker) {
+            try {
+                this.fileContextTracker.trackFile(filePath);
+                await this.fileContextTracker.waitForFileStability(filePath, 3000, 400, 200);
+            } catch (error) {
+                console.warn('[ContextManager] waitForFileStability failed:', error);
             }
         }
 

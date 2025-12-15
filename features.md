@@ -314,131 +314,6 @@ interface PlanStep {
 
 ---
 
-## 정확도 향상 기능
-
-### 8. AST 기반 코드 분석 ⭐⭐⭐
-
-**현재 상태**: 기본적인 파일 읽기만 지원
-
-**구현 방식**:
-- Tree-sitter를 통한 다중 언어 AST 파싱
-- 코드 정의(함수, 클래스, 변수 등) 추출
-- 코드 구조 분석 및 관련 파일 찾기
-- 코드 정의 이름 목록 제공
-
-**추가 필요 기능**:
-```typescript
-// src/core/ast/AstAnalyzer.ts
-class AstAnalyzer {
-  // 파일 AST 파싱
-  async parseFile(filePath: string, language: string): Promise<AST>
-  
-  // 코드 정의 추출
-  extractDefinitions(ast: AST): CodeDefinition[]
-  
-  // 코드 정의 이름 목록
-  listCodeDefinitionNames(
-    filePath: string,
-    type?: 'function' | 'class' | 'variable' | 'interface'
-  ): Promise<string[]>
-  
-  // 정의 사용 위치 찾기
-  findDefinitionUsages(
-    definitionName: string,
-    projectRoot: string
-  ): Promise<UsageLocation[]>
-  
-  // 관련 파일 찾기 (import/export 기반)
-  findRelatedFiles(filePath: string): Promise<string[]>
-}
-
-// src/core/ast/CodeDefinition.ts
-interface CodeDefinition {
-  name: string
-  type: 'function' | 'class' | 'variable' | 'interface' | 'type'
-  location: {
-    file: string
-    line: number
-    column: number
-  }
-  signature?: string
-  documentation?: string
-}
-```
-
-**기대 효과**:
-- 대규모 프로젝트에서 정확한 코드 이해
-- 관련 파일 자동 탐색
-- 코드 구조 기반 컨텍스트 수집
-- 리팩토링 정확도 향상
-
-**구현 난이도**: 중
-
----
-
-### 9. Regex 기반 파일 검색 ⭐⭐⭐
-
-**현재 상태**: 기본적인 파일 읽기만 지원
-
-**구현 방식**:
-- ripgrep을 통한 빠른 정규식 검색
-- 파일 내용 검색 및 매칭 라인 추출
-- 검색 결과 컨텍스트 포함 (주변 코드)
-- 대규모 프로젝트에서도 빠른 검색
-
-**추가 필요 기능**:
-```typescript
-// src/core/search/FileSearcher.ts
-class FileSearcher {
-  // 정규식으로 파일 검색
-  async searchFiles(
-    pattern: string,
-    options?: {
-      include?: string[]
-      exclude?: string[]
-      caseSensitive?: boolean
-      contextLines?: number
-    }
-  ): Promise<SearchResult[]>
-  
-  // 특정 파일에서 검색
-  async searchInFile(
-    filePath: string,
-    pattern: string,
-    contextLines?: number
-  ): Promise<Match[]>
-  
-  // 검색 결과 하이라이트
-  highlightMatches(content: string, matches: Match[]): string
-}
-
-interface SearchResult {
-  file: string
-  matches: Match[]
-  totalMatches: number
-}
-
-interface Match {
-  line: number
-  column: number
-  content: string
-  context?: {
-    before: string[]
-    after: string[]
-  }
-}
-```
-
-**기대 효과**:
-- 빠른 코드 패턴 검색
-- 관련 코드 자동 발견
-- 대규모 프로젝트 탐색 효율성 향상
-- 컨텍스트 수집 정확도 향상
-
-**구현 난이도**: 낮음-중
-
----
-
 ### 10. 파일 Timeline 추적 ⭐⭐⭐
 
 **현재 상태**: 기본적인 파일 변경만 지원
@@ -503,7 +378,138 @@ interface TimelineEntry {
 
 ---
 
-### 11. 도구 실행 검증 강화 ⭐⭐⭐
+### 11. 누락된 파일 탐색 Action 타입 추가 ⭐⭐⭐
+
+**현재 상태**: 정규식 기반 파싱으로 파일 생성/수정/삭제, 터미널 명령 실행은 지원하지만, 파일 읽기/목록/검색을 수행하는 명시적인 Action 타입은 없음.
+
+**구현 방식**:
+- Tool 기반 액션 커버리지를 참고하여, aidev-ide의 `ActionType` 및 `ActionMapper`에 파일 탐색 계열 액션을 단계적으로 도입
+- LLM 응답에서 아래 패턴을 인식해 Action으로 매핑:
+  - **파일 읽기**: 특정 파일 내용을 읽어야 할 때 → `FILE_READ` 액션
+  - **파일 목록 조회**: 디렉터리 또는 글롭 패턴에 맞는 파일 목록을 요청할 때 → `FILE_LIST` 액션
+  - **파일 검색**: 키워드/정규식 기반으로 파일 내용을 검색할 때 → `FILE_SEARCH` 액션
+- 이미 구현된 `FileSearcher`, `RelevantFilesFinder` 등을 재사용하여, Action 실행 시 실제 파일 시스템에서 읽기/목록/검색 수행
+
+**추가 필요 기능**:
+```typescript
+// src/core/action/types.ts
+export enum ActionType {
+  CODE_GENERATION = 'code_generation',
+  FILE_OPERATION = 'file_operation',
+  TERMINAL_COMMAND = 'terminal_command',
+  ANALYSIS = 'analysis',
+  VERIFICATION = 'verification',
+  SEARCH = 'search',           // 일반 검색/코드 검색
+  FILE_READ = 'file_read',     // 단일/복수 파일 읽기
+  FILE_LIST = 'file_list',     // 디렉터리/글롭 기반 파일 목록 조회
+  FILE_SEARCH = 'file_search', // 파일 내용 검색 (정규식/키워드)
+  REFACTOR = 'refactor'
+}
+
+export interface ActionParams {
+  // ...
+  // FILE_READ / FILE_LIST / FILE_SEARCH 파라미터
+  paths?: string[];           // 읽거나 나열할 파일/디렉터리 경로 목록
+  path?: string;              // 단일 경로 (파일 또는 디렉터리)
+  includeGlobs?: string[];    // 포함 글롭 패턴
+  excludeGlobs?: string[];    // 제외 글롭 패턴
+  pattern?: string;           // 내용 검색용 정규식/키워드
+  maxResults?: number;        // 검색/목록 결과 최대 개수
+}
+
+// src/core/action/ActionRegistry.ts
+class ActionRegistry {
+  private registerDefaultActions() {
+    // FILE_READ 액션
+    this.register({
+      type: ActionType.FILE_READ,
+      name: 'Read File',
+      description: 'Read the content of one or more files',
+      permissions: [Permission.READ_FILE],
+      validation: [
+        { field: 'path', type: 'required', message: 'File path is required' }
+      ],
+      handler: this.createPlaceholderHandler('file_read')
+    });
+
+    // FILE_LIST 액션
+    this.register({
+      type: ActionType.FILE_LIST,
+      name: 'List Files',
+      description: 'List files in a directory or by glob patterns',
+      permissions: [Permission.READ_FILE],
+      validation: [
+        { field: 'path', type: 'required', message: 'Directory path is required' }
+      ],
+      handler: this.createPlaceholderHandler('file_list')
+    });
+
+    // FILE_SEARCH 액션
+    this.register({
+      type: ActionType.FILE_SEARCH,
+      name: 'File Content Search',
+      description: 'Search within files by keyword or regex',
+      permissions: [Permission.READ_FILE],
+      validation: [
+        { field: 'pattern', type: 'required', message: 'Search pattern is required' }
+      ],
+      handler: this.createPlaceholderHandler('file_search')
+    });
+  }
+}
+
+// src/core/action/ActionValidator.ts
+class ActionValidator {
+  private validateBusinessRules(action: Action): ValidationError[] {
+    const errors: ValidationError[] = [];
+
+    if (action.type === ActionType.FILE_READ) {
+      if (!action.params.path && (!action.params.paths || action.params.paths.length === 0)) {
+        errors.push({
+          field: 'path',
+          message: 'At least one file path is required for file_read action',
+          code: 'MISSING_FILE_PATH'
+        });
+      }
+    }
+
+    if (action.type === ActionType.FILE_LIST) {
+      if (!action.params.path &&
+          (!action.params.paths || action.params.paths.length === 0) &&
+          (!action.params.includeGlobs || action.params.includeGlobs.length === 0)) {
+        errors.push({
+          field: 'path',
+          message: 'Directory path or includeGlobs is required for file_list action',
+          code: 'MISSING_LIST_TARGET'
+        });
+      }
+    }
+
+    if (action.type === ActionType.FILE_SEARCH) {
+      if (!action.params.pattern && !action.params.query) {
+        errors.push({
+          field: 'pattern',
+          message: 'Search pattern or query is required for file_search action',
+          code: 'MISSING_SEARCH_PATTERN'
+        });
+      }
+    }
+
+    return errors;
+  }
+}
+```
+
+**기대 효과**:
+- LLM이 “이 파일 내용 읽어줘 / 이 폴더 파일 목록 보여줘 / 이 키워드로 검색해줘” 같은 요청을 명시적인 Action으로 수행 가능
+- 파일 탐색/검색 결과를 컨텍스트로 자연스럽게 연결하여 코드 생성/분석 정확도 향상
+- 향후 Tool 기반 구조(브라우저 자동화, MCP 등) 도입 시 액션 타입 확장을 위한 기반 마련
+
+**구현 난이도**: 중
+
+---
+
+### 12. 도구 실행 검증 강화 ⭐⭐⭐
 
 **현재 상태**: 기본적인 검증만 지원
 
@@ -542,7 +548,7 @@ class ToolValidator {
 
 ---
 
-### 12. 자동 승인 시스템 ⭐⭐
+### 13. 자동 승인 시스템 ⭐⭐
 
 **현재 상태**: 모든 작업 수동 승인 필요
 
@@ -580,49 +586,7 @@ class AutoApproveManager {
 
 **구현 난이도**: 중
 
----
-
-### 13. 파일 컨텍스트 추적기 ⭐⭐⭐
-
-**현재 상태**: 기본적인 파일 읽기만 지원
-
-**구현 방식**:
-- 파일 변경사항 추적
-- 파일 크기 안정화 대기 (pollInterval)
-- 컨텍스트에 포함된 파일 목록 관리
-- 중복 파일 읽기 방지
-
-**추가 필요 기능**:
-```typescript
-// src/core/context/FileContextTracker.ts
-class FileContextTracker {
-  // 파일 추적 시작
-  trackFile(filePath: string): void
-  
-  // 파일 변경 감지
-  onFileChanged(
-    callback: (filePath: string, changeType: string) => void
-  ): void
-  
-  // 추적 중인 파일 목록
-  getTrackedFiles(): string[]
-  
-  // 파일 안정화 대기 (쓰기 완료 대기)
-  async waitForFileStability(
-    filePath: string,
-    timeout?: number
-  ): Promise<void>
-}
-```
-
-**기대 효과**:
-- 파일 변경사항 실시간 추적
-- 불완전한 파일 읽기 방지
-- 컨텍스트 정확도 향상
-
-**구현 난이도**: 중
-
----
+--
 
 ### 14. 후크(Hook) 시스템 ⭐⭐
 
@@ -933,7 +897,7 @@ class TaskHistoryReconstructor {
 
 ### Phase 3: 정확도 향상 (중기)
 8. **도구 실행 검증 강화** ⭐⭐⭐
-9. **파일 컨텍스트 추적기** ⭐⭐⭐
+9. ~~**파일 컨텍스트 추적기** ⭐⭐⭐~~ (구현 완료 - `FileContextTracker`가 `ContextManager.collectFileContext`와 `ActionManager` 코드/파일 액션 실행 직전에 연동되어, 파일이 안정된 후 컨텍스트를 수집하도록 보장)
 10. **멀티 파일 Diff 뷰** ⭐⭐⭐
 11. **파일 Timeline 추적** ⭐⭐⭐
 

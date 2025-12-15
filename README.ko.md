@@ -6,6 +6,11 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.10 (파일 컨텍스트 트래커 연동 & 안정성 가드)
+- **FileContextTracker 연동**: `FileContextTracker`가 `ContextManager.collectFileContext`와 `ActionManager` 양쪽에 연결되어, 디스크에 완전히 기록되기 전에 파일을 읽지 않도록 보호합니다.
+- **액션 실행 전 안정성 가드**: `CODE_GENERATION`, `FILE_OPERATION` 액션 실행 직전에 `trackFile()`과 `waitForFileStability()`를 호출하여, 실행 직후 컨텍스트를 다시 수집하더라도 저장 중간 상태(부분 기록)가 아닌 안정된 내용을 읽도록 보장합니다.
+- **대용량/자동 저장 파일 안전 처리**: 파일 크기와 mtime이 일정 시간 동안 변하지 않을 때까지 짧게 대기하여, 자동 저장이나 긴 쓰기 작업과의 레이스 컨디션을 줄였습니다.
+
 ## v5.0.9 (단일 Codepilot 패널 & 실시간 Ollama 선택기)
 - **Codepilot 단일 패널**: CODE/ASK 모드를 하나의 Codepilot 패널에서 드롭다운으로 전환
 - **실시간 Ollama 모델 선택**: 상단 Model 드롭다운이 로컬 Ollama `/api/tags`에서 실시간 모델 목록을 불러와 선택/저장

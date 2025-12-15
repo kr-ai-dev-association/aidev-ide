@@ -5,4 +5,5 @@
 export * from './FileContext';
 export * from './RelevantFilesFinder';
 export * from './FileSearcher';
+export * from './FileContextTracker';
 

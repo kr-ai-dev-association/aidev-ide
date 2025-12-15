@@ -6,6 +6,11 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.10 (File Context Tracker Integration & Stability Guard)
+- **FileContextTracker integration**: `FileContextTracker` is now wired into both `ContextManager.collectFileContext` and `ActionManager` so that files are only read after they have stabilized on disk.
+- **Pre-action stability guard**: Before executing `CODE_GENERATION` and `FILE_OPERATION` actions, `ActionManager` calls `trackFile()` and `waitForFileStability()` to avoid reading half-written files when immediately re-collecting context.
+- **Safer large-file handling**: Context collection waits briefly for file size/mtime to stop changing, reducing race conditions with auto-save or long writes.
+
 ## v5.0.9 (Unified Code Panel & Live Ollama Selector)
 - **Single Codepilot panel**: CODE/ASK 모드를 하나의 Codepilot 패널에서 드롭다운으로 전환
 - **Live Ollama model picker**: 상단 Model 드롭다운이 로컬 Ollama `/api/tags`에서 실시간 모델 목록을 불러와 선택/저장

@@ -78,6 +78,7 @@ src/
 │   │   │   ├── FileContext.ts       # 파일 컨텍스트 수집
 │   │   │   ├── RelevantFilesFinder.ts # 관련 파일 찾기
 │   │   │   ├── FileSearcher.ts      # Regex 기반 파일 검색
+│   │   │   ├── FileContextTracker.ts # 파일 컨텍스트 추적기 (파일 안정화 대기)
 │   │   │   └── index.ts
 │   │   ├── types/                   # 컨텍스트 히스토리 타입 정의
 │   │   │   └── contextHistory.ts    # ContextUpdate, ConversationSummary 등
@@ -225,11 +226,15 @@ class ActionManager {
 
 **책임**:
 - LLM 응답 파싱 및 액션 추출
-- 액션 타입 결정 (CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND 등)
+- 액션 타입 결정 (CODE_GENERATION, FILE_OPERATION, TERMINMINAL_COMMAND 등)
 - 액션 파라미터 검증
 - 권한 체크
 - 컨텍스트 주입
 - Execution Manager에 실행 요청 전달
+- **파일 컨텍스트 안정화 대기**:
+  - `FileContextTracker`를 주입받아 코드 생성(`executeCodeGeneration`) 및 파일 작업(`executeFileOperation`) 실행 직전에
+    대상 파일을 `trackFile()`로 추적하고 `waitForFileStability()`로 크기/mtime이 일정 시간 동안 변하지 않을 때까지 대기
+  - 직후 `ContextManager.collectContext()`에서 파일을 다시 읽더라도, 저장 중간 상태(부분 기록)를 읽지 않도록 보장
 
 **구현 파일**:
 - `ActionManager.ts` - 메인 액션 매니저
@@ -421,6 +426,7 @@ class ContextManager {
 
 **구현 파일**:
 - `ContextManager.ts` - 컨텍스트 관리
+  - `collectFileContext()`에서 현재 활성 파일을 읽기 전에 `FileContextTracker.waitForFileStability()`를 호출하여, 큰 파일/자동 저장 시에도 완전히 저장된 후 컨텍스트를 수집
 - `ContextHistoryManager.ts` - 컨텍스트 히스토리 관리 및 자동 요약
   - 컨텍스트 업데이트 기록 및 추적
   - 컨텍스트 크기 모니터링 및 압축
@@ -430,7 +436,12 @@ class ContextManager {
 - `ConversationSummarizer.ts` - 대화 요약 생성
   - LLM을 통한 대화 요약 생성
   - 요약 형식 검증 및 파싱
-- `FileContext.ts` - 파일 컨텍스트 수집
+- `file/FileContext.ts` - 파일 컨텍스트 수집
+- `file/RelevantFilesFinder.ts` - 관련 파일 찾기
+- `file/FileSearcher.ts` - Regex 기반 파일 검색
+- `file/FileContextTracker.ts` - 파일 컨텍스트 추적 및 안정화 대기
+  - VS Code `FileSystemWatcher`로 파일 변경(create/change/delete) 추적
+  - `waitForFileStability(filePath, timeout, stableDuration, pollInterval)`로 파일 크기/mtime이 일정 시간 동안 변하지 않을 때까지 대기
 - `EditorContext.ts` - 에디터 컨텍스트 수집
 - `TerminalContext.ts` - 터미널 컨텍스트 수집
 - `PromptBuilder.ts` - 프롬프트 생성 (deprecated, PromptComposer 사용 권장)

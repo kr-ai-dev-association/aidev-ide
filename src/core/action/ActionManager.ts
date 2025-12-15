@@ -22,6 +22,7 @@ import { ActionValidator } from './ActionValidator';
 import { ActionMapper } from './ActionMapper';
 import { TerminalManager } from '../terminal/TerminalManager';
 import { FileChangeTracker } from './file/FileChangeTracker';
+import { FileContextTracker } from '../context/file/FileContextTracker';
 
 export class ActionManager {
     private static instance: ActionManager;
@@ -31,6 +32,7 @@ export class ActionManager {
     private context?: ActionContext;
     private activeActions: Map<string, Action> = new Map();
     private fileChangeTracker?: FileChangeTracker;
+    private fileContextTracker?: FileContextTracker;
 
     private constructor() {
         this.registry = ActionRegistry.getInstance();
@@ -44,6 +46,15 @@ export class ActionManager {
     public setFileChangeTracker(tracker: FileChangeTracker): void {
         this.fileChangeTracker = tracker;
         console.log('[ActionManager] FileChangeTracker set');
+    }
+
+    /**
+     * FileContextTracker 설정
+     * - 코드/파일 액션 실행 직전에 파일 안정화(waitForFileStability)를 보장하기 위해 사용
+     */
+    public setFileContextTracker(tracker: FileContextTracker): void {
+        this.fileContextTracker = tracker;
+        console.log('[ActionManager] FileContextTracker set');
     }
 
     public static getInstance(): ActionManager {
@@ -450,6 +461,16 @@ export class ActionManager {
                 ? path.normalize(cleanPath)
                 : path.normalize(path.join(projectRoot, cleanPath));
 
+            // 파일 컨텍스트 추적 및 안정화 대기
+            if (this.fileContextTracker) {
+                try {
+                    this.fileContextTracker.trackFile(absolutePath);
+                    await this.fileContextTracker.waitForFileStability(absolutePath, 3000, 400, 200);
+                } catch (e) {
+                    console.warn('[ActionManager] waitForFileStability failed for code_generation:', e);
+                }
+            }
+
             // 디렉토리 생성
             const dir = path.dirname(absolutePath);
             const dirUri = vscode.Uri.file(dir);
@@ -525,6 +546,16 @@ export class ActionManager {
                     ? path.normalize(sourcePath)
                     : path.normalize(path.join(projectRoot, sourcePath))
             );
+
+            // 파일 컨텍스트 추적 및 안정화 대기
+            if (this.fileContextTracker) {
+                try {
+                    this.fileContextTracker.trackFile(sourceUri.fsPath);
+                    await this.fileContextTracker.waitForFileStability(sourceUri.fsPath, 3000, 400, 200);
+                } catch (e) {
+                    console.warn('[ActionManager] waitForFileStability failed for file_operation:', e);
+                }
+            }
 
             switch (operation) {
                 case FileOperationType.CREATE:

@@ -169,6 +169,42 @@ export class ActionRegistry {
             handler: this.createPlaceholderHandler('search')
         });
 
+        // FILE_READ 액션
+        this.register({
+            type: ActionType.FILE_READ,
+            name: 'Read File',
+            description: 'Read the content of one or more files',
+            permissions: [Permission.READ_FILE],
+            validation: [
+                { field: 'path', type: 'required', message: 'File path is required' }
+            ],
+            handler: this.createPlaceholderHandler('file_read')
+        });
+
+        // FILE_LIST 액션
+        this.register({
+            type: ActionType.FILE_LIST,
+            name: 'List Files',
+            description: 'List files in a directory or by glob patterns',
+            permissions: [Permission.READ_FILE],
+            validation: [
+                { field: 'path', type: 'required', message: 'Directory path is required' }
+            ],
+            handler: this.createPlaceholderHandler('file_list')
+        });
+
+        // FILE_SEARCH 액션
+        this.register({
+            type: ActionType.FILE_SEARCH,
+            name: 'File Content Search',
+            description: 'Search within files by keyword or regex',
+            permissions: [Permission.READ_FILE],
+            validation: [
+                { field: 'pattern', type: 'required', message: 'Search pattern is required' }
+            ],
+            handler: this.createPlaceholderHandler('file_search')
+        });
+
         // REFACTOR 액션
         this.register({
             type: ActionType.REFACTOR,
