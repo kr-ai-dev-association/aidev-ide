@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
+console.log('[ExternalApiService] Module loading...');
+console.log('[ExternalApiService] Importing StateManager...');
 import { StateManager } from '../../core/state/StateManager';
+console.log('[ExternalApiService] StateManager imported');
 
 export interface WeatherData {
     location: string;
@@ -186,7 +189,7 @@ export class ExternalApiService {
             const response = await fetch(
                 `https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getLandFcst?pageNo=1&numOfRows=10&dataType=XML&regId=${regId}&authKey=${apiKey}`
             );
-            
+
             if (!response.ok) {
                 throw new Error(`Weather API error: ${response.status}`);
             }
@@ -354,7 +357,7 @@ export class ExternalApiService {
             const today = new Date();
             const tomorrow = new Date(today);
             tomorrow.setDate(today.getDate() + 1);
-            
+
             const tmef1 = tomorrow.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
             const tmef2 = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, ''); // 7일 후
 
@@ -382,10 +385,10 @@ export class ExternalApiService {
     private parseMediumTermForecastXml(xmlText: string): WeatherData['mediumTermForecast'] {
         try {
             const forecasts: WeatherData['mediumTermForecast'] = [];
-            
+
             // XML에서 각 예보 항목을 추출
             const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/g);
-            
+
             if (!itemMatches) {
                 console.warn('No forecast items found in medium-term forecast XML');
                 return [];
@@ -421,21 +424,21 @@ export class ExternalApiService {
                 if (tmStMatch && tmEdMatch) {
                     const startDate = tmStMatch[1].substring(0, 8); // YYYYMMDD
                     const endDate = tmEdMatch[1].substring(0, 8);
-                    
+
                     // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
                     const formattedDate = `${startDate.substring(0, 4)}-${startDate.substring(4, 6)}-${startDate.substring(6, 8)}`;
-                    
+
                     // 최저/최고 기온 처리
                     let minTemp = 0;
                     let maxTemp = 0;
-                    
+
                     if (minMatch && minMatch[1] !== '-99' && minMatch[1].trim() !== '') {
                         const tempValue = parseFloat(minMatch[1]);
                         if (!isNaN(tempValue)) {
                             minTemp = tempValue;
                         }
                     }
-                    
+
                     if (maxMatch && maxMatch[1] !== '-99' && maxMatch[1].trim() !== '') {
                         const tempValue = parseFloat(maxMatch[1]);
                         if (!isNaN(tempValue)) {
@@ -465,7 +468,7 @@ export class ExternalApiService {
             }
 
             // 날짜순으로 정렬하고 중복 제거 (같은 날짜의 경우 첫 번째 항목만 유지)
-            const uniqueForecasts = forecasts.filter((forecast, index, self) => 
+            const uniqueForecasts = forecasts.filter((forecast, index, self) =>
                 index === self.findIndex(f => f.date === forecast.date)
             );
 
@@ -483,7 +486,7 @@ export class ExternalApiService {
         try {
             const clientId = await this.stateManager.getNewsApiKey();
             const clientSecret = await this.stateManager.getNewsApiSecret();
-            
+
             if (!clientId || !clientSecret) {
                 console.warn('Naver News API credentials not configured');
                 return [];
@@ -492,7 +495,7 @@ export class ExternalApiService {
             // 네이버 API는 한 번에 최대 100개까지 요청 가능하지만, 
             // 실제로는 10-20개 정도가 적절한 응답 시간을 보장
             const displayCount = Math.min(count, 20);
-            
+
             const response = await fetch(
                 `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(query)}&display=${displayCount}&sort=date`,
                 {
@@ -502,13 +505,13 @@ export class ExternalApiService {
                     }
                 }
             );
-            
+
             if (!response.ok) {
                 throw new Error(`Naver News API error: ${response.status}`);
             }
 
             const data = await response.json() as NaverNewsApiResponse;
-            
+
             return data.items.map((item) => ({
                 title: this.decodeHtmlEntities(item.title),
                 description: this.decodeHtmlEntities(item.description),
@@ -543,7 +546,7 @@ export class ExternalApiService {
         try {
             const urlObj = new URL(url);
             const hostname = urlObj.hostname;
-            
+
             // 주요 뉴스 사이트 매핑
             const sourceMap: { [key: string]: string } = {
                 'news.naver.com': '네이버뉴스',
@@ -559,7 +562,7 @@ export class ExternalApiService {
                 'www.itworld.co.kr': 'ITWorld',
                 'www.ciokorea.com': 'CIO Korea'
             };
-            
+
             return sourceMap[hostname] || hostname.replace('www.', '');
         } catch {
             return '알 수 없음';
@@ -580,14 +583,14 @@ export class ExternalApiService {
             const response = await fetch(
                 `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`
             );
-            
+
             if (!response.ok) {
                 throw new Error(`Stock API error: ${response.status}`);
             }
 
             const data = await response.json() as StockApiResponse;
             const quote = data['Global Quote'];
-            
+
             if (!quote) {
                 throw new Error('No stock data found');
             }
@@ -610,7 +613,7 @@ export class ExternalApiService {
      */
     async getMultipleStockData(symbols: string[]): Promise<StockData[]> {
         const stockData: StockData[] = [];
-        
+
         for (const symbol of symbols) {
             const data = await this.getStockData(symbol);
             if (data) {
@@ -619,7 +622,7 @@ export class ExternalApiService {
             // API 호출 제한을 위해 잠시 대기
             await new Promise(resolve => setTimeout(resolve, 200));
         }
-        
+
         return stockData;
     }
 
@@ -628,7 +631,7 @@ export class ExternalApiService {
      */
     async getRealTimeSummary(weatherCity?: string, newsQuery?: string, stockSymbols?: string[]): Promise<string> {
         let summary = '## 실시간 정보 요약\n\n';
-        
+
         // 날씨 정보
         if (weatherCity) {
             const weather = await this.getWeatherData(weatherCity);
@@ -641,7 +644,7 @@ export class ExternalApiService {
                 summary += `- 풍향: ${weather.windDirection}\n\n`;
             }
         }
-        
+
         // 뉴스 정보
         if (newsQuery) {
             const news = await this.getNewsData(newsQuery, 3);
@@ -654,7 +657,7 @@ export class ExternalApiService {
                 });
             }
         }
-        
+
         // 주식 정보
         if (stockSymbols && stockSymbols.length > 0) {
             const stocks = await this.getMultipleStockData(stockSymbols);
@@ -669,7 +672,7 @@ export class ExternalApiService {
                 summary += '\n';
             }
         }
-        
+
         return summary;
     }
 

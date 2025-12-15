@@ -2,16 +2,12 @@ import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
-// @deprecated StorageService는 core StateManager로 대체됨
-// import { StorageService } from '../services/storage';
 import { StateManager } from '../../core/state/StateManager';
 
 export class OllamaApi {
     private apiUrl: string;
     private endpoint: string = '/api/generate';
     private modelName: string = 'gemma3:27b';
-    // @deprecated storageService는 core StateManager로 대체됨
-    // private storageService: StorageService | null;
     private extensionContext: vscode.ExtensionContext | undefined;
 
     constructor(apiUrl?: string, endpoint?: string, extensionContext?: vscode.ExtensionContext) {

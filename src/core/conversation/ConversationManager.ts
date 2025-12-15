@@ -383,12 +383,12 @@ export class ConversationManager {
             // 컨텍스트 수집 및 히스토리 기록 (Phase 2.1)
             let contextData: any = null;
             let conversationHistory: ConversationEntry[] = [];
-            
+
             // ContextHistoryManager 초기화 (필요시)
             if (extensionContext && !this.contextHistoryManager) {
                 this.contextHistoryManager = ContextHistoryManager.getInstance(extensionContext);
             }
-            
+
             if (extensionContext && this.contextHistoryManager) {
                 try {
 
@@ -452,7 +452,7 @@ export class ConversationManager {
                                 'add',
                                 'error',
                                 error.message || '',
-                                { 
+                                {
                                     type: error.type,
                                     source: error.source,
                                     file: error.file,
@@ -467,11 +467,11 @@ export class ConversationManager {
                     if (sizeInfo.isExceeded) {
                         const maxTokenSize = this.contextHistoryManager.getMaxTokenSize();
                         console.log(`[ConversationManager] Context size exceeded (${sizeInfo.characterCount}/${sizeInfo.maxSize} chars, ${sizeInfo.tokenCount}/${maxTokenSize} tokens)`);
-                        
+
                         // 압축 전략 결정
                         const apiHistory = this.contextHistoryManager.getApiConversationHistory();
                         const currentDeletedRange = this.contextHistoryManager.getConversationHistoryDeletedRange();
-                        
+
                         // 토큰 사용량에 따라 압축 전략 선택
                         const tokenUsageRatio = sizeInfo.tokenCount! / maxTokenSize;
                         let keepStrategy: 'none' | 'lastTwo' | 'half' | 'quarter' = 'half';
@@ -491,13 +491,13 @@ export class ConversationManager {
 
                         this.contextHistoryManager.setConversationHistoryDeletedRange(newDeletedRange);
                         console.log(`[ConversationManager] Context compressed with strategy: ${keepStrategy}, deleted range: [${newDeletedRange[0]}, ${newDeletedRange[1]}]`);
-                        
+
                         // 압축으로도 부족하면 요약 트리거 (Phase 3.3)
                         if (tokenUsageRatio > 0.95 && this.conversationSummarizer) {
                             console.log('[ConversationManager] Token usage very high (>95%), triggering summarization...');
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'summarizing');
                             WebviewBridge.sendProcessingStatus(webviewToRespond, 'summarizing', 'Summarizing conversation history...');
-                            
+
                             const summary = await this.contextHistoryManager.triggerAutoSummarization(
                                 conversationHistory,
                                 contextData
@@ -506,10 +506,10 @@ export class ConversationManager {
                             if (summary) {
                                 // 요약된 세션 재개 프롬프트 생성
                                 const continuationPrompt = this.contextHistoryManager.createContinuationPrompt(summary);
-                                
+
                                 // 히스토리 컨텍스트에 요약 추가
                                 historyContext = continuationPrompt + '\n\n--- 최근 대화 ---\n' + historyContext;
-                                
+
                                 WebviewBridge.sendProcessingStatus(webviewToRespond, 'summarizing', `Summarized ${conversationHistory.length} messages`);
                             }
                         }
@@ -616,10 +616,10 @@ export class ConversationManager {
                         workspaceRoot: vscode.workspace.workspaceFolders?.[0].uri.fsPath || '',
                         currentFile: vscode.window.activeTextEditor?.document.uri.fsPath
                     };
-                    
+
                     // 컨텍스트 설정
                     actionManager.setContext(context);
-                    
+
                     // LLM 응답을 액션으로 매핑
                     const actionResult = await actionManager.mapResponse({
                         content: llmResponse,
@@ -777,7 +777,7 @@ export class ConversationManager {
 
                 // 액션(코드/터미널/파일)이 없거나 모두 성공한 경우 완료 신호 전송
                 try {
-                    const { ActionManager } = await import('../action/ActionManager');
+                    const { ActionManager } = await import('../action/ActionManager.js');
                     const actionManager = ActionManager.getInstance();
                     const active = actionManager.getActiveActions();
                     if (!active || active.length === 0) {
@@ -879,10 +879,10 @@ export class ConversationManager {
                 workspaceRoot: vscode.workspace.workspaceFolders?.[0].uri.fsPath || '',
                 currentFile: vscode.window.activeTextEditor?.document.uri.fsPath
             };
-            
+
             // 컨텍스트 설정
             actionManager.setContext(context);
-            
+
             // LLM 응답을 액션으로 매핑
             const actionResult = await actionManager.mapResponse({
                 content: llmResponse,
@@ -1083,9 +1083,13 @@ export class ConversationManager {
             if (currentModelType === 'gemini' && geminiApi) {
                 return 'Gemini 2.5 Flash';
             } else if (ollamaApi) {
-                return ollamaApi.getModel?.() || ollamaApi.getCurrentModelName?.() || 'Ollama Model';
+                return ollamaApi.getModel?.() || ollamaApi.getCurrentModelName?.() || currentModelType || 'Ollama Model';
             }
         } catch { }
+        // 모델 타입 문자열이라도 반환해 Unknown 회피
+        if (typeof currentModelType === 'string' && currentModelType.trim().length > 0) {
+            return currentModelType;
+        }
         return 'Unknown Model';
     }
 
