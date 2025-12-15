@@ -6,6 +6,97 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.10 (File Context Tracker Integration & Stability Guard)
+- **FileContextTracker integration**: `FileContextTracker` is now wired into both `ContextManager.collectFileContext` and `ActionManager` so that files are only read after they have stabilized on disk.
+- **Pre-action stability guard**: Before executing `CODE_GENERATION` and `FILE_OPERATION` actions, `ActionManager` calls `trackFile()` and `waitForFileStability()` to avoid reading half-written files when immediately re-collecting context.
+- **Safer large-file handling**: Context collection waits briefly for file size/mtime to stop changing, reducing race conditions with auto-save or long writes.
+
+## v5.0.9 (Unified Code Panel & Live Ollama Selector)
+- **Single Codepilot panel**: CODE/ASK 모드를 하나의 Codepilot 패널에서 드롭다운으로 전환
+- **Live Ollama model picker**: 상단 Model 드롭다운이 로컬 Ollama `/api/tags`에서 실시간 모델 목록을 불러와 선택/저장
+- **UI 정리**: 기존 ASK 패널 제거, 코드 입력창/아이콘 정돈
+
+## v5.0.8 (Code Analysis & File Search Enhancement, Structure Refactoring)
+- **AST 기반 코드 분석**: Tree-sitter를 통한 고급 코드 분석 기능 추가
+  - 코드 정의 이름 목록 추출 (`listCodeDefinitionNames`)
+  - 정의 사용 위치 검색 (`findDefinitionUsages`) - import, call, reference, extend, implement
+  - import/export 관계 기반 관련 파일 찾기 (`findRelatedFiles`)
+- **Regex 기반 파일 검색**: ripgrep을 통한 빠른 파일 검색 기능 추가
+  - VS Code 내장 ripgrep 또는 시스템 ripgrep 사용
+  - ripgrep 없을 때 네이티브 검색으로 자동 폴백
+  - 검색 결과에 주변 컨텍스트 포함
+  - 파일 패턴 필터링 (include/exclude)
+- **구조 리팩토링**:
+  - `src/core/file/` → `src/core/action/file/`로 이동 (FileChangeTracker)
+  - `src/core/context/file/` 구조로 파일 관련 컨텍스트 수집 기능 통합
+    - FileContext, RelevantFilesFinder, FileSearcher를 한 곳에 모음
+- **Files Added**:
+  - `src/core/context/file/FileSearcher.ts` - Regex 기반 파일 검색
+  - `src/core/project/codeParser/types.ts` - AST 분석 타입 정의
+- **Files Moved**:
+  - `src/core/file/` → `src/core/action/file/` (FileChangeTracker)
+  - `src/core/context/FileContext.ts` → `src/core/context/file/FileContext.ts`
+  - `src/core/context/RelevantFilesFinder.ts` → `src/core/context/file/RelevantFilesFinder.ts`
+
+## v5.0.7 (File Change Tracking & Verification)
+- **File Change Tracking**: Track all file changes (create, modify, delete) with before/after states
+  - Automatic tracking: All file operations through ActionManager are automatically tracked
+  - Change history: View complete change history for any file
+  - Diff generation: Automatic diff generation showing added, removed, and modified lines
+  - Revert capability: Revert files to any previous change point
+  - Persistent storage: All change history stored in VS Code globalState
+  - Change listeners: Register callbacks to be notified of file changes
+- **Files Added**:
+  - `src/core/action/file/FileChangeTracker.ts` - File change tracking and verification
+  - `src/core/action/file/types.ts` - Type definitions (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+  - `src/core/action/file/index.ts` - Barrel file
+
+## v5.0.6 (Context History Management & Auto Summarization)
+- **Context History Management**: Track context changes per message, monitor context size, and manage checkpoints
+  - Context update tracking: Record file, selection, cursor, terminal, and error context changes
+  - Size monitoring: Real-time monitoring of context size (character count, token count)
+  - Automatic compression: Token usage-based automatic compression strategies (none, lastTwo, half, quarter)
+  - Checkpoint management: Save and restore context snapshots at specific points
+- **Automatic Summarization**: Automatically summarize conversations when context size exceeds limits
+  - LLM-powered summarization: Generate comprehensive summaries using LLM (10-section structure)
+  - Auto-trigger: Automatically triggers when token usage exceeds 95%
+  - Summary storage: Permanently stores summaries in VS Code globalState
+  - Session continuation: Converts summaries to continuation prompts for seamless session resumption
+  - Deleted range tracking: Tracks deleted message ranges with `conversationHistoryDeletedRange`
+- **Dual History Structure**: Separate API history and UI messages for future expansion
+- **Files Added**:
+  - `src/core/context/ContextHistoryManager.ts` - Context history management
+  - `src/core/context/ConversationSummarizer.ts` - Conversation summarization
+  - `src/core/context/types/contextHistory.ts` - Type definitions
+  - `src/core/context/prompts/task/summarize.ts` - Summarization prompt
+
+## v5.0.5 (FrameworkAdapter removal )
+- Removed FrameworkAdapter structure: Transitioned to approach where LLM reads project files (package.json, pom.xml, etc.) to determine appropriate commands and configurations.
+- Framework directory removed: Eliminated `src/core/project/framework/` directory (TypeScriptAdapter, SpringBootAdapter, IFrameworkAdapter, FrameworkAdapterFactory).
+- Prompt improvements: Added instructions for LLM to read project files first before generating commands or configurations.
+- Simplified architecture: Framework-specific prompts now use name-based matching only, with LLM handling dynamic detection from project files.
+
+## v5.0.4 (Chat bubble layout fix)
+- Chat webview bubbles now stretch to full panel width and remove background/border padding for clearer, text-first display.
+
+## v5.0.3 (Framework prompt improvements & fixes)
+- Framework prompt improvements: Added "check files first" priority and "new project only" conditions to Vite, NodeTypeScript, and Express prompts.
+- Removed hardcoded versions from framework prompts: LLM now reads project files to determine appropriate configurations.
+- Fixed ESM import errors in extension.ts: Added explicit `.js` extensions to all dynamic imports for Node16/NodeNext module resolution.
+- Task queue display: Actions are now registered in task queue and status updates in real-time during execution.
+
+## v5.0.2 (Complete prompt system integration)
+- All prompts consolidated into `context/prompts/`: removed `commonGuides.ts` and `helpers.ts`, moved all prompt guides to appropriate component directories.
+- Unified OS prompt access: removed `os/helpers.ts`, integrated into `PromptComposer.getOSPrompt()` public method.
+- Adapter simplification: GptAdapter and GemmaAdapter now directly use PromptComposer for consistent prompt generation.
+- Complete deduplication: eliminated all prompt-related code duplication, simplified architecture.
+
+## v5.0.1 (Prompt system refactor)
+- New modular prompt stack (`PromptComposer`) combining base/OS/LLM/framework/task components.
+- OSAdapter & FrameworkAdapter context is now injected into prompts for consistent instructions.
+- GptAdapter uses PromptComposer; legacy `COMMON_SYSTEM_PROMPTS` removed.
+- Version bumped to 5.0.1.
+
 ## Features
 
 <img src="https://drive.google.com/uc?export=view&id=1Qnb_rdSzjfSR34o4lZB5nDCCTuwD7lLJ" width="700" height="500"/>
@@ -33,6 +124,22 @@ VSCode base code assistant plugin with LLM and LM support.
     - Java/Spring: `pom.xml`, `build.gradle`, application properties
     - Python Django/Flask/FastAPI: `manage.py`, `requirements.txt`, `main.py`
     - And more frameworks supported
+  - **Context History Management**: Track and manage context changes across conversations
+    - Context update tracking per message (file, selection, cursor, terminal, error)
+    - Real-time context size monitoring (character count, token count)
+    - Automatic compression when approaching limits
+    - Checkpoint management for context snapshots
+  - **Automatic Summarization**: Automatically summarize long conversations to prevent context window overflow
+    - LLM-powered comprehensive summaries (10-section structure)
+    - Auto-trigger when token usage exceeds 95%
+    - Permanent summary storage in VS Code globalState
+    - Seamless session continuation with continuation prompts
+  - **File Change Tracking**: Track all file modifications with complete history
+    - Automatic tracking of all file operations (create, modify, delete)
+    - Complete change history with before/after states
+    - Diff view showing added, removed, and modified lines
+    - Revert to any previous change point
+    - Persistent storage in VS Code globalState
   - **Dynamic Model Selection**: Switch between cloud and local AI models in settings
   - **Intuitive UI**: Simplified model selection (Gemini vs Ollama) with specific model selection below
 - **Dual-Mode Interface**: 
@@ -41,6 +148,46 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Context-Aware Responses**: Analyzes your project structure and existing code for relevant suggestions
 - **Natural Language Processing**: Understands complex requests in plain English
 - **Local AI Processing**: Full offline capability with Ollama integration
+
+### 🚀 **NEW in v4.10.0 - Manager-Based Architecture & Smart Action System**
+
+#### **Manager-Based Architecture**
+- **Action Manager**: Automatically extracts and validates actions from LLM responses
+  - 7 action types: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
+  - Smart validation with dependency checking
+  - Circular dependency detection
+  - Permission control and dangerous command detection
+- **Execution Manager**: Process lifecycle management with error detection
+  - Synchronous/asynchronous command execution
+  - Process monitoring (PID tracking)
+  - 10 error types auto-detection (port conflict, permission denied, syntax error, etc.)
+  - Long-running process support (dev servers, build processes)
+  - Grace period shutdown (SIGTERM → SIGKILL)
+- **Terminal Manager**: Terminal session lifecycle management
+  - Multi-terminal session management
+  - Command history tracking (1000 entries)
+  - Most-used command statistics
+  - Session reuse and auto-creation
+
+#### **Smart Action Extraction**
+- **Code Block Recognition**: Automatically detects ` ```language:path/to/file ... ``` ` patterns
+- **Command Extraction**: Recognizes bash/shell code blocks and execution requests
+- **File Operation Detection**: Identifies create/delete/rename/move operations
+- **Confidence Scoring**: Action extraction with 85-95% confidence scores
+- **Validation System**: Required field checking, path validation, dangerous command blocking
+
+#### **Error Detection & Recovery**
+- **10 Error Types Supported**: PORT_CONFLICT, COMMAND_NOT_FOUND, PERMISSION_DENIED, SYNTAX_ERROR, RUNTIME_ERROR, NETWORK_ERROR, FILE_NOT_FOUND, OUT_OF_MEMORY, TIMEOUT, UNKNOWN
+- **Port Conflict Detection**: Automatically detects EADDRINUSE and suggests solutions
+- **Stack Trace Parsing**: Extracts file/line/column from error messages
+- **Auto Fix Suggestions**: Intelligent fix recommendations for common errors
+- **Error History**: Tracks and analyzes error patterns
+
+#### **Integration Layer**
+- **ManagerAdapter**: Seamless integration with existing code
+- **Flag-Based Control**: Enable/disable new system via `useNewManagerSystem` flag
+- **Graceful Fallback**: Falls back to legacy system on error
+- **Dual Execution**: New action system + legacy UI processor run in parallel
 
 ### 🚀 **NEW in v4.9.3 - Tree-sitter Code Parsing & Framework Abstraction**
 

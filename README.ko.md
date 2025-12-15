@@ -6,6 +6,104 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.10 (파일 컨텍스트 트래커 연동 & 안정성 가드)
+- **FileContextTracker 연동**: `FileContextTracker`가 `ContextManager.collectFileContext`와 `ActionManager` 양쪽에 연결되어, 디스크에 완전히 기록되기 전에 파일을 읽지 않도록 보호합니다.
+- **액션 실행 전 안정성 가드**: `CODE_GENERATION`, `FILE_OPERATION` 액션 실행 직전에 `trackFile()`과 `waitForFileStability()`를 호출하여, 실행 직후 컨텍스트를 다시 수집하더라도 저장 중간 상태(부분 기록)가 아닌 안정된 내용을 읽도록 보장합니다.
+- **대용량/자동 저장 파일 안전 처리**: 파일 크기와 mtime이 일정 시간 동안 변하지 않을 때까지 짧게 대기하여, 자동 저장이나 긴 쓰기 작업과의 레이스 컨디션을 줄였습니다.
+
+## v5.0.9 (단일 Codepilot 패널 & 실시간 Ollama 선택기)
+- **Codepilot 단일 패널**: CODE/ASK 모드를 하나의 Codepilot 패널에서 드롭다운으로 전환
+- **실시간 Ollama 모델 선택**: 상단 Model 드롭다운이 로컬 Ollama `/api/tags`에서 실시간 모델 목록을 불러와 선택/저장
+- **UI 정리**: 기존 ASK 패널 제거, 입력창/아이콘 정돈
+
+## v5.0.8 (코드 분석 및 파일 검색 강화, 구조 리팩토링)
+- **AST 기반 코드 분석**: Tree-sitter를 통한 고급 코드 분석 기능 추가
+  - 코드 정의 이름 목록 추출 (`listCodeDefinitionNames`)
+  - 정의 사용 위치 검색 (`findDefinitionUsages`) - import, call, reference, extend, implement
+  - import/export 관계 기반 관련 파일 찾기 (`findRelatedFiles`)
+- **Regex 기반 파일 검색**: ripgrep을 통한 빠른 파일 검색 기능 추가
+  - VS Code 내장 ripgrep 또는 시스템 ripgrep 사용
+  - ripgrep 없을 때 네이티브 검색으로 자동 폴백
+  - 검색 결과에 주변 컨텍스트 포함
+  - 파일 패턴 필터링 (include/exclude)
+- **구조 리팩토링**:
+  - `src/core/file/` → `src/core/action/file/`로 이동 (FileChangeTracker)
+  - `src/core/context/file/` 구조로 파일 관련 컨텍스트 수집 기능 통합
+    - FileContext, RelevantFilesFinder, FileSearcher를 한 곳에 모음
+- **추가된 파일**:
+  - `src/core/context/file/FileSearcher.ts` - Regex 기반 파일 검색
+  - `src/core/project/codeParser/types.ts` - AST 분석 타입 정의
+- **이동된 파일**:
+  - `src/core/file/` → `src/core/action/file/` (FileChangeTracker)
+  - `src/core/context/FileContext.ts` → `src/core/context/file/FileContext.ts`
+  - `src/core/context/RelevantFilesFinder.ts` → `src/core/context/file/RelevantFilesFinder.ts`
+
+## v5.0.7 (파일 변경 추적 및 검증)
+- **파일 변경 추적**: 파일 변경 전후 상태를 추적하여 모든 변경사항 기록
+  - 자동 추적: ActionManager를 통한 모든 파일 작업이 자동으로 추적됨
+  - 변경 이력: 모든 파일의 완전한 변경 이력 조회 가능
+  - Diff 생성: 추가/삭제/수정된 라인을 보여주는 자동 diff 생성
+  - 되돌리기 기능: 이전 변경 시점으로 파일 복원 가능
+  - 영구 저장: 모든 변경 이력이 VS Code globalState에 저장됨
+  - 변경 리스너: 파일 변경 시 알림을 받을 수 있는 콜백 등록
+- **추가된 파일**:
+  - `src/core/action/file/FileChangeTracker.ts` - 파일 변경 추적 및 검증
+  - `src/core/action/file/types.ts` - 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+  - `src/core/action/file/index.ts` - 배럴 파일
+
+## v5.0.6 (컨텍스트 히스토리 관리 및 자동 요약)
+- **컨텍스트 히스토리 관리**: 메시지별 컨텍스트 변경사항 추적, 컨텍스트 크기 모니터링, 체크포인트 관리
+  - 컨텍스트 업데이트 추적: 파일, 선택, 커서, 터미널, 에러 컨텍스트 변경사항 기록
+  - 크기 모니터링: 컨텍스트 크기 실시간 모니터링 (문자 수, 토큰 수)
+  - 자동 압축: 토큰 사용량 기반 자동 압축 전략 (none, lastTwo, half, quarter)
+  - 체크포인트 관리: 특정 시점의 컨텍스트 스냅샷 저장 및 복원
+- **자동 요약**: 컨텍스트 크기 초과 시 대화 자동 요약
+  - LLM 기반 요약: LLM을 사용한 포괄적인 요약 생성 (10개 섹션 구조)
+  - 자동 트리거: 토큰 사용량이 95% 초과 시 자동 실행
+  - 요약 저장: VS Code globalState에 영구 저장
+  - 세션 재개: 요약을 continuation prompt로 변환하여 원활한 세션 재개
+  - 삭제 범위 추적: `conversationHistoryDeletedRange`로 삭제된 메시지 범위 추적
+- **이중 히스토리 구조**: 향후 확장을 위한 API 히스토리와 UI 메시지 분리
+- **추가된 파일**:
+  - `src/core/context/ContextHistoryManager.ts` - 컨텍스트 히스토리 관리
+  - `src/core/context/ConversationSummarizer.ts` - 대화 요약 생성
+  - `src/core/context/types/contextHistory.ts` - 타입 정의
+  - `src/core/context/prompts/task/summarize.ts` - 요약 프롬프트
+
+## v5.0.5 (FrameworkAdapter 제거 )
+- FrameworkAdapter 구조 제거: LLM이 프로젝트 파일(package.json, pom.xml 등)을 읽어서 적절한 명령어와 설정을 판단하도록 전환했습니다.
+- framework 디렉토리 삭제: `src/core/project/framework/` 디렉토리 제거 (TypeScriptAdapter, SpringBootAdapter, IFrameworkAdapter, FrameworkAdapterFactory).
+- 프롬프트 개선: LLM이 명령어나 설정을 생성하기 전에 프로젝트 파일을 먼저 읽도록 지시를 추가했습니다.
+- 아키텍처 단순화: 프레임워크별 프롬프트는 이름 기반 매칭만 사용하며, LLM이 프로젝트 파일에서 동적으로 감지하도록 처리합니다.
+
+## v5.0.4 (채팅 버블 레이아웃 수정)
+- 채팅 웹뷰 버블을 패널 전체 폭으로 확장하고 배경/테두리/패딩을 제거해 텍스트 가독성을 개선했습니다.
+
+## v5.0.3 (프레임워크 프롬프트 개선 및 수정)
+- 프레임워크 프롬프트 개선: Vite, NodeTypeScript, Express 프롬프트에 "먼저 확인하고" 우선순위 및 "새 프로젝트 생성 시에만" 조건 추가.
+- 프레임워크 프롬프트에서 버전 하드코딩 제거: LLM이 프로젝트 파일을 읽어 적절한 설정을 판단하도록 개선.
+- extension.ts의 ESM import 에러 수정: Node16/NodeNext 모듈 해석을 위해 모든 동적 import에 명시적 `.js` 확장자 추가.
+- 작업 큐 표시 기능: 액션 실행 시 작업 큐에 등록되고 실행 상태가 실시간으로 업데이트됩니다.
+
+## v5.0.2 (프롬프트 시스템 완전 통합)
+- 모든 프롬프트를 `context/prompts/`로 통합: `commonGuides.ts`, `helpers.ts` 제거, 모든 프롬프트 가이드를 적절한 컴포넌트 디렉토리로 이동.
+- OS 프롬프트 접근 통합: `os/helpers.ts` 제거, `PromptComposer.getOSPrompt()` public 메서드로 통합.
+- 어댑터 단순화: GptAdapter와 GemmaAdapter가 PromptComposer를 직접 사용하여 일관된 프롬프트 생성.
+- 중복 완전 제거: 프롬프트 관련 코드 중복 완전 제거, 아키텍처 단순화.
+
+## v5.0.1 (프롬프트 시스템 리팩토링)
+- 모듈형 프롬프트 스택(`PromptComposer`)으로 베이스/OS/LLM/프레임워크/작업 타입 컴포넌트 조합.
+- OSAdapter, FrameworkAdapter 정보를 프롬프트에 자동 반영하여 지침 일관성 강화.
+- GptAdapter가 PromptComposer를 사용하도록 통합, `COMMON_SYSTEM_PROMPTS` 제거.
+- 버전 5.0.1 반영.
+
+## v5.0.0 (마이그레이션 완료 요약)
+- 새로운 매니저 아키텍처로 전면 통합(ARCHITECTURE.md 참조): Action/Execution/Terminal/Task/Project/Context/State-Session/Error/Model 매니저 중심으로 OS·LLM·Framework 추상화 일원화.
+- STABILITY_GUIDE 기반 안정화: 최소 명령 정책(주석/조건문 금지, 최대 4개), 설치 플로우 핵심 명령만 유지, 플레이스홀더/중복/불필요 진단 명령 제거, 완료 신호/작업 큐 정리 강화, 안전 cwd 폴백.
+- 프롬프트 강화: 실행 의도 시 한 줄 순수 명령만, lock 여부별 install 1개, 버전 확인 1회, 프레임워크 타입별 실행 명령 1줄.
+- Action 파이프라인 정리: 명령 파싱 필터 강화, 요약 시 실제 명령 표시, 액션 실행 완료 후 큐 클리어 및 완료 이벤트 전송.
+- README/ARCHITECTURE/STABILITY_GUIDE 업데이트: 최신 구조와 안정성 가이드 반영.
+
 ## 주요 기능
 
 <img src="https://drive.google.com/uc?export=view&id=1Qnb_rdSzjfSR34o4lZB5nDCCTuwD7lLJ" width="700" height="500"/>
@@ -27,6 +125,22 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
   - **동적 모델 선택**: 설정에서 클라우드와 로컬 AI 모델 간 전환 가능
 - **스마트 컨텍스트 관리**:
   - **지능형 파일 필터링**: `src/` 디렉토리 파일을 자동으로 포함하고 키워드 기반으로 다른 파일 필터링
+  - **컨텍스트 히스토리 관리**: 대화 전반에 걸친 컨텍스트 변경사항 추적 및 관리
+    - 메시지별 컨텍스트 업데이트 추적 (파일, 선택, 커서, 터미널, 에러)
+    - 컨텍스트 크기 실시간 모니터링 (문자 수, 토큰 수)
+    - 한계에 도달 시 자동 압축
+    - 컨텍스트 스냅샷을 위한 체크포인트 관리
+  - **자동 요약**: 컨텍스트 윈도우 초과를 방지하기 위한 긴 대화 자동 요약
+    - LLM 기반 포괄적인 요약 (10개 섹션 구조)
+    - 토큰 사용량이 95% 초과 시 자동 트리거
+    - VS Code globalState에 영구 요약 저장
+    - continuation prompt를 통한 원활한 세션 재개
+  - **파일 변경 추적**: 모든 파일 수정사항을 완전한 이력으로 추적
+    - 모든 파일 작업(생성, 수정, 삭제) 자동 추적
+    - 변경 전후 상태를 포함한 완전한 변경 이력
+    - 추가/삭제/수정된 라인을 보여주는 diff 뷰
+    - 이전 변경 시점으로 복원 가능
+    - VS Code globalState에 영구 저장
   - **프레임워크 인식 컨텍스트**: 프로젝트 타입을 자동 감지하고 관련 설정 파일 포함
     - Node.js: `package.json`, `tsconfig.json`, 빌드 설정
     - Java/Spring: `pom.xml`, `build.gradle`, 애플리케이션 속성
@@ -38,6 +152,85 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **맥락 인식 응답**: 프로젝트 구조와 기존 코드를 분석하여 관련성 높은 제안 제공
 - **자연어 처리**: 복잡한 요청도 자연어로 이해
 - **로컬 AI 처리**: Ollama 통합으로 완전한 오프라인 기능 제공
+
+### 🚀 **NEW in v4.10.0+ - 완전한 매니저 기반 아키텍처**
+
+#### **9개 핵심 매니저 시스템**
+
+1. **Action Manager** - LLM 응답을 실행 가능한 액션으로 변환
+   - 7가지 액션 타입: CODE_GENERATION, FILE_OPERATION, TERMINAL_COMMAND, ANALYSIS, VERIFICATION, SEARCH, REFACTOR
+   - 의존성 체크를 통한 스마트 검증
+   - 순환 의존성 자동 감지
+   - 권한 제어 및 위험한 명령어 차단
+
+2. **Execution Manager** - 프로세스 생명주기 관리
+   - 동기/비동기 명령어 실행
+   - 프로세스 모니터링 (PID 추적)
+   - 10가지 에러 타입 자동 감지
+   - 장기 실행 프로세스 지원
+   - Grace period 종료 (SIGTERM → SIGKILL)
+
+3. **Terminal Manager** - 터미널 세션 관리
+   - 멀티 터미널 세션 관리
+   - 명령어 히스토리 추적 (1000개 엔트리)
+   - 가장 많이 사용된 명령어 통계
+   - 세션 재사용 및 자동 생성
+
+4. **Task Manager** - 비동기 작업 큐 관리
+   - 우선순위 기반 스케줄링
+   - Exponential Backoff 재시도
+   - 작업 이벤트 시스템
+   - 최대 동시 실행 제어
+
+5. **Error Manager** - 에러 분석 및 관리
+   - 에러 파싱 및 분류
+   - 스택 트레이스 분석
+   - 에러 히스토리 관리
+   - 수정 제안 생성
+
+6. **Context Manager** - LLM 컨텍스트 수집
+   - 파일/에디터/터미널 컨텍스트 수집
+   - 토큰 추정 및 제한 관리
+   - 관련 파일 자동 탐색
+   - Import/Export 분석
+
+7. **State/Session Manager** - 상태 및 세션 관리
+   - 전역 상태 관리
+   - 프로젝트별 세션 관리
+   - 사용자 설정 관리
+   - 통계 추적
+
+8. **Project Manager** - 프로젝트 구조 분석
+   - 프로젝트 타입 자동 감지
+   - 설정 파일 파싱
+   - 파일 인덱싱 (Tree-sitter 통합)
+   - 빌드 명령어 추출
+
+9. **Model Manager** - LLM 모델 관리
+   - 모델 등록 및 선택
+   - API 키 관리
+   - 모델 사용량 추적
+   - 기능별 모델 추천
+
+#### **스마트 액션 추출**
+- **코드 블록 인식**: ` ```language:path/to/file ... ``` ` 패턴 자동 감지
+- **명령어 추출**: bash/shell 코드 블록 및 실행 요청 인식
+- **파일 작업 감지**: 생성/삭제/이름변경/이동 작업 식별
+- **신뢰도 점수**: 85-95% 신뢰도로 액션 추출
+- **검증 시스템**: 필수 필드 체크, 경로 검증, 위험한 명령어 차단
+
+#### **에러 감지 및 복구**
+- **10가지 에러 타입 지원**: PORT_CONFLICT, COMMAND_NOT_FOUND, PERMISSION_DENIED, SYNTAX_ERROR, RUNTIME_ERROR, NETWORK_ERROR, FILE_NOT_FOUND, OUT_OF_MEMORY, TIMEOUT, UNKNOWN
+- **포트 충돌 감지**: EADDRINUSE 자동 감지 및 해결 방안 제시
+- **스택 트레이스 파싱**: 에러 메시지에서 파일/라인/컬럼 추출
+- **자동 수정 제안**: 일반적인 에러에 대한 지능형 수정 권장사항
+- **에러 히스토리**: 에러 패턴 추적 및 분석
+
+#### **통합 레이어**
+- **ManagerAdapter**: 기존 코드와 완벽한 통합
+- **플래그 기반 제어**: `useNewManagerSystem` 플래그로 on/off
+- **안전한 폴백**: 에러 발생 시 기존 시스템으로 자동 전환
+- **병렬 실행**: 새 액션 시스템 + 기존 UI 프로세서 동시 실행
 
 ### 🚀 **NEW in v4.9.3 - Tree-sitter 코드 파싱 및 프레임워크 추상화**
 

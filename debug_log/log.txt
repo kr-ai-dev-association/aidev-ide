@@ -1,3 +1,0 @@
-[2025-12-02T06:52:02.644Z] Debug session started
-[2025-12-02T06:52:02.644Z] VS Code debug session started: [worker 1]
-[2025-12-02T07:05:54.453Z] VS Code debug session ended: Extension Host [0] « Run Extension

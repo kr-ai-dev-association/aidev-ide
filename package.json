@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "4.9.5",
+  "version": "5.0.5",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -21,9 +21,7 @@
   "enabledApiProposals": [],
   "activationEvents": [
     "onView:aidevIde.chatView",
-    "onView:aidevIde.askView",
     "onCommand:aidevIdeCode.openChatView",
-    "onCommand:aidevIdeAsk.openAskView",
     "onCommand:aidevIdeCode.openSettingsPanel",
     "onCommand:aidevIdeCode.openLicensePanel"
   ],
@@ -44,12 +42,7 @@
       "activitybar": [
         {
           "id": "aidevIdeCode",
-          "title": "CODE",
-          "icon": "./media/codepilot.svg"
-        },
-        {
-          "id": "aidevIdeAsk",
-          "title": "ASK",
+          "title": "Codepilot",
           "icon": "./media/codepilot.svg"
         }
       ]
@@ -61,14 +54,6 @@
           "name": " ",
           "type": "webview",
           "icon": "$(comment-discussion)"
-        }
-      ],
-      "aidevIdeAsk": [
-        {
-          "id": "aidevIde.askView",
-          "name": " ",
-          "type": "webview",
-          "icon": "$(lightbulb-sparkle)"
         }
       ]
     },
@@ -84,10 +69,6 @@
       {
         "command": "aidevIdeCode.openChatView",
         "title": "Open aidev-ide Chat"
-      },
-      {
-        "command": "aidevIdeAsk.openAskView",
-        "title": "Open aidev-ide Ask"
       },
       {
         "command": "aidevIdeCode.startOllamaBlocker",

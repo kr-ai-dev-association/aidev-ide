@@ -1,198 +1,944 @@
-# 기능 명세서
+# aidev-ide 기능 개선 제안서
 
-## 🤖 AI 기반 코드 어시스턴스
+## 목차
 
-### 멀티모델 AI 지원
-- **Gemini 2.5 Pro Flash**: Google의 고급 LLM으로 지능형 코드 생성 및 분석
-- **Ollama 통합**: 로컬 Ollama 서버 통합을 통한 오프라인 AI 처리
-  - **gpt-oss**: OpenAI의 공개 모델
-  - **gemma3b**: 구글의 멀티모달 LLM
-  - **qwen3-coder**: 알리바바의 강력한 코드 전문 LLM
-  - **kimi-k2**: 수학, 코딩, 논리적 추론에 특화된 Moonshot AI의 코델
-  - **codellama**: 메타의 Llama 기반 코드 전문 모델
-  - **Deepseek-r1**: 강화학습 기반 추론 모델
-  - **banya-llama31-lora-merged:latest**: 특화된 작업을 위한 커스텀 파인튜닝 모델
+1. [안정성 향상 기능](#안정성-향상-기능)
+2. [정확도 향상 기능](#정확도-향상-기능)
+3. [사용자 경험 개선 기능](#사용자-경험-개선-기능)
+4. [구현 우선순위](#구현-우선순위)
 
-### 스마트 컨텍스트 관리
-- **지능형 파일 필터링**: `src/` 디렉토리 파일을 자동으로 포함하고 키워드 기반으로 다른 파일 필터링
-- **프레임워크 인식 컨텍스트**: 프로젝트 타입을 자동 감지하고 관련 설정 파일 포함
-  - Node.js: `package.json`, `tsconfig.json`, 빌드 설정
-  - Java/Spring: `pom.xml`, `build.gradle`, 애플리케이션 속성
-  - Python Django/Flask/FastAPI: `manage.py`, `requirements.txt`, `main.py`
-  - .NET: `*.csproj`, `appsettings.json`
-  - Go: `go.mod`, `go.sum`
-  - Rust: `Cargo.toml`, `Cargo.lock`
-  - PHP: `composer.json`
-  - Ruby: `Gemfile`
-- **동적 모델 선택**: 설정에서 클라우드와 로컬 AI 모델 간 전환 가능
-- **직관적 UI**: 간소화된 모델 선택 (Gemini vs Ollama)과 하위 모델 선택
+---
 
-### 듀얼 모드 인터페이스
-- **CODE 탭**: 코드 생성, 수정, 프로젝트 작업에 특화
-- **ASK 탭**: 일반 Q&A 및 실시간 정보 질의
-- **맥락 인식 응답**: 프로젝트 구조와 기존 코드를 분석하여 관련성 높은 제안 제공
-- **자연어 처리**: 복잡한 요청도 자연어로 이해
-- **로컬 AI 처리**: Ollama 통합으로 완전한 오프라인 기능 제공
+## 안정성 향상 기능
 
-## 📋 계획 관리 시스템
+### 1. 체크포인트/스냅샷 시스템 ⭐⭐⭐
 
-### 계획 생성 및 관리
-- **추론 모델 선택**: 로컬 Ollama 설치에서 특화된 추론 모델 선택
-- **구조화된 계획 생성**: 사용자 쿼리를 실행 가능한 할 일 항목으로 변환
-- **Plan Queue 패널**: 새로운 웹뷰 패널에서 계획 항목 관리
-- **개별 항목 제어**: 각 계획 항목의 상태 추적 및 개별 실행
+**현재 상태**: 없음
 
-### 계획 항목 관리
-- **상태 관리**: pending, running, completed, failed, cancelled 상태 추적
-- **실행 제어**: 개별 항목의 실행/완료/취소/지속 기능
-- **진행 상황 표시**: 실시간 진행 상황 및 상태 업데이트
-- **결과 저장**: 실행 결과 및 오류 정보 저장
+**구현 방식**:
+- 각 작업 단계마다 워크스페이스 스냅샷 생성
+- 파일 변경사항 추적 및 타임스탬프 기록
+- 체크포인트 간 diff 비교 기능
+- 선택적 복원 (워크스페이스만 / 작업 + 워크스페이스)
 
-## 🔧 터미널 자동 오류 수정 시스템
+**추가 필요 기능**:
+```typescript
+// src/core/checkpoint/CheckpointManager.ts
+class CheckpointManager {
+  // 스냅샷 생성
+  async createCheckpoint(taskId: string): Promise<CheckpointId>
+  
+  // 스냅샷 비교
+  async compareCheckpoints(
+    checkpointId1: CheckpointId,
+    checkpointId2: CheckpointId
+  ): Promise<FileDiff[]>
+  
+  // 복원
+  async restoreCheckpoint(
+    checkpointId: CheckpointId,
+    options: { workspaceOnly?: boolean, taskHistory?: boolean }
+  ): Promise<void>
+}
+```
 
-### 실시간 터미널 모니터링
-- **지속적인 터미널 감시**: VS Code의 터미널 API를 사용하여 모든 터미널 출력을 실시간으로 모니터링
-- **지능형 오류 패턴 인식**: 다양한 기술 스택에서 50개 이상의 오류 패턴을 감지
-- **맥락 인식 오류 분석**: 명령어 히스토리와 프로젝트 구조를 포함한 오류 맥락 분석
-- **다중 언어 지원**: 다양한 프로그래밍 언어와 빌드 도구의 오류 처리
+**기대 효과**:
+- 작업 중 실수로 인한 손실 방지
+- 다양한 접근 방식 안전하게 테스트 가능
+- 롤백을 통한 빠른 복구
 
-### LLM 기반 오류 수정
-- **AI 기반 오류 분석**: 로컬 또는 클라우드 LLM을 사용하여 오류 패턴을 분석하고 수정 제안
-- **지능형 명령어 생성**: 오류 맥락과 모범 사례를 기반으로 수정된 명령어 생성
-- **맥락 학습**: 프로젝트 타입, 의존성, 환경을 고려하여 정확한 수정 제공
-- **다중 수정 전략**: 복잡한 오류에 대한 다양한 수정 접근 방식 제공
+**구현 난이도**: 중
 
-### 스마트 자동 재시도 시스템
-- **자동 명령어 재시도**: 지능형 재시도 로직으로 수정된 명령어를 자동 실행
-- **재시도 제한 관리**: 무한 루프를 방지하는 설정 가능한 재시도 제한 (기본값: 3회)
-- **쿨다운 기간**: 빠른 재시도 시도를 방지하는 스마트 쿨다운 기간 구현
-- **성공/실패 추적**: 재시도 성공률을 추적하고 이전 시도에서 학습
+---
 
-### 포괄적인 오류 패턴 지원
-- **Maven/Java 생태계**:
-  - 빌드 실패 (`BUILD FAILURE`, `MojoExecutionException`)
-  - 컴파일 오류 (`No compiler is provided`, `COMPILATION ERROR`)
-  - JAVA_HOME 설정 문제
-  - Spring Boot 버전 충돌 및 시작 실패
-  - JAR 파일 접근 문제 및 버전 호환성 문제
-- **Node.js/npm 생태계**:
-  - 패키지 설치 실패 (`npm error code`, `ENOTEMPTY`)
-  - 의존성 충돌 및 esbuild 오류
-  - 모듈 해결 문제 (`ERR_MODULE_NOT_FOUND`)
-  - Vite 설정 및 시작 문제
-- **Python 생태계**:
-  - 임포트 오류 및 가상 환경 문제
-  - 패키지 충돌 및 의존성 해결
-  - Python 버전 호환성 문제
-- **Docker 및 컨테이너화**:
-  - 컨테이너 빌드 실패 및 이미지 풀 오류
-  - 네트워크 연결 문제
-  - 포트 충돌 및 리소스 할당 문제
-- **Git 및 버전 관리**:
-  - 병합 충돌 및 인증 실패
-  - 브랜치 관리 문제
-  - 저장소 접근 및 권한 문제
+### 3. 진단(Diagnostics) 모니터링 및 자동 수정 ⭐⭐⭐
 
-## 💻 Bash 스크립트 실행 시스템
+**현재 상태**: 기본적인 에러 감지만 지원
 
-### 명령어 실행 요약 개선
-- **사용자 친화적 설명**: 각 명령어 실행 요약에 명령어의 목적과 동작을 설명하는 phrase 자동 추가
-- **패턴 인식**: Maven, Gradle, npm, yarn, pip, brew, java, node, python, git, docker 등 다양한 명령어 패턴 자동 인식
-- **명확한 설명**: "프로젝트를 패키징하여 실행 가능한 JAR 파일 생성", "npm 패키지 의존성 설치" 등 명확한 설명 제공
-- **실시간 업데이트**: 명령어 실행 시 작업 큐 항목의 상태가 자동으로 업데이트됨 (pending → in_progress → done/failed)
+**구현 방식**:
+- VS Code Diagnostics API를 통한 실시간 린터/컴파일러 오류 모니터링
+- 파일 수정 시 자동으로 오류 감지
+- 누락된 import, 문법 오류 등 자동 수정
+- 오류 발생 시 LLM에 자동 전달하여 수정 제안
 
-### 다중 라인 구문 병합
-- **복잡한 bash 구문 처리**: if/then/else/fi 블록을 단일 명령어로 자동 병합
-- **구문 정규화**: 불완전한 bash 구문을 완전한 구문으로 변환
-- **주석 제거**: 실행에 불필요한 주석 및 빈 줄 자동 제거
-- **명령어 정리**: 중복 명령어 및 불필요한 exit 명령어 제거
+**추가 필요 기능**:
+```typescript
+// src/core/diagnostics/DiagnosticsMonitor.ts
+class DiagnosticsMonitor {
+  // 진단 모니터링 시작
+  startMonitoring(): void
+  
+  // 파일별 진단 정보 가져오기
+  getDiagnostics(filePath: string): Diagnostic[]
+  
+  // 오류 자동 수정 시도
+  async autoFixDiagnostics(
+    filePath: string,
+    diagnostics: Diagnostic[]
+  ): Promise<FixResult>
+  
+  // 진단 변경 이벤트 구독
+  onDiagnosticsChanged(
+    callback: (filePath: string, diagnostics: Diagnostic[]) => void
+  ): void
+}
+```
 
-### 단일 세션 실행
-- **heredoc/here-string 사용**: macOS/Linux에서는 heredoc, Windows에서는 here-string 사용
-- **터미널 세션 유지**: 모든 명령어가 동일한 터미널 세션에서 실행
-- **변수 상태 보존**: 셸 변수 및 환경 변수 상태 유지
-- **오류 방지**: 구문 오류 및 세션 분리 문제 해결
+**기대 효과**:
+- 코드 생성 후 즉시 오류 감지 및 수정
+- 사용자 개입 없이 자동으로 문제 해결
+- 코드 품질 향상
 
-### 명령어 정규화
-- **멱등성 보장**: 동일한 결과를 보장하는 명령어 생성
-- **OS별 최적화**: Windows, macOS, Linux에 맞는 명령어 생성
-- **의존성 고려**: 명령어 실행 순서 및 의존성 고려
-- **오류 처리**: 명령어 실행 실패 시 적절한 오류 메시지 제공
+**구현 난이도**: 중-높음
 
-### 자동 실행 기능
-- **자동 실행 토글**: 설정에서 bash/powershell/cmd 명령어 자동 실행을 활성화/비활성화 가능
-- **스마트 실행 제어**: LLM 응답의 명령어를 자동으로 감지하고 설정에 따라 실행
-- **실시간 상태 표시**: 자동 실행 시 "Executing commands..." 상태를 실시간으로 표시
-- **수동 실행 지원**: 자동 실행 비활성화 시 수동으로 Run 버튼을 클릭하여 실행
+---
 
-### 개별 Callout 실행 상태 표시
-- **개별 실행 애니메이션**: 각 shell script callout 박스마다 독립적인 "Executing..." 애니메이션 표시
-- **실시간 피드백**: Run 버튼 클릭 시 해당 callout 박스에만 executing 상태 표시
-- **자동 실행 시 전체 표시**: 자동 명령어 실행 시 모든 callout 박스에 executing 상태 표시
-- **시각적 구분**: Auto Correcting과 Run 버튼 실행 상태를 명확히 구분하여 표시
+### 4. 잠금(Lock) 관리 시스템 ⭐⭐ (Phase 5로 이동)
 
-## 📁 고급 파일 관리
+**현재 상태**: 없음
 
-### 스마트 파일 선택
-- **@ 버튼 파일 선택**: 특정 파일을 선택하여 맥락에 포함
-- **CODE 탭**: 맥락 인식 코드 생성 및 수정을 위한 전체 파일 작업 기능
-- **ASK 탭**: 맥락 인식 질의를 위한 파일 선택 (읽기 전용, 파일 작업 없음)
-- **지속적 파일 컨텍스트**: 선택한 파일이 여러 대화에서 유지됨
+**구현 방식**:
+- SQLite 기반 분산 잠금 관리
+- 동시 작업 충돌 방지
+- 폴더/파일 단위 잠금
 
-### 파일 작업 기능
-- **다중 파일 작업**: 여러 파일을 동시에 생성, 수정, 삭제 지원
-- **프로젝트 루트 설정**: 정확한 파일 작업을 위한 루트 경로 설정 가능
-- **자동 파일 업데이트**: AI 제안에 따라 파일 자동 생성/수정 옵션 제공
-- **파일 태그 관리**: 개별 제거 및 전체 삭제 기능이 있는 시각적 파일 태그
+**추가 필요 기능**:
+```typescript
+// src/core/locks/LockManager.ts
+class LockManager {
+  // 잠금 획득
+  async acquireLock(
+    resourceId: string,
+    taskId: string,
+    timeout?: number
+  ): Promise<Lock>
+  
+  // 잠금 해제
+  async releaseLock(lockId: string): Promise<void>
+  
+  // 잠금 상태 확인
+  async isLocked(resourceId: string): Promise<boolean>
+}
+```
 
-### DIFF 처리
-- **DIFF 콜아웃 지원**: AI 응답의 DIFF 형식 코드 블록을 자동으로 처리
-- **스마트 파일 수정**: 기존 파일에 데이터 손실 없이 지능적으로 변경사항 적용
-- **맥락 인식 경로 해결**: 프로젝트 구조에 상대적으로 파일 경로를 자동으로 해결
-- **기존 콘텐츠 보존**: 다른 파일 콘텐츠를 보존하면서 지정된 섹션만 수정
-- **배치 DIFF 처리**: 단일 응답에서 여러 DIFF 작업 처리
+**기대 효과**:
+- 동시 작업 시 파일 충돌 방지
+- 멀티 워크스페이스 환경에서 안전한 작업
+- 데이터 무결성 보장
 
-## 🖼️ 시각적 코드 분석
+**구현 난이도**: 중
 
-### 이미지 지원
-- **이미지 업로드**: 코드 분석 및 디버깅을 위한 이미지 업로드 가능
-- **드래그&드롭 인터페이스**: 클립보드 붙여넣기로 이미지 첨부 가능
-- **시각적 맥락**: AI가 스크린샷, 다이어그램, 코드 이미지를 분석
+---
 
-## 🌐 실시간 정보 서비스
+---
 
-### 날씨 정보
-- **기상청 API 연동**: 한국 기상청 API를 통한 정확한 날씨 정보
-- **현재 날씨 및 예보**: 실시간 날씨 상태 및 단기 예보
-- **7일 예측**: 중기 예보 정보 제공
-- **위치별 날씨 데이터**: 사용자 위치 기반 맞춤형 날씨 정보
+### 5. 브라우저 자동화 (Browser Automation) ⭐⭐⭐
 
-### 뉴스 업데이트
-- **NewsAPI 연동**: 다양한 뉴스 소스에서 최신 정보 수집
-- **주제별 뉴스 검색**: 특정 주제에 대한 뉴스 검색
-- **실시간 뉴스 집계**: 최신 뉴스 정보를 실시간으로 제공
-- **출처 및 타임스탬프**: 뉴스 출처 및 발행 시간 정보 제공
+**현재 상태**: 없음
 
-### 주식 시장 데이터
-- **Alpha Vantage API 연동**: 실시간 주식 시장 데이터 제공
-- **실시간 주가 및 변동**: 주요 주식의 현재 가격 및 변동률
-- **주요 주식 추적**: AAPL, GOOGL, MSFT, TSLA, AMZN 등 주요 주식 추적
-- **변동률 계산**: 주가 변동률 및 퍼센트 변화 계산
+**구현 방식**:
+- Puppeteer/Chrome DevTools Protocol을 통한 헤드리스 브라우저 제어
+- 웹 페이지 방문, 클릭, 타이핑, 스크롤 등 상호작용
+- 스크린샷 캡처 및 콘솔 로그 모니터링
+- 로컬 개발 서버 테스트 및 런타임 에러 디버깅
+- 원격 브라우저 연결 지원 (선택적)
 
-## 🔢 토큰 관리 시스템
+**추가 필요 기능**:
+```typescript
+// src/core/browser/BrowserSession.ts
+class BrowserSession {
+  // 브라우저 실행
+  async launchBrowser(options?: BrowserOptions): Promise<void>
+  
+  // 페이지 방문
+  async navigateTo(url: string): Promise<void>
+  
+  // 요소 클릭
+  async clickElement(selector: string): Promise<void>
+  
+  // 텍스트 입력
+  async typeText(selector: string, text: string): Promise<void>
+  
+  // 스크롤
+  async scroll(direction: 'up' | 'down' | 'left' | 'right', pixels: number): Promise<void>
+  
+  // 스크린샷 캡처
+  async captureScreenshot(options?: ScreenshotOptions): Promise<string>
+  
+  // 콘솔 로그 가져오기
+  getConsoleLogs(): ConsoleMessage[]
+  
+  // 브라우저 종료
+  async closeBrowser(): Promise<void>
+}
 
-### 입력 토큰 계산
-- **자동 토큰 카운팅**: Gemini와 Ollama 모델 모두에 대한 자동 토큰 계산
-- **모델별 제한**: 각 모델의 토큰 제한에 따른 자동 계산
-- **사용량 모니터링**: 실시간 토큰 사용량 로깅 및 백분율 추적
+// src/core/browser/BrowserToolHandler.ts
+class BrowserToolHandler {
+  // 브라우저 액션 실행
+  async executeBrowserAction(
+    action: 'navigate' | 'click' | 'type' | 'scroll' | 'screenshot',
+    params: any
+  ): Promise<BrowserActionResult>
+}
+```
 
-### 모델별 토큰 제한
-- **Gemini 2.5 Flash**: 1,000,000 입력 토큰, 500,000 출력 토큰
-- **Gemma3:27b**: 128,000 입력/출력 토큰
-- **DeepSeek R1:70B**: 200,000 입력/출력 토큰
-- **CodeLlama 7B**: 8,192 입력/출력 토큰
+**기대 효과**:
+- 웹 개발 작업에서 런타임 에러 즉시 감지 및 수정
+- 시각적 버그 확인 및 수정
+- E2E 테스트 자동화
+- 로컬 개발 서버 자동 테스트
+- 인터랙티브 디버깅
 
-### 토큰 제한 경고
-- **자동 감지**: 입력 토큰이 모델 제한을 초과할 때 자동 감지
-- **사용자 경고**: 토큰 제한 초과 시 사용자에게 경고 메시지 표시
-- **안전한 폴백**: 알 수 없는 모델 타입에 대한 기본 토큰 제한 적용
+**구현 난이도**: 중-높음
+
+---
+
+### 6. MCP (Model Context Protocol) 통합 ⭐⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- MCP 서버와의 통신 (STDIO/SSE)
+- 동적 도구 및 리소스 로드
+- 커스텀 MCP 서버 생성 및 설치 지원
+- MCP 마켓플레이스 통합
+
+**추가 필요 기능**:
+```typescript
+// src/core/mcp/McpHub.ts
+class McpHub {
+  // MCP 서버 연결
+  async connectToServer(serverConfig: McpServerConfig): Promise<void>
+  
+  // 사용 가능한 도구 목록 가져오기
+  getAvailableTools(): McpTool[]
+  
+  // MCP 도구 실행
+  async executeMcpTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, any>
+  ): Promise<any>
+  
+  // MCP 리소스 접근
+  async accessMcpResource(
+    serverName: string,
+    resourceName: string
+  ): Promise<any>
+  
+  // 커스텀 MCP 서버 생성
+  async createCustomMcpServer(
+    name: string,
+    tools: McpToolDefinition[],
+    resources?: McpResourceDefinition[]
+  ): Promise<void>
+}
+
+// src/core/mcp/McpToolHandler.ts
+class McpToolHandler {
+  // MCP 도구 실행 핸들러
+  async handleMcpToolCall(
+    serverName: string,
+    toolName: string,
+    args: any
+  ): Promise<ToolResult>
+}
+```
+
+**기대 효과**:
+- 외부 API 및 서비스 통합
+- 실시간 데이터 접근
+- 애플리케이션 및 로컬 시스템 제어
+- 확장 가능한 도구 생태계
+- 커스텀 워크플로우 구축
+
+**구현 난이도**: 높음
+
+---
+
+### 7. Plan Mode / Act Mode 전환 ⭐⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- Plan Mode: 정보 수집 및 계획 수립 후 사용자 승인 대기
+- Act Mode: 도구를 사용하여 실제 작업 수행
+- 모드 간 전환 시 작업 상태 보존
+- 모드별 다른 프롬프트 및 동작
+
+**추가 필요 기능**:
+```typescript
+// src/core/mode/ModeManager.ts
+class ModeManager {
+  // 현재 모드 가져오기
+  getCurrentMode(): 'plan' | 'act'
+  
+  // 모드 전환
+  async switchMode(
+    mode: 'plan' | 'act',
+    preserveTask?: boolean
+  ): Promise<void>
+  
+  // Plan Mode에서 계획 생성
+  async generatePlan(userRequest: string): Promise<Plan>
+  
+  // 계획 승인 및 Act Mode 전환
+  async approvePlanAndSwitchToAct(plan: Plan): Promise<void>
+  
+  // 모드별 프롬프트 생성
+  getModePrompt(mode: 'plan' | 'act'): string
+}
+
+// src/core/mode/Plan.ts
+interface Plan {
+  steps: PlanStep[]
+  estimatedTime?: number
+  requiredFiles?: string[]
+  risks?: string[]
+}
+
+interface PlanStep {
+  description: string
+  tools?: string[]
+  files?: string[]
+}
+```
+
+**기대 효과**:
+- 복잡한 작업 전 계획 수립으로 정확도 향상
+- 사용자 승인을 통한 안전한 작업 수행
+- 작업 전략 명확화
+- 예상치 못한 작업 방지
+
+**구현 난이도**: 중
+
+---
+
+### 10. 파일 Timeline 추적 ⭐⭐⭐
+
+**현재 상태**: 기본적인 파일 변경만 지원
+
+**구현 방식**:
+- VS Code Timeline API 활용
+- 파일 변경 이력 자동 기록
+- 변경사항 diff 뷰 제공
+- 특정 시점으로 되돌리기
+
+**추가 필요 기능**:
+```typescript
+// src/core/timeline/FileTimelineManager.ts
+class FileTimelineManager {
+  // 파일 변경 이력 기록
+  async recordFileChange(
+    filePath: string,
+    changeType: 'create' | 'modify' | 'delete',
+    content: string,
+    metadata?: {
+      taskId?: string
+      message?: string
+    }
+  ): Promise<void>
+  
+  // 파일 Timeline 가져오기
+  async getFileTimeline(filePath: string): Promise<TimelineEntry[]>
+  
+  // 특정 시점으로 되돌리기
+  async revertToTimelineEntry(
+    filePath: string,
+    entryId: string
+  ): Promise<void>
+  
+  // Timeline diff 뷰 생성
+  async createTimelineDiff(
+    filePath: string,
+    entryId1: string,
+    entryId2: string
+  ): Promise<Diff>
+}
+
+interface TimelineEntry {
+  id: string
+  timestamp: number
+  changeType: 'create' | 'modify' | 'delete'
+  content: string
+  metadata?: {
+    taskId?: string
+    message?: string
+  }
+}
+```
+
+**기대 효과**:
+- 모든 파일 변경사항 추적
+- 실수한 변경사항 빠른 복구
+- 작업 이력 명확한 추적
+- 디버깅 용이성 향상
+
+**구현 난이도**: 중
+
+---
+
+### 11. 누락된 파일 탐색 Action 타입 추가 ⭐⭐⭐
+
+**현재 상태**: 정규식 기반 파싱으로 파일 생성/수정/삭제, 터미널 명령 실행은 지원하지만, 파일 읽기/목록/검색을 수행하는 명시적인 Action 타입은 없음.
+
+**구현 방식**:
+- Tool 기반 액션 커버리지를 참고하여, aidev-ide의 `ActionType` 및 `ActionMapper`에 파일 탐색 계열 액션을 단계적으로 도입
+- LLM 응답에서 아래 패턴을 인식해 Action으로 매핑:
+  - **파일 읽기**: 특정 파일 내용을 읽어야 할 때 → `FILE_READ` 액션
+  - **파일 목록 조회**: 디렉터리 또는 글롭 패턴에 맞는 파일 목록을 요청할 때 → `FILE_LIST` 액션
+  - **파일 검색**: 키워드/정규식 기반으로 파일 내용을 검색할 때 → `FILE_SEARCH` 액션
+- 이미 구현된 `FileSearcher`, `RelevantFilesFinder` 등을 재사용하여, Action 실행 시 실제 파일 시스템에서 읽기/목록/검색 수행
+
+**추가 필요 기능**:
+```typescript
+// src/core/action/types.ts
+export enum ActionType {
+  CODE_GENERATION = 'code_generation',
+  FILE_OPERATION = 'file_operation',
+  TERMINAL_COMMAND = 'terminal_command',
+  ANALYSIS = 'analysis',
+  VERIFICATION = 'verification',
+  SEARCH = 'search',           // 일반 검색/코드 검색
+  FILE_READ = 'file_read',     // 단일/복수 파일 읽기
+  FILE_LIST = 'file_list',     // 디렉터리/글롭 기반 파일 목록 조회
+  FILE_SEARCH = 'file_search', // 파일 내용 검색 (정규식/키워드)
+  REFACTOR = 'refactor'
+}
+
+export interface ActionParams {
+  // ...
+  // FILE_READ / FILE_LIST / FILE_SEARCH 파라미터
+  paths?: string[];           // 읽거나 나열할 파일/디렉터리 경로 목록
+  path?: string;              // 단일 경로 (파일 또는 디렉터리)
+  includeGlobs?: string[];    // 포함 글롭 패턴
+  excludeGlobs?: string[];    // 제외 글롭 패턴
+  pattern?: string;           // 내용 검색용 정규식/키워드
+  maxResults?: number;        // 검색/목록 결과 최대 개수
+}
+
+// src/core/action/ActionRegistry.ts
+class ActionRegistry {
+  private registerDefaultActions() {
+    // FILE_READ 액션
+    this.register({
+      type: ActionType.FILE_READ,
+      name: 'Read File',
+      description: 'Read the content of one or more files',
+      permissions: [Permission.READ_FILE],
+      validation: [
+        { field: 'path', type: 'required', message: 'File path is required' }
+      ],
+      handler: this.createPlaceholderHandler('file_read')
+    });
+
+    // FILE_LIST 액션
+    this.register({
+      type: ActionType.FILE_LIST,
+      name: 'List Files',
+      description: 'List files in a directory or by glob patterns',
+      permissions: [Permission.READ_FILE],
+      validation: [
+        { field: 'path', type: 'required', message: 'Directory path is required' }
+      ],
+      handler: this.createPlaceholderHandler('file_list')
+    });
+
+    // FILE_SEARCH 액션
+    this.register({
+      type: ActionType.FILE_SEARCH,
+      name: 'File Content Search',
+      description: 'Search within files by keyword or regex',
+      permissions: [Permission.READ_FILE],
+      validation: [
+        { field: 'pattern', type: 'required', message: 'Search pattern is required' }
+      ],
+      handler: this.createPlaceholderHandler('file_search')
+    });
+  }
+}
+
+// src/core/action/ActionValidator.ts
+class ActionValidator {
+  private validateBusinessRules(action: Action): ValidationError[] {
+    const errors: ValidationError[] = [];
+
+    if (action.type === ActionType.FILE_READ) {
+      if (!action.params.path && (!action.params.paths || action.params.paths.length === 0)) {
+        errors.push({
+          field: 'path',
+          message: 'At least one file path is required for file_read action',
+          code: 'MISSING_FILE_PATH'
+        });
+      }
+    }
+
+    if (action.type === ActionType.FILE_LIST) {
+      if (!action.params.path &&
+          (!action.params.paths || action.params.paths.length === 0) &&
+          (!action.params.includeGlobs || action.params.includeGlobs.length === 0)) {
+        errors.push({
+          field: 'path',
+          message: 'Directory path or includeGlobs is required for file_list action',
+          code: 'MISSING_LIST_TARGET'
+        });
+      }
+    }
+
+    if (action.type === ActionType.FILE_SEARCH) {
+      if (!action.params.pattern && !action.params.query) {
+        errors.push({
+          field: 'pattern',
+          message: 'Search pattern or query is required for file_search action',
+          code: 'MISSING_SEARCH_PATTERN'
+        });
+      }
+    }
+
+    return errors;
+  }
+}
+```
+
+**기대 효과**:
+- LLM이 “이 파일 내용 읽어줘 / 이 폴더 파일 목록 보여줘 / 이 키워드로 검색해줘” 같은 요청을 명시적인 Action으로 수행 가능
+- 파일 탐색/검색 결과를 컨텍스트로 자연스럽게 연결하여 코드 생성/분석 정확도 향상
+- 향후 Tool 기반 구조(브라우저 자동화, MCP 등) 도입 시 액션 타입 확장을 위한 기반 마련
+
+**구현 난이도**: 중
+
+---
+
+### 12. 도구 실행 검증 강화 ⭐⭐⭐
+
+**현재 상태**: 기본적인 검증만 지원
+
+**구현 방식**:
+- ToolValidator를 통한 사전 검증
+- 필수 파라미터 검증
+- 경로 유효성 검증
+
+**추가 필요 기능**:
+```typescript
+// src/core/action/ToolValidator.ts (강화)
+class ToolValidator {
+  // 사전 검증
+  async validateBeforeExecution(
+    action: Action,
+    context: ExecutionContext
+  ): Promise<ValidationResult>
+  
+  // 경로 검증
+  validatePath(path: string, operation: string): ValidationResult
+  
+  // 무시 규칙 검증 (.aidevignore)
+  isIgnored(filePath: string): boolean
+  
+  // 위험한 작업 검증
+  isDangerousOperation(action: Action): boolean
+}
+```
+
+**기대 효과**:
+- 잘못된 명령/파일 작업 사전 차단
+- 보안 및 안정성 향상
+- 사용자 실수 방지
+
+**구현 난이도**: 낮음-중
+
+---
+
+### 13. 자동 승인 시스템 ⭐⭐
+
+**현재 상태**: 모든 작업 수동 승인 필요
+
+**구현 방식**:
+- 설정 기반 자동 승인 규칙
+- 도구별/경로별 자동 승인 설정
+- 안전한 작업만 자동 승인
+
+**추가 필요 기능**:
+```typescript
+// src/core/action/AutoApproveManager.ts
+class AutoApproveManager {
+  // 자동 승인 여부 확인
+  shouldAutoApprove(
+    action: Action,
+    context: ExecutionContext
+  ): boolean
+  
+  // 자동 승인 규칙 설정
+  setAutoApproveRule(
+    pattern: string,
+    actionTypes: ActionType[],
+    enabled: boolean
+  ): void
+  
+  // 안전성 검증
+  isSafeToAutoApprove(action: Action): boolean
+}
+```
+
+**기대 효과**:
+- 반복적인 작업 자동화
+- 작업 효율성 향상
+- 안전한 작업만 자동 승인으로 사용자 경험 개선
+
+**구현 난이도**: 중
+
+--
+
+### 14. 후크(Hook) 시스템 ⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- 작업 전/후 후크 실행
+- 사용자 정의 스크립트 실행
+- 후크 결과에 따른 작업 제어
+
+**추가 필요 기능**:
+```typescript
+// src/core/hooks/HookManager.ts
+class HookManager {
+  // 후크 등록
+  registerHook(
+    event: 'beforeAction' | 'afterAction',
+    hook: HookFunction
+  ): void
+  
+  // 후크 실행
+  async executeHooks(
+    event: string,
+    context: HookContext
+  ): Promise<HookResult>
+  
+  // 후크 발견 및 캐싱
+  discoverHooks(workspaceRoot: string): Promise<Hook[]>
+}
+```
+
+**기대 효과**:
+- 사용자 정의 검증 로직 추가 가능
+- 작업 전/후 커스텀 처리
+- 프로젝트별 특화 기능 구현
+
+**구현 난이도**: 중-높음
+
+---
+
+### 15. 멀티 파일 Diff 뷰 ⭐⭐⭐
+
+**현재 상태**: 기본적인 파일 변경만 지원
+
+**구현 방식**:
+- 여러 파일 변경사항을 하나의 diff 뷰로 표시
+- 파일별 변경사항 개별 편집 가능
+- 변경사항 일괄 승인/거부
+
+**추가 필요 기능**:
+```typescript
+// src/core/diff/MultiFileDiffView.ts
+class MultiFileDiffView {
+  // 멀티 파일 diff 생성
+  createMultiFileDiff(
+    changes: FileChange[]
+  ): MultiFileDiff
+  
+  // diff 뷰 표시
+  showDiffView(diff: MultiFileDiff): void
+  
+  // 변경사항 편집
+  editChange(changeId: string, newContent: string): void
+  
+  // 변경사항 승인/거부
+  approveChanges(changeIds: string[]): void
+  rejectChanges(changeIds: string[]): void
+}
+```
+
+**기대 효과**:
+- 여러 파일 변경사항 한눈에 확인
+- 선택적 변경사항 승인
+- 사용자 제어 강화
+
+**구현 난이도**: 중
+
+---
+
+## 사용자 경험 개선 기능
+
+### 16. 작업 진행 상황 시각화 ⭐⭐
+
+**현재 상태**: 기본적인 진행 상황만 표시
+
+**구현 방식**:
+- 단계별 진행 상황 표시
+- 각 단계별 상세 정보
+- 예상 시간 표시
+
+**추가 필요 기능**:
+```typescript
+// src/core/ui/ProgressVisualizer.ts
+class ProgressVisualizer {
+  // 진행 상황 업데이트
+  updateProgress(
+    step: string,
+    progress: number,
+    details?: string
+  ): void
+  
+  // 단계별 상세 정보 표시
+  showStepDetails(step: string, details: any): void
+  
+  // 예상 시간 계산 및 표시
+  estimateRemainingTime(): number
+}
+```
+
+**기대 효과**:
+- 사용자에게 명확한 진행 상황 제공
+- 대기 시간 예측 가능
+- 사용자 경험 개선
+
+**구현 난이도**: 낮음
+
+---
+
+### 17. 토큰 및 비용 추적 ⭐⭐
+
+**현재 상태**: 기본적인 토큰 계산만 지원
+
+**구현 방식**:
+- 작업 전체 토큰 사용량 추적
+- 개별 요청별 토큰 및 비용 표시
+- API 제공자별 비용 계산
+- 누적 사용량 통계
+
+**추가 필요 기능**:
+```typescript
+// src/core/analytics/TokenCostTracker.ts
+class TokenCostTracker {
+  // 토큰 사용량 기록
+  recordTokenUsage(
+    requestId: string,
+    inputTokens: number,
+    outputTokens: number,
+    model: string
+  ): void
+  
+  // 비용 계산
+  calculateCost(
+    tokens: number,
+    model: string,
+    provider: string
+  ): number
+  
+  // 통계 조회
+  getStatistics(
+    period: 'day' | 'week' | 'month'
+  ): UsageStatistics
+}
+```
+
+**기대 효과**:
+- API 사용 비용 투명성
+- 비용 최적화 가능
+- 사용량 모니터링
+
+**구현 난이도**: 낮음-중
+
+---
+
+### 18. 컨텍스트 추가 기능 (@mentions) ⭐⭐⭐
+
+**현재 상태**: 기본적인 파일 추가만 지원
+
+**구현 방식**:
+- `@file`: 파일 내용 추가
+- `@folder`: 폴더 내 모든 파일 추가
+- `@url`: URL 내용을 마크다운으로 변환하여 추가
+- `@problems`: 워크스페이스 오류/경고 추가
+
+**추가 필요 기능**:
+```typescript
+// src/core/mentions/MentionHandler.ts
+class MentionHandler {
+  // 파일 멘션 처리
+  async handleFileMention(filePath: string): Promise<string>
+  
+  // 폴더 멘션 처리
+  async handleFolderMention(folderPath: string): Promise<string>
+  
+  // URL 멘션 처리
+  async handleUrlMention(url: string): Promise<string>
+  
+  // 문제 멘션 처리
+  async handleProblemsMention(): Promise<string>
+}
+```
+
+**기대 효과**:
+- 컨텍스트 추가 편의성 향상
+- 관련 정보 빠른 포함
+- 작업 효율성 향상
+
+**구현 난이도**: 중
+
+---
+
+### 19. 사용자 주도 대화 요약 (Condense) ⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- 사용자가 명시적으로 요청하는 대화 요약 기능 (`/condense`, `/smol`, `/compact`)
+- LLM을 통한 상세 요약 생성
+- 요약 미리보기 제공 후 사용자 승인
+- 요약된 컨텍스트로 대화 히스토리 교체
+- 작업 진행 상황(task_progress) 포함 가능
+
+**추가 필요 기능**:
+```typescript
+// src/core/context/ConversationCondenser.ts
+class ConversationCondenser {
+  // 사용자 요청 기반 대화 요약
+  async condenseConversation(
+    messages: Message[],
+    taskProgress?: TaskProgress,
+    userInstructions?: string
+  ): Promise<ConversationSummary>
+  
+  // 요약 미리보기 생성
+  async createSummaryPreview(
+    summary: ConversationSummary
+  ): Promise<SummaryPreview>
+  
+  // 요약 적용 (히스토리 교체)
+  async applyCondensedSummary(
+    summary: ConversationSummary,
+    taskId: string
+  ): Promise<void>
+  
+  // 요약 검증
+  validateSummaryCompleteness(
+    summary: ConversationSummary,
+    originalMessages: Message[]
+  ): ValidationResult
+}
+```
+
+**요약 포함 내용** :
+1. Previous Conversation: 전체 대화의 고수준 요약
+2. Current Work: 최근 작업 내용
+3. Key Technical Concepts: 기술 개념, 코딩 규칙, 프레임워크
+4. Relevant Files and Code: 관련 파일 및 코드 섹션
+5. Problem Solving: 해결된 문제 및 진행 중인 트러블슈팅
+6. Pending Tasks and Next Steps: 미완료 작업 및 다음 단계
+
+**기대 효과**:
+- 사용자가 필요할 때 대화 압축 가능
+- 컨텍스트 윈도우 효율적 관리
+- 장기 작업에서 핵심 정보 보존
+- 작업 효율성 향상
+
+**구현 난이도**: 중
+
+---
+
+### 20. 작업 히스토리 재구성 ⭐⭐
+
+**현재 상태**: 기본적인 히스토리만 지원
+
+**구현 방식**:
+- 작업 히스토리 파일 기반 저장
+- 히스토리 재구성 및 복원
+- 작업 재개 기능
+
+**추가 필요 기능**:
+```typescript
+// src/core/task/TaskHistoryReconstructor.ts
+class TaskHistoryReconstructor {
+  // 히스토리 저장
+  async saveTaskHistory(taskId: string, history: TaskHistory): Promise<void>
+  
+  // 히스토리 로드
+  async loadTaskHistory(taskId: string): Promise<TaskHistory>
+  
+  // 히스토리 재구성
+  async reconstructHistory(taskId: string): Promise<TaskHistory>
+  
+  // 작업 재개
+  async resumeTask(taskId: string): Promise<void>
+}
+```
+
+**기대 효과**:
+- 작업 중단 후 재개 가능
+- 작업 히스토리 보존
+- 장기 작업 관리
+
+**구현 난이도**: 중
+
+---
+
+## 구현 우선순위
+
+### Phase 1: 핵심 안정성 기능 (즉시 구현 권장)
+1. **체크포인트/스냅샷 시스템** ⭐⭐⭐
+2. **진단(Diagnostics) 모니터링** ⭐⭐⭐
+3. **파일 변경 추적 및 검증** ⭐⭐⭐
+
+### Phase 2: 핵심 기능 (단기)
+4. **브라우저 자동화 (Browser Automation)** ⭐⭐⭐
+5. **Plan Mode / Act Mode 전환** ⭐⭐⭐
+6. **AST 기반 코드 분석** ⭐⭐⭐
+7. **Regex 기반 파일 검색** ⭐⭐⭐
+
+### Phase 3: 정확도 향상 (중기)
+8. **도구 실행 검증 강화** ⭐⭐⭐
+9. ~~**파일 컨텍스트 추적기** ⭐⭐⭐~~ (구현 완료 - `FileContextTracker`가 `ContextManager.collectFileContext`와 `ActionManager` 코드/파일 액션 실행 직전에 연동되어, 파일이 안정된 후 컨텍스트를 수집하도록 보장)
+10. **멀티 파일 Diff 뷰** ⭐⭐⭐
+11. **파일 Timeline 추적** ⭐⭐⭐
+
+### Phase 4: 사용자 경험 개선 (중장기)
+12. **컨텍스트 추가 기능 (@mentions)** ⭐⭐⭐
+13. **사용자 주도 대화 요약 (Condense)** ⭐⭐
+14. **토큰 및 비용 추적** ⭐⭐
+15. **작업 진행 상황 시각화** ⭐⭐
+
+### Phase 5: 고급 기능 (장기)
+16. **MCP (Model Context Protocol) 통합** ⭐⭐⭐
+17. **자동 승인 시스템** ⭐⭐
+18. **잠금(Lock) 관리 시스템** ⭐⭐
+19. **후크(Hook) 시스템** ⭐⭐
+20. **작업 히스토리 재구성** ⭐⭐
+
+---
+
+## 참고사항
+
+- 모든 기능은 aidev-ide의 기존 매니저 아키텍처와 통합되어야 합니다.
+- 기존 기능과의 호환성을 유지해야 합니다.
+- 점진적 구현을 통해 단계적으로 안정성과 정확도를 향상시킬 수 있습니다.
+- 사용자 피드백을 수집하여 우선순위를 조정할 수 있습니다.
+
+---
+
+## 추가 고려사항
+
+### 보안 강화
+- 파일 시스템 접근 권한 검증
+- 위험한 명령어 실행 전 사용자 확인
+- 민감한 정보 필터링
+
+### 성능 최적화
+- 대용량 파일 처리 최적화
+- 컨텍스트 윈도우 관리 개선
+- 캐싱 전략 도입
+
+### 확장성
+- 플러그인 시스템 고려
+- 커스텀 도구 추가 기능
+- API 확장성
+

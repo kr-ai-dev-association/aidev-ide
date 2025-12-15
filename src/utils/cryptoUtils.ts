@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+console.log('[CryptoUtils] Module loading...');
 
 export class CryptoUtils {
     private static readonly ALGORITHM = 'aes-256-cbc';
