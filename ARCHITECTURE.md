@@ -140,6 +140,11 @@ src/
 │   │       ├── ILLMAdapter.ts
 │   │       └── GptAdapter.ts
 │   │
+│   ├── file/                        # 10. File Change Tracker
+│   │   ├── FileChangeTracker.ts     # 파일 변경 추적 및 검증
+│   │   ├── types.ts                 # 파일 변경 타입 정의
+│   │   └── index.ts
+│   │
 │   ├── base/                        # 공통 추상화 레이어
 │   │   ├── BaseManager.ts           # 싱글톤 패턴 공통 제공
 │   │   └── index.ts
@@ -190,7 +195,7 @@ src/
 └── extension.ts                     # 진입점
 ```
 
-## 🎭 매니저별 상세 책임 (v5.0.0, 마이그레이션 완료)
+## 🎭 매니저별 상세 책임 (v5.0.7, 파일 변경 추적 추가)
 
 ### 1️⃣ Action Manager
 **역할**: LLM 요청을 실행 가능한 액션으로 변환
@@ -592,6 +597,47 @@ class LLMManager {
 - `ModelManager.ts` - 모델 관리
 - `LLMService.ts` - LLM API 호출 서비스 (Gemini, Ollama 래핑)
 - `LLMManager.ts` - LLM 서버 통신 및 응답 포맷팅 통합
+
+---
+
+### 🔟 File Change Tracker
+**역할**: 파일 변경사항 추적 및 검증
+
+```typescript
+class FileChangeTracker {
+  startTracking(filePath: string): void
+  async recordChange(
+    filePath: string,
+    changeType: 'create' | 'modify' | 'delete',
+    beforeContent?: string,
+    afterContent?: string,
+    metadata?: FileChange['metadata']
+  ): Promise<string>
+  getChangeHistory(filePath: string): FileChange[]
+  async revertToChange(changeId: string, options?: RevertOptions): Promise<void>
+  getChangeDiff(changeId: string): FileChangeDiff | null
+  onFileChange(filePath: string, callback: (change: FileChange) => void): vscode.Disposable
+  stopTracking(filePath: string): void
+  clearAllTracking(): void
+}
+```
+
+**책임**:
+- 파일 변경 전후 상태 추적
+- 파일 타임라인에 모든 변경사항 기록
+- 변경사항 diff 뷰 제공
+- 변경사항 직접 편집/되돌리기 가능
+- 변경 이력 영구 저장 (VS Code globalState)
+- 변경사항 리스너 등록 및 알림
+
+**구현 파일**:
+- `FileChangeTracker.ts` - 파일 변경 추적 및 검증
+- `types.ts` - 파일 변경 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+
+**통합**:
+- `ActionManager`에 통합되어 파일 생성/수정/삭제 시 자동 추적
+- 변경 전후 내용 자동 저장
+- 메타데이터 기록 (taskId, source 등)
 - `llm/` - LLM 추상화 통합
   - `ILLMAdapter.ts` - LLM 어댑터 인터페이스
   - `GptAdapter.ts` - GPT 어댑터 (PromptComposer 사용)

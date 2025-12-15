@@ -6,6 +6,19 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.7 (File Change Tracking & Verification)
+- **File Change Tracking**: Track all file changes (create, modify, delete) with before/after states
+  - Automatic tracking: All file operations through ActionManager are automatically tracked
+  - Change history: View complete change history for any file
+  - Diff generation: Automatic diff generation showing added, removed, and modified lines
+  - Revert capability: Revert files to any previous change point
+  - Persistent storage: All change history stored in VS Code globalState
+  - Change listeners: Register callbacks to be notified of file changes
+- **Files Added**:
+  - `src/core/file/FileChangeTracker.ts` - File change tracking and verification
+  - `src/core/file/types.ts` - Type definitions (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+  - `src/core/file/index.ts` - Barrel file
+
 ## v5.0.6 (Context History Management & Auto Summarization)
 - **Context History Management**: Track context changes per message, monitor context size, and manage checkpoints
   - Context update tracking: Record file, selection, cursor, terminal, and error context changes
@@ -89,6 +102,12 @@ VSCode base code assistant plugin with LLM and LM support.
     - Auto-trigger when token usage exceeds 95%
     - Permanent summary storage in VS Code globalState
     - Seamless session continuation with continuation prompts
+  - **File Change Tracking**: Track all file modifications with complete history
+    - Automatic tracking of all file operations (create, modify, delete)
+    - Complete change history with before/after states
+    - Diff view showing added, removed, and modified lines
+    - Revert to any previous change point
+    - Persistent storage in VS Code globalState
   - **Dynamic Model Selection**: Switch between cloud and local AI models in settings
   - **Intuitive UI**: Simplified model selection (Gemini vs Ollama) with specific model selection below
 - **Dual-Mode Interface**: 

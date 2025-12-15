@@ -6,6 +6,19 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.7 (파일 변경 추적 및 검증)
+- **파일 변경 추적**: 파일 변경 전후 상태를 추적하여 모든 변경사항 기록
+  - 자동 추적: ActionManager를 통한 모든 파일 작업이 자동으로 추적됨
+  - 변경 이력: 모든 파일의 완전한 변경 이력 조회 가능
+  - Diff 생성: 추가/삭제/수정된 라인을 보여주는 자동 diff 생성
+  - 되돌리기 기능: 이전 변경 시점으로 파일 복원 가능
+  - 영구 저장: 모든 변경 이력이 VS Code globalState에 저장됨
+  - 변경 리스너: 파일 변경 시 알림을 받을 수 있는 콜백 등록
+- **추가된 파일**:
+  - `src/core/file/FileChangeTracker.ts` - 파일 변경 추적 및 검증
+  - `src/core/file/types.ts` - 타입 정의 (FileChange, FileChangeHistory, FileChangeDiff, RevertOptions)
+  - `src/core/file/index.ts` - 배럴 파일
+
 ## v5.0.6 (컨텍스트 히스토리 관리 및 자동 요약)
 - **컨텍스트 히스토리 관리**: 메시지별 컨텍스트 변경사항 추적, 컨텍스트 크기 모니터링, 체크포인트 관리
   - 컨텍스트 업데이트 추적: 파일, 선택, 커서, 터미널, 에러 컨텍스트 변경사항 기록
@@ -90,6 +103,12 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
     - 토큰 사용량이 95% 초과 시 자동 트리거
     - VS Code globalState에 영구 요약 저장
     - continuation prompt를 통한 원활한 세션 재개
+  - **파일 변경 추적**: 모든 파일 수정사항을 완전한 이력으로 추적
+    - 모든 파일 작업(생성, 수정, 삭제) 자동 추적
+    - 변경 전후 상태를 포함한 완전한 변경 이력
+    - 추가/삭제/수정된 라인을 보여주는 diff 뷰
+    - 이전 변경 시점으로 복원 가능
+    - VS Code globalState에 영구 저장
   - **프레임워크 인식 컨텍스트**: 프로젝트 타입을 자동 감지하고 관련 설정 파일 포함
     - Node.js: `package.json`, `tsconfig.json`, 빌드 설정
     - Java/Spring: `pom.xml`, `build.gradle`, 애플리케이션 속성
