@@ -69,6 +69,20 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
             mainScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'chat.js')).toString();
             secondaryScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'codeCopy.js')).toString();
             htmlContent = htmlContent.replace('{{codeCopyScriptUri}}', secondaryScriptUri);
+
+            // 아이콘 리소스 (chat 전용)
+            const clipIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'clip.svg')).toString();
+            const historyIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'history.svg')).toString();
+            const stopIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'stop.svg')).toString();
+            const sendIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'send.svg')).toString();
+            const dropdownIconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'dropdown.svg')).toString();
+
+            htmlContent = htmlContent
+                .replace('{{clipIconUri}}', clipIconUri)
+                .replace('{{historyIconUri}}', historyIconUri)
+                .replace('{{stopIconUri}}', stopIconUri)
+                .replace('{{sendIconUri}}', sendIconUri)
+                .replace('{{dropdownIconUri}}', dropdownIconUri);
         } else if (htmlFileName === 'ask') {
             mainScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'ask.js')).toString();
             secondaryScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'codeCopy.js')).toString();

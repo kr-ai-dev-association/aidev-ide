@@ -133,7 +133,6 @@ try {
 const sendButton = document.getElementById('send-button');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages'); // 스크롤 컨테이너
-const clearDisplayButton = document.getElementById('clear-display-button'); // Clear Display 버튼 참조
 const clearHistoryButton = document.getElementById('clear-history-button'); // Clear History 버튼 참조
 const cancelButton = document.getElementById('cancel-call-button'); // Cancel 버튼 참조
 const imagePreviewContainer = document.getElementById('image-preview-container');
@@ -216,6 +215,7 @@ function doSendUserMessage(payload) {
     const imgMime = payload.imageMimeType || null;
     const files = payload.selectedFiles || [];
 
+    updateSendCancelButtons(true); // 전송 시작 시 중지 버튼으로 스왑
     window.displayUserMessage(text, img);
     window.showLoading();
     vscode.postMessage({
@@ -274,11 +274,6 @@ if (sendButton && chatInput) {
 
     chatInput.addEventListener('input', autoResizeTextarea);
     chatInput.addEventListener('paste', handlePaste); // 붙여넣기 이벤트 리스너 추가
-}
-
-// Clear Display 버튼 클릭 이벤트 리스너
-if (clearDisplayButton) {
-    clearDisplayButton.addEventListener('click', handleClearDisplay);
 }
 
 // Clear History 버튼 클릭 이벤트 리스너
@@ -695,6 +690,7 @@ function showLoading() {
     if (cancelButton) {
         cancelButton.disabled = false;
     }
+    updateSendCancelButtons(true);
 
     // thinking 애니메이션이 추가된 후 즉시 스크롤을 해당 애니메이션으로 이동 (여러 번 시도)
     scrollToThinkingBubble(messageContainer);
@@ -748,26 +744,32 @@ function hideLoading() {
     if (cancelButton) {
         cancelButton.disabled = true;
     }
+    updateSendCancelButtons(false);
 }
 
-// 챗창 출력 내용을 지우는 함수 (UI만 클리어)
-function handleClearDisplay() {
-    if (chatMessages) {
-        while (chatMessages.firstChild) {
-            chatMessages.removeChild(chatMessages.firstChild);
-        }
-        thinkingBubbleElement = null; // 로딩 애니메이션 참조도 초기화
-        console.log('Chat display cleared.');
-    }
-
-    // 버튼 상태 초기화
-    if (clearDisplayButton) {
-        clearDisplayButton.disabled = false;
-    }
-    if (cancelButton) {
+// 전송/중지 버튼 스왑 UI
+function updateSendCancelButtons(isSending) {
+    if (!sendButton || !cancelButton) return;
+    if (isSending) {
+        sendButton.classList.add('hidden');
+        sendButton.style.display = 'none';
+        cancelButton.classList.remove('hidden');
+        cancelButton.style.display = 'inline-flex';
+        cancelButton.style.order = '99'; // 오른쪽 끝으로 배치
+        cancelButton.disabled = false;
+    } else {
+        cancelButton.classList.add('hidden');
+        cancelButton.style.display = 'none';
+        sendButton.classList.remove('hidden');
+        sendButton.style.display = 'inline-flex';
+        sendButton.style.order = '99';
+        cancelButton.style.order = '0';
         cancelButton.disabled = true;
     }
 }
+
+// 초기 상태: 전송 버튼만 보이도록 설정
+updateSendCancelButtons(false);
 
 // 저장된 대화 이력을 삭제하는 함수
 function handleClearHistory() {

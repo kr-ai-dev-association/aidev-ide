@@ -162,51 +162,32 @@
 
         #chat-input-area {
             display: flex;
-            /* <-- 필수: 입력 필드와 버튼 그룹을 가로로 배치 (상위 컨테이너) */
-            flex-direction: row;
-            /* <-- 필수: 가로 배치 */
-            align-items: flex-end;
-            /* <-- 필수: 전체 그룹을 하단으로 정렬 */
-            padding: 10px;
-            /* 내부 패딩 */
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px;
             background-color: var(--vscode-editor-background);
-            /* 배경색 */
             box-sizing: border-box;
-            /* <-- 추가: 이미지 썸네일 영역을 위해 min-height 조정 가능 --> */
-            min-height: 50px;
-            /* 텍스트 에어리어의 최소 높이보다 크게 설정하여 썸네일 공간 확보 */
-            flex-wrap: wrap;
-            /* 썸네일과 입력창이 한 줄에 안 들어갈 경우 줄바꿈 */
         }
 
         /* <-- chatInput 스타일 (기존 스타일 유지하며 자동조절 속성 추가) --> */
         #chat-input {
-            flex-grow: 1;
-            /* 남은 공간을 모두 차지하여 늘어남 */
-            padding: 8px;
-            border: 1px solid var(--vscode-input-border);
-            /* 테두리 스타일 */
-            background-color: var(--vscode-input-background);
-            /* 배경색 */
+            flex: 1;
+            min-width: 0;
+            width: 100%;
+            padding: 12px 0 18px 0;
+            /* 하단 여백 추가 */
+            border: none;
+            background: transparent;
             color: var(--vscode-input-foreground);
-            /* 글자색 */
-            margin-right: 8px;
-            /* 오른쪽 여백 (버튼 그룹과의 간격) */
             outline: none;
-            /* 포커스 시 기본 아웃라인 제거 */
             resize: none;
-            /* 사용자 수동 리사이즈 방지 (JS 자동 조절 사용) */
             font-family: var(--vscode-font-family);
             font-size: var(--vscode-font-size);
-            line-height: 1.5em;
-            /* 행 높이 명시 */
-            /* <-- 수정: 최소 높이를 버튼 3개 높이에 맞춤 (button-group의 height가 이 높이를 결정하므로, 이 calc는 참고용) --> */
-            min-height: calc(3 * (1.5em + 8px + 8px) + 2 * 8px);
-            /* 3개 버튼 높이 + 3*버튼패딩 + 2*버튼 사이 마진 */
-            max-height: 150px;
-            /* 최대 높이 제한 */
+            line-height: 1.6em;
+            min-height: calc(2 * 1.6em + 14px);
+            /* 기본 2줄 높이로 축소 */
+            max-height: 200px;
             overflow: auto;
-            /* 내용 넘칠 시 스크롤바 보이도록 'auto' 사용 */
             box-sizing: border-box;
         }
 
@@ -218,144 +199,110 @@
             /* 포커스 시 테두리 색상 변경 */
         }
 
-        /* <-- Send, Clear, Cancel 버튼 공통 스타일 및 개별 스타일 --> */
-        /* Send 버튼은 이제 .button-group 안에 들어갑니다. */
-        #send-button,
-        #clean-history-button,
-        #cancel-call-button {
-            /* <-- 수정: 모든 버튼에 공통 스타일 적용 */
-            padding: 8px 15px;
-            /* 모든 버튼에 동일한 패딩 */
-            border: none;
-            cursor: pointer;
-            border-radius: 5px;
+        /* 상단 컨트롤 (Agent, Mode) */
+        .top-controls {
             display: flex;
             align-items: center;
-            justify-content: center;
-            box-sizing: border-box;
-            user-select: none;
-            flex-shrink: 0;
-            width: 100%;
-            /* <-- 수정: 버튼 그룹 내에서 너비 전체 사용 */
-            height: auto;
-            /* <-- 유지: 부모 flex item의 height: auto가 필요함 */
+            gap: 8px;
+            position: relative;
         }
 
-        #send-button {
-            background-color: #007ACC;
-            color: white;
+        .dropdown-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            color: var(--vscode-foreground);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
 
-        #send-button:hover {
-            background-color: #005A9E;
+        .dropdown-icon-img {
+            width: 12px;
+            height: 12px;
+            object-fit: contain;
+            filter: brightness(0) invert(1);
+            opacity: 0.8;
         }
 
-        /* Clean (-> Clear) 버튼 스타일 */
-        #clean-history-button {
-            background-color: #4CAF50;
-            /* <-- 수정: 녹색 계열 배경색 */
-            color: white;
-            /* 텍스트 색상 (흰색) */
-            margin-bottom: 8px;
-            /* <-- 수정: Cancel 버튼과의 간격 */
+        .dropdown-button:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: var(--vscode-focusBorder);
         }
 
-        #clean-history-button:hover {
-            background-color: #45a049;
-            /* 호버 시 약간 어두운 녹색 */
+        .dropdown-icon {
+            font-size: 16px;
+            opacity: 0.7;
         }
 
-        /* 붉은색 Cancel 버튼 고유 스타일 */
-        #cancel-call-button {
-            background-color: #ff4444;
-            /* 빨간색 배경 */
-            color: white;
-            /* 텍스트 색상 (흰색) */
-            margin-bottom: 0;
-            /* 하단 마진 제거 (top-button-row에서 관리) */
-            width: 50%;
-            /* 크기를 절반으로 줄임 */
-        }
-
-        #cancel-call-button:hover {
-            background-color: #ff6666;
-            /* 호버 시 약간 밝은 빨간색 */
-        }
-
-        /* <-- 수정 끝 --> */
-
-
-        /* <-- 추가: 버튼 그룹 컨테이너 스타일 --> */
-        .button-group {
+        /* 입력 래퍼 */
+        .input-row {
             display: flex;
             flex-direction: column;
-            /* 버튼들을 세로로 쌓음 */
-            align-items: flex-end;
-            /* 버튼들을 오른쪽으로 정렬 */
+            align-items: stretch;
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            padding: 8px 12px 10px 12px;
+            transition: border-color 0.2s ease;
+        }
+
+        .input-row:focus-within {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        /* 아이콘 행 */
+        .input-actions-row {
+            display: flex;
+            align-items: center;
             justify-content: flex-end;
-            /* 버튼들을 컨테이너 하단으로 정렬 */
-            height: auto;
-            /* 내용에 따라 높이 조절 (Textarea 높이에 맞춰 늘어남) */
-            flex-shrink: 0;
-            /* 줄어들지 않음 */
-            width: 100px;
-            /* <-- 수정: 버튼 그룹 고정 너비 (필요시 조정) */
-        }
-
-        /* @ 버튼과 Cancel 버튼을 가로로 배치하는 컨테이너 */
-        .top-button-row {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
             gap: 4px;
-            /* 버튼 사이 간격 */
-            margin-bottom: 8px;
+            padding-top: 6px;
+            padding-bottom: 0;
+            margin-left: 0;
             width: 100%;
         }
 
-        /* Clear 버튼과 지우개 버튼을 가로로 배치하는 컨테이너 */
-        .clear-buttons-row {
-            display: flex;
-            flex-direction: row;
+        .input-icon-button {
+            background: none;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            padding: 6px;
+            display: inline-flex;
             align-items: center;
-            gap: 4px;
-            margin-bottom: 8px;
-            width: 100%;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            width: 32px;
+            height: 32px;
+            font-size: 18px;
         }
 
-        /* Clear 버튼 (챗창 출력 내용 지우기) */
-        #clear-display-button {
-            flex: 1;
-            padding: 8px 15px;
-            border: none;
-            cursor: pointer;
-            border-radius: 5px;
-            background-color: #4CAF50;
-            color: white;
-            font-size: 14px;
+        /* 호버/액티브 효과 제거 */
+        .input-icon-button:hover,
+        .input-icon-button:active {
+            background-color: transparent;
+            color: var(--vscode-foreground);
         }
 
-        #clear-display-button:hover {
-            background-color: #45A049;
+        .icon-img {
+            width: 18px;
+            height: 18px;
+            object-fit: contain;
+            pointer-events: none;
+            filter: brightness(0) invert(1);
+            /* 아이콘 흰색 처리 */
         }
 
-        /* 지우개 버튼 (대화 이력 지우기) */
-        #clear-history-button {
-            padding: 8px 12px;
-            border: none;
-            cursor: pointer;
-            border-radius: 5px;
-            background-color: #FFC107;
-            color: #212529;
-            font-size: 16px;
-            min-width: 40px;
+        .icon-img--small {
+            width: 16px;
+            height: 16px;
         }
-
-        #clear-history-button:hover {
-            background-color: #E0A800;
-        }
-
-        /* <-- 추가 끝 --> */
 
 
         /* (기존 메시지 관련 스타일 유지) */
@@ -1307,31 +1254,6 @@
             /* 호버 시 살짝 확대 */
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
         }
-
-        /* File Picker Button Style */
-        #file-picker-button {
-            background-color: var(--vscode-button-secondary-background);
-            color: var(--vscode-button-secondary-foreground);
-            border: 1px solid var(--vscode-button-secondary-border);
-            padding: 8px 12px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: background-color 0.2s;
-            width: 50%;
-            /* Cancel 버튼과 같은 크기 */
-            margin-bottom: 0;
-            /* 하단 마진 제거 (top-button-row에서 관리) */
-        }
-
-        #file-picker-button:hover {
-            background-color: var(--vscode-button-secondary-hoverBackground);
-        }
-
-        #file-picker-button:active {
-            background-color: var(--vscode-button-secondary-activeBackground);
-        }
     </style>
 </head>
 
@@ -1362,26 +1284,45 @@
         <hr class="file-input-divider hidden" />
 
         <div id="chat-input-area">
-            <!-- Image Preview Container -->
-            <div id="image-preview-container" class="hidden">
-                <img id="image-preview" src="#" alt="Image thumbnail" />
-                <button id="remove-image-button" title="Remove image">×</button>
+            <!-- 상단 컨트롤 -->
+            <div class="top-controls">
+                <button class="dropdown-button" id="mode-selector">
+                    <span id="mode-label">CODE</span>
+                    <img src="{{dropdownIconUri}}" class="dropdown-icon-img" alt="dropdown" />
+                </button>
+                <div id="mode-dropdown" class="hidden"
+                    style="display:none; position:absolute; margin-top:38px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
+                    <div class="dropdown-option" data-mode="CODE" style="padding:6px 10px; cursor:pointer;">CODE</div>
+                    <div class="dropdown-option" data-mode="ASK" style="padding:6px 10px; cursor:pointer;">ASK</div>
+                </div>
             </div>
 
-            <textarea id="chat-input" rows="4" placeholder="Type your message..."></textarea>
-            <!-- <-- 추가: 버튼 그룹을 포함하는 div -->
-            <div class="button-group">
-                <div class="top-button-row">
-                    <button id="file-picker-button" title="파일 선택">@</button>
-                    <button id="cancel-call-button" class="cancel-button">Cancel</button>
+            <!-- 입력 래퍼 -->
+            <div class="input-row">
+                <!-- 이미지 썸네일 (필요 시 표시) -->
+                <div id="image-preview-container" class="hidden" style="margin-right:8px;">
+                    <img id="image-preview" src="#" alt="Image thumbnail" />
+                    <button id="remove-image-button" title="Remove image">×</button>
                 </div>
-                <div class="clear-buttons-row">
-                    <button id="clear-display-button">Clear</button>
-                    <button id="clear-history-button">🧹</button>
+
+                <textarea id="chat-input" rows="1"></textarea>
+
+                <!-- 아이콘 버튼들 -->
+                <div class="input-actions-row">
+                    <button id="file-picker-button" class="input-icon-button" title="파일 선택">
+                        <img src="{{clipIconUri}}" class="icon-img icon-img--small" alt="attach" />
+                    </button>
+                    <button id="clear-history-button" class="input-icon-button" title="히스토리 지우기">
+                        <img src="{{historyIconUri}}" class="icon-img icon-img--small" alt="history" />
+                    </button>
+                    <button id="cancel-call-button" class="input-icon-button" title="중지">
+                        <img src="{{stopIconUri}}" class="icon-img" alt="stop" />
+                    </button>
+                    <button id="send-button" class="input-icon-button" title="전송">
+                        <img src="{{sendIconUri}}" class="icon-img" alt="send" />
+                    </button>
                 </div>
-                <button id="send-button">Send</button>
             </div>
-            <!-- <-- 추가 끝 -->
         </div>
     </div>
 
@@ -1404,6 +1345,49 @@
     </script>
     <script src="{{scriptUri}}"></script>
     <script src="{{codeCopyScriptUri}}"></script>
+
+    <!-- Mode dropdown (CODE / ASK) -->
+    <script>
+        (function () {
+            const modeBtn = document.getElementById('mode-selector');
+            const modeLabel = document.getElementById('mode-label');
+            const dropdown = document.getElementById('mode-dropdown');
+            if (!modeBtn || !dropdown || !modeLabel) return;
+
+            const closeDropdown = () => {
+                dropdown.classList.add('hidden');
+                dropdown.style.display = 'none';
+            };
+
+            // 초기에는 항상 닫힘 상태
+            closeDropdown();
+
+            modeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const willShow = dropdown.classList.contains('hidden');
+                if (willShow) {
+                    dropdown.classList.remove('hidden');
+                    dropdown.style.display = 'block';
+                } else {
+                    closeDropdown();
+                }
+            });
+
+            dropdown.querySelectorAll('.dropdown-option').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    const mode = opt.getAttribute('data-mode') || 'CODE';
+                    modeLabel.textContent = mode;
+                    closeDropdown();
+                });
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!dropdown.contains(e.target) && e.target !== modeBtn) {
+                    closeDropdown();
+                }
+            });
+        })();
+    </script>
 
     <!-- React Auto Correcting Component -->
     <script type="text/babel">
