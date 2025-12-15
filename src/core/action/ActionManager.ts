@@ -21,7 +21,7 @@ import { ActionRegistry } from './ActionRegistry';
 import { ActionValidator } from './ActionValidator';
 import { ActionMapper } from './ActionMapper';
 import { TerminalManager } from '../terminal/TerminalManager';
-import { FileChangeTracker } from '../file/FileChangeTracker';
+import { FileChangeTracker } from './file/FileChangeTracker';
 
 export class ActionManager {
     private static instance: ActionManager;

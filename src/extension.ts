@@ -28,7 +28,7 @@ import { IntentDetector } from './core/action/IntentDetector';
 import { ExternalApiService } from './services/external/ExternalApiService';
 import { ContextHistoryManager } from './core/context/ContextHistoryManager';
 import { ConversationSummarizer } from './core/context/ConversationSummarizer';
-import { FileChangeTracker } from './core/file/FileChangeTracker';
+import { FileChangeTracker } from './core/action/file/FileChangeTracker';
 import { ActionManager } from './core/action/ActionManager';
 
 

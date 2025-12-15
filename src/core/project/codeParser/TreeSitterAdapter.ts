@@ -11,6 +11,8 @@ import {
     MethodDefinition,
     ClassDefinition,
     ParseOptions,
+    UsageLocation,
+    RelatedFile,
     getLanguageFromExtension,
     isParsableFile,
 } from './ICodeParserAdapter';
@@ -422,6 +424,284 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
         }
 
         return null;
+    }
+
+    /**
+     * 특정 디렉토리의 최상위 레벨 코드 정의 이름 목록 반환
+     */
+    async listCodeDefinitionNames(
+        dirPath: string,
+        options?: { recursive?: boolean; definitionTypes?: DefinitionType[] }
+    ): Promise<string[]> {
+        const definitions = await this.parseDirectory(dirPath, {
+            maxFiles: options?.recursive ? 200 : 50,
+            includeTests: false,
+        });
+
+        const names = new Set<string>();
+        definitions.files.forEach(file => {
+            file.definitions.forEach(def => {
+                if (!options?.definitionTypes || options.definitionTypes.includes(def.type)) {
+                    names.add(def.name);
+                }
+            });
+        });
+        return Array.from(names).sort();
+    }
+
+    /**
+     * 특정 정의가 사용되는 모든 위치 찾기
+     */
+    async findDefinitionUsages(
+        definitionName: string,
+        definitionType: DefinitionType,
+        projectRoot: string
+    ): Promise<UsageLocation[]> {
+        const usages: UsageLocation[] = [];
+        const definitionsInProject = await this.parseDirectory(projectRoot, { maxFiles: 200 });
+
+        for (const file of definitionsInProject.files) {
+            try {
+                const fileContent = await fs.readFile(file.filePath, 'utf-8');
+                const lines = fileContent.split('\n');
+
+                lines.forEach((line, lineNum) => {
+                    const trimmedLine = line.trim();
+
+                    // 정의 자체의 위치도 포함
+                    if (file.definitions.some(def =>
+                        def.name === definitionName &&
+                        def.type === definitionType &&
+                        def.startLine === lineNum + 1
+                    )) {
+                        usages.push({
+                            filePath: file.filePath,
+                            line: lineNum + 1,
+                            column: line.indexOf(definitionName),
+                            context: trimmedLine,
+                            usageType: 'definition',
+                        });
+                    }
+
+                    // import 문에서 사용
+                    if (trimmedLine.includes('import') && trimmedLine.includes(definitionName)) {
+                        const importMatch = trimmedLine.match(new RegExp(`(?:import\\s+(?:\\{[^}]*?\\b${definitionName}\\b[^}]*\\}|\\b${definitionName}\\b)|from\\s+['"].*?\\b${definitionName}\\b['"])`, 'g'));
+                        if (importMatch) {
+                            usages.push({
+                                filePath: file.filePath,
+                                line: lineNum + 1,
+                                column: line.indexOf(definitionName),
+                                context: trimmedLine,
+                                usageType: 'import',
+                            });
+                        }
+                    }
+
+                    // 함수/메서드 호출
+                    if (definitionType === DefinitionType.FUNCTION ||
+                        definitionType === DefinitionType.METHOD) {
+                        const callPattern = new RegExp(`\\b${definitionName}\\s*\\(`, 'g');
+                        if (callPattern.test(trimmedLine)) {
+                            usages.push({
+                                filePath: file.filePath,
+                                line: lineNum + 1,
+                                column: line.indexOf(definitionName),
+                                context: trimmedLine,
+                                usageType: 'call',
+                            });
+                        }
+                    }
+
+                    // 클래스 상속/구현
+                    if (definitionType === DefinitionType.CLASS) {
+                        if (trimmedLine.includes(`extends ${definitionName}`) ||
+                            trimmedLine.includes(`implements ${definitionName}`)) {
+                            usages.push({
+                                filePath: file.filePath,
+                                line: lineNum + 1,
+                                column: line.indexOf(definitionName),
+                                context: trimmedLine,
+                                usageType: trimmedLine.includes('extends') ? 'extend' : 'implement',
+                            });
+                        }
+                    }
+
+                    // 일반 참조
+                    const refPattern = new RegExp(`\\b${definitionName}\\b`, 'g');
+                    const matches = [...trimmedLine.matchAll(refPattern)];
+                    matches.forEach(match => {
+                        // 이미 추가된 사용 위치가 아니면 추가
+                        const alreadyAdded = usages.some(u =>
+                            u.filePath === file.filePath &&
+                            u.line === lineNum + 1 &&
+                            u.column === (match.index || 0)
+                        );
+                        if (!alreadyAdded && match.index !== undefined) {
+                            usages.push({
+                                filePath: file.filePath,
+                                line: lineNum + 1,
+                                column: match.index,
+                                context: trimmedLine,
+                                usageType: 'reference',
+                            });
+                        }
+                    });
+                });
+            } catch (error) {
+                console.error(`[TreeSitterAdapter] Error finding usages in ${file.filePath}:`, error);
+            }
+        }
+
+        return usages;
+    }
+
+    /**
+     * 관련 파일 찾기 (import/export 기반)
+     * 특정 파일과 import/export 관계가 있는 파일들을 찾음
+     */
+    async findRelatedFiles(
+        filePath: string,
+        projectRoot: string
+    ): Promise<RelatedFile[]> {
+        const relatedFiles: RelatedFile[] = [];
+
+        try {
+            const fileContent = await fs.readFile(filePath, 'utf-8');
+            const lines = fileContent.split('\n');
+            const fileName = path.basename(filePath, path.extname(filePath));
+            const fileDir = path.dirname(filePath);
+
+            // 현재 파일에서 export하는 심볼 추출
+            const exportedSymbols: string[] = [];
+            const fileDefs = await this.parseFile(filePath);
+            if (fileDefs) {
+                exportedSymbols.push(...fileDefs.definitions
+                    .filter(def => {
+                        // export 키워드가 있는 정의 찾기
+                        const defLine = lines[def.startLine - 1] || '';
+                        return defLine.includes('export');
+                    })
+                    .map(def => def.name));
+            }
+
+            // 프로젝트 전체에서 import 문 검색
+            const definitions = await this.parseDirectory(projectRoot, { maxFiles: 200 });
+
+            for (const otherFile of definitions.files) {
+                if (otherFile.filePath === filePath) continue;
+
+                try {
+                    const otherContent = await fs.readFile(otherFile.filePath, 'utf-8');
+                    const otherLines = otherContent.split('\n');
+                    const importedSymbols: string[] = [];
+
+                    // Import 문에서 현재 파일 참조 확인
+                    for (const line of otherLines) {
+                        const trimmed = line.trim();
+
+                        // 상대 경로 import
+                        if (trimmed.includes('import') && trimmed.includes('from')) {
+                            const fromMatch = trimmed.match(/from\s+['"](.+?)['"]/);
+                            if (fromMatch) {
+                                const importPath = fromMatch[1];
+                                const otherFileDir = path.dirname(otherFile.filePath);
+
+                                // 상대 경로를 절대 경로로 변환
+                                let resolvedPath: string;
+                                if (importPath.startsWith('.')) {
+                                    resolvedPath = path.resolve(otherFileDir, importPath);
+                                } else {
+                                    // 절대 경로나 node_modules는 스킵
+                                    continue;
+                                }
+
+                                // 현재 파일과 일치하는지 확인
+                                const normalizedResolved = path.normalize(resolvedPath);
+                                const normalizedCurrent = path.normalize(filePath);
+
+                                if (normalizedResolved === normalizedCurrent ||
+                                    normalizedResolved === path.normalize(filePath.replace(/\.(ts|tsx|js|jsx)$/, ''))) {
+                                    // import된 심볼 추출
+                                    const importMatch = trimmed.match(/import\s+(.+?)\s+from/);
+                                    if (importMatch) {
+                                        const symbols = importMatch[1]
+                                            .replace(/\{|\}/g, '')
+                                            .split(',')
+                                            .map(s => s.trim().split(' as ')[0]);
+                                        importedSymbols.push(...symbols);
+                                    }
+                                }
+                            }
+                        }
+
+                        // 파일명 기반 import (간단한 매칭)
+                        if (trimmed.includes(`from './${fileName}'`) ||
+                            trimmed.includes(`from '../${fileName}'`) ||
+                            trimmed.includes(`from '${fileName}'`)) {
+                            const importMatch = trimmed.match(/import\s+(.+?)\s+from/);
+                            if (importMatch) {
+                                const symbols = importMatch[1]
+                                    .replace(/\{|\}/g, '')
+                                    .split(',')
+                                    .map(s => s.trim().split(' as ')[0]);
+                                importedSymbols.push(...symbols);
+                            }
+                        }
+                    }
+
+                    if (importedSymbols.length > 0) {
+                        relatedFiles.push({
+                            filePath: otherFile.filePath,
+                            relationship: 'imported_by',
+                            symbols: importedSymbols,
+                        });
+                    }
+                } catch (error) {
+                    console.error(`[TreeSitterAdapter] Error checking related files for ${otherFile.filePath}:`, error);
+                }
+            }
+
+            // 현재 파일이 import하는 파일들 찾기
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.includes('import') && trimmed.includes('from')) {
+                    const fromMatch = trimmed.match(/from\s+['"](.+?)['"]/);
+                    if (fromMatch) {
+                        const importPath = fromMatch[1];
+                        if (importPath.startsWith('.')) {
+                            const resolvedPath = path.resolve(fileDir, importPath);
+                            const normalizedResolved = path.normalize(resolvedPath);
+
+                            // 프로젝트 내 파일 찾기
+                            for (const otherFile of definitions.files) {
+                                const normalizedOther = path.normalize(otherFile.filePath);
+                                if (normalizedResolved === normalizedOther ||
+                                    normalizedResolved === path.normalize(otherFile.filePath.replace(/\.(ts|tsx|js|jsx)$/, ''))) {
+                                    const importMatch = trimmed.match(/import\s+(.+?)\s+from/);
+                                    const symbols = importMatch
+                                        ? importMatch[1]
+                                            .replace(/\{|\}/g, '')
+                                            .split(',')
+                                            .map(s => s.trim().split(' as ')[0])
+                                        : [];
+
+                                    relatedFiles.push({
+                                        filePath: otherFile.filePath,
+                                        relationship: 'imports',
+                                        symbols,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (error) {
+            console.error(`[TreeSitterAdapter] Error finding related files for ${filePath}:`, error);
+        }
+
+        return relatedFiles;
     }
 }
 

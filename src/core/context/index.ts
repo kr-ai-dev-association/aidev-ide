@@ -7,7 +7,7 @@ export * from './types';
 export { ContextManager } from './ContextManager';
 export { PromptBuilder } from './PromptBuilder';
 export type { PromptBuilderOptions } from './PromptBuilder';
-export { FileContextCollector } from './FileContext';
+export * from './file';
 export { EditorContextCollector } from './EditorContext';
 export { TerminalContextCollector } from './TerminalContext';
 export { ContextHistoryManager } from './ContextHistoryManager';

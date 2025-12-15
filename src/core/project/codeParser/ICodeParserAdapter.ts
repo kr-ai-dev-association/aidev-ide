@@ -143,6 +143,51 @@ export interface ICodeParserAdapter {
      * 프로젝트 전체 구조 요약 (LLM 컨텍스트용)
      */
     getProjectSummary(projectPath: string, options?: ParseOptions): Promise<string>;
+
+    /**
+     * 특정 디렉토리의 최상위 레벨 코드 정의 이름 목록 반환
+     */
+    listCodeDefinitionNames(
+        dirPath: string,
+        options?: { recursive?: boolean; definitionTypes?: DefinitionType[] }
+    ): Promise<string[]>;
+
+    /**
+     * 특정 정의가 사용되는 모든 위치 찾기
+     */
+    findDefinitionUsages(
+        definitionName: string,
+        definitionType: DefinitionType,
+        projectRoot: string
+    ): Promise<UsageLocation[]>;
+
+    /**
+     * 특정 파일과 import/export 관계가 있는 파일들을 찾음
+     */
+    findRelatedFiles(
+        filePath: string,
+        projectRoot: string
+    ): Promise<RelatedFile[]>;
+}
+
+/**
+ * 정의 사용 위치
+ */
+export interface UsageLocation {
+    filePath: string;
+    line: number;
+    column: number;
+    context: string; // 사용된 코드 라인
+    usageType: 'import' | 'call' | 'reference' | 'extend' | 'implement' | 'definition';
+}
+
+/**
+ * 관련 파일 정보 (import/export 관계)
+ */
+export interface RelatedFile {
+    filePath: string;
+    relationship: 'imports' | 'imported_by' | 'exports' | 'exported_by';
+    symbols?: string[]; // 관련 심볼 목록
 }
 
 /**

@@ -19,14 +19,14 @@ import {
     ProjectContext
 } from './types';
 import { ErrorSource } from '../error/types';
-import { FileContextCollector } from './FileContext';
+import { FileContextCollector } from './file/FileContext';
 import { EditorContextCollector } from './EditorContext';
 import { TerminalContextCollector } from './TerminalContext';
 import { TerminalManager } from '../terminal';
 import { ErrorManager } from '../error';
 import { ProjectManager } from '../project';
 import { estimateTokens } from '../../utils';
-import { RelevantFilesFinder, RelevantFilesResult } from './RelevantFilesFinder';
+import { RelevantFilesFinder, RelevantFilesResult } from './file/RelevantFilesFinder';
 
 export class ContextManager {
     private static instance: ContextManager;

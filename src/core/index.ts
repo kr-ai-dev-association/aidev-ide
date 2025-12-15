@@ -29,6 +29,7 @@ export type {
     ActionType,
     LLMResponse as ActionLLMResponse
 } from './action/types';
+export * from './action/file';
 
 // =============== Execution/Terminal/Task ===============
 export * from './execution';
@@ -119,6 +120,3 @@ export * from './model/llm/GptAdapter';
 export * from './project/codeParser/ICodeParserAdapter';
 export * from './project/codeParser/TreeSitterAdapter';
 export * from './project/codeParser/languageParser';
-
-// =============== File Change Tracking ===============
-export * from './file';
