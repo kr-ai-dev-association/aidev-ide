@@ -36,7 +36,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
     async parseDirectory(dirPath: string, options?: ParseOptions): Promise<CodeDefinitions> {
         const maxFiles = options?.maxFiles ?? 50;
         const includeTests = options?.includeTests ?? false;
-        
+
         // 파일 목록 가져오기
         const files = await this.getFilesToParse(dirPath, {
             ...options,
@@ -62,14 +62,14 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
                     fileDefinitions.push(fileResult);
                     summary.totalFiles++;
                     summary.totalDefinitions += fileResult.definitions.length;
-                    
+
                     // 타입별 집계
                     fileResult.definitions.forEach(def => {
                         summary.byType[def.type] = (summary.byType[def.type] || 0) + 1;
                     });
-                    
+
                     // 언어별 집계
-                    summary.byLanguage[fileResult.language] = 
+                    summary.byLanguage[fileResult.language] =
                         (summary.byLanguage[fileResult.language] || 0) + 1;
                 }
             } catch (error) {
@@ -91,7 +91,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
 
         const ext = path.extname(filePath).toLowerCase().slice(1);
         const languageParsers = await loadRequiredLanguageParsers([filePath]);
-        
+
         return await this.parseFileWithParser(
             filePath,
             languageParsers,
@@ -105,7 +105,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
         searchPath: string
     ): Promise<Definition | null> {
         const definitions = await this.parseDirectory(searchPath, { maxFiles: 100 });
-        
+
         for (const file of definitions.files) {
             const found = file.definitions.find(
                 def => def.name === name && def.type === type
@@ -114,7 +114,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
                 return found;
             }
         }
-        
+
         return null;
     }
 
@@ -125,24 +125,24 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
 
     async getClassDefinition(className: string, searchPath: string): Promise<ClassDefinition | null> {
         const definitions = await this.parseDirectory(searchPath, { maxFiles: 100 });
-        
+
         for (const file of definitions.files) {
             const classDef = file.definitions.find(
                 def => def.name === className && def.type === DefinitionType.CLASS
             );
-            
+
             if (classDef) {
                 // 같은 파일 내에서 메서드 찾기
                 const methods = file.definitions.filter(
-                    def => def.type === DefinitionType.METHOD && 
-                           def.startLine > classDef.startLine &&
-                           def.startLine < classDef.endLine
+                    def => def.type === DefinitionType.METHOD &&
+                        def.startLine > classDef.startLine &&
+                        def.startLine < classDef.endLine
                 ) as MethodDefinition[];
-                
+
                 methods.forEach(method => {
                     method.className = className;
                 });
-                
+
                 return {
                     ...classDef,
                     methods,
@@ -150,7 +150,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
                 } as ClassDefinition;
             }
         }
-        
+
         return null;
     }
 
@@ -159,16 +159,16 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
         if (!fileResult) {
             return `파일을 파싱할 수 없습니다: ${filePath}`;
         }
-        
+
         return fileResult.formattedOutput || '정의를 찾을 수 없습니다.';
     }
 
     async getProjectSummary(projectPath: string, options?: ParseOptions): Promise<string> {
         const definitions = await this.parseDirectory(projectPath, options);
-        
+
         let summary = `# 프로젝트 구조 요약\n\n`;
         summary += `총 ${definitions.summary.totalFiles}개 파일, ${definitions.summary.totalDefinitions}개 정의\n\n`;
-        
+
         // 타입별 통계
         summary += `## 정의 타입별 분포:\n`;
         Object.entries(definitions.summary.byType)
@@ -176,16 +176,16 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
             .forEach(([type, count]) => {
                 summary += `- ${type}: ${count}개\n`;
             });
-        
+
         summary += `\n## 파일별 정의:\n\n`;
-        
+
         // 파일별 정의 출력
         definitions.files.forEach(file => {
             summary += `### ${file.relativePath}\n`;
             summary += file.formattedOutput;
             summary += `\n`;
         });
-        
+
         return summary;
     }
 
@@ -200,23 +200,23 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
     ): Promise<string[]> {
         const maxFiles = options?.maxFiles ?? 50;
         const files: string[] = [];
-        
+
         try {
             const uri = vscode.Uri.file(dirPath);
             const entries = await vscode.workspace.fs.readDirectory(uri);
-            
+
             for (const [name, type] of entries) {
                 if (files.length >= maxFiles) break;
-                
+
                 const fullPath = path.join(dirPath, name);
-                
+
                 // 디렉토리는 재귀적으로 탐색
                 if (type === vscode.FileType.Directory) {
                     // 제외할 디렉토리
                     if (this.shouldExcludeDirectory(name)) {
                         continue;
                     }
-                    
+
                     const subFiles = await this.getFilesToParse(fullPath, {
                         ...options,
                         maxFiles: maxFiles - files.length,
@@ -237,7 +237,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
         } catch (error) {
             console.error(`[TreeSitterAdapter] Error reading directory ${dirPath}:`, error);
         }
-        
+
         return files.slice(0, maxFiles);
     }
 
@@ -269,11 +269,11 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
     private isTestFile(filePath: string): boolean {
         const fileName = path.basename(filePath).toLowerCase();
         return fileName.includes('.test.') ||
-               fileName.includes('.spec.') ||
-               fileName.includes('_test.') ||
-               filePath.includes('__tests__') ||
-               filePath.includes('/test/') ||
-               filePath.includes('/tests/');
+            fileName.includes('.spec.') ||
+            fileName.includes('_test.') ||
+            filePath.includes('__tests__') ||
+            filePath.includes('/test/') ||
+            filePath.includes('/tests/');
     }
 
     /**
@@ -288,7 +288,7 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
             const fileContent = await fs.readFile(filePath, 'utf-8');
             const ext = path.extname(filePath).toLowerCase().slice(1);
             const language = getLanguageFromExtension(`.${ext}`);
-            
+
             if (!language) {
                 return null;
             }
@@ -326,11 +326,11 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
                 // 정의 이름만 추출
                 if (name.includes('name') && lines[startLine]) {
                     formattedOutput += `│${lines[startLine]}\n`;
-                    
+
                     // Definition 객체 생성
                     const defType = this.extractDefinitionType(name);
                     const defName = this.extractDefinitionName(lines[startLine], defType);
-                    
+
                     if (defName) {
                         definitions.push({
                             type: defType,
@@ -381,46 +381,46 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
      */
     private extractDefinitionName(line: string, type: DefinitionType): string | null {
         const trimmed = line.trim();
-        
+
         // 클래스
         if (type === DefinitionType.CLASS) {
             const match = trimmed.match(/class\s+(\w+)/);
             return match ? match[1] : null;
         }
-        
+
         // 함수
         if (type === DefinitionType.FUNCTION) {
-            const match = trimmed.match(/function\s+(\w+)/) || 
-                         trimmed.match(/const\s+(\w+)\s*=/) ||
-                         trimmed.match(/export\s+(?:async\s+)?function\s+(\w+)/);
+            const match = trimmed.match(/function\s+(\w+)/) ||
+                trimmed.match(/const\s+(\w+)\s*=/) ||
+                trimmed.match(/export\s+(?:async\s+)?function\s+(\w+)/);
             return match ? match[1] : null;
         }
-        
+
         // 메서드
         if (type === DefinitionType.METHOD) {
             const match = trimmed.match(/(\w+)\s*\([^)]*\)/) ||
-                         trimmed.match(/async\s+(\w+)\s*\(/);
+                trimmed.match(/async\s+(\w+)\s*\(/);
             return match ? match[1] : null;
         }
-        
+
         // 인터페이스
         if (type === DefinitionType.INTERFACE) {
             const match = trimmed.match(/interface\s+(\w+)/);
             return match ? match[1] : null;
         }
-        
+
         // 타입
         if (type === DefinitionType.TYPE) {
             const match = trimmed.match(/type\s+(\w+)/);
             return match ? match[1] : null;
         }
-        
+
         // Enum
         if (type === DefinitionType.ENUM) {
             const match = trimmed.match(/enum\s+(\w+)/);
             return match ? match[1] : null;
         }
-        
+
         return null;
     }
 }

@@ -28,6 +28,8 @@ import { IntentDetector } from './core/action/IntentDetector';
 import { ExternalApiService } from './services/external/ExternalApiService';
 import { ContextHistoryManager } from './core/context/ContextHistoryManager';
 import { ConversationSummarizer } from './core/context/ConversationSummarizer';
+import { FileChangeTracker } from './core/file/FileChangeTracker';
+import { ActionManager } from './core/action/ActionManager';
 
 
 // 전역 변수
@@ -363,6 +365,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const conversationSummarizer = new ConversationSummarizer();
     conversationSummarizer.setLLMClient(llmApiClient);
     conversationManager.setConversationSummarizer(conversationSummarizer);
+
+    // FileChangeTracker 초기화 및 설정
+    const fileChangeTracker = FileChangeTracker.getInstance(context);
+    const actionManager = ActionManager.getInstance();
+    actionManager.setFileChangeTracker(fileChangeTracker);
 
 
     // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨

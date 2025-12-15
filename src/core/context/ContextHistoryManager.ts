@@ -476,16 +476,47 @@ export class ContextHistoryManager {
             }>('contextHistory');
 
             if (historyData) {
-                this.updates = new Map(historyData.updates);
-                this.checkpoints = new Map(historyData.checkpoints);
-                if (historyData.summaries) {
-                    this.summaries = new Map(historyData.summaries);
+                try {
+                    // 이전 버전 호환성: id가 없는 ContextUpdate에 id 추가
+                    const migratedUpdates: [number, ContextUpdate[]][] = historyData.updates.map(([messageIndex, updates]) => {
+                        const migratedUpdateList = updates.map(update => {
+                            if (!update.id) {
+                                // id가 없으면 생성
+                                return {
+                                    ...update,
+                                    id: this.generateId()
+                                };
+                            }
+                            return update;
+                        });
+                        return [messageIndex, migratedUpdateList];
+                    });
+
+                    this.updates = new Map(migratedUpdates);
+                    this.checkpoints = new Map(historyData.checkpoints);
+                    if (historyData.summaries) {
+                        this.summaries = new Map(historyData.summaries);
+                    }
+                    this.conversationHistoryDeletedRange = historyData.conversationHistoryDeletedRange;
+                    console.log(`[ContextHistoryManager] Loaded history: ${this.updates.size} message updates, ${this.checkpoints.size} checkpoints, ${this.summaries.size} summaries, deleted range: ${this.conversationHistoryDeletedRange ? `[${this.conversationHistoryDeletedRange[0]}, ${this.conversationHistoryDeletedRange[1]}]` : 'none'}`);
+                } catch (migrationError) {
+                    console.error('[ContextHistoryManager] Failed to migrate history data:', migrationError);
+                    // 마이그레이션 실패 시 빈 상태로 초기화
+                    this.updates = new Map();
+                    this.checkpoints = new Map();
+                    this.summaries = new Map();
+                    this.conversationHistoryDeletedRange = undefined;
                 }
-                this.conversationHistoryDeletedRange = historyData.conversationHistoryDeletedRange;
-                console.log(`[ContextHistoryManager] Loaded history: ${this.updates.size} message updates, ${this.checkpoints.size} checkpoints, ${this.summaries.size} summaries, deleted range: ${this.conversationHistoryDeletedRange ? `[${this.conversationHistoryDeletedRange[0]}, ${this.conversationHistoryDeletedRange[1]}]` : 'none'}`);
+            } else {
+                console.log('[ContextHistoryManager] No history data found, starting fresh');
             }
         } catch (error) {
             console.error('[ContextHistoryManager] Failed to load history:', error);
+            // 에러 발생 시 빈 상태로 초기화
+            this.updates = new Map();
+            this.checkpoints = new Map();
+            this.summaries = new Map();
+            this.conversationHistoryDeletedRange = undefined;
         }
     }
 

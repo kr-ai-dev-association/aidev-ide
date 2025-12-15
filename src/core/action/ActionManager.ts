@@ -21,6 +21,7 @@ import { ActionRegistry } from './ActionRegistry';
 import { ActionValidator } from './ActionValidator';
 import { ActionMapper } from './ActionMapper';
 import { TerminalManager } from '../terminal/TerminalManager';
+import { FileChangeTracker } from '../file/FileChangeTracker';
 
 export class ActionManager {
     private static instance: ActionManager;
@@ -29,11 +30,20 @@ export class ActionManager {
     private mapper: ActionMapper;
     private context?: ActionContext;
     private activeActions: Map<string, Action> = new Map();
+    private fileChangeTracker?: FileChangeTracker;
 
     private constructor() {
         this.registry = ActionRegistry.getInstance();
         this.validator = new ActionValidator();
         this.mapper = new ActionMapper();
+    }
+
+    /**
+     * FileChangeTracker 설정
+     */
+    public setFileChangeTracker(tracker: FileChangeTracker): void {
+        this.fileChangeTracker = tracker;
+        console.log('[ActionManager] FileChangeTracker set');
     }
 
     public static getInstance(): ActionManager {
@@ -529,11 +539,37 @@ export class ActionManager {
                             }
                         };
                     }
+                    // 변경사항 추적 (파일 생성 전)
+                    let createBeforeContent: string | undefined;
+                    try {
+                        const existingFile = await vscode.workspace.fs.readFile(sourceUri);
+                        createBeforeContent = Buffer.from(existingFile).toString('utf-8');
+                    } catch {
+                        // 파일이 없으면 undefined 유지
+                        createBeforeContent = undefined;
+                    }
+
                     // 디렉토리 생성
                     const dir = path.dirname(sourceUri.fsPath);
                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
                     // 파일 생성
                     await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(content, 'utf8'));
+
+                    // 변경사항 기록
+                    if (this.fileChangeTracker) {
+                        await this.fileChangeTracker.recordChange(
+                            sourceUri.fsPath,
+                            'create',
+                            createBeforeContent,
+                            content,
+                            {
+                                taskId: action.metadata?.taskId,
+                                message: `File created: ${sourcePath}`,
+                                source: 'ai',
+                            }
+                        );
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,
@@ -552,7 +588,33 @@ export class ActionManager {
                             }
                         };
                     }
+                    // 변경사항 추적 (파일 수정 전)
+                    let updateBeforeContent: string | undefined;
+                    try {
+                        const existingFile = await vscode.workspace.fs.readFile(sourceUri);
+                        updateBeforeContent = Buffer.from(existingFile).toString('utf-8');
+                    } catch {
+                        // 파일이 없으면 undefined 유지
+                        updateBeforeContent = undefined;
+                    }
+
                     await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(content, 'utf8'));
+
+                    // 변경사항 기록
+                    if (this.fileChangeTracker) {
+                        await this.fileChangeTracker.recordChange(
+                            sourceUri.fsPath,
+                            'modify',
+                            updateBeforeContent,
+                            content,
+                            {
+                                taskId: action.metadata?.taskId,
+                                message: `File updated: ${sourcePath}`,
+                                source: 'ai',
+                            }
+                        );
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,
@@ -560,7 +622,33 @@ export class ActionManager {
                     };
 
                 case FileOperationType.DELETE:
+                    // 변경사항 추적 (파일 삭제 전)
+                    let deleteBeforeContent: string | undefined;
+                    try {
+                        const existingFile = await vscode.workspace.fs.readFile(sourceUri);
+                        deleteBeforeContent = Buffer.from(existingFile).toString('utf-8');
+                    } catch {
+                        // 파일이 없으면 undefined 유지
+                        deleteBeforeContent = undefined;
+                    }
+
                     await vscode.workspace.fs.delete(sourceUri);
+
+                    // 변경사항 기록
+                    if (this.fileChangeTracker) {
+                        await this.fileChangeTracker.recordChange(
+                            sourceUri.fsPath,
+                            'delete',
+                            deleteBeforeContent,
+                            undefined,
+                            {
+                                taskId: action.metadata?.taskId,
+                                message: `File deleted: ${sourcePath}`,
+                                source: 'ai',
+                            }
+                        );
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,

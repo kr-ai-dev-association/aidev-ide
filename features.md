@@ -51,48 +51,6 @@ class CheckpointManager {
 
 ---
 
-### 2. 파일 변경 추적 및 검증 시스템 ⭐⭐⭐
-
-**현재 상태**: 기본적인 파일 생성/수정만 지원
-
-**구현 방식**:
-- 파일 변경 전후 상태 추적
-- 파일 타임라인에 모든 변경사항 기록
-- 변경사항 diff 뷰 제공
-- 변경사항 직접 편집/되돌리기 가능
-
-**추가 필요 기능**:
-```typescript
-// src/core/file/FileChangeTracker.ts
-class FileChangeTracker {
-  // 변경사항 추적 시작
-  startTracking(filePath: string): void
-  
-  // 변경사항 기록
-  recordChange(
-    filePath: string,
-    changeType: 'create' | 'modify' | 'delete',
-    beforeContent?: string,
-    afterContent?: string
-  ): void
-  
-  // 변경 이력 조회
-  getChangeHistory(filePath: string): FileChange[]
-  
-  // 특정 시점으로 되돌리기
-  async revertToChange(changeId: string): Promise<void>
-}
-```
-
-**기대 효과**:
-- 파일 변경 이력 추적으로 디버깅 용이
-- 실수한 변경사항 빠른 복구
-- 변경사항 검토 및 승인 프로세스 개선
-
-**구현 난이도**: 중
-
----
-
 ### 3. 진단(Diagnostics) 모니터링 및 자동 수정 ⭐⭐⭐
 
 **현재 상태**: 기본적인 에러 감지만 지원
@@ -135,7 +93,7 @@ class DiagnosticsMonitor {
 
 ---
 
-### 4. 잠금(Lock) 관리 시스템 ⭐⭐
+### 4. 잠금(Lock) 관리 시스템 ⭐⭐ (Phase 5로 이동)
 
 **현재 상태**: 없음
 
@@ -172,9 +130,380 @@ class LockManager {
 
 ---
 
+---
+
+### 5. 브라우저 자동화 (Browser Automation) ⭐⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- Puppeteer/Chrome DevTools Protocol을 통한 헤드리스 브라우저 제어
+- 웹 페이지 방문, 클릭, 타이핑, 스크롤 등 상호작용
+- 스크린샷 캡처 및 콘솔 로그 모니터링
+- 로컬 개발 서버 테스트 및 런타임 에러 디버깅
+- 원격 브라우저 연결 지원 (선택적)
+
+**추가 필요 기능**:
+```typescript
+// src/core/browser/BrowserSession.ts
+class BrowserSession {
+  // 브라우저 실행
+  async launchBrowser(options?: BrowserOptions): Promise<void>
+  
+  // 페이지 방문
+  async navigateTo(url: string): Promise<void>
+  
+  // 요소 클릭
+  async clickElement(selector: string): Promise<void>
+  
+  // 텍스트 입력
+  async typeText(selector: string, text: string): Promise<void>
+  
+  // 스크롤
+  async scroll(direction: 'up' | 'down' | 'left' | 'right', pixels: number): Promise<void>
+  
+  // 스크린샷 캡처
+  async captureScreenshot(options?: ScreenshotOptions): Promise<string>
+  
+  // 콘솔 로그 가져오기
+  getConsoleLogs(): ConsoleMessage[]
+  
+  // 브라우저 종료
+  async closeBrowser(): Promise<void>
+}
+
+// src/core/browser/BrowserToolHandler.ts
+class BrowserToolHandler {
+  // 브라우저 액션 실행
+  async executeBrowserAction(
+    action: 'navigate' | 'click' | 'type' | 'scroll' | 'screenshot',
+    params: any
+  ): Promise<BrowserActionResult>
+}
+```
+
+**기대 효과**:
+- 웹 개발 작업에서 런타임 에러 즉시 감지 및 수정
+- 시각적 버그 확인 및 수정
+- E2E 테스트 자동화
+- 로컬 개발 서버 자동 테스트
+- 인터랙티브 디버깅
+
+**구현 난이도**: 중-높음
+
+---
+
+### 6. MCP (Model Context Protocol) 통합 ⭐⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- MCP 서버와의 통신 (STDIO/SSE)
+- 동적 도구 및 리소스 로드
+- 커스텀 MCP 서버 생성 및 설치 지원
+- MCP 마켓플레이스 통합
+
+**추가 필요 기능**:
+```typescript
+// src/core/mcp/McpHub.ts
+class McpHub {
+  // MCP 서버 연결
+  async connectToServer(serverConfig: McpServerConfig): Promise<void>
+  
+  // 사용 가능한 도구 목록 가져오기
+  getAvailableTools(): McpTool[]
+  
+  // MCP 도구 실행
+  async executeMcpTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, any>
+  ): Promise<any>
+  
+  // MCP 리소스 접근
+  async accessMcpResource(
+    serverName: string,
+    resourceName: string
+  ): Promise<any>
+  
+  // 커스텀 MCP 서버 생성
+  async createCustomMcpServer(
+    name: string,
+    tools: McpToolDefinition[],
+    resources?: McpResourceDefinition[]
+  ): Promise<void>
+}
+
+// src/core/mcp/McpToolHandler.ts
+class McpToolHandler {
+  // MCP 도구 실행 핸들러
+  async handleMcpToolCall(
+    serverName: string,
+    toolName: string,
+    args: any
+  ): Promise<ToolResult>
+}
+```
+
+**기대 효과**:
+- 외부 API 및 서비스 통합
+- 실시간 데이터 접근
+- 애플리케이션 및 로컬 시스템 제어
+- 확장 가능한 도구 생태계
+- 커스텀 워크플로우 구축
+
+**구현 난이도**: 높음
+
+---
+
+### 7. Plan Mode / Act Mode 전환 ⭐⭐⭐
+
+**현재 상태**: 없음
+
+**구현 방식**:
+- Plan Mode: 정보 수집 및 계획 수립 후 사용자 승인 대기
+- Act Mode: 도구를 사용하여 실제 작업 수행
+- 모드 간 전환 시 작업 상태 보존
+- 모드별 다른 프롬프트 및 동작
+
+**추가 필요 기능**:
+```typescript
+// src/core/mode/ModeManager.ts
+class ModeManager {
+  // 현재 모드 가져오기
+  getCurrentMode(): 'plan' | 'act'
+  
+  // 모드 전환
+  async switchMode(
+    mode: 'plan' | 'act',
+    preserveTask?: boolean
+  ): Promise<void>
+  
+  // Plan Mode에서 계획 생성
+  async generatePlan(userRequest: string): Promise<Plan>
+  
+  // 계획 승인 및 Act Mode 전환
+  async approvePlanAndSwitchToAct(plan: Plan): Promise<void>
+  
+  // 모드별 프롬프트 생성
+  getModePrompt(mode: 'plan' | 'act'): string
+}
+
+// src/core/mode/Plan.ts
+interface Plan {
+  steps: PlanStep[]
+  estimatedTime?: number
+  requiredFiles?: string[]
+  risks?: string[]
+}
+
+interface PlanStep {
+  description: string
+  tools?: string[]
+  files?: string[]
+}
+```
+
+**기대 효과**:
+- 복잡한 작업 전 계획 수립으로 정확도 향상
+- 사용자 승인을 통한 안전한 작업 수행
+- 작업 전략 명확화
+- 예상치 못한 작업 방지
+
+**구현 난이도**: 중
+
+---
+
 ## 정확도 향상 기능
 
-### 6. 도구 실행 검증 강화 ⭐⭐⭐
+### 8. AST 기반 코드 분석 ⭐⭐⭐
+
+**현재 상태**: 기본적인 파일 읽기만 지원
+
+**구현 방식**:
+- Tree-sitter를 통한 다중 언어 AST 파싱
+- 코드 정의(함수, 클래스, 변수 등) 추출
+- 코드 구조 분석 및 관련 파일 찾기
+- 코드 정의 이름 목록 제공
+
+**추가 필요 기능**:
+```typescript
+// src/core/ast/AstAnalyzer.ts
+class AstAnalyzer {
+  // 파일 AST 파싱
+  async parseFile(filePath: string, language: string): Promise<AST>
+  
+  // 코드 정의 추출
+  extractDefinitions(ast: AST): CodeDefinition[]
+  
+  // 코드 정의 이름 목록
+  listCodeDefinitionNames(
+    filePath: string,
+    type?: 'function' | 'class' | 'variable' | 'interface'
+  ): Promise<string[]>
+  
+  // 정의 사용 위치 찾기
+  findDefinitionUsages(
+    definitionName: string,
+    projectRoot: string
+  ): Promise<UsageLocation[]>
+  
+  // 관련 파일 찾기 (import/export 기반)
+  findRelatedFiles(filePath: string): Promise<string[]>
+}
+
+// src/core/ast/CodeDefinition.ts
+interface CodeDefinition {
+  name: string
+  type: 'function' | 'class' | 'variable' | 'interface' | 'type'
+  location: {
+    file: string
+    line: number
+    column: number
+  }
+  signature?: string
+  documentation?: string
+}
+```
+
+**기대 효과**:
+- 대규모 프로젝트에서 정확한 코드 이해
+- 관련 파일 자동 탐색
+- 코드 구조 기반 컨텍스트 수집
+- 리팩토링 정확도 향상
+
+**구현 난이도**: 중
+
+---
+
+### 9. Regex 기반 파일 검색 ⭐⭐⭐
+
+**현재 상태**: 기본적인 파일 읽기만 지원
+
+**구현 방식**:
+- ripgrep을 통한 빠른 정규식 검색
+- 파일 내용 검색 및 매칭 라인 추출
+- 검색 결과 컨텍스트 포함 (주변 코드)
+- 대규모 프로젝트에서도 빠른 검색
+
+**추가 필요 기능**:
+```typescript
+// src/core/search/FileSearcher.ts
+class FileSearcher {
+  // 정규식으로 파일 검색
+  async searchFiles(
+    pattern: string,
+    options?: {
+      include?: string[]
+      exclude?: string[]
+      caseSensitive?: boolean
+      contextLines?: number
+    }
+  ): Promise<SearchResult[]>
+  
+  // 특정 파일에서 검색
+  async searchInFile(
+    filePath: string,
+    pattern: string,
+    contextLines?: number
+  ): Promise<Match[]>
+  
+  // 검색 결과 하이라이트
+  highlightMatches(content: string, matches: Match[]): string
+}
+
+interface SearchResult {
+  file: string
+  matches: Match[]
+  totalMatches: number
+}
+
+interface Match {
+  line: number
+  column: number
+  content: string
+  context?: {
+    before: string[]
+    after: string[]
+  }
+}
+```
+
+**기대 효과**:
+- 빠른 코드 패턴 검색
+- 관련 코드 자동 발견
+- 대규모 프로젝트 탐색 효율성 향상
+- 컨텍스트 수집 정확도 향상
+
+**구현 난이도**: 낮음-중
+
+---
+
+### 10. 파일 Timeline 추적 ⭐⭐⭐
+
+**현재 상태**: 기본적인 파일 변경만 지원
+
+**구현 방식**:
+- VS Code Timeline API 활용
+- 파일 변경 이력 자동 기록
+- 변경사항 diff 뷰 제공
+- 특정 시점으로 되돌리기
+
+**추가 필요 기능**:
+```typescript
+// src/core/timeline/FileTimelineManager.ts
+class FileTimelineManager {
+  // 파일 변경 이력 기록
+  async recordFileChange(
+    filePath: string,
+    changeType: 'create' | 'modify' | 'delete',
+    content: string,
+    metadata?: {
+      taskId?: string
+      message?: string
+    }
+  ): Promise<void>
+  
+  // 파일 Timeline 가져오기
+  async getFileTimeline(filePath: string): Promise<TimelineEntry[]>
+  
+  // 특정 시점으로 되돌리기
+  async revertToTimelineEntry(
+    filePath: string,
+    entryId: string
+  ): Promise<void>
+  
+  // Timeline diff 뷰 생성
+  async createTimelineDiff(
+    filePath: string,
+    entryId1: string,
+    entryId2: string
+  ): Promise<Diff>
+}
+
+interface TimelineEntry {
+  id: string
+  timestamp: number
+  changeType: 'create' | 'modify' | 'delete'
+  content: string
+  metadata?: {
+    taskId?: string
+    message?: string
+  }
+}
+```
+
+**기대 효과**:
+- 모든 파일 변경사항 추적
+- 실수한 변경사항 빠른 복구
+- 작업 이력 명확한 추적
+- 디버깅 용이성 향상
+
+**구현 난이도**: 중
+
+---
+
+### 11. 도구 실행 검증 강화 ⭐⭐⭐
 
 **현재 상태**: 기본적인 검증만 지원
 
@@ -213,7 +542,7 @@ class ToolValidator {
 
 ---
 
-### 7. 자동 승인 시스템 ⭐⭐
+### 12. 자동 승인 시스템 ⭐⭐
 
 **현재 상태**: 모든 작업 수동 승인 필요
 
@@ -253,7 +582,7 @@ class AutoApproveManager {
 
 ---
 
-### 8. 파일 컨텍스트 추적기 ⭐⭐⭐
+### 13. 파일 컨텍스트 추적기 ⭐⭐⭐
 
 **현재 상태**: 기본적인 파일 읽기만 지원
 
@@ -295,7 +624,7 @@ class FileContextTracker {
 
 ---
 
-### 9. 후크(Hook) 시스템 ⭐⭐
+### 14. 후크(Hook) 시스템 ⭐⭐
 
 **현재 상태**: 없음
 
@@ -334,7 +663,7 @@ class HookManager {
 
 ---
 
-### 10. 멀티 파일 Diff 뷰 ⭐⭐⭐
+### 15. 멀티 파일 Diff 뷰 ⭐⭐⭐
 
 **현재 상태**: 기본적인 파일 변경만 지원
 
@@ -375,7 +704,7 @@ class MultiFileDiffView {
 
 ## 사용자 경험 개선 기능
 
-### 11. 작업 진행 상황 시각화 ⭐⭐
+### 16. 작업 진행 상황 시각화 ⭐⭐
 
 **현재 상태**: 기본적인 진행 상황만 표시
 
@@ -412,7 +741,7 @@ class ProgressVisualizer {
 
 ---
 
-### 12. 토큰 및 비용 추적 ⭐⭐
+### 17. 토큰 및 비용 추적 ⭐⭐
 
 **현재 상태**: 기본적인 토큰 계산만 지원
 
@@ -457,7 +786,7 @@ class TokenCostTracker {
 
 ---
 
-### 13. 컨텍스트 추가 기능 (@mentions) ⭐⭐⭐
+### 18. 컨텍스트 추가 기능 (@mentions) ⭐⭐⭐
 
 **현재 상태**: 기본적인 파일 추가만 지원
 
@@ -494,7 +823,7 @@ class MentionHandler {
 
 ---
 
-### 15. 사용자 주도 대화 요약 (Condense) ⭐⭐
+### 19. 사용자 주도 대화 요약 (Condense) ⭐⭐
 
 **현재 상태**: 없음
 
@@ -553,7 +882,7 @@ class ConversationCondenser {
 
 ---
 
-### 14. 작업 히스토리 재구성 ⭐⭐
+### 20. 작업 히스토리 재구성 ⭐⭐
 
 **현재 상태**: 기본적인 히스토리만 지원
 
@@ -596,22 +925,30 @@ class TaskHistoryReconstructor {
 2. **진단(Diagnostics) 모니터링** ⭐⭐⭐
 3. **파일 변경 추적 및 검증** ⭐⭐⭐
 
-### Phase 2: 정확도 향상 (단기)
-5. **도구 실행 검증 강화** ⭐⭐⭐
-6. **파일 컨텍스트 추적기** ⭐⭐⭐
-7. **멀티 파일 Diff 뷰** ⭐⭐⭐
+### Phase 2: 핵심 기능 (단기)
+4. **브라우저 자동화 (Browser Automation)** ⭐⭐⭐
+5. **Plan Mode / Act Mode 전환** ⭐⭐⭐
+6. **AST 기반 코드 분석** ⭐⭐⭐
+7. **Regex 기반 파일 검색** ⭐⭐⭐
 
-### Phase 3: 사용자 경험 개선 (중기)
-8. **컨텍스트 추가 기능 (@mentions)** ⭐⭐⭐
-9. **사용자 주도 대화 요약 (Condense)** ⭐⭐
-10. **토큰 및 비용 추적** ⭐⭐
-11. **작업 진행 상황 시각화** ⭐⭐
+### Phase 3: 정확도 향상 (중기)
+8. **도구 실행 검증 강화** ⭐⭐⭐
+9. **파일 컨텍스트 추적기** ⭐⭐⭐
+10. **멀티 파일 Diff 뷰** ⭐⭐⭐
+11. **파일 Timeline 추적** ⭐⭐⭐
 
-### Phase 4: 고급 기능 (장기)
-12. **자동 승인 시스템** ⭐⭐
-13. **잠금(Lock) 관리 시스템** ⭐⭐
-14. **후크(Hook) 시스템** ⭐⭐
-15. **작업 히스토리 재구성** ⭐⭐
+### Phase 4: 사용자 경험 개선 (중장기)
+12. **컨텍스트 추가 기능 (@mentions)** ⭐⭐⭐
+13. **사용자 주도 대화 요약 (Condense)** ⭐⭐
+14. **토큰 및 비용 추적** ⭐⭐
+15. **작업 진행 상황 시각화** ⭐⭐
+
+### Phase 5: 고급 기능 (장기)
+16. **MCP (Model Context Protocol) 통합** ⭐⭐⭐
+17. **자동 승인 시스템** ⭐⭐
+18. **잠금(Lock) 관리 시스템** ⭐⭐
+19. **후크(Hook) 시스템** ⭐⭐
+20. **작업 히스토리 재구성** ⭐⭐
 
 ---
 

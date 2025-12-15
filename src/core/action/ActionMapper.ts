@@ -51,16 +51,19 @@ export class ActionMapper {
         // 코드 블록 추출 (파일 작성/수정)
         const codeBlockActions = this.extractCodeBlocks(content);
         actions.push(...codeBlockActions);
+        console.log(`[ActionMapper] Extracted ${codeBlockActions.length} code block actions`);
 
         // 터미널 명령어 추출
         const commandActions = this.extractCommands(content);
         actions.push(...commandActions);
+        console.log(`[ActionMapper] Extracted ${commandActions.length} command actions`);
 
         // 파일 작업 추출
         const fileOpActions = this.extractFileOperations(content);
         actions.push(...fileOpActions);
+        console.log(`[ActionMapper] Extracted ${fileOpActions.length} file operation actions`);
 
-        console.log(`[ActionMapper] Extracted ${actions.length} actions from text`);
+        console.log(`[ActionMapper] Total extracted ${actions.length} actions from text`);
         // 중복 제거 (같은 터미널 명령은 한 번만 실행)
         return this.deduplicateTerminalCommands(actions);
     }
@@ -82,6 +85,26 @@ export class ActionMapper {
 
             if (filePath && code) {
                 actions.push(this.createCodeGenerationAction(filePath, code));
+            }
+        }
+
+        // 마크다운 헤더 형식: "## 새 파일: `package.json`" 또는 "## 새 파일: package.json"
+        const markdownHeaderPattern = /##\s*(?:새 파일|수정 파일):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+        while ((match = markdownHeaderPattern.exec(content)) !== null) {
+            let filePath = match[1].trim();
+            const code = match[2].trim();
+
+            filePath = filePath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '').trim();
+
+            if (filePath && code) {
+                const isDuplicate = actions.some(a =>
+                    a.type === ActionType.CODE_GENERATION &&
+                    a.params.filePath === filePath
+                );
+
+                if (!isDuplicate) {
+                    actions.push(this.createCodeGenerationAction(filePath, code));
+                }
             }
         }
 
@@ -107,23 +130,51 @@ export class ActionMapper {
 
         // 한국어 지시어 패턴: "새 파일:" 또는 "수정 파일:" 다음에 파일 경로와 코드 블록
         // 예: "새 파일: src/example.ts\n```typescript\n...```"
-        const koreanCodeBlockPattern = /(?:##\s*)?(새 파일|수정 파일):\s*([^\r\n]+?)(?:\s*\r?\n\s*\r?\n|\s*\r?\n)\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
-
-        while ((match = koreanCodeBlockPattern.exec(content)) !== null) {
-            const directive = match[1].trim(); // "새 파일" or "수정 파일"
-            let filePath = match[2].trim();
-            const code = match[3].trim();
-
-            // 파일 경로 정리
+        // 더 유연한 패턴: 마크다운 헤더, 백틱, 여러 줄 허용
+        // 패턴 1: "새 파일: `package.json`\n\n```json\n..."
+        const koreanCodeBlockPattern1 = /(?:##\s*)?(?:새 파일|수정 파일):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+        while ((match = koreanCodeBlockPattern1.exec(content)) !== null) {
+            let filePath = match[1].trim();
+            const code = match[2].trim();
             filePath = filePath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '').trim();
-
             if (filePath && code) {
-                // 중복 체크
                 const isDuplicate = actions.some(a =>
                     a.type === ActionType.CODE_GENERATION &&
                     a.params.filePath === filePath
                 );
+                if (!isDuplicate) {
+                    actions.push(this.createCodeGenerationAction(filePath, code));
+                }
+            }
+        }
 
+        // 패턴 2: "새 파일: package.json\n```json\n..." (줄바꿈이 하나만)
+        const koreanCodeBlockPattern2 = /(?:##\s*)?(?:새 파일|수정 파일):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+        while ((match = koreanCodeBlockPattern2.exec(content)) !== null) {
+            let filePath = match[1].trim();
+            const code = match[2].trim();
+            filePath = filePath.replace(/^`+|`+$/g, '').replace(/^"+|"+$/g, '').trim();
+            if (filePath && code) {
+                const isDuplicate = actions.some(a =>
+                    a.type === ActionType.CODE_GENERATION &&
+                    a.params.filePath === filePath
+                );
+                if (!isDuplicate) {
+                    actions.push(this.createCodeGenerationAction(filePath, code));
+                }
+            }
+        }
+
+        // 패턴 3: "새 파일: `package.json`" (백틱 포함)
+        const koreanCodeBlockPattern3 = /(?:##\s*)?(?:새 파일|수정 파일):\s*`([^`]+)`\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+        while ((match = koreanCodeBlockPattern3.exec(content)) !== null) {
+            const filePath = match[1].trim();
+            const code = match[2].trim();
+            if (filePath && code) {
+                const isDuplicate = actions.some(a =>
+                    a.type === ActionType.CODE_GENERATION &&
+                    a.params.filePath === filePath
+                );
                 if (!isDuplicate) {
                     actions.push(this.createCodeGenerationAction(filePath, code));
                 }

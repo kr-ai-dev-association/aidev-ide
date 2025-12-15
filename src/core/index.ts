@@ -119,3 +119,6 @@ export * from './model/llm/GptAdapter';
 export * from './project/codeParser/ICodeParserAdapter';
 export * from './project/codeParser/TreeSitterAdapter';
 export * from './project/codeParser/languageParser';
+
+// =============== File Change Tracking ===============
+export * from './file';
