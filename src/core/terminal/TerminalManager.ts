@@ -1679,11 +1679,35 @@ export class TerminalManager {
             // 컴파일/인코딩 오류가 있는지 사전 확인
             const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|unmappable character.*encoding|File encoding has not been set|platform encoding|x-windows-949|MissingProjectException|no POM.*directory|requires a project.*POM|POM file.*does not exist|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*Table|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(cleanedErrorOutput);
 
+            // ESM 모듈 오류 감지 (ts-node-dev 관련)
+            const hasESMError = /(Must use import to load ES Module|ERR_REQUIRE_ESM|Cannot use import statement|ts-node-dev.*ESM)/i.test(cleanedErrorOutput);
+
             const missingPomError = /(POM file.*does not exist|MissingProjectException|no POM.*directory|requires a project.*POM)/i.test(cleanedErrorOutput);
 
             // 컴파일/인코딩/프로젝트 누락 가이드라인 조립 (간소화)
             let compilationGuidelines = '';
-            if (hasCompilationError) {
+
+            // ESM 모듈 오류 가이드라인
+            if (hasESMError) {
+                compilationGuidelines = `**⚠️ ts-node-dev ESM 모듈 오류 ⚠️**
+ts-node-dev는 ESM 모듈(type: module)을 제대로 처리하지 못합니다.
+
+**해결 방법:**
+1. package.json에 "type": "module"이 있으면 ts-node-dev 대신 tsx를 사용해야 합니다.
+2. 해결 방법: ts-node-dev를 tsx로 대체하세요.
+   - 예: "ts-node-dev src/index.ts" → "tsx src/index.ts"
+   - 또는: "ts-node-dev --respawn src/index.ts" → "tsx watch src/index.ts"
+3. tsx가 설치되어 있지 않으면: npm install -D tsx
+4. package.json의 scripts도 수정:
+   - "dev": "tsx watch src/index.ts" (또는 "tsx src/index.ts")
+   - "start": "tsx src/index.ts"
+5. **중요**: "type": "module"은 유지하세요. tsx는 ESM을 완벽하게 지원합니다.
+
+**수정 방법:**
+- "correctedCommand"에 tsx를 사용한 명령어를 제안하세요.
+- package.json의 scripts를 수정해야 하는 경우 "fileOperations"에 package.json 수정을 포함하세요.
+- tsx가 설치되지 않은 경우 "correctedCommand"에 "npm install -D tsx"를 먼저 실행하도록 제안하세요.`;
+            } else if (hasCompilationError) {
                 if (missingPomError) {
                     compilationGuidelines = `**⚠️ 경고: 프로젝트 POM 파일이 없습니다! ⚠️**
 이 오류는 명령 재실행으로 해결되지 않습니다. 반드시 필요한 파일을 생성해야 합니다.

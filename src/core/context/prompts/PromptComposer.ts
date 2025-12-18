@@ -19,6 +19,7 @@ export interface PromptComposerOptions {
     taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
     frameworkName?: string; // 'vite', 'spring-boot', 'node-typescript', 'express' 등 (옵션, 자동 감지 가능)
     projectType?: string; // 프로젝트 타입 정보
+    codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
 }
 
 export class PromptComposer {
@@ -26,7 +27,7 @@ export class PromptComposer {
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, frameworkName, projectType } = options;
+        const { userOS, modelType, taskType, frameworkName, projectType, codebaseContext } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -60,6 +61,12 @@ export class PromptComposer {
         // 터미널 명령 규칙 (execution_work일 때만 포함)
         const terminalCommandRules = taskType === 'execution_work' ? base.getTerminalCommandRules() : '';
 
+        // 코드베이스 컨텍스트 (관련 파일 내용)
+        const codebaseSection = codebaseContext ? `**코드베이스 컨텍스트:**
+다음 파일들의 내용을 참고하여 작업을 수행하세요. 이 파일들은 사용자 요청과 관련된 중요한 정보를 포함하고 있습니다.
+
+${codebaseContext}` : '';
+
         // 조합
         const parts = [
             osContextInfo,
@@ -67,6 +74,7 @@ export class PromptComposer {
             terminalCommandRules,
             taskPrompt,
             frameworkPrompt,
+            codebaseSection,
             llmPrompt,
             osPrompt
         ].filter(part => part && part.trim() !== '');
@@ -132,9 +140,10 @@ export class PromptComposer {
     private static getFrameworkPrompt(frameworkName: string): string {
         const frameworkLower = frameworkName.toLowerCase();
 
-        // Vite 감지
+        // React + TypeScript + Vite 감지
         if (frameworkLower.includes('vite')) {
-            return framework.getVitePrompt();
+            // Vite는 대부분 React/TypeScript 조합으로 사용된다고 가정하고 ViteTypePrompt 사용
+            return framework.getViteTypePrompt();
         }
 
         // Spring Boot 감지
@@ -149,6 +158,7 @@ export class PromptComposer {
 
         // Node.js TypeScript 감지
         if (frameworkLower.includes('typescript') || frameworkLower.includes('node')) {
+            console.log('[PromptComposer] Node.js TypeScript 프레임워크 감지, getNodeTypeScriptPrompt 호출');
             return framework.getNodeTypeScriptPrompt();
         }
 

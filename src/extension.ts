@@ -41,6 +41,15 @@ let ollamaBlockerService: OllamaBlockerService;
 let gitRepositoryService: GitRepositoryService;
 
 export async function activate(context: vscode.ExtensionContext) {
+    // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
+    const originalEmitWarning = process.emitWarning;
+    process.emitWarning = (warning: string | Error, ...args: any[]) => {
+        if (typeof warning === 'string' && warning.includes('punycode')) {
+            return; // punycode deprecation 경고 무시
+        }
+        return originalEmitWarning.call(process, warning, ...args);
+    };
+
     // 서비스 초기화 (순서 중요: 의존성 주입)
     notificationService = new NotificationService();
 
@@ -210,7 +219,8 @@ export async function activate(context: vscode.ExtensionContext) {
             if (AiModelType && AiModelType.GEMINI) {
                 defaultModelForError = AiModelType.GEMINI;
             } else {
-                const typesModule = await import('./services/types.js');
+                // 동적 import도 정적 import와 동일한 모듈 경로를 사용합니다.
+                const typesModule = await import('./services/types');
                 if (typesModule.AiModelType) {
                     const geminiValue = typesModule.AiModelType.GEMINI;
                     if (geminiValue) {
@@ -553,7 +563,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 터미널 모니터링 테스트 명령어
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testTerminalMonitoring', async () => {
         try {
-            const { ErrorManager } = await import('./core/error/ErrorManager.js');
+            const { ErrorManager } = await import('./core/error/ErrorManager');
             const errorManager = ErrorManager.getInstance();
             if (errorManager) {
                 const stats = errorManager.getStats();

@@ -116,6 +116,11 @@ export interface Action {
         source: 'llm' | 'user' | 'system';
         timestamp: number;
         confidence?: number;
+        /**
+         * (optional) 이 액션이 속한 TaskManager의 taskId
+         * - 일부 파일 변경 추적(FileChangeTracker) 메타데이터에 전달됨
+         */
+        taskId?: string;
     };
 }
 

@@ -54,6 +54,48 @@ export class RelevantFilesFinder {
         const includedPathSet: Set<string> = new Set();
 
         try {
+            // 1. 사용자 쿼리에서 명시적으로 언급된 파일 먼저 찾기 (최우선)
+            const explicitFiles = await this.findExplicitFilesInQuery(userQuery, projectRoot, abortSignal);
+            console.log(`[RelevantFilesFinder] 명시적으로 언급된 파일 찾기 완료: ${explicitFiles.length}개`);
+
+            for (const filePath of explicitFiles) {
+                if (abortSignal?.aborted) break;
+                if (includedPathSet.has(filePath)) {
+                    console.log(`[RelevantFilesFinder] 이미 포함된 파일 스킵: ${filePath}`);
+                    continue; // 이미 포함된 파일은 스킵
+                }
+                if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
+                    console.warn(`[RelevantFilesFinder] 컨텍스트 길이 제한으로 파일 읽기 중단: ${filePath}`);
+                    break;
+                }
+
+                try {
+                    const fs = await import('fs/promises');
+                    console.log(`[RelevantFilesFinder] 파일 읽기 시도: ${filePath}`);
+                    const content = await fs.readFile(filePath, 'utf8');
+                    const relativePath = path.relative(projectRoot, filePath);
+                    const fileExtension = path.extname(filePath).substring(1) || 'text';
+
+                    console.log(`[RelevantFilesFinder] 파일 읽기 성공: ${relativePath} (${content.length} bytes)`);
+
+                    if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
+                        const fileContext = `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
+                        fileContentsContext += fileContext;
+                        currentTotalContentLength += content.length;
+                        includedFilesForContext.push({ name: relativePath, fullPath: filePath });
+                        includedPathSet.add(filePath);
+                        console.log(`[RelevantFilesFinder] 명시적으로 언급된 파일 컨텍스트에 추가: ${relativePath} (총 ${currentTotalContentLength} bytes)`);
+                    } else {
+                        fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다.\n\n`;
+                        console.warn(`[RelevantFilesFinder] 파일이 너무 커서 생략: ${relativePath}`);
+                    }
+                } catch (error) {
+                    console.error(`[RelevantFilesFinder] 명시적 파일 읽기 실패: ${filePath}`, error);
+                }
+            }
+
+            console.log(`[RelevantFilesFinder] 명시적 파일 처리 완료. 현재 컨텍스트 길이: ${fileContentsContext.length} bytes`);
+
             // 키워드 추출
             const keywords = this.extractKeywordsFromQuery(userQuery);
             console.log(`[RelevantFilesFinder] 추출된 키워드: ${keywords.join(', ')}`);
@@ -67,9 +109,10 @@ export class RelevantFilesFinder {
             // 토큰 제한 기반 파일 선택
             const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
 
-            // 파일 내용 수집
+            // 2. 키워드 기반으로 찾은 파일 내용 수집 (명시적 파일 제외)
             for (const filePath of selectedFiles) {
-                if (abortSignal.aborted) break;
+                if (abortSignal?.aborted) break;
+                if (includedPathSet.has(filePath)) continue; // 이미 명시적 파일로 포함된 경우 스킵
                 if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
                     fileContentsContext += '\n[INFO] 컨텍스트 길이 제한으로 일부 파일 내용이 생략되었습니다.\n';
                     break;
@@ -79,12 +122,13 @@ export class RelevantFilesFinder {
                     const fs = await import('fs/promises');
                     const content = await fs.readFile(filePath, 'utf8');
                     const relativePath = path.relative(projectRoot, filePath);
+                    const fileExtension = path.extname(filePath).substring(1) || 'text';
 
                     if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
-                        const fileExtension = path.extname(filePath).substring(1);
                         fileContentsContext += `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
                         currentTotalContentLength += content.length;
                         includedFilesForContext.push({ name: relativePath, fullPath: filePath });
+                        includedPathSet.add(filePath);
                     } else {
                         fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다.\n\n`;
                     }
@@ -279,7 +323,7 @@ export class RelevantFilesFinder {
     private async findRelevantFiles(
         projectRoot: string,
         keywords: string[],
-        abortSignal: AbortSignal
+        abortSignal?: AbortSignal
     ): Promise<string[]> {
         const relevantFiles: string[] = [];
         const projectInfo = this.projectManager.getCurrentProject();
@@ -320,14 +364,14 @@ export class RelevantFilesFinder {
             }
 
             for (const pattern of allPatterns) {
-                if (abortSignal.aborted) break;
+                if (abortSignal?.aborted) break;
 
                 try {
                     const files = await glob(pattern, { cwd: projectRoot, nodir: true });
                     const fullPaths = files.map((file: string) => path.join(projectRoot, file));
 
                     for (const filePath of fullPaths) {
-                        if (abortSignal.aborted) break;
+                        if (abortSignal?.aborted) break;
 
                         if (indexer.isLibraryPath && indexer.isLibraryPath(filePath, projectRoot)) {
                             continue;
@@ -425,6 +469,89 @@ export class RelevantFilesFinder {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 20)
             .map(([filePath]) => filePath);
+    }
+
+    /**
+     * 사용자 쿼리에서 명시적으로 언급된 파일 경로를 추출하고 읽습니다.
+     * 예: "design.md 파일 읽고", "App.tsx 수정", "package.json 확인" 등
+     */
+    private async findExplicitFilesInQuery(
+        userQuery: string,
+        projectRoot: string,
+        abortSignal?: AbortSignal
+    ): Promise<string[]> {
+        const explicitFiles: string[] = [];
+
+        // 파일명 패턴 추출 (예: design.md, App.tsx, package.json, 환급금조회_요구사항정의서.md 등)
+        // 정규식: 파일명.확장자 형식 (공백, 따옴표, 백틱 등으로 구분)
+        const filePatterns = [
+            // 백틱으로 감싼 파일명: `design.md`, `App.tsx`
+            /`([^\s`]+\.\w+)`/g,
+            // 따옴표로 감싼 파일명: "design.md", 'App.tsx'
+            /["']([^\s"']+\.\w+)["']/g,
+            // 일반 파일명 패턴: design.md, App.tsx, 환급금조회_요구사항정의서.md (앞뒤에 공백이나 특수문자)
+            // 언더스코어, 하이픈, 한글, 영문, 숫자 모두 포함
+            /\b([a-zA-Z0-9가-힣_\-]+\.(md|ts|tsx|js|jsx|json|css|html|py|java|xml|yml|yaml|txt|sh|bat|ps1))\b/gi,
+        ];
+        
+        console.log(`[RelevantFilesFinder] 명시적 파일 찾기 시작: "${userQuery}"`);
+
+        const foundFileNames = new Set<string>();
+
+        for (const pattern of filePatterns) {
+            let match;
+            // 정규식의 lastIndex를 초기화하기 위해 새로 생성
+            const regex = new RegExp(pattern.source, pattern.flags);
+            while ((match = regex.exec(userQuery)) !== null) {
+                const fileName = match[1];
+                console.log(`[RelevantFilesFinder] 파일명 패턴 매칭: ${fileName}`);
+                if (fileName && !foundFileNames.has(fileName.toLowerCase())) {
+                    foundFileNames.add(fileName.toLowerCase());
+                    console.log(`[RelevantFilesFinder] 명시적으로 언급된 파일: ${fileName}`);
+
+                    // 프로젝트 루트에서 파일 찾기
+                    const possiblePaths = [
+                        path.join(projectRoot, fileName), // 루트에 직접
+                        path.join(projectRoot, 'src', fileName), // src/ 하위
+                        path.join(projectRoot, 'src', '**', fileName), // src/ 하위 어디든
+                    ];
+
+                    for (const filePath of possiblePaths) {
+                        if (abortSignal?.aborted) break;
+
+                        try {
+                            const fs = await import('fs/promises');
+                            // glob 패턴이면 glob으로 검색
+                            if (filePath.includes('**')) {
+                                const glob = await import('glob');
+                                const files = await glob.glob(filePath, { cwd: projectRoot, nodir: true });
+                                if (files.length > 0) {
+                                    const foundPath = path.join(projectRoot, files[0]);
+                                    explicitFiles.push(foundPath);
+                                    console.log(`[RelevantFilesFinder] 파일 찾기 성공 (glob): ${foundPath}`);
+                                    break;
+                                }
+                            } else {
+                                // 직접 경로 확인 - fs.existsSync 사용 (동기 방식이지만 파일 존재 확인에는 충분)
+                                const fsSync = await import('fs');
+                                if (fsSync.existsSync(filePath)) {
+                                    explicitFiles.push(filePath);
+                                    console.log(`[RelevantFilesFinder] 파일 찾기 성공: ${filePath}`);
+                                    break;
+                                }
+                            }
+                        } catch (error) {
+                            // 파일이 없으면 다음 경로 시도
+                            console.log(`[RelevantFilesFinder] 파일 찾기 실패 (다음 경로 시도): ${filePath}`);
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log(`[RelevantFilesFinder] 명시적으로 언급된 파일: ${explicitFiles.map(f => path.relative(projectRoot, f)).join(', ')}`);
+        return explicitFiles;
     }
 
     /**

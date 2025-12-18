@@ -66,10 +66,10 @@ const webviewConfig = {
   // <-- 수정: 웹뷰 스크립트 entry point를 객체로 설정 -->
   // chat.js, codeCopy.js, settings.js를 각각 별도의 번들로 출력합니다.
   entry: {
-    chat: './webview/chat.js', // chat 번들
+    chat: './webview/chat.js',       // chat 번들
     codeCopy: './webview/codeCopy.js', // codeCopy 번들
-    settings: './webview/settings.js', // settings.js 번들 엔트리 포인트
-    ask: './webview/ask.js' // ask.js 번들 엔트리 포인트
+    settings: './webview/settings.js'  // settings.js 번들 엔트리 포인트
+    // ASK 패널은 제거되었으므로 별도 ask 엔트리는 더 이상 사용하지 않습니다.
   },
   // <-- 수정 끝 -->
 

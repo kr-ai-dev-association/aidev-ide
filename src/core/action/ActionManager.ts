@@ -1,3 +1,4 @@
+
 /**
  * Action Manager
  * LLM 요청을 실행 가능한 액션으로 변환하고 관리하는 메인 매니저
@@ -5,6 +6,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import {
     Action,
     ActionType,
@@ -487,6 +489,25 @@ export class ActionManager {
 
             console.log(`[ActionManager] File created/updated: ${absolutePath} (${contentBytes.length} bytes)`);
 
+            // package.json 파일 자체를 수정하는 경우는 import 분석을 건너뜀 (무한 루프 방지)
+            const fileName = path.basename(absolutePath).toLowerCase();
+            if (fileName === 'package.json') {
+                console.log('[ActionManager] Skipping package.json import analysis for package.json file itself');
+            } else {
+                // TypeScript/JavaScript 파일인 경우 import 문 분석하여 package.json 업데이트
+                const fileExt = path.extname(absolutePath).toLowerCase();
+                if (['.ts', '.tsx', '.js', '.jsx'].includes(fileExt)) {
+                    try {
+                        // 파일이 안정화될 때까지 잠시 대기 (다른 파일이 package.json을 수정 중일 수 있음)
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await this.updatePackageJsonFromImports(projectRoot, code, absolutePath);
+                    } catch (error) {
+                        console.warn('[ActionManager] Failed to update package.json from imports:', error);
+                        // package.json 업데이트 실패는 치명적이지 않으므로 계속 진행
+                    }
+                }
+            }
+
             return {
                 success: true,
                 actionId: action.id,
@@ -505,6 +526,256 @@ export class ActionManager {
                 }
             };
         }
+    }
+
+    /**
+     * 코드에서 import 문을 분석하여 package.json에 의존성을 자동으로 추가합니다
+     * @param projectRoot 프로젝트 루트 경로
+     * @param code 분석할 코드 내용
+     * @param sourceFilePath 소스 파일 경로 (package.json 위치 찾기용)
+     */
+    private async updatePackageJsonFromImports(projectRoot: string, code: string, sourceFilePath: string): Promise<void> {
+        // 소스 파일과 같은 디렉토리 또는 상위 디렉토리에서 package.json 찾기
+        let searchDir = path.dirname(sourceFilePath);
+        let packageJsonPath: string | null = null;
+
+        // 최대 5단계까지 상위 디렉토리로 올라가며 package.json 찾기
+        for (let i = 0; i < 5; i++) {
+            const candidatePath = path.join(searchDir, 'package.json');
+            if (fs.existsSync(candidatePath)) {
+                packageJsonPath = candidatePath;
+                break;
+            }
+            const parentDir = path.dirname(searchDir);
+            if (parentDir === searchDir) {
+                // 루트에 도달
+                break;
+            }
+            searchDir = parentDir;
+        }
+
+        // package.json을 찾지 못하면 프로젝트 루트에서 찾기
+        if (!packageJsonPath) {
+            packageJsonPath = path.join(projectRoot, 'package.json');
+        }
+
+        // package.json이 없으면 스킵
+        if (!fs.existsSync(packageJsonPath)) {
+            console.log(`[ActionManager] package.json not found at ${packageJsonPath}, skipping dependency update`);
+            return;
+        }
+
+        console.log(`[ActionManager] Using package.json at: ${packageJsonPath}`);
+
+        // import 문에서 외부 패키지 추출
+        const externalPackages = this.extractExternalPackages(code);
+        if (externalPackages.length === 0) {
+            return;
+        }
+
+        // package.json 읽기
+        const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
+        const packageJson = JSON.parse(packageJsonContent);
+
+        // 의존성 섹션 초기화
+        if (!packageJson.dependencies) {
+            packageJson.dependencies = {};
+        }
+        if (!packageJson.devDependencies) {
+            packageJson.devDependencies = {};
+        }
+
+        let updated = false;
+        const addedPackages: string[] = [];
+
+        // 각 패키지 확인 및 추가
+        for (const pkg of externalPackages) {
+            const pkgName = pkg.name;
+            const isDevDep = pkg.isDevDep;
+
+            // 이미 존재하는지 확인
+            const existsInDeps = packageJson.dependencies[pkgName];
+            const existsInDevDeps = packageJson.devDependencies[pkgName];
+
+            if (!existsInDeps && !existsInDevDeps) {
+                // 의존성 추가 (특정 패키지는 고정 버전 사용)
+                const targetDeps = isDevDep ? packageJson.devDependencies : packageJson.dependencies;
+                const version = this.getPackageVersion(pkgName);
+                // 버전이 비어있으면 추가하지 않음 ("latest" 사용 금지)
+                if (version) {
+                    targetDeps[pkgName] = version;
+                    updated = true;
+                    addedPackages.push(pkgName);
+                    console.log(`[ActionManager] Added ${pkgName}@${version} to ${isDevDep ? 'devDependencies' : 'dependencies'}`);
+                } else {
+                    console.log(`[ActionManager] Skipping ${pkgName} - version not specified (latest is not allowed)`);
+                }
+
+                // TypeScript 프로젝트이고 @types 패키지가 필요한 경우
+                // react-router-dom v6는 타입이 내장되어 있으므로 @types가 필요없음
+                if (pkg.needsTypes) {
+                    // 스코프 패키지(@scope/package)의 경우 @types/scope__package 형식 사용
+                    let typesPackageName: string;
+                    if (pkgName.startsWith('@')) {
+                        // @scope/package -> @types/scope__package
+                        typesPackageName = `@types/${pkgName.substring(1).replace('/', '__')}`;
+                    } else {
+                        // 일반 패키지 -> @types/package
+                        typesPackageName = `@types/${pkgName}`;
+                    }
+
+                    if (!packageJson.devDependencies[typesPackageName]) {
+                        const typesVersion = this.getPackageVersion(typesPackageName);
+                        // 버전이 비어있으면 추가하지 않음 (실제 버전을 확인할 수 없는 경우)
+                        if (typesVersion) {
+                            packageJson.devDependencies[typesPackageName] = typesVersion;
+                            updated = true;
+                            addedPackages.push(typesPackageName);
+                            console.log(`[ActionManager] Added ${typesPackageName}@${typesVersion} to devDependencies`);
+                        } else {
+                            console.log(`[ActionManager] Skipping ${typesPackageName} - version not specified`);
+                        }
+                    }
+                }
+            }
+        }
+
+        // package.json 업데이트
+        if (updated) {
+            const updatedContent = JSON.stringify(packageJson, null, 2) + '\n';
+            fs.writeFileSync(packageJsonPath, updatedContent, 'utf8');
+            console.log(`[ActionManager] Updated package.json with packages: ${addedPackages.join(', ')}`);
+        }
+    }
+
+    /**
+     * 코드에서 외부 패키지 import 문을 추출합니다
+     */
+    private extractExternalPackages(code: string): Array<{ name: string; isDevDep: boolean; needsTypes: boolean }> {
+        const packages: Array<{ name: string; isDevDep: boolean; needsTypes: boolean }> = [];
+
+        // import 패턴들
+        const importPatterns = [
+            // import xxx from 'package'
+            /import\s+(?:\*\s+as\s+)?[\w\s,{}]+\s+from\s+['"]([^'"]+)['"]/g,
+            // import 'package'
+            /import\s+['"]([^'"]+)['"]/g,
+            // require('package')
+            /require\(['"]([^'"]+)['"]\)/g,
+            // import('package')
+            /import\(['"]([^'"]+)['"]\)/g
+        ];
+
+        const foundPackages = new Set<string>();
+
+        for (const pattern of importPatterns) {
+            let match;
+            while ((match = pattern.exec(code)) !== null) {
+                const importPath = match[1];
+
+                // 상대 경로나 절대 경로는 제외 (./, ../, /, @/ 등)
+                if (importPath.startsWith('.') || importPath.startsWith('/') || importPath.startsWith('@/')) {
+                    continue;
+                }
+
+                // 스코프 패키지(@scope/package) 또는 일반 패키지
+                let packageName: string;
+                if (importPath.startsWith('@')) {
+                    // @scope/package 형식
+                    const parts = importPath.split('/');
+                    packageName = parts.length >= 2 ? `${parts[0]}/${parts[1]}` : parts[0];
+                } else {
+                    // 일반 패키지
+                    packageName = importPath.split('/')[0];
+                }
+
+                if (packageName && !foundPackages.has(packageName)) {
+                    foundPackages.add(packageName);
+
+                    // 특수 패키지 처리
+                    if (packageName.startsWith('@types/')) {
+                        continue; // @types는 이미 devDependency
+                    }
+
+                    // eslint 관련 패키지는 자동 추가하지 않음 (설정 파일에서 관리)
+                    if (packageName.toLowerCase().includes('eslint') ||
+                        packageName.toLowerCase().includes('prettier')) {
+                        console.log(`[ActionManager] Skipping eslint/prettier package: ${packageName}`);
+                        continue;
+                    }
+
+                    // 개발 의존성인지 확인 (일반적으로 타입 정의나 빌드 도구)
+                    const isDevDep = this.isDevDependency(packageName);
+
+                    // TypeScript 타입 정의가 필요한지 확인
+                    const needsTypes = this.needsTypeDefinitions(packageName);
+
+                    packages.push({
+                        name: packageName,
+                        isDevDep,
+                        needsTypes
+                    });
+                }
+            }
+        }
+
+        return packages;
+    }
+
+    /**
+     * 패키지 버전을 가져옵니다 (특정 패키지는 고정 버전 사용)
+     */
+    private getPackageVersion(packageName: string): string {
+        // 특정 패키지는 고정 버전 사용
+        const fixedVersions: Record<string, string> = {
+            'react-router-dom': '^6.22.3',
+            '@vitejs/plugin-react-swc': '^3.5.0',
+            '@types/axios': '^1.6.3'
+        };
+
+        const lowerName = packageName.toLowerCase();
+        for (const [pkg, version] of Object.entries(fixedVersions)) {
+            if (lowerName === pkg.toLowerCase()) {
+                return version;
+            }
+        }
+
+        // "latest" 버전은 사용하지 않음 - 실제 버전을 확인할 수 없으면 추가하지 않음
+        console.warn(`[ActionManager] Version not specified for ${packageName}, skipping auto-add. Please specify exact version in code.`);
+        return '';
+    }
+
+    /**
+     * 패키지가 개발 의존성인지 확인
+     */
+    private isDevDependency(packageName: string): boolean {
+        const devDeps = [
+            'typescript', '@types', 'tsx', 'ts-node', 'vite', 'webpack', 'esbuild',
+            'eslint', 'prettier', '@vitejs', 'rollup', 'jest', 'mocha', 'chai'
+        ];
+        return devDeps.some(dep => packageName.toLowerCase().includes(dep.toLowerCase()));
+    }
+
+    /**
+     * 패키지가 TypeScript 타입 정의가 필요한지 확인
+     */
+    private needsTypeDefinitions(packageName: string): boolean {
+        // 내장 타입이 있는 패키지들 (TypeScript로 작성되었거나 타입이 내장됨)
+        const hasBuiltInTypes = [
+            'react', 'react-dom', 'react-router-dom', 'vite', 'typescript', '@vitejs'
+        ];
+
+        if (hasBuiltInTypes.some(pkg => packageName.toLowerCase().includes(pkg.toLowerCase()))) {
+            return false;
+        }
+
+        // 일반 JavaScript 라이브러리는 타입 정의가 필요할 수 있음
+        // 단, @types 패키지 자체는 제외
+        if (packageName.startsWith('@types/')) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -838,5 +1109,5 @@ export class ActionManager {
 
         return cleaned;
     }
-}
 
+}

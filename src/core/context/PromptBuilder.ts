@@ -22,6 +22,7 @@ export interface PromptBuilderOptions {
   gitContext?: string;
   languageInstruction?: string;
   taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
+  userQuery?: string; // 사용자 쿼리 (프레임워크 추출용)
 }
 
 export class PromptBuilder {
@@ -75,6 +76,11 @@ ${gitContext || ''}
     let frameworkName: string | undefined;
     if (currentProject?.framework) {
       frameworkName = currentProject.framework.toLowerCase();
+      console.log(`[PromptBuilder] 프로젝트에서 프레임워크 감지: ${frameworkName}`);
+    } else if (options.userQuery) {
+      // 프로젝트가 감지되지 않았을 때 사용자 쿼리에서 프레임워크 추출
+      frameworkName = this.extractFrameworkFromQuery(options.userQuery);
+      console.log(`[PromptBuilder] 사용자 쿼리에서 프레임워크 추출: ${frameworkName || '없음'} (쿼리: ${options.userQuery.substring(0, 100)})`);
     }
 
     const composerOptions: PromptComposerOptions = {
@@ -83,6 +89,7 @@ ${gitContext || ''}
       taskType: taskType,
       frameworkName,
       projectType: currentProject?.type,
+      codebaseContext: codebaseContext, // 코드베이스 컨텍스트 포함
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);
@@ -100,6 +107,44 @@ ${gitContext || ''}
    */
   public setUserOS(userOS: string): void {
     this.userOS = userOS;
+  }
+
+  /**
+   * 사용자 쿼리에서 프레임워크 키워드를 추출합니다.
+   */
+  private extractFrameworkFromQuery(userQuery: string): string | undefined {
+    const lower = userQuery.toLowerCase();
+
+    // Vite 감지 (React TypeScript + Vite 조합)
+    if (lower.includes('vite')) {
+      return 'vite';
+    }
+
+    // Spring Boot 감지
+    if (lower.includes('spring') || lower.includes('spring-boot') || lower.includes('springboot')) {
+      return 'spring-boot';
+    }
+
+    // Express 감지
+    if (lower.includes('express')) {
+      return 'express';
+    }
+
+    // Node.js TypeScript 감지 (한글 포함)
+    const hasNode = lower.includes('node') || lower.includes('nodejs') || lower.includes('node.js') || userQuery.includes('노드');
+    const hasTypeScript = lower.includes('typescript') || lower.includes('type script') || lower.includes('ts') ||
+      userQuery.includes('타입스크립트') || userQuery.includes('타입 스크립트');
+
+    if (hasNode && hasTypeScript) {
+      return 'node-typescript';
+    }
+
+    // 백엔드 프로젝트 + TypeScript 조합도 감지
+    if ((lower.includes('backend') || lower.includes('back-end') || lower.includes('백엔드') || lower.includes('백엔')) && hasTypeScript) {
+      return 'node-typescript';
+    }
+
+    return undefined;
   }
 }
 

@@ -23,6 +23,13 @@ export function getExpressPrompt(): string {
   * **올바른 분석 방법**:
       - 모든 라우터 파일을 열어서 확인
       - Express 앱 파일을 열어서 모든 app.use() 확인
-      - 주석, 마운트 경로, 라우터 경로를 모두 종합하여 정확한 API 경로 도출`;
+      - 주석, 마운트 경로, 라우터 경로를 모두 종합하여 정확한 API 경로 도출
+- **ES Module 실행 오류 방지 (매우 중요)**:
+  * "Error: Must use import to load ES Module" 오류는 package.json에 "type": "module"이 있는데 ts-node-dev를 사용할 때 발생합니다.
+  * **절대 해결 방법**: ts-node-dev를 사용하지 말고 반드시 tsx를 사용하세요.
+  * package.json scripts에서 "ts-node-dev"를 "tsx"로 교체하세요.
+  * 예: "dev": "ts-node-dev src/server.ts" → "dev": "tsx watch src/server.ts"
+  * tsx가 설치되어 있지 않으면: npm install -D tsx
+  * **절대 하지 말 것**: "type": "module"을 제거하거나 "CommonJS"로 변경하지 마세요. tsx를 사용하면 ESM이 정상 작동합니다.`;
 }
 

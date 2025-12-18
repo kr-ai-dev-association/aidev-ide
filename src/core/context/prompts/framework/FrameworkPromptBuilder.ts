@@ -46,7 +46,7 @@ export class FrameworkPromptBuilder {
       const lowerName = name.toLowerCase();
 
       if (lowerName.includes('vite')) {
-        prompts.push(framework.getVitePrompt());
+        prompts.push(framework.getViteTypePrompt());
       } else if (lowerName.includes('express')) {
         prompts.push(framework.getExpressPrompt());
       } else if (lowerName.includes('spring') || lowerName.includes('spring-boot')) {

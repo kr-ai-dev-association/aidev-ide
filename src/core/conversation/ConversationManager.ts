@@ -5,6 +5,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as os from 'os';
 import { PromptType, ExternalApiService, GitRepositoryService } from '../../services';
 import { LLMApiClient } from '../model/LLMApiClient';
 import { ContextManager } from '../context/ContextManager';
@@ -380,6 +381,16 @@ export class ConversationManager {
                 fullFileContentsContext += `\n--- 사용자가 선택한 추가 파일들 ---\n${selectedFilesContext}`;
             }
 
+            // 프로젝트 파일 인벤토리 추가 (최대 400개, 최신 루트 스냅샷)
+            try {
+                const inventory = await this.projectManager.buildProjectInventorySection(400);
+                if (inventory) {
+                    fullFileContentsContext += `\n${inventory}`;
+                }
+            } catch (error) {
+                console.warn('[ConversationManager] 프로젝트 파일 인벤토리 생성 실패:', error);
+            }
+
             // 컨텍스트 수집 및 히스토리 기록 (Phase 2.1)
             let contextData: any = null;
             let conversationHistory: ConversationEntry[] = [];
@@ -514,43 +525,51 @@ export class ConversationManager {
                             }
                         }
                     }
-                } catch (error) {
-                    console.warn('[ConversationManager] Context history management failed:', error);
-                }
-            }
-
-            // 프로젝트 타입 감지
-            let detectedProjectType = 'unknown';
-            try {
-                const currentProject = this.projectManager.getCurrentProject();
-                if (currentProject) {
-                    detectedProjectType = currentProject.framework || currentProject.type || 'unknown';
-                }
             } catch (error) {
-                console.warn('[ConversationManager] Failed to detect project type:', error);
+                console.warn('[ConversationManager] Context history management failed:', error);
             }
+        }
 
-            // 시스템 프롬프트 생성
-            const profileContext = projectProfile && this.contextManager
-                ? this.contextManager.buildProfileContext(projectProfile, detectedProjectType)
-                : '';
-            const intentContext = intentResult && this.contextManager
-                ? this.contextManager.buildIntentContext(intentResult)
-                : '';
+        // 현재 활성 파일의 내용을 fullFileContentsContext에 추가
+        if (contextData && contextData.file && contextData.file.content) {
+            const currentFileContext = `\n--- 현재 활성 파일: ${contextData.file.name} ---\n경로: ${contextData.file.path}\n\n${contextData.file.content}\n`;
+            fullFileContentsContext = currentFileContext + fullFileContentsContext;
+            console.log(`[ConversationManager] Added current file context to prompt: ${contextData.file.name} (${contextData.file.lines} lines)`);
+        }
 
-            if (!this.promptBuilder) {
-                throw new Error('Prompt Builder not set');
+        // 프로젝트 타입 감지
+        let detectedProjectType = 'unknown';
+        try {
+            const currentProject = this.projectManager.getCurrentProject();
+            if (currentProject) {
+                detectedProjectType = currentProject.framework || currentProject.type || 'unknown';
             }
+        } catch (error) {
+            console.warn('[ConversationManager] Failed to detect project type:', error);
+        }
 
-            const systemPrompt = await this.promptBuilder.generateSystemPrompt({
-                userOS,
-                modelType: currentModelType,
-                promptType,
-                codebaseContext: fullFileContentsContext,
+        // 시스템 프롬프트 생성
+        const profileContext = projectProfile && this.contextManager
+            ? this.contextManager.buildProfileContext(projectProfile, detectedProjectType)
+            : '';
+        const intentContext = intentResult && this.contextManager
+            ? this.contextManager.buildIntentContext(intentResult)
+            : '';
+
+        if (!this.promptBuilder) {
+            throw new Error('Prompt Builder not set');
+        }
+
+        const systemPrompt = await this.promptBuilder.generateSystemPrompt({
+            userOS,
+            modelType: currentModelType,
+            promptType,
+            codebaseContext: fullFileContentsContext,
                 realTimeInfo,
                 profileContext,
                 intentContext,
-                gitContext: gitRepositoryService ? await gitRepositoryService.getGitContextForLlm() : ''
+                gitContext: gitRepositoryService ? await gitRepositoryService.getGitContextForLlm() : '',
+                userQuery: userQuery // 프레임워크 추출용
             });
 
             // 사용자 메시지 파트 구성
@@ -628,14 +647,70 @@ export class ConversationManager {
                     });
 
                     if (actionResult.actions.length > 0) {
-                        WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', `Found ${actionResult.actions.length} actions to execute`);
+                        // 유효하지 않은 액션 필터링 (FILE_OPERATION 중 유효한 작업이 없는 경우)
+                        const validActions = actionResult.actions.filter(action => {
+                            if (action.type === 'file_operation') {
+                                // FILE_OPERATION은 sourcePath가 유효해야 함
+                                const sourcePath = action.params?.sourcePath;
+                                if (!sourcePath || sourcePath.trim().length === 0) {
+                                    console.log(`[ConversationManager] Filtering invalid FILE_OPERATION action: ${action.id} (empty sourcePath)`);
+                                    return false;
+                                }
+                                
+                                const trimmedPath = sourcePath.trim();
+                                const lowerPath = trimmedPath.toLowerCase();
+                                
+                                // 무효한 값 필터링
+                                const invalidValues = ['n/a', 'null', 'undefined', 'none', '없음', '없다'];
+                                if (invalidValues.includes(lowerPath)) {
+                                    console.log(`[ConversationManager] Filtering invalid FILE_OPERATION action: ${action.id} (sourcePath: ${sourcePath})`);
+                                    return false;
+                                }
+                                
+                                // SQL 키워드 필터링
+                                const sqlKeywords = ['from', 'to', 'where', 'select', 'insert', 'update', 'delete', 'drop', 
+                                                     'create', 'alter', 'table', 'database', 'cascade', 'constraint', 'index',
+                                                     'primary', 'foreign', 'key', 'references', 'on', 'as', 'is', 'not', 'null',
+                                                     'and', 'or', 'in', 'like', 'between', 'order', 'by', 'group', 'having',
+                                                     'join', 'inner', 'outer', 'left', 'right', 'union', 'all', 'distinct'];
+                                if (sqlKeywords.includes(lowerPath)) {
+                                    console.log(`[ConversationManager] Filtering invalid FILE_OPERATION action: ${action.id} (SQL keyword: ${sourcePath})`);
+                                    return false;
+                                }
+                                
+                                // 단일 대문자 단어 필터링 (SQL 키워드일 가능성)
+                                if (/^[A-Z]+$/.test(trimmedPath) && trimmedPath.length <= 10) {
+                                    console.log(`[ConversationManager] Filtering invalid FILE_OPERATION action: ${action.id} (single uppercase word: ${sourcePath})`);
+                                    return false;
+                                }
+                                
+                                // 파일 확장자 또는 경로 구분자가 있어야 함
+                                const hasExtension = /\.[a-zA-Z0-9]+$/.test(trimmedPath);
+                                const hasPathSeparator = /[\/\\]/.test(trimmedPath);
+                                const isCommonFileName = /^(readme|license|changelog|contributing|\.gitignore|\.env|\.dockerignore)$/i.test(trimmedPath);
+                                
+                                if (!hasExtension && !hasPathSeparator && !isCommonFileName) {
+                                    console.log(`[ConversationManager] Filtering invalid FILE_OPERATION action: ${action.id} (invalid path format: ${sourcePath})`);
+                                    return false;
+                                }
+                                
+                                // 절대 경로가 루트(/)만 있는 경우 거부
+                                if (trimmedPath === '/' || trimmedPath === '\\') {
+                                    console.log(`[ConversationManager] Filtering invalid FILE_OPERATION action: ${action.id} (root path only: ${sourcePath})`);
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+
+                        WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', `Found ${validActions.length} valid actions to execute (filtered ${actionResult.actions.length - validActions.length} invalid)`);
 
                         // Plan 내용을 TaskManager와 Webview에 투영
                         try {
                             const taskManager = TaskManager.getInstance(extensionContext);
                             if (taskManager) {
                                 taskManager.clearPlanQueue();
-                                const items = actionResult.actions.map(action => ({
+                                const items = validActions.map(action => ({
                                     title: this.formatActionTitle(action),
                                     detail: `${action.id}|${action.params?.command || action.params?.filePath || action.params?.content?.substring(0, 100) || 'N/A'}`
                                 }));
@@ -657,7 +732,7 @@ export class ConversationManager {
                         let successCount = 0;
                         let failCount = 0;
 
-                        for (const action of actionResult.actions) {
+                        for (const action of validActions) {
                             const validation = await actionManager.validateAction(action);
                             if (!validation.valid) {
                                 const errorMsg = validation.errors.map(e => e.message).join(', ');
@@ -777,7 +852,6 @@ export class ConversationManager {
 
                 // 액션(코드/터미널/파일)이 없거나 모두 성공한 경우 완료 신호 전송
                 try {
-                    const { ActionManager } = await import('../action/ActionManager.js');
                     const actionManager = ActionManager.getInstance();
                     const active = actionManager.getActiveActions();
                     if (!active || active.length === 0) {
@@ -836,26 +910,70 @@ export class ConversationManager {
 
         try {
             WebviewBridge.sendProcessingStep(webviewToRespond, 'plan');
-            WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', `실행 플랜 생성 중... (${intentResult.category}/${intentResult.subtype})`);
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', `명령어 생성 중... (${intentResult.category}/${intentResult.subtype})`);
 
-            // LLM에 실행 계획 요청
-            const executionPrompt = `사용자 요청: ${userQuery}\n\n이 요청을 단계별 실행 계획으로 변환해주세요. 각 단계는 실행 가능한 명령어나 파일 작업이어야 합니다.`;
+            // 컨텍스트 수집 (프로젝트 파일 인벤토리 포함)
+            let codebaseContext = '';
+            try {
+                const inventory = await this.projectManager.buildProjectInventorySection(400);
+                if (inventory) {
+                    codebaseContext = `\n--- 프로젝트 파일 인벤토리 ---\n${inventory}`;
+                }
+            } catch (error) {
+                console.warn('[ConversationManager] 프로젝트 파일 인벤토리 생성 실패:', error);
+            }
 
-            // LLM 응답 받기
+            // PromptBuilder를 사용하여 올바른 시스템 프롬프트 생성
+            const platform = os.platform();
+            const userOS = platform === 'darwin' ? 'macOS' : platform === 'win32' ? 'Windows' : 'Linux';
+            const promptBuilder = new PromptBuilder(userOS, currentModelType || 'gpt');
+            const systemPrompt = promptBuilder.generateSystemPrompt({
+                userOS,
+                modelType: (currentModelType as any) || 'gpt',
+                promptType: PromptType.CODE_GENERATION,
+                codebaseContext: codebaseContext,
+                realTimeInfo: '',
+                profileContext: '',
+                intentContext: `카테고리: ${intentResult.category}, 세부 유형: ${intentResult.subtype}`,
+                gitContext: '',
+                languageInstruction: '',
+                taskType: 'execution_work',
+                userQuery: userQuery
+            });
+
+            // 사용자 프롬프트: 실행 계획을 요청하지 않고 직접 명령어만 요청
+            const userPrompt = `사용자 요청: ${userQuery}
+
+**매우 중요:**
+- ❌ "실행 계획 (Step-by-Step)" 형식으로 응답하지 마세요.
+- ❌ "아래 단계들을 차례대로 수행하세요" 같은 설명을 포함하지 마세요.
+- ❌ 플레이스홀더 경로(/path/to/your/sql 등)를 사용하지 마세요.
+- ✅ 코드베이스 컨텍스트에서 실제 파일 경로를 찾아서 사용하세요.
+- ✅ 사용자가 요청한 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.
+- ✅ 실행 명령은 한 줄 순수 명령만 코드블록/백틱에 제공합니다.
+- ✅ 명령 내 주석(#, // 등)이나 설명 텍스트를 절대 넣지 마세요.
+
+예시: 사용자가 "생성된 sql 파일 psql로 실행해줘"라고 요청하면:
+- 코드베이스 컨텍스트에서 실제 SQL 파일 경로를 찾으세요 (예: backend/db/setup.sql)
+- \`\`\`bash\npsql -U banya -d test -f backend/db/setup.sql\n\`\`\` 만 제공하세요.`;
+
+            // LLM 응답 받기 (시스템 프롬프트 포함)
+            // llmService는 시스템 프롬프트를 지원하지 않을 수 있으므로, 사용자 프롬프트에 시스템 프롬프트를 포함
+            const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
             let llmResponse: string;
             if (this.llmService) {
                 try {
-                    llmResponse = await this.llmService.sendMessage(executionPrompt, { signal: abortSignal });
+                    llmResponse = await this.llmService.sendMessage(fullPrompt, { signal: abortSignal });
                 } catch (e) {
                     console.warn('[ConversationManager] llmService sendMessage 실패, 개별 API로 폴백:', e);
                     // fallback to direct APIs below
                     llmResponse = '';
                 }
             } else if (currentModelType === 'gemini' && geminiApi) {
-                llmResponse = await geminiApi.sendMessage(executionPrompt, undefined, { signal: abortSignal });
+                llmResponse = await geminiApi.sendMessageWithSystemPrompt(systemPrompt, [{ text: userPrompt }], { signal: abortSignal });
             } else if (ollamaApi) {
                 await ollamaApi.loadSettingsFromStorage();
-                llmResponse = await ollamaApi.sendMessage(executionPrompt, { signal: abortSignal });
+                llmResponse = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, [{ text: userPrompt }], { signal: abortSignal });
             } else {
                 throw new Error('No LLM API available');
             }
@@ -863,10 +981,10 @@ export class ConversationManager {
             // llmService 경로 실패 후 빈 문자열이면 개별 API로 폴백 시도
             if (!llmResponse) {
                 if (currentModelType === 'gemini' && geminiApi) {
-                    llmResponse = await geminiApi.sendMessage(executionPrompt, undefined, { signal: abortSignal });
+                    llmResponse = await geminiApi.sendMessageWithSystemPrompt(systemPrompt, [{ text: userPrompt }], { signal: abortSignal });
                 } else if (ollamaApi) {
                     await ollamaApi.loadSettingsFromStorage();
-                    llmResponse = await ollamaApi.sendMessage(executionPrompt, { signal: abortSignal });
+                    llmResponse = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, [{ text: userPrompt }], { signal: abortSignal });
                 } else {
                     throw new Error('No LLM API available');
                 }

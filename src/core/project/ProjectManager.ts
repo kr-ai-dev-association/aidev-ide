@@ -161,6 +161,20 @@ export class ProjectManager {
                 'ios'
             ];
 
+            // 1차: 키워드 기반 프로젝트 타입 추론 (프로젝트 생성 요청 등, 아직 파일이 거의 없을 때 사용)
+            // 로컬 타입이 unknown 이고, 사용자 질의에 "Node.js 타입스크립트 백엔드" 등 명확한 힌트가 있는 경우
+            if (localProjectType === 'unknown') {
+                const keywordType = this.detectProjectTypeFromKeywords(userQuery);
+                if (keywordType && supportedTypes.includes(keywordType)) {
+                    console.log(`[ProjectManager] Keyword-based project type detection: ${keywordType}`);
+                    return {
+                        projectType: keywordType,
+                        confidence: 0.8,
+                        needsUserSelection: false
+                    };
+                }
+            }
+
             const projectTypePrompt = `다음 사용자 요청과 로컬 프로젝트 구성을 분석하여 프로젝트 타입을 정확히 하나만 선택하세요.
 
 지원하는 프로젝트 타입 (반드시 이 중 하나만 선택):
@@ -290,6 +304,72 @@ export class ProjectManager {
                 needsUserSelection: true
             };
         }
+    }
+
+    /**
+     * 사용자 질의어에서 키워드 기반으로 대략적인 프로젝트 타입을 추론합니다.
+     * 새 프로젝트 생성 요청처럼 로컬 파일이 거의 없을 때 사용됩니다.
+     */
+    private detectProjectTypeFromKeywords(userQuery: string): string | undefined {
+        const lower = userQuery.toLowerCase();
+
+        // Node.js / TypeScript 백엔드
+        const hasNode =
+            lower.includes('node.js') ||
+            lower.includes('nodejs') ||
+            lower.includes('node ') ||
+            lower.includes(' node') ||
+            userQuery.includes('노드');
+        const hasTypeScript =
+            lower.includes('typescript') ||
+            lower.includes('type script') ||
+            userQuery.includes('타입스크립트');
+
+        if (hasNode && hasTypeScript) {
+            return 'nodejs-npm';
+        }
+
+        // 일반 Node.js
+        if (hasNode) {
+            return 'nodejs-npm';
+        }
+
+        // Python
+        if (lower.includes('python') || userQuery.includes('파이썬')) {
+            return 'python';
+        }
+
+        // Spring / Java 백엔드
+        const hasSpring =
+            lower.includes('spring boot') ||
+            lower.includes('springboot') ||
+            lower.includes('spring ') ||
+            userQuery.includes('스프링');
+        const hasJava =
+            lower.includes('java') ||
+            userQuery.includes('자바');
+
+        if (hasSpring || (hasJava && (lower.includes('backend') || userQuery.includes('백엔드')))) {
+            // 빌드 도구는 아직 모르므로 일단 maven으로 기본 설정
+            return 'java-maven';
+        }
+
+        // Go
+        if (lower.includes('golang') || lower.includes(' go ') || lower.startsWith('go ')) {
+            return 'go';
+        }
+
+        // Android
+        if (lower.includes('android') || userQuery.includes('안드로이드')) {
+            return 'android';
+        }
+
+        // iOS
+        if (lower.includes('ios') || userQuery.includes('아이폰') || userQuery.includes('iOS')) {
+            return 'ios';
+        }
+
+        return undefined;
     }
 
     /**
@@ -544,7 +624,7 @@ export class ProjectManager {
      */
     private detectFramework(projectRoot: string, projectType: ProjectType): string | undefined {
         // LLM이 파일을 읽어 판단하도록 하기 위해, 여기서는 간단한 추론만 수행
-        if (projectType === ProjectType.NODEJS) {
+        if (projectType === ProjectType.NODE) {
             // package.json을 읽어 React, Vue, Angular 등 프레임워크를 추론
             // 이 부분은 LLM이 직접 파일을 읽어 판단하도록 위임
             return 'Node.js';
