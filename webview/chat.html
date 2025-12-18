@@ -1892,11 +1892,22 @@
                         setSteps([{ step: data.step, status: 'processing' }]);
                         setIsVisible(true);
                         setHasUserQuery(true);
+                        console.log('[ProcessingSteps] setProcessingStep:', data.step);
                     } else if (data.command === 'updateProcessingStatus') {
                         setIsVisible(true);
-                        setSteps(prev => prev.map(s =>
-                            s.step === data.step ? { ...s, status: data.status } : s
-                        ));
+                        setSteps(prev => {
+                            const existingStep = prev.find(s => s.step === data.step);
+                            if (existingStep) {
+                                // 기존 step 업데이트
+                                return prev.map(s =>
+                                    s.step === data.step ? { ...s, status: data.status } : s
+                                );
+                            } else {
+                                // 새로운 step 추가
+                                console.log('[ProcessingSteps] Adding new step:', data.step, data.status);
+                                return [...prev, { step: data.step, status: data.status }];
+                            }
+                        });
                     } else if (data.command === 'hideLoading') {
                         // 페이드아웃 애니메이션 적용
                         const processingStepsElement = document.querySelector('.processing-steps');

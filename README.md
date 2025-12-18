@@ -6,6 +6,10 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.0.11 (Processing Steps UI Improvement)
+- **ProcessingSteps status update fix**: Fixed issue where `updateProcessingStatus` messages were not displaying progress when no initial step was set. Now automatically creates a new step if it doesn't exist when receiving status updates.
+- **Debug logging**: Added console logging for `setProcessingStep` and `updateProcessingStatus` commands to help diagnose progress display issues.
+
 ## v5.0.10 (File Context Tracker Integration & Stability Guard)
 - **FileContextTracker integration**: `FileContextTracker` is now wired into both `ContextManager.collectFileContext` and `ActionManager` so that files are only read after they have stabilized on disk.
 - **Pre-action stability guard**: Before executing `CODE_GENERATION` and `FILE_OPERATION` actions, `ActionManager` calls `trackFile()` and `waitForFileStability()` to avoid reading half-written files when immediately re-collecting context.

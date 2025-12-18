@@ -6,6 +6,10 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.0.11 (처리 단계 UI 개선)
+- **ProcessingSteps 상태 업데이트 수정**: 초기 step이 설정되지 않은 상태에서 `updateProcessingStatus` 메시지가 프로그레스를 표시하지 않던 문제를 수정했습니다. 이제 상태 업데이트를 받을 때 step이 없으면 자동으로 새 step을 생성합니다.
+- **디버깅 로그**: 프로그레스 표시 문제 진단을 위해 `setProcessingStep`과 `updateProcessingStatus` 명령에 콘솔 로그를 추가했습니다.
+
 ## v5.0.10 (파일 컨텍스트 트래커 연동 & 안정성 가드)
 - **FileContextTracker 연동**: `FileContextTracker`가 `ContextManager.collectFileContext`와 `ActionManager` 양쪽에 연결되어, 디스크에 완전히 기록되기 전에 파일을 읽지 않도록 보호합니다.
 - **액션 실행 전 안정성 가드**: `CODE_GENERATION`, `FILE_OPERATION` 액션 실행 직전에 `trackFile()`과 `waitForFileStability()`를 호출하여, 실행 직후 컨텍스트를 다시 수집하더라도 저장 중간 상태(부분 기록)가 아닌 안정된 내용을 읽도록 보장합니다.
