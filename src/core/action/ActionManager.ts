@@ -7,6 +7,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import {
     Action,
     ActionType,
@@ -475,18 +476,16 @@ export class ActionManager {
 
             // 디렉토리 생성
             const dir = path.dirname(absolutePath);
-            const dirUri = vscode.Uri.file(dir);
             try {
-                await vscode.workspace.fs.createDirectory(dirUri);
+                await fsPromises.mkdir(dir, { recursive: true });
             } catch (e) {
                 // 디렉토리가 이미 존재하는 경우 무시
             }
 
             // 파일 생성/수정
-            const fileUri = vscode.Uri.file(absolutePath);
-            const contentBytes = Buffer.from(code, 'utf8');
-            await vscode.workspace.fs.writeFile(fileUri, contentBytes);
+            await fsPromises.writeFile(absolutePath, code, 'utf8');
 
+            const contentBytes = Buffer.from(code, 'utf8');
             console.log(`[ActionManager] File created/updated: ${absolutePath} (${contentBytes.length} bytes)`);
 
             // package.json 파일 자체를 수정하는 경우는 import 분석을 건너뜀 (무한 루프 방지)
@@ -844,8 +843,7 @@ export class ActionManager {
                     // 변경사항 추적 (파일 생성 전)
                     let createBeforeContent: string | undefined;
                     try {
-                        const existingFile = await vscode.workspace.fs.readFile(sourceUri);
-                        createBeforeContent = Buffer.from(existingFile).toString('utf-8');
+                        createBeforeContent = await fsPromises.readFile(sourceUri.fsPath, 'utf8');
                     } catch {
                         // 파일이 없으면 undefined 유지
                         createBeforeContent = undefined;
@@ -853,9 +851,13 @@ export class ActionManager {
 
                     // 디렉토리 생성
                     const dir = path.dirname(sourceUri.fsPath);
-                    await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
+                    try {
+                        await fsPromises.mkdir(dir, { recursive: true });
+                    } catch (e) {
+                        // 디렉토리가 이미 존재하는 경우 무시
+                    }
                     // 파일 생성
-                    await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(content, 'utf8'));
+                    await fsPromises.writeFile(sourceUri.fsPath, content, 'utf8');
 
                     // 변경사항 기록
                     if (this.fileChangeTracker) {
@@ -893,14 +895,13 @@ export class ActionManager {
                     // 변경사항 추적 (파일 수정 전)
                     let updateBeforeContent: string | undefined;
                     try {
-                        const existingFile = await vscode.workspace.fs.readFile(sourceUri);
-                        updateBeforeContent = Buffer.from(existingFile).toString('utf-8');
+                        updateBeforeContent = await fsPromises.readFile(sourceUri.fsPath, 'utf8');
                     } catch {
                         // 파일이 없으면 undefined 유지
                         updateBeforeContent = undefined;
                     }
 
-                    await vscode.workspace.fs.writeFile(sourceUri, Buffer.from(content, 'utf8'));
+                    await fsPromises.writeFile(sourceUri.fsPath, content, 'utf8');
 
                     // 변경사항 기록
                     if (this.fileChangeTracker) {
@@ -927,14 +928,13 @@ export class ActionManager {
                     // 변경사항 추적 (파일 삭제 전)
                     let deleteBeforeContent: string | undefined;
                     try {
-                        const existingFile = await vscode.workspace.fs.readFile(sourceUri);
-                        deleteBeforeContent = Buffer.from(existingFile).toString('utf-8');
+                        deleteBeforeContent = await fsPromises.readFile(sourceUri.fsPath, 'utf8');
                     } catch {
                         // 파일이 없으면 undefined 유지
                         deleteBeforeContent = undefined;
                     }
 
-                    await vscode.workspace.fs.delete(sourceUri);
+                    await fsPromises.unlink(sourceUri.fsPath);
 
                     // 변경사항 기록
                     if (this.fileChangeTracker) {
@@ -977,9 +977,13 @@ export class ActionManager {
                     );
                     // 디렉토리 생성
                     const targetDir = path.dirname(targetUri.fsPath);
-                    await vscode.workspace.fs.createDirectory(vscode.Uri.file(targetDir));
+                    try {
+                        await fsPromises.mkdir(targetDir, { recursive: true });
+                    } catch (e) {
+                        // 디렉토리가 이미 존재하는 경우 무시
+                    }
                     // 파일 이동
-                    await vscode.workspace.fs.rename(sourceUri, targetUri);
+                    await fsPromises.rename(sourceUri.fsPath, targetUri.fsPath);
                     return {
                         success: true,
                         actionId: action.id,
