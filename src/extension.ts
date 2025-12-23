@@ -21,15 +21,25 @@ import {
     AutoFix,
     AutoFixLlmClient
 } from './core';
-import { PromptBuilder } from './core/context/PromptBuilder';
-import { ConversationManager } from './core/conversation/ConversationManager';
-import { LLMApiClient } from './core/model/LLMApiClient';
-import { IntentDetector } from './core/action/IntentDetector';
+import { PromptBuilder } from './core/managers/context/PromptBuilder';
+import { ConversationManager } from './core/managers/conversation/ConversationManager';
+import { LLMApiClient } from './core/managers/model/LLMApiClient';
+import { IntentDetector } from './core/managers/action/IntentDetector';
 import { ExternalApiService } from './services/external/ExternalApiService';
-import { ContextHistoryManager } from './core/context/ContextHistoryManager';
-import { ConversationSummarizer } from './core/context/ConversationSummarizer';
-import { FileChangeTracker } from './core/action/file/FileChangeTracker';
-import { FileContextTracker } from './core/context/file/FileContextTracker';
+import { ContextHistoryManager } from './core/managers/context/ContextHistoryManager';
+import { ConversationSummarizer } from './core/managers/context/ConversationSummarizer';
+import { FileChangeTracker } from './core/managers/action/file/FileChangeTracker';
+import { FileContextTracker } from './core/managers/context/file/FileContextTracker';
+import { ToolRegistry } from './core/tools/ToolRegistry';
+import {
+    CreateFileToolHandler,
+    UpdateFileToolHandler,
+    RemoveFileToolHandler,
+    ReadFileToolHandler,
+    ListFilesToolHandler,
+    SearchFilesToolHandler,
+} from './core/tools/file';
+import { RunCommandToolHandler } from './core/tools/terminal';
 
 
 // 전역 변수
@@ -382,6 +392,17 @@ export async function activate(context: vscode.ExtensionContext) {
     const actionManager = ActionManager.getInstance();
     actionManager.setFileChangeTracker(fileChangeTracker);
     actionManager.setFileContextTracker(fileContextTracker);
+    
+    // Tool 핸들러 등록
+    const toolRegistry = ToolRegistry.getInstance();
+    toolRegistry.register(new CreateFileToolHandler());
+    toolRegistry.register(new UpdateFileToolHandler());
+    toolRegistry.register(new RemoveFileToolHandler());
+    toolRegistry.register(new ReadFileToolHandler());
+    toolRegistry.register(new ListFilesToolHandler());
+    toolRegistry.register(new SearchFilesToolHandler());
+    toolRegistry.register(new RunCommandToolHandler());
+    console.log('[Extension] Tool handlers registered:', toolRegistry.getRegisteredTools());
 
 
     // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨

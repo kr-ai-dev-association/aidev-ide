@@ -4,7 +4,7 @@
  * 에러 발생 시 기본값을 반환하여 안정성을 보장합니다
  */
 
-import { SettingsManager } from '../state/SettingsManager';
+import { SettingsManager } from '../managers/state/SettingsManager';
 
 export class SafeSettingsHelper {
     /**

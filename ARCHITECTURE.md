@@ -157,6 +157,17 @@ src/
 │   ├── utils/                       # Core 유틸리티
 │   │   ├── SafeSettingsHelper.ts    # 안전한 설정값 가져오기
 │   │   └── index.ts
+│   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
+│   │   ├── file/                    # 파일/프로젝트 관련 툴
+│   │   │   ├── CreateFileToolHandler.ts
+│   │   │   ├── UpdateFileToolHandler.ts
+│   │   │   ├── RemoveFileToolHandler.ts
+│   │   │   ├── ReadFileToolHandler.ts
+│   │   │   ├── ListFilesToolHandler.ts
+│   │   │   └── SearchFilesToolHandler.ts
+│   │   ├── terminal/                # 터미널/명령 실행 툴
+│   │   │   └── RunCommandToolHandler.ts
+│   │   └── code/                    # 코드 분석/리팩토링 툴 (추가 예정, placeholder)
 │   │
 │   └── index.ts                     # 모든 매니저 및 추상화 export
 │
@@ -447,7 +458,8 @@ class ContextManager {
 - `PromptBuilder.ts` - 프롬프트 생성 (deprecated, PromptComposer 사용 권장)
 - `prompts/PromptComposer.ts` - 프롬프트 조합기
 - `types/contextHistory.ts` - 컨텍스트 히스토리 타입 정의
-- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)
+- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)  
+  - XML-only로 단순화: fileOperations에서 마크다운 지시어 제거, outputFormat을 툴 실행 결과 요약 중심으로 축소, CodeWorkPrompt는 XML 툴 콜만 사용하도록 정리
 - `prompts/os/` - OS별 프롬프트 (Windows, macOS, Linux)
 - `prompts/llm/` - LLM별 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
 - `prompts/framework/` - 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express)

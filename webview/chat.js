@@ -988,6 +988,62 @@ function handleClearHistory() {
     });
 }
 
+/**
+ * XML 툴 태그를 제거하거나 사용자 친화적인 텍스트로 변환
+ * @param {string} text - 원본 텍스트 (XML 툴 태그 포함 가능)
+ * @returns {string} - 툴 태그가 제거되거나 변환된 텍스트
+ */
+function removeToolTags(text) {
+    if (!text) return text;
+    
+    let result = text;
+    
+    // aidev-ide 툴 이름 목록
+    const toolNames = [
+        'create_file',
+        'update_file',
+        'remove_file',
+        'read_file',
+        'list_files',
+        'search_files',
+        'run_command',
+        'analyze_code',
+        'verify_code',
+        'refactor_code'
+    ];
+    
+    // 각 툴 태그를 처리
+    for (const toolName of toolNames) {
+        // 정규식: <toolName>...</toolName> 또는 <toolName>...</toolName> (개행 포함)
+        const toolTagRegex = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
+        
+        result = result.replace(toolTagRegex, (match, content) => {
+            // 툴 태그를 완전히 제거
+            return '';
+        });
+    }
+    
+    // 부분 태그 제거 (스트리밍 중 닫히지 않은 태그)
+    const lastOpenBracketIndex = result.lastIndexOf('<');
+    if (lastOpenBracketIndex !== -1) {
+        const possibleTag = result.slice(lastOpenBracketIndex);
+        // 닫는 태그가 없고 툴 이름과 일치하면 제거
+        if (!possibleTag.includes('</') && toolNames.some(name => possibleTag.startsWith(`<${name}`))) {
+            result = result.slice(0, lastOpenBracketIndex);
+        }
+    }
+    
+    // 기타 XML 태그 제거 (thinking, function_calls 등)
+    result = result.replace(/<thinking>\s?/g, '');
+    result = result.replace(/\s?<\/thinking>/g, '');
+    result = result.replace(/<think>\s?/g, '');
+    result = result.replace(/\s?<\/think>/g, '');
+    result = result.replace(/<function_calls>\s?/g, '');
+    result = result.replace(/\s?<\/function_calls>/g, '');
+    
+    return result;
+}
+
 // AIDEV-IDE 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
 function displayCodePilotMessage(markdownText) {
     console.log('displayCodePilotMessage called with text length:', markdownText.length);
@@ -996,6 +1052,9 @@ function displayCodePilotMessage(markdownText) {
         return;
     }
     console.log('chatMessages element found, creating message container...');
+
+    // 1. XML 툴 태그 제거
+    const displayText = removeToolTags(markdownText);
 
     const messageContainer = document.createElement('div');
     messageContainer.classList.add('aidev-ide-message-container');
@@ -1010,8 +1069,8 @@ function displayCodePilotMessage(markdownText) {
 
     let match;
     // 모든 코드 블록을 순회하며 일반 텍스트와 코드 블록을 분리 처리
-    while ((match = codeBlockRegex.exec(markdownText)) !== null) {
-        const precedingText = markdownText.substring(lastIndex, match.index);
+    while ((match = codeBlockRegex.exec(displayText)) !== null) {
+        const precedingText = displayText.substring(lastIndex, match.index);
         const codeBlockFullMatch = match[0]; // ```...``` 전체
         const lang = match[1]; // 언어명
         const codeContent = match[2]; // 코드 내용
@@ -1084,7 +1143,7 @@ function displayCodePilotMessage(markdownText) {
     }
 
     // 3. 마지막 코드 블록 이후의 텍스트 처리 (Markdown 포맷 적용)
-    const remainingText = markdownText.substring(lastIndex);
+    const remainingText = displayText.substring(lastIndex);
     const processedRemainingHtml = md.render(remainingText); // markdown-it 사용
     tempHtmlElements.innerHTML += DOMPurify.sanitize(processedRemainingHtml);
 

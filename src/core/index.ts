@@ -4,20 +4,20 @@
  */
 
 // =============== Base ===============
-export * from './base';
+export * from './managers/base';
 
 // =============== Action ===============
-export { ActionManager } from './action/ActionManager';
-export { ActionRegistry } from './action/ActionRegistry';
-export { ActionValidator } from './action/ActionValidator';
-export { ActionMapper } from './action/ActionMapper';
-export { IntentDetector } from './action/IntentDetector';
+export { ActionManager } from './managers/action/ActionManager';
+export { ActionRegistry } from './managers/action/ActionRegistry';
+export { ActionValidator } from './managers/action/ActionValidator';
+export { ActionMapper } from './managers/action/ActionMapper';
+export { IntentDetector } from './managers/action/IntentDetector';
 export type {
     IntentDetectionResult,
     IntentCategory,
     IntentSubtype,
     TaskType as IntentTaskType
-} from './action/IntentDetector';
+} from './managers/action/IntentDetector';
 export type {
     Action,
     ActionContext,
@@ -28,17 +28,17 @@ export type {
     Permission,
     ActionType,
     LLMResponse as ActionLLMResponse
-} from './action/types';
-export * from './action/file';
+} from './managers/action/types';
+export * from './managers/action/file';
 
 // =============== Execution/Terminal/Task ===============
-export * from './execution';
-export * from './terminal';
-export { TaskManager, PlanItem, PlanQueue, PlanItemStatus } from './task/TaskManager';
-export { TaskQueue } from './task/TaskQueue';
-export { TaskScheduler } from './task/TaskScheduler';
-export { TaskRetry } from './task/TaskRetry';
-export { PlanManager } from './task/PlanManager';
+export * from './managers/execution';
+export * from './managers/terminal';
+export { TaskManager, PlanItem, PlanQueue, PlanItemStatus } from './managers/task/TaskManager';
+export { TaskQueue } from './managers/task/TaskQueue';
+export { TaskScheduler } from './managers/task/TaskScheduler';
+export { TaskRetry } from './managers/task/TaskRetry';
+export { PlanManager } from './managers/task/PlanManager';
 export type {
     Priority,
     TaskStatus,
@@ -50,34 +50,34 @@ export type {
     TaskError,
     TaskExecutionContext,
     TaskHandler
-} from './task/types';
+} from './managers/task/types';
 
 // =============== Error ===============
-export * from './error';
-export type { ParsedError, ErrorSource, ErrorCategory, ErrorSeverity, ErrorPattern as CoreErrorPattern, ErrorStats } from './error/types';
+export * from './managers/error';
+export type { ParsedError, ErrorSource, ErrorCategory, ErrorSeverity, ErrorPattern as CoreErrorPattern, ErrorStats } from './managers/error/types';
 
 // =============== Context/State/Conversation/Webview/Utils ===============
-export * from './context';
-export * from './state';
-export * from './conversation';
+export * from './managers/context';
+export * from './managers/state';
+export * from './managers/conversation';
 export * from './webview';
 export * from './utils';
 
 // =============== Model ===============
-export * from './model/types';
-export { ModelManager } from './model/ModelManager';
-export { LLMApiClient } from './model/LLMApiClient';
-export type { LLMMessagePart, LLMRequestOptions } from './model/LLMApiClient';
-export { LLMManager } from './model/LLMManager';
-export type { LLMMessagePart as LLMManagerMessagePart, LLMRequestOptions as LLMManagerRequestOptions, LLMResponse } from './model/LLMManager';
-export { ModelConnectionService } from './model/ModelConnectionService';
-export type { ParsedLLMResponse } from './model/llm/ILLMAdapter';
+export * from './managers/model/types';
+export { ModelManager } from './managers/model/ModelManager';
+export { LLMApiClient } from './managers/model/LLMApiClient';
+export type { LLMMessagePart, LLMRequestOptions } from './managers/model/LLMApiClient';
+export { LLMManager } from './managers/model/LLMManager';
+export type { LLMMessagePart as LLMManagerMessagePart, LLMRequestOptions as LLMManagerRequestOptions, LLMResponse } from './managers/model/LLMManager';
+export { ModelConnectionService } from './managers/model/ModelConnectionService';
+export type { ParsedLLMResponse } from './managers/model/llm/ILLMAdapter';
 
 // =============== Project ===============
-export { ProjectManager } from './project/ProjectManager';
-export { ProjectDetector } from './project/ProjectDetector';
-export { ProjectIndexer } from './project/ProjectIndexer';
-export { ConfigParser } from './project/ConfigParser';
+export { ProjectManager } from './managers/project/ProjectManager';
+export { ProjectDetector } from './managers/project/ProjectDetector';
+export { ProjectIndexer } from './managers/project/ProjectIndexer';
+export { ConfigParser } from './managers/project/ConfigParser';
 export type {
     ProjectProfile,
     FrameworkMatch,
@@ -95,28 +95,28 @@ export type {
     Definition,
     Import,
     Export
-} from './project/types';
+} from './managers/project/types';
 export type {
     Definition as CodeParserDefinition,
     CodeDefinitions,
     FileDefinitions,
     DefinitionType
-} from './project/codeParser/ICodeParserAdapter';
+} from './managers/project/codeParser/ICodeParserAdapter';
 
 // =============== OS Abstraction (from execution) ===============
-export * from './execution/os/IOperatingSystemAdapter';
-export * from './execution/os/DarwinAdapter';
-export * from './execution/os/WindowsAdapter';
-export * from './execution/os/LinuxAdapter';
-export * from './execution/os/OSAdapterFactory';
+export * from './managers/execution/os/IOperatingSystemAdapter';
+export * from './managers/execution/os/DarwinAdapter';
+export * from './managers/execution/os/WindowsAdapter';
+export * from './managers/execution/os/LinuxAdapter';
+export * from './managers/execution/os/OSAdapterFactory';
 
 // =============== LLM Abstraction (from model) ===============
-export * from './model/llm/ILLMAdapter';
-export * from './model/llm/GptAdapter';
+export * from './managers/model/llm/ILLMAdapter';
+export * from './managers/model/llm/GptAdapter';
 
 // =============== Framework Abstraction (from project) ===============
 
 // =============== Code Parser Abstraction (from project) ===============
-export * from './project/codeParser/ICodeParserAdapter';
-export * from './project/codeParser/TreeSitterAdapter';
-export * from './project/codeParser/languageParser';
+export * from './managers/project/codeParser/ICodeParserAdapter';
+export * from './managers/project/codeParser/TreeSitterAdapter';
+export * from './managers/project/codeParser/languageParser';

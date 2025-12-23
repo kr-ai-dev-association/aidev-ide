@@ -4,7 +4,7 @@ import { getHtmlContentWithUris } from '../../utils';
 import { PromptType, NotificationService, LicenseService, GitRepositoryService } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
 import { SupportedModelService } from '../services/SupportedModelService';
-import { ModelConnectionService } from '../../core/model/ModelConnectionService';
+import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.chatView';

@@ -6,6 +6,13 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.1.0 (XML 툴 전용 프롬프트 & 툴 UX 개선)
+- **XML-only 프롬프트**: fileOperations/outputFormat/CodeWorkPrompt에서 마크다운 지시어 안내를 제거하고 XML 툴 콜만 사용하도록 단순화했습니다.
+- **create_file 필수 content**: `create_file` 호출 시 `content`가 비어 있으면 실패하도록 프롬프트에서 강하게 안내합니다.
+- **작업 큐 소음 감소**: `list_files` 툴 호출은 작업 큐 표시에서 제외하여 잡 리스트가 깔끔하게 보입니다.
+- **문서 업데이트**: `prompt.md`, `ARCHITECTURE.md`에 새 툴 디렉토리 구조(`tools/file`, `tools/terminal`, `tools/code`)와 XML-only 규칙을 반영했습니다.
+- **응답 규율 강화**: XML 툴 콜은 반드시 `response`에 넣고 `thinking`은 비워두도록 강조했습니다.
+
 ## v5.0.11 (처리 단계 UI 개선)
 - **ProcessingSteps 상태 업데이트 수정**: 초기 step이 설정되지 않은 상태에서 `updateProcessingStatus` 메시지가 프로그레스를 표시하지 않던 문제를 수정했습니다. 이제 상태 업데이트를 받을 때 step이 없으면 자동으로 새 step을 생성합니다.
 - **디버깅 로그**: 프로그레스 표시 문제 진단을 위해 `setProcessingStep`과 `updateProcessingStatus` 명령에 콘솔 로그를 추가했습니다.

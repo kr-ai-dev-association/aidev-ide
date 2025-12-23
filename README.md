@@ -876,7 +876,13 @@ Calling out known issues can help limit users opening duplicate issues against y
 Please see [RELEASE.md](RELEASE.md).
 
 ### Latest Release
-- **🚀 Version 4.9.0** (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
+- **🚀 Version 5.1.0** (2025/12/23) - XML Tool-Only Prompts & Tool UX Polish  
+  - **XML-only prompts**: Removed markdown file directives; fileOperations/outputFormat/CodeWorkPrompt simplified to XML tool calls only.  
+  - **Required content for create_file**: Prompt enforces non-empty `content`; prevents empty-file errors.  
+  - **Task queue UX**: `list_files` tool calls are hidden from the job queue to reduce noise.  
+  - **Tool docs**: Added `prompt.md` and updated `ARCHITECTURE.md` for new tool layout (`tools/file`, `tools/terminal`, `tools/code`).  
+  - **Response discipline**: Stronger guidance to leave `thinking` empty and place XML tool calls in `response` only.
+- **Version 4.9.0** (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
   - **Command Execution Summary Descriptions**: User-friendly description phrases for each command in execution summary
   - **Automatic Task Queue Status Updates**: Task queue items automatically update status when terminal commands are executed
   - **Real-time Webview Updates**: Task queue status changes are immediately reflected in the webview

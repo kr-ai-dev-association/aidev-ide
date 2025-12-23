@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
-import { StateManager } from '../state/StateManager';
+import { StateManager } from '../managers/state/StateManager';
 import { GeminiApi, NotificationService, LicenseService, OllamaBlockerService, AiModelType, ExternalApiService } from '../../services';
-import { SettingsManager } from '../state/SettingsManager';
+import { SettingsManager } from '../managers/state/SettingsManager';
 import { createAndSetupWebviewPanel } from '../../utils';
-import { TerminalManager } from '../terminal/TerminalManager';
-import { TaskManager } from '../task/TaskManager';
-import { ModelConnectionService } from '../model/ModelConnectionService';
+import { TerminalManager } from '../managers/terminal/TerminalManager';
+import { TaskManager } from '../managers/task/TaskManager';
+import { ModelConnectionService } from '../managers/model/ModelConnectionService';
 import { SupportedModelService, LocaleService } from '../../webview/services';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
