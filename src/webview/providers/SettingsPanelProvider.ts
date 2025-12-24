@@ -553,7 +553,7 @@ export function openSettingsPanel(
                                 const storedUi = await stateManager.getAiModel();
                                 const storedRuntime = await stateManager.getCurrentAiModel();
                                 // ModelManager에서 직접 가져오기
-                                const { ModelManager } = await import('../../core/model/ModelManager');
+                                const { ModelManager } = await import('../../core/managers/model/ModelManager');
                                 const modelManager = ModelManager.getInstance(context);
                                 const currentModel = modelManager?.getCurrentModel();
                                 console.log(`[PanelManager] AI model saved. ui='${storedUi}', runtime='${storedRuntime}', llmId='${currentModel?.id}'`);

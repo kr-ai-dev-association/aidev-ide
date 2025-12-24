@@ -134,20 +134,6 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
         return interactivePatterns.some(pattern => pattern.test(command));
     }
 
-    isLongRunningCommand(command: string): boolean {
-        const longRunningPatterns = [
-            /npm\s+run\s+dev/,
-            /npm\s+start/,
-            /yarn\s+dev/,
-            /yarn\s+start/,
-            /vite/,
-            /webpack.*serve/,
-            /ng\s+serve/,
-            /mvnw\.cmd\s+spring-boot:run/,
-            /gradlew\.bat\s+bootRun/,
-        ];
-        return longRunningPatterns.some(pattern => pattern.test(command));
-    }
 
     getShellExecutionOptions(): Record<string, any> {
         return {

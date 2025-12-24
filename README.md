@@ -6,6 +6,13 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.1.1 (Tree-sitter Based Function Location Search & read_file Display Improvement)
+- **Tree-sitter integration**: Uses tree-sitter AST parsing instead of regex to accurately find function/class locations.
+- **read_file display improvement**: Shows only the context around a specific line (5 lines above and below) instead of the entire file for better readability.
+- **Task queue count alignment**: Excludes `list_files` from successCount/failCount so the task queue display count matches the execution completion count.
+- **Duplicate display removal**: Follow-up tool call `read_file` results are not displayed to prevent duplicate output.
+- **Automatic function location search**: Extracts function names from user queries and uses tree-sitter to find accurate declaration locations.
+
 ## v5.0.11 (Processing Steps UI Improvement)
 - **ProcessingSteps status update fix**: Fixed issue where `updateProcessingStatus` messages were not displaying progress when no initial step was set. Now automatically creates a new step if it doesn't exist when receiving status updates.
 - **Debug logging**: Added console logging for `setProcessingStep` and `updateProcessingStatus` commands to help diagnose progress display issues.

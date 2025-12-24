@@ -1848,13 +1848,14 @@
                 }
 
                 // 단계별 텍스트를 가로 방향으로 결합 (이모지 제외)
-                const textParts = steps.map(s => {
+                const textParts = steps.map((s, index) => {
                     const stepName = s.step || '';
                     const status = s.status || '';
+                    const isLast = index === steps.length - 1;
                     if (status && status !== 'processing' && status !== 'Waiting...') {
-                        return `${stepName}: ${status} | `;
+                        return `${stepName}: ${status}${isLast ? '' : ' | '}`;
                     }
-                    return `${stepName} | `;
+                    return `${stepName}${isLast ? '' : ' | '}`;
                 });
 
                 const newFullText = textParts.join('');

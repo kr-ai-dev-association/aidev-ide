@@ -8,17 +8,14 @@ import {
     Process,
     ProcessStatus,
     ProcessMetadata,
-    ExecutionOptions,
-    LongRunningCommand
+    ExecutionOptions
 } from './types';
 
 export class ProcessManager {
     private processes: Map<number, Process> = new Map();
     private childProcesses: Map<number, ChildProcess> = new Map();
-    private longRunningPatterns: LongRunningCommand[] = [];
 
     constructor() {
-        this.registerDefaultLongRunningPatterns();
     }
 
     /**
@@ -84,7 +81,7 @@ export class ProcessManager {
         }
 
         // 이미 중지 중이거나 중지된 경우
-        if (processInfo.status === ProcessStatus.STOPPING || 
+        if (processInfo.status === ProcessStatus.STOPPING ||
             processInfo.status === ProcessStatus.STOPPED ||
             processInfo.status === ProcessStatus.KILLED) {
             console.log(`[ProcessManager] Process already stopping/stopped: PID=${pid}`);
@@ -104,7 +101,7 @@ export class ProcessManager {
 
             // Grace period 후 강제 종료
             const gracePeriod = processInfo.metadata?.type === 'dev-server' ? 5000 : 2000;
-            
+
             await new Promise<void>((resolve) => {
                 const timeout = setTimeout(() => {
                     if (this.isProcessRunning(pid)) {
@@ -148,7 +145,7 @@ export class ProcessManager {
      * 실행 중인 프로세스를 가져옵니다
      */
     public getRunningProcesses(): Process[] {
-        return this.getAllProcesses().filter(p => 
+        return this.getAllProcesses().filter(p =>
             p.status === ProcessStatus.RUNNING || p.status === ProcessStatus.STARTING
         );
     }
@@ -162,8 +159,8 @@ export class ProcessManager {
             return false;
         }
 
-        return processInfo.status === ProcessStatus.RUNNING || 
-               processInfo.status === ProcessStatus.STARTING;
+        return processInfo.status === ProcessStatus.RUNNING ||
+            processInfo.status === ProcessStatus.STARTING;
     }
 
     /**
@@ -173,24 +170,6 @@ export class ProcessManager {
         return this.childProcesses.get(pid);
     }
 
-    /**
-     * 명령어가 장기 실행 명령어인지 확인합니다
-     */
-    public isLongRunningCommand(command: string): boolean {
-        const normalizedCmd = command.toLowerCase().trim();
-        
-        return this.longRunningPatterns.some(pattern => 
-            pattern.pattern.test(normalizedCmd)
-        );
-    }
-
-    /**
-     * 장기 실행 패턴을 등록합니다
-     */
-    public registerLongRunningPattern(pattern: LongRunningCommand): void {
-        this.longRunningPatterns.push(pattern);
-        console.log(`[ProcessManager] Registered long-running pattern: ${pattern.description}`);
-    }
 
     /**
      * 상태를 업데이트합니다
@@ -214,7 +193,7 @@ export class ProcessManager {
 
         childProcess.on('exit', (code, signal) => {
             console.log(`[ProcessManager] Process ${pid} exited: code=${code}, signal=${signal}`);
-            
+
             if (signal === 'SIGKILL' || signal === 'SIGTERM') {
                 this.updateStatus(pid, ProcessStatus.KILLED);
             } else if (code === 0) {
@@ -238,7 +217,7 @@ export class ProcessManager {
     private parseCommand(command: string): string[] {
         // 간단한 파싱 (쉘이 처리하므로 복잡한 파싱 불필요)
         const trimmed = command.trim();
-        
+
         // 쉘 명령어인 경우 그대로 반환
         if (process.platform === 'win32') {
             return ['cmd', '/c', trimmed];
@@ -247,83 +226,6 @@ export class ProcessManager {
         }
     }
 
-    /**
-     * 기본 장기 실행 패턴을 등록합니다
-     */
-    private registerDefaultLongRunningPatterns(): void {
-        // 개발 서버
-        this.registerLongRunningPattern({
-            pattern: /npm\s+(run\s+)?(dev|start|serve)/,
-            description: 'npm dev server',
-            defaultPort: 3000
-        });
-
-        this.registerLongRunningPattern({
-            pattern: /yarn\s+(run\s+)?(dev|start|serve)/,
-            description: 'yarn dev server',
-            defaultPort: 3000
-        });
-
-        this.registerLongRunningPattern({
-            pattern: /pnpm\s+(run\s+)?(dev|start|serve)/,
-            description: 'pnpm dev server',
-            defaultPort: 3000
-        });
-
-        // Spring Boot
-        this.registerLongRunningPattern({
-            pattern: /\.\/mvnw\s+spring-boot:run/,
-            description: 'Spring Boot dev server',
-            defaultPort: 8080
-        });
-
-        this.registerLongRunningPattern({
-            pattern: /\.\/gradlew\s+bootRun/,
-            description: 'Gradle Spring Boot',
-            defaultPort: 8080
-        });
-
-        // Python
-        this.registerLongRunningPattern({
-            pattern: /python\s+manage\.py\s+runserver/,
-            description: 'Django dev server',
-            defaultPort: 8000
-        });
-
-        this.registerLongRunningPattern({
-            pattern: /flask\s+run/,
-            description: 'Flask dev server',
-            defaultPort: 5000
-        });
-
-        this.registerLongRunningPattern({
-            pattern: /uvicorn\s+\w+:app/,
-            description: 'FastAPI server',
-            defaultPort: 8000
-        });
-
-        // Go
-        this.registerLongRunningPattern({
-            pattern: /go\s+run\s+main\.go/,
-            description: 'Go server',
-            defaultPort: 8080
-        });
-
-        // 기타
-        this.registerLongRunningPattern({
-            pattern: /watch\s+/,
-            description: 'watch command',
-            shutdownGracePeriod: 1000
-        });
-
-        this.registerLongRunningPattern({
-            pattern: /tail\s+-f/,
-            description: 'tail -f command',
-            shutdownGracePeriod: 1000
-        });
-
-        console.log(`[ProcessManager] Registered ${this.longRunningPatterns.length} default long-running patterns`);
-    }
 
     /**
      * 모든 프로세스를 정리합니다
@@ -352,7 +254,7 @@ export class ProcessManager {
         failed: number;
     } {
         const all = this.getAllProcesses();
-        
+
         return {
             total: all.length,
             running: all.filter(p => p.status === ProcessStatus.RUNNING).length,

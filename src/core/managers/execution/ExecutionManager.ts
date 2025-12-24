@@ -35,6 +35,8 @@ export class ExecutionManager {
         averageDuration: 0,
         lastExecutionTime: 0
     };
+    // continue() 패턴을 위한 pending promises
+    private pendingCompletions: Map<number, { resolve: (result: ExecutionResult) => void; reject: (error: Error) => void }> = new Map();
 
     private constructor() {
         this.processManager = new ProcessManager();
@@ -164,7 +166,37 @@ export class ExecutionManager {
         await this.processManager.stopProcess(pid);
         this.streamManager.unregisterAllHandlers(pid);
 
+        // pending completion 정리
+        this.pendingCompletions.delete(pid);
+
         console.log(`[ExecutionManager] Process stopped: PID=${pid}`);
+    }
+
+    /**
+     * 프로세스를 백그라운드에서 계속 실행하도록 합니다 
+     * Promise를 즉시 resolve하여 실행 흐름이 계속되도록 합니다
+     */
+    public continueProcess(pid: number): void {
+        console.log(`[ExecutionManager] Continuing process in background: PID=${pid}`);
+
+        const pending = this.pendingCompletions.get(pid);
+        if (pending) {
+            const buffer = this.streamManager.getBuffer(pid);
+            const process = this.processManager.getProcess(pid);
+            const duration = process ? Date.now() - process.startTime : 0;
+
+            // 즉시 성공으로 반환 (프로세스는 백그라운드에서 계속 실행)
+            pending.resolve({
+                success: true,
+                exitCode: undefined as any, // 백그라운드 실행 중이므로 exitCode 없음
+                stdout: buffer?.stdout || '',
+                stderr: buffer?.stderr || '',
+                duration,
+                pid
+            });
+
+            this.pendingCompletions.delete(pid);
+        }
     }
 
     /**
@@ -223,10 +255,16 @@ export class ExecutionManager {
     }
 
     /**
-     * 명령어가 장기 실행 명령어인지 확인합니다
+     * 명령어가 장기 실행 명령어인지 확인합니다 
+     * @param pid 프로세스 ID (출력 기반 분석용)
      */
-    public isLongRunningCommand(command: string): boolean {
-        return this.processManager.isLongRunningCommand(command);
+    public isLongRunningCommand(pid: number): boolean {
+        if (pid === undefined) {
+            return false;
+        }
+
+        // 출력 기반 분석 
+        return this.streamManager.isLongRunningOutput(pid);
     }
 
     /**
@@ -303,10 +341,14 @@ export class ExecutionManager {
             let timeoutHandle: NodeJS.Timeout | undefined;
             let resolved = false;
 
+            // pending completion 저장 (continue()를 위해)
+            this.pendingCompletions.set(pid, { resolve, reject });
+
             const cleanup = () => {
                 if (timeoutHandle) {
                     clearTimeout(timeoutHandle);
                 }
+                this.pendingCompletions.delete(pid);
             };
 
             const doResolve = (result: ExecutionResult) => {
@@ -329,6 +371,9 @@ export class ExecutionManager {
             if (timeout && timeout > 0) {
                 timeoutHandle = setTimeout(() => {
                     console.warn(`[ExecutionManager] Timeout after ${timeout}ms for PID=${pid}`);
+                    // 타임아웃 발생 시 프로세스를 종료하지 않고 continue()를 호출할 수 있도록
+                    // 여기서는 기존 동작 유지 (프로세스 종료)
+                    // RunCommandToolHandler에서 continue()를 호출하도록 변경
                     childProcess.kill('SIGTERM');
 
                     doResolve({
@@ -463,7 +508,7 @@ export class ExecutionManager {
             const result = await this.waitForCompletion(pid, options.timeoutMs);
 
             return {
-                code: result.exitCode,
+                code: result.exitCode ?? null,
                 stdout: result.stdout || stdout,
                 stderr: result.stderr || stderr
             };

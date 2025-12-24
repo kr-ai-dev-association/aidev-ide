@@ -6,6 +6,7 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { ActionType } from '../../managers/action/types';
+import { fixModelHtmlEscaping } from '../../../utils/string';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -32,13 +33,16 @@ export class CreateFileToolHandler implements IToolHandler {
             };
         }
 
+        // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
+        const cleanedContent = fixModelHtmlEscaping(content);
+
         // 기존 ActionManager의 executeCodeGeneration 사용
         const action = {
             id: `tool_${Date.now()}_${Math.random()}`,
             type: ActionType.CODE_GENERATION,
             params: {
                 filePath,
-                code: content
+                code: cleanedContent
             },
             permissions: [],
             validation: []
@@ -51,7 +55,7 @@ export class CreateFileToolHandler implements IToolHandler {
             message: result.message || `File ${filePath} created successfully`,
             data: { filePath, actionId: result.actionId },
             filePath: filePath,
-            fileContent: content
+            fileContent: cleanedContent
         };
     }
 

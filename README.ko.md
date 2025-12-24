@@ -6,6 +6,13 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.1.1 (Tree-sitter 기반 함수 위치 검색 & read_file 표시 개선)
+- **Tree-sitter 통합**: 정규식 대신 tree-sitter AST 파싱을 사용하여 함수/클래스 위치를 정확하게 검색합니다.
+- **read_file 결과 표시 개선**: 전체 파일 대신 특정 라인 주변(위아래 5줄)만 표시하여 가독성을 향상시켰습니다.
+- **작업 큐 개수 일치**: `list_files`를 successCount/failCount에서도 제외하여 작업 큐 표시 개수와 실행 완료 개수가 일치합니다.
+- **중복 표시 제거**: follow-up tool call의 `read_file` 결과는 표시하지 않아 중복 표시를 방지합니다.
+- **함수 위치 자동 검색**: 사용자 질의에서 함수명을 추출하여 tree-sitter로 정확한 선언 위치를 찾습니다.
+
 ## v5.1.0 (XML 툴 전용 프롬프트 & 툴 UX 개선)
 - **XML-only 프롬프트**: fileOperations/outputFormat/CodeWorkPrompt에서 마크다운 지시어 안내를 제거하고 XML 툴 콜만 사용하도록 단순화했습니다.
 - **create_file 필수 content**: `create_file` 호출 시 `content`가 비어 있으면 실패하도록 프롬프트에서 강하게 안내합니다.

@@ -5,6 +5,7 @@
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
+import { fixModelHtmlEscaping } from '../../../utils/string';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -23,8 +24,11 @@ export class UpdateFileToolHandler implements IToolHandler {
             };
         }
         
+        // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
+        const cleanedDiff = fixModelHtmlEscaping(diff);
+        
         // SEARCH/REPLACE 블록 파싱
-        const replacements = this.parseDiff(diff);
+        const replacements = this.parseDiff(cleanedDiff);
         if (replacements.length === 0) {
             return {
                 success: false,

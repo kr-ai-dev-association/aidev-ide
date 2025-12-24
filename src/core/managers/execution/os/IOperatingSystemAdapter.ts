@@ -127,11 +127,6 @@ export interface IOperatingSystemAdapter {
     isInteractiveCommand(command: string): boolean;
 
     /**
-     * 장기 실행 명령어 여부 판단
-     */
-    isLongRunningCommand(command: string): boolean;
-
-    /**
      * 명령어 실행 시 필요한 셸 옵션
      */
     getShellExecutionOptions(): Record<string, any>;

@@ -118,6 +118,8 @@ src/
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
 │   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (오케스트레이션)
+│   │   │                            # - Tree-sitter를 사용한 함수 위치 검색 (v5.1.1)
+│   │   │                            # - read_file 결과 표시 개선 (특정 라인 주변만 표시)
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
@@ -464,6 +466,12 @@ class ContextManager {
 - `prompts/llm/` - LLM별 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
 - `prompts/framework/` - 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express)
 - `prompts/task/` - 작업 타입별 프롬프트 (code_work, execution_work, summarize)
+
+**read_file 결과 표시 개선** (v5.1.1):
+- Tree-sitter를 사용하여 함수/클래스 위치를 정확하게 검색
+- 사용자 질의에서 함수명을 추출하여 매칭되는 정의의 라인 번호 사용
+- 전체 파일 대신 특정 라인 주변(위아래 5줄)만 표시하여 가독성 향상
+- follow-up tool call의 `read_file` 결과는 중복 방지를 위해 표시하지 않음
 
 **프롬프트 시스템 아키텍처**:
 - **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성

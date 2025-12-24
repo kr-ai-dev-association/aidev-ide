@@ -584,7 +584,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 터미널 모니터링 테스트 명령어
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testTerminalMonitoring', async () => {
         try {
-            const { ErrorManager } = await import('./core/error/ErrorManager');
+            const { ErrorManager } = await import('./core/managers/error/ErrorManager');
             const errorManager = ErrorManager.getInstance();
             if (errorManager) {
                 const stats = errorManager.getStats();

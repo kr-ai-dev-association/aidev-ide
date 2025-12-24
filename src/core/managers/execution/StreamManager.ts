@@ -159,7 +159,7 @@ export class StreamManager {
     private cleanup(pid: number): void {
         console.log(`[StreamManager] Cleaning up streams for PID=${pid}`);
         this.handlers.delete(pid);
-        
+
         // 버퍼는 유지 (히스토리 목적)
         // this.buffers.delete(pid);
     }
@@ -245,6 +245,64 @@ export class StreamManager {
 
         const lines = content.split('\n');
         return lines.filter(line => pattern.test(line));
+    }
+
+    /**
+     * 출력 내용을 분석하여 장기 실행 명령어인지 판단합니다
+     * 출력에서 "compiling", "building" 등의 마커를 찾아 장기 실행 여부를 판단
+     */
+    public isLongRunningOutput(pid: number): boolean {
+        const buffer = this.buffers.get(pid);
+        if (!buffer) {
+            return false;
+        }
+
+        const content = (buffer.stdout + buffer.stderr).toLowerCase();
+
+        // 장기 실행을 나타내는 마커들 
+        const compilingMarkers = [
+            'compiling',
+            'building',
+            'bundling',
+            'transpiling',
+            'generating',
+            'starting',
+            'watching',
+            'serving',
+            'listening',
+            'ready',
+            'running',
+            'dev server',
+            'development server'
+        ];
+
+        // 완료를 나타내는 nullifier들
+        const markerNullifiers = [
+            'compiled',
+            'success',
+            'finish',
+            'complete',
+            'succeed',
+            'done',
+            'end',
+            'stop',
+            'exit',
+            'terminate',
+            'error',
+            'fail',
+            'failed',
+            'error:'
+        ];
+
+        // 마커가 있고 nullifier가 없으면 장기 실행으로 판단
+        const hasCompilingMarker = compilingMarkers.some(marker =>
+            content.includes(marker)
+        );
+        const hasNullifier = markerNullifiers.some(nullifier =>
+            content.includes(nullifier)
+        );
+
+        return hasCompilingMarker && !hasNullifier;
     }
 }
 

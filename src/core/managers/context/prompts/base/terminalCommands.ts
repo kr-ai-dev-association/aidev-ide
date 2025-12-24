@@ -4,14 +4,16 @@
  */
 
 export function getTerminalCommandRules(): string {
-    return `실행 의도/터미널 명령 출력 규칙 (매우 중요):
-- **실행 계획을 만들지 마세요. 직접 명령어만 제공하세요.**
-  * ❌ "실행 계획 (Step-by-Step)" 같은 형식으로 응답하지 마세요.
-  * ❌ "아래 단계들을 차례대로 수행하세요" 같은 설명을 포함하지 마세요.
-  * ❌ 플레이스홀더 경로(/path/to/your/sql, /home/banya/sql 등)를 사용하지 마세요.
-  * ✅ 코드베이스 컨텍스트에서 실제 파일 경로를 찾아서 사용하세요.
-  * ✅ 사용자가 요청한 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.
-- 실행 명령은 한 줄 순수 명령만 코드블록/백틱에 제공합니다. **명령 내 주석(#, // 등)이나 설명 텍스트를 절대 넣지 마세요.** echo/if/elif/else/플레이스홀더 경로 금지.
+    return `**매우 중요: execution_work에서는 반드시 XML 도구 호출을 사용하세요!**
+- **절대로 마크다운 코드 블록(\\\`\\\`\\\`bash)을 사용하지 마세요.**
+- **반드시 \`<run_command>\` XML 도구를 사용하여 명령을 실행하세요.**
+- **실행 계획을 만들지 마세요. 직접 \`<run_command>\` XML 도구를 호출하세요.**
+  * "실행 계획 (Step-by-Step)" 같은 형식으로 응답하지 마세요.
+  * "아래 단계들을 차례대로 수행하세요" 같은 설명을 포함하지 마세요.
+  * 플레이스홀더 경로(/path/to/your/sql, /home/banya/sql 등)를 사용하지 마세요.
+  * 코드베이스 컨텍스트에서 실제 파일 경로를 찾아서 사용하세요.
+  * \`<run_command><command>실행할 명령어</command></run_command>\` 형식으로 제공하세요.
+- 명령 내 주석(#, // 등)이나 설명 텍스트를 절대 넣지 마세요. echo/if/elif/else/플레이스홀더 경로 금지.
 - 최대 4개 이하 명령만 반환하세요.
 - 버전 확인은 1회만(예: node -v && npm -v).
 - package.json이 없을 때만 init 명령을 포함합니다.
@@ -36,13 +38,16 @@ export function getCommandExecutionGuide(): string {
  * Shell별 프롬프트 생성 헬퍼
  */
 export function buildShellSpecificPrompt(shellType: string): string {
-    const shellGuides: Record<string, string> = {
-        bash: '```bash\n# Bash 명령어 예시\ncommand --option value\n```',
-        zsh: '```zsh\n# Zsh 명령어 예시\ncommand --option value\n```',
-        powershell: '```powershell\n# PowerShell 명령어 예시\nCommand-Verb -Parameter Value\n```',
-        cmd: '```cmd\n# CMD 명령어 예시\ncommand /option value\n```',
-    };
+    return `**⚠️ 중요: execution_work에서는 XML 도구 호출을 사용하세요!**
+- 명령어는 **${shellType}** 문법으로 작성하세요.
+- **반드시 \`<run_command>\` XML 도구를 사용하세요.**
+- **마크다운 코드 블록(\\\`\\\`\\\`bash 등)은 사용하지 마세요.**
 
-    return `명령어는 **${shellType}** 문법으로 작성하세요.\n\n예시:\n${shellGuides[shellType] || shellGuides.bash}`;
+**올바른 형식:**
+\`\`\`
+<run_command>
+<command>${shellType} 명령어</command>
+</run_command>
+\`\`\``;
 }
 

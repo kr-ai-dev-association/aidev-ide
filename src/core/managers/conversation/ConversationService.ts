@@ -94,7 +94,7 @@ export class ConversationService {
     public static async clearHistory(promptType: PromptType, extensionContext?: vscode.ExtensionContext): Promise<void> {
         if (!extensionContext) return;
 
-        const { SessionManager } = await import('../../state/SessionManager');
+        const { SessionManager } = await import('../state/SessionManager');
         const sessionManager = SessionManager.getInstance(extensionContext);
         const tabType = promptType === PromptType.CODE_GENERATION ? 'code' : 'ask';
         sessionManager.clearTabHistory(tabType);

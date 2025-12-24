@@ -5,29 +5,52 @@
 
 export function getExecutionWorkPrompt(): string {
   return `**실행 작업 (execution_work) 특화 규칙:**
-- 프로젝트의 설치, 빌드, 배포, 실행을 위한 스크립트(.sh, .bat, .ps1 등)를 생성하거나 터미널 명령을 실행해야 합니다.
-- 소스 코드 파일을 생성/수정하지 마세요.
-- 실행 명령은 한 줄 순수 명령만 코드블록/백틱에 제공합니다.
-- 명령 내 주석(#, // 등)이나 설명 텍스트를 절대 넣지 마세요.
 
-**매우 중요: 실행 계획을 만들지 마세요. 직접 명령어만 제공하세요.**
-  * ❌ "실행 계획 (Step-by-Step)" 같은 형식으로 응답하지 마세요.
-  * ❌ "아래 단계들을 차례대로 수행하세요" 같은 설명을 포함하지 마세요.
-  * ❌ 플레이스홀더 경로(/path/to/your/sql, /home/banya/sql 등)를 사용하지 마세요.
-  * ✅ 실제 파일 경로를 찾아서 사용하세요. 코드베이스 컨텍스트에서 파일 경로를 확인하세요.
-  * ✅ 사용자가 요청한 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.
+**⚠️ 매우 중요: execution_work에서도 반드시 XML 도구 호출을 사용해야 합니다!**
+- **절대로 마크다운 코드 블록(\\\`\\\`\\\`bash)을 사용하지 마세요.**
+- **절대로 텍스트 설명만 제공하지 마세요.**
+- **반드시 run_command XML 도구를 호출해야 합니다.**
+- **파일을 찾아야 하는 경우에도 먼저 search_files 또는 list_files XML 도구를 사용한 후 run_command XML 도구를 사용하세요.**
+- **어떤 경우에도 마크다운 코드 블록을 사용하지 마세요. XML 도구 호출만 사용하세요.**
 
-**중요: 사용자가 직접 명령어를 요청한 경우 (예: "psql로 실행해줘", "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:
-  * 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.
-  * chmod +x 같은 권한 설정 명령어를 포함하지 마세요.
-  * 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.
-  * 예시: 사용자가 "생성된 sql 파일 psql로 실행해줘"라고 요청하면:
-    - 코드베이스 컨텍스트에서 실제 SQL 파일 경로를 찾으세요 (예: backend/db/setup.sql)
-    - \`\`\`bash\npsql -U banya -d test -f backend/db/setup.sql\n\`\`\` 만 제공하세요.
-  * 잘못된 예: 
-    - "실행 계획" 형식으로 응답
-    - \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)
-    - \`\`\`bash\ncd /path/to/your/sql\n\`\`\` (플레이스홀더 경로 사용 금지)
-- 복잡한 빌드/배포 스크립트가 필요한 경우에만 스크립트 파일을 생성하세요.`;
+** 실행 작업 규칙:**
+    - 프로젝트의 설치, 빌드, 배포, 실행을 위한 터미널 명령을 실행합니다.
+- 소스 코드 파일을 생성/수정하지 마세요 (code_work가 아닙니다).
+- 실행 계획을 만들지 마세요. 직접 run_command XML 도구를 호출하세요.
+
+** 올바른 형식:**
+모든 명령 실행 요청은 반드시 run_command XML 도구를 사용하세요:
+
+\`\`\`xml
+<run_command>
+<command>실행할 명령어</command>
+</run_command>
+\`\`\`
+
+** 파일을 찾아야 하는 경우:**
+필요한 파일을 찾아야 한다면 먼저 search_files 또는 list_files XML 도구를 사용한 후 run_command를 사용하세요:
+
+\`\`\`xml
+<search_files>
+<path>.</path>
+<pattern>파일패턴</pattern>
+</search_files>
+<run_command>
+<command>찾은 파일을 사용한 명령어</command>
+</run_command>
+\`\`\`
+
+          ** 절대 하지 말아야 할 것:**
+            - ❌ \`\`\`bash\npsql -U banya -d test -f backend/seed.sql\n\`\`\` (마크다운 코드 블록 사용 금지)
+- ❌ "실행 계획 (Step-by-Step)" 형식으로 응답
+- ❌ 스크립트 파일(.sh, .bat, .ps1) 생성 (단순 명령 실행은 스크립트 파일 불필요)
+- ❌ 플레이스홀더 경로(/path/to/your/sql 등) 사용
+- ❌ thinking 필드에만 도구 호출 넣기 (반드시 response 필드에 넣어야 함)
+
+**중요:**
+- **thinking 필드는 비워두고**, 모든 XML 도구 호출을 **response 필드에 넣으세요**.
+- **response 필드를 비워두면 실패합니다.**
+- **execution_work 작업도 code_work와 동일하게 XML 도구 호출을 사용합니다.**
+- **마크다운 코드 블록은 어떤 경우에도 사용하지 마세요.**`;
 }
 

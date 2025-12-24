@@ -21,7 +21,7 @@ export interface ExecutionOptions {
  */
 export interface ExecutionResult {
     success: boolean;
-    exitCode: number;
+    exitCode?: number; // continue() 패턴 사용 시 undefined일 수 있음
     stdout: string;
     stderr: string;
     duration: number;
@@ -151,13 +151,4 @@ export interface ExecutionStats {
     lastExecutionTime: number;
 }
 
-/**
- * 장기 실행 명령어 정보
- */
-export interface LongRunningCommand {
-    pattern: RegExp;
-    description: string;
-    defaultPort?: number;
-    shutdownGracePeriod?: number;
-}
 

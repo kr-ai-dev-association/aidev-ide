@@ -255,7 +255,7 @@ export class TerminalManager {
                 // 결과 업데이트
                 session.updateCommandResult(
                     commandId,
-                    result.exitCode,
+                    result.exitCode ?? -1,
                     result.duration,
                     {
                         stdout: result.stdout,

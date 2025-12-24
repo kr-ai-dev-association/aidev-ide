@@ -149,8 +149,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     try {
                         console.log('[ChatViewProvider] 오류 분석 요청');
                         // 🆕 ErrorManager를 사용하여 최근 오류 분석
-                        const { ErrorManager } = await import('../../core/error/ErrorManager');
-                        const { ErrorSource } = await import('../../core/error/types');
+                        const { ErrorManager } = await import('../../core/managers/error/ErrorManager');
+                        const { ErrorSource } = await import('../../core/managers/error/types');
                         const errorManager = ErrorManager.getInstance();
                         const history = errorManager.getHistory();
                         const recentErrors = history.getAll()

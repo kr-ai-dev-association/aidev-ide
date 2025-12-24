@@ -27,18 +27,15 @@ export function getCodeVsScriptRules(): string {
       - \`\`\`bash\ncat <<'EOF' > pom.xml ... EOF\n\`\`\`
       - \`\`\`bash\nmkdir -p src/main/java\n\`\`\`
       - \`\`\`bash\nif ! command -v brew; then ... fi\n\`\`\`
-- **execution_work**: 설치/빌드/배포/실행 스크립트(.sh, .bat, .ps1) 생성 또는 터미널 명령 실행만 수행. 소스 코드 생성 금지.
-- **사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.**
-
-쉘 스크립트 규칙:
-- 빌드/실행/테스트/배포 관련 작업일 때만 생성
-- 일반 작업(파일 정리, 문서화 등)에는 생성하지 않음
-- 스크립트 내 프로그래밍 코드는 언어명 callout 명시 (\`\`\`python, \`\`\`javascript 등)
-- **중요: 사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:
-  - 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.
-  - chmod +x 같은 권한 설정 명령어를 포함하지 마세요.
-  - 요청된 명령어를 직접 실행할 수 있는 코드 블록만 제공하세요.
-  - 예시: 사용자가 "mvn spring-boot:run으로 실행해줘"라고 요청하면 \`\`\`bash\nmvn spring-boot:run\n\`\`\` 만 제공하세요.
-  - 잘못된 예: \`\`\`bash\necho "mvn spring-boot:run" > run.sh\nchmod +x run.sh\n./run.sh\n\`\`\` (스크립트 생성 금지)`;
+- **execution_work**: 설치/빌드/배포/실행을 위한 터미널 명령 실행만 수행. 소스 코드 생성 금지.
+- **⚠️ 매우 중요: execution_work에서는 반드시 XML 도구 호출을 사용하세요!**
+  - **절대로 마크다운 코드 블록(\\\`\\\`\\\`bash)을 사용하지 마세요.**
+  - **반드시 \`<run_command>\` XML 도구를 사용하여 명령을 실행하세요.**
+  - **사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:
+    - 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.
+    - chmod +x 같은 권한 설정 명령어를 포함하지 마세요.
+    - ✅ 올바른 형식: \`<run_command><command>mvn spring-boot:run</command></run_command>\`
+    - ❌ 잘못된 형식: \\\`\\\`\\\`bash\\nmvn spring-boot:run\\n\\\`\\\`\\\` (마크다운 코드 블록 사용 금지)
+- **사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.**`;
 }
 

@@ -12,12 +12,8 @@ import {
     ExtensionStats,
     RecentAction
 } from './types';
-console.log('[StateManager] Types imported');
-console.log('[StateManager] Importing CryptoUtils from utils...');
 import { CryptoUtils } from '../../../utils';
-console.log('[StateManager] CryptoUtils imported:', typeof CryptoUtils, CryptoUtils);
 import { BaseManager } from '../base/BaseManager';
-console.log('[StateManager] BaseManager imported');
 
 // @ts-ignore - BaseManager 상속 타입 호환성
 export class StateManager extends BaseManager {

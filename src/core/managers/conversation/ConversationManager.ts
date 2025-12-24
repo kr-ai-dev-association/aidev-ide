@@ -6,6 +6,8 @@
 
 import * as vscode from 'vscode';
 import * as os from 'os';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { PromptType, ExternalApiService, GitRepositoryService } from '../../../services';
 import { LLMApiClient } from '../model/LLMApiClient';
 import { ContextManager } from '../context/ContextManager';
@@ -21,12 +23,14 @@ import { PromptBuilder } from '../context/PromptBuilder';
 import { IntentDetector, IntentDetectionResult } from '../action/IntentDetector';
 import { TaskManager } from '../task/TaskManager';
 import { PlanManager } from '../task/PlanManager';
+import type { ToolUse, ToolResponse } from '../../tools/types';
 import { checkTokenLimit, logTokenUsage, estimateTokens, safePostMessage } from '../../../utils';
 import { TerminalManager } from '../terminal/TerminalManager';
 import { ContextHistoryManager } from '../context/ContextHistoryManager';
 import { ConversationSummarizer } from '../context/ConversationSummarizer';
 import { ContextType } from '../context/types';
 import { ConversationEntry } from '../state/types';
+import { TreeSitterAdapter } from '../project/codeParser/TreeSitterAdapter';
 
 export interface ConversationOptions {
     userQuery: string;
@@ -241,28 +245,6 @@ export class ConversationManager {
                     WebviewBridge.sendProcessingStatus(webviewToRespond, 'intent', `Intent: ${intentResult.category}/${intentResult.subtype} (${(intentResult.confidence * 100).toFixed(0)}%)${projectTypeInfo}`);
                 } catch (e) {
                     console.warn('[ConversationManager] Intent detection failed:', e);
-                }
-            }
-
-            // 실행 의도 처리
-            if (intentResult && intentResult.category === 'execution' && (intentResult.subtype === 'execution_build' || intentResult.subtype === 'execution_run' || intentResult.subtype === 'execution_install' || intentResult.subtype === 'execution_deploy')) {
-                const autoExecuteCommands = await this.settingsManager.isAutoExecuteCommandsEnabled();
-                if (autoExecuteCommands) {
-                    try {
-                        await this.handleExecutionIntentWithActionPlan({
-                            userQuery,
-                            webviewToRespond,
-                            intentResult,
-                            extensionContext,
-                            geminiApi,
-                            ollamaApi,
-                            currentModelType,
-                            abortSignal
-                        });
-                        return;
-                    } catch (e) {
-                        console.warn('[ConversationManager] 실행 의도 처리 중 오류 - 일반 경로로 폴백합니다:', e);
-                    }
                 }
             }
 
@@ -628,8 +610,8 @@ export class ConversationManager {
             WebviewBridge.sendProcessingStep(webviewToRespond, 'parsing');
             WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', 'Processing response format...');
 
-            // 코드 생성 의도인 경우 액션 처리
-            if (promptType === PromptType.CODE_GENERATION) {
+            // 코드 생성 의도 또는 실행 의도인 경우 액션 처리 (tool calling 사용)
+            if (promptType === PromptType.CODE_GENERATION || intentResult?.taskType === 'execution_work') {
                 try {
                     const actionManager = ActionManager.getInstance();
                     const executionManager = ExecutionManager.getInstance();
@@ -646,17 +628,18 @@ export class ConversationManager {
                     actionManager.setContext(context);
 
                     // 툴 콜 파싱 시도
+                    // webpack이 자동으로 .ts와 .js를 처리하므로 확장자 없이 import
                     const { ToolParser } = await import('../../tools/ToolParser');
                     const { ToolExecutor } = await import('../../tools/ToolExecutor');
                     const { Tool } = await import('../../tools/types');
-                    
+
                     // Tool import를 전역으로 사용하기 위해 저장
                     this.currentToolEnum = Tool;
-                    
+
                     // "We will issue tool calls." 같은 메시지 필터링
                     const trimmedResponse = llmResponse.trim();
                     const isPlaceholderMessage = /^(we will issue tool calls?|tool calls? will be issued|i will use tool calls?|tool calls? incoming)\.?$/i.test(trimmedResponse);
-                    
+
                     if (isPlaceholderMessage) {
                         console.log('[ConversationManager] Detected placeholder message, filtering out');
                         // 플레이스홀더 메시지는 표시하지 않고 재시도 안내
@@ -669,8 +652,8 @@ export class ConversationManager {
                         this.finishProcessing(webviewToRespond);
                         return;
                     }
-                    
-                    const toolCalls = ToolParser.parseToolCalls(llmResponse);
+
+                    const toolCalls: ToolUse[] = ToolParser.parseToolCalls(llmResponse);
 
                     if (toolCalls.length > 0) {
                         // 툴 콜링 모드
@@ -720,11 +703,11 @@ export class ConversationManager {
                         // Follow-up 루프 방지를 위한 플래그
                         let hasGeneratedFollowUp = false;
                         let allToolResults: Array<{ result: ToolResponse; toolUse: ToolUse }> = [];
-                        
+
                         // 초기 tool call 실행
                         let currentToolCalls = toolCalls;
                         let currentToolResults = await toolExecutor.executeTools(currentToolCalls, toolContext);
-                        
+
                         // 결과 저장
                         for (let i = 0; i < currentToolResults.length; i++) {
                             allToolResults.push({
@@ -739,6 +722,7 @@ export class ConversationManager {
                         const createdFiles: Array<{ path: string; content: string }> = [];
                         const updatedFiles: Array<{ path: string; content: string }> = [];
                         const removedFiles: Array<{ path: string }> = [];
+                        const executedCommands: Array<{ command: string; output: string; error?: string; exitCode?: number }> = [];
                         let readFileResults: Array<{ path: string; content: string }> = [];
 
                         // 모든 tool 결과 처리
@@ -780,7 +764,10 @@ export class ConversationManager {
                             }
 
                             if (result.success) {
-                                successCount++;
+                                // list_files는 작업 큐에서 제외되므로 successCount에도 제외
+                                if (toolUse.name !== Tool.LIST_FILES) {
+                                    successCount++;
+                                }
                                 console.log(`[ConversationManager] Tool ${toolUse.name} executed successfully`);
 
                                 // 파일 생성/수정/삭제 정보 수집
@@ -793,7 +780,7 @@ export class ConversationManager {
                                     // 수정된 파일 내용도 수집 (fileContent가 있으면 사용, 없으면 data에서 읽기)
                                     const fileContent = result.fileContent || result.data?.content;
                                     if (fileContent) {
-                                    updatedFiles.push({
+                                        updatedFiles.push({
                                             path: result.data.filePath,
                                             content: fileContent
                                         });
@@ -829,9 +816,96 @@ export class ConversationManager {
                                         path: toolUse.params.path || result.data.path || '',
                                         content: result.data.content
                                     });
+
+                                    // read_file 결과도 패널에 표시 (초기 tool call만 표시, follow-up은 제외)
+                                    const fileName = (toolUse.params.path || result.data.path || '').split(/[/\\]/).pop() || 'unknown';
+                                    const fileExt = fileName.split('.').pop()?.toLowerCase() || 'text';
+                                    const lines = result.data.content.split('\n');
+                                    const lineCount = lines.length;
+
+                                    // Tree-sitter를 사용하여 함수/클래스 위치 찾기
+                                    let targetLine = 1;
+
+                                    // 사용자 요청에서 라인 번호가 명시적으로 있는지 확인
+                                    const explicitLineMatch = options.userQuery.match(/(?:라인|line|줄)\s*(\d+)|(\d+)\s*(?:번째|번|라인|줄)/i);
+                                    if (explicitLineMatch) {
+                                        targetLine = parseInt(explicitLineMatch[1] || explicitLineMatch[2] || '1', 10);
+                                        if (targetLine < 1) targetLine = 1;
+                                        if (targetLine > lineCount) targetLine = lineCount;
+                                    } else {
+                                        // Tree-sitter를 사용하여 정의 찾기
+                                        try {
+                                            const parser = new TreeSitterAdapter();
+
+                                            // 파일 경로 구성
+                                            const filePath = toolUse.params.path || result.data.path || '';
+                                            const absolutePath = path.isAbsolute(filePath)
+                                                ? filePath
+                                                : path.join(context.projectRoot, filePath);
+
+                                            // 파일 파싱
+                                            const fileDefinitions = await parser.parseFile(absolutePath);
+
+                                            if (fileDefinitions && fileDefinitions.definitions.length > 0) {
+                                                // 사용자 질의에서 함수/클래스명 추출 (간단한 추출)
+                                                const queryLower = options.userQuery.toLowerCase();
+                                                const nameMatch = queryLower.match(/(\w+)\s*(?:함수|function|클래스|class|메서드|method)/);
+                                                const nameToFind = nameMatch ? nameMatch[1] : null;
+
+                                                if (nameToFind) {
+                                                    // 정의들 중에서 이름이 일치하는 것 찾기
+                                                    const matchedDef = fileDefinitions.definitions.find((def: { name: string; startLine: number }) =>
+                                                        def.name.toLowerCase() === nameToFind.toLowerCase()
+                                                    );
+
+                                                    if (matchedDef && matchedDef.startLine !== undefined) {
+                                                        targetLine = matchedDef.startLine + 1; // 0-based to 1-based
+                                                    }
+                                                } else {
+                                                    // 이름이 없으면 첫 번째 정의 사용
+                                                    const firstDef = fileDefinitions.definitions[0];
+                                                    if (firstDef && firstDef.startLine !== undefined) {
+                                                        targetLine = firstDef.startLine + 1; // 0-based to 1-based
+                                                    }
+                                                }
+                                            }
+                                        } catch (error) {
+                                            console.warn('[ConversationManager] Failed to find location using tree-sitter, using default:', error);
+                                            // Tree-sitter 실패 시 기본값 1 사용
+                                        }
+                                    }
+
+                                    // 위아래 5줄씩 추출
+                                    const startLine = Math.max(1, targetLine - 5);
+                                    const endLine = Math.min(lineCount, targetLine + 5);
+                                    const contextLines = lines.slice(startLine - 1, endLine);
+                                    const contextContent = contextLines.join('\n');
+
+                                    const readFileSummary = `### 파일 읽기: ${fileName}\n`;
+                                    const readFileSummary2 = `**경로:** \`${toolUse.params.path || result.data.path || ''}\`\n`;
+                                    const readFileSummary3 = `**라인:** ${targetLine}번째 라인 (${startLine}-${endLine} / 총 ${lineCount} lines)\n\n`;
+                                    const readFileSummary4 = `\`\`\`${fileExt}\n${contextContent}\n\`\`\`\n\n`;
+
+                                    safePostMessage(webviewToRespond, {
+                                        command: 'receiveMessage',
+                                        sender: 'AIDEV-IDE',
+                                        text: readFileSummary + readFileSummary2 + readFileSummary3 + readFileSummary4
+                                    });
+                                } else if (toolUse.name === Tool.RUN_COMMAND) {
+                                    // run_command 결과 수집
+                                    const command = toolUse.params.command || '';
+                                    executedCommands.push({
+                                        command: command,
+                                        output: result.data?.output || '',
+                                        error: result.data?.error,
+                                        exitCode: result.data?.exitCode
+                                    });
                                 }
                             } else {
-                                failCount++;
+                                // list_files는 작업 큐에서 제외되므로 failCount에도 제외
+                                if (toolUse.name !== Tool.LIST_FILES) {
+                                    failCount++;
+                                }
                                 console.error(`[ConversationManager] Tool ${toolUse.name} failed:`, result.message);
                                 safePostMessage(webviewToRespond, {
                                     command: 'receiveMessage',
@@ -847,17 +921,17 @@ export class ConversationManager {
                             console.log('[ConversationManager] Read file results found, generating follow-up tool calls');
                             WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', 'Generating follow-up actions based on file content...');
                             hasGeneratedFollowUp = true;
-                            
+
                             // 읽은 파일 내용을 포함하여 LLM에 다시 요청
                             let followUpUserMessage = `Based on the following file content, generate tool calls to complete the user's request: "${options.userQuery}"\n\n`;
-                            
+
                             for (const readResult of readFileResults) {
                                 followUpUserMessage += `**File: ${readResult.path}**\n`;
                                 followUpUserMessage += `\`\`\`\n${readResult.content}\n\`\`\`\n\n`;
                             }
-                            
+
                             followUpUserMessage += '\nGenerate tool calls in XML format only to complete the task.\n';
-                            
+
                             try {
                                 // 기존 system prompt 재사용
                                 const followUpResponse = await this.llmService.sendMessageWithSystemPrompt(
@@ -866,22 +940,22 @@ export class ConversationManager {
                                     { signal: abortSignal }
                                 );
                                 const followUpToolCalls = ToolParser.parseToolCalls(followUpResponse);
-                                
+
                                 if (followUpToolCalls.length > 0) {
                                     console.log(`[ConversationManager] Generated ${followUpToolCalls.length} follow-up tool calls`);
                                     const followUpResults = await toolExecutor.executeTools(followUpToolCalls, toolContext);
-                                    
+
                                     // Follow-up 결과를 allToolResults에 추가하고 처리
                                     for (let i = 0; i < followUpResults.length; i++) {
                                         const followUpResult = followUpResults[i];
                                         const followUpToolUse = followUpToolCalls[i];
                                         const followUpIndex = allToolResults.length;
-                                        
+
                                         allToolResults.push({
                                             result: followUpResult,
                                             toolUse: followUpToolUse
                                         });
-                                        
+
                                         // Follow-up tool도 작업 큐에 추가 (list_files는 제외)
                                         try {
                                             const taskManager = TaskManager.getInstance(extensionContext);
@@ -905,37 +979,49 @@ export class ConversationManager {
                                             console.warn('[ConversationManager] Follow-up tool을 작업 큐에 추가 실패:', e);
                                         }
 
-                            // 작업 큐 상태 업데이트
-                            try {
-                                const taskManager = TaskManager.getInstance(extensionContext);
-                                if (taskManager) {
-                                    const items = taskManager.listPlanItems();
+                                        // 작업 큐 상태 업데이트
+                                        try {
+                                            const taskManager = TaskManager.getInstance(extensionContext);
+                                            if (taskManager) {
+                                                const items = taskManager.listPlanItems();
                                                 const item = items.find(item => item.detail?.startsWith(`tool_${followUpIndex}|`));
-                                    if (item) {
+                                                if (item) {
                                                     taskManager.updatePlanItemStatus(item.id, followUpResult.success ? 'done' : 'failed');
                                                     // detail에서 tool ID 제거하여 표시
-                                        const displayItems = taskManager.listPlanItems().map(i => ({
-                                            ...i,
-                                            detail: i.detail?.includes('|') ? i.detail.split('|').slice(1).join('|') : i.detail
-                                        }));
-                                        safePostMessage(webviewToRespond, {
-                                            command: 'updateTaskQueue',
-                                            items: displayItems
-                                        });
-                                    }
-                                }
-                            } catch (e) {
+                                                    const displayItems = taskManager.listPlanItems().map(i => ({
+                                                        ...i,
+                                                        detail: i.detail?.includes('|') ? i.detail.split('|').slice(1).join('|') : i.detail
+                                                    }));
+                                                    safePostMessage(webviewToRespond, {
+                                                        command: 'updateTaskQueue',
+                                                        items: displayItems
+                                                    });
+                                                }
+                                            }
+                                        } catch (e) {
                                             console.warn('[ConversationManager] Follow-up 작업 큐 상태 업데이트 실패:', e);
-                            }
+                                        }
 
                                         // Follow-up 결과 즉시 처리
                                         if (followUpResult.success) {
-                                successCount++;
+                                            // list_files는 작업 큐에서 제외되므로 successCount에도 제외
+                                            if (followUpToolUse.name !== Tool.LIST_FILES) {
+                                                successCount++;
+                                            }
                                             if (followUpToolUse.name === Tool.CREATE_FILE && followUpResult.filePath && followUpResult.fileContent) {
                                                 createdFiles.push({
                                                     path: followUpResult.filePath,
                                                     content: followUpResult.fileContent
                                                 });
+                                            } else if (followUpToolUse.name === Tool.READ_FILE && followUpResult.data?.content) {
+                                                // read_file 결과 수집 (다음 tool call 생성을 위해)
+                                                readFileResults.push({
+                                                    path: followUpToolUse.params.path || followUpResult.data.path || '',
+                                                    content: followUpResult.data.content
+                                                });
+
+                                                // read_file 결과는 follow-up에서는 표시하지 않음 (중복 방지)
+                                                // 초기 tool call에서만 표시됨
                                             } else if (followUpToolUse.name === Tool.UPDATE_FILE && followUpResult.data?.filePath) {
                                                 // 수정된 파일 내용도 수집
                                                 const fileContent = followUpResult.fileContent || followUpResult.data?.content;
@@ -970,9 +1056,21 @@ export class ConversationManager {
                                                 removedFiles.push({
                                                     path: followUpResult.data.filePath
                                                 });
+                                            } else if (followUpToolUse.name === Tool.RUN_COMMAND) {
+                                                // run_command 결과 수집
+                                                const command = followUpToolUse.params.command || '';
+                                                executedCommands.push({
+                                                    command: command,
+                                                    output: followUpResult.data?.output || '',
+                                                    error: followUpResult.data?.error,
+                                                    exitCode: followUpResult.data?.exitCode
+                                                });
                                             }
                                         } else {
-                                            failCount++;
+                                            // list_files는 작업 큐에서 제외되므로 failCount에도 제외
+                                            if (followUpToolUse.name !== Tool.LIST_FILES) {
+                                                failCount++;
+                                            }
                                             console.error(`[ConversationManager] Follow-up tool ${followUpToolUse.name} failed:`, followUpResult.message);
                                         }
                                     }
@@ -1011,14 +1109,14 @@ export class ConversationManager {
                             for (const file of updatedFiles) {
                                 const fileName = file.path.split(/[/\\]/).pop() || file.path;
                                 const fileExt = fileName.split('.').pop()?.toLowerCase() || 'text';
-                                
+
                                 if (file.content) {
                                     const lineCount = file.content.split('\n').length;
                                     updateSummary += `### ${fileName}\n`;
                                     updateSummary += `**경로:** \`${file.path}\`\n`;
                                     updateSummary += `**라인 수:** ${lineCount} lines\n\n`;
                                     updateSummary += `\`\`\`${fileExt}\n${file.content}\n\`\`\`\n\n`;
-                            } else {
+                                } else {
                                     // 내용이 없는 경우 (읽기 실패 등)
                                     updateSummary += `### ${fileName}\n`;
                                     updateSummary += `**경로:** \`${file.path}\`\n\n`;
@@ -1044,6 +1142,37 @@ export class ConversationManager {
                             });
                         }
 
+                        // 실행된 명령어 표시
+                        if (executedCommands.length > 0) {
+                            let commandSummary = '## 실행된 명령어\n\n';
+                            for (const cmd of executedCommands) {
+                                commandSummary += `### 명령어 실행\n`;
+                                commandSummary += `**명령어:**\n`;
+                                commandSummary += `\`\`\`bash\n${cmd.command}\n\`\`\`\n\n`;
+
+                                if (cmd.output) {
+                                    commandSummary += `**출력:**\n`;
+                                    commandSummary += `\`\`\`\n${cmd.output}\n\`\`\`\n\n`;
+                                }
+
+                                if (cmd.error) {
+                                    commandSummary += `**오류:**\n`;
+                                    commandSummary += `\`\`\`\n${cmd.error}\n\`\`\`\n\n`;
+                                }
+
+                                if (cmd.exitCode !== undefined && cmd.exitCode !== 0) {
+                                    commandSummary += `**종료 코드:** ${cmd.exitCode}\n\n`;
+                                }
+
+                                commandSummary += '---\n\n';
+                            }
+                            safePostMessage(webviewToRespond, {
+                                command: 'receiveMessage',
+                                sender: 'AIDEV-IDE',
+                                text: commandSummary
+                            });
+                        }
+
                         // 실행 결과 요약
                         if (successCount > 0 || failCount > 0) {
                             const summaryMsg = `\n📊 실행 완료: 성공 ${successCount}개${failCount > 0 ? `, 실패 ${failCount}개` : ''}`;
@@ -1059,10 +1188,10 @@ export class ConversationManager {
                             try {
                                 console.log('[ConversationManager] Generating work summary and explanation...');
                                 WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', 'Generating work summary...');
-                                
+
                                 // 실행된 작업 정보 수집
                                 let workSummary = `다음 작업이 완료되었습니다:\n\n`;
-                                
+
                                 if (createdFiles.length > 0) {
                                     workSummary += `**생성된 파일 (${createdFiles.length}개):**\n`;
                                     createdFiles.forEach(file => {
@@ -1070,7 +1199,7 @@ export class ConversationManager {
                                     });
                                     workSummary += '\n';
                                 }
-                                
+
                                 if (updatedFiles.length > 0) {
                                     workSummary += `**수정된 파일 (${updatedFiles.length}개):**\n`;
                                     updatedFiles.forEach(file => {
@@ -1078,7 +1207,7 @@ export class ConversationManager {
                                     });
                                     workSummary += '\n';
                                 }
-                                
+
                                 if (removedFiles.length > 0) {
                                     workSummary += `**삭제된 파일 (${removedFiles.length}개):**\n`;
                                     removedFiles.forEach(file => {
@@ -1086,31 +1215,31 @@ export class ConversationManager {
                                     });
                                     workSummary += '\n';
                                 }
-                                
+
                                 workSummary += `\n**사용자 요청:** ${options.userQuery}\n\n`;
                                 workSummary += `위 작업에 대한 다음 정보를 한글로 제공해주세요:\n`;
                                 workSummary += `1. **작업 요약**: 수행한 작업의 개요\n`;
                                 workSummary += `2. **변경사항 설명**: 각 파일에 대한 변경 내용과 이유에 대한 상세 설명\n`;
                                 workSummary += `3. **테스트 방법**: 동작 확인 방법 및 테스트 절차\n`;
                                 workSummary += `\n마크다운 형식으로 작성해주세요.`;
-                                
+
                                 // LLM에게 요약 요청
                                 const summaryResponse = await this.llmService.sendMessageWithSystemPrompt(
                                     systemPrompt,
                                     [{ text: workSummary }],
                                     { signal: abortSignal }
                                 );
-                                
+
                                 if (summaryResponse && summaryResponse.trim().length > 0) {
                                     // XML 태그 제거 (tool call이 포함될 수 있음)
                                     let cleanSummary = summaryResponse;
                                     const toolCallPattern = /<(create_file|update_file|remove_file|read_file|list_files|search_files|run_command)>[\s\S]*?<\/\1>/gi;
                                     cleanSummary = cleanSummary.replace(toolCallPattern, '');
-                                    
+
                                     if (cleanSummary.trim().length > 0) {
-                                safePostMessage(webviewToRespond, {
-                                    command: 'receiveMessage',
-                                    sender: 'AIDEV-IDE',
+                                        safePostMessage(webviewToRespond, {
+                                            command: 'receiveMessage',
+                                            sender: 'AIDEV-IDE',
                                             text: `## 작업 요약 및 설명\n\n${cleanSummary}`
                                         });
                                     }
@@ -1131,9 +1260,9 @@ export class ConversationManager {
 
                     // Tool calls가 없는 경우 에러 메시지 표시
                     console.log('[ConversationManager] No tool calls found in LLM response');
-                            safePostMessage(webviewToRespond, {
-                                command: 'receiveMessage',
-                                sender: 'AIDEV-IDE',
+                    safePostMessage(webviewToRespond, {
+                        command: 'receiveMessage',
+                        sender: 'AIDEV-IDE',
                         text: '⚠️ LLM이 tool call을 생성하지 못했습니다. XML 형식의 tool call을 생성하도록 프롬프트를 확인해주세요.'
                     });
                     WebviewBridge.sendProcessingStatus(webviewToRespond, 'completed', 'No tool calls generated');
@@ -1227,31 +1356,6 @@ export class ConversationManager {
         safePostMessage(webview, { command: 'hideLoading' });
         safePostMessage(webview, { command: 'hideProcessingSteps' });
         WebviewBridge.sendProcessingStep(webview, 'completed');
-    }
-
-    /**
-     * 실행 의도 처리 및 액션 플랜 생성
-     */
-    private async handleExecutionIntentWithActionPlan(options: {
-        userQuery: string;
-        webviewToRespond: vscode.Webview;
-        intentResult: IntentDetectionResult;
-        extensionContext?: vscode.ExtensionContext;
-        geminiApi?: any;
-        ollamaApi?: any;
-        currentModelType?: any;
-        abortSignal?: AbortSignal;
-    }): Promise<void> {
-        // Tool calling 방식으로 변경됨 - 이 메서드는 더 이상 사용하지 않음
-        const { webviewToRespond } = options;
-        console.warn('[ConversationManager] handleExecutionIntentWithActionPlan is deprecated. Tool calling should be used instead.');
-                safePostMessage(webviewToRespond, {
-                    command: 'receiveMessage',
-                    sender: 'AIDEV-IDE',
-            text: '⚠️ 이 기능은 더 이상 지원되지 않습니다. Tool calling 방식을 사용해주세요.'
-        });
-        WebviewBridge.sendProcessingStatus(webviewToRespond, 'completed', 'Deprecated method called');
-            this.finishProcessing(webviewToRespond);
     }
 
     /**
