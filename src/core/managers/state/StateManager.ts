@@ -269,8 +269,6 @@ export class StateManager extends BaseManager {
     private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'aidev-ide.remoteOllamaApiUrl';
     private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.remoteOllamaEndpoint';
     private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'aidev-ide.remoteOllamaModel';
-    private readonly NEWS_API_KEY_SECRET_KEY = 'aidev-ide.newsApiKey';
-    private readonly NEWS_API_SECRET_SECRET_KEY = 'aidev-ide.newsApiSecret';
     private readonly IS_LICENSE_VERIFIED_KEY = 'aidev-ide.isLicenseVerified';
     private readonly LANGUAGE_KEY = 'aidev-ide.language';
     private readonly AUTO_UPDATE_ENABLED_KEY = 'aidev-ide.autoUpdateEnabled';
@@ -462,24 +460,6 @@ export class StateManager extends BaseManager {
 
     public async savePlanningModel(model: string): Promise<void> {
         await this.saveSecret('aidev-ide.planningModel', model);
-    }
-
-    // News API key
-    public async saveNewsApiKey(apiKey: string): Promise<void> {
-        await this.saveSecret(this.NEWS_API_KEY_SECRET_KEY, apiKey);
-    }
-
-    public async getNewsApiKey(): Promise<string | undefined> {
-        return await this.getSecret(this.NEWS_API_KEY_SECRET_KEY);
-    }
-
-    // News API secret
-    public async saveNewsApiSecret(secret: string): Promise<void> {
-        await this.saveSecret(this.NEWS_API_SECRET_SECRET_KEY, secret);
-    }
-
-    public async getNewsApiSecret(): Promise<string | undefined> {
-        return await this.getSecret(this.NEWS_API_SECRET_SECRET_KEY);
     }
 
     // License verified flag

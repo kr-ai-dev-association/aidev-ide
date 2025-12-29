@@ -600,7 +600,8 @@
             <label for="auto-execute-toggle">Toggle</label>
         </div>
         <p id="auto-execute-status" class="info-message"></p>
-        <p class="info-message" data-i18n="autoExecuteDescription">LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지 여부를 설정합니다. 비활성화하면 수동으로 실행해야 합니다.</p>
+        <p class="info-message" data-i18n="autoExecuteDescription">LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지 여부를
+            설정합니다. 비활성화하면 수동으로 실행해야 합니다.</p>
     </div>
 
     <div class="section-container">
@@ -741,40 +742,18 @@
         <div class="api-key-section" id="ollama-model-download-section">
             <h3 id="ollama-model-download-label">📦 Ollama 모델 다운로드</h3>
             <p class="info-message">로컬 Ollama에 사용할 수 있는 다양한 LLM 모델을 다운로드할 수 있습니다.</p>
-            <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에 추가됩니다.</p>
-            
+            <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에 추가됩니다.
+            </p>
+
             <div id="ollama-model-list" class="model-list-container">
                 <!-- 모델 리스트가 여기에 동적으로 로드됩니다 -->
             </div>
-            
+
             <p id="ollama-model-download-status" class="info-message"></p>
         </div>
     </div>
 
 
-    <div class="section-container">
-        <h2 id="external-api-keys-title">외부 API 키 설정</h2>
-        <p class="info-message">실시간 정보 기능을 사용하기 위한 외부 API 키들을 설정합니다. 각 서비스의 웹사이트에서 API 키를 발급받아 입력하세요.</p>
-
-        <!-- 네이버 뉴스 API 키 -->
-        <div class="api-key-section">
-            <h3 id="news-api-key-label">📰 네이버 뉴스 API</h3>
-            <p class="info-message">한국의 최신 뉴스 정보를 제공합니다.</p>
-            <p class="info-message"><strong>등록 방법:</strong> <a href="https://developers.naver.com/apps/#/list"
-                    target="_blank">네이버 개발자 센터</a>에서 애플리케이션을 등록하고 Client ID와 Client Secret을 발급받으세요.</p>
-            <div class="api-key-input-group">
-                <input type="password" id="news-api-key-input" placeholder="네이버 API Client ID를 입력하세요...">
-                <button id="save-news-api-key-button" class="save-button">저장</button>
-            </div>
-            <p id="news-api-key-status" class="info-message"></p>
-            <div class="api-key-input-group" style="margin-top: 10px;">
-                <input type="password" id="news-api-secret-input" placeholder="네이버 API Client Secret을 입력하세요...">
-                <button id="save-news-api-secret-button" class="save-button">저장</button>
-            </div>
-            <p id="news-api-secret-status" class="info-message"></p>
-        </div>
-
-    </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>

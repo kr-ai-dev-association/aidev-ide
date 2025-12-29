@@ -6,6 +6,14 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.1.3 (External API Removal)
+- **External API removal**: Removed all external API integrations (Weather, Stock, News APIs)
+  - Removed Weather API integration (Korean Meteorological Administration API)
+  - Removed Stock API integration (Alpha Vantage API)
+  - Removed News API integration (Naver News API)
+  - Removed all related UI components, settings, and handlers
+  - Cleaned up configuration entries and state management code
+
 ## v5.1.2 (LLM Autonomy & Enhanced File Modification)
 - **LLM autonomy**: Removed system-generated follow-ups. LLM now autonomously decides when to retry failed operations and generate subsequent tool calls
 - **Enhanced update_file matching**: 
@@ -431,19 +439,6 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Drag & Drop Interface**: Easy image attachment via clipboard paste
 - **Visual Context**: AI can analyze screenshots, diagrams, and code images
 
-### 🌐 Real-Time Information Services
-- **Weather Information**: Korean Meteorological Administration API integration
-  - Current weather conditions and forecasts
-  - 7-day weather predictions
-  - Location-specific weather data
-- **News Updates**: NewsAPI integration for latest headlines
-  - Topic-specific news searches
-  - Real-time news aggregation
-  - Source attribution and timestamps
-- **Stock Market Data**: Alpha Vantage API integration
-  - Real-time stock prices and changes
-  - Major stock tracking (AAPL, GOOGL, MSFT, TSLA, AMZN)
-  - Percentage change calculations
 
 ### 🔢 Token Management System
 - **Input Token Calculation**: Automatic token counting for both Gemini and Ollama models
@@ -466,11 +461,8 @@ VSCode base code assistant plugin with LLM and LM support.
     - Vessl AI Cluster: `https://model-service-gateway-xxx.eu.h100-cluster.vessl.ai` + `/api/chat`
   - **Dynamic Settings**: Enable/disable model-specific settings based on selection
   - **Automatic Migration**: Legacy 'ollama' settings automatically converted to specific model types
-- **API Key Management**: Secure storage for multiple external API keys
+- **API Key Management**: Secure storage for API keys
   - Gemini API key configuration
-  - Weather API key configuration
-  - News API credentials (Client ID & Secret)
-  - Stock API key management
   - **Banya License Management**: 
     - Encrypted license serial storage with AES-256-CBC
     - Firebase Firestore verification system
@@ -670,8 +662,6 @@ VSCode base code assistant plugin with LLM and LM support.
 ### 📋 Usage Examples
 - **Code Generation**: "Create a React component for user authentication"
 - **Code Modification**: "Add error handling to this function"
-- **Real-time Info**: "What's the weather in Seoul?" or "Show me the latest tech news"
-- **Stock Queries**: "What are the current stock prices?"
 - **File Operations**: "Create a new utility file for date formatting"
 - **File Selection**: Use the @ button to select specific files for context inclusion
 - **CODE Tab Operations**: "Analyze and refactor this code" (full file operations)
@@ -747,10 +737,6 @@ VSCode base code assistant plugin with LLM and LM support.
    ollama pull codellama:7b
    ```
 
-3. **Optional External APIs**
-   - **Weather API**: Get API key from [KMA API Hub](https://apihub.kma.go.kr/)
-   - **News API**: Get Client ID & Secret from [Naver Developers](https://developers.naver.com/)
-   - **Stock API**: Get API key from [Alpha Vantage](https://www.alphavantage.co/)
 
 ### CLI binaries: PATH and aliases (optional)
 To run bundled binaries directly from your terminal, add PATH entries or aliases in your shell profile (macOS zsh example).
@@ -828,10 +814,6 @@ npm run lint
    - Ask: "What is TypeScript?"
    - Verify informative response
    
-   # Test real-time information
-   - Ask: "What's the weather in Seoul?"
-   - Ask: "Show me latest tech news"
-   - Ask: "What are current stock prices?"
    ```
 
 4. **Settings Testing**

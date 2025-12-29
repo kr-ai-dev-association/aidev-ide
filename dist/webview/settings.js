@@ -68,12 +68,6 @@ if (autoExecuteToggle) {
 }
 
 // API 키 관련 요소들
-const newsApiKeyInput = document.getElementById('news-api-key-input');
-const saveNewsApiKeyButton = document.getElementById('save-news-api-key-button');
-const newsApiKeyStatus = document.getElementById('news-api-key-status');
-const newsApiSecretInput = document.getElementById('news-api-secret-input');
-const saveNewsApiSecretButton = document.getElementById('save-news-api-secret-button');
-const newsApiSecretStatus = document.getElementById('news-api-secret-status');
 
 // Gemini API 키 관련 요소들
 const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
@@ -140,7 +134,7 @@ let currentSettingsOllamaModel = null; // currentSettings에서 받은 Ollama �
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
   // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
-  const licenseRequiredButtons = [saveGeminiApiKeyButton, saveNewsApiKeyButton, saveNewsApiSecretButton];
+  const licenseRequiredButtons = [saveGeminiApiKeyButton];
 
   // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
   const alwaysEnabledButtons = [saveLocalOllamaApiUrlButton, saveLocalOllamaEndpointButton, saveRemoteOllamaModelButton, saveRemoteOllamaApiUrlButton, saveRemoteOllamaEndpointButton, saveOllamaServerTypeButton];
@@ -325,35 +319,6 @@ function applyLanguage() {
     }
   }
 
-  // News API 키 라벨
-  const newsApiKeyLabel = document.getElementById('news-api-key-label');
-  if (newsApiKeyLabel && languageData['newsApiKeyLabel']) {
-    newsApiKeyLabel.textContent = languageData['newsApiKeyLabel'];
-    // console.log('Updated news API key label:', languageData['newsApiKeyLabel']);
-  }
-
-  // News API 설명
-  const newsApiDescription = document.querySelector('#news-api-key-label + p');
-  if (newsApiDescription && languageData['newsApiDescription']) {
-    newsApiDescription.textContent = languageData['newsApiDescription'];
-    // console.log('Updated news API description:', languageData['newsApiDescription']);
-  }
-
-  // News API 등록 방법
-  const newsApiRegistrationMethod = document.querySelector('#news-api-key-label + p + p');
-  if (newsApiRegistrationMethod && languageData['newsApiRegistrationMethod']) {
-    // 링크는 유지하면서 텍스트만 업데이트
-    const linkMatch = newsApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-    if (linkMatch) {
-      const linkText = linkMatch[1];
-      const newText = languageData['newsApiRegistrationMethod'].replace('네이버 개발자 센터', `<a href="https://developers.naver.com/apps/#/list" target="_blank">${linkText}</a>`);
-      newsApiRegistrationMethod.innerHTML = newText;
-    } else {
-      newsApiRegistrationMethod.textContent = languageData['newsApiRegistrationMethod'];
-    }
-    // console.log('Updated news API registration method:', languageData['newsApiRegistrationMethod']);
-  }
-
   // 공통 저장 버튼들
   document.querySelectorAll('.save-button').forEach(btn => {
     if (languageData['saveButton']) {
@@ -402,13 +367,6 @@ function applyLanguage() {
     // console.log('Updated auto update enabled text:', languageData['autoUpdateEnabled']);
   }
 
-  // 외부 API 키 설정 제목
-  const externalApiKeysTitle = document.getElementById('external-api-keys-title');
-  if (externalApiKeysTitle && languageData['externalApiKeysTitle']) {
-    externalApiKeysTitle.textContent = languageData['externalApiKeysTitle'];
-    // console.log('Updated external API keys title:', languageData['externalApiKeysTitle']);
-  }
-
   // 기타 설명 텍스트들 (p 태그들) - 더 정확한 매칭으로 개선
   const infoMessages = document.querySelectorAll('.info-message');
   infoMessages.forEach(msg => {
@@ -442,11 +400,6 @@ function applyLanguage() {
       // 외부 API 키 설명
       if (languageData['externalApiKeysDescription']) {
         msg.textContent = languageData['externalApiKeysDescription'];
-      }
-    } else if (text && (text.includes('한국의 최신 뉴스 정보를 제공합니다') || text.includes('Provides the latest news information from Korea') || text.includes('Proporciona la información de noticias más reciente de Corea') || text.includes('Fournit les dernières informations d\'actualités de Corée') || text.includes('提供韩国的最新新闻信息') || text.includes('韓国の最新ニュース情報を提供します'))) {
-      // 뉴스 API 설명
-      if (languageData['newsApiDescription']) {
-        msg.textContent = languageData['newsApiDescription'];
       }
     }
   });
@@ -663,16 +616,6 @@ function applyLanguage() {
     remoteOllamaApiUrlInput.placeholder = languageData['pleaseEnterOllamaApiUrl'];
   }
 
-  // News API 키 입력 필드
-  if (newsApiKeyInput && languageData['pleaseEnterApiKey']) {
-    newsApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
-  }
-
-  // News API Secret 입력 필드
-  if (newsApiSecretInput && languageData['pleaseEnterApiKey']) {
-    newsApiSecretInput.placeholder = languageData['pleaseEnterApiKey'];
-  }
-
   // 모든 상태 메시지 업데이트
   // Gemini API 키 상태
   if (geminiApiKeyStatus && geminiApiKeyStatus.textContent) {
@@ -701,26 +644,6 @@ function applyLanguage() {
       remoteOllamaApiUrlStatus.textContent = languageData['ollamaApiUrlSet'] || 'Ollama API URL이 설정되어 있습니다.';
     } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') || currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') || currentText.includes('未设置')) {
       remoteOllamaApiUrlStatus.textContent = languageData['ollamaApiUrlNotSet'] || 'Ollama API URL이 설정되지 않았습니다.';
-    }
-  }
-
-  // News API 키 상태
-  if (newsApiKeyStatus && newsApiKeyStatus.textContent) {
-    const currentText = newsApiKeyStatus.textContent;
-    if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || currentText.includes('ist festgelegt') || currentText.includes('está configurada') || currentText.includes('est définie') || currentText.includes('設定されています') || currentText.includes('已设置')) {
-      newsApiKeyStatus.textContent = languageData['newsApiKeySet'] || '네이버 API Client ID가 설정되어 있습니다.';
-    } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') || currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') || currentText.includes('未设置')) {
-      newsApiKeyStatus.textContent = languageData['newsApiKeyNotSet'] || '네이버 API Client ID가 설정되지 않았습니다.';
-    }
-  }
-
-  // News API Secret 상태
-  if (newsApiSecretStatus && newsApiSecretStatus.textContent) {
-    const currentText = newsApiSecretStatus.textContent;
-    if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') || currentText.includes('ist festgelegt') || currentText.includes('está configurada') || currentText.includes('est définie') || currentText.includes('設定されています') || currentText.includes('已设置')) {
-      newsApiSecretStatus.textContent = languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.';
-    } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') || currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') || currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') || currentText.includes('未设置')) {
-      newsApiSecretStatus.textContent = languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.';
     }
   }
 }
@@ -887,29 +810,6 @@ if (ollamaServerTypeSelect) {
 }
 
 // API 키 저장 이벤트 리스너들
-if (saveNewsApiKeyButton) {
-  saveNewsApiKeyButton.addEventListener('click', () => {
-    const apiKey = newsApiKeyInput.value.trim();
-    vscode.postMessage({
-      command: 'saveNewsApiKey',
-      apiKey: apiKey
-    });
-    const savingText = languageData['apiKeysLoading'] || '네이버 API Client ID 저장 중...';
-    showStatus(newsApiKeyStatus, savingText, 'info');
-  });
-}
-if (saveNewsApiSecretButton) {
-  saveNewsApiSecretButton.addEventListener('click', () => {
-    const apiSecret = newsApiSecretInput.value.trim();
-    vscode.postMessage({
-      command: 'saveNewsApiSecret',
-      apiSecret: apiSecret
-    });
-    const savingText = languageData['apiKeysLoading'] || '네이버 API Client Secret 저장 중...';
-    showStatus(newsApiSecretStatus, savingText, 'info');
-  });
-}
-
 // Gemini API 키 저장 이벤트 리스너
 if (saveGeminiApiKeyButton) {
   saveGeminiApiKeyButton.addEventListener('click', () => {
@@ -1683,16 +1583,6 @@ window.addEventListener('message', event => {
       break;
     case 'currentApiKeys':
       // API 키 상태 로드
-      if (newsApiKeyInput && typeof message.newsApiKey === 'string') {
-        newsApiKeyInput.value = message.newsApiKey;
-        const newsApiKeySetText = message.newsApiKey ? languageData['newsApiKeySet'] || '네이버 API Client ID가 설정되어 있습니다.' : languageData['newsApiKeyNotSet'] || '네이버 API Client ID가 설정되지 않았습니다.';
-        showStatus(newsApiKeyStatus, newsApiKeySetText, message.newsApiKey ? 'success' : 'info');
-      }
-      if (newsApiSecretInput && typeof message.newsApiSecret === 'string') {
-        newsApiSecretInput.value = message.newsApiSecret;
-        const newsApiSecretSetText = message.newsApiSecret ? languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.' : languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.';
-        showStatus(newsApiSecretStatus, newsApiSecretSetText, message.newsApiSecret ? 'success' : 'info');
-      }
       // Gemini API 키 상태 로드
       if (geminiApiKeyInput && typeof message.geminiApiKey === 'string') {
         geminiApiKeyInput.value = message.geminiApiKey;
@@ -1806,24 +1696,6 @@ window.addEventListener('message', event => {
         updateSaveButtonsState();
         updateLicenseButtonsState();
       }, 100);
-      break;
-    case 'newsApiKeySaved':
-      const newsApiKeySavedText = languageData['newsApiKeySaved'] || '네이버 API Client ID가 저장되었습니다.';
-      showStatus(newsApiKeyStatus, newsApiKeySavedText, 'success');
-      newsApiKeyInput.value = '';
-      break;
-    case 'newsApiKeyError':
-      const newsApiKeyErrorText = languageData['newsApiKeyError'] || '네이버 API Client ID 저장 실패:';
-      showStatus(newsApiKeyStatus, `${newsApiKeyErrorText} ${message.error}`, 'error');
-      break;
-    case 'newsApiSecretSaved':
-      const newsApiSecretSavedText = languageData['newsApiSecretSaved'] || '네이버 API Client Secret이 저장되었습니다.';
-      showStatus(newsApiSecretStatus, newsApiSecretSavedText, 'success');
-      newsApiSecretInput.value = '';
-      break;
-    case 'newsApiSecretError':
-      const newsApiSecretErrorText = languageData['newsApiSecretError'] || '네이버 API Client Secret 저장 실패:';
-      showStatus(newsApiSecretStatus, `${newsApiSecretErrorText} ${message.error}`, 'error');
       break;
     case 'apiKeySaved':
       const geminiApiKeySavedText = languageData['geminiApiKeySaved'] || 'Gemini API 키가 저장되었습니다.';

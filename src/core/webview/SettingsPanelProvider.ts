@@ -63,7 +63,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
                         const outputLogEnabled = await stateManager.getOutputLogEnabled();
                         const errorRetryCount = await stateManager.getErrorRetryCount();
-                        const newsApiKey = await stateManager.getNewsApiKey();
                         const banyaLicenseSerial = await stateManager.getBanyaLicenseSerial();
                         const isLicenseVerified = await stateManager.getIsLicenseVerified();
                         const aiModel = await stateManager.getAiModel();
@@ -92,7 +91,6 @@ export function openSettingsPanel(
                             outputLogEnabled: outputLogEnabled || false,
                             autoUpdateEnabled: autoUpdateEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
                             aiModel: modelToUse, // AI 모델 정보 추가
@@ -336,22 +334,6 @@ export function openSettingsPanel(
                     } else {
                         safePostMessage(panel, { command: 'remoteOllamaModelSaveError', error: 'Invalid Remote Ollama Model' });
                         notificationService.showErrorMessage('Invalid Remote Ollama Model provided.');
-                    }
-                    break;
-                case 'saveNewsApiKey': // 뉴스 API 키 저장 케이스 추가
-                    const newsApiKeyToSave = data.newsApiKey;
-                    if (newsApiKeyToSave && typeof newsApiKeyToSave === 'string') {
-                        try {
-                            await stateManager.saveNewsApiKey(newsApiKeyToSave);
-                            safePostMessage(panel, { command: 'newsApiKeySaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: News API Key saved.');
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'newsApiKeySaveError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving News API Key: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'newsApiKeySaveError', error: 'Invalid News API Key' });
-                        notificationService.showErrorMessage('Invalid News API Key provided.');
                     }
                     break;
                 case 'saveBanyaLicenseSerial': // Banya 라이선스 시리얼 저장 케이스 추가
@@ -611,27 +593,6 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage(`AIDEV-IDE: Gemini connection test failed: ${error.message}`);
                     }
                     break;
-                case 'testNewsApiConnection': // 뉴스 API 연결 테스트 케이스 추가
-                    try {
-                        const apiKey = await stateManager.getNewsApiKey();
-                        if (!apiKey) {
-                            safePostMessage(panel, { command: 'newsApiConnectionTestResult', success: false, error: 'No News API key found' });
-                            notificationService.showErrorMessage('AIDEV-IDE: No News API key found.');
-                            return;
-                        }
-
-                        const testResult = await ExternalApiService.testNewsApiConnection(apiKey);
-                        safePostMessage(panel, { command: 'newsApiConnectionTestResult', success: testResult.success, data: testResult.data, error: testResult.error });
-                        if (testResult.success) {
-                            notificationService.showInfoMessage('AIDEV-IDE: News API connection test successful.');
-                        } else {
-                            notificationService.showErrorMessage(`AIDEV-IDE: News API connection test failed: ${testResult.error}`);
-                        }
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'newsApiConnectionTestResult', success: false, error: error.message });
-                        notificationService.showErrorMessage(`AIDEV-IDE: News API connection test failed: ${error.message}`);
-                    }
-                    break;
                 case 'testBanyaLicenseConnection': // Banya 라이선스 연결 테스트 케이스 추가
                     try {
                         const licenseSerial = await stateManager.getBanyaLicenseSerial();
@@ -697,7 +658,6 @@ export function openSettingsPanel(
                         const results = {
                             gemini: false,
                             ollama: false,
-                            news: false,
                             banyaLicense: false,
                             ollamaBlocker: false,
                             terminalDaemon: false
@@ -721,15 +681,6 @@ export function openSettingsPanel(
 
                         // 기상청 API 연결 테스트
                         try {
-                        } catch (e) { /* 무시 */ }
-
-                        // 뉴스 API 연결 테스트
-                        try {
-                            const apiKey = await stateManager.getNewsApiKey();
-                            if (apiKey) {
-                                const newsTest = await ExternalApiService.testNewsApiConnection(apiKey);
-                                results.news = newsTest.success;
-                            }
                         } catch (e) { /* 무시 */ }
 
                         // Banya 라이선스 연결 테스트
@@ -778,7 +729,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
                         const outputLogEnabled = await stateManager.getOutputLogEnabled();
                         const errorRetryCount = await stateManager.getErrorRetryCount();
-                        const newsApiKey = await stateManager.getNewsApiKey();
                         const banyaLicenseSerial = await stateManager.getBanyaLicenseSerial();
                         const isLicenseVerified = await stateManager.getIsLicenseVerified();
                         const aiModel = await stateManager.getAiModel();
@@ -798,7 +748,6 @@ export function openSettingsPanel(
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
                             aiModel: aiModel || 'gemini' // AI 모델 정보 추가
@@ -826,7 +775,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
                         const outputLogEnabled = await stateManager.getOutputLogEnabled();
                         const errorRetryCount = await stateManager.getErrorRetryCount();
-                        const newsApiKey = await stateManager.getNewsApiKey();
                         const banyaLicenseSerial = await stateManager.getBanyaLicenseSerial();
                         const isLicenseVerified = await stateManager.getIsLicenseVerified();
                         const aiModel = await stateManager.getAiModel();
@@ -849,7 +797,6 @@ export function openSettingsPanel(
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified,
                             aiModel: modelToUse

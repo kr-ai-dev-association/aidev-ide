@@ -6,6 +6,14 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v5.1.3 (외부 API 제거)
+- **외부 API 제거**: 모든 외부 API 연동 기능 제거 (날씨, 주식, 뉴스 API)
+  - 날씨 API 연동 제거 (기상청 API)
+  - 주식 API 연동 제거 (Alpha Vantage API)
+  - 뉴스 API 연동 제거 (네이버 뉴스 API)
+  - 관련 UI 컴포넌트, 설정, 핸들러 모두 제거
+  - 설정 항목 및 상태 관리 코드 정리
+
 ## v5.1.2 (LLM 자율 판단 & 파일 수정 개선)
 - **LLM 자율 판단**: 시스템 자동 follow-up 생성 제거. LLM이 실패한 작업 재시도 및 후속 tool call 생성을 스스로 판단하도록 변경 
 - **update_file 매칭 개선**: 
@@ -440,19 +448,6 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **드래그&드롭 인터페이스**: 클립보드 붙여넣기로 이미지 첨부 가능
 - **시각적 맥락**: AI가 스크린샷, 다이어그램, 코드 이미지를 분석
 
-### 🌐 실시간 정보 서비스
-- **날씨 정보**: 기상청 API 연동
-  - 현재 날씨 및 예보
-  - 7일 예측
-  - 위치별 날씨 데이터
-- **뉴스 업데이트**: NewsAPI 연동
-  - 주제별 뉴스 검색
-  - 실시간 뉴스 집계
-  - 출처 및 타임스탬프 표시
-- **주식 시장 데이터**: Alpha Vantage API 연동
-  - 실시간 주가 및 변동
-  - 주요 주식(AAPL, GOOGL, MSFT, TSLA, AMZN) 추적
-  - 변동률 계산
 
 ### 🔢 토큰 관리 시스템
 - **입력 토큰 계산**: Gemini와 Ollama 모델 모두에 대한 자동 토큰 카운팅
@@ -473,11 +468,8 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
     - 외부 서버: `https://your-server.com` + `/api/chat`
     - Vessl AI 클러스터: `https://model-service-gateway-xxx.eu.h100-cluster.vessl.ai` + `/api/chat`
   - **동적 설정**: 선택된 모델에 따라 관련 설정 자동 활성화/비활성화
-- **API 키 관리**: 여러 외부 API 키를 안전하게 저장
+- **API 키 관리**: API 키를 안전하게 저장
   - Gemini API 키 설정
-  - 날씨 API 키 설정
-  - 뉴스 API 자격증명(Client ID & Secret)
-  - 주식 API 키 관리
   - **Banya 라이센스 관리**:
     - AES-256-CBC 암호화로 라이센스 시리얼 저장
     - Firebase Firestore 검증 시스템
@@ -610,8 +602,6 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 ### 📋 사용 예시
 - **코드 생성**: "React 사용자 인증 컴포넌트 생성해줘"
 - **코드 수정**: "이 함수에 에러 핸들링 추가해줘"
-- **실시간 정보**: "서울 날씨 알려줘" 또는 "최신 IT 뉴스 보여줘"
-- **주식 질의**: "현재 주요 주식 시세 알려줘"
 - **파일 작업**: "날짜 포맷 유틸리티 파일 생성해줘"
 - **파일 선택**: @ 버튼으로 특정 파일을 선택하여 맥락에 포함
 - **CODE 탭 작업**: "이 코드를 분석하고 리팩토링해줘" (전체 파일 작업)
@@ -687,10 +677,6 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
    ollama pull codellama:7b
    ```
 
-3. **선택적 외부 API**
-   - **날씨 API**: [기상청 API Hub](https://apihub.kma.go.kr/)에서 API 키 획득
-   - **뉴스 API**: [네이버 개발자센터](https://developers.naver.com/)에서 Client ID & Secret 획득
-   - **주식 API**: [Alpha Vantage](https://www.alphavantage.co/)에서 API 키 획득
 
 ### CLI 바이너리: PATH/alias 설정 (선택)
 번들된 바이너리를 터미널에서 바로 실행하려면, 셸 프로필에 PATH 또는 alias를 추가하세요 (macOS zsh 예시).
@@ -768,10 +754,6 @@ npm run lint
    - 질문: "TypeScript란 무엇인가요?"
    - 유익한 응답 확인
    
-   # 실시간 정보 테스트
-   - 질문: "서울 날씨 알려줘"
-   - 질문: "최신 IT 뉴스 보여줘"
-   - 질문: "현재 주식 시세 알려줘"
    ```
 
 4. **설정 테스트**

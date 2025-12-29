@@ -149,18 +149,6 @@
           "description": "aidev-ide가 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다. 이 경로는 파일 경로를 참조할 때 기준점으로 사용될 수 있습니다.",
           "scope": "resource"
         },
-        "aidevIde.newsApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "네이버 API Client ID를 설정합니다. 뉴스 정보 조회에 사용됩니다. (https://developers.naver.com/)",
-          "scope": "resource"
-        },
-        "aidevIde.newsApiSecret": {
-          "type": "string",
-          "default": "",
-          "description": "네이버 API Client Secret을 설정합니다. 뉴스 정보 조회에 사용됩니다. (https://developers.naver.com/)",
-          "scope": "resource"
-        },
         "aidevIde.language": {
           "type": "string",
           "default": "ko",
