@@ -6,6 +6,16 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.1.2 (LLM Autonomy & Enhanced File Modification)
+- **LLM autonomy**: Removed system-generated follow-ups. LLM now autonomously decides when to retry failed operations and generate subsequent tool calls, similar to `cline`.
+- **Enhanced update_file matching**: Added `cline`-style robust matching strategies:
+  - Line-trimmed matching: Compares lines after trimming whitespace (preserves indentation structure)
+  - Block anchor matching: Uses first/last lines as anchors for 3+ line blocks
+  - Improved error messages: Includes latest file content when SEARCH pattern fails, allowing LLM to self-correct
+- **Korean prompt translation**: All tool-related prompts translated to Korean for better LLM understanding.
+- **CDATA section handling**: Added `removeCDataSections()` utility to handle LLM-generated CDATA sections in file operations.
+- **Error handling improvements**: Failed `update_file` operations now include latest file content in error messages, enabling LLM to retry with correct patterns.
+
 ## v5.1.1 (Tree-sitter Based Function Location Search & read_file Display Improvement)
 - **Tree-sitter integration**: Uses tree-sitter AST parsing instead of regex to accurately find function/class locations.
 - **read_file display improvement**: Shows only the context around a specific line (5 lines above and below) instead of the entire file for better readability.

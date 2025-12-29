@@ -700,8 +700,6 @@ export class ConversationManager {
                             contextManager
                         };
 
-                        // Follow-up 루프 방지를 위한 플래그
-                        let hasGeneratedFollowUp = false;
                         let allToolResults: Array<{ result: ToolResponse; toolUse: ToolUse }> = [];
 
                         // 초기 tool call 실행
@@ -724,6 +722,8 @@ export class ConversationManager {
                         const removedFiles: Array<{ path: string }> = [];
                         const executedCommands: Array<{ command: string; output: string; error?: string; exitCode?: number }> = [];
                         let readFileResults: Array<{ path: string; content: string }> = [];
+                        const listFilesResults: Array<{ path: string; files: string }> = []; // list_files 결과 추적
+                        const failedUpdateFiles: Array<{ path: string }> = []; // update_file 실패한 파일 추적
 
                         // 모든 tool 결과 처리
                         for (let idx = 0; idx < allToolResults.length; idx++) {
@@ -777,33 +777,41 @@ export class ConversationManager {
                                         content: result.fileContent
                                     });
                                 } else if (toolUse.name === Tool.UPDATE_FILE && result.data?.filePath) {
-                                    // 수정된 파일 내용도 수집 (fileContent가 있으면 사용, 없으면 data에서 읽기)
-                                    const fileContent = result.fileContent || result.data?.content;
-                                    if (fileContent) {
-                                        updatedFiles.push({
-                                            path: result.data.filePath,
-                                            content: fileContent
-                                        });
+                                    // 이미 수정된 파일인지 확인 (중복 수정 방지)
+                                    const alreadyUpdated = updatedFiles.some(f => f.path === result.data.filePath);
+                                    if (alreadyUpdated) {
+                                        console.warn(`[ConversationManager] File ${result.data.filePath} was already updated in initial tool calls, skipping duplicate`);
+                                        // 중복이므로 successCount 감소
+                                        successCount--;
                                     } else {
-                                        // fileContent가 없으면 파일을 읽어서 추가
-                                        try {
-                                            const fs = await import('fs/promises');
-                                            const path = await import('path');
-                                            const absolutePath = path.default.isAbsolute(result.data.filePath)
-                                                ? result.data.filePath
-                                                : path.default.join(toolContext.projectRoot, result.data.filePath);
-                                            const content = await fs.readFile(absolutePath, 'utf8');
+                                        // 수정된 파일 내용도 수집 (fileContent가 있으면 사용, 없으면 data에서 읽기)
+                                        const fileContent = result.fileContent || result.data?.content;
+                                        if (fileContent) {
                                             updatedFiles.push({
                                                 path: result.data.filePath,
-                                                content: content
+                                                content: fileContent
                                             });
-                                        } catch (error) {
-                                            console.error(`[ConversationManager] Failed to read updated file ${result.data.filePath}:`, error);
-                                            // 읽기 실패해도 경로만이라도 추가
-                                            updatedFiles.push({
-                                                path: result.data.filePath,
-                                                content: ''
-                                            });
+                                        } else {
+                                            // fileContent가 없으면 파일을 읽어서 추가
+                                            try {
+                                                const fs = await import('fs/promises');
+                                                const path = await import('path');
+                                                const absolutePath = path.default.isAbsolute(result.data.filePath)
+                                                    ? result.data.filePath
+                                                    : path.default.join(toolContext.projectRoot, result.data.filePath);
+                                                const content = await fs.readFile(absolutePath, 'utf8');
+                                                updatedFiles.push({
+                                                    path: result.data.filePath,
+                                                    content: content
+                                                });
+                                            } catch (error) {
+                                                console.error(`[ConversationManager] Failed to read updated file ${result.data.filePath}:`, error);
+                                                // 읽기 실패해도 경로만이라도 추가
+                                                updatedFiles.push({
+                                                    path: result.data.filePath,
+                                                    content: ''
+                                                });
+                                            }
                                         }
                                     }
                                 } else if (toolUse.name === Tool.REMOVE_FILE && result.data?.filePath) {
@@ -891,6 +899,14 @@ export class ConversationManager {
                                         sender: 'AIDEV-IDE',
                                         text: readFileSummary + readFileSummary2 + readFileSummary3 + readFileSummary4
                                     });
+                                } else if (toolUse.name === Tool.LIST_FILES && result.data?.files) {
+                                    // list_files 결과 수집 (표시용)
+                                    listFilesResults.push({
+                                        path: toolUse.params.path || '',
+                                        files: Array.isArray(result.data.files)
+                                            ? result.data.files.join('\n')
+                                            : String(result.data.files)
+                                    });
                                 } else if (toolUse.name === Tool.RUN_COMMAND) {
                                     // run_command 결과 수집
                                     const command = toolUse.params.command || '';
@@ -906,181 +922,48 @@ export class ConversationManager {
                                 if (toolUse.name !== Tool.LIST_FILES) {
                                     failCount++;
                                 }
-                                console.error(`[ConversationManager] Tool ${toolUse.name} failed:`, result.message);
-                                safePostMessage(webviewToRespond, {
-                                    command: 'receiveMessage',
-                                    sender: 'AIDEV-IDE',
-                                    text: `⚠️ Tool ${toolUse.name} failed: ${result.message}`
-                                });
-                            }
-                        }
 
-                        // read_file 결과가 있고, 아직 작업이 완료되지 않은 경우 (CREATE_FILE, UPDATE_FILE, REMOVE_FILE이 없음)
-                        // Follow-up은 최대 1번만 허용 (무한 루프 방지)
-                        if (readFileResults.length > 0 && createdFiles.length === 0 && updatedFiles.length === 0 && removedFiles.length === 0 && !hasGeneratedFollowUp) {
-                            console.log('[ConversationManager] Read file results found, generating follow-up tool calls');
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', 'Generating follow-up actions based on file content...');
-                            hasGeneratedFollowUp = true;
-
-                            // 읽은 파일 내용을 포함하여 LLM에 다시 요청
-                            let followUpUserMessage = `Based on the following file content, generate tool calls to complete the user's request: "${options.userQuery}"\n\n`;
-
-                            for (const readResult of readFileResults) {
-                                followUpUserMessage += `**File: ${readResult.path}**\n`;
-                                followUpUserMessage += `\`\`\`\n${readResult.content}\n\`\`\`\n\n`;
-                            }
-
-                            followUpUserMessage += '\nGenerate tool calls in XML format only to complete the task.\n';
-
-                            try {
-                                // 기존 system prompt 재사용
-                                const followUpResponse = await this.llmService.sendMessageWithSystemPrompt(
-                                    systemPrompt,
-                                    [{ text: followUpUserMessage }],
-                                    { signal: abortSignal }
-                                );
-                                const followUpToolCalls = ToolParser.parseToolCalls(followUpResponse);
-
-                                if (followUpToolCalls.length > 0) {
-                                    console.log(`[ConversationManager] Generated ${followUpToolCalls.length} follow-up tool calls`);
-                                    const followUpResults = await toolExecutor.executeTools(followUpToolCalls, toolContext);
-
-                                    // Follow-up 결과를 allToolResults에 추가하고 처리
-                                    for (let i = 0; i < followUpResults.length; i++) {
-                                        const followUpResult = followUpResults[i];
-                                        const followUpToolUse = followUpToolCalls[i];
-                                        const followUpIndex = allToolResults.length;
-
-                                        allToolResults.push({
-                                            result: followUpResult,
-                                            toolUse: followUpToolUse
+                                // update_file 실패 처리: 이미 성공적으로 수정된 파일인지 확인
+                                if (toolUse.name === Tool.UPDATE_FILE && toolUse.params.path) {
+                                    // 같은 파일이 이미 updatedFiles에 있는지 확인 (이미 성공적으로 수정됨)
+                                    const alreadyUpdated = updatedFiles.some(f => f.path === toolUse.params.path);
+                                    if (alreadyUpdated) {
+                                        console.warn(`[ConversationManager] update_file failed for ${toolUse.params.path}, but file was already successfully updated. Ignoring duplicate failure.`);
+                                        // 이미 수정된 파일에 대한 중복 실패는 무시 (failCount 감소)
+                                        failCount--;
+                                        // 경고 메시지만 표시 (에러 아님)
+                                        safePostMessage(webviewToRespond, {
+                                            command: 'receiveMessage',
+                                            sender: 'AIDEV-IDE',
+                                            text: `ℹ️ 파일 \`${toolUse.params.path}\`에 대한 추가 수정 시도가 실패했지만, 파일은 이미 성공적으로 수정되었습니다.`
                                         });
-
-                                        // Follow-up tool도 작업 큐에 추가 (list_files는 제외)
-                                        try {
-                                            const taskManager = TaskManager.getInstance(extensionContext);
-                                            if (taskManager && followUpToolUse.name !== Tool.LIST_FILES) {
-                                                const items = [{
-                                                    title: this.formatToolTitle(followUpToolUse),
-                                                    detail: `tool_${followUpIndex}|${this.formatToolDetail(followUpToolUse)}`
-                                                }];
-                                                taskManager.enqueuePlanItems(items);
-                                                // detail에서 tool ID 제거하여 표시
-                                                const displayItems = taskManager.listPlanItems().map(item => ({
-                                                    ...item,
-                                                    detail: item.detail?.includes('|') ? item.detail.split('|').slice(1).join('|') : item.detail
-                                                }));
-                                                safePostMessage(webviewToRespond, {
-                                                    command: 'updateTaskQueue',
-                                                    items: displayItems
-                                                });
-                                            }
-                                        } catch (e) {
-                                            console.warn('[ConversationManager] Follow-up tool을 작업 큐에 추가 실패:', e);
-                                        }
-
-                                        // 작업 큐 상태 업데이트
-                                        try {
-                                            const taskManager = TaskManager.getInstance(extensionContext);
-                                            if (taskManager) {
-                                                const items = taskManager.listPlanItems();
-                                                const item = items.find(item => item.detail?.startsWith(`tool_${followUpIndex}|`));
-                                                if (item) {
-                                                    taskManager.updatePlanItemStatus(item.id, followUpResult.success ? 'done' : 'failed');
-                                                    // detail에서 tool ID 제거하여 표시
-                                                    const displayItems = taskManager.listPlanItems().map(i => ({
-                                                        ...i,
-                                                        detail: i.detail?.includes('|') ? i.detail.split('|').slice(1).join('|') : i.detail
-                                                    }));
-                                                    safePostMessage(webviewToRespond, {
-                                                        command: 'updateTaskQueue',
-                                                        items: displayItems
-                                                    });
-                                                }
-                                            }
-                                        } catch (e) {
-                                            console.warn('[ConversationManager] Follow-up 작업 큐 상태 업데이트 실패:', e);
-                                        }
-
-                                        // Follow-up 결과 즉시 처리
-                                        if (followUpResult.success) {
-                                            // list_files는 작업 큐에서 제외되므로 successCount에도 제외
-                                            if (followUpToolUse.name !== Tool.LIST_FILES) {
-                                                successCount++;
-                                            }
-                                            if (followUpToolUse.name === Tool.CREATE_FILE && followUpResult.filePath && followUpResult.fileContent) {
-                                                createdFiles.push({
-                                                    path: followUpResult.filePath,
-                                                    content: followUpResult.fileContent
-                                                });
-                                            } else if (followUpToolUse.name === Tool.READ_FILE && followUpResult.data?.content) {
-                                                // read_file 결과 수집 (다음 tool call 생성을 위해)
-                                                readFileResults.push({
-                                                    path: followUpToolUse.params.path || followUpResult.data.path || '',
-                                                    content: followUpResult.data.content
-                                                });
-
-                                                // read_file 결과는 follow-up에서는 표시하지 않음 (중복 방지)
-                                                // 초기 tool call에서만 표시됨
-                                            } else if (followUpToolUse.name === Tool.UPDATE_FILE && followUpResult.data?.filePath) {
-                                                // 수정된 파일 내용도 수집
-                                                const fileContent = followUpResult.fileContent || followUpResult.data?.content;
-                                                if (fileContent) {
-                                                    updatedFiles.push({
-                                                        path: followUpResult.data.filePath,
-                                                        content: fileContent
-                                                    });
-                                                } else {
-                                                    // fileContent가 없으면 파일을 읽어서 추가
-                                                    try {
-                                                        const fs = await import('fs/promises');
-                                                        const path = await import('path');
-                                                        const absolutePath = path.default.isAbsolute(followUpResult.data.filePath)
-                                                            ? followUpResult.data.filePath
-                                                            : path.default.join(toolContext.projectRoot, followUpResult.data.filePath);
-                                                        const content = await fs.readFile(absolutePath, 'utf8');
-                                                        updatedFiles.push({
-                                                            path: followUpResult.data.filePath,
-                                                            content: content
-                                                        });
-                                                    } catch (error) {
-                                                        console.error(`[ConversationManager] Failed to read updated file ${followUpResult.data.filePath}:`, error);
-                                                        // 읽기 실패해도 경로만이라도 추가
-                                                        updatedFiles.push({
-                                                            path: followUpResult.data.filePath,
-                                                            content: ''
-                                                        });
-                                                    }
-                                                }
-                                            } else if (followUpToolUse.name === Tool.REMOVE_FILE && followUpResult.data?.filePath) {
-                                                removedFiles.push({
-                                                    path: followUpResult.data.filePath
-                                                });
-                                            } else if (followUpToolUse.name === Tool.RUN_COMMAND) {
-                                                // run_command 결과 수집
-                                                const command = followUpToolUse.params.command || '';
-                                                executedCommands.push({
-                                                    command: command,
-                                                    output: followUpResult.data?.output || '',
-                                                    error: followUpResult.data?.error,
-                                                    exitCode: followUpResult.data?.exitCode
-                                                });
-                                            }
-                                        } else {
-                                            // list_files는 작업 큐에서 제외되므로 failCount에도 제외
-                                            if (followUpToolUse.name !== Tool.LIST_FILES) {
-                                                failCount++;
-                                            }
-                                            console.error(`[ConversationManager] Follow-up tool ${followUpToolUse.name} failed:`, followUpResult.message);
-                                        }
+                                    } else {
+                                        // 실제로 실패한 경우
+                                        console.error(`[ConversationManager] Tool ${toolUse.name} failed:`, result.message);
+                                        safePostMessage(webviewToRespond, {
+                                            command: 'receiveMessage',
+                                            sender: 'AIDEV-IDE',
+                                            text: `⚠️ Tool ${toolUse.name} failed: ${result.message}`
+                                        });
+                                        // update_file 실패 시 파일 경로 추적 (follow-up에서 최신 내용 제공)
+                                        failedUpdateFiles.push({ path: toolUse.params.path });
                                     }
                                 } else {
-                                    console.warn('[ConversationManager] No follow-up tool calls generated');
+                                    // update_file이 아닌 다른 tool 실패
+                                    console.error(`[ConversationManager] Tool ${toolUse.name} failed:`, result.message);
+                                    safePostMessage(webviewToRespond, {
+                                        command: 'receiveMessage',
+                                        sender: 'AIDEV-IDE',
+                                        text: `⚠️ Tool ${toolUse.name} failed: ${result.message}`
+                                    });
                                 }
-                            } catch (error) {
-                                console.error('[ConversationManager] Failed to generate follow-up tool calls:', error);
                             }
                         }
+
+                        // LLM이 스스로 판단하도록 함 (cline 방식)
+                        // 시스템이 자동으로 follow-up을 생성하지 않음
+                        // update_file 실패 시 에러 메시지에 최신 파일 내용이 포함되어 있으므로,
+                        // LLM이 다음 응답에서 스스로 판단하여 재시도함
 
                         // 생성된 파일들을 마크다운 형식으로 표시
                         if (createdFiles.length > 0) {
@@ -1187,6 +1070,7 @@ export class ConversationManager {
                         if ((createdFiles.length > 0 || updatedFiles.length > 0 || removedFiles.length > 0) && successCount > 0) {
                             try {
                                 console.log('[ConversationManager] Generating work summary and explanation...');
+                                console.log(`[ConversationManager] Summary condition: createdFiles=${createdFiles.length}, updatedFiles=${updatedFiles.length}, removedFiles=${removedFiles.length}, successCount=${successCount}`);
                                 WebviewBridge.sendProcessingStatus(webviewToRespond, 'parsing', 'Generating work summary...');
 
                                 // 실행된 작업 정보 수집
@@ -1221,8 +1105,9 @@ export class ConversationManager {
                                 workSummary += `1. **작업 요약**: 수행한 작업의 개요\n`;
                                 workSummary += `2. **변경사항 설명**: 각 파일에 대한 변경 내용과 이유에 대한 상세 설명\n`;
                                 workSummary += `3. **테스트 방법**: 동작 확인 방법 및 테스트 절차\n`;
-                                workSummary += `\n마크다운 형식으로 작성해주세요.`;
+                                workSummary += `\n마크다운 형식으로 작성해주세요. XML 태그나 tool call은 포함하지 마세요. 순수한 마크다운 텍스트만 제공하세요.`;
 
+                                console.log('[ConversationManager] Requesting summary from LLM...');
                                 // LLM에게 요약 요청
                                 const summaryResponse = await this.llmService.sendMessageWithSystemPrompt(
                                     systemPrompt,
@@ -1230,24 +1115,38 @@ export class ConversationManager {
                                     { signal: abortSignal }
                                 );
 
+                                console.log(`[ConversationManager] Summary response received, length: ${summaryResponse?.length || 0}`);
+
                                 if (summaryResponse && summaryResponse.trim().length > 0) {
                                     // XML 태그 제거 (tool call이 포함될 수 있음)
                                     let cleanSummary = summaryResponse;
                                     const toolCallPattern = /<(create_file|update_file|remove_file|read_file|list_files|search_files|run_command)>[\s\S]*?<\/\1>/gi;
                                     cleanSummary = cleanSummary.replace(toolCallPattern, '');
 
+                                    // 추가 정리: XML 태그가 남아있을 수 있음
+                                    cleanSummary = cleanSummary.replace(/<[^>]+>/g, '');
+
+                                    console.log(`[ConversationManager] Clean summary length: ${cleanSummary.trim().length}`);
+
                                     if (cleanSummary.trim().length > 0) {
+                                        console.log('[ConversationManager] Sending summary to panel');
                                         safePostMessage(webviewToRespond, {
                                             command: 'receiveMessage',
                                             sender: 'AIDEV-IDE',
                                             text: `## 작업 요약 및 설명\n\n${cleanSummary}`
                                         });
+                                    } else {
+                                        console.warn('[ConversationManager] Clean summary is empty after removing XML tags');
                                     }
+                                } else {
+                                    console.warn('[ConversationManager] Summary response is empty or null');
                                 }
                             } catch (error) {
                                 console.error('[ConversationManager] Failed to generate work summary:', error);
                                 // 요약 생성 실패해도 계속 진행
                             }
+                        } else {
+                            console.log(`[ConversationManager] Skipping summary generation: createdFiles=${createdFiles.length}, updatedFiles=${updatedFiles.length}, removedFiles=${removedFiles.length}, successCount=${successCount}`);
                         }
 
                         // ProcessingSteps 완료 처리

@@ -25,10 +25,10 @@ export class ToolSpecBuilder {
         // update_file (기존 FILE_OPERATION UPDATE와 매핑)
         specs.push({
             name: Tool.UPDATE_FILE,
-            description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다.',
+            description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.** 파일이 이미 수정되었거나 다른 내용일 수 있으므로, 추측하지 말고 항상 최신 내용을 확인하세요.',
             parameters: [
                 { name: 'path', required: true, description: '수정할 파일 경로', type: 'string' },
-                { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식: ------- SEARCH\n[내용]\n=======\n[새 내용]\n------- REPLACE', type: 'string' }
+                { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식: ------- SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n------- REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
             ]
         });
 
@@ -111,6 +111,10 @@ export class ToolSpecBuilder {
         prompt += '4. **XML 앞뒤에 텍스트 없음** - XML 도구 호출만 출력\n';
         prompt += '5. **JSON 형식 사용 금지** - `{"tool": "...", "path": "..."}` 형식 사용 금지\n';
         prompt += '6. **설명 추가 금지** - "We will call..." 같은 텍스트 작성 금지\n';
+        prompt += '7. **CDATA 섹션 사용 금지** - `<![CDATA[...]]>` 형식 절대 사용하지 마세요\n';
+        prompt += '   - 잘못됨: `<content><![CDATA[{ "key": "value" }]]></content>`\n';
+        prompt += '   - 올바름: `<content>{ "key": "value" }</content>`\n';
+        prompt += '   - JSON, 코드, 모든 내용은 CDATA 없이 직접 XML 태그 안에 넣으세요\n';
         prompt += '\n';
         prompt += '**올바른 예시 (XML만):**\n';
         prompt += '```\n';
@@ -129,29 +133,88 @@ export class ToolSpecBuilder {
         for (const spec of specs) {
             prompt += `### ${spec.name}\n`;
             prompt += `${spec.description}\n\n`;
+
+            // update_file에 대한 특별 경고
+            if (spec.name === Tool.UPDATE_FILE) {
+                prompt += '**⚠️ CRITICAL WARNING ⚠️**\n';
+                prompt += '`update_file`을 사용하기 전에 **반드시** `read_file`로 최신 파일 내용을 먼저 읽어야 합니다!\n';
+                prompt += '- 파일이 이미 수정되었을 수 있습니다\n';
+                prompt += '- 이전에 읽은 내용이나 추측을 기반으로 SEARCH 패턴을 만들면 실패합니다\n';
+                prompt += '- `read_file` 없이 `update_file`을 사용하면 SEARCH 패턴이 일치하지 않아 실패합니다\n';
+                prompt += '- **항상 `read_file` → `update_file` 순서로 사용하세요**\n';
+                prompt += '\n';
+            }
+
             prompt += '**매개변수:**\n';
             for (const param of spec.parameters) {
                 prompt += `- ${param.name}${param.required ? ' (필수)' : ' (선택)'}: ${param.description}\n`;
             }
             prompt += `\n**XML 사용 예시:**\n`;
-            prompt += '```\n';
-            prompt += `<${spec.name}>\n`;
-            for (const param of spec.parameters) {
-                if (param.required) {
-                    prompt += `<${param.name}>${param.name === 'content' ? '파일 내용' : param.name === 'path' ? '파일/경로' : '값'}</${param.name}>\n`;
+
+            // update_file 예시에 read_file 추가
+            if (spec.name === Tool.UPDATE_FILE) {
+                prompt += '```\n';
+                prompt += '<!-- 1단계: 먼저 파일 읽기 (필수!) -->\n';
+                prompt += '<read_file>\n';
+                prompt += '<path>파일/경로</path>\n';
+                prompt += '</read_file>\n';
+                prompt += '<!-- 2단계: 위에서 읽은 정확한 내용을 기반으로 update_file -->\n';
+                prompt += `<${spec.name}>\n`;
+                for (const param of spec.parameters) {
+                    if (param.required) {
+                        prompt += `<${param.name}>${param.name === 'content' ? '파일 내용' : param.name === 'path' ? '파일/경로' : '값'}</${param.name}>\n`;
+                    }
                 }
+                prompt += `</${spec.name}>\n`;
+                prompt += '```\n\n';
+            } else {
+                prompt += '```\n';
+                prompt += `<${spec.name}>\n`;
+                for (const param of spec.parameters) {
+                    if (param.required) {
+                        prompt += `<${param.name}>${param.name === 'content' ? '파일 내용' : param.name === 'path' ? '파일/경로' : '값'}</${param.name}>\n`;
+                    }
+                }
+                prompt += `</${spec.name}>\n`;
+                prompt += '```\n\n';
             }
-            prompt += `</${spec.name}>\n`;
-            prompt += '```\n\n';
         }
 
         prompt += '**작업 흐름 가이드라인:**\n';
-        prompt += '사용자가 기능 추가나 코드 수정을 요청할 때 다음 워크플로우를 따르세요:\n';
-        prompt += '1. **먼저 프로젝트 구조 파악**: 변경하기 전에 `list_files`를 사용하여 프로젝트 디렉토리 구조를 탐색하세요. 파일이 어떻게 구성되어 있는지 이해하는 데 도움이 됩니다.\n';
-        prompt += '2. **기존 코드 분석**: `read_file`를 사용하여 관련 파일을 검토하여 현재 코드베이스 구조와 패턴을 이해하세요.\n';
-        prompt += '3. **파일 구성 계획**: 새 기능을 추가할 때 적절한 디렉토리 구조를 만들고 논리적으로 파일을 분할하세요. 단일 파일에 모든 코드를 넣지 마세요.\n';
-        prompt += '4. **필요한 디렉토리 생성**: `create_file` 도구는 필요한 디렉토리를 자동으로 생성하므로, `src/components/Button.tsx` 또는 `src/utils/helpers.ts` 같은 적절한 파일 경로를 사용하세요.\n';
-        prompt += '5. **모범 사례 따르기**: 프로젝트 유형(React, Vue 등)에 따라 컴포넌트, 유틸리티, 훅 등으로 코드를 분할하세요.\n';
+        prompt += '- 파일을 수정하려면 변경 사항을 표시할 필요 없이 `update_file` 또는 `create_file` 도구를 직접 사용하세요.\n';
+        prompt += '- **중요**: 사용자가 "수정해줘", "추가해줘", "생성해줘", "구현해줘" 등을 요청한 경우, `read_file`로 파일을 읽었다면 **반드시 같은 응답에서 `update_file` 또는 `create_file` 도구를 사용하여 실제 변경 사항을 구현해야 합니다.** 파일을 읽기만 하고 끝내지 마세요.\n';
+        prompt += '- 예를 들어, 편집이나 개선을 요청받았을 때는 `list_files`를 사용하여 프로젝트 구조를 파악하고, `read_file`을 사용하여 관련 파일의 내용을 검토한 후, 코드를 분석하고 필요한 편집을 수행한 다음 **반드시 `update_file` 도구를 사용하여 변경 사항을 구현하세요.**\n';
+        prompt += '- 코드베이스의 다른 부분에 영향을 줄 수 있는 코드를 리팩토링한 경우, `search_files`를 사용하여 필요에 따라 다른 파일도 업데이트하세요.\n';
+        prompt += '- 새 기능을 추가할 때는 적절한 디렉토리 구조를 만들고 논리적으로 파일을 분할하세요. 모든 코드를 단일 파일에 넣지 마세요.\n';
+        prompt += '- `create_file` 도구는 필요한 디렉토리를 자동으로 생성하므로, `src/components/Button.tsx` 또는 `src/utils/helpers.ts`와 같은 적절한 파일 경로를 사용하세요.\n';
+        prompt += '- 모범 사례를 따르세요: 프로젝트 유형(React, Vue 등)에 따라 코드를 컴포넌트, 유틸리티, 훅, 서비스 등으로 분할하세요.\n';
+        prompt += '\n';
+        prompt += '**CRITICAL: update_file 사용 규칙**\n';
+        prompt += '`update_file`을 사용하기 전에 **반드시** 다음 규칙을 따르세요:\n';
+        prompt += '1. **항상 먼저 `read_file`로 최신 파일 내용을 읽으세요**\n';
+        prompt += '   - 파일이 이미 수정되었을 수 있습니다\n';
+        prompt += '   - 이전에 읽은 내용이나 추측을 기반으로 SEARCH 패턴을 만들지 마세요\n';
+        prompt += '   - `update_file` 직전에 `read_file`을 실행하세요\n';
+        prompt += '2. **SEARCH 블록은 read_file로 읽은 내용과 정확히 일치해야 합니다**\n';
+        prompt += '   - 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다\n';
+        prompt += '   - "대략 비슷한 내용"으로는 매칭되지 않습니다\n';
+        prompt += '   - 파일의 정확한 현재 상태를 반영해야 합니다\n';
+        prompt += '3. **올바른 워크플로우 예시:**\n';
+        prompt += '```\n';
+        prompt += '<read_file>\n';
+        prompt += '<path>src/App.tsx</path>\n';
+        prompt += '</read_file>\n';
+        prompt += '<!-- 위에서 읽은 정확한 파일 내용을 기반으로 SEARCH 블록 작성 -->\n';
+        prompt += '<update_file>\n';
+        prompt += '<path>src/App.tsx</path>\n';
+        prompt += '<diff>------- SEARCH\nimport React from \'react\';\nimport \'./App.css\';\n=======\nimport React from \'react\';\nimport { BrowserRouter } from \'react-router-dom\';\nimport \'./App.css\';\n------- REPLACE</diff>\n';
+        prompt += '</update_file>\n';
+        prompt += '```\n';
+        prompt += '4. **잘못된 워크플로우 (절대 하지 마세요):**\n';
+        prompt += '   - `read_file` 없이 `update_file` 사용 ❌\n';
+        prompt += '   - 이전에 읽은 내용을 기반으로 추측하여 SEARCH 패턴 생성 ❌\n';
+        prompt += '   - 파일이 "아마도 이럴 것이다"라고 추측하여 SEARCH 패턴 생성 ❌\n';
+        prompt += '\n';
         prompt += '\n';
         prompt += '**중요: 파일 구성 규칙**\n';
         prompt += '- **단일 파일에 모든 코드를 넣지 마세요**\n';
@@ -177,11 +240,17 @@ export class ToolSpecBuilder {
         prompt += '<path>src/utils/helpers.ts</path>\n';
         prompt += '<content>// 헬퍼 함수</content>\n';
         prompt += '</create_file>\n';
+        prompt += '<!-- update_file 전에 반드시 read_file로 최신 내용 확인 -->\n';
+        prompt += '<read_file>\n';
+        prompt += '<path>src/App.tsx</path>\n';
+        prompt += '</read_file>\n';
+        prompt += '<!-- 위 read_file 결과를 기반으로 정확한 SEARCH 블록 작성 -->\n';
         prompt += '<update_file>\n';
         prompt += '<path>src/App.tsx</path>\n';
         prompt += '<diff>------- SEARCH\nimport React from \'react\';\n=======\nimport React from \'react\';\nimport Button from \'./components/Button\';\nimport { helper } from \'./utils/helpers\';\n------- REPLACE</diff>\n';
         prompt += '</update_file>\n';
-        prompt += '```\n\n';
+        prompt += '```\n';
+        prompt += '\n';
         prompt += '**명령 실행 규칙 (execution_work):**\n';
         prompt += '사용자가 명령 실행을 요청하면 (예: "npm install 해줘", "빌드해줘", "psql로 실행해줘", "파일 실행해줘" 등):\n';
         prompt += '1. **필요한 파일을 찾아야 하는 경우**: 먼저 `search_files` 또는 `list_files` XML 도구를 사용하세요.\n';

@@ -120,6 +120,8 @@ src/
 │   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (오케스트레이션)
 │   │   │                            # - Tree-sitter를 사용한 함수 위치 검색 (v5.1.1)
 │   │   │                            # - read_file 결과 표시 개선 (특정 라인 주변만 표시)
+│   │   │                            # - LLM 자율 판단 중심으로 전환 (v5.1.2): 시스템 자동 follow-up 제거
+│   │   │                            # - LLM이 스스로 판단하여 tool call 생성 및 재시도
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
@@ -161,8 +163,11 @@ src/
 │   │   └── index.ts
 │   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
 │   │   ├── file/                    # 파일/프로젝트 관련 툴
-│   │   │   ├── CreateFileToolHandler.ts
-│   │   │   ├── UpdateFileToolHandler.ts
+│   │   │   ├── CreateFileToolHandler.ts  # CDATA 섹션 처리 (v5.1.2)
+│   │   │   ├── UpdateFileToolHandler.ts # cline 스타일 매칭 전략 (v5.1.2)
+│   │   │   │                          # - Line-trimmed 매칭
+│   │   │   │                          # - Block anchor 매칭
+│   │   │   │                          # - 에러 메시지에 최신 파일 내용 포함
 │   │   │   ├── RemoveFileToolHandler.ts
 │   │   │   ├── ReadFileToolHandler.ts
 │   │   │   ├── ListFilesToolHandler.ts
@@ -208,7 +213,8 @@ src/
 │   ├── tokenUtils.ts                # 토큰 관련 유틸
 │   ├── debugLogger.ts               # 디버그 로거
 │   ├── cryptoUtils.ts               # 암호화 유틸
-│   └── fileUtils.ts                 # 파일 유틸
+│   ├── fileUtils.ts                 # 파일 유틸
+│   └── string.ts                    # 문자열 유틸 (v5.1.2: removeCDataSections 추가)
 │
 └── extension.ts                     # 진입점
 ```
@@ -472,6 +478,21 @@ class ContextManager {
 - 사용자 질의에서 함수명을 추출하여 매칭되는 정의의 라인 번호 사용
 - 전체 파일 대신 특정 라인 주변(위아래 5줄)만 표시하여 가독성 향상
 - follow-up tool call의 `read_file` 결과는 중복 방지를 위해 표시하지 않음
+
+**LLM 자율 판단 중심 아키텍처** (v5.1.2):
+- **시스템 자동 follow-up 제거**: `ConversationManager`에서 자동으로 follow-up을 생성하지 않음
+  - 기존: `read_file`만 실행되면 자동으로 follow-up 생성하여 파일 수정 유도
+  - 변경: LLM이 스스로 판단하여 필요한 tool call을 생성하도록 함 (`cline` 방식)
+- **에러 처리 개선**: `UpdateFileToolHandler`에서 실패 시 에러 메시지에 최신 파일 내용 포함
+  - LLM이 다음 응답에서 스스로 판단하여 올바른 SEARCH/REPLACE 패턴으로 재시도
+  - 시스템이 강제로 재시도하지 않고, LLM의 자율 판단에 맡김
+- **프롬프트 개선**: 강한 지시("반드시", "같은 응답에서") 제거, 가이드라인 중심으로 변경
+  - `ToolSpecBuilder`에서 예시 중심의 가이드라인 제공
+  - 한글로 번역하여 LLM 이해도 향상
+- **update_file 매칭 전략 강화**: `cline` 스타일의 robust 매칭 추가
+  - Line-trimmed 매칭: 공백/들여쓰기 차이로 인한 실패 감소
+  - Block anchor 매칭: 3줄 이상 블록에서 첫/마지막 줄을 앵커로 사용
+  - 실패 시 명확한 에러 메시지와 최신 파일 내용 제공
 
 **프롬프트 시스템 아키텍처**:
 - **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성

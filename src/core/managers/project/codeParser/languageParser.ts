@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as vscode from 'vscode';
 import Parser from 'web-tree-sitter';
 import {
     typescriptQuery,
@@ -21,9 +22,14 @@ export interface LanguageParser {
  * WASM 파일 로드
  */
 async function loadLanguage(langName: string): Promise<Parser.Language> {
+    // VS Code extension path 가져오기
+    const extension = vscode.extensions.getExtension('banya.aidevIde');
+    if (!extension) {
+        throw new Error('aidev-ide extension not found');
+    }
+    
     // WASM 파일은 webpack으로 dist/tree-sitter에 복사됨
-    // __dirname은 dist/abstractions/codeParser이므로 ../../tree-sitter로 접근
-    const wasmPath = path.join(__dirname, '..', '..', 'tree-sitter', `tree-sitter-${langName}.wasm`);
+    const wasmPath = path.join(extension.extensionPath, 'dist', 'tree-sitter', `tree-sitter-${langName}.wasm`);
     console.log(`[TreeSitter] Loading ${langName} from: ${wasmPath}`);
     return await Parser.Language.load(wasmPath);
 }

@@ -6,7 +6,7 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { ActionType } from '../../managers/action/types';
-import { fixModelHtmlEscaping } from '../../../utils/string';
+import { fixModelHtmlEscaping, removeCDataSections } from '../../../utils/string';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -34,7 +34,9 @@ export class CreateFileToolHandler implements IToolHandler {
         }
 
         // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
-        const cleanedContent = fixModelHtmlEscaping(content);
+        let cleanedContent = fixModelHtmlEscaping(content);
+        // CDATA 섹션 제거 (LLM이 JSON 등을 CDATA로 감싸는 경우 처리)
+        cleanedContent = removeCDataSections(cleanedContent);
 
         // 기존 ActionManager의 executeCodeGeneration 사용
         const action = {
