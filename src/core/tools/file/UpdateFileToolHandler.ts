@@ -92,12 +92,11 @@ export class UpdateFileToolHandler implements IToolHandler {
                 continue;
             }
 
-            // 모든 매칭 전략 실패 - 에러 반환 (cline 방식: 최신 파일 내용 포함)
+            // 모든 매칭 전략 실패 - 에러 반환
             console.warn(`[UpdateFileToolHandler] Search pattern not found in file: ${filePath}`);
             console.warn(`[UpdateFileToolHandler] Search pattern (first 200 chars): ${replacement.search.substring(0, 200)}`);
             console.warn(`[UpdateFileToolHandler] File content preview (first 500 chars): ${newContent.substring(0, 500)}`);
 
-            // cline 방식: 에러 메시지에 최신 파일 내용 포함
             let errorMessage = `This is likely because the SEARCH block content doesn't match exactly with what's in the file, or if you used multiple SEARCH/REPLACE blocks they may not have been in the order they appear in the file. (Please also ensure that when using the update_file tool, Do NOT add extra characters to the markers (e.g., ------- SEARCH> is INVALID). Do NOT forget to use the closing ------- REPLACE marker. Do NOT modify the marker format in any way. Malformed XML will cause complete tool failure and break the entire editing process.)\n\n`;
             errorMessage += `The file was reverted to its original state:\n\n`;
             errorMessage += `<file_content path="${filePath}">\n${fileContent}\n</file_content>\n\n`;

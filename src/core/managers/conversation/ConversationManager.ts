@@ -960,10 +960,6 @@ export class ConversationManager {
                             }
                         }
 
-                        // LLM이 스스로 판단하도록 함 (cline 방식)
-                        // 시스템이 자동으로 follow-up을 생성하지 않음
-                        // update_file 실패 시 에러 메시지에 최신 파일 내용이 포함되어 있으므로,
-                        // LLM이 다음 응답에서 스스로 판단하여 재시도함
 
                         // 생성된 파일들을 마크다운 형식으로 표시
                         if (createdFiles.length > 0) {

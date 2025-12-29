@@ -7,8 +7,8 @@
 VSCode base code assistant plugin with LLM and LM support.
 
 ## v5.1.2 (LLM Autonomy & Enhanced File Modification)
-- **LLM autonomy**: Removed system-generated follow-ups. LLM now autonomously decides when to retry failed operations and generate subsequent tool calls, similar to `cline`.
-- **Enhanced update_file matching**: Added `cline`-style robust matching strategies:
+- **LLM autonomy**: Removed system-generated follow-ups. LLM now autonomously decides when to retry failed operations and generate subsequent tool calls
+- **Enhanced update_file matching**: 
   - Line-trimmed matching: Compares lines after trimming whitespace (preserves indentation structure)
   - Block anchor matching: Uses first/last lines as anchors for 3+ line blocks
   - Improved error messages: Includes latest file content when SEARCH pattern fails, allowing LLM to self-correct

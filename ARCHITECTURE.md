@@ -163,8 +163,8 @@ src/
 │   │   └── index.ts
 │   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
 │   │   ├── file/                    # 파일/프로젝트 관련 툴
-│   │   │   ├── CreateFileToolHandler.ts  # CDATA 섹션 처리 (v5.1.2)
-│   │   │   ├── UpdateFileToolHandler.ts # cline 스타일 매칭 전략 (v5.1.2)
+│   │   │   ├── CreateFileToolHandler.ts  #
+│   │   │   ├── UpdateFileToolHandler.ts 
 │   │   │   │                          # - Line-trimmed 매칭
 │   │   │   │                          # - Block anchor 매칭
 │   │   │   │                          # - 에러 메시지에 최신 파일 내용 포함
@@ -482,14 +482,14 @@ class ContextManager {
 **LLM 자율 판단 중심 아키텍처** (v5.1.2):
 - **시스템 자동 follow-up 제거**: `ConversationManager`에서 자동으로 follow-up을 생성하지 않음
   - 기존: `read_file`만 실행되면 자동으로 follow-up 생성하여 파일 수정 유도
-  - 변경: LLM이 스스로 판단하여 필요한 tool call을 생성하도록 함 (`cline` 방식)
+  - 변경: LLM이 스스로 판단하여 필요한 tool call을 생성하도록 함 
 - **에러 처리 개선**: `UpdateFileToolHandler`에서 실패 시 에러 메시지에 최신 파일 내용 포함
   - LLM이 다음 응답에서 스스로 판단하여 올바른 SEARCH/REPLACE 패턴으로 재시도
   - 시스템이 강제로 재시도하지 않고, LLM의 자율 판단에 맡김
 - **프롬프트 개선**: 강한 지시("반드시", "같은 응답에서") 제거, 가이드라인 중심으로 변경
   - `ToolSpecBuilder`에서 예시 중심의 가이드라인 제공
   - 한글로 번역하여 LLM 이해도 향상
-- **update_file 매칭 전략 강화**: `cline` 스타일의 robust 매칭 추가
+- **update_file 매칭 전략 강화**:
   - Line-trimmed 매칭: 공백/들여쓰기 차이로 인한 실패 감소
   - Block anchor 매칭: 3줄 이상 블록에서 첫/마지막 줄을 앵커로 사용
   - 실패 시 명확한 에러 메시지와 최신 파일 내용 제공

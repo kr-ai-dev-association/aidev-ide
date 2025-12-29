@@ -7,8 +7,8 @@
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
 ## v5.1.2 (LLM 자율 판단 & 파일 수정 개선)
-- **LLM 자율 판단**: 시스템 자동 follow-up 생성 제거. LLM이 실패한 작업 재시도 및 후속 tool call 생성을 스스로 판단하도록 변경 (`cline` 방식).
-- **update_file 매칭 개선**: `cline` 스타일의 강력한 매칭 전략 추가:
+- **LLM 자율 판단**: 시스템 자동 follow-up 생성 제거. LLM이 실패한 작업 재시도 및 후속 tool call 생성을 스스로 판단하도록 변경 
+- **update_file 매칭 개선**: 
   - Line-trimmed 매칭: 공백을 제거한 후 줄 단위 비교 (들여쓰기 구조 유지)
   - Block anchor 매칭: 3줄 이상 블록에서 첫 줄/마지막 줄을 앵커로 사용
   - 에러 메시지 개선: SEARCH 패턴 실패 시 최신 파일 내용 포함하여 LLM이 자가 수정 가능하도록 함
