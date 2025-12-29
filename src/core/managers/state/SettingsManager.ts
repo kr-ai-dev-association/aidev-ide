@@ -253,14 +253,6 @@ export class SettingsManager extends BaseManager {
     /**
      * 외부 API 키 관리 메서드들
      */
-    public async getWeatherApiKey(): Promise<string | undefined> {
-        const key = ConfigurationService.get<string>('weatherApiKey');
-        return key === '' ? undefined : key;
-    }
-
-    public async updateWeatherApiKey(key: string | undefined): Promise<void> {
-        await this.updateUserSetting('weatherApiKey' as any, key || '', vscode.ConfigurationTarget.Global);
-    }
 
     public async getNewsApiKey(): Promise<string | undefined> {
         const key = ConfigurationService.get<string>('newsApiKey');
@@ -280,14 +272,6 @@ export class SettingsManager extends BaseManager {
         await this.updateUserSetting('newsApiSecret' as any, secret || '', vscode.ConfigurationTarget.Global);
     }
 
-    public async getStockApiKey(): Promise<string | undefined> {
-        const key = ConfigurationService.get<string>('stockApiKey');
-        return key === '' ? undefined : key;
-    }
-
-    public async updateStockApiKey(key: string | undefined): Promise<void> {
-        await this.updateUserSetting('stockApiKey' as any, key || '', vscode.ConfigurationTarget.Global);
-    }
 
     /**
      * 언어 설정을 업데이트합니다

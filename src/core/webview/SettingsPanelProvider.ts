@@ -63,7 +63,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
                         const outputLogEnabled = await stateManager.getOutputLogEnabled();
                         const errorRetryCount = await stateManager.getErrorRetryCount();
-                        const weatherApiKey = await stateManager.getWeatherApiKey();
                         const newsApiKey = await stateManager.getNewsApiKey();
                         const banyaLicenseSerial = await stateManager.getBanyaLicenseSerial();
                         const isLicenseVerified = await stateManager.getIsLicenseVerified();
@@ -93,7 +92,6 @@ export function openSettingsPanel(
                             outputLogEnabled: outputLogEnabled || false,
                             autoUpdateEnabled: autoUpdateEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
@@ -338,22 +336,6 @@ export function openSettingsPanel(
                     } else {
                         safePostMessage(panel, { command: 'remoteOllamaModelSaveError', error: 'Invalid Remote Ollama Model' });
                         notificationService.showErrorMessage('Invalid Remote Ollama Model provided.');
-                    }
-                    break;
-                case 'saveWeatherApiKey': // 기상청 API 키 저장 케이스 추가
-                    const weatherApiKeyToSave = data.weatherApiKey;
-                    if (weatherApiKeyToSave && typeof weatherApiKeyToSave === 'string') {
-                        try {
-                            await stateManager.saveWeatherApiKey(weatherApiKeyToSave);
-                            safePostMessage(panel, { command: 'weatherApiKeySaved' });
-                            notificationService.showInfoMessage('AIDEV-IDE: Weather API Key saved.');
-                        } catch (error: any) {
-                            safePostMessage(panel, { command: 'weatherApiKeySaveError', error: error.message });
-                            notificationService.showErrorMessage(`Error saving Weather API Key: ${error.message}`);
-                        }
-                    } else {
-                        safePostMessage(panel, { command: 'weatherApiKeySaveError', error: 'Invalid Weather API Key' });
-                        notificationService.showErrorMessage('Invalid Weather API Key provided.');
                     }
                     break;
                 case 'saveNewsApiKey': // 뉴스 API 키 저장 케이스 추가
@@ -629,27 +611,6 @@ export function openSettingsPanel(
                         notificationService.showErrorMessage(`AIDEV-IDE: Gemini connection test failed: ${error.message}`);
                     }
                     break;
-                case 'testWeatherApiConnection': // 기상청 API 연결 테스트 케이스 추가
-                    try {
-                        const apiKey = await stateManager.getWeatherApiKey();
-                        if (!apiKey) {
-                            safePostMessage(panel, { command: 'weatherApiConnectionTestResult', success: false, error: 'No Weather API key found' });
-                            notificationService.showErrorMessage('AIDEV-IDE: No Weather API key found.');
-                            return;
-                        }
-
-                        const testResult = await ExternalApiService.testWeatherApiConnection(apiKey);
-                        safePostMessage(panel, { command: 'weatherApiConnectionTestResult', success: testResult.success, data: testResult.data, error: testResult.error });
-                        if (testResult.success) {
-                            notificationService.showInfoMessage('AIDEV-IDE: Weather API connection test successful.');
-                        } else {
-                            notificationService.showErrorMessage(`AIDEV-IDE: Weather API connection test failed: ${testResult.error}`);
-                        }
-                    } catch (error: any) {
-                        safePostMessage(panel, { command: 'weatherApiConnectionTestResult', success: false, error: error.message });
-                        notificationService.showErrorMessage(`AIDEV-IDE: Weather API connection test failed: ${error.message}`);
-                    }
-                    break;
                 case 'testNewsApiConnection': // 뉴스 API 연결 테스트 케이스 추가
                     try {
                         const apiKey = await stateManager.getNewsApiKey();
@@ -736,7 +697,6 @@ export function openSettingsPanel(
                         const results = {
                             gemini: false,
                             ollama: false,
-                            weather: false,
                             news: false,
                             banyaLicense: false,
                             ollamaBlocker: false,
@@ -761,11 +721,6 @@ export function openSettingsPanel(
 
                         // 기상청 API 연결 테스트
                         try {
-                            const apiKey = await stateManager.getWeatherApiKey();
-                            if (apiKey) {
-                                const weatherTest = await ExternalApiService.testWeatherApiConnection(apiKey);
-                                results.weather = weatherTest.success;
-                            }
                         } catch (e) { /* 무시 */ }
 
                         // 뉴스 API 연결 테스트
@@ -823,7 +778,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
                         const outputLogEnabled = await stateManager.getOutputLogEnabled();
                         const errorRetryCount = await stateManager.getErrorRetryCount();
-                        const weatherApiKey = await stateManager.getWeatherApiKey();
                         const newsApiKey = await stateManager.getNewsApiKey();
                         const banyaLicenseSerial = await stateManager.getBanyaLicenseSerial();
                         const isLicenseVerified = await stateManager.getIsLicenseVerified();
@@ -844,7 +798,6 @@ export function openSettingsPanel(
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
@@ -873,7 +826,6 @@ export function openSettingsPanel(
                         const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
                         const outputLogEnabled = await stateManager.getOutputLogEnabled();
                         const errorRetryCount = await stateManager.getErrorRetryCount();
-                        const weatherApiKey = await stateManager.getWeatherApiKey();
                         const newsApiKey = await stateManager.getNewsApiKey();
                         const banyaLicenseSerial = await stateManager.getBanyaLicenseSerial();
                         const isLicenseVerified = await stateManager.getIsLicenseVerified();
@@ -897,7 +849,6 @@ export function openSettingsPanel(
                             autoCorrectionEnabled: autoCorrectionEnabled || false,
                             outputLogEnabled: outputLogEnabled || false,
                             errorRetryCount: errorRetryCount || 3,
-                            weatherApiKey: weatherApiKey || '',
                             newsApiKey: newsApiKey || '',
                             banyaLicenseSerial: banyaLicenseSerial || '',
                             isLicenseVerified: isLicenseVerified,

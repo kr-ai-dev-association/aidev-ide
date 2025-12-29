@@ -54,10 +54,6 @@ if (autoExecuteToggle) {
 
 
 // API 키 관련 요소들
-const weatherApiKeyInput = document.getElementById('weather-api-key-input');
-const saveWeatherApiKeyButton = document.getElementById('save-weather-api-key-button');
-const weatherApiKeyStatus = document.getElementById('weather-api-key-status');
-
 const newsApiKeyInput = document.getElementById('news-api-key-input');
 const saveNewsApiKeyButton = document.getElementById('save-news-api-key-button');
 const newsApiKeyStatus = document.getElementById('news-api-key-status');
@@ -65,10 +61,6 @@ const newsApiKeyStatus = document.getElementById('news-api-key-status');
 const newsApiSecretInput = document.getElementById('news-api-secret-input');
 const saveNewsApiSecretButton = document.getElementById('save-news-api-secret-button');
 const newsApiSecretStatus = document.getElementById('news-api-secret-status');
-
-const stockApiKeyInput = document.getElementById('stock-api-key-input');
-const saveStockApiKeyButton = document.getElementById('save-stock-api-key-button');
-const stockApiKeyStatus = document.getElementById('stock-api-key-status');
 
 // Gemini API 키 관련 요소들
 const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
@@ -138,10 +130,8 @@ function updateSaveButtonsState() {
     // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
     const licenseRequiredButtons = [
         saveGeminiApiKeyButton,
-        saveWeatherApiKeyButton,
         saveNewsApiKeyButton,
-        saveNewsApiSecretButton,
-        saveStockApiKeyButton
+        saveNewsApiSecretButton
     ];
 
     // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
@@ -331,35 +321,6 @@ function applyLanguage() {
         }
     }
 
-    // Weather API 키 라벨
-    const weatherApiKeyLabel = document.getElementById('weather-api-key-label');
-    if (weatherApiKeyLabel && languageData['weatherApiKeyLabel']) {
-        weatherApiKeyLabel.textContent = languageData['weatherApiKeyLabel'];
-        // console.log('Updated weather API key label:', languageData['weatherApiKeyLabel']);
-    }
-
-    // Weather API 설명
-    const weatherApiDescription = document.querySelector('#weather-api-key-label + p');
-    if (weatherApiDescription && languageData['weatherApiDescription']) {
-        weatherApiDescription.textContent = languageData['weatherApiDescription'];
-        // console.log('Updated weather API description:', languageData['weatherApiDescription']);
-    }
-
-    // Weather API 등록 방법
-    const weatherApiRegistrationMethod = document.querySelector('#weather-api-key-label + p + p');
-    if (weatherApiRegistrationMethod && languageData['weatherApiRegistrationMethod']) {
-        // 링크는 유지하면서 텍스트만 업데이트
-        const linkMatch = weatherApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-        if (linkMatch) {
-            const linkText = linkMatch[1];
-            const newText = languageData['weatherApiRegistrationMethod'].replace('기상청 API 허브', `<a href="https://apihub.kma.go.kr/" target="_blank">${linkText}</a>`);
-            weatherApiRegistrationMethod.innerHTML = newText;
-        } else {
-            weatherApiRegistrationMethod.textContent = languageData['weatherApiRegistrationMethod'];
-        }
-        // console.log('Updated weather API registration method:', languageData['weatherApiRegistrationMethod']);
-    }
-
     // News API 키 라벨
     const newsApiKeyLabel = document.getElementById('news-api-key-label');
     if (newsApiKeyLabel && languageData['newsApiKeyLabel']) {
@@ -387,35 +348,6 @@ function applyLanguage() {
             newsApiRegistrationMethod.textContent = languageData['newsApiRegistrationMethod'];
         }
         // console.log('Updated news API registration method:', languageData['newsApiRegistrationMethod']);
-    }
-
-    // Stock API 키 라벨
-    const stockApiKeyLabel = document.getElementById('stock-api-key-label');
-    if (stockApiKeyLabel && languageData['stockApiKeyLabel']) {
-        stockApiKeyLabel.textContent = languageData['stockApiKeyLabel'];
-        // console.log('Updated stock API key label:', languageData['stockApiKeyLabel']);
-    }
-
-    // Stock API 설명
-    const stockApiDescription = document.querySelector('#stock-api-key-label + p');
-    if (stockApiDescription && languageData['stockApiDescription']) {
-        stockApiDescription.textContent = languageData['stockApiDescription'];
-        // console.log('Updated stock API description:', languageData['stockApiDescription']);
-    }
-
-    // Stock API 등록 방법
-    const stockApiRegistrationMethod = document.querySelector('#stock-api-key-label + p + p');
-    if (stockApiRegistrationMethod && languageData['stockApiRegistrationMethod']) {
-        // 링크는 유지하면서 텍스트만 업데이트
-        const linkMatch = stockApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-        if (linkMatch) {
-            const linkText = linkMatch[1];
-            const newText = languageData['stockApiRegistrationMethod'].replace('Alpha Vantage', `<a href="https://www.alphavantage.co/support/#api-key" target="_blank">${linkText}</a>`);
-            stockApiRegistrationMethod.innerHTML = newText;
-        } else {
-            stockApiRegistrationMethod.textContent = languageData['stockApiRegistrationMethod'];
-        }
-        // console.log('Updated stock API registration method:', languageData['stockApiRegistrationMethod']);
     }
 
     // 공통 저장 버튼들
@@ -539,16 +471,6 @@ function applyLanguage() {
             if (languageData['externalApiKeysDescription']) {
                 msg.textContent = languageData['externalApiKeysDescription'];
             }
-        } else if (text && (text.includes('한국의 정확한 날씨 정보를 제공합니다') ||
-            text.includes('Provides accurate weather information for Korea') ||
-            text.includes('Proporciona información meteorológica precisa para Corea') ||
-            text.includes('Fournit des informations météorologiques précises pour la Corée') ||
-            text.includes('提供韩国的准确天气信息') ||
-            text.includes('韓国の正確な天気情報を提供します'))) {
-            // 날씨 API 설명
-            if (languageData['weatherApiDescription']) {
-                msg.textContent = languageData['weatherApiDescription'];
-            }
         } else if (text && (text.includes('한국의 최신 뉴스 정보를 제공합니다') ||
             text.includes('Provides the latest news information from Korea') ||
             text.includes('Proporciona la información de noticias más reciente de Corea') ||
@@ -558,16 +480,6 @@ function applyLanguage() {
             // 뉴스 API 설명
             if (languageData['newsApiDescription']) {
                 msg.textContent = languageData['newsApiDescription'];
-            }
-        } else if (text && (text.includes('실시간 주식 정보를 제공합니다') ||
-            text.includes('Provides real-time stock information') ||
-            text.includes('Proporciona información de acciones en tiempo real') ||
-            text.includes('Fournit des informations boursières en temps réel') ||
-            text.includes('提供实时股票信息') ||
-            text.includes('リアルタイムの株式情報を提供します'))) {
-            // 주식 API 설명
-            if (languageData['stockApiDescription']) {
-                msg.textContent = languageData['stockApiDescription'];
             }
         }
     });
@@ -802,11 +714,6 @@ function applyLanguage() {
         remoteOllamaApiUrlInput.placeholder = languageData['pleaseEnterOllamaApiUrl'];
     }
 
-    // Weather API 키 입력 필드
-    if (weatherApiKeyInput && languageData['pleaseEnterApiKey']) {
-        weatherApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
-    }
-
     // News API 키 입력 필드
     if (newsApiKeyInput && languageData['pleaseEnterApiKey']) {
         newsApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
@@ -815,11 +722,6 @@ function applyLanguage() {
     // News API Secret 입력 필드
     if (newsApiSecretInput && languageData['pleaseEnterApiKey']) {
         newsApiSecretInput.placeholder = languageData['pleaseEnterApiKey'];
-    }
-
-    // Stock API 키 입력 필드
-    if (stockApiKeyInput && languageData['pleaseEnterApiKey']) {
-        stockApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
     }
 
     // 모든 상태 메시지 업데이트
@@ -873,22 +775,6 @@ function applyLanguage() {
         }
     }
 
-    // Weather API 키 상태
-    if (weatherApiKeyStatus && weatherApiKeyStatus.textContent) {
-        const currentText = weatherApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
-            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-            currentText.includes('est définie') || currentText.includes('設定されています') ||
-            currentText.includes('已设置')) {
-            weatherApiKeyStatus.textContent = languageData['weatherApiKeySet'] || '기상청 API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
-            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-            currentText.includes('未设置')) {
-            weatherApiKeyStatus.textContent = languageData['weatherApiKeyNotSet'] || '기상청 API 키가 설정되지 않았습니다.';
-        }
-    }
-
     // News API 키 상태
     if (newsApiKeyStatus && newsApiKeyStatus.textContent) {
         const currentText = newsApiKeyStatus.textContent;
@@ -921,21 +807,6 @@ function applyLanguage() {
         }
     }
 
-    // Stock API 키 상태
-    if (stockApiKeyStatus && stockApiKeyStatus.textContent) {
-        const currentText = stockApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
-            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-            currentText.includes('est définie') || currentText.includes('設定されています') ||
-            currentText.includes('已设置')) {
-            stockApiKeyStatus.textContent = languageData['stockApiKeySet'] || '주식 API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
-            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-            currentText.includes('未设置')) {
-            stockApiKeyStatus.textContent = languageData['stockApiKeyNotSet'] || '주식 API 키가 설정되지 않았습니다.';
-        }
-    }
 }
 
 if (languageSelect) {
@@ -1085,15 +956,6 @@ if (ollamaServerTypeSelect) {
 }
 
 // API 키 저장 이벤트 리스너들
-if (saveWeatherApiKeyButton) {
-    saveWeatherApiKeyButton.addEventListener('click', () => {
-        const apiKey = weatherApiKeyInput.value.trim();
-        vscode.postMessage({ command: 'saveWeatherApiKey', apiKey: apiKey });
-        const savingText = languageData['apiKeysLoading'] || '기상청 API 키 저장 중...';
-        showStatus(weatherApiKeyStatus, savingText, 'info');
-    });
-}
-
 if (saveNewsApiKeyButton) {
     saveNewsApiKeyButton.addEventListener('click', () => {
         const apiKey = newsApiKeyInput.value.trim();
@@ -1109,15 +971,6 @@ if (saveNewsApiSecretButton) {
         vscode.postMessage({ command: 'saveNewsApiSecret', apiSecret: apiSecret });
         const savingText = languageData['apiKeysLoading'] || '네이버 API Client Secret 저장 중...';
         showStatus(newsApiSecretStatus, savingText, 'info');
-    });
-}
-
-if (saveStockApiKeyButton) {
-    saveStockApiKeyButton.addEventListener('click', () => {
-        const apiKey = stockApiKeyInput.value.trim();
-        vscode.postMessage({ command: 'saveStockApiKey', apiKey: apiKey });
-        const savingText = languageData['apiKeysLoading'] || '주식 API 키 저장 중...';
-        showStatus(stockApiKeyStatus, savingText, 'info');
     });
 }
 
@@ -1862,13 +1715,6 @@ window.addEventListener('message', event => {
             break;
         case 'currentApiKeys':
             // API 키 상태 로드
-            if (weatherApiKeyInput && typeof message.weatherApiKey === 'string') {
-                weatherApiKeyInput.value = message.weatherApiKey;
-                const weatherApiKeySetText = message.weatherApiKey ?
-                    (languageData['weatherApiKeySet'] || '기상청 API 키가 설정되어 있습니다.') :
-                    (languageData['weatherApiKeyNotSet'] || '기상청 API 키가 설정되지 않았습니다.');
-                showStatus(weatherApiKeyStatus, weatherApiKeySetText, message.weatherApiKey ? 'success' : 'info');
-            }
             if (newsApiKeyInput && typeof message.newsApiKey === 'string') {
                 newsApiKeyInput.value = message.newsApiKey;
                 const newsApiKeySetText = message.newsApiKey ?
@@ -1882,13 +1728,6 @@ window.addEventListener('message', event => {
                     (languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.') :
                     (languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.');
                 showStatus(newsApiSecretStatus, newsApiSecretSetText, message.newsApiSecret ? 'success' : 'info');
-            }
-            if (stockApiKeyInput && typeof message.stockApiKey === 'string') {
-                stockApiKeyInput.value = message.stockApiKey;
-                const stockApiKeySetText = message.stockApiKey ?
-                    (languageData['stockApiKeySet'] || '주식 API 키가 설정되어 있습니다.') :
-                    (languageData['stockApiKeyNotSet'] || '주식 API 키가 설정되지 않았습니다.');
-                showStatus(stockApiKeyStatus, stockApiKeySetText, message.stockApiKey ? 'success' : 'info');
             }
             // Gemini API 키 상태 로드
             if (geminiApiKeyInput && typeof message.geminiApiKey === 'string') {
@@ -2030,15 +1869,6 @@ window.addEventListener('message', event => {
                 updateLicenseButtonsState();
             }, 100);
             break;
-        case 'weatherApiKeySaved':
-            const weatherApiKeySavedText = languageData['weatherApiKeySaved'] || '기상청 API 키가 저장되었습니다.';
-            showStatus(weatherApiKeyStatus, weatherApiKeySavedText, 'success');
-            weatherApiKeyInput.value = '';
-            break;
-        case 'weatherApiKeyError':
-            const weatherApiKeyErrorText = languageData['weatherApiKeyError'] || '기상청 API 키 저장 실패:';
-            showStatus(weatherApiKeyStatus, `${weatherApiKeyErrorText} ${message.error}`, 'error');
-            break;
         case 'newsApiKeySaved':
             const newsApiKeySavedText = languageData['newsApiKeySaved'] || '네이버 API Client ID가 저장되었습니다.';
             showStatus(newsApiKeyStatus, newsApiKeySavedText, 'success');
@@ -2056,15 +1886,6 @@ window.addEventListener('message', event => {
         case 'newsApiSecretError':
             const newsApiSecretErrorText = languageData['newsApiSecretError'] || '네이버 API Client Secret 저장 실패:';
             showStatus(newsApiSecretStatus, `${newsApiSecretErrorText} ${message.error}`, 'error');
-            break;
-        case 'stockApiKeySaved':
-            const stockApiKeySavedText = languageData['stockApiKeySaved'] || '주식 API 키가 저장되었습니다.';
-            showStatus(stockApiKeyStatus, stockApiKeySavedText, 'success');
-            stockApiKeyInput.value = '';
-            break;
-        case 'stockApiKeyError':
-            const stockApiKeyErrorText = languageData['stockApiKeyError'] || '주식 API 키 저장 실패:';
-            showStatus(stockApiKeyStatus, `${stockApiKeyErrorText} ${message.error}`, 'error');
             break;
         case 'apiKeySaved':
             const geminiApiKeySavedText = languageData['geminiApiKeySaved'] || 'Gemini API 키가 저장되었습니다.';
