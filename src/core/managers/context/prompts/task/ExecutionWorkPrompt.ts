@@ -6,7 +6,7 @@
 export function getExecutionWorkPrompt(): string {
   return `**실행 작업 (execution_work) 특화 규칙:**
 
-**⚠️ 매우 중요: execution_work에서도 반드시 XML 도구 호출을 사용해야 합니다!**
+** 매우 중요: execution_work에서도 반드시 XML 도구 호출을 사용해야 합니다!**
 - **절대로 마크다운 코드 블록(\\\`\\\`\\\`bash)을 사용하지 마세요.**
 - **절대로 텍스트 설명만 제공하지 마세요.**
 - **반드시 run_command XML 도구를 호출해야 합니다.**
@@ -41,11 +41,11 @@ export function getExecutionWorkPrompt(): string {
 \`\`\`
 
           ** 절대 하지 말아야 할 것:**
-            - ❌ \`\`\`bash\npsql -U banya -d test -f backend/seed.sql\n\`\`\` (마크다운 코드 블록 사용 금지)
-- ❌ "실행 계획 (Step-by-Step)" 형식으로 응답
-- ❌ 스크립트 파일(.sh, .bat, .ps1) 생성 (단순 명령 실행은 스크립트 파일 불필요)
-- ❌ 플레이스홀더 경로(/path/to/your/sql 등) 사용
-- ❌ thinking 필드에만 도구 호출 넣기 (반드시 response 필드에 넣어야 함)
+            - \`\`\`bash\npsql -U banya -d test -f backend/seed.sql\n\`\`\` (마크다운 코드 블록 사용 금지)
+- "실행 계획 (Step-by-Step)" 형식으로 응답
+- 스크립트 파일(.sh, .bat, .ps1) 생성 (단순 명령 실행은 스크립트 파일 불필요)
+- 플레이스홀더 경로(/path/to/your/sql 등) 사용
+- thinking 필드에만 도구 호출 넣기 (반드시 response 필드에 넣어야 함)
 
 **중요:**
 - **thinking 필드는 비워두고**, 모든 XML 도구 호출을 **response 필드에 넣으세요**.

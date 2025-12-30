@@ -23,10 +23,15 @@ export class RunCommandToolHandler implements IToolHandler {
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
 
-        // 짧은 타임아웃(5초)으로 시작하여 출력을 확인
+        // npm install 등 설치 명령어는 기본적으로 더 긴 타임아웃 부여
+        const isSetupCommand = command.includes('npm install') || command.includes('yarn install') || command.includes('pnpm install');
+        const initialTimeout = isSetupCommand ? 10000 : 5000;
+
+        // 짧은 타임아웃으로 시작하여 출력을 확인 (killOnTimeout: false로 설정하여 프로세스 유지)
         const initialResult = await context.executionManager.executeCommand(command, {
             cwd: context.projectRoot,
-            timeout: 5000 // 5초 타임아웃으로 출력 확인
+            timeout: initialTimeout,
+            killOnTimeout: false
         });
 
         // 출력 기반으로 장기 실행 명령어인지 확인
@@ -39,17 +44,18 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         // 타임아웃이 발생했거나 출력 기반으로 장기 실행으로 판단되면 continue() 호출
-        if (isLongRunning || initialResult.error?.code === 'TIMEOUT') {
+        if (isLongRunning || initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE') {
             if (pid) {
-                console.log(`[RunCommandToolHandler] Long-running command detected (output-based): ${command}, using continue() pattern`);
+                console.log(`[RunCommandToolHandler] Long-running command detected (output-based/timeout): ${command}, using continue() pattern`);
 
                 // continue() 호출하여 백그라운드에서 계속 실행
                 context.executionManager.continueProcess(pid);
 
                 // 타임아웃 발생 시에도 성공 메시지 반환
-                const outputMessage = initialResult.error?.code === 'TIMEOUT'
-                    ? `Command started successfully. ${initialResult.stdout ? `Output so far:\n${initialResult.stdout}` : 'Running in background...'}`
-                    : (initialResult.stdout || `Server starting in background${pid ? ` (PID: ${pid})` : ''}...`);
+                const isTimeout = initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE';
+                const outputMessage = isTimeout
+                    ? `명령어가 백그라운드에서 실행 중입니다. ${initialResult.stdout ? `현재까지의 출력:\n${initialResult.stdout}` : ''}`
+                    : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}...`);
 
                 return {
                     success: true,

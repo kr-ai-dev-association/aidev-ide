@@ -17,6 +17,7 @@ src/
 │   │   ├── ActionRegistry.ts         # 액션 등록/관리
 │   │   ├── ActionValidator.ts        # 액션 검증
 │   │   ├── ActionMapper.ts           # LLM 요청 → 액션 매핑
+│   │   ├── IntentDetector.ts         # 의도 분석 (v5.2.0: 정밀 키워드 및 LLM 기반 분류)
 │   │   ├── types.ts                  # 액션 타입 정의
 │   │   ├── index.ts
 │   │   └── file/                     # 파일 변경 추적
@@ -25,7 +26,7 @@ src/
 │   │       └── index.ts
 │   │
 │   ├── execution/                   # 2. Execution Manager
-│   │   ├── ExecutionManager.ts       # 메인 실행 매니저
+│   │   ├── ExecutionManager.ts       # 메인 실행 매니저 (v5.2.0: 백그라운드 프로세스 관리 지원)
 │   │   ├── ProcessManager.ts         # 프로세스(PID) 관리
 │   │   ├── StreamManager.ts          # stdout/stderr 스트림 관리
 │   │   ├── ErrorDetector.ts          # 에러/포트 충돌 감지
@@ -47,7 +48,7 @@ src/
 │   │
 │   ├── task/                        # 4. Task Manager
 │   │   ├── TaskManager.ts           # 작업 큐 관리
-│   │   ├── TaskQueue.ts             # 작업 큐 구현
+│   │   ├── TaskQueue.ts             # 작업 큐 구현 (@deprecated - v5.2.0에서 UI 제거)
 │   │   ├── TaskScheduler.ts         # 우선순위 스케줄링
 │   │   ├── TaskRetry.ts             # 재시도 로직
 │   │   ├── PlanManager.ts           # 플랜 생성 및 파싱
@@ -85,9 +86,9 @@ src/
 │   │   ├── prompts/                 # 프롬프트 컴포넌트 시스템
 │   │   │   ├── PromptComposer.ts    # 프롬프트 조합기 (OS/LLM/Framework/Task 조합)
 │   │   │   ├── base/                # 베이스 프롬프트 컴포넌트
-│   │   │   │   ├── agentRole.ts     # 에이전트 역할 정의
+│   │   │   │   ├── agentRole.ts     # 에이전트 역할 정의 (한글 응답 강제)
 │   │   │   │   ├── objective.ts     # 목표 정의
-│   │   │   │   ├── rules.ts         # 기본 규칙
+│   │   │   │   ├── rules.ts         # 기본 규칙 (v5.2.0: 내부 독백 금지, 코드 블록 사용 제한)
 │   │   │   │   ├── fileOperations.ts # 파일 작업 규칙
 │   │   │   │   ├── terminalCommands.ts # 터미널 명령 규칙
 │   │   │   │   └── codeVsScript.ts  # 코드 vs 스크립트 구별 규칙
@@ -117,11 +118,10 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (오케스트레이션)
-│   │   │                            # - Tree-sitter를 사용한 함수 위치 검색 (v5.1.1)
-│   │   │                            # - read_file 결과 표시 개선 (특정 라인 주변만 표시)
-│   │   │                            # - LLM 자율 판단 중심으로 전환 (v5.1.2): 시스템 자동 follow-up 제거
-│   │   │                            # - LLM이 스스로 판단하여 tool call 생성 및 재시도
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v5.2.0 리팩토링)
+│   │   │                            # - 인터리브드(Interleaved) 출력 지원
+│   │   │                            # - 스마트 너징(Nudging) 로직
+│   │   │                            # - WebviewBridge를 통한 중앙 집중식 UI 통신
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
@@ -162,21 +162,26 @@ src/
 │   │   ├── SafeSettingsHelper.ts    # 안전한 설정값 가져오기
 │   │   └── index.ts
 │   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
+│   │   ├── ToolParser.ts            # 툴 파싱 및 계획(Plan) 추출 (v5.2.0)
+│   │   ├── ToolExecutor.ts          # 툴 통합 실행기
+│   │   ├── ToolSpecBuilder.ts       # 툴 명세 및 가이드라인 생성
 │   │   ├── file/                    # 파일/프로젝트 관련 툴
-│   │   │   ├── CreateFileToolHandler.ts  #
-│   │   │   ├── UpdateFileToolHandler.ts 
-│   │   │   │                          # - Line-trimmed 매칭
-│   │   │   │                          # - Block anchor 매칭
-│   │   │   │                          # - 에러 메시지에 최신 파일 내용 포함
+│   │   │   ├── CreateFileToolHandler.ts
+│   │   │   ├── UpdateFileToolHandler.ts # v5.2.0: 방식의 강력한 매칭 도입
+│   │   │   │                          # - Fuzzy, Block Anchor, Structural 매칭
+│   │   │   │                          # - 순서 무관 수정(Out-of-order edits)
 │   │   │   ├── RemoveFileToolHandler.ts
 │   │   │   ├── ReadFileToolHandler.ts
-│   │   │   ├── ListFilesToolHandler.ts
+│   │   │   ├── ListFilesToolHandler.ts  # v5.2.0: 지능형 경로 필터링 추가
 │   │   │   └── SearchFilesToolHandler.ts
 │   │   ├── terminal/                # 터미널/명령 실행 툴
-│   │   │   └── RunCommandToolHandler.ts
-│   │   └── code/                    # 코드 분석/리팩토링 툴 (추가 예정, placeholder)
+│   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 및 백그라운드 실행
+│   │   └── code/                    # 코드 분석/리팩토링 툴
 │   │
-│   └── index.ts                     # 모든 매니저 및 추상화 export
+│   └── webview/                     # WebviewBridge 등 UI 브리지
+│       └── WebviewBridge.ts         # 중앙 집중식 UI 통신 및 상태 업데이트
+│
+└── index.ts                     # 모든 매니저 및 추상화 export
 │
 ├── services/                        # 보조 서비스 (도메인별 분류)
 │   ├── index.ts                     # 배럴 파일 (모든 서비스 export)
@@ -196,6 +201,8 @@ src/
 │       └── NotificationService.ts
 │
 ├── webview/                         # UI 레이어
+│   ├── chat.html                    # 메인 채팅 UI (v5.2.0: 조건부 스티키 진행 상태 바 적용)
+│   ├── chat.js                      # UI 상호작용 및 타자기 애니메이션 구현
 │   ├── providers/                   # Webview Provider
 │   │   ├── index.ts                 # 배럴 파일
 │   │   ├── ChatViewProvider.ts      # CODE 탭 Provider
@@ -205,7 +212,7 @@ src/
 │       ├── index.ts                 # 배럴 파일
 │       ├── SupportedModelService.ts # 지원 모델 파일 로더
 │       └── LocaleService.ts        # 언어(locale) 파일 로더
-│   # UI note: Chat webview message bubbles are now text-only and stretch full width (background/border removed) for better readability.
+│   # UI note: v5.2.0: TaskQueue UI removed, integrated status into terminal-style loading animation.
 │
 ├── utils/                           # 유틸리티
 │   ├── index.ts                     # 배럴 파일

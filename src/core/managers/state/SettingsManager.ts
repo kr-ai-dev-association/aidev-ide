@@ -313,7 +313,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoCorrectionEnabled(): Promise<boolean> {
         const value = ConfigurationService.get<boolean>('autoCorrectionEnabled') ?? false;
-        console.log(`[SettingsManager] Read autoCorrectionEnabled: ${value}`);
+        // console.log(`[SettingsManager] Read autoCorrectionEnabled: ${value}`);
         return value;
     }
 
@@ -330,7 +330,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoExecuteCommandsEnabled(): Promise<boolean> {
         const value = ConfigurationService.get<boolean>('autoExecuteCommands') ?? true;
-        console.log(`[SettingsManager] Read autoExecuteCommands: ${value}`);
+        // console.log(`[SettingsManager] Read autoExecuteCommands: ${value}`);
         return value;
     }
 

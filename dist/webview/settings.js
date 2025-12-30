@@ -1960,9 +1960,6 @@ vscode.postMessage({
   command: 'loadOllamaModel'
 });
 const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
-showStatus(weatherApiKeyStatus, apiKeysLoadingText, 'info');
-showStatus(newsApiKeyStatus, apiKeysLoadingText, 'info');
-showStatus(stockApiKeyStatus, apiKeysLoadingText, 'info');
 showStatus(geminiApiKeyStatus, apiKeysLoadingText, 'info');
 if (localOllamaApiUrlStatus) showStatus(localOllamaApiUrlStatus, apiKeysLoadingText, 'info');
 if (remoteOllamaApiUrlStatus) showStatus(remoteOllamaApiUrlStatus, apiKeysLoadingText, 'info');

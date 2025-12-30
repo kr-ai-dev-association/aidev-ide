@@ -94,7 +94,7 @@ export class ExecutionManager {
             this.streamManager.captureStream(pid, childProcess);
 
             // 완료 대기
-            const result = await this.waitForCompletion(pid, options.timeout);
+            const result = await this.waitForCompletion(pid, options.timeout, options.killOnTimeout);
 
             // 통계 업데이트
             const duration = Date.now() - startTime;
@@ -328,7 +328,8 @@ export class ExecutionManager {
      */
     private async waitForCompletion(
         pid: number,
-        timeout?: number
+        timeout?: number,
+        killOnTimeout: boolean = true
     ): Promise<ExecutionResult> {
         const childProcess = this.processManager.getChildProcess(pid);
         if (!childProcess) {
@@ -371,23 +372,27 @@ export class ExecutionManager {
             if (timeout && timeout > 0) {
                 timeoutHandle = setTimeout(() => {
                     console.warn(`[ExecutionManager] Timeout after ${timeout}ms for PID=${pid}`);
-                    // 타임아웃 발생 시 프로세스를 종료하지 않고 continue()를 호출할 수 있도록
-                    // 여기서는 기존 동작 유지 (프로세스 종료)
-                    // RunCommandToolHandler에서 continue()를 호출하도록 변경
-                    childProcess.kill('SIGTERM');
+                    
+                    if (killOnTimeout) {
+                        childProcess.kill('SIGTERM');
+                    }
 
                     doResolve({
-                        success: false,
-                        exitCode: -1,
+                        success: !killOnTimeout, // 죽이지 않는 경우 일단 성공(진행중)으로 간주
+                        exitCode: killOnTimeout ? -1 : undefined as any,
                         stdout: '',
-                        stderr: 'Command timeout',
+                        stderr: killOnTimeout ? 'Command timeout' : '',
                         duration: Date.now() - startTime,
                         pid,
-                        error: {
+                        error: killOnTimeout ? {
                             code: 'TIMEOUT',
                             message: `Command timed out after ${timeout}ms`,
                             killed: true,
                             signal: 'SIGTERM'
+                        } : {
+                            code: 'TIMEOUT_CONTINUE',
+                            message: `Command timed out after ${timeout}ms, continuing in background`,
+                            killed: false
                         }
                     });
                 }, timeout);
@@ -465,6 +470,7 @@ export class ExecutionManager {
             env?: NodeJS.ProcessEnv;
             shell?: boolean | string;
             timeoutMs?: number;
+            killOnTimeout?: boolean;
         } = {},
         onData?: (chunk: string) => void,
         onErrorData?: (chunk: string) => void
@@ -473,7 +479,8 @@ export class ExecutionManager {
             cwd: this.ensureValidCwd(options.cwd),
             env: options.env as Record<string, string> | undefined,
             shell: options.shell,
-            timeout: options.timeoutMs
+            timeout: options.timeoutMs,
+            killOnTimeout: options.killOnTimeout
         };
 
         // 스트림 핸들러 등록
@@ -505,7 +512,7 @@ export class ExecutionManager {
             this.streamManager.captureStream(pid, childProcess);
 
             // 완료 대기
-            const result = await this.waitForCompletion(pid, options.timeoutMs);
+            const result = await this.waitForCompletion(pid, options.timeoutMs, options.killOnTimeout);
 
             return {
                 code: result.exitCode ?? null,

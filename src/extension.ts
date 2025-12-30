@@ -337,7 +337,7 @@ export async function activate(context: vscode.ExtensionContext) {
         } else if (storedOllamaModel && storedOllamaModel.startsWith('qwen')) {
             currentAiModel = 'ollama-gpt-oss';
         } else {
-            currentAiModel = 'ollama-gemma';
+            currentAiModel = 'ollama';
         }
         await stateManager.saveCurrentAiModel(currentAiModel as any);
     }
@@ -352,8 +352,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (storedOllamaModel === 'deepseek-r1:70b') mappedUiModel = 'ollama-deepseek';
                     else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) mappedUiModel = 'ollama-codellama';
                     else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud' || (storedOllamaModel && storedOllamaModel.startsWith('qwen'))) mappedUiModel = 'ollama-gpt-oss';
-                    else mappedUiModel = 'ollama-gemma';
-                } catch { mappedUiModel = 'ollama-gemma'; }
+                    else mappedUiModel = 'ollama';
+                } catch { mappedUiModel = 'ollama'; }
             }
             currentAiModel = mappedUiModel as any;
             await stateManager.saveCurrentAiModel(mappedUiModel);
@@ -364,7 +364,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ConversationManager 초기화 및 설정
 
-    const conversationManager = ConversationManager.getInstance();
+    const conversationManager = ConversationManager.getInstance(userOS, geminiApi, ollamaApi);
     const llmApiClient = new LLMApiClient(geminiApi, ollamaApi, currentAiModel as any);
     // promptBuilder는 이미 위에서 선언됨
     const intentDetector = new IntentDetector(ollamaApi);

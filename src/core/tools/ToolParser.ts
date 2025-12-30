@@ -117,5 +117,65 @@ export class ToolParser {
         
         return params;
     }
-}
 
+    /**
+     * LLM 응답에서 task_progress를 파싱
+     * task_progress는 툴 콜의 파라미터로 포함되거나 별도의 <task_progress> 태그로 포함될 수 있음
+     */
+    static parseTaskProgress(content: string): string | undefined {
+        // 방법 1: 별도의 <task_progress> 태그로 포함된 경우
+        const standalonePattern = /<task_progress>([\s\S]*?)<\/task_progress>/gi;
+        let match = standalonePattern.exec(content);
+        if (match && match[1]) {
+            return match[1].trim();
+        }
+
+        // 방법 2: 툴 콜 내부의 task_progress 파라미터로 포함된 경우
+        // 모든 툴 콜을 순회하면서 task_progress 파라미터 찾기
+        const toolNames = Object.values(Tool);
+        for (const toolName of toolNames) {
+            const toolPattern = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
+            let toolMatch;
+            while ((toolMatch = toolPattern.exec(content)) !== null) {
+                const innerContent = toolMatch[1];
+                const taskProgressPattern = /<task_progress>([\s\S]*?)<\/task_progress>/gi;
+                const taskProgressMatch = taskProgressPattern.exec(innerContent);
+                if (taskProgressMatch && taskProgressMatch[1]) {
+                    return taskProgressMatch[1].trim();
+                }
+            }
+        }
+
+        return undefined;
+    }
+
+    /**
+     * LLM 응답에서 플랜 아이템들을 파싱
+     */
+    static parsePlanItems(content: string): Array<{ title: string; detail?: string }> {
+        const items: Array<{ title: string; detail?: string }> = [];
+        const planPattern = /<plan>([\s\S]*?)<\/plan>/gi;
+        const match = planPattern.exec(content);
+        
+        if (match && match[1]) {
+            const planContent = match[1];
+            // <item> 태그 파싱
+            const itemPattern = /<item>([\s\S]*?)<\/item>/gi;
+            let itemMatch;
+            while ((itemMatch = itemPattern.exec(planContent)) !== null) {
+                const itemContent = itemMatch[1];
+                const titleMatch = /<title>([\s\S]*?)<\/title>/gi.exec(itemContent);
+                const detailMatch = /<detail>([\s\S]*?)<\/detail>/gi.exec(itemContent);
+                
+                if (titleMatch && titleMatch[1]) {
+                    items.push({
+                        title: titleMatch[1].trim(),
+                        detail: detailMatch ? detailMatch[1].trim() : undefined
+                    });
+                }
+            }
+        }
+        
+        return items;
+    }
+}

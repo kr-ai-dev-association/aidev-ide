@@ -11,6 +11,7 @@ export interface ExecutionOptions {
     env?: Record<string, string>;
     shell?: string | boolean;
     timeout?: number;
+    killOnTimeout?: boolean;
     encoding?: BufferEncoding;
     killSignal?: NodeJS.Signals;
     maxBuffer?: number;

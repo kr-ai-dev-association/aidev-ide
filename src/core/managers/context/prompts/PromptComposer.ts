@@ -115,6 +115,8 @@ ${codebaseContext}` : '';
                 return llm.getGemmaPrompt();
             case AiModelType.OLLAMA_CodeLlama:
                 return llm.getCodeLlamaPrompt();
+            case AiModelType.OLLAMA:
+                return llm.getDefaultLLMPrompt();
             default:
                 return llm.getDefaultLLMPrompt();
         }

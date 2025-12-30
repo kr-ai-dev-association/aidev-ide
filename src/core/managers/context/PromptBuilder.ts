@@ -8,6 +8,7 @@
  */
 
 import { AiModelType, PromptType } from '../../../services';
+export { PromptType };
 import { PromptComposer, PromptComposerOptions } from './prompts/PromptComposer';
 import { ProjectManager } from '../project/ProjectManager';
 

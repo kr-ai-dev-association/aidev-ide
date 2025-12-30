@@ -14,7 +14,6 @@ import {
     TaskEvent,
     TaskEventData,
     TaskEventListener,
-    RetryStrategy,
     TaskQueueConfig
 } from './types';
 import { TaskQueue } from './TaskQueue';
@@ -440,7 +439,6 @@ export class TaskManager {
         if (Array.isArray(stored) && stored.length > 0 && stored[0] && typeof stored[0] === 'object' && 'items' in stored[0]) {
             this.planQueues = stored as PlanQueue[];
         } else {
-            // migrate from legacy single-queue key if present
             const legacy = this.context.globalState.get<PlanItem[]>('aidev-ide.planQueue', []);
             const legacyQueue: PlanQueue = {
                 id: 'default',
@@ -616,6 +614,25 @@ export class TaskManager {
     }
 
     /**
+     * 다음에 수행할 대기 중인 아이템을 가져옵니다
+     */
+    public getNextPendingItem(): PlanItem | undefined {
+        const queue = this.getActivePlanQueue();
+        if (!queue) return undefined;
+        return queue.items.find(item => item.status === 'pending');
+    }
+
+    /**
+     * 새로운 플랜 아이템들을 설정합니다 (기존 아이템 대체)
+     */
+    public setPlanItems(items: Array<{ title: string; detail?: string }>): void {
+        const queue = this.getActivePlanQueueOrCreate();
+        queue.items = []; // 기존 아이템 제거
+        this.addItemsToPlanQueue(queue, items, 'pending');
+        this.persistPlanQueues();
+    }
+
+    /**
      * 활성 PlanQueue를 가져옵니다 (내부 메서드)
      */
     private getActivePlanQueue(): PlanQueue | undefined {
@@ -635,4 +652,3 @@ export class TaskManager {
         return q;
     }
 }
-

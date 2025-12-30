@@ -72,6 +72,7 @@ export class LLMApiClient {
             if (this.currentModelType === AiModelType.GEMINI) {
                 return await this.geminiApi.sendMessage(message, undefined, { signal: abortSignal });
             } else {
+                // 모델 설정 동기화 및 로드 (Ollama)
                 await this.ollamaApi.loadSettingsFromStorage();
                 return await this.ollamaApi.sendMessage(message, { signal: abortSignal });
             }
@@ -114,11 +115,10 @@ export class LLMApiClient {
 
                 return response;
             } else if (
-                this.currentModelType === AiModelType.OLLAMA_Gemma ||
-                this.currentModelType === AiModelType.OLLAMA_DeepSeek ||
-                this.currentModelType === AiModelType.OLLAMA_CodeLlama ||
-                this.currentModelType === AiModelType.OLLAMA_GPT_OSS
+                Object.values(AiModelType).some(type => type === this.currentModelType && type.startsWith('ollama')) ||
+                this.currentModelType.toString().startsWith('ollama')
             ) {
+                // 모델 설정 로드 (Ollama)
                 await this.ollamaApi.loadSettingsFromStorage();
                 return await this.ollamaApi.sendMessageWithSystemPrompt(
                     systemPrompt,

@@ -28,6 +28,11 @@ export const MODEL_TOKEN_LIMITS = {
         maxInputTokens: 500000,  // GPT-OSS 120B Cloud의 입력 토큰 제한 (더 큰 값으로 설정)
         maxOutputTokens: 500000, // GPT-OSS 120B Cloud의 출력 토큰 제한
         maxTotalTokens: 500000   // GPT-OSS 120B Cloud의 총 토큰 제한
+    },
+    [AiModelType.OLLAMA]: {
+        maxInputTokens: 128000,  // 일반 Ollama 모델의 보수적 기본값
+        maxOutputTokens: 128000,
+        maxTotalTokens: 128000
     }
 };
 
@@ -118,6 +123,8 @@ function getDefaultModelName(modelType: AiModelType): string {
             return 'CodeLlama 7B';
         case AiModelType.OLLAMA_GPT_OSS:
             return 'GPT-OSS 120B Cloud';
+        case AiModelType.OLLAMA:
+            return 'Ollama Local Model';
         default:
             return 'Unknown Model';
     }

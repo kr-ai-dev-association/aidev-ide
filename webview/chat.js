@@ -12,22 +12,76 @@ if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefin
 }
 const vscode = window.vscode || null;
 
-// 처리 단계 제어 함수들
+// 처리 단계 제어 변수들
+let processingStepsArray = [];
+let typingInterval = null;
+let lastFullText = '';
+
 function showProcessingSteps() {
-    const processingSteps = document.getElementById('processing-steps');
-    if (processingSteps) {
-        processingSteps.style.display = 'block';
-    }
+    // 상단 고정 UI 삭제됨 - 하단 타자기 효과로 통합
 }
 
 function hideProcessingSteps() {
-    const processingSteps = document.getElementById('processing-steps');
-    if (processingSteps) {
-        processingSteps.style.display = 'none';
+    // 상단 고정 UI 삭제됨 - 하단 타자기 효과로 통합
+}
+
+function updateThinkingBubbleText() {
+    if (!thinkingBubbleElement) return;
+
+    // 모든 단계를 '|'로 이어 붙이는 대신, 현재 진행 중인 최신 단계 하나만 표시합니다.
+    // (사용자 피드백: 히스토리를 다 보여주지 말고 현재 상태만 깔끔하게 출력 요청 반영)
+    const lastStep = processingStepsArray[processingStepsArray.length - 1];
+    if (!lastStep) return;
+
+    const status = lastStep.status || '';
+    const stepName = lastStep.step || '';
+
+    // 'processing'이나 'Waiting...' 같은 기본값보다는 실제 의미 있는 상태 메시지(status)를 우선 사용합니다.
+    let displayMsg = (status && status !== 'processing' && status !== 'Waiting...') ? status : stepName;
+
+    // 터미널 느낌을 주기 위해 '>' 기호를 접두어로 사용합니다.
+    const newFullText = `> ${displayMsg}`;
+
+    // 이미 같은 텍스트면 중단
+    if (newFullText === lastFullText) return;
+    lastFullText = newFullText;
+
+    // 이전 타이핑 인터벌 중지
+    if (typingInterval) {
+        clearInterval(typingInterval);
     }
+
+    const textElement = thinkingBubbleElement.querySelector('.thinking-text');
+    if (!textElement) return;
+
+    // 타자기 효과 시작
+    let index = 0;
+    textElement.textContent = '';
+    typingInterval = setInterval(() => {
+        if (index < newFullText.length) {
+            textElement.textContent += newFullText[index];
+            index++;
+            // 스크롤 유지
+            if (chatMessages) {
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        } else {
+            clearInterval(typingInterval);
+            typingInterval = null;
+        }
+    }, 20); // 타자기 속도
 }
 
 function setProcessingStep(stepName) {
+    // global array update
+    const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
+    if (existingStepIndex === -1) {
+        processingStepsArray.push({ step: stepName, status: 'processing' });
+    } else {
+        processingStepsArray[existingStepIndex].status = 'processing';
+    }
+    updateThinkingBubbleText();
+
     const processingSteps = document.getElementById('processing-steps');
     if (!processingSteps) return;
 
@@ -55,6 +109,15 @@ function setProcessingStep(stepName) {
 }
 
 function updateProcessingStatus(stepName, status) {
+    // global array update
+    const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
+    if (existingStepIndex !== -1) {
+        processingStepsArray[existingStepIndex].status = status;
+    } else {
+        processingStepsArray.push({ step: stepName, status: status });
+    }
+    updateThinkingBubbleText();
+
     const statusElement = document.getElementById(`${stepName}-status`);
     if (statusElement) {
         statusElement.textContent = status;
@@ -101,6 +164,7 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
 }
 
 function resetProcessingStatuses() {
+    processingStepsArray = [];
     const statuses = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
     statuses.forEach(step => {
         const statusElement = document.getElementById(`${step}-status`);
@@ -675,6 +739,8 @@ window.addEventListener('message', event => {
             if (message.sender === 'AIDEV-IDE' && message.text !== undefined) {
                 console.log('Calling displayCodePilotMessage with text length:', message.text.length);
                 window.displayCodePilotMessage(message.text); // AIDEV-IDE 메시지 표시
+            } else if (message.sender === 'System' && message.text !== undefined) {
+                window.displaySystemMessage(message.text); // 시스템 메시지 (툴 실행 결과 등) 표시
             }
             break;
 
@@ -749,6 +815,43 @@ function displayUserMessage(text, imageData = null) { // imageData 파라미터 
     scrollToUserMessage(userMessageElement);
 }
 
+// 시스템 메시지 (툴 실행 결과 등)를 표시하는 함수
+function displaySystemMessage(text) {
+    if (!chatMessages) return;
+    const systemMessageElement = document.createElement('div');
+    systemMessageElement.classList.add('system-message');
+
+    // 이모지에 따라 색상 다르게 표시
+    let color = 'var(--vscode-descriptionForeground)';
+    if (text.includes('✅') || text.includes('✔️') || text.includes('📖') || text.includes('📂')) {
+        color = 'var(--vscode-testing-iconPassed)';
+    } else if (text.includes('❌') || text.includes('Failed')) {
+        color = 'var(--vscode-testing-iconFailed)';
+    } else if (text.includes('🚀') || text.includes('Executed')) {
+        color = 'var(--vscode-terminal-ansiCyan)';
+    } else if (text.includes('📝') || text.includes('Updated') || text.includes('Created')) {
+        color = 'var(--vscode-terminal-ansiYellow)';
+    }
+
+    systemMessageElement.style.cssText = `
+        padding: 4px 8px;
+        margin: 2px 0;
+        font-size: 12px;
+        font-family: var(--vscode-editor-font-family);
+        color: ${color};
+        background: rgba(128, 128, 128, 0.05);
+        border-radius: 4px;
+        border-left: 2px solid ${color};
+        word-break: break-all;
+    `;
+
+    systemMessageElement.innerHTML = DOMPurify.sanitize(text);
+    chatMessages.appendChild(systemMessageElement);
+
+    // 자동 스크롤
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 // 사용자 메시지로 스크롤하는 함수 (여러 번 시도)
 function scrollToUserMessage(userMessageElement) {
     let attempts = 0;
@@ -791,10 +894,18 @@ function showLoading() {
     }
     const messageContainer = document.createElement('div');
     messageContainer.classList.add('thinking-bubble');
-    messageContainer.innerHTML = 'thinking <span class="thinking-dots"><span></span><span></span><span></span></span>';
+
+    // 타자기 효과를 위한 구조
+    messageContainer.innerHTML = '<span class="thinking-text"></span><span class="thinking-cursor">|</span>';
 
     chatMessages.appendChild(messageContainer);
     thinkingBubbleElement = messageContainer; // 엘리먼트 참조 저장
+
+    // 상태 초기화
+    lastFullText = '';
+
+    // 현재 진행 중인 상태가 있다면 즉시 업데이트
+    updateThinkingBubbleText();
 
     // 로딩 애니메이션이 보일 때 Clear 버튼 비활성화, Cancel 버튼 활성화
     if (clearHistoryButton) {
@@ -850,6 +961,9 @@ function hideLoading() {
         chatMessages.removeChild(thinkingBubbleElement);
         thinkingBubbleElement = null;
     }
+    // 상태 배열 초기화
+    processingStepsArray = [];
+
     // 로딩 애니메이션이 사라질 때 Clear 버튼 활성화, Cancel 버튼 비활성화
     if (clearHistoryButton) {
         clearHistoryButton.disabled = false;
@@ -995,9 +1109,9 @@ function handleClearHistory() {
  */
 function removeToolTags(text) {
     if (!text) return text;
-    
+
     let result = text;
-    
+
     // aidev-ide 툴 이름 목록
     const toolNames = [
         'create_file',
@@ -1011,18 +1125,18 @@ function removeToolTags(text) {
         'verify_code',
         'refactor_code'
     ];
-    
+
     // 각 툴 태그를 처리
     for (const toolName of toolNames) {
         // 정규식: <toolName>...</toolName> 또는 <toolName>...</toolName> (개행 포함)
         const toolTagRegex = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
-        
+
         result = result.replace(toolTagRegex, (match, content) => {
             // 툴 태그를 완전히 제거
             return '';
         });
     }
-    
+
     // 부분 태그 제거 (스트리밍 중 닫히지 않은 태그)
     const lastOpenBracketIndex = result.lastIndexOf('<');
     if (lastOpenBracketIndex !== -1) {
@@ -1032,7 +1146,7 @@ function removeToolTags(text) {
             result = result.slice(0, lastOpenBracketIndex);
         }
     }
-    
+
     // 기타 XML 태그 제거 (thinking, function_calls 등)
     result = result.replace(/<thinking>\s?/g, '');
     result = result.replace(/\s?<\/thinking>/g, '');
@@ -1040,7 +1154,7 @@ function removeToolTags(text) {
     result = result.replace(/\s?<\/think>/g, '');
     result = result.replace(/<function_calls>\s?/g, '');
     result = result.replace(/\s?<\/function_calls>/g, '');
-    
+
     return result;
 }
 
@@ -1181,6 +1295,7 @@ function renderBasicMarkdown(markdownText) {
 
 // --- 웹뷰 메시지 핸들러에서 호출되는 함수들을 전역 window 객체에 할당 ---
 window.displayUserMessage = displayUserMessage;
+window.displaySystemMessage = displaySystemMessage;
 window.showLoading = showLoading;
 window.hideLoading = hideLoading;
 window.displayCodePilotMessage = displayCodePilotMessage;

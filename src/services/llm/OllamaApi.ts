@@ -9,7 +9,7 @@ type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean 
 export class OllamaApi {
     private apiUrl: string;
     private endpoint: string = '/api/generate';
-    private modelName: string = 'gemma3:27b';
+    private modelName: string = '';
     private extensionContext: vscode.ExtensionContext | undefined;
 
     constructor(apiUrl?: string, endpoint?: string, extensionContext?: vscode.ExtensionContext) {
@@ -59,7 +59,13 @@ export class OllamaApi {
 
                 if (remoteApiUrl) this.setApiUrl(remoteApiUrl);
                 if (remoteEndpoint) this.setEndpoint(remoteEndpoint);
-                if (remoteModel) this.setModel(remoteModel);
+
+                // 주의: 명시적으로 모델명이 설정된 경우(예: dropdown 선택) 
+                // 저장된 설정을 덮어쓰지 않도록 체크가 필요할 수 있음
+                // 여기서는 일단 remoteModel이 있을 때만 설정
+                if (remoteModel && !this.modelName.includes('-cloud')) {
+                    this.setModel(remoteModel);
+                }
             } else {
                 const localApiUrl = await stateManager.getOllamaApiUrl();
                 const localEndpoint = await stateManager.getOllamaEndpoint();
@@ -67,29 +73,48 @@ export class OllamaApi {
 
                 if (localApiUrl) this.setApiUrl(localApiUrl);
                 if (localEndpoint) this.setEndpoint(localEndpoint);
-                if (localModel) this.setModel(localModel);
+
+                // 로컬 설정 모델이 있고, 현재 모델이 기본값이거나 비어있는 경우에만 덮어씀
+                if (localModel && (this.modelName === 'gemma2:9b' || !this.modelName)) {
+                    this.setModel(localModel);
+                }
             }
         } catch (error) {
             console.error('[OllamaApi] Failed to load settings from storage:', error);
         }
     }
 
+    /**
+     * 외부에서 호출하는 메인 메시지 전송 메서드
+     */
     public async sendMessage(message: string, options?: SendOptions): Promise<string> {
         const maxRetries = options?.retries || 3;
         let lastError: Error | null = null;
+        let currentMessage = message;
+        let currentOptions = { ...options };
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                const result = await this.sendMessageInternal(message, options);
-                return result;
-            } catch (error) {
-                lastError = error as Error;
-                console.warn(`[OllamaApi] Attempt ${attempt}/${maxRetries} failed:`, error);
+                return await this.sendMessageInternal(currentMessage, currentOptions);
+            } catch (error: any) {
+                lastError = error;
+                const errorMsg = error.message || '';
+                console.warn(`[OllamaApi] Attempt ${attempt}/${maxRetries} failed:`, errorMsg);
+
+                // 모델을 찾을 수 없는 경우(404)는 재시도해도 소용없으므로 즉시 중단
+                if (errorMsg.includes('404') && errorMsg.includes('not found')) {
+                    console.error(`[OllamaApi] Model '${this.modelName}' not found in Ollama. Please pull the model first.`);
+                    break;
+                }
+
+                // XML 형식이 필요하지만 응답이 비어있는 경우 프롬프트 보강 후 재시도
+                if (attempt < maxRetries && !currentOptions.xmlRetry) {
+                    currentMessage = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
+                    currentOptions.xmlRetry = true;
+                }
 
                 if (attempt < maxRetries) {
-                    // 재시도 전 대기 (지수 백오프)
                     const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-                    console.log(`[OllamaApi] Retrying in ${delay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
@@ -98,126 +123,92 @@ export class OllamaApi {
         throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
     }
 
+    /**
+     * 실제 요청 및 파싱을 담당하는 내부 메서드
+     */
     private async sendMessageInternal(message: string, options?: SendOptions): Promise<string> {
+        const url = new URL(`${this.apiUrl}${this.endpoint}`);
+        const requestData = {
+            model: this.modelName,
+            prompt: message,
+            stream: false
+        };
+
+        console.log(`[OllamaApi] Sending request to ${url.toString()} with model ${this.modelName}`);
+
+        // 1. 요청 로직을 별도 Promise로 분리
+        const rawResponse = await this.makeHttpRequest(url, requestData, options);
+
+        console.log('[OllamaApi] Raw response received:', JSON.stringify(rawResponse).substring(0, 500) + '...');
+
+        // 2. 응답 데이터 추출 (다양한 포맷 대응)
+        const responseContent = this.parseResponseFormat(rawResponse);
+        const thinkingContent = rawResponse.thinking || '';
+
+        // [수정] 사용자의 요청대로 thinking 데이터를 우선시하거나 Junk 응답을 필터링함
+        // 1. responseContent가 시스템 에코나 Junk(예: "Wait...", "We need result")인 경우 필터링 시도
+        const isJunkResponse = responseContent && (
+            responseContent.includes('=== Tool Execution Results') ||
+            responseContent.includes('Wait: We should produce') ||
+            responseContent.match(/^We need result\./i) ||
+            (responseContent.length < 50 && responseContent.includes('read_file'))
+        );
+
+        // 2. thinking 데이터가 있고 response가 junk라면 thinking을 response로 사용
+        if (thinkingContent && (!responseContent || isJunkResponse)) {
+            console.log('[OllamaApi] Using thinking as primary response because response field is empty or junk');
+            return thinkingContent;
+        }
+
+        // 3. 둘 다 있다면 (보통의 경우) thinking을 무시하고 responseContent만 사용
+        // (사용자 피드백: 'think 패널 출력 지워줘' 반영)
+        if (responseContent && !isJunkResponse) {
+            return responseContent;
+        }
+
+        const extractedContent = responseContent || thinkingContent;
+
+        // 4. 내용이 비어있을 경우 에러를 던져 상위 sendMessage에서 재시도하게 함
+        if (!extractedContent || extractedContent.trim().length === 0) {
+            throw new Error("LLM이 유효한 응답을 생성하지 못했습니다.");
+        }
+
+        return extractedContent;
+
+        return extractedContent;
+    }
+
+    /**
+     * HTTP 요청 처리를 위한 헬퍼
+     */
+    private async makeHttpRequest(url: URL, requestData: any, options?: SendOptions): Promise<any> {
         return new Promise((resolve, reject) => {
-            const url = new URL(`${this.apiUrl}${this.endpoint}`);
-            const isXmlRetry = !!options?.xmlRetry;
-
-            const requestData = {
-                model: this.modelName,
-                prompt: message,
-                stream: false
-            };
-
+            const isCloud = this.apiUrl.includes('ollama.com') || this.apiUrl.includes('cloud');
             const requestOptions = {
-                hostname: url.hostname,
-                port: url.port || (url.protocol === 'https:' ? 443 : 80),
-                path: url.pathname + url.search,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(JSON.stringify(requestData))
+                    ...(isCloud ? { 'Authorization': `Bearer ${process.env.OLLAMA_API_KEY || ''}` } : {})
                 }
             };
 
-            const req = (url.protocol === 'https:' ? https : http).request(requestOptions, (res) => {
+            const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
                 let data = '';
-
-                // HTTP 상태 코드 확인
-                if (res.statusCode && res.statusCode >= 400) {
-                    console.error(`Ollama API error: ${res.statusCode} ${res.statusMessage}`);
-                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-                    return;
-                }
-
-                res.on('data', (chunk) => {
-                    data += chunk;
-                });
-
+                res.on('data', (chunk) => { data += chunk; });
                 res.on('end', () => {
                     try {
-                        const response = JSON.parse(data);
-                        console.log('Ollama raw response:', response);
-
-                        // Ollama API 응답 형식 확인 (여러 형식 지원)
-                        if (response.response) {
-                            // response 필드가 비어있지 않은 경우
-                            if (response.response.trim().length > 0) {
-                                resolve(response.response);
-                            } else if (response.thinking) {
-                                // response가 비어있고 thinking만 있는 경우
-                                console.warn('[OllamaApi] Response is empty but thinking field exists (no XML). Trying XML-only retry.');
-                                if (isXmlRetry) {
-                                    reject(new Error(`LLM이 응답을 생성하지 못했습니다. (thinking: ${response.thinking.substring(0, 100)}...)`));
-                                } else {
-                                    // 비동기 재시도는 별도 async 함수로 처리 (await 사용 불가 영역)
-                                    (async () => {
-                                        const retryPrompt = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
-                                        const retryResponse = await this.sendMessage(retryPrompt, { ...(options || {}), xmlRetry: true });
-                                        resolve(retryResponse);
-                                    })().catch((retryError: any) => reject(retryError));
-                                }
-                            } else {
-                                // response가 비어있고 thinking도 없는 경우
-                                console.error('[OllamaApi] Response is empty and no thinking field');
-                                reject(new Error('LLM이 빈 응답을 반환했습니다.'));
-                            }
-                        } else if (response.message && response.message.content) {
-                            // 다른 형식의 응답 처리
-                            resolve(response.message.content);
-                        } else if (response.content) {
-                            // content 필드가 있는 경우
-                            resolve(response.content);
-                        } else if (response.text) {
-                            // text 필드가 있는 경우
-                            resolve(response.text);
-                        } else if (response.choices && response.choices[0] && response.choices[0].message) {
-                            // OpenAI 형식의 응답 처리
-                            resolve(response.choices[0].message.content);
-                        } else if (typeof response === 'string') {
-                            // 문자열 응답 처리
-                            resolve(response);
-                        } else if (response.thinking) {
-                            // response 필드가 없지만 thinking이 있는 경우
-                            // thinking에서 tool call XML 패턴을 찾아서 시도
-                            console.warn('[OllamaApi] No response field but thinking exists, attempting to extract tool calls from thinking');
-
-                            // thinking에서 XML tool call 패턴 찾기
-                            const toolCallPattern = /<(create_file|update_file|remove_file|read_file|list_files|search_files|run_command)>[\s\S]*?<\/\1>/gi;
-                            const matches = response.thinking.match(toolCallPattern);
-
-                            if (matches && matches.length > 0) {
-                                // thinking에서 tool call을 찾았으면 이를 response로 사용
-                                console.log('[OllamaApi] Found tool calls in thinking, using them as response');
-                                resolve(matches.join('\n'));
-                            } else {
-                                // tool call이 없으면 한 번만 조용히 재시도 (XML만 출력하도록 재요청)
-                                console.warn('[OllamaApi] No tool calls found in thinking, retrying with XML-only reminder');
-                                if (isXmlRetry) {
-                                    // 이미 재시도했으면 에러 반환
-                                    reject(new Error(`LLM이 응답을 생성하지 못했습니다. (thinking: ${response.thinking.substring(0, 100)}...)`));
-                                } else {
-                                    (async () => {
-                                        const retryPrompt = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
-                                        const retryResponse = await this.sendMessage(retryPrompt, { ...(options || {}), xmlRetry: true });
-                                        resolve(retryResponse);
-                                    })().catch((retryError: any) => reject(retryError));
-                                }
-                            }
-                        } else {
-                            console.error('Ollama response format error:', response);
-                            reject(new Error(`Invalid response format: ${JSON.stringify(response)}`));
+                        if (res.statusCode && res.statusCode >= 400) {
+                            reject(new Error(`Ollama API error (${res.statusCode}): ${data}`));
+                            return;
                         }
-                    } catch (error) {
-                        console.error('Ollama response parse error:', error, 'Raw data:', data);
-                        reject(new Error(`Failed to parse response: ${error}`));
+                        resolve(JSON.parse(data));
+                    } catch (e) {
+                        reject(new Error(`Failed to parse JSON response: ${e}`));
                     }
                 });
             });
 
-            req.on('error', (error) => {
-                reject(error);
-            });
+            req.on('error', (err) => reject(new Error(`Network error: ${err.message}`)));
 
             if (options?.signal) {
                 options.signal.addEventListener('abort', () => {
@@ -231,9 +222,29 @@ export class OllamaApi {
         });
     }
 
+    /**
+     * 다양한 API 응답 포맷을 통일된 문자열로 파싱
+     */
+    private parseResponseFormat(response: any): string | null {
+        if (!response) return null;
+        if (typeof response === 'string') return response;
+
+        // Ollama 기본 포맷
+        if (response.response) return response.response;
+
+        // OpenAI / 기타 호환 포맷
+        if (response.choices?.[0]?.message?.content) return response.choices[0].message.content;
+        if (response.message?.content) return response.message.content;
+
+        // 기타 content/text 필드
+        if (response.content) return response.content;
+        if (response.text) return response.text;
+
+        return null;
+    }
+
     public async sendMessageWithSystemPrompt(systemPrompt: string, userParts: any[], options?: SendOptions): Promise<string> {
         const fullPrompt = `${systemPrompt}\n\n${userParts.map(part => part.text).join('\n')}`;
         return this.sendMessage(fullPrompt, options);
     }
 }
-

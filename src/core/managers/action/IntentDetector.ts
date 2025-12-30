@@ -37,7 +37,7 @@ export interface IntentDetectionResult {
 export class IntentDetector {
     private keywordDictionary: Record<IntentSubtype, string[]> = {
         code_generate: ['생성', '만들', '작성', '추가', '새로', '새로운', '추가해', 'create', 'generate', 'implement', '작성해줘'],
-        code_modify: ['수정', '변경', '고쳐', '리팩터', '정리', '개선', 'refactor', 'modify', 'update', '보완', '개편'],
+        code_modify: ['수정', '변경', '고쳐', '리팩터', '정리', '개선', 'refactor', 'modify', 'update', '보완', '개편', '에러 해결', '오류 수정', '버그', 'bug', 'fix', '해결', 'ts(', 'error ts'],
         code_remove: ['삭제', '제거', '없애', '지워', 'remove', 'delete', '빼줘', '제거해줘'],
         execution_build: ['빌드', '컴파일', 'package', 'build', 'compile', 'bundle', '패키징'],
         execution_run: ['실행', '구동', 'run', 'start', 'launch', 'serve', '테스트 실행', '돌려줘'],
@@ -48,7 +48,7 @@ export class IntentDetector {
         analysis_function: ['기능', '동작', '설명', '사용자', 'feature', 'behavior', 'flow', 'use case'],
         analysis_branch: ['브랜치', 'branch', '이슈', 'issue', '문제점', '개선', '분석', '리뷰', '코드리뷰', '품질', 'quality', 'health', '상태', '정리', '정리해줘'],
         documentation_general: ['문서', 'documentation', 'README', '설명서', 'guide', 'manual', '정리해줘', '문서화'],
-        terminal_error_fix: ['오류', '에러', 'error', '실패', 'fail', '문제', 'issue', '해결', 'fix', '수정', '고쳐', '터미널', 'terminal', '로그', 'log', '포트', 'port', 'kill', '죽여', '종료', 'stop']
+        terminal_error_fix: ['터미널 오류', '명령어 실패', 'command failed', 'terminal error', '로그', 'log', '포트', 'port', 'kill', '죽여', '종료', 'stop', '실행 에러', 'runtime error']
     };
 
     private subtypeToCategory: Record<IntentSubtype, IntentCategory> = {
@@ -302,11 +302,13 @@ export class IntentDetector {
         const prompt = `다음 사용자 요청을 다섯 가지 의도 카테고리와 세부 유형으로 분류하세요.
 
 **매우 중요: 코드 작성 vs 쉘 스크립트 작업 구별**
-- 코드 작성(code_generate, code_modify, code_remove): 소스 코드 파일(.js, .ts, .py, .java 등)을 생성/수정/삭제하는 작업
+- 코드 작성(code_generate, code_modify, code_remove): 소스 코드 파일(.js, .ts, .py, .java, .json 등)을 생성/수정/삭제하는 작업
   - "프로젝트 생성", "프로젝트 만들기" 등은 항상 code_generate로 분류 (소스 파일 생성)
   - "생성하고 빌드해줘" 같은 경우도 code_generate (생성이 주요 작업)
+  - **컴파일 에러(ts(1234)), 린트 에러, 설정 에러 수정 요청은 'code_modify'로 분류 (코드나 설정 파일 수정이 필요하므로)**
 - 쉘 스크립트 작업(execution_*): 프로젝트의 설치, 빌드, 배포, 실행을 위한 스크립트(.sh, .bat, .ps1 등)를 생성하거나 터미널 명령을 실행하는 작업
   - "빌드만 해줘", "실행만 해줘" 같은 순수 실행 요청만 execution_*로 분류
+- 터미널 오류 수정(terminal_error_fix): 터미널에서 명령어 실행 시 발생하는 환경 문제, 포트 충돌, 권한 문제 등을 해결하는 작업 (코드 수정이 아닌 터미널 조작 위주)
 
 카테고리 및 세부 유형 목록:
 1. 코드

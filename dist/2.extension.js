@@ -110,6 +110,34 @@ class ToolParser {
         }
         return params;
     }
+    /**
+     * LLM 응답에서 task_progress를 파싱
+     * task_progress는 툴 콜의 파라미터로 포함되거나 별도의 <task_progress> 태그로 포함될 수 있음
+     */
+    static parseTaskProgress(content) {
+        // 방법 1: 별도의 <task_progress> 태그로 포함된 경우
+        const standalonePattern = /<task_progress>([\s\S]*?)<\/task_progress>/gi;
+        let match = standalonePattern.exec(content);
+        if (match && match[1]) {
+            return match[1].trim();
+        }
+        // 방법 2: 툴 콜 내부의 task_progress 파라미터로 포함된 경우
+        // 모든 툴 콜을 순회하면서 task_progress 파라미터 찾기
+        const toolNames = Object.values(types_1.Tool);
+        for (const toolName of toolNames) {
+            const toolPattern = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
+            let toolMatch;
+            while ((toolMatch = toolPattern.exec(content)) !== null) {
+                const innerContent = toolMatch[1];
+                const taskProgressPattern = /<task_progress>([\s\S]*?)<\/task_progress>/gi;
+                const taskProgressMatch = taskProgressPattern.exec(innerContent);
+                if (taskProgressMatch && taskProgressMatch[1]) {
+                    return taskProgressMatch[1].trim();
+                }
+            }
+        }
+        return undefined;
+    }
 }
 exports.ToolParser = ToolParser;
 

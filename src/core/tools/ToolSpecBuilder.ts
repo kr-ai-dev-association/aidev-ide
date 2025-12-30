@@ -28,7 +28,7 @@ export class ToolSpecBuilder {
             description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.** 파일이 이미 수정되었거나 다른 내용일 수 있으므로, 추측하지 말고 항상 최신 내용을 확인하세요.',
             parameters: [
                 { name: 'path', required: true, description: '수정할 파일 경로', type: 'string' },
-                { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식: ------- SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n------- REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
+                { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식:\n<<<<<<< SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n>>>>>>> REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
             ]
         });
 
@@ -85,50 +85,22 @@ export class ToolSpecBuilder {
         return specs;
     }
 
-    /**
-     * 프롬프트용 툴 설명 텍스트 생성
-     */
     static buildToolPromptSection(): string {
         const specs = this.buildToolSpecs();
-        let prompt = '## 도구 (TOOLS)\n\n';
-        prompt += '**매우 중요**\n';
-        prompt += '1. **모든 작업은 반드시 XML 도구 호출로 수행해야 합니다.**\n';
-        prompt += '2. **마크다운 코드 블록(```bash, ```sh, ```python 등)은 절대 사용하지 마세요.**\n';
-        prompt += '   - 잘못됨: ```bash\\n명령어\\n```\n';
-        prompt += '   - 올바름: <run_command><command>명령어</command></run_command>\n';
-        prompt += '3. **명령 실행 요청은 반드시 `<run_command>` XML 도구를 사용하세요.**\n';
-        prompt += '   - "npm install 해줘" → <run_command><command>npm install</command></run_command>\n';
-        prompt += '   - "빌드해줘" → <run_command><command>npm run build</command></run_command>\n';
-        prompt += '   - "파일 실행해줘" → 먼저 파일 찾기, 그 다음 <run_command> 사용\n';
-        prompt += '4. **파일을 찾아야 하는 경우 먼저 `<search_files>` 또는 `<list_files>` XML 도구를 사용하세요.**\n';
-        prompt += '5. **JSON 형식을 사용하지 마세요.** **텍스트 설명을 추가하지 마세요.** **XML만 출력하세요.**\n';
-        prompt += '6. **`thinking` 필드는 비워두고, 모든 XML 도구 호출을 `response` 필드에 넣으세요.**\n';
-        prompt += '7. **어떤 명령이든, 어떤 복잡도든 상관없이 항상 XML 도구 호출을 사용하세요.**\n\n';
-        prompt += '**중요: 도구 호출 형식 규칙**\n';
-        prompt += '1. **XML 형식만 허용됨** - JSON, 텍스트 설명, 혼합 형식 사용 금지\n';
-        prompt += '2. **모든 도구 호출은 XML 형식이어야 함**: `<tool_name>...</tool_name>`\n';
-        prompt += '3. **매개변수는 XML 태그로 감싸야 함**: `<param_name>value</param_name>`\n';
-        prompt += '4. **XML 앞뒤에 텍스트 없음** - XML 도구 호출만 출력\n';
-        prompt += '5. **JSON 형식 사용 금지** - `{"tool": "...", "path": "..."}` 형식 사용 금지\n';
-        prompt += '6. **설명 추가 금지** - "We will call..." 같은 텍스트 작성 금지\n';
-        prompt += '7. **CDATA 섹션 사용 금지** - `<![CDATA[...]]>` 형식 절대 사용하지 마세요\n';
-        prompt += '   - 잘못됨: `<content><![CDATA[{ "key": "value" }]]></content>`\n';
-        prompt += '   - 올바름: `<content>{ "key": "value" }</content>`\n';
-        prompt += '   - JSON, 코드, 모든 내용은 CDATA 없이 직접 XML 태그 안에 넣으세요\n';
-        prompt += '\n';
-        prompt += '**올바른 예시 (XML만):**\n';
-        prompt += '```\n';
-        prompt += '<read_file>\n';
-        prompt += '<path>src/App.tsx</path>\n';
-        prompt += '</read_file>\n';
-        prompt += '```\n\n';
-        prompt += '**또 다른 올바른 예시:**\n';
-        prompt += '```\n';
-        prompt += '<create_file>\n';
-        prompt += '<path>src/App.tsx</path>\n';
-        prompt += '<content>import React from \'react\';\n\nexport default function App() {\n  return <div>Hello</div>;\n}</content>\n';
-        prompt += '</create_file>\n';
-        prompt += '```\n\n';
+        let prompt = '## 도구 호출 및 응답 규칙 (CRITICAL)\n\n';
+        prompt += '1. **작업 수행은 반드시 XML 도구 호출을 사용하세요.**\n';
+        prompt += '2. **한국어 설명과 도구 호출을 병행할 수 있습니다.**\n';
+        prompt += '   - 예: "파일 목록을 확인하겠습니다. <list_files><path>src</path></list_files>"\n';
+        prompt += '3. **내부 독백(English Thinking)을 최소화하고 즉시 한국어 설명이나 도구 호출을 하세요.**\n';
+        prompt += '4. **"해야 한다"는 말만 하지 말고 실제 도구를 호출하세요.**\n';
+        prompt += '   - 잘못됨: "src/App.tsx 파일을 읽어야 합니다." (텍스트만 출력)\n';
+        prompt += '   - 올바름: "src/App.tsx 파일을 읽어 내용을 확인하겠습니다. <read_file><path>src/App.tsx</path></read_file>"\n';
+        prompt += '5. **JSON 형식을 절대 사용하지 마세요.** 응답은 순수 텍스트와 XML이어야 합니다.\n';
+        prompt += '6. **마크다운 코드 블록(```)을 절대 사용하지 마세요.** 모든 코드는 XML 도구 내부에 있어야 합니다.\n';
+        prompt += '7. **수정 범위가 넓거나 복잡한 경우**: `update_file` 대신 `create_file`을 사용하여 파일 전체 내용을 새로 작성하세요. 특히 한 번의 응답에서 여러 파일을 다루는 경우 이것이 훨씬 안전합니다.\n';
+        prompt += '8. **도구 호출 시 중복된 설명을 피하세요.** "파일을 생성합니다"라고 말하고 <create_file>을 하는 대신, 필요한 경우 짧은 설명만 곁들이세요.\n\n';
+
+        prompt += '### 도구 목록\n\n';
 
         for (const spec of specs) {
             prompt += `### ${spec.name}\n`;
@@ -196,10 +168,10 @@ export class ToolSpecBuilder {
         prompt += '   - 이전에 읽은 내용이나 추측을 기반으로 SEARCH 패턴을 만들지 마세요\n';
         prompt += '   - `update_file` 직전에 `read_file`을 실행하세요\n';
         prompt += '2. **SEARCH 블록은 read_file로 읽은 내용과 정확히 일치해야 합니다**\n';
-        prompt += '   - 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다\n';
-        prompt += '   - "대략 비슷한 내용"으로는 매칭되지 않습니다\n';
-        prompt += '   - 파일의 정확한 현재 상태를 반영해야 합니다\n';
-        prompt += '3. **올바른 워크플로우 예시:**\n';
+        prompt += '   - 공백, 들여쓰기, 줄바꿈까지 가급적 정확히 유지하세요.\n';
+        prompt += '   - 하지만 모델의 한계로 인해 미세한 공백 차이가 발생하더라도 시스템이 보정하여 매칭을 시도합니다.\n';
+        prompt += '3. **실패가 예상되면 덮어쓰세요**: `SEARCH` 블록 매칭이 어려울 것 같거나 파일 구조가 크게 바뀐다면 즉시 `create_file` 도구로 파일 전체를 다시 작성하세요. 이것이 가장 확실한 방법입니다.\n';
+        prompt += '4. **올바른 워크플로우 예시:**\n';
         prompt += '```\n';
         prompt += '<read_file>\n';
         prompt += '<path>src/App.tsx</path>\n';
@@ -207,7 +179,7 @@ export class ToolSpecBuilder {
         prompt += '<!-- 위에서 읽은 정확한 파일 내용을 기반으로 SEARCH 블록 작성 -->\n';
         prompt += '<update_file>\n';
         prompt += '<path>src/App.tsx</path>\n';
-        prompt += '<diff>------- SEARCH\nimport React from \'react\';\nimport \'./App.css\';\n=======\nimport React from \'react\';\nimport { BrowserRouter } from \'react-router-dom\';\nimport \'./App.css\';\n------- REPLACE</diff>\n';
+        prompt += '<diff>\n<<<<<<< SEARCH\nimport React from \'react\';\nimport \'./App.css\';\n=======\nimport React from \'react\';\nimport { BrowserRouter } from \'react-router-dom\';\nimport \'./App.css\';\n>>>>>>> REPLACE\n</diff>\n';
         prompt += '</update_file>\n';
         prompt += '```\n';
         prompt += '4. **잘못된 워크플로우 (절대 하지 마세요):**\n';
@@ -247,7 +219,7 @@ export class ToolSpecBuilder {
         prompt += '<!-- 위 read_file 결과를 기반으로 정확한 SEARCH 블록 작성 -->\n';
         prompt += '<update_file>\n';
         prompt += '<path>src/App.tsx</path>\n';
-        prompt += '<diff>------- SEARCH\nimport React from \'react\';\n=======\nimport React from \'react\';\nimport Button from \'./components/Button\';\nimport { helper } from \'./utils/helpers\';\n------- REPLACE</diff>\n';
+        prompt += '<diff>\n<<<<<<< SEARCH\nimport React from \'react\';\n=======\nimport React from \'react\';\nimport Button from \'./components/Button\';\nimport { helper } from \'./utils/helpers\';\n>>>>>>> REPLACE\n</diff>\n';
         prompt += '</update_file>\n';
         prompt += '```\n';
         prompt += '\n';
@@ -288,8 +260,13 @@ export class ToolSpecBuilder {
         prompt += '- **여러 파일로 코드 분할** - 모든 것을 하나의 파일에 넣지 마세요\n';
         prompt += '\n';
         prompt += '**기억하세요:** 응답에는 XML 도구 호출만 포함되어야 하며, 그 외에는 아무것도 없어야 합니다. ';
-        prompt += 'XML은 `response` 필드에 있어야 하며, `thinking`에 있으면 안 됩니다. ';
-        prompt += '도구 호출을 `thinking`에만 넣으면 실행되지 않습니다.\n';
+        prompt += 'XML은 응답의 가장 바깥쪽에 있어야 하며, `thinking` 내부에 있으면 안 됩니다.\n';
+        prompt += '\n';
+        prompt += '**중요: 모든 응답 가이드라인**\n';
+        prompt += '- 도구 호출이 필요한 경우: 즉시 해당 XML 블록을 출력하세요.\n';
+        prompt += '- 단순 인사, 질문, 설명 등: 즉시 한국어 텍스트로 답변하세요.\n';
+        prompt += '- **절대 JSON 형식을 사용하지 마세요.** 응답은 순수 텍스트이거나 XML이어야 합니다.\n';
+        prompt += '- **thinking은 추론용으로만 사용**하고, 실제 답변은 thinking 블록 외부에 작성하세요.\n';
 
         return prompt;
     }

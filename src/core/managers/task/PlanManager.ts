@@ -137,7 +137,115 @@ Output format (JSON):
     }
 
     /**
-     * 사용자 질의/키워드/환경을 입력으로 받아 계획 수립 프롬프트를 생성합니다.
+     * 사용자 질의/키워드/환경을 입력으로 받아 구조화된 계획(JSON) 수립 프롬프트를 생성합니다.
+     */
+    public async buildStructuredPlanPrompt(
+        userQuery: string,
+        keywords: string[],
+        os: string,
+        modelName: string,
+        includedFiles: { name: string, fullPath: string }[]
+    ): Promise<string> {
+        const topFiles = includedFiles.slice(0, 8).map(f => `- ${f.name} (${f.fullPath})`).join('\n');
+        const kw = keywords.join(', ');
+        const lang = (await SettingsManager.getInstance().getLanguage?.()) || 'ko';
+        const forceKorean = lang.toLowerCase().startsWith('ko');
+
+        const languageRule = forceKorean
+            ? '\n- "description"과 "title"은 반드시 한국어로 작성하세요. 코드나 식별자는 원래 언어를 유지하세요.'
+            : '\n- Write "description" and "title" in English. Keep identifiers/code in their original language.';
+
+        const prompt = forceKorean
+            ? `다음 사용자 요청을 분석하여 실행 가능한 단계별 계획을 JSON 형식으로 수립하세요.
+            
+사용자 요청:
+"""
+${userQuery}
+"""
+
+프로젝트 컨텍스트:
+- OS: ${os}
+- 모델: ${modelName}
+- 관련 파일:
+${topFiles || '(없음)'}
+- 키워드: ${kw || '(없음)'}
+
+요구사항:
+1. 복잡한 작업을 논리적인 단계(Step)로 나누세요.
+2. 각 단계는 명확한 목표(Goal)와 실행할 툴(Tool)에 대한 힌트를 포함해야 합니다.
+3. 파일 생성/수정/삭제가 필요한 경우 파일 경로를 명시하세요.
+4. JSON 배열 포맷으로 출력해야 합니다.${languageRule}
+
+출력 포맷 (JSON):
+[
+  {
+    "id": "step_1",
+    "title": "작업 제목 (간결하게)",
+    "description": "구체적인 작업 내용과 목적",
+    "expected_artifact": "생성되거나 수정될 파일 경로 (없으면 null)"
+  },
+  ...
+]`
+            : `다음 사용자 요청을 분석하여 실행 가능한 단계별 계획을 JSON 형식으로 수립하세요.
+
+사용자 요청:
+"""
+${userQuery}
+"""
+
+프로젝트 컨텍스트:
+- OS: ${os}
+- 모델: ${modelName}
+- 관련 파일:
+${topFiles || '(없음)'}
+- 키워드: ${kw || '(없음)'}
+
+요구사항:
+1. 복잡한 작업을 논리적인 단계(Step)로 나누세요.
+2. 각 단계는 명확한 목표(Goal)와 실행할 툴(Tool)에 대한 힌트를 포함해야 합니다.
+3. 파일 생성/수정/삭제가 필요한 경우 파일 경로를 명시하세요.
+4. JSON 배열 포맷으로 출력해야 합니다.${languageRule}
+
+출력 포맷 (JSON):
+[
+  {
+    "id": "step_1",
+    "title": "작업 제목 (간결하게)",
+    "description": "구체적인 작업 내용과 목적",
+    "expected_artifact": "생성되거나 수정될 파일 경로 (없으면 null)"
+  },
+  ...
+]`;
+
+        return prompt;
+    }
+
+    /**
+     * JSON 형태의 계획 텍스트를 파싱하여 PlanItem 배열로 변환합니다.
+     */
+    public parseStructuredPlan(jsonText: string): Array<{ title: string, detail?: string }> {
+        try {
+            // 마크다운 코드 블록 제거
+            const cleanText = jsonText.replace(/```json\s*|\s*```/g, '').trim();
+            // JSON 파싱 시도
+            const parsed = JSON.parse(cleanText);
+
+            if (Array.isArray(parsed)) {
+                return parsed.map((item: any) => ({
+                    title: item.title || 'Untitled Step',
+                    detail: item.description || ''
+                }));
+            }
+        } catch (e) {
+            console.warn('[PlanManager] Failed to parse structured plan JSON:', e);
+        }
+
+        // 파싱 실패 시 기존 마크다운 파서로 폴백
+        return this.parseCheckboxItemsFromPlan(jsonText);
+    }
+
+    /**
+     * 사용자 질의/키워드/환경을 입력으로 받아 계획 수립 프롬프트를 생성합니다. (Legacy Support)
      */
     public async buildPlanPrompt(
         userQuery: string,
@@ -244,7 +352,7 @@ Output format:
                 const title = (checkboxMatch1[2] || '').trim();
                 if (title && title.length > 0) {
                     const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
-                    items.push({ title: trimmedTitle });
+                    items.push({ title: trimmedTitle, detail: '' });
                     itemCount++;
                     console.log(`[PlanManager] 체크박스 항목 파싱 (패턴1): "${line.substring(0, 60)}" -> "${trimmedTitle.substring(0, 50)}..."`);
                     continue;
@@ -257,7 +365,7 @@ Output format:
                 const title = (emojiCheckboxMatch[1] || '').trim();
                 if (title && title.length > 0) {
                     const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
-                    items.push({ title: trimmedTitle });
+                    items.push({ title: trimmedTitle, detail: '' });
                     itemCount++;
                     console.log(`[PlanManager] 이모지 체크박스 항목 파싱: "${line.substring(0, 60)}" -> "${trimmedTitle.substring(0, 50)}..."`);
                     continue;
@@ -270,7 +378,7 @@ Output format:
                 const title = (checkboxMatch2[2] || '').trim();
                 if (title && title.length > 0) {
                     const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
-                    items.push({ title: trimmedTitle });
+                    items.push({ title: trimmedTitle, detail: '' });
                     itemCount++;
                     console.log(`[PlanManager] 체크박스 항목 파싱 (패턴2): ${trimmedTitle.substring(0, 50)}...`);
                     continue;
@@ -283,7 +391,7 @@ Output format:
                 const title = (checkboxMatch3[2] || '').trim();
                 if (title && title.length > 0) {
                     const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
-                    items.push({ title: trimmedTitle });
+                    items.push({ title: trimmedTitle, detail: '' });
                     itemCount++;
                     console.log(`[PlanManager] 체크박스 항목 파싱 (패턴3): ${trimmedTitle.substring(0, 50)}...`);
                     continue;
@@ -303,7 +411,7 @@ Output format:
                             !title.startsWith('[') &&
                             !title.match(/^\d+\./)) {
                             const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
-                            items.push({ title: trimmedTitle });
+                            items.push({ title: trimmedTitle, detail: '' });
                             itemCount++;
                             console.log(`[PlanManager] 불릿 포인트 항목 파싱: ${trimmedTitle.substring(0, 50)}...`);
                         }
@@ -341,7 +449,7 @@ Output format:
                 if (title) {
                     // 제목이 너무 길면 100자로 제한
                     const trimmedTitle = title.length > 100 ? title.substring(0, 97) + '...' : title;
-                    items.push({ title: trimmedTitle });
+                    items.push({ title: trimmedTitle, detail: '' });
                     itemCount++;
                 }
             }

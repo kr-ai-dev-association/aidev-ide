@@ -11,6 +11,7 @@ export class SupportedModelService {
         const candidates = [
             path.join(cwd, 'supported_ollama_model.json'),
             path.join(cwd, 'aidev-ide', 'supported_ollama_model.json'),
+            path.join(__dirname, '..', 'supported_ollama_model.json'), // dist/../supported_ollama_model.json
             path.join(__dirname, '..', '..', 'supported_ollama_model.json'),
             path.join(__dirname, '..', '..', '..', 'supported_ollama_model.json'),
             path.join(__dirname, '..', '..', '..', '..', 'supported_ollama_model.json'),
@@ -24,13 +25,25 @@ export class SupportedModelService {
                     return parsed.models || [];
                 } catch (e) {
                     console.error('[SupportedModelService] Failed to parse model file:', p, e);
-                    return [];
+                    return this.getDefaultModels();
                 }
             }
         }
 
-        console.warn('[SupportedModelService] supported_ollama_model.json not found in known paths');
-        return [];
+        // console.warn('[SupportedModelService] supported_ollama_model.json not found in known paths');
+        return this.getDefaultModels();
+    }
+
+    /**
+     * 기본 모델 목록을 반환합니다. (파일이 없을 경우 대비)
+     */
+    private static getDefaultModels(): any[] {
+        return [
+            { id: 'gemma2:9b', label: 'Gemma 2 (9B)' },
+            { id: 'deepseek-r1:70b', label: 'DeepSeek R1 (70B)' },
+            { id: 'codellama', label: 'CodeLlama' },
+            { id: 'gpt-oss:120b-cloud', label: 'GPT-OSS 120B (Cloud)' }
+        ];
     }
 }
 
