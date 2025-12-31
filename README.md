@@ -6,6 +6,19 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.2.1 (Task Queue UI Revolution & Reliability)
+- **Floating Task Queue**: Re-introduced the Task Queue as a dynamic, React-based floating popup.
+  - **Live Status Sync**: Real-time synchronization of task status (`pending`, `in_progress`, `done`).
+  - **Visual Progress**: Completion progress indicator (e.g., "2/5 tasks done") in the header.
+  - **Animated Status**: Pulsing circle icons for active tasks to provide clear visual feedback.
+  - **Control Features**: Minimize/maximize and close functionality for a less intrusive UI.
+- **Reliability Improvements**:
+  - **Automatic Cleanup**: Task queue is now automatically cleared and hidden when a new request starts.
+  - **Turn-based Deduplication**: Prevents duplicate tool execution (e.g., redundant `read_file` calls) within a single turn to declutter UI logs.
+  - **Smart Task Completion**: Automatically marks remaining tasks as done when the agent successfully finishes the loop.
+  - **Side-Effect Tracking**: Immediate status updates for tasks causing file or system changes.
+- **Log Optimization**: Removed unnecessary internal system headers from console output for a cleaner debugging experience.
+
 ## v5.2.0 (Investigation Manager & UI/UX Transformation)
 - **Investigation Manager**:
   - **Read-Only Phase**: Enforces a mandatory "Investigation" phase before any code modification. Only read tools (`read_file`, `list_files`, `search_files`) are allowed.

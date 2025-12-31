@@ -8,27 +8,6 @@ export const MODEL_TOKEN_LIMITS = {
         maxOutputTokens: 500000, // 현재 설정된 출력 토큰 제한
         maxTotalTokens: 1500000  // 총 토큰 제한
     },
-    [AiModelType.OLLAMA_Gemma]: {
-        maxInputTokens: 128000,  // Gemma3:27b의 입력 토큰 제한
-        maxOutputTokens: 128000, // Gemma3:27b의 출력 토큰 제한
-        maxTotalTokens: 128000   // Gemma3:27b의 총 토큰 제한
-    },
-    [AiModelType.OLLAMA_DeepSeek]: {
-        maxInputTokens: 200000,  // DeepSeek R1:70B의 입력 토큰 제한
-        maxOutputTokens: 200000, // DeepSeek R1:70B의 출력 토큰 제한
-        maxTotalTokens: 200000   // DeepSeek R1:70B의 총 토큰 제한
-    }
-    ,
-    [AiModelType.OLLAMA_CodeLlama]: {
-        maxInputTokens: 8192,   // 보수적 기본값 (CodeLlama 7B)
-        maxOutputTokens: 8192,
-        maxTotalTokens: 8192
-    },
-    [AiModelType.OLLAMA_GPT_OSS]: {
-        maxInputTokens: 500000,  // GPT-OSS 120B Cloud의 입력 토큰 제한 (더 큰 값으로 설정)
-        maxOutputTokens: 500000, // GPT-OSS 120B Cloud의 출력 토큰 제한
-        maxTotalTokens: 500000   // GPT-OSS 120B Cloud의 총 토큰 제한
-    },
     [AiModelType.OLLAMA]: {
         maxInputTokens: 128000,  // 일반 Ollama 모델의 보수적 기본값
         maxOutputTokens: 128000,
@@ -85,8 +64,8 @@ export function checkTokenLimit(
     modelType: AiModelType,
     actualModelName?: string
 ): { isExceeded: boolean; currentTokens: number; maxTokens: number; message: string } {
-    // 안전 가드: 알 수 없는 모델 타입 대비 (예: 과거 'ollama' 값 등)
-    const limits = MODEL_TOKEN_LIMITS[modelType as AiModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA_Gemma] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
+    // 안전 가드: 알 수 없는 모델 타입 대비
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
 
     const isExceeded = currentTokens > limits.maxInputTokens;
@@ -115,14 +94,6 @@ function getDefaultModelName(modelType: AiModelType): string {
     switch (modelType) {
         case AiModelType.GEMINI:
             return 'Gemini 2.5 Flash';
-        case AiModelType.OLLAMA_Gemma:
-            return 'Gemma3:27b';
-        case AiModelType.OLLAMA_DeepSeek:
-            return 'DeepSeek R1:70B';
-        case AiModelType.OLLAMA_CodeLlama:
-            return 'CodeLlama 7B';
-        case AiModelType.OLLAMA_GPT_OSS:
-            return 'GPT-OSS 120B Cloud';
         case AiModelType.OLLAMA:
             return 'Ollama Local Model';
         default:
@@ -139,8 +110,8 @@ export function logTokenUsage(
     modelType: AiModelType,
     actualModelName?: string
 ): void {
-    // 안전 가드: 알 수 없는 모델 타입 대비 (예: 과거 'ollama' 값 등)
-    const limits = MODEL_TOKEN_LIMITS[modelType as AiModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA_Gemma] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
+    // 안전 가드: 알 수 없는 모델 타입 대비
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
 

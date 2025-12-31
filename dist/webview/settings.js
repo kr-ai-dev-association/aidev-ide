@@ -1385,7 +1385,7 @@ window.addEventListener('message', event => {
       if (aiModelSelect && typeof message.aiModel === 'string') {
         // 저장된 모델을 UI 표시용으로 변환
         let displayModel = message.aiModel;
-        if (message.aiModel === 'ollama-gemma' || message.aiModel === 'ollama-deepseek' || message.aiModel === 'ollama-codellama' || message.aiModel === 'ollama-gpt-oss') {
+        if (message.aiModel.startsWith('ollama')) {
           displayModel = 'ollama';
         } else if (message.aiModel === 'gemini') {
           displayModel = 'gemini';
@@ -1498,17 +1498,13 @@ window.addEventListener('message', event => {
       break;
     case 'currentAiModel':
       if (aiModelSelect && message.model) {
-        // console.log('Received current AI model:', message.model);
-
         // 저장된 모델을 UI 표시용으로 변환
         let displayModel = message.model;
-        if (message.model === 'ollama-gemma' || message.model === 'ollama-deepseek' || message.model === 'ollama-codellama' || message.model === 'ollama-gpt-oss') {
+        if (message.model.startsWith('ollama')) {
           displayModel = 'ollama';
         } else if (message.model === 'gemini') {
           displayModel = 'gemini';
         }
-
-        // console.log('Setting AI model select to:', displayModel);
         aiModelSelect.value = displayModel;
 
         // 모델에 따라 섹션 활성화/비활성화
@@ -2011,72 +2007,14 @@ if (localOllamaApiUrlInput) {
   });
 }
 
-// Ollama 모델 다운로드 기능
+// Ollama 모델 다운로드 기능 제거
 let supportedModels = [];
 
-// 지원되는 모델 목록 로드
-async function loadSupportedModels() {
-  // console.log('[Settings] Starting to load supported models...');
-  try {
-    if (vscode) {
-      // console.log('[Settings] Sending getSupportedModels command to extension');
-      vscode.postMessage({
-        command: 'getSupportedModels'
-      });
-    } else {
-      throw new Error('VS Code API not available');
-    }
-  } catch (error) {
-    console.error('[Settings] Failed to load supported models:', error);
-    const modelListContainer = document.getElementById('ollama-model-list');
-    if (modelListContainer) {
-      modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';
-    }
-  }
-}
-
-// 모델 리스트 렌더링
+// 모델 리스트 렌더링 (비어있음)
 function renderModelList() {
-  // console.log('[Settings] renderModelList called with supportedModels:', supportedModels);
   const modelListContainer = document.getElementById('ollama-model-list');
-  if (!modelListContainer) {
-    console.error('[Settings] ollama-model-list container not found');
-    return;
-  }
-  modelListContainer.innerHTML = '';
-  // console.log('[Settings] Rendering', supportedModels.length, 'models');
-
-  supportedModels.forEach(model => {
-    const modelItem = document.createElement('div');
-    modelItem.className = 'model-item';
-    modelItem.setAttribute('data-model', model.name);
-    modelItem.innerHTML = `
-            <div class="model-info">
-                <div class="model-name">${model.displayName}</div>
-                <div class="model-description">${model.description}</div>
-                <div class="model-size">크기: ${model.size}</div>
-                <div class="model-tags">
-                    ${model.tags.map(tag => `<span class="model-tag">${tag}</span>`).join('')}
-                </div>
-            </div>
-            <button class="model-download-button" data-model="${model.name}">
-                다운로드
-            </button>
-        `;
-    modelListContainer.appendChild(modelItem);
-  });
-
-  // 다운로드 버튼 이벤트 리스너 추가
-  const downloadButtons = modelListContainer.querySelectorAll('.model-download-button');
-  downloadButtons.forEach(button => {
-    button.addEventListener('click', e => {
-      const modelName = e.target.getAttribute('data-model');
-      downloadModel(modelName, e.target);
-    });
-  });
-
-  // 현재 로컬에 다운로드된 모델 확인하여 버튼 상태 업데이트
-  checkDownloadedModels();
+  if (!modelListContainer) return;
+  modelListContainer.innerHTML = '<p class="info-message">추천 모델 리스트가 삭제되었습니다. 이미 설치된 모델을 선택하여 사용하세요.</p>';
 }
 
 // 현재 다운로드된 모델 확인
@@ -2246,8 +2184,8 @@ document.addEventListener('DOMContentLoaded', () => {
     command: 'loadOllamaModel'
   });
 
-  // 7. 지원되는 모델 목록 로드
-  loadSupportedModels();
+  // 7. 지원되는 모델 목록 로드 제거
+  // loadSupportedModels();
 
   // 8. 라이센스 입력 필드 초기 상태 설정
   if (banyaLicenseSerialInput) {

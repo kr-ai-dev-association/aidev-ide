@@ -109,16 +109,8 @@ ${codebaseContext}` : '';
         switch (modelType) {
             case AiModelType.GEMINI:
                 return llm.getGeminiPrompt();
-            case AiModelType.OLLAMA_GPT_OSS:
-                return llm.getGPTOSSPrompt();
-            case AiModelType.OLLAMA_DeepSeek:
-                return llm.getDeepSeekPrompt();
-            case AiModelType.OLLAMA_Gemma:
-                return llm.getGemmaPrompt();
-            case AiModelType.OLLAMA_CodeLlama:
-                return llm.getCodeLlamaPrompt();
             case AiModelType.OLLAMA:
-                return llm.getDefaultLLMPrompt();
+                return llm.getGPTOSSPrompt(); // Ollama 기본 프롬프트로 GPT-OSS 스타일 사용
             default:
                 return llm.getDefaultLLMPrompt();
         }

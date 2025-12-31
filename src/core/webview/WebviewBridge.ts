@@ -52,6 +52,31 @@ export class WebviewBridge {
     }
 
     /**
+     * 작업 큐(플랜) 업데이트
+     */
+    public static updateTaskQueue(webview: vscode.Webview | undefined, tasks: any[]): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'updateTaskQueue', 
+                tasks 
+            });
+        }
+    }
+
+    /**
+     * 작업 큐 초기화 (새 요청 시작 시)
+     */
+    public static clearTaskQueue(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'updateTaskQueue', 
+                tasks: [],
+                clear: true
+            });
+        }
+    }
+
+    /**
      * 처리 단계 전송 (호환성 유지)
      */
     public static sendProcessingStep(webview: vscode.Webview | undefined, step: string): void {

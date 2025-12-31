@@ -4,7 +4,7 @@
  */
 
 export function getCodeVsScriptRules(): string {
-    return `**코드 작성 vs 쉘 스크립트 작업 구별 (절대 필수 - 최우선 규칙):**
+  return `**코드 작성 vs 쉘 스크립트 작업 구별 (절대 필수 - 최우선 규칙):**
 - **code_work**: 소스 코드 파일(.js, .ts, .py, .java, .go, .rs 등) 생성/수정만 수행.
   - **절대로 쉘 스크립트(.sh, .bat, .ps1)를 생성하지 마세요.**
   - **절대로 터미널 명령어 코드 블록을 생성하지 마세요.**
@@ -28,14 +28,14 @@ export function getCodeVsScriptRules(): string {
       - \`\`\`bash\nmkdir -p src/main/java\n\`\`\`
       - \`\`\`bash\nif ! command -v brew; then ... fi\n\`\`\`
 - **execution_work**: 설치/빌드/배포/실행을 위한 터미널 명령 실행만 수행. 소스 코드 생성 금지.
-- **⚠️ 매우 중요: execution_work에서는 반드시 XML 도구 호출을 사용하세요!**
+- ** 매우 중요: execution_work에서는 반드시 XML 도구 호출을 사용하세요!**
   - **절대로 마크다운 코드 블록(\\\`\\\`\\\`bash)을 사용하지 마세요.**
   - **반드시 \`<run_command>\` XML 도구를 사용하여 명령을 실행하세요.**
   - **사용자가 직접 명령어를 요청한 경우 (예: "mvn spring-boot:run으로 실행해줘", "npm run dev 실행해줘")**:
     - 스크립트 파일(.sh, .bat, .ps1)을 생성하지 마세요.
     - chmod +x 같은 권한 설정 명령어를 포함하지 마세요.
-    - ✅ 올바른 형식: \`<run_command><command>mvn spring-boot:run</command></run_command>\`
-    - ❌ 잘못된 형식: \\\`\\\`\\\`bash\\nmvn spring-boot:run\\n\\\`\\\`\\\` (마크다운 코드 블록 사용 금지)
+    - 올바른 형식: \`<run_command><command>mvn spring-boot:run</command></run_command>\`
+    - 잘못된 형식: \\\`\\\`\\\`bash\\nmvn spring-boot:run\\n\\\`\\\`\\\` (마크다운 코드 블록 사용 금지)
 - **사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.**`;
 }
 

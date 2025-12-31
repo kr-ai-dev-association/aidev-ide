@@ -4,7 +4,6 @@
  */
 
 export * from './types';
-export { ModelManager } from './ModelManager';
 export { LLMApiClient } from './LLMApiClient';
 export type { LLMMessagePart, LLMRequestOptions } from './LLMApiClient';
 export { LLMManager } from './LLMManager';

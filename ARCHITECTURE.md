@@ -47,8 +47,8 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── task/                        # 4. Task Manager
-│   │   ├── TaskManager.ts           # 작업 큐 관리 (v5.2.0: 페이즈 상태 동기화)
-│   │   ├── TaskQueue.ts             # 작업 큐 구현 (@deprecated - v5.2.0에서 UI 제거)
+│   │   ├── TaskManager.ts           # 작업 큐 관리 (v5.2.1: 페이즈 상태 동기화 및 실시간 UI 업데이트)
+│   │   ├── TaskQueue.ts             # 작업 큐 데이터 구조
 │   │   ├── TaskScheduler.ts         # 우선순위 스케줄링
 │   │   ├── TaskRetry.ts             # 재시도 로직
 │   │   ├── PlanManager.ts           # 플랜 생성 및 파싱
@@ -147,15 +147,15 @@ src/
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
-│   ├── model/                       # 10. Model Manager
-│   │   ├── ModelManager.ts          # LLM 모델 관리
-│   │   ├── LLMService.ts            # LLM API 호출 서비스 (Gemini, Ollama)
+│   ├── model/                       # 10. LLM Manager (통합 LLM 관리)
+│   │   ├── LLMApiClient.ts          # LLM API 호출 클라이언트 (Gemini, Ollama 통합)
 │   │   ├── LLMManager.ts            # LLM 서버 통신 및 응답 포맷팅
-│   │   ├── types.ts
+│   │   ├── types.ts                 # 모델 관련 공통 타입
 │   │   ├── index.ts
-│   │   └── llm/                     # LLM 추상화 (통합됨)
+│   │   └── llm/                     # LLM 어댑터
 │   │       ├── ILLMAdapter.ts
-│   │       └── GptAdapter.ts
+│   │       ├── GptAdapter.ts
+│   │       └── GemmaAdapter.ts
 │   │
 │   │
 │   ├── base/                        # 공통 추상화 레이어
@@ -204,12 +204,13 @@ src/
 - **엄격한 계획 파싱**: `<plan><item>...` 구조를 강제하며, 일반 텍스트 리스트는 무시합니다.
 - **인터리브드 파싱**: 텍스트와 XML이 섞인 응답에서 순서를 유지하며 요소를 분리합니다.
 
-### 📱 Webview Bridge (v5.2.0 개선)
+### 📱 Webview Bridge (v5.2.1 개선)
 **역할**: 확장 기능과 채팅 UI 간의 실시간 통신 및 상태 표시를 담당합니다.
 
 **책임**:
 - **조건부 스티키 메시지**: 진행 상태 메시지가 스크롤 시 상단에 고정되도록 제어.
 - **타자기 애니메이션**: 현재 에이전트의 페이즈와 진행 단계를 애니메이션으로 시각화.
+- **작업 큐(Plan) 실시간 동기화**: `TaskQueue` 팝업 UI와 연동하여 작업 진행 상태를 실시간 업데이트.
 - **도구 결과 렌더링**: 실행된 코드나 터미널 출력을 채팅 패널에 통합 표시.│
 └── index.ts                     # 모든 매니저 및 추상화 export
 │
@@ -231,7 +232,7 @@ src/
 │       └── NotificationService.ts
 │
 ├── webview/                         # UI 레이어
-│   ├── chat.html                    # 메인 채팅 UI (v5.2.0: 조건부 스티키 진행 상태 바 적용)
+│   ├── chat.html                    # 메인 채팅 UI (v5.2.1: React 기반 TaskQueue 팝업 도입)
 │   ├── chat.js                      # UI 상호작용 및 타자기 애니메이션 구현
 │   ├── providers/                   # Webview Provider
 │   │   ├── index.ts                 # 배럴 파일
@@ -240,9 +241,8 @@ src/
 │   │   └── SettingsPanelProvider.ts  # 설정 패널 Provider (re-export)
 │   └── services/                    # 웹뷰 보조 서비스
 │       ├── index.ts                 # 배럴 파일
-│       ├── SupportedModelService.ts # 지원 모델 파일 로더
 │       └── LocaleService.ts        # 언어(locale) 파일 로더
-│   # UI note: v5.2.0: TaskQueue UI removed, integrated status into terminal-style loading animation.
+│   # UI note: v5.2.1: TaskQueue UI re-introduced as a dynamic floating popup with React.
 │
 ├── utils/                           # 유틸리티
 │   ├── index.ts                     # 배럴 파일
@@ -642,54 +642,42 @@ class AutoFixService {
 
 ---
 
-### 9️⃣ Model Manager
-**역할**: LLM 모델 선택 및 관리
+### 9️⃣ Model Manager (통합 LLM 관리)
+**역할**: LLM 서버 통신 및 응답 포맷팅 관리
 
 ```typescript
-class ModelManager {
-  listAvailableModels(): Model[]
-  selectModel(modelId: string): void
-  getCurrentModel(): Model | undefined
-  async validateApiKey(provider: ModelProvider, key: string): Promise<boolean>
-  setApiKey(provider: ModelProvider, key: ApiKeyInfo): void
-  getLLMAdapter(): ILLMAdapter  // LLM 어댑터 접근
-}
-
-class LLMService {
-  async sendMessage(prompt: string, options?: LLMRequestOptions): Promise<string>
+class LLMApiClient {
+  async sendMessage(message: string, options?: LLMRequestOptions): Promise<string>
   async sendMessageWithSystemPrompt(systemPrompt: string, userParts: LLMMessagePart[], options?: LLMRequestOptions): Promise<string>
   setCurrentModel(modelType: AiModelType): void
   getCurrentModel(): AiModelType
   cancelCurrentCall(): void
+  async getCurrentModelName(): Promise<string>
 }
 
 class LLMManager {
-  async sendMessage(prompt: string, options?: LLMRequestOptions): Promise<LLMResponse>
-  async sendMessageWithSystemPrompt(systemPrompt: string, userParts: LLMMessagePart[], options?: LLMRequestOptions): Promise<LLMResponse>
-  formatResponse(response: string): string  // 응답 포맷팅
-  formatErrorForChat(evt: ErrorEvent): string  // 에러 포맷팅
+  async sendMessage(prompt: string, options?: LLMRequestOptions): Promise<string>
+  async sendMessageWithSystemPrompt(systemPrompt: string, userParts: LLMMessagePart[], options?: LLMRequestOptions): Promise<string>
+  formatResponse(response: string, options?: any): string
   extractResponseText(llmResponse: string): string
-  removeBashCommands(response: string): string
-  removeFileDirectives(response: string): string
-  summarizeAiResponse(response: string): string
+  formatErrorForChat(evt: any): string
+  createResponse(text: string, raw?: string): LLMResponse
 }
 ```
 
 **책임**:
-- LLM 모델 목록 관리
-- 모델 선택/전환
-- API 키 관리 (Gemini, GPT, Ollama)
-- 모델별 설정 (temperature, max_tokens)
-- 모델 사용량 추적
-- 기능별 모델 추천
-- LLM 서버 통신 (로컬/원격)
-- 응답 포맷팅 및 정제
-- 프롬프트 생성 (PromptComposer 통합)
+- LLM 서버 통신 (로컬 Ollama / 원격 Gemini)
+- API 키 관리 및 동적 모델 로드 (SettingsManager 통합)
+- 오프라인 상황 자동 폴백 (Gemini -> Ollama)
+- 응답 데이터 정제 및 텍스트 추출
+- 채팅용 에러 메시지 포맷팅
+- 코드 블록 및 툴 지시어 필터링
 
 **구현 파일**:
-- `ModelManager.ts` - 모델 관리
-- `LLMService.ts` - LLM API 호출 서비스 (Gemini, Ollama 래핑)
-- `LLMManager.ts` - LLM 서버 통신 및 응답 포맷팅 통합
+- `LLMApiClient.ts` - LLM API 통합 클라이언트
+- `LLMManager.ts` - 통신 처리 및 응답 포맷팅
+- `types.ts` - 모델 관련 공통 타입
+- `llm/` - 개별 모델 어댑터 (ILLMAdapter, GptAdapter, GemmaAdapter)
 
 ---
 
@@ -1023,9 +1011,8 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
   - 모든 import 경로 수정 완료 (14개 파일)
   - `src/ai/` 디렉토리 비어있음
 - ✅ 웹뷰 보조 서비스 분리
-  - `webview/services/SupportedModelService.ts` (지원 모델 파일 로더)
   - `webview/services/LocaleService.ts` (로케일 파일 로더)
-  - `panelManager.ts`에서 모델/언어 파일 로딩 로직 제거, 서비스 호출로 단순화
+  - `panelManager.ts`에서 언어 파일 로딩 로직 제거, 서비스 호출로 단순화
 - ✅ `src/webview` 디렉토리 리팩토링 완료:
   - `chatViewProvider.ts` → `webview/providers/ChatViewProvider.ts`
   - `askViewProvider.ts` → `webview/providers/AskViewProvider.ts`

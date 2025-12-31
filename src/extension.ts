@@ -17,7 +17,6 @@ import {
     SessionManager,
     SettingsManager,
     ProjectManager,
-    ModelManager,
     AutoFix,
     AutoFixLlmClient
 } from './core';
@@ -289,9 +288,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // stateManager와 settingsManager는 이미 위에서 초기화됨
     const sessionManager = SessionManager.getInstance(context);
 
-    // Model Manager 초기화
-    const modelManager = ModelManager.getInstance(context);
-
     // Project Manager는 이미 위에서 초기화됨
     if (workspacePath) {
         try {
@@ -313,7 +309,7 @@ export async function activate(context: vscode.ExtensionContext) {
     errorManager.setExecutionManager(execManager);
 
     // Task Manager 초기화 및 시작
-    const taskManager = TaskManager.getInstance();
+    const taskManager = TaskManager.getInstance(context);
     taskManager.start();
 
     // Manager 간 연결 설정
@@ -321,46 +317,25 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Manager System initialized successfully
 
-    // 현재 AI 모델 설정 로드 (runtime 키와 UI 키를 모두 읽어 정합성 맞춤)
-    // currentAiModel은 이미 위에서 선언됨, 여기서는 업데이트만 수행
+    // 현재 AI 모델 설정 로드
     currentAiModel = await stateManager.getCurrentAiModel();
     const uiAiModel = await stateManager.getAiModel();
-    // 마이그레이션: 과거 'ollama' 값이 저장된 경우, 현재 Ollama 모델을 확인하여 구체적인 타입으로 변환
-    if (currentAiModel === 'ollama') {
-        const storedOllamaModel = await stateManager.getOllamaModel();
-        if (storedOllamaModel === 'deepseek-r1:70b') {
-            currentAiModel = 'ollama-deepseek';
-        } else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) {
-            currentAiModel = 'ollama-codellama';
-        } else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud') {
-            currentAiModel = 'ollama-gpt-oss';
-        } else if (storedOllamaModel && storedOllamaModel.startsWith('qwen')) {
-            currentAiModel = 'ollama-gpt-oss';
-        } else {
-            currentAiModel = 'ollama';
-        }
-        await stateManager.saveCurrentAiModel(currentAiModel as any);
-    }
-    // UI에서 저장된 모델이 우선 (과거 버전 잔존값 교정)
-    try {
-        if (uiAiModel && uiAiModel !== currentAiModel) {
-            let mappedUiModel: string = uiAiModel;
-            // 'ollama' 일반 문자열이 들어온 경우, 저장된 Ollama 실제 모델을 기준으로 구체 타입으로 변환
-            if (uiAiModel === 'ollama') {
-                try {
-                    const storedOllamaModel = await stateManager.getOllamaModel();
-                    if (storedOllamaModel === 'deepseek-r1:70b') mappedUiModel = 'ollama-deepseek';
-                    else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) mappedUiModel = 'ollama-codellama';
-                    else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud' || (storedOllamaModel && storedOllamaModel.startsWith('qwen'))) mappedUiModel = 'ollama-gpt-oss';
-                    else mappedUiModel = 'ollama';
-                } catch { mappedUiModel = 'ollama'; }
-            }
-            currentAiModel = mappedUiModel as any;
-            await stateManager.saveCurrentAiModel(mappedUiModel);
-        }
-    } catch { /* noop */ }
 
-    // ModelManager는 ConversationManager 초기화 시 설정됨
+    // 마이그레이션: 과거 구체적인 'ollama-*' 타입이 저장된 경우 'ollama'로 통일
+    if (currentAiModel && currentAiModel.toString().startsWith('ollama')) {
+        currentAiModel = 'ollama' as any;
+        await stateManager.saveCurrentAiModel('ollama' as any);
+    }
+
+    // UI에서 저장된 모델이 우선
+    if (uiAiModel && uiAiModel !== currentAiModel) {
+        let mappedUiModel: string = uiAiModel;
+        if (uiAiModel.startsWith('ollama')) {
+            mappedUiModel = 'ollama';
+        }
+        currentAiModel = mappedUiModel as any;
+        await stateManager.saveCurrentAiModel(mappedUiModel as any);
+    }
 
     // ConversationManager 초기화 및 설정
 

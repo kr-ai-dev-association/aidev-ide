@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { StateManager, SettingsManager, TerminalManager, TaskManager, ModelConnectionService } from '../../core';
 import { GeminiApi, NotificationService, LicenseService, OllamaBlockerService, AiModelType, ExternalApiService } from '../../services';
 import { createAndSetupWebviewPanel } from '../../utils';
-import { SupportedModelService, LocaleService } from '../services';
+import { LocaleService } from '../services';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -126,32 +126,6 @@ export function openSettingsPanel(
                     } catch (e: any) {
                         console.error('[PanelManager] Failed to get Ollama models:', e?.message || String(e));
                         safePostMessage(panel, { command: 'ollamaModels', models: [], error: e?.message || String(e) });
-                    }
-                    break;
-                }
-                case 'downloadOllamaModel': {
-                    try {
-                        const modelName = data.modelName;
-                        if (!modelName) {
-                            safePostMessage(panel, { command: 'modelDownloadError', error: 'Model name is required' });
-                            return;
-                        }
-
-                        // Ollama 모델 다운로드 시작
-                        await downloadOllamaModel(modelName, panel, context, notificationService);
-                    } catch (error: any) {
-                        console.error('[PanelManager] Failed to download Ollama model:', error);
-                        safePostMessage(panel, { command: 'modelDownloadError', error: error.message });
-                    }
-                    break;
-                }
-                case 'getSupportedModels': {
-                    try {
-                        const supportedModels = SupportedModelService.loadSupportedModels();
-                        safePostMessage(panel, { command: 'supportedModels', models: supportedModels });
-                    } catch (error: any) {
-                        console.error('[PanelManager] Failed to load supported models:', error);
-                        safePostMessage(panel, { command: 'supportedModelsError', error: error.message });
                     }
                     break;
                 }
@@ -498,32 +472,14 @@ export function openSettingsPanel(
                         try {
                             // UI 표시에 쓰는 키와 런타임에서 사용하는 키를 모두 저장
                             await stateManager.saveAiModel(aiModelToSave);
-                            // 'ollama' 일반 문자열이 들어오면 구체 타입으로 매핑하여 런타임 저장
+                            
+                            // 'ollama' 관련 세부 타입 매핑 제거 및 'ollama' 타입으로 통일
                             let toRuntime = aiModelToSave;
                             if (aiModelToSave.toLowerCase() === 'ollama') {
-                                try {
-                                    const storedOllamaModel = await stateManager.getOllamaModel();
-                                    const lowerModel = (storedOllamaModel || '').toLowerCase();
-                                    if (lowerModel === 'deepseek-r1:70b' || lowerModel.includes('deepseek')) toRuntime = 'ollama-deepseek';
-                                    else if (lowerModel.startsWith('codellama')) toRuntime = 'ollama-codellama';
-                                    else if (lowerModel === 'gpt-oss:120b-cloud' || lowerModel === 'gpt-oss-120b:cloud' || lowerModel.startsWith('qwen') || lowerModel.includes('gpt-oss')) toRuntime = 'ollama-gpt-oss';
-                                    else toRuntime = 'ollama-gemma';
-                                } catch { toRuntime = 'ollama-gemma'; }
+                                toRuntime = 'ollama';
                             }
                             await stateManager.saveCurrentAiModel(toRuntime);
 
-                            // 저장된 값 점검 로그
-                            try {
-                                const storedUi = await stateManager.getAiModel();
-                                const storedRuntime = await stateManager.getCurrentAiModel();
-                                // ModelManager에서 직접 가져오기
-                                const { ModelManager } = await import('../../core/managers/model/ModelManager');
-                                const modelManager = ModelManager.getInstance(context);
-                                const currentModel = modelManager?.getCurrentModel();
-                                console.log(`[PanelManager] AI model saved. ui='${storedUi}', runtime='${storedRuntime}', llmId='${currentModel?.id}'`);
-                            } catch (e) {
-                                console.warn('[PanelManager] Failed to read-back AI model after save:', e);
-                            }
                             safePostMessage(panel, { command: 'aiModelSaved' });
                             notificationService.showInfoMessage('AIDEV-IDE: AI Model saved.');
                         } catch (error: any) {
@@ -953,70 +909,4 @@ export function openPlanPanel(
     safePostMessage(panel, { command: 'planQueueData', items: taskManager.listPlanItems() });
 
     return panel;
-}
-
-/**
- * Ollama 모델을 다운로드하고 진행 상황을 표시합니다.
- */
-async function downloadOllamaModel(
-    modelName: string,
-    panel: vscode.WebviewPanel,
-    extensionContext: vscode.ExtensionContext,
-    notificationService: NotificationService
-): Promise<void> {
-    try {
-        const stateManager = StateManager.getInstance(extensionContext);
-        const apiUrl = (await stateManager.getOllamaApiUrl()) || 'http://localhost:11434';
-
-        // VS Code 상태 바에 진행 상황 표시
-        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
-        statusBarItem.text = `$(download) Ollama 모델 다운로드: ${modelName}`;
-        statusBarItem.show();
-
-        // 다운로드 시작 메시지
-        safePostMessage(panel, {
-            command: 'modelDownloadStarted',
-            modelName: modelName
-        });
-
-        // core ModelConnectionService로 다운로드 수행 (진행 상황 콜백 사용)
-        await ModelConnectionService.downloadOllamaModel(
-            modelName,
-            apiUrl,
-            (progress, status) => {
-                statusBarItem.text = `$(download) ${modelName}: ${progress}%`;
-                safePostMessage(panel, {
-                    command: 'modelDownloadProgress',
-                    modelName: modelName,
-                    progress,
-                    status
-                });
-            }
-        );
-
-        // 다운로드 완료
-        statusBarItem.text = `$(check) ${modelName} 다운로드 완료`;
-        setTimeout(() => statusBarItem.dispose(), 3000);
-
-        safePostMessage(panel, {
-            command: 'modelDownloadCompleted',
-            modelName: modelName
-        });
-
-        // 모델 목록 새로고침
-        safePostMessage(panel, { command: 'refreshOllamaModels' });
-
-        notificationService.showInfoMessage(`Ollama 모델 '${modelName}' 다운로드가 완료되었습니다.`);
-
-    } catch (error: any) {
-        console.error('[PanelManager] Failed to download Ollama model:', error);
-
-        safePostMessage(panel, {
-            command: 'modelDownloadError',
-            modelName: modelName,
-            error: error.message
-        });
-
-        notificationService.showErrorMessage(`Ollama 모델 '${modelName}' 다운로드 실패: ${error.message}`);
-    }
 }

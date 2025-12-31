@@ -40,7 +40,7 @@ export class GptAdapter implements ILLMAdapter {
             // SystemPromptContext를 PromptComposerOptions로 변환
             const composerOptions = {
                 userOS: context.osName,
-                modelType: AiModelType.OLLAMA_GPT_OSS, // GptAdapter이므로 GPT-OSS 모델 타입 사용
+                modelType: AiModelType.OLLAMA, // GptAdapter이므로 Ollama 기본 타입 사용
                 taskType: undefined as 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal' | undefined, // 컨텍스트에서 추론 불가능하므로 optional
                 frameworkName: context.framework && context.framework.length > 0 ? context.framework[0].toLowerCase() : undefined,
                 projectType: context.projectType,

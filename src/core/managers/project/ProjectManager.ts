@@ -224,7 +224,7 @@ export class ProjectManager {
 
             if (currentModelType === AiModelType.GEMINI && geminiApi) {
                 response = await geminiApi.sendMessage(projectTypePrompt, undefined, { signal: abortSignal });
-            } else if ((currentModelType === AiModelType.OLLAMA_Gemma || currentModelType === AiModelType.OLLAMA_DeepSeek || currentModelType === AiModelType.OLLAMA_CodeLlama || currentModelType === AiModelType.OLLAMA_GPT_OSS) && ollamaApi) {
+            } else if (currentModelType === AiModelType.OLLAMA && ollamaApi) {
                 response = await ollamaApi.sendMessage(projectTypePrompt, { signal: abortSignal });
             } else {
                 // LLM을 사용할 수 없으면 로컬 감지 결과 반환

@@ -68,7 +68,6 @@ export * from './utils';
 
 // =============== Model ===============
 export * from './managers/model/types';
-export { ModelManager } from './managers/model/ModelManager';
 export { LLMApiClient } from './managers/model/LLMApiClient';
 export type { LLMMessagePart, LLMRequestOptions } from './managers/model/LLMApiClient';
 export { LLMManager } from './managers/model/LLMManager';

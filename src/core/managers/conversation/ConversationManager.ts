@@ -50,7 +50,7 @@ export class ConversationManager {
     private llmManager: LLMManager;
 
     private constructor(userOS: string, geminiApi: GeminiApi, ollamaApi: OllamaApi) {
-        this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA_GPT_OSS);
+        this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA);
         this.contextManager = ContextManager.getInstance();
         this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi);
     }
@@ -92,21 +92,10 @@ export class ConversationManager {
             // 1. 초기화 및 준비
             this.prepareUI(webviewToRespond);
 
-            // 모델 설정 업데이트 및 Ollama 모델명 동기화
+            // 모델 설정 업데이트
             if (options.currentModelType) {
                 this.llmManager.setCurrentModel(options.currentModelType);
                 this.promptBuilder.setModelType(options.currentModelType);
-
-                // LLMManager 내부의 Ollama API 인스턴스 동기화 (가장 중요)
-                const internalOllama = this.llmManager.getOllamaApi();
-                if (internalOllama && options.currentModelType !== AiModelType.GEMINI) {
-                    this.syncOllamaModel(internalOllama, options.currentModelType);
-                }
-
-                // options로 전달된 API가 있다면 함께 동기화 (호환성)
-                if (options.ollamaApi && options.ollamaApi !== internalOllama) {
-                    this.syncOllamaModel(options.ollamaApi, options.currentModelType);
-                }
 
                 console.log(`[ConversationManager] LLM model updated to: ${options.currentModelType}`);
             }
@@ -121,7 +110,7 @@ export class ConversationManager {
             // 4. 시스템 프롬프트 생성
             const promptOptions: PromptBuilderOptions = {
                 userOS: options.userOS || process.platform,
-                modelType: options.currentModelType || AiModelType.OLLAMA_GPT_OSS,
+                modelType: options.currentModelType || AiModelType.OLLAMA,
                 promptType: options.promptType,
                 ...context
             };
@@ -149,6 +138,11 @@ export class ConversationManager {
     private prepareUI(webview: vscode.Webview): void {
         WebviewBridge.sendProcessingStep(webview, 'intent');
         WebviewBridge.sendProcessingStatus(webview, 'intent', '사용자 요청 분석 중...');
+
+        // 새로운 요청이 시작되면 기존 작업 큐 초기화 및 UI 숨김
+        const taskManager = TaskManager.getInstance();
+        taskManager.clearPlanQueue();
+        WebviewBridge.clearTaskQueue(webview);
     }
 
     /**
@@ -164,29 +158,11 @@ export class ConversationManager {
         const detector = new IntentDetector(api);
 
         // 모델명이 있으면 IntentDetector에 전달
-        const options = modelType ? { modelName: this.getActualModelName(modelType) } : undefined;
-        const intent = await detector.detectIntent(query, options);
+        // (v5.2.0: 이제 AiModelType 매핑 대신 settings에서 자동 로드됨)
+        const intent = await detector.detectIntent(query);
 
         console.log(`[ConversationManager] Intent detected: ${intent.category}/${intent.subtype} (confidence: ${intent.confidence})`);
         return intent;
-    }
-
-    /**
-     * AiModelType을 실제 Ollama 모델명으로 변환합니다.
-     */
-    private getActualModelName(modelType: AiModelType): string {
-        switch (modelType) {
-            case AiModelType.OLLAMA_Gemma:
-                return 'gemma2:9b';
-            case AiModelType.OLLAMA_DeepSeek:
-                return 'deepseek-r1:70b';
-            case AiModelType.OLLAMA_CodeLlama:
-                return 'codellama';
-            case AiModelType.OLLAMA_GPT_OSS:
-                return 'gpt-oss:120b-cloud';
-            default:
-                return '';
-        }
     }
 
     /**
@@ -207,6 +183,24 @@ export class ConversationManager {
             gitContext: '',
             languageInstruction: '반드시 한국어로 답변하세요.'
         };
+    }
+
+    private logCurrentPlanStatus(): void {
+        const taskManager = TaskManager.getInstance();
+        const items = taskManager.listPlanItems();
+        if (items.length === 0) return;
+
+        console.log('\n┌──────────────────────────────────────────────────┐');
+        items.forEach((item, index) => {
+            let statusIcon = '○';
+            if (item.status === 'done') statusIcon = '●';
+            else if (item.status === 'in_progress') statusIcon = '▶';
+            else if (item.status === 'failed') statusIcon = '✖';
+
+            const statusText = `[${item.status}]`.padEnd(12);
+            console.log(`│ ${statusIcon} ${index + 1}. ${item.title.padEnd(30)} ${statusText} │`);
+        });
+        console.log('└──────────────────────────────────────────────────┘\n');
     }
 
     /**
@@ -236,8 +230,18 @@ export class ConversationManager {
         while (turnCount < maxTurns) {
             if (abortSignal?.aborted) break;
 
+            // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화
+            const allItems = taskManager.listPlanItems();
+            if (allItems.length > 0) {
+                WebviewBridge.updateTaskQueue(webviewToRespond, allItems);
+            }
+
+            // 콘솔에 현재 작업 리스트 상태 출력
+            this.logCurrentPlanStatus();
+
             // 현재 활성 계획 아이템 확인
             const currentPlanItem = taskManager.getNextPendingItem();
+
             const statusPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
             const phaseLabel = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
 
@@ -256,7 +260,7 @@ export class ConversationManager {
                 // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
                 const promptOptions: PromptBuilderOptions = {
                     userOS: options.userOS || process.platform,
-                    modelType: options.currentModelType || AiModelType.OLLAMA_GPT_OSS,
+                    modelType: options.currentModelType || AiModelType.OLLAMA,
                     promptType: options.promptType,
                     allowedTools // 도구 제한 전달
                 };
@@ -293,8 +297,10 @@ export class ConversationManager {
             const parts = cleanResponse.split(tagPattern);
 
             let turnHasSideEffects = false;
-            let turnResultsSummary = `\n=== Tool Execution Results (Turn ${turnCount + 1}) ===\n`;
+            let turnResultsSummary = '';
             let hasPlanTag = false;
+            let currentActiveItem = taskManager.getNextPendingItem();
+            const executedInTurn = new Set<string>();
 
             for (const part of parts) {
                 if (!part || !part.trim()) continue;
@@ -307,11 +313,22 @@ export class ConversationManager {
                     if (part.toLowerCase().includes('<plan>')) {
                         const planItems = ToolParser.parsePlanItems(part);
                         if (planItems.length > 0) {
-                            console.log('[ConversationManager] Received Plan Items:', planItems.map(item => `- ${item.title}`));
+                            console.log('\n┌──────────────────────────────────────────────────┐');
+                            console.log('│ 새로운 작업 계획 수립 (New Plan)              │');
+                            planItems.forEach((item, index) => {
+                                console.log(`│ ${index + 1}. ${item.title.padEnd(42)} │`);
+                                if (item.detail) {
+                                    console.log(`│    - 상세: ${item.detail.padEnd(38)} │`);
+                                }
+                            });
+                            console.log('└──────────────────────────────────────────────────┘\n');
+
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'plan');
                             WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', '작업 계획 업데이트 중...');
                             taskManager.setPlanItems(planItems);
+                            WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
                             hasPlanTag = true;
+                            currentActiveItem = taskManager.getNextPendingItem();
 
                             // 계획이 수립되면 조사 단계 종료 후 실행 단계로 전환
                             if (currentPhase === AgentPhase.INVESTIGATION) {
@@ -339,9 +356,22 @@ export class ConversationManager {
                     else {
                         const toolCalls = ToolParser.parseToolCalls(part);
                         if (toolCalls.length > 0) {
+                            // 중복 도구 호출 방지 (동일 파라미터인 경우)
+                            const deduplicatedCalls = toolCalls.filter(call => {
+                                const key = `${call.name}:${JSON.stringify(call.params)}`;
+                                if (executedInTurn.has(key)) {
+                                    console.log(`[ConversationManager] Skipping duplicate tool call: ${call.name}`);
+                                    return false;
+                                }
+                                executedInTurn.add(key);
+                                return true;
+                            });
+
+                            if (deduplicatedCalls.length === 0) continue;
+
                             // 조사 단계에서 허용되지 않은 도구 호출 시 차단 
                             if (currentPhase === AgentPhase.INVESTIGATION) {
-                                const invalidTools = toolCalls.filter(call => !investigationManager.isInvestigationTool(call.name));
+                                const invalidTools = deduplicatedCalls.filter(call => !investigationManager.isInvestigationTool(call.name));
                                 if (invalidTools.length > 0) {
                                     console.warn('[ConversationManager] Investigation phase tool block:', invalidTools.map(t => t.name));
                                     turnResultsSummary += `\n[Error] 현재는 '조사(Investigation)' 단계입니다. '${invalidTools.map(t => t.name).join(', ')}' 도구는 사용할 수 없습니다. 먼저 충분히 조사한 후 <plan>을 제출하여 '실행' 단계로 전환하세요.\n`;
@@ -349,16 +379,23 @@ export class ConversationManager {
                                 }
                             }
 
-                            console.log('[ConversationManager] Executing Tools:', toolCalls.map(call => call.name));
+                            console.log('[ConversationManager] Executing Tools:', deduplicatedCalls.map(call => call.name));
+
+                            // 도구 실행 직전에 해당 계획 항목을 '진행 중'으로 변경
+                            if (currentActiveItem && currentActiveItem.status === 'pending') {
+                                taskManager.updatePlanItemStatus(currentActiveItem.id, 'in_progress');
+                                WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+                            }
+
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
-                            const executingPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
+                            const executingPrefix = currentActiveItem ? `[${currentActiveItem.title}] ` : '';
                             const phaseLabelExec = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${toolCalls[0].name} 실행 중...`);
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${deduplicatedCalls[0].name} 실행 중...`);
 
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
 
-                            const toolResults = await toolExecutor.executeTools(toolCalls, {
+                            const toolResults = await toolExecutor.executeTools(deduplicatedCalls, {
                                 projectRoot: workspaceRoot,
                                 workspaceRoot: workspaceRoot,
                                 actionManager,
@@ -368,15 +405,22 @@ export class ConversationManager {
                             });
 
                             // UI에 실행 결과 전송 (✅ [Created] ...)
-                            this.sendToolExecutionResultsToUI(webviewToRespond, toolCalls, toolResults);
+                            this.sendToolExecutionResultsToUI(webviewToRespond, deduplicatedCalls, toolResults);
 
                             // 결과 요약 누적
-                            const resultSummary = this.createToolResultSummary(turnCount, toolCalls, toolResults);
-                            console.log(`[ConversationManager] Tool Results Summary (Turn ${turnCount + 1}):`, resultSummary);
+                            const resultSummary = this.createToolResultSummary(turnCount, deduplicatedCalls, toolResults);
                             turnResultsSummary += resultSummary;
 
-                            if (this.hasSideEffects(toolCalls, toolResults)) {
+                            if (this.hasSideEffects(deduplicatedCalls, toolResults)) {
                                 turnHasSideEffects = true;
+
+                                // 사이드 이팩트가 발생한 경우 현재 항목을 완료 처리하고 다음 항목으로 이동
+                                if (currentActiveItem) {
+                                    console.log(`[ConversationManager] Marking current item as done: ${currentActiveItem.title}`);
+                                    taskManager.updatePlanItemStatus(currentActiveItem.id, 'done');
+                                    currentActiveItem = taskManager.getNextPendingItem();
+                                    WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+                                }
                             }
                         }
                     }
@@ -402,12 +446,6 @@ export class ConversationManager {
             if (totalToolCalls.length > 0 || validPlanReceived) {
                 accumulatedUserParts.push({ text: llmResponse });
                 accumulatedUserParts.push({ text: turnResultsSummary });
-
-                // 사이드 이펙트가 있는 경우에만 계획 상태 업데이트
-                const updatedPlanItem = taskManager.getNextPendingItem();
-                if (updatedPlanItem && turnHasSideEffects) {
-                    taskManager.updatePlanItemStatus(updatedPlanItem.id, 'done');
-                }
 
                 turnCount++;
             } else {
@@ -459,9 +497,22 @@ export class ConversationManager {
         }
 
         // 루프 종료 후 최종 상태 명시
+        this.logCurrentPlanStatus();
+
         if (turnCount >= maxTurns) {
             WebviewBridge.updateProcessingStatus(webviewToRespond, '최대 턴 수 도달로 중단되었습니다.', 'error');
         } else {
+            // [수정] 루프가 정상 종료되었는데 아직 'in_progress' 또는 'pending'인 항목이 있다면 'done'으로 처리 (에이전트가 완료했다고 판단한 경우)
+            const allItems = taskManager.listPlanItems();
+            const unfinishedItems = allItems.filter(item => item.status === 'in_progress' || item.status === 'pending');
+
+            if (unfinishedItems.length > 0) {
+                console.log(`[ConversationManager] Marking ${unfinishedItems.length} remaining items as done`);
+                unfinishedItems.forEach(item => {
+                    taskManager.updatePlanItemStatus(item.id, 'done');
+                });
+                WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+            }
             WebviewBridge.sendProcessingStatus(webviewToRespond, 'done', '모든 작업이 완료되었습니다.');
         }
     }
@@ -525,7 +576,7 @@ export class ConversationManager {
     }
 
     private createToolResultSummary(turn: number, calls: any[], results: any[]): string {
-        let summary = `\n=== Tool Execution Results (Turn ${turn + 1}) ===\n`;
+        let summary = '';
         results.forEach((res, i) => {
             summary += `[Tool: ${calls[i].name}]\n`;
             summary += `Status: ${res.success ? 'Success' : 'Failed'}\n`;
@@ -624,17 +675,5 @@ export class ConversationManager {
     private hasSideEffects(calls: any[], results: any[]): boolean {
         const sideEffectTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
         return results.some((res, i) => res.success && sideEffectTools.includes(calls[i].name as Tool));
-    }
-
-    /**
-     * 선택된 AiModelType에 따라 Ollama API 인스턴스의 모델명을 동기화합니다.
-     */
-    private syncOllamaModel(ollamaApi: OllamaApi, modelType: AiModelType): void {
-        const actualModelName = this.getActualModelName(modelType);
-
-        if (actualModelName) {
-            ollamaApi.setModel(actualModelName);
-            console.log(`[ConversationManager] Synced Ollama model to: ${actualModelName} for type: ${modelType}`);
-        }
     }
 }

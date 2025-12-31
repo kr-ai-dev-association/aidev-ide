@@ -197,9 +197,9 @@ export class ToolSpecBuilder {
         prompt += '</update_file>\n';
         prompt += '```\n';
         prompt += '4. **잘못된 워크플로우 (절대 하지 마세요):**\n';
-        prompt += '   - `read_file` 없이 `update_file` 사용 ❌\n';
-        prompt += '   - 이전에 읽은 내용을 기반으로 추측하여 SEARCH 패턴 생성 ❌\n';
-        prompt += '   - 파일이 "아마도 이럴 것이다"라고 추측하여 SEARCH 패턴 생성 ❌\n';
+        prompt += '   - `read_file` 없이 `update_file` 사용 \n';
+        prompt += '   - 이전에 읽은 내용을 기반으로 추측하여 SEARCH 패턴 생성 \n';
+        prompt += '   - 파일이 "아마도 이럴 것이다"라고 추측하여 SEARCH 패턴 생성 \n';
         prompt += '\n';
         prompt += '\n';
         prompt += '**중요: 파일 구성 규칙**\n';

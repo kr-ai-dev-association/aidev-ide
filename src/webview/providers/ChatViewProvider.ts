@@ -3,7 +3,6 @@ import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
 import { PromptType, NotificationService, LicenseService, GitRepositoryService } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
-import { SupportedModelService } from '../services/SupportedModelService';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {

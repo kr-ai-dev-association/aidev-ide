@@ -1104,6 +1104,148 @@
             font-weight: bold;
         }
 
+        @keyframes pulse-circle {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.5; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .status-circle {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+
+        .status-circle.pending {
+            border: 1px solid var(--vscode-descriptionForeground);
+            background: transparent;
+        }
+
+        .status-circle.done {
+            background: var(--vscode-testing-iconPassed);
+        }
+
+        .status-circle.working {
+            background: var(--vscode-button-background);
+            animation: pulse-circle 1.5s infinite;
+            box-shadow: 0 0 5px var(--vscode-button-background);
+        }
+
+        /* Task Queue Popup Styles */
+        .task-queue-popup {
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            width: 320px;
+            max-height: 400px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            z-index: 1500;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .task-queue-header {
+            padding: 10px 12px;
+            background: var(--vscode-sideBar-background);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+            /* 헤더 클릭 시 최소화/최대화 가능하게 */
+        }
+
+        .task-queue-header-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .task-queue-popup.minimized {
+            height: auto;
+            max-height: 38px;
+        }
+
+        .task-queue-popup.minimized .task-queue-content {
+            display: none;
+        }
+
+        .task-queue-content {
+            padding: 10px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            padding: 6px;
+            border-radius: 4px;
+            background: rgba(128, 128, 128, 0.05);
+        }
+
+        .task-item.done {
+            opacity: 0.7;
+        }
+
+        .task-item.working {
+            background: rgba(0, 122, 204, 0.1);
+            border-left: 2px solid var(--vscode-button-background);
+        }
+
+        .task-status-icon {
+            flex-shrink: 0;
+            margin-top: 2px;
+            width: 14px;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        /* 상태별 텍스트 아이콘 */
+        .status-text.pending {
+            opacity: 0.6;
+        }
+
+        .status-text.done {
+            opacity: 1;
+        }
+
+        .status-text.working {
+            opacity: 1;
+        }
+
+        @keyframes pulse-text {
+            0% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.3;
+                transform: scale(1.2);
+            }
+
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
         #selected-files-container {
             flex-grow: 1;
             display: flex;
@@ -1816,6 +1958,122 @@
             ]);
         }
 
+        // TaskQueue Component - 작업 큐 표시
+        function TaskQueue() {
+            const [tasks, setTasks] = useState([]);
+            const [isVisible, setIsVisible] = useState(false);
+            const [isMinimized, setIsMinimized] = useState(false);
+
+            useEffect(() => {
+                const handleMessage = (event) => {
+                    const data = event.data;
+                    if (data.command === 'updateTaskQueue') {
+                        setTasks(data.tasks || []);
+                        if (data.clear) {
+                            setIsVisible(false);
+                            setIsMinimized(false);
+                        } else if (data.tasks && data.tasks.length > 0) {
+                            setIsVisible(true);
+                        } else {
+                            setIsVisible(false);
+                        }
+                    }
+                };
+
+                window.addEventListener('message', handleMessage);
+                return () => window.removeEventListener('message', handleMessage);
+            }, []);
+
+            if (!isVisible || tasks.length === 0) return null;
+
+            return React.createElement('div', {
+                className: `task-queue-popup ${isMinimized ? 'minimized' : ''}`
+            }, [
+                React.createElement('div', {
+                    key: 'header',
+                    className: 'task-queue-header',
+                    onClick: () => setIsMinimized(!isMinimized)
+                }, [
+                    React.createElement('span', { key: 'title' }, `작업 계획 (${tasks.filter(t => t.status === 'done').length}/${tasks.length})`),
+                    React.createElement('div', {
+                        key: 'actions',
+                        className: 'task-queue-header-actions'
+                    }, [
+                        React.createElement('button', {
+                            key: 'minimize',
+                            onClick: (e) => {
+                                e.stopPropagation();
+                                setIsMinimized(!isMinimized);
+                            },
+                            style: {
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--vscode-foreground)',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                padding: '0 4px'
+                            },
+                            title: isMinimized ? '최대화' : '최소화'
+                        }, isMinimized ? '□' : '_'),
+                        React.createElement('button', {
+                            key: 'close',
+                            onClick: (e) => {
+                                e.stopPropagation();
+                                setIsVisible(false);
+                            },
+                            style: {
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--vscode-foreground)',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                padding: '0 4px'
+                            },
+                            title: '닫기'
+                        }, '×')
+                    ])
+                ]),
+                React.createElement('div', {
+                    key: 'content',
+                    className: 'task-queue-content'
+                }, tasks.map((task, index) => {
+                    const isDone = task.status === 'done';
+                    const isWorking = task.status === 'in_progress';
+                    const isFailed = task.status === 'failed';
+
+                    let statusClass = 'pending';
+                    if (isDone) statusClass = 'done';
+                    else if (isWorking) statusClass = 'working';
+                    else if (isFailed) statusClass = 'failed';
+
+                    return React.createElement('div', {
+                        key: task.id || index,
+                        className: `task-item ${isDone ? 'done' : ''} ${isWorking ? 'working' : ''}`
+                    }, [
+                        React.createElement('div', {
+                            key: 'icon',
+                            className: 'task-status-icon'
+                        }, React.createElement('span', {
+                            className: `status-circle ${statusClass}`
+                        })),
+                        React.createElement('div', {
+                            key: 'info',
+                            className: 'task-info'
+                        }, [
+                            React.createElement('span', {
+                                key: 'title',
+                                className: 'task-title'
+                            }, `${index + 1}. ${task.title}`),
+                            task.detail && !isMinimized && React.createElement('span', {
+                                key: 'detail',
+                                className: 'task-detail'
+                            }, task.detail)
+                        ])
+                    ]);
+                }))
+            ]);
+        }
+
         // Main React App Component
         function ReactApp() {
             useEffect(() => {
@@ -1843,7 +2101,8 @@
             }, [
                 React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
-                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }) // 프로젝트 타입 선택 컴포넌트 추가
+                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }), // 프로젝트 타입 선택 컴포넌트 추가
+                React.createElement(TaskQueue, { key: 'task-queue' }) // 작업 큐 컴포넌트 추가
             ]);
         }
 

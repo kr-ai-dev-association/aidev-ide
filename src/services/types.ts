@@ -1,10 +1,6 @@
 export enum AiModelType {
     GEMINI = 'gemini',
-    OLLAMA = 'ollama',
-    OLLAMA_Gemma = 'ollama-gemma',
-    OLLAMA_DeepSeek = 'ollama-deepseek',
-    OLLAMA_CodeLlama = 'ollama-codellama',
-    OLLAMA_GPT_OSS = 'ollama-gpt-oss'
+    OLLAMA = 'ollama'
 }
 
 export enum PromptType {

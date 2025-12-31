@@ -114,10 +114,7 @@ export class LLMApiClient {
                 }
 
                 return response;
-            } else if (
-                Object.values(AiModelType).some(type => type === this.currentModelType && type.startsWith('ollama')) ||
-                this.currentModelType.toString().startsWith('ollama')
-            ) {
+            } else if (this.currentModelType === AiModelType.OLLAMA) {
                 // 모델 설정 로드 (Ollama)
                 await this.ollamaApi.loadSettingsFromStorage();
                 return await this.ollamaApi.sendMessageWithSystemPrompt(

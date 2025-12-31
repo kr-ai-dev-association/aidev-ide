@@ -13,7 +13,7 @@ export interface ProjectContext {
 
 export class KeywordSelector {
     // 현재 구현은 LLM 호출 없이, 또는 간단한 스텁으로 동작합니다.
-    // 향후 ModelManager/ActionManager와 통합하여 실제 LLM 호출로 교체할 수 있습니다.
+    // 향후 LLMManager/ActionManager와 통합하여 실제 LLM 호출로 교체할 수 있습니다.
 
     /**
      * LLM을 사용하여 사용자 질의에서 관련 키워드를 선택합니다.
@@ -31,7 +31,7 @@ export class KeywordSelector {
             const systemPrompt = this.createSystemPrompt(projectContext, availableKeywords);
             const userPrompt = this.createUserPrompt(userQuery);
 
-            // TODO: ModelManager를 이용한 실제 LLM 호출로 교체
+            // TODO: LLMManager를 이용한 실제 LLM 호출로 교체
             const response = await this.callCurrentLLM(systemPrompt, userPrompt, availableKeywords);
 
             // 응답 파싱
@@ -113,7 +113,7 @@ ${availableKeywords.map((keyword, index) => `${index + 1}. ${keyword}`).join('\n
      */
     private async callCurrentLLM(systemPrompt: string, userPrompt: string, availableKeywords: string[]): Promise<string> {
         try {
-            // 임시로 기본 응답 반환 (실제 구현에서는 ModelManager/LLM 어댑터 사용)
+            // 임시로 기본 응답 반환 (실제 구현에서는 LLMManager/LLM 어댑터 사용)
             return JSON.stringify({
                 keywords: availableKeywords.slice(0, 3),
                 reasoning: 'LLM 키워드 선택',

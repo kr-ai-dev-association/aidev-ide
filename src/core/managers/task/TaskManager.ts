@@ -614,11 +614,15 @@ export class TaskManager {
     }
 
     /**
-     * 다음에 수행할 대기 중인 아이템을 가져옵니다
+     * 다음에 수행할 대기 중인 아이템을 가져옵니다 (진행 중인 아이템 우선)
      */
     public getNextPendingItem(): PlanItem | undefined {
         const queue = this.getActivePlanQueue();
         if (!queue) return undefined;
+        // 1. 이미 진행 중인 항목이 있으면 그것을 최우선으로 반환
+        const inProgress = queue.items.find(item => item.status === 'in_progress');
+        if (inProgress) return inProgress;
+        // 2. 없으면 대기 중인 첫 번째 항목 반환
         return queue.items.find(item => item.status === 'pending');
     }
 
