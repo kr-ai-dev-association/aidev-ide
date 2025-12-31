@@ -6,23 +6,23 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
-## v5.2.0 (UI/UX Transformation & Agentic Loop Refinement)
+## v5.2.0 (Investigation Manager & UI/UX Transformation)
+- **Investigation Manager**:
+  - **Read-Only Phase**: Enforces a mandatory "Investigation" phase before any code modification. Only read tools (`read_file`, `list_files`, `search_files`) are allowed.
+  - **Strict Phase Transition**: Transition to the "Execution" phase occurs only after a valid, strictly formatted `<plan>` is submitted and approved.
+  - **Safe Deletion Rules**: Implemented strict rules against arbitrary file deletion. `remove_file` is only permitted when explicitly requested by the user or specified in an approved plan.
 - **UI/UX Revolution**:
-  - **Consolidated Status**: Removed `TaskQueue` panel and top `ProcessingSteps`. All progress is now integrated into a terminal-style loading area with a character-by-character typing animation.
-  - **Conditional Sticky Bar**: The processing status bar now follows the screen—it stays inline when visible and becomes sticky at the top when scrolled out of view.
-  - **Clean Interface**: Suppressed LLM internal monologues (thinking) from the chat panel, showing only meaningful reasoning and tool results.
+  - **Phase Labels**: Real-time status now includes `[Investigation]` and `[Execution]` labels to clearly show the agent's current mode.
+  - **Consolidated Status**: Removed `TaskQueue` panel and top `ProcessingSteps`. All progress is integrated into a terminal-style loading area with typing animation.
+  - **Conditional Sticky Bar**: The processing status bar stays inline when visible and sticks to the top when scrolled out of view.
 - **Enhanced Agentic Loop**:
-  - **Interleaved Execution**: LLM reasoning and tool execution results (with code previews) are now displayed in an interleaved fashion for better transparency.
-  - **Smart Nudging**: Added logic to detect "analysis-only" responses and nudge the LLM to take concrete actions or create plans.
-  - **Background Execution**: Commands like `npm install` now use a "soft timeout," continuing in the background without blocking the loop.
-- **Robust Tooling**:
-  - **Advanced update_file**: Implemented a highly robust matching system including fuzzy matching, block anchors, structural matching (ignoring whitespace), and out-of-order edits.
-  - **Smart list_files Filtering**: Automatically excludes development artifacts like `node_modules`, `.git`, and build folders from file listings to reduce context noise.
-  - **System Message UI**: Standardized styling for tool execution notifications (e.g., `✅ [Created]`, `🚀 [Executed]`) with icons and integrated code snippets.
-- **Architectural Refinement**:
-  - **ConversationManager Refactor**: Significantly refactored for Single Responsibility Principle (SRP) and type safety.
-  - **Dynamic Model Loading**: Removed hardcoded Ollama model mapping; the system now dynamically uses any model selected in the UI.
-  - **Centralized UI Bridge**: All webview communications are now unified through the `WebviewBridge` service.
+  - **Strict Plan Format**: Enforces a strict XML structure for plans (`<plan><item>...`) to ensure clarity and actionable steps.
+  - **Interleaved Execution**: Displays LLM reasoning and tool results (with code previews) in sequence for maximum transparency.
+  - **Smart Nudging**: Nudges the LLM to take action or create plans when it only provides analysis without proceeding.
+- **Robust Tooling & Intent Detection**:
+  - **Advanced update_file**: Implemented fuzzy matching, block anchors, and structural matching for resilient file edits.
+  - **Intent Detection Fix**: Improved classification for TypeScript compilation and lint errors, correctly routing them to code modification tasks.
+  - **Smart list_files Filtering**: Automatically excludes `node_modules`, `.git`, and build folders from listings.
 
 ## v5.1.3 (External API Removal)
 - **External API removal**: Removed all external API integrations (Weather, Stock, News APIs)

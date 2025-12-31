@@ -11,6 +11,7 @@ import { AiModelType, PromptType } from '../../../services';
 export { PromptType };
 import { PromptComposer, PromptComposerOptions } from './prompts/PromptComposer';
 import { ProjectManager } from '../project/ProjectManager';
+import { Tool } from '../../tools/types';
 
 export interface PromptBuilderOptions {
   userOS: string;
@@ -24,6 +25,7 @@ export interface PromptBuilderOptions {
   languageInstruction?: string;
   taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
   userQuery?: string; // 사용자 쿼리 (프레임워크 추출용)
+  allowedTools?: Tool[]; // 사용 가능한 도구 목록
 }
 
 export class PromptBuilder {
@@ -91,6 +93,7 @@ ${gitContext || ''}
       frameworkName,
       projectType: currentProject?.type,
       codebaseContext: codebaseContext, // 코드베이스 컨텍스트 포함
+      allowedTools: options.allowedTools, // 허용된 도구 전달
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

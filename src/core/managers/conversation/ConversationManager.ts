@@ -12,6 +12,7 @@ import { TerminalManager } from '../terminal/TerminalManager';
 import { Tool } from '../../tools/types';
 import { IntentDetector } from '../action/IntentDetector';
 import { ProjectManager } from '../project/ProjectManager';
+import { InvestigationManager } from '../investigation/InvestigationManager';
 import { AiModelType, OllamaApi, GeminiApi } from '../../../services';
 
 export interface ConversationOptions {
@@ -29,6 +30,14 @@ export interface ConversationOptions {
     userOS?: string;
     notificationService?: any;
     gitRepositoryService?: any;
+}
+
+/**
+ * 대화 진행 단계
+ */
+enum AgentPhase {
+    INVESTIGATION = 'investigation',
+    EXECUTION = 'execution'
 }
 
 /**
@@ -213,7 +222,16 @@ export class ConversationManager {
         const actionManager = ActionManager.getInstance();
         const executionManager = ExecutionManager.getInstance();
         const terminalManager = TerminalManager.getInstance();
+        const investigationManager = InvestigationManager.getInstance();
         const toolExecutor = new ToolExecutor();
+
+        // 1. 초기 페이즈 결정 (조사 vs 실행)
+        // 활성 계획이 없고 '작업' 의도인 경우 조사 단계로 시작
+        const currentPlanItems = taskManager.listPlanItems();
+        const hasActivePlan = currentPlanItems.some(i => i.status === 'pending' || i.status === 'in_progress');
+        const isActionIntent = intent?.category === 'code' || intent?.taskType === 'code_work' || intent?.taskType === 'command';
+
+        let currentPhase = (isActionIntent && !hasActivePlan) ? AgentPhase.INVESTIGATION : AgentPhase.EXECUTION;
 
         while (turnCount < maxTurns) {
             if (abortSignal?.aborted) break;
@@ -221,17 +239,36 @@ export class ConversationManager {
             // 현재 활성 계획 아이템 확인
             const currentPlanItem = taskManager.getNextPendingItem();
             const statusPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
+            const phaseLabel = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
 
             WebviewBridge.sendProcessingStep(webviewToRespond, 'thinking');
-            WebviewBridge.sendProcessingStatus(webviewToRespond, 'thinking', `${statusPrefix}[생각 ${turnCount + 1}] 분석 및 생각 중...`);
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'thinking', `${phaseLabel}[생각 ${turnCount + 1}] ${statusPrefix}분석 및 생각 중...`);
+
+            // 페이즈별 프롬프트 보정 및 도구 제한
+            let activeSystemPrompt = systemPrompt;
+            let allowedTools: Tool[] | undefined = undefined;
+
+            if (currentPhase === AgentPhase.INVESTIGATION) {
+                const investigationPrompt = investigationManager.getInvestigationPrompt(options.userQuery);
+                activeSystemPrompt = investigationPrompt + '\n\n' + systemPrompt;
+                allowedTools = investigationManager.getInvestigationTools();
+
+                // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
+                const promptOptions: PromptBuilderOptions = {
+                    userOS: options.userOS || process.platform,
+                    modelType: options.currentModelType || AiModelType.OLLAMA_GPT_OSS,
+                    promptType: options.promptType,
+                    allowedTools // 도구 제한 전달
+                };
+                activeSystemPrompt = investigationPrompt + '\n\n' + this.promptBuilder.generateSystemPrompt(promptOptions);
+            }
 
             const planContext = currentPlanItem ? `\n\nCURRENT TASK: ${currentPlanItem.title}` : '\n\n=== NO ACTIVE PLAN ===\nAnalyze the user query and proceed with necessary actions (e.g. create a plan using <plan> tag).';
 
-            console.log(`[ConversationManager] Calling LLM for Turn ${turnCount + 1}`);
-            // console.log(`[ConversationManager] Full Prompt: ${systemPrompt + planContext}`);
+            console.log(`[ConversationManager] Calling LLM for Turn ${turnCount + 1} (Phase: ${currentPhase})`);
 
             const llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
-                systemPrompt + planContext,
+                activeSystemPrompt + planContext,
                 accumulatedUserParts,
                 { signal: abortSignal }
             );
@@ -257,6 +294,7 @@ export class ConversationManager {
 
             let turnHasSideEffects = false;
             let turnResultsSummary = `\n=== Tool Execution Results (Turn ${turnCount + 1}) ===\n`;
+            let hasPlanTag = false;
 
             for (const part of parts) {
                 if (!part || !part.trim()) continue;
@@ -273,6 +311,21 @@ export class ConversationManager {
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'plan');
                             WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', '작업 계획 업데이트 중...');
                             taskManager.setPlanItems(planItems);
+                            hasPlanTag = true;
+
+                            // 계획이 수립되면 조사 단계 종료 후 실행 단계로 전환
+                            if (currentPhase === AgentPhase.INVESTIGATION) {
+                                console.log('[ConversationManager] Valid plan received, switching to EXECUTION phase');
+                                currentPhase = AgentPhase.EXECUTION;
+
+                                // 전환 시점에 시스템 피드백 추가하여 에이전트가 다음 작업을 즉시 수행하도록 유도
+                                turnResultsSummary += `\n[System] 계획이 승인되었습니다. 이제 '실행(Execution)' 단계입니다. 수립한 계획의 첫 번째 항목부터 즉시 작업을 시작하세요.\n`;
+                            }
+                        } else {
+                            console.warn('[ConversationManager] Plan tag found but items are invalid/missing');
+                            if (currentPhase === AgentPhase.INVESTIGATION) {
+                                turnResultsSummary += `\n[Error] 제출된 계획의 형식이 올바르지 않습니다. 반드시 <item><title>...</title><detail>...</detail></item> 구조를 사용해 주세요. 조사를 계속하거나 올바른 형식으로 계획을 다시 제출하세요.\n`;
+                            }
                         }
                     }
                     // 2-2. 진행 상황 업데이트 처리
@@ -280,17 +333,27 @@ export class ConversationManager {
                         const progress = ToolParser.parseTaskProgress(part);
                         if (progress) {
                             console.log('[ConversationManager] Received Task Progress:', progress);
-                            // task_progress는 더 이상 UI에 별도로 출력하지 않음 (작업큐 삭제됨)
                         }
                     }
                     // 2-3. 도구 실행 처리
                     else {
                         const toolCalls = ToolParser.parseToolCalls(part);
                         if (toolCalls.length > 0) {
+                            // 조사 단계에서 허용되지 않은 도구 호출 시 차단 
+                            if (currentPhase === AgentPhase.INVESTIGATION) {
+                                const invalidTools = toolCalls.filter(call => !investigationManager.isInvestigationTool(call.name));
+                                if (invalidTools.length > 0) {
+                                    console.warn('[ConversationManager] Investigation phase tool block:', invalidTools.map(t => t.name));
+                                    turnResultsSummary += `\n[Error] 현재는 '조사(Investigation)' 단계입니다. '${invalidTools.map(t => t.name).join(', ')}' 도구는 사용할 수 없습니다. 먼저 충분히 조사한 후 <plan>을 제출하여 '실행' 단계로 전환하세요.\n`;
+                                    continue;
+                                }
+                            }
+
                             console.log('[ConversationManager] Executing Tools:', toolCalls.map(call => call.name));
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
                             const executingPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${executingPrefix}[단계 ${turnCount + 1}] ${toolCalls[0].name} 실행 중...`);
+                            const phaseLabelExec = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${toolCalls[0].name} 실행 중...`);
 
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
@@ -318,10 +381,9 @@ export class ConversationManager {
                         }
                     }
                 } else {
-                    // 2-4. 일반 텍스트 처리 (도구 호출이 있는 경우 텍스트 출력 지우기 - 사용자 요청 반영)
+                    // 2-4. 일반 텍스트 처리
                     const responseText = this.extractResponseText(part);
                     if (responseText && responseText.trim()) {
-                        // 도구 호출이 전혀 없는 턴이거나, 최종 답변인 경우에만 텍스트 출력
                         const hasToolsInThisTurn = ToolParser.parseToolCalls(cleanResponse).length > 0;
                         if (!hasToolsInThisTurn) {
                             WebviewBridge.receiveMessage(webviewToRespond, 'AIDEV-IDE', responseText);
@@ -334,7 +396,10 @@ export class ConversationManager {
             const totalToolCalls = ToolParser.parseToolCalls(cleanResponse);
             const totalResponseText = this.extractResponseText(cleanResponse);
 
-            if (totalToolCalls.length > 0) {
+            // 계획 수립 시에도 턴이 넘어간 것으로 간주 (단, 유효한 계획이어야 함)
+            const validPlanReceived = hasPlanTag && TaskManager.getInstance().listPlanItems().length > 0;
+
+            if (totalToolCalls.length > 0 || validPlanReceived) {
                 accumulatedUserParts.push({ text: llmResponse });
                 accumulatedUserParts.push({ text: turnResultsSummary });
 
@@ -346,31 +411,26 @@ export class ConversationManager {
 
                 turnCount++;
             } else {
-                // 도구 호출이 없는 경우 종료 로직
+                // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
                 if (!totalResponseText || !totalResponseText.trim()) {
-                    console.log('[ConversationManager] Empty response, ending loop');
+                    console.log('[ConversationManager] Empty response or invalid plan, ending loop');
                     break;
                 }
 
-                const currentPlanItems = taskManager.listPlanItems();
-                const remaining = currentPlanItems.filter(i => i.status === 'pending' || i.status === 'in_progress');
+                const currentPlanItemsAll = taskManager.listPlanItems();
+                const remaining = currentPlanItemsAll.filter(i => i.status === 'pending' || i.status === 'in_progress');
 
-                if (currentPlanItems.length === 0 || remaining.length === 0) {
+                if (currentPlanItemsAll.length === 0 || remaining.length === 0) {
                     // 계획이 없는 상태에서 도구 호출 없이 텍스트만 온 경우
-                    // 도구 호출이나 계획 수립이 필요한 '작업' 의도일 때만 누징(Nudging) 수행
-                    const isActionIntent = intent?.category === 'code' || intent?.taskType === 'code_work' || intent?.taskType === 'command';
-                    const isConfident = intent?.confidence > 0.4;
-                    const looksLikeActionNeeded = totalResponseText.includes('```') ||
-                        totalResponseText.toLowerCase().includes('need to') ||
-                        totalResponseText.includes('읽어야') ||
-                        totalResponseText.includes('수정') ||
-                        totalResponseText.includes('생성');
-
-                    if (turnCount < 2 && totalResponseText.length > 5 && (isActionIntent || (isConfident && looksLikeActionNeeded))) {
+                    if (turnCount < 2 && totalResponseText.length > 5 && isActionIntent) {
                         console.log(`[ConversationManager] Missing tools/plan in Turn ${turnCount + 1}, nudging`);
                         accumulatedUserParts.push({ text: llmResponse });
 
                         let nudgeText = "\n[System] 작업을 진행하기 위해 필요한 XML 도구를 호출하거나 <plan> 태그를 사용하여 계획을 우선 수립해주세요. 생각만 하지 말고 즉시 행동하세요.";
+                        if (currentPhase === AgentPhase.INVESTIGATION) {
+                            nudgeText = "\n[System] 조사 단계입니다. <list_files>, <read_file>, <search_files> 도구를 사용하여 현황을 파악한 후 <plan>을 수립하세요.";
+                        }
+
                         if (totalResponseText.toLowerCase().includes('need to read') || totalResponseText.includes('읽어야')) {
                             nudgeText = "\n[System] 파일을 읽어야 한다면 즉시 <read_file><path>경로</path></read_file> 태그를 출력하여 실행하세요. 설명만 하는 것은 허용되지 않습니다.";
                         } else if (totalResponseText.includes('```')) {
@@ -396,6 +456,13 @@ export class ConversationManager {
                     break;
                 }
             }
+        }
+
+        // 루프 종료 후 최종 상태 명시
+        if (turnCount >= maxTurns) {
+            WebviewBridge.updateProcessingStatus(webviewToRespond, '최대 턴 수 도달로 중단되었습니다.', 'error');
+        } else {
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'done', '모든 작업이 완료되었습니다.');
         }
     }
 

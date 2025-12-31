@@ -9,84 +9,98 @@ export class ToolSpecBuilder {
     /**
      * 모든 툴 스펙 생성 (프롬프트에 포함)
      */
-    static buildToolSpecs(): ToolSpec[] {
+    static buildToolSpecs(allowedTools?: Tool[]): ToolSpec[] {
         const specs: ToolSpec[] = [];
 
-        // create_file (기존 CODE_GENERATION과 매핑)
-        specs.push({
-            name: Tool.CREATE_FILE,
-            description: '새 파일을 생성하거나 기존 파일을 덮어씁니다. 필요한 디렉토리는 자동으로 생성됩니다.',
-            parameters: [
-                { name: 'path', required: true, description: '작성할 파일 경로 (프로젝트 루트 기준 상대 경로)', type: 'string' },
-                { name: 'content', required: true, description: '파일에 작성할 전체 내용', type: 'string' }
-            ]
-        });
+        // create_file
+        if (!allowedTools || allowedTools.includes(Tool.CREATE_FILE)) {
+            specs.push({
+                name: Tool.CREATE_FILE,
+                description: '새 파일을 생성하거나 기존 파일을 덮어씁니다. 필요한 디렉토리는 자동으로 생성됩니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '작성할 파일 경로 (프로젝트 루트 기준 상대 경로)', type: 'string' },
+                    { name: 'content', required: true, description: '파일에 작성할 전체 내용', type: 'string' }
+                ]
+            });
+        }
 
-        // update_file (기존 FILE_OPERATION UPDATE와 매핑)
-        specs.push({
-            name: Tool.UPDATE_FILE,
-            description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.** 파일이 이미 수정되었거나 다른 내용일 수 있으므로, 추측하지 말고 항상 최신 내용을 확인하세요.',
-            parameters: [
-                { name: 'path', required: true, description: '수정할 파일 경로', type: 'string' },
-                { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식:\n<<<<<<< SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n>>>>>>> REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
-            ]
-        });
+        // update_file
+        if (!allowedTools || allowedTools.includes(Tool.UPDATE_FILE)) {
+            specs.push({
+                name: Tool.UPDATE_FILE,
+                description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.** 파일이 이미 수정되었거나 다른 내용일 수 있으므로, 추측하지 말고 항상 최신 내용을 확인하세요.',
+                parameters: [
+                    { name: 'path', required: true, description: '수정할 파일 경로', type: 'string' },
+                    { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식:\n<<<<<<< SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n>>>>>>> REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
+                ]
+            });
+        }
 
-        // remove_file (기존 FILE_OPERATION DELETE와 매핑)
-        specs.push({
-            name: Tool.REMOVE_FILE,
-            description: '프로젝트에서 파일을 삭제합니다.',
-            parameters: [
-                { name: 'path', required: true, description: '삭제할 파일 경로', type: 'string' }
-            ]
-        });
+        // remove_file
+        if (!allowedTools || allowedTools.includes(Tool.REMOVE_FILE)) {
+            specs.push({
+                name: Tool.REMOVE_FILE,
+                description: '프로젝트에서 파일을 삭제합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '삭제할 파일 경로', type: 'string' }
+                ]
+            });
+        }
 
-        // read_file (기존 FILE_READ와 매핑)
-        specs.push({
-            name: Tool.READ_FILE,
-            description: '지정된 경로의 파일 내용을 읽습니다.',
-            parameters: [
-                { name: 'path', required: true, description: '읽을 파일 경로', type: 'string' }
-            ]
-        });
+        // read_file
+        if (!allowedTools || allowedTools.includes(Tool.READ_FILE)) {
+            specs.push({
+                name: Tool.READ_FILE,
+                description: '지정된 경로의 파일 내용을 읽습니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '읽을 파일 경로', type: 'string' }
+                ]
+            });
+        }
 
-        // list_files (기존 FILE_LIST와 매핑)
-        specs.push({
-            name: Tool.LIST_FILES,
-            description: '지정된 디렉토리 내의 파일과 디렉토리를 나열합니다.',
-            parameters: [
-                { name: 'path', required: false, description: '디렉토리 경로 (기본값: 프로젝트 루트)', type: 'string' },
-                { name: 'recursive', required: false, description: '재귀적으로 나열할지 여부 (true/false)', type: 'string' }
-            ]
-        });
+        // list_files
+        if (!allowedTools || allowedTools.includes(Tool.LIST_FILES)) {
+            specs.push({
+                name: Tool.LIST_FILES,
+                description: '지정된 디렉토리 내의 파일과 디렉토리를 나열합니다.',
+                parameters: [
+                    { name: 'path', required: false, description: '디렉토리 경로 (기본값: 프로젝트 루트)', type: 'string' },
+                    { name: 'recursive', required: false, description: '재귀적으로 나열할지 여부 (true/false)', type: 'string' }
+                ]
+            });
+        }
 
-        // search_files (기존 FILE_SEARCH와 매핑)
-        specs.push({
-            name: Tool.SEARCH_FILES,
-            description: '정규식을 사용하여 파일에서 패턴을 검색합니다.',
-            parameters: [
-                { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
-                { name: 'pattern', required: true, description: '검색할 정규식 패턴', type: 'string' },
-                { name: 'filePattern', required: false, description: '파일 패턴 필터 (예: *.ts)', type: 'string' },
-                { name: 'maxResults', required: false, description: '최대 결과 수', type: 'string' }
-            ]
-        });
+        // search_files
+        if (!allowedTools || allowedTools.includes(Tool.SEARCH_FILES)) {
+            specs.push({
+                name: Tool.SEARCH_FILES,
+                description: '정규식을 사용하여 파일에서 패턴을 검색합니다.',
+                parameters: [
+                    { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
+                    { name: 'pattern', required: true, description: '검색할 정규식 패턴', type: 'string' },
+                    { name: 'filePattern', required: false, description: '파일 패턴 필터 (예: *.ts)', type: 'string' },
+                    { name: 'maxResults', required: false, description: '최대 결과 수', type: 'string' }
+                ]
+            });
+        }
 
-        // run_command (기존 TERMINAL_COMMAND와 매핑)
-        specs.push({
-            name: Tool.RUN_COMMAND,
-            description: '프로젝트 디렉토리에서 터미널 명령을 실행합니다.',
-            parameters: [
-                { name: 'command', required: true, description: '실행할 명령어', type: 'string' },
-                { name: 'timeout', required: false, description: '명령어 타임아웃 (초)', type: 'string' }
-            ]
-        });
+        // run_command
+        if (!allowedTools || allowedTools.includes(Tool.RUN_COMMAND)) {
+            specs.push({
+                name: Tool.RUN_COMMAND,
+                description: '프로젝트 디렉토리에서 터미널 명령을 실행합니다.',
+                parameters: [
+                    { name: 'command', required: true, description: '실행할 명령어', type: 'string' },
+                    { name: 'timeout', required: false, description: '명령어 타임아웃 (초)', type: 'string' }
+                ]
+            });
+        }
 
         return specs;
     }
 
-    static buildToolPromptSection(): string {
-        const specs = this.buildToolSpecs();
+    static buildToolPromptSection(allowedTools?: Tool[]): string {
+        const specs = this.buildToolSpecs(allowedTools);
         let prompt = '## 도구 호출 및 응답 규칙 (CRITICAL)\n\n';
         prompt += '1. **작업 수행은 반드시 XML 도구 호출을 사용하세요.**\n';
         prompt += '2. **한국어 설명과 도구 호출을 병행할 수 있습니다.**\n';

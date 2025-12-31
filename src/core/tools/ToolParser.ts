@@ -150,23 +150,25 @@ export class ToolParser {
     }
 
     /**
-     * LLM 응답에서 플랜 아이템들을 파싱
+     * LLM 응답에서 플랜 아이템들을 파싱 (v5.2.0: 엄격한 XML 구조 강제)
      */
     static parsePlanItems(content: string): Array<{ title: string; detail?: string }> {
         const items: Array<{ title: string; detail?: string }> = [];
         const planPattern = /<plan>([\s\S]*?)<\/plan>/gi;
         const match = planPattern.exec(content);
-        
+
         if (match && match[1]) {
-            const planContent = match[1];
+            const planContent = match[1].trim();
+
             // <item> 태그 파싱
             const itemPattern = /<item>([\s\S]*?)<\/item>/gi;
             let itemMatch;
+
             while ((itemMatch = itemPattern.exec(planContent)) !== null) {
                 const itemContent = itemMatch[1];
                 const titleMatch = /<title>([\s\S]*?)<\/title>/gi.exec(itemContent);
                 const detailMatch = /<detail>([\s\S]*?)<\/detail>/gi.exec(itemContent);
-                
+
                 if (titleMatch && titleMatch[1]) {
                     items.push({
                         title: titleMatch[1].trim(),
@@ -175,7 +177,7 @@ export class ToolParser {
                 }
             }
         }
-        
+
         return items;
     }
 }

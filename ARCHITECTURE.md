@@ -17,7 +17,7 @@ src/
 │   │   ├── ActionRegistry.ts         # 액션 등록/관리
 │   │   ├── ActionValidator.ts        # 액션 검증
 │   │   ├── ActionMapper.ts           # LLM 요청 → 액션 매핑
-│   │   ├── IntentDetector.ts         # 의도 분석 (v5.2.0: 정밀 키워드 및 LLM 기반 분류)
+│   │   ├── IntentDetector.ts         # 의도 분석 (v5.2.0: 정밀 키워드 및 LLM 기반 분류 개선)
 │   │   ├── types.ts                  # 액션 타입 정의
 │   │   ├── index.ts
 │   │   └── file/                     # 파일 변경 추적
@@ -26,7 +26,7 @@ src/
 │   │       └── index.ts
 │   │
 │   ├── execution/                   # 2. Execution Manager
-│   │   ├── ExecutionManager.ts       # 메인 실행 매니저 (v5.2.0: 백그라운드 프로세스 관리 지원)
+│   │   ├── ExecutionManager.ts       # 메인 실행 매니저 (v5.2.0: 소프트 타임아웃 및 백그라운드 관리)
 │   │   ├── ProcessManager.ts         # 프로세스(PID) 관리
 │   │   ├── StreamManager.ts          # stdout/stderr 스트림 관리
 │   │   ├── ErrorDetector.ts          # 에러/포트 충돌 감지
@@ -47,7 +47,7 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── task/                        # 4. Task Manager
-│   │   ├── TaskManager.ts           # 작업 큐 관리
+│   │   ├── TaskManager.ts           # 작업 큐 관리 (v5.2.0: 페이즈 상태 동기화)
 │   │   ├── TaskQueue.ts             # 작업 큐 구현 (@deprecated - v5.2.0에서 UI 제거)
 │   │   ├── TaskScheduler.ts         # 우선순위 스케줄링
 │   │   ├── TaskRetry.ts             # 재시도 로직
@@ -88,7 +88,7 @@ src/
 │   │   │   ├── base/                # 베이스 프롬프트 컴포넌트
 │   │   │   │   ├── agentRole.ts     # 에이전트 역할 정의 (한글 응답 강제)
 │   │   │   │   ├── objective.ts     # 목표 정의
-│   │   │   │   ├── rules.ts         # 기본 규칙 (v5.2.0: 내부 독백 금지, 코드 블록 사용 제한)
+│   │   │   │   ├── rules.ts         # 기본 규칙 (v5.2.0: 파일 삭제 안전 규칙, 내부 독백 금지)
 │   │   │   │   ├── fileOperations.ts # 파일 작업 규칙
 │   │   │   │   ├── terminalCommands.ts # 터미널 명령 규칙
 │   │   │   │   └── codeVsScript.ts  # 코드 vs 스크립트 구별 규칙
@@ -119,13 +119,17 @@ src/
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
 │   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v5.2.0 리팩토링)
-│   │   │                            # - 인터리브드(Interleaved) 출력 지원
+│   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
+│   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
 │   │   │                            # - 스마트 너징(Nudging) 로직
-│   │   │                            # - WebviewBridge를 통한 중앙 집중식 UI 통신
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
-│   ├── state/                       # 7. State/Session Manager
+│   ├── investigation/               # 7. Investigation Manager
+│   │   ├── InvestigationManager.ts  # v5.2.0: 조사 단계 강제 및 읽기 전용 도구 제한
+│   │   └── index.ts
+│   │
+│   ├── state/                       # 8. State/Session Manager
 │   │   ├── StateManager.ts          # 전역 상태 관리
 │   │   ├── SessionManager.ts        # 세션 관리
 │   │   ├── SettingsManager.ts       # 사용자 설정
@@ -133,7 +137,7 @@ src/
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
-│   ├── error/                       # 8. Error Manager
+│   ├── error/                       # 9. Error Manager
 │   │   ├── ErrorManager.ts          # 에러 관리
 │   │   ├── ErrorParser.ts           # 에러 파싱
 │   │   ├── StackTraceAnalyzer.ts    # 스택 트레이스 분석
@@ -143,7 +147,7 @@ src/
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
-│   ├── model/                       # 9. Model Manager
+│   ├── model/                       # 10. Model Manager
 │   │   ├── ModelManager.ts          # LLM 모델 관리
 │   │   ├── LLMService.ts            # LLM API 호출 서비스 (Gemini, Ollama)
 │   │   ├── LLMManager.ts            # LLM 서버 통신 및 응답 포맷팅
@@ -162,25 +166,51 @@ src/
 │   │   ├── SafeSettingsHelper.ts    # 안전한 설정값 가져오기
 │   │   └── index.ts
 │   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
-│   │   ├── ToolParser.ts            # 툴 파싱 및 계획(Plan) 추출 (v5.2.0)
+│   │   ├── ToolParser.ts            # 툴 파싱 및 엄격한 계획(Plan) 추출 (v5.2.0)
 │   │   ├── ToolExecutor.ts          # 툴 통합 실행기
-│   │   ├── ToolSpecBuilder.ts       # 툴 명세 및 가이드라인 생성
+│   │   ├── ToolSpecBuilder.ts       # 툴 명세 및 페이즈별 도구 제한 생성
 │   │   ├── file/                    # 파일/프로젝트 관련 툴
 │   │   │   ├── CreateFileToolHandler.ts
-│   │   │   ├── UpdateFileToolHandler.ts # v5.2.0: 방식의 강력한 매칭 도입
+│   │   │   ├── UpdateFileToolHandler.ts # v5.2.0: 강력한 매칭 도입
 │   │   │   │                          # - Fuzzy, Block Anchor, Structural 매칭
-│   │   │   │                          # - 순서 무관 수정(Out-of-order edits)
-│   │   │   ├── RemoveFileToolHandler.ts
+│   │   │   ├── RemoveFileToolHandler.ts # v5.2.0: 삭제 안전 규칙 적용
 │   │   │   ├── ReadFileToolHandler.ts
 │   │   │   ├── ListFilesToolHandler.ts  # v5.2.0: 지능형 경로 필터링 추가
 │   │   │   └── SearchFilesToolHandler.ts
 │   │   ├── terminal/                # 터미널/명령 실행 툴
-│   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 및 백그라운드 실행
+│   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 지원
 │   │   └── code/                    # 코드 분석/리팩토링 툴
 │   │
 │   └── webview/                     # WebviewBridge 등 UI 브리지
-│       └── WebviewBridge.ts         # 중앙 집중식 UI 통신 및 상태 업데이트
+│       └── WebviewBridge.ts         # v5.2.0: 중앙 집중식 UI 상태 및 진행 메시지 관리
 │
+└── index.ts                     # 모든 매니저 및 추상화 export
+```
+
+## 🎭 매니저별 상세 책임 (v5.2.0 업데이트)
+
+### 7️⃣ Investigation Manager (v5.2.0 신규)
+**역할**: AI가 코드를 수정하기 전 프로젝트 상태를 분석하는 '조사' 단계를 관리합니다.
+
+**책임**:
+- **읽기 전용 도구 제한**: 조사 단계에서 `read_file`, `list_files`, `search_files` 외의 도구 호출 차단.
+- **단계 전환 관리**: 반드시 유효한 XML `<plan>`이 수립되어야만 '실행' 단계로의 전환 허용.
+- **조사 전용 지침 제공**: "Sherlock Holmes for Code" 역할을 LLM에게 부여하여 팩트 기반 분석 유도.
+
+### 🔟 Tool Parser (v5.2.0 개선)
+**역할**: LLM 응답에서 XML 도구 호출 및 계획 정보를 정밀하게 추출합니다.
+
+**책임**:
+- **엄격한 계획 파싱**: `<plan><item>...` 구조를 강제하며, 일반 텍스트 리스트는 무시합니다.
+- **인터리브드 파싱**: 텍스트와 XML이 섞인 응답에서 순서를 유지하며 요소를 분리합니다.
+
+### 📱 Webview Bridge (v5.2.0 개선)
+**역할**: 확장 기능과 채팅 UI 간의 실시간 통신 및 상태 표시를 담당합니다.
+
+**책임**:
+- **조건부 스티키 메시지**: 진행 상태 메시지가 스크롤 시 상단에 고정되도록 제어.
+- **타자기 애니메이션**: 현재 에이전트의 페이즈와 진행 단계를 애니메이션으로 시각화.
+- **도구 결과 렌더링**: 실행된 코드나 터미널 출력을 채팅 패널에 통합 표시.│
 └── index.ts                     # 모든 매니저 및 추상화 export
 │
 ├── services/                        # 보조 서비스 (도메인별 분류)

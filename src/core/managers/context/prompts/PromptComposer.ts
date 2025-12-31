@@ -12,6 +12,7 @@ import * as llm from './llm';
 import * as framework from './framework';
 import * as task from './task';
 import { FrameworkPromptBuilder } from './framework/FrameworkPromptBuilder';
+import { Tool } from '../../../tools/types';
 
 export interface PromptComposerOptions {
     userOS: string;
@@ -20,6 +21,7 @@ export interface PromptComposerOptions {
     frameworkName?: string; // 'vite', 'spring-boot', 'node-typescript', 'express' 등 (옵션, 자동 감지 가능)
     projectType?: string; // 프로젝트 타입 정보
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
+    allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
 }
 
 export class PromptComposer {
@@ -27,7 +29,7 @@ export class PromptComposer {
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, frameworkName, projectType, codebaseContext } = options;
+        const { userOS, modelType, taskType, frameworkName, projectType, codebaseContext, allowedTools } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -44,7 +46,7 @@ export class PromptComposer {
             base.getBaseRules(),
             base.getFileOperationsRules(),
             base.getCodeVsScriptRules(),
-            base.getToolsPrompt()
+            base.getToolsPrompt(allowedTools)
         ].join('\n\n');
 
         // OS별 프롬프트

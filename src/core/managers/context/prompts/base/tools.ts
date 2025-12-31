@@ -4,8 +4,9 @@
  */
 
 import { ToolSpecBuilder } from '../../../../tools/ToolSpecBuilder';
+import { Tool } from '../../../../tools/types';
 
-export function getToolsPrompt(): string {
-    return ToolSpecBuilder.buildToolPromptSection();
+export function getToolsPrompt(allowedTools?: Tool[]): string {
+    return ToolSpecBuilder.buildToolPromptSection(allowedTools);
 }
 

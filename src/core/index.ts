@@ -56,6 +56,9 @@ export type {
 export * from './managers/error';
 export type { ParsedError, ErrorSource, ErrorCategory, ErrorSeverity, ErrorPattern as CoreErrorPattern, ErrorStats } from './managers/error/types';
 
+// =============== Investigation ===============
+export * from './managers/investigation';
+
 // =============== Context/State/Conversation/Webview/Utils ===============
 export * from './managers/context';
 export * from './managers/state';
