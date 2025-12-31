@@ -391,6 +391,18 @@
             word-break: break-all;
         }
 
+        /* 하단에서 가려질 때 강제로 최상단에 고정 */
+        .thinking-bubble.is-forced-top {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            z-index: 2000 !important;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
         .thinking-cursor {
             display: inline-block;
             width: 2px;

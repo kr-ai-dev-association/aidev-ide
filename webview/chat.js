@@ -117,10 +117,35 @@ function updateProcessingStatus(stepName, status) {
         processingStepsArray.push({ step: stepName, status: status });
     }
     updateThinkingBubbleText();
+    handleScroll(); // 상태 업데이트 시 위치 체크
 
     const statusElement = document.getElementById(`${stepName}-status`);
     if (statusElement) {
         statusElement.textContent = status;
+    }
+}
+
+// 스크롤 감지하여 버블 고정/해제 처리
+function handleScroll() {
+    if (!thinkingBubbleElement || !chatContainer) return;
+
+    const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+    const containerRect = chatContainer.getBoundingClientRect();
+    
+    // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
+    const bottomFixedArea = document.querySelector('.bottom-fixed-area');
+    const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
+    const visibleBottom = containerRect.bottom - bottomHeight;
+
+    // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
+    if (bubbleRect.top > visibleBottom - 20) {
+        thinkingBubbleElement.classList.add('is-forced-top');
+    } else {
+        // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
+        const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 100;
+        if (isAtBottom) {
+            thinkingBubbleElement.classList.remove('is-forced-top');
+        }
     }
 }
 
@@ -642,6 +667,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         updateChatContainerPadding();
     }, 100); // DOM이 완전히 로드된 후 실행
+
+    // 스크롤 이벤트 리스너 등록 (버블 고정용)
+    if (chatContainer) {
+        chatContainer.addEventListener('scroll', handleScroll);
+    }
 
     // 모델 목록 요청 및 드롭다운 초기화
     bindModelDropdownEvents();

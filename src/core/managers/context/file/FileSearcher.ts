@@ -347,6 +347,14 @@ export class FileSearcher {
                         continue;
                     }
 
+                    // 시스템 내부 디렉토리 명시적 제외 (macOS/Windows 공통)
+                    const lowerName = name.toLowerCase();
+                    if (lowerName === 'node_modules' || lowerName === '.git' || 
+                        lowerName === 'library' || lowerName === 'application support' ||
+                        lowerName === 'windows' || lowerName === 'program files') {
+                        continue;
+                    }
+
                     const subFiles = await this.getFilesToSearch(fullPath, options);
                     files.push(...subFiles);
                 } else if (type === vscode.FileType.File) {
@@ -359,8 +367,13 @@ export class FileSearcher {
                     }
                 }
             }
-        } catch (error) {
-            console.error(`[FileSearcher] Error reading directory ${searchPath}:`, error);
+        } catch (error: any) {
+            // 권한 에러(EACCES) 등은 로그 스팸을 피하기 위해 무시하거나 경고만 표시
+            if (error.code === 'NoPermissions' || error.message?.includes('EACCES')) {
+                // 권한 없는 디렉토리는 조용히 건너뜀
+                return [];
+            }
+            console.warn(`[FileSearcher] Skipping directory ${searchPath}: ${error.message || error}`);
         }
 
         return files;

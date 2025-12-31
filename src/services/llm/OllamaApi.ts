@@ -107,10 +107,14 @@ export class OllamaApi {
                     break;
                 }
 
-                // XML 형식이 필요하지만 응답이 비어있는 경우 프롬프트 보강 후 재시도
-                if (attempt < maxRetries && !currentOptions.xmlRetry) {
-                    currentMessage = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
-                    currentOptions.xmlRetry = true;
+                // XML 형식이 필요하지만 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
+                if (attempt < maxRetries) {
+                    if (error.message.includes("생각(Thinking)만 수행")) {
+                        currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions. You MUST output actual XML tool calls (e.g., <list_files>, <read_file>, <plan>) in your FINAL RESPONSE field. Do NOT just explain. Every turn must include at least one action if you are not done.`;
+                    } else if (!currentOptions.xmlRetry) {
+                        currentMessage = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
+                        currentOptions.xmlRetry = true;
+                    }
                 }
 
                 if (attempt < maxRetries) {
@@ -145,36 +149,43 @@ export class OllamaApi {
         const responseContent = this.parseResponseFormat(rawResponse);
         const thinkingContent = rawResponse.thinking || '';
 
-        // [수정] 사용자의 요청대로 thinking 데이터를 우선시하거나 Junk 응답을 필터링함
-        // 1. responseContent가 시스템 에코나 Junk(예: "Wait...", "We need result")인 경우 필터링 시도
+        // [수정] thinking 데이터를 함부로 response로 사용하지 않음
+        // 1. responseContent가 시스템 에코나 Junk(예: "Wait...", "We need result")인 경우 필터링
         const isJunkResponse = responseContent && (
             responseContent.includes('=== Tool Execution Results') ||
             responseContent.includes('Wait: We should produce') ||
             responseContent.match(/^We need result\./i) ||
-            (responseContent.length < 50 && responseContent.includes('read_file'))
+            // 단순히 read_file 문자열만 있고 태그 형식이 아니면서 매우 짧은 경우만 junk로 간주
+            (responseContent.length < 20 && responseContent.includes('read_file') && !responseContent.includes('<'))
         );
 
-        // 2. thinking 데이터가 있고 response가 junk라면 thinking을 response로 사용
-        if (thinkingContent && (!responseContent || isJunkResponse)) {
-            console.log('[OllamaApi] Using thinking as primary response because response field is empty or junk');
-            return thinkingContent;
+        // 2. response가 유효하지 않은 경우 (비어있거나 junk인 경우)
+        if (!responseContent || isJunkResponse) {
+            // 생각 데이터는 있지만 실제 응답이 없는 경우, 에러를 던져 재시도 유도 (xmlRetry 옵션 활용)
+            if (thinkingContent && thinkingContent.length > 0) {
+                console.log('[OllamaApi] Thought detected but response is empty or junk. Triggering retry for XML output.');
+                // 텔레메트리나 로그를 위해 thinking 내용을 에러에 포함
+                throw new Error(`모델이 생각만 수행했습니다. 도구 호출이 포함된 답변이 필요합니다. (Thinking length: ${thinkingContent.length})`);
+            }
+
+            // 둘 다 없는 경우
+            if (!responseContent && !thinkingContent) {
+                throw new Error("LLM이 아무런 응답도 생성하지 않았습니다.");
+            }
         }
 
-        // 3. 둘 다 있다면 (보통의 경우) thinking을 무시하고 responseContent만 사용
-        // (사용자 피드백: 'think 패널 출력 지워줘' 반영)
+        // 3. 정상적인 응답 반환 (최우선: responseContent)
         if (responseContent && !isJunkResponse) {
             return responseContent;
         }
 
-        const extractedContent = responseContent || thinkingContent;
-
-        // 4. 내용이 비어있을 경우 에러를 던져 상위 sendMessage에서 재시도하게 함
-        if (!extractedContent || extractedContent.trim().length === 0) {
+        // 4. 최후의 보루: response가 없고 thinking만 있는 경우 (이미 위에서 에러를 던졌어야 하지만, 재시도 끝에 도달한 경우)
+        const extractedContent = responseContent || thinkingContent || '';
+        if (!extractedContent.trim()) {
             throw new Error("LLM이 유효한 응답을 생성하지 못했습니다.");
         }
 
-        return extractedContent;
-
+        // 만약 여기까지 왔다면, 어쩔 수 없이 thinking이라도 반환 (하지만 이미 에러를 던졌을 것)
         return extractedContent;
     }
 

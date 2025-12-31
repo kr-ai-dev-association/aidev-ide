@@ -6,14 +6,24 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { FileSearcher } from '../../managers/context/file/FileSearcher';
+import * as path from 'path';
 
 export class SearchFilesToolHandler implements IToolHandler {
     readonly name = Tool.SEARCH_FILES;
 
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
-        const searchPath = toolUse.params.path || context.projectRoot;
+        let searchPath = toolUse.params.path || context.projectRoot;
         const pattern = toolUse.params.pattern || toolUse.params.regex;
         const filePattern = toolUse.params.filePattern;
+
+        // 경로가 프로젝트 루트를 벗어나지 않도록 보정
+        if (!path.isAbsolute(searchPath)) {
+            searchPath = path.join(context.projectRoot, searchPath);
+        } else if (!searchPath.startsWith(context.projectRoot) && searchPath !== context.projectRoot) {
+            // 절대 경로인 경우 프로젝트 루트 외부 검색이면 프로젝트 루트로 강제 (보안 및 에러 방지)
+            console.warn(`[SearchFilesToolHandler] External search path blocked: ${searchPath}. Using project root instead.`);
+            searchPath = context.projectRoot;
+        }
 
         if (!pattern) {
             return {

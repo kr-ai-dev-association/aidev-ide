@@ -6,6 +6,12 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v5.2.2 (LLM Autonomy & Intent Refactor)
+- **Enhanced Intent Refactor**: Moved towards a more LLM-driven intent detection, reducing reliance on hardcoded keywords for better flexibility.
+- **LLM Self-Correction (Ollama)**: Implemented a robust self-correction logic that automatically retries and nudges the model if it provides internal thoughts (`thinking`) without actionable XML tool calls.
+- **Action-First System Prompts**: Strengthened global rules to enforce that every turn must include at least one XML tool call, treating explanation-only responses as system errors.
+- **Cleaned Conversation Loop**: Removed redundant manual nudging in favor of improved system prompts and API-level self-correction for a more natural agentic flow.
+
 ## v5.2.1 (Task Queue UI Revolution & Reliability)
 - **Floating Task Queue**: Re-introduced the Task Queue as a dynamic, React-based floating popup.
   - **Live Status Sync**: Real-time synchronization of task status (`pending`, `in_progress`, `done`).

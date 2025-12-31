@@ -3,10 +3,8 @@
  */
 
 export function getCodeLlamaPrompt(): string {
-    return `**CodeLlama 모델 특화 지침:**
-- 코드 중심 응답 제공
-- 표준 마크다운 형식 사용
-- 코드 블록: \`\`\`언어 형식
-- 코드 품질과 가독성 중시`;
+    return `**CodeLlama 모델 최적화 지침:**
+- **XML 도구 활용**: 모든 코드는 XML 태그(<create_file>, <update_file>) 내에 작성하고 마크다운 코드 블록은 피하세요.
+- **코드 중심**: 불필요한 설명은 줄이고 바로 실행 가능한 도구 호출을 수행하세요.`;
 }
 

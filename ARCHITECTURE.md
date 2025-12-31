@@ -17,7 +17,7 @@ src/
 │   │   ├── ActionRegistry.ts         # 액션 등록/관리
 │   │   ├── ActionValidator.ts        # 액션 검증
 │   │   ├── ActionMapper.ts           # LLM 요청 → 액션 매핑
-│   │   ├── IntentDetector.ts         # 의도 분석 (v5.2.0: 정밀 키워드 및 LLM 기반 분류 개선)
+│   │   ├── IntentDetector.ts         # 의도 분석 (v5.2.2: LLM 중심의 유연한 분류로 리팩토링 중)
 │   │   ├── types.ts                  # 액션 타입 정의
 │   │   ├── index.ts
 │   │   └── file/                     # 파일 변경 추적
@@ -283,6 +283,7 @@ class ActionManager {
 **책임**:
 - LLM 응답 파싱 및 액션 추출
 - 액션 타입 결정 (CODE_GENERATION, FILE_OPERATION, TERMINMINAL_COMMAND 등)
+- **의도 분석 및 페이즈 결정** (v5.2.2): 키워드 기반 매칭의 한계를 극복하기 위해 LLM 기반의 동적 의도 판단 및 자율적 페이즈 전환 로직 적용
 - 액션 파라미터 검증
 - 권한 체크
 - 컨텍스트 주입

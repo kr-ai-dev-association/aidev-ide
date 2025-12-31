@@ -22,9 +22,19 @@ export class ReadFileToolHandler implements IToolHandler {
             };
         }
         
-        const absolutePath = path.isAbsolute(filePath)
+        let absolutePath = path.isAbsolute(filePath)
             ? filePath
             : path.join(context.projectRoot, filePath);
+
+        // 프로젝트 루트 외부 파일 접근 차단
+        if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {
+            console.warn(`[ReadFileToolHandler] External file access blocked: ${absolutePath}`);
+            return {
+                success: false,
+                message: `Access denied: ${filePath} is outside of project root.`,
+                error: { code: 'ACCESS_DENIED', message: 'Path is outside of project root' }
+            };
+        }
         
         try {
             const content = await fs.readFile(absolutePath, 'utf8');

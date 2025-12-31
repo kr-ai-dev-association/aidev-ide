@@ -314,7 +314,7 @@ export class ConversationManager {
                         const planItems = ToolParser.parsePlanItems(part);
                         if (planItems.length > 0) {
                             console.log('\n┌──────────────────────────────────────────────────┐');
-                            console.log('│ 새로운 작업 계획 수립 (New Plan)              │');
+                            console.log('│ 새로운 작업 계획 수립                                   │');
                             planItems.forEach((item, index) => {
                                 console.log(`│ ${index + 1}. ${item.title.padEnd(42)} │`);
                                 if (item.detail) {
@@ -458,41 +458,31 @@ export class ConversationManager {
                 const currentPlanItemsAll = taskManager.listPlanItems();
                 const remaining = currentPlanItemsAll.filter(i => i.status === 'pending' || i.status === 'in_progress');
 
-                if (currentPlanItemsAll.length === 0 || remaining.length === 0) {
-                    // 계획이 없는 상태에서 도구 호출 없이 텍스트만 온 경우
-                    if (turnCount < 2 && totalResponseText.length > 5 && isActionIntent) {
-                        console.log(`[ConversationManager] Missing tools/plan in Turn ${turnCount + 1}, nudging`);
-                        accumulatedUserParts.push({ text: llmResponse });
+                // [수정] 모델이 행동 없이 설명만 하는 경우, 1회에 한해 재촉(Nudge) 수행
+                if (turnCount === 0 && totalResponseText.length > 5 && isActionIntent) {
+                    console.log(`[ConversationManager] Action missing in Turn 1, providing a single nudge.`);
+                    accumulatedUserParts.push({ text: llmResponse });
 
-                        let nudgeText = "\n[System] 작업을 진행하기 위해 필요한 XML 도구를 호출하거나 <plan> 태그를 사용하여 계획을 우선 수립해주세요. 생각만 하지 말고 즉시 행동하세요.";
-                        if (currentPhase === AgentPhase.INVESTIGATION) {
-                            nudgeText = "\n[System] 조사 단계입니다. <list_files>, <read_file>, <search_files> 도구를 사용하여 현황을 파악한 후 <plan>을 수립하세요.";
-                        }
-
-                        if (totalResponseText.toLowerCase().includes('need to read') || totalResponseText.includes('읽어야')) {
-                            nudgeText = "\n[System] 파일을 읽어야 한다면 즉시 <read_file><path>경로</path></read_file> 태그를 출력하여 실행하세요. 설명만 하는 것은 허용되지 않습니다.";
-                        } else if (totalResponseText.includes('```')) {
-                            nudgeText = "\n[System] 마크다운 코드 블록(```)을 사용하지 마세요. 파일을 생성하거나 수정하려면 반드시 <create_file> 또는 <update_file> XML 도구를 사용해야 합니다. 방금 제시한 코드를 XML 도구 호출로 다시 출력해주세요.";
-                        }
-
-                        accumulatedUserParts.push({ text: nudgeText });
-                        turnCount++;
-                        continue;
+                    let nudgeText = "\n[System] 설명을 중단하고 즉시 XML 도구(예: <list_files>, <read_file>, <plan>)를 호출하여 작업을 시작하세요. 생각이나 설명만 하는 것은 허용되지 않습니다.";
+                    if (currentPhase === AgentPhase.INVESTIGATION) {
+                        nudgeText = "\n[System] 현재 '조사(Investigation)' 단계입니다. 프로젝트 구조 파악을 위해 즉시 <list_files> 또는 <read_file> 도구를 XML 태그로 호출하세요.";
                     }
 
-                    console.log(`[ConversationManager] No action nudge needed for Turn ${turnCount + 1}. Ending loop.`);
-                    break;
-                } else {
-                    // 계획은 있는데 도구 호출이 없는 경우
-                    console.log(`[ConversationManager] Tools missing but ${remaining.length} plan items remain. Turn: ${turnCount + 1}`);
-                    if (turnCount < 5) { // 초반 5턴까지는 도구 호출을 강력히 재촉
-                        accumulatedUserParts.push({ text: llmResponse });
-                        accumulatedUserParts.push({ text: "\n[System] 현재 단계(CURRENT TASK)를 완료하기 위해 필요한 XML 도구를 호출해주세요. 설명만 하지 말고 도구 태그(예: <read_file>, <update_file> 등)를 직접 출력하세요." });
-                        turnCount++;
-                        continue;
-                    }
-                    break;
+                    accumulatedUserParts.push({ text: nudgeText });
+                    turnCount++;
+                    continue;
                 }
+
+                if (currentPlanItemsAll.length > 0 && remaining.length > 0) {
+                    console.log(`[ConversationManager] Tools missing while plan remains. Ending loop.`);
+                } else {
+                    console.log(`[ConversationManager] No tools/plan in response. Ending loop.`);
+                    // [추가] 아무런 작업도 수행하지 않고 루프가 종료된 경우 사용자에게 안내
+                    if (turnCount === 0) {
+                        WebviewBridge.receiveMessage(webviewToRespond, 'System', '⚠️ 에이전트가 생각만 하고 실제 도구를 호출하지 않았습니다. 모델을 바꾸거나 다시 시도해 보세요.');
+                    }
+                }
+                break;
             }
         }
 

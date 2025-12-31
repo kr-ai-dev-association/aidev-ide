@@ -42,9 +42,15 @@ export class ListFilesToolHandler implements IToolHandler {
         const dirPath = toolUse.params.path || '.';
         const recursive = toolUse.params.recursive === 'true';
         
-        const absolutePath = path.isAbsolute(dirPath)
+        let absolutePath = path.isAbsolute(dirPath)
             ? dirPath
             : path.join(context.projectRoot, dirPath);
+
+        // 프로젝트 루트 외부 경로 접근 차단
+        if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {
+            console.warn(`[ListFilesToolHandler] External path blocked: ${absolutePath}. Using project root instead.`);
+            absolutePath = context.projectRoot;
+        }
         
         try {
             const files = await this.listFiles(absolutePath, recursive, context.projectRoot);
@@ -53,7 +59,15 @@ export class ListFilesToolHandler implements IToolHandler {
                 message: `Listed ${files.length} files in ${dirPath}`,
                 data: { path: dirPath, files }
             };
-        } catch (error) {
+        } catch (error: any) {
+            // 권한 에러 처리
+            if (error.code === 'EACCES') {
+                return {
+                    success: false,
+                    message: `Permission denied: ${dirPath}`,
+                    error: { code: 'PERMISSION_DENIED', message: error.message }
+                };
+            }
             return {
                 success: false,
                 message: `Failed to list files: ${dirPath}`,
@@ -74,27 +88,36 @@ export class ListFilesToolHandler implements IToolHandler {
         const isTargetingIgnored = this.DEFAULT_IGNORE_DIRECTORIES.includes(targetDirName) || targetDirName.startsWith('.');
 
         async function traverse(currentPath: string) {
-            const entries = await fs.readdir(currentPath, { withFileTypes: true });
-            
-            for (const entry of entries) {
-                const entryName = entry.name;
-                const fullPath = path.join(currentPath, entryName);
-                const relativePath = path.relative(projectRoot, fullPath);
+            try {
+                const entries = await fs.readdir(currentPath, { withFileTypes: true });
+                
+                for (const entry of entries) {
+                    const entryName = entry.name;
+                    const fullPath = path.join(currentPath, entryName);
+                    const relativePath = path.relative(projectRoot, fullPath);
 
-                // 무시 필터링: 
-                // 1. 명시적으로 해당 디렉토리를 타겟팅한 게 아니라면 무시 목록 체크
-                // 2. 숨김 파일/디렉토리 ('.') 체크 (타겟팅하지 않은 경우에만)
-                if (!isTargetingIgnored) {
-                    if (self.DEFAULT_IGNORE_DIRECTORIES.includes(entryName) || entryName.startsWith('.')) {
-                        continue;
+                    // 무시 필터링: 
+                    // 1. 명시적으로 해당 디렉토리를 타겟팅한 게 아니라면 무시 목록 체크
+                    // 2. 숨김 파일/디렉토리 ('.') 체크 (타겟팅하지 않은 경우에만)
+                    if (!isTargetingIgnored) {
+                        if (self.DEFAULT_IGNORE_DIRECTORIES.includes(entryName) || entryName.startsWith('.')) {
+                            continue;
+                        }
+                    }
+                    
+                    if (entry.isFile()) {
+                        files.push(relativePath || entryName);
+                    } else if (entry.isDirectory() && recursive) {
+                        await traverse(fullPath);
                     }
                 }
-                
-                if (entry.isFile()) {
-                    files.push(relativePath || entryName);
-                } else if (entry.isDirectory() && recursive) {
-                    await traverse(fullPath);
+            } catch (error: any) {
+                // 특정 서브디렉토리 권한 에러 시 해당 디렉토리만 건너뜀
+                if (error.code === 'EACCES') {
+                    console.warn(`[ListFilesToolHandler] Skipping protected directory: ${currentPath}`);
+                    return;
                 }
+                throw error;
             }
         }
         
