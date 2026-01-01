@@ -151,7 +151,7 @@ export class ConversationManager {
     private async detectIntent(query: string, ollamaApi?: OllamaApi, modelType?: AiModelType): Promise<any> {
         const api = ollamaApi || this.llmManager.getOllamaApi();
         if (!api) {
-            console.warn('[ConversationManager] OllamaApi is missing, using keyword-only detection');
+            console.warn('[ConversationManager] OllamaApi is missing, using hardcoded fallback intent');
             // IntentDetector는 OllamaApi가 필수이므로, 없는 경우 기본 의도 반환
             return { category: 'code', subtype: 'code_generate', taskType: 'code_work', confidence: 0.5, keywords: [], reasoning: 'Fallback' };
         }
@@ -185,27 +185,6 @@ export class ConversationManager {
         };
     }
 
-    private logCurrentPlanStatus(): void {
-        const taskManager = TaskManager.getInstance();
-        const items = taskManager.listPlanItems();
-        if (items.length === 0) return;
-
-        console.log('\n┌──────────────────────────────────────────────────┐');
-        items.forEach((item, index) => {
-            let statusIcon = '○';
-            if (item.status === 'done') statusIcon = '●';
-            else if (item.status === 'in_progress') statusIcon = '▶';
-            else if (item.status === 'failed') statusIcon = '✖';
-
-            const statusText = `[${item.status}]`.padEnd(12);
-            console.log(`│ ${statusIcon} ${index + 1}. ${item.title.padEnd(30)} ${statusText} │`);
-        });
-        console.log('└──────────────────────────────────────────────────┘\n');
-    }
-
-    /**
-     * 에이전트 루프 실행 (Agentic Loop)
-     */
     private async executeAgentLoop(systemPrompt: string, userParts: any[], options: ConversationOptions, intent: any): Promise<void> {
         const { webviewToRespond, abortSignal } = options;
         const maxTurns = 15;
@@ -236,17 +215,14 @@ export class ConversationManager {
                 WebviewBridge.updateTaskQueue(webviewToRespond, allItems);
             }
 
-            // 콘솔에 현재 작업 리스트 상태 출력
-            this.logCurrentPlanStatus();
-
             // 현재 활성 계획 아이템 확인
             const currentPlanItem = taskManager.getNextPendingItem();
 
             const statusPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
             const phaseLabel = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
-
+            const actionText = currentPhase === AgentPhase.INVESTIGATION ? '조사 및 분석' : '작업 진행';
             WebviewBridge.sendProcessingStep(webviewToRespond, 'thinking');
-            WebviewBridge.sendProcessingStatus(webviewToRespond, 'thinking', `${phaseLabel}[생각 ${turnCount + 1}] ${statusPrefix}분석 및 생각 중...`);
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'thinking', `${phaseLabel}[생각 ${turnCount + 1}] ${statusPrefix}${actionText} 중...`);
 
             // 페이즈별 프롬프트 보정 및 도구 제한
             let activeSystemPrompt = systemPrompt;
@@ -311,20 +287,25 @@ export class ConversationManager {
                 if (isTag) {
                     // 2-1. 플랜 업데이트 처리
                     if (part.toLowerCase().includes('<plan>')) {
+                        // 수립 시작 알림 추가
+                        WebviewBridge.sendProcessingStep(webviewToRespond, 'plan');
+                        WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', '작업 계획 분석 및 파싱 중...');
+
                         const planItems = ToolParser.parsePlanItems(part);
                         if (planItems.length > 0) {
                             console.log('\n┌──────────────────────────────────────────────────┐');
-                            console.log('│ 새로운 작업 계획 수립                                   │');
+                            console.log('│ 새로운 작업 계획 수립                      │');
                             planItems.forEach((item, index) => {
-                                console.log(`│ ${index + 1}. ${item.title.padEnd(42)} │`);
+                                const title = item.title.length > 40 ? item.title.substring(0, 37) + '...' : item.title;
+                                console.log(`│ ${index + 1}. ${title.padEnd(42)} │`);
                                 if (item.detail) {
-                                    console.log(`│    - 상세: ${item.detail.padEnd(38)} │`);
+                                    const detail = item.detail.length > 40 ? item.detail.substring(0, 37) + '...' : item.detail;
+                                    console.log(`│    - 상세: ${detail.padEnd(38)} │`);
                                 }
                             });
                             console.log('└──────────────────────────────────────────────────┘\n');
 
-                            WebviewBridge.sendProcessingStep(webviewToRespond, 'plan');
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', '작업 계획 업데이트 중...');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', `작업 계획 수립 완료`);
                             taskManager.setPlanItems(planItems);
                             WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
                             hasPlanTag = true;
@@ -369,16 +350,7 @@ export class ConversationManager {
 
                             if (deduplicatedCalls.length === 0) continue;
 
-                            // 조사 단계에서 허용되지 않은 도구 호출 시 차단 
-                            if (currentPhase === AgentPhase.INVESTIGATION) {
-                                const invalidTools = deduplicatedCalls.filter(call => !investigationManager.isInvestigationTool(call.name));
-                                if (invalidTools.length > 0) {
-                                    console.warn('[ConversationManager] Investigation phase tool block:', invalidTools.map(t => t.name));
-                                    turnResultsSummary += `\n[Error] 현재는 '조사(Investigation)' 단계입니다. '${invalidTools.map(t => t.name).join(', ')}' 도구는 사용할 수 없습니다. 먼저 충분히 조사한 후 <plan>을 제출하여 '실행' 단계로 전환하세요.\n`;
-                                    continue;
-                                }
-                            }
-
+                            // v5.2.2: 조사 단계에서도 도구 실행을 막지 않고 자율성을 부여함 (Remind만 수행 가능)
                             console.log('[ConversationManager] Executing Tools:', deduplicatedCalls.map(call => call.name));
 
                             // 도구 실행 직전에 해당 계획 항목을 '진행 중'으로 변경
@@ -390,7 +362,7 @@ export class ConversationManager {
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
                             const executingPrefix = currentActiveItem ? `[${currentActiveItem.title}] ` : '';
                             const phaseLabelExec = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${deduplicatedCalls[0].name} 실행 중...`);
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${this.getToolLabel(deduplicatedCalls[0].name)} 실행 중...`);
 
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
@@ -486,9 +458,6 @@ export class ConversationManager {
             }
         }
 
-        // 루프 종료 후 최종 상태 명시
-        this.logCurrentPlanStatus();
-
         if (turnCount >= maxTurns) {
             WebviewBridge.updateProcessingStatus(webviewToRespond, '최대 턴 수 도달로 중단되었습니다.', 'error');
         } else {
@@ -563,6 +532,27 @@ export class ConversationManager {
         text = text.replace(/We haven't read [\s\S]*?\./gi, '');
 
         return text.trim();
+    }
+
+    /**
+     * 도구 이름을 사용자 친화적인 한글 이름으로 변환합니다.
+     */
+    private getToolLabel(toolName: string): string {
+        const labels: Record<string, string> = {
+            'create_file': '파일 생성',
+            'update_file': '파일 수정',
+            'remove_file': '파일 삭제',
+            'read_file': '파일 읽기',
+            'list_files': '파일 목록 확인',
+            'search_files': '파일 검색',
+            'run_command': '명령어 실행',
+            'analyze_code': '코드 분석',
+            'verify_code': '코드 검증',
+            'refactor_code': '리팩토링',
+            'task_progress': '진행 상황 업데이트',
+            'plan': '계획 수립'
+        };
+        return labels[toolName] || toolName;
     }
 
     private createToolResultSummary(turn: number, calls: any[], results: any[]): string {
@@ -652,12 +642,12 @@ export class ConversationManager {
                         displayMsg = `🔬 [Analyzed] ${path}`;
                         break;
                     default:
-                        displayMsg = `✔️ [Success] ${toolName}`;
+                        displayMsg = `✔️ [Success] ${this.getToolLabel(toolName)}`;
                 }
                 WebviewBridge.receiveMessage(webview, 'System', displayMsg);
             } else {
                 // 실패 시에는 항상 System 스타일로 에러 표시
-                WebviewBridge.receiveMessage(webview, 'System', `❌ [Failed] ${toolName}: ${res.message || 'Unknown error'}`);
+                WebviewBridge.receiveMessage(webview, 'System', `❌ [Failed] ${this.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
             }
         });
     }

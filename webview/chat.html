@@ -1117,9 +1117,20 @@
         }
 
         @keyframes pulse-circle {
-            0% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.3); opacity: 0.5; }
-            100% { transform: scale(1); opacity: 1; }
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.3);
+                opacity: 0.5;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
 
         .status-circle {
@@ -1161,6 +1172,7 @@
             flex-direction: column;
             overflow: hidden;
             animation: fadeIn 0.3s ease;
+            pointer-events: auto;
         }
 
         .task-queue-header {
@@ -1388,11 +1400,12 @@
     <div class="main-container">
         <div id="chat-container">
             <div id="chat-messages"></div>
-            <!-- React Components Container (채팅 스크롤 영역 안으로 이동) -->
-            <div id="react-components"></div>
         </div>
-
     </div>
+
+    <!-- React Components Container (채팅 영역 밖으로 이동하여 가려짐 방지) -->
+    <div id="react-components"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1500;"></div>
 
     <div class="bottom-fixed-area">
         <!-- Pending Question Queue Area -->
@@ -1576,7 +1589,8 @@
                     gap: '8px',
                     fontSize: '14px',
                     fontWeight: '500',
-                    border: '1px solid var(--vscode-button-border)'
+                    border: '1px solid var(--vscode-button-border)',
+                    pointerEvents: 'auto'
                 }
             }, [
                 React.createElement('div', {
@@ -1701,7 +1715,8 @@
                     gap: '8px',
                     fontSize: '14px',
                     fontWeight: '500',
-                    border: '1px solid var(--vscode-button-border)'
+                    border: '1px solid var(--vscode-button-border)',
+                    pointerEvents: 'auto'
                 }
             }, [
                 React.createElement('div', {
@@ -1861,7 +1876,8 @@
                     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
                     zIndex: 2147483648, // Processing Steps(2147483647)보다 높게 설정
                     padding: '20px',
-                    animation: 'fadeIn 0.3s ease'
+                    animation: 'fadeIn 0.3s ease',
+                    pointerEvents: 'auto'
                 }
             }, [
                 React.createElement('div', {

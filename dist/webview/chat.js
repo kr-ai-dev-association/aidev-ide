@@ -11612,7 +11612,15 @@ function updateThinkingBubbleText() {
   const stepName = lastStep.step || '';
 
   // 'processing'이나 'Waiting...' 같은 기본값보다는 실제 의미 있는 상태 메시지(status)를 우선 사용합니다.
-  let displayMsg = status && status !== 'processing' && status !== 'Waiting...' ? status : stepName;
+  const stepLabels = {
+    'intent': '의도 분석',
+    'assembling': '컨텍스트 수집',
+    'thinking': '분석 및 생각',
+    'plan': '작업 계획 수립',
+    'executing': '도구 실행',
+    'done': '작업 완료'
+  };
+  let displayMsg = status && status !== 'processing' && status !== 'Waiting...' ? status : stepLabels[stepName] || stepName;
 
   // 터미널 느낌을 주기 위해 '>' 기호를 접두어로 사용합니다.
   const newFullText = `> ${displayMsg}`;
@@ -11673,7 +11681,7 @@ function setProcessingStep(stepName) {
   }
 
   // 이전 단계들을 완료로 표시
-  const stepOrder = ['systems', 'intent', 'keywords', 'plan', 'analyzing', 'assembling', 'executing', 'parsing', 'file_processing', 'printing'];
+  const stepOrder = ['systems', 'intent', 'keywords', 'plan', 'thinking', 'analyzing', 'assembling', 'executing', 'parsing', 'file_processing', 'printing'];
   const currentIndex = stepOrder.indexOf(stepName);
   for (let i = 0; i < currentIndex; i++) {
     const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);

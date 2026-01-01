@@ -109,8 +109,11 @@ export class OllamaApi {
 
                 // XML 형식이 필요하지만 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
                 if (attempt < maxRetries) {
-                    if (error.message.includes("생각(Thinking)만 수행")) {
-                        currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions. You MUST output actual XML tool calls (e.g., <list_files>, <read_file>, <plan>) in your FINAL RESPONSE field. Do NOT just explain. Every turn must include at least one action if you are not done.`;
+                    if (error.message.includes("생각만 수행")) {
+                        currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field. 
+If you are NOT DONE, you MUST output actual XML tool calls (e.g., <list_files>, <read_file>, <plan>) in your FINAL RESPONSE. 
+If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE. 
+Do NOT leave the response field empty. Every turn must produce a non-empty response.`;
                     } else if (!currentOptions.xmlRetry) {
                         currentMessage = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
                         currentOptions.xmlRetry = true;
