@@ -6,6 +6,14 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.0.0 (LLM-First Intent & Intelligent Error Handling)
+- **LLM-First Intent Detection**: Completely removed hardcoded keyword matching in favor of LLM-driven intent classification for higher accuracy and flexibility.
+- **Intelligent Repeated Failure Detection**: Implemented logic to detect and alert the LLM when the same tool fails repeatedly, providing specific guidance (e.g., checking file existence) to encourage self-correction.
+- **Enhanced UI Localization**: Replaced raw English tool names with user-friendly Korean labels in the process steps UI.
+- **Improved Task Queue Visibility**: Fixed rendering issues where the task queue popup was hidden or non-interactive in the webview.
+- **Softened Agent Constraints**: Updated the Investigation phase to allow more autonomous agent behavior, permitting the LLM to decide when to move from investigation to execution.
+- **Aggressive Self-Correction**: Enhanced API-level retries for empty responses and added strict rules to ensure every turn produces actionable output.
+
 ## v5.2.2 (LLM Autonomy & Intent Refactor)
 - **Enhanced Intent Refactor**: Moved towards a more LLM-driven intent detection, reducing reliance on hardcoded keywords for better flexibility.
 - **LLM Self-Correction (Ollama)**: Implemented a robust self-correction logic that automatically retries and nudges the model if it provides internal thoughts (`thinking`) without actionable XML tool calls.
