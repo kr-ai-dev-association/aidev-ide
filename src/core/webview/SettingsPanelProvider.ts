@@ -54,7 +54,7 @@ export function openSettingsPanel(
     extensionUri,
     context,
     "settings",
-    "AIDEV-IDE Settings",
+    "CODEPILOT Settings",
     "settings",
     viewColumn,
     async (data, panel: vscode.WebviewPanel) => {
@@ -83,10 +83,10 @@ export function openSettingsPanel(
               await stateManager.getBanyaLicenseSerial();
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
+            const geminiModel = await stateManager.getGeminiModel();
             const currentAiModel = await stateManager.getCurrentAiModel();
             // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
-            const modelToUse = currentAiModel || aiModel || "gemini";
-            const planningModelValue = await stateManager.getPlanningModel();
+            const modelToUse = currentAiModel || aiModel || "ollama";
             const language = await stateManager.getLanguage();
             const autoUpdateEnabled =
               await settingsManager.isAutoUpdateEnabled();
@@ -97,6 +97,7 @@ export function openSettingsPanel(
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
+              geminiModel: geminiModel || "gemini-3-pro-preview",
               ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
@@ -113,7 +114,6 @@ export function openSettingsPanel(
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
               aiModel: modelToUse, // AI 모델 정보 추가
-              planningModel: planningModelValue || "",
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
             };
@@ -136,23 +136,9 @@ export function openSettingsPanel(
             const models = await ModelConnectionService.getOllamaModels(apiUrl);
 
             // console.log('[PanelManager] Successfully retrieved Ollama models:', models);
-            const reasoningCandidates = models.filter((name) => {
-              const n = (name || "").toLowerCase();
-              return (
-                n.includes("deepseek") ||
-                n.includes("reason") ||
-                n.includes("qwen") ||
-                n.includes("llama") ||
-                n.includes("gemma") ||
-                n.includes("r1")
-              );
-            });
-            const planningModel = await stateManager.getPlanningModel();
             safePostMessage(panel, {
               command: "ollamaModels",
               models,
-              reasoningModels: reasoningCandidates,
-              planningModel: planningModel || "",
               apiUrl: apiUrl,
             });
           } catch (e: any) {
@@ -226,6 +212,36 @@ export function openSettingsPanel(
               error: "Invalid API key",
             });
             notificationService.showErrorMessage("Invalid API key provided.");
+          }
+          break;
+        case "saveGeminiModel": // Gemini 모델 저장 케이스 추가
+          const geminiModelToSave = data.model;
+          if (geminiModelToSave && typeof geminiModelToSave === "string") {
+            try {
+              await stateManager.saveGeminiModel(geminiModelToSave);
+              // GeminiApi 인스턴스 업데이트
+              if (geminiApi) {
+                geminiApi.updateModelName(geminiModelToSave);
+              }
+              safePostMessage(panel, { command: "geminiModelSaved" });
+              notificationService.showInfoMessage(
+                `AIDEV-IDE: Gemini Model saved as ${geminiModelToSave}.`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "geminiModelSaveError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error saving Gemini Model: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "geminiModelSaveError",
+              error: "Invalid Gemini Model",
+            });
+            notificationService.showErrorMessage("Invalid Gemini Model provided.");
           }
           break;
         case "saveOllamaApiUrl": // Ollama API URL 저장 케이스 추가
@@ -630,7 +646,7 @@ export function openSettingsPanel(
                 await stateManager.saveAutoUpdateEnabled(
                   autoUpdateEnabledToSave,
                 );
-              } catch {}
+              } catch { }
               safePostMessage(panel, { command: "autoUpdateEnabledSaved" });
               notificationService.showInfoMessage(
                 "AIDEV-IDE: Auto Update setting saved.",
@@ -819,7 +835,7 @@ export function openSettingsPanel(
             try {
               // UI 표시에 쓰는 키와 런타임에서 사용하는 키를 모두 저장
               await stateManager.saveAiModel(aiModelToSave);
-              
+
               // 'ollama' 관련 세부 타입 매핑 제거 및 'ollama' 타입으로 통일
               let toRuntime = aiModelToSave;
               if (aiModelToSave.toLowerCase() === "ollama") {
@@ -1203,10 +1219,12 @@ export function openSettingsPanel(
               await stateManager.getBanyaLicenseSerial();
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
+            const geminiModel = await stateManager.getGeminiModel();
 
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
+              geminiModel: geminiModel || "gemini-3-pro-preview",
               ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
@@ -1256,13 +1274,15 @@ export function openSettingsPanel(
               await stateManager.getBanyaLicenseSerial();
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
+            const geminiModel = await stateManager.getGeminiModel();
             const currentAiModel = await stateManager.getCurrentAiModel();
             // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
-            const modelToUse = currentAiModel || aiModel || "gemini";
+            const modelToUse = currentAiModel || aiModel || "ollama";
 
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
+              geminiModel: geminiModel || "gemini-3-pro-preview",
               ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",

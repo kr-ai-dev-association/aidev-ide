@@ -18,7 +18,8 @@ import {
     SettingsManager,
     ProjectManager,
     AutoFix,
-    AutoFixLlmClient
+    AutoFixLlmClient,
+    LLMManager
 } from './core';
 import { PromptBuilder } from './core/managers/context/PromptBuilder';
 import { ConversationManager } from './core/managers/conversation/ConversationManager';
@@ -134,6 +135,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // fallback: 설정에서 모델 타입을 유추하거나 기본값 처리 가능 (여기서는 문자열 비교만)
     const isGeminiSelected = (currentAiModelInit || '').toLowerCase() === 'gemini';
     const initialApiKey = await stateManager.getApiKey();
+    const initialGeminiModel = await stateManager.getGeminiModel();
 
     if (isGeminiSelected) {
         if (!initialApiKey || initialApiKey.trim() === '') {
@@ -142,6 +144,7 @@ export async function activate(context: vscode.ExtensionContext) {
             geminiApi = new GeminiApi();
         } else {
             geminiApi = new GeminiApi(initialApiKey);
+            geminiApi.updateModelName(initialGeminiModel || 'gemini-3-pro-preview');
             const isInitialized = geminiApi.isInitialized();
             if (!isInitialized) {
                 console.error('[Extension] API initialization failed on extension activation. API Key status:', {
@@ -165,6 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
     } else {
         // Gemini가 선택되지 않은 경우 키 유무와 상관없이 조용히 초기화 (경고 출력 안 함)
         geminiApi = new GeminiApi(initialApiKey);
+        geminiApi.updateModelName(initialGeminiModel || 'gemini-3-pro-preview');
     }
 
     // Ollama API 초기화
@@ -185,9 +189,9 @@ export async function activate(context: vscode.ExtensionContext) {
             require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
 
     // AiModelType이 제대로 로드되었는지 확인
-    let defaultModelForPrompt: AiModelType = 'gemini' as AiModelType;
-    if (AiModelType && AiModelType.GEMINI) {
-        defaultModelForPrompt = AiModelType.GEMINI;
+    let defaultModelForPrompt: AiModelType = 'ollama' as AiModelType;
+    if (AiModelType && AiModelType.OLLAMA) {
+        defaultModelForPrompt = AiModelType.OLLAMA;
     }
     const promptBuilder = new PromptBuilder(userOS, (currentAiModel as AiModelType) || defaultModelForPrompt);
     promptBuilder.setUserOS(userOS);
@@ -224,16 +228,16 @@ export async function activate(context: vscode.ExtensionContext) {
             // ErrorManager를 통해 오류 수정 메시지 전송
             const errorManager = ErrorManager.getInstance();
             // AiModelType이 제대로 로드되었는지 확인
-            let defaultModelForError: AiModelType = 'gemini' as AiModelType;
-            if (AiModelType && AiModelType.GEMINI) {
-                defaultModelForError = AiModelType.GEMINI;
+            let defaultModelForError: AiModelType = 'ollama' as AiModelType;
+            if (AiModelType && AiModelType.OLLAMA) {
+                defaultModelForError = AiModelType.OLLAMA;
             } else {
                 // 동적 import도 정적 import와 동일한 모듈 경로를 사용합니다.
                 const typesModule = await import('./services/types');
                 if (typesModule.AiModelType) {
-                    const geminiValue = typesModule.AiModelType.GEMINI;
-                    if (geminiValue) {
-                        defaultModelForError = geminiValue;
+                    const ollamaValue = typesModule.AiModelType.OLLAMA;
+                    if (ollamaValue) {
+                        defaultModelForError = ollamaValue;
                     }
                 }
             }
@@ -341,8 +345,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const conversationManager = ConversationManager.getInstance(userOS, geminiApi, ollamaApi);
     const llmApiClient = new LLMApiClient(geminiApi, ollamaApi, currentAiModel as any);
+    const llmManager = LLMManager.getInstance(geminiApi, ollamaApi, currentAiModel as any);
     // promptBuilder는 이미 위에서 선언됨
-    const intentDetector = new IntentDetector(ollamaApi);
+    const intentDetector = new IntentDetector(llmManager);
     const externalApiService = new ExternalApiService(context);
 
     conversationManager.setLLMService(llmApiClient);
@@ -419,7 +424,8 @@ export async function activate(context: vscode.ExtensionContext) {
         (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined),
         settingsManager,
         notificationService,
-        gitRepositoryService
+        gitRepositoryService,
+        geminiApi
     );
 
     context.subscriptions.push(

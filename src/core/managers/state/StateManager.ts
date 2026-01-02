@@ -4,7 +4,6 @@
  */
 
 import * as vscode from 'vscode';
-console.log('[StateManager] Module loading...');
 import {
     GlobalState,
     ExtensionMode,
@@ -13,29 +12,29 @@ import {
     RecentAction
 } from './types';
 import { CryptoUtils } from '../../../utils';
-import { BaseManager } from '../base/BaseManager';
 
-// @ts-ignore - BaseManager 상속 타입 호환성
-export class StateManager extends BaseManager {
-    // @ts-ignore - BaseManager 상속 타입 호환성
+export class StateManager {
+    private static instance: StateManager;
     private state: GlobalState = {};
     private _context: vscode.ExtensionContext;
 
     private constructor(context: vscode.ExtensionContext) {
-        super(context);
         this._context = context;
         this.loadState();
     }
 
     public static getInstance(context?: vscode.ExtensionContext): StateManager {
-        if (!context) {
-            throw new Error('StateManager requires ExtensionContext');
+        if (!StateManager.instance) {
+            if (!context) {
+                throw new Error('StateManager requires ExtensionContext for first initialization');
+            }
+            StateManager.instance = new StateManager(context);
         }
-        return BaseManager.getInstance.call(StateManager as any, context) as unknown as StateManager;
+        return StateManager.instance;
     }
 
-    public override get context(): vscode.ExtensionContext {
-        return this._context!;
+    public get context(): vscode.ExtensionContext {
+        return this._context;
     }
 
     /**
@@ -231,7 +230,7 @@ export class StateManager extends BaseManager {
         console.log('[StateManager] State cleared');
     }
 
-    // ===== SecretStorage 관련 메서드들 (StorageService 호환) =====
+    // ===== SecretStorage 관련 메서드들 =====
 
     /**
      * SecretStorage에 값을 저장합니다
@@ -256,7 +255,7 @@ export class StateManager extends BaseManager {
         console.log(`[StateManager] Secret deleted: ${key}`);
     }
 
-    // StorageService 호환 메서드들 (API 키 관련)
+    // API 키 및 모델 관련 키
     private readonly API_KEY_SECRET_KEY = 'aidev-ide.geminiApiKey';
     private readonly CURRENT_AI_MODEL_SECRET_KEY = 'aidev-ide.currentAiModel';
     private readonly BANYA_LICENSE_SERIAL_SECRET_KEY = 'aidev-ide.banyaLicenseSerial';
@@ -277,90 +276,83 @@ export class StateManager extends BaseManager {
     private readonly AUTO_CORRECTION_ENABLED_KEY = 'aidev-ide.autoCorrectionEnabled';
 
     /**
-     * API Key를 저장합니다 (StorageService 호환)
+     * API Key를 저장합니다
      */
     public async saveApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.API_KEY_SECRET_KEY, apiKey);
     }
 
     /**
-     * API Key를 가져옵니다 (StorageService 호환)
+     * API Key를 가져옵니다
      */
     public async getApiKey(): Promise<string | undefined> {
         return await this.getSecret(this.API_KEY_SECRET_KEY);
     }
 
     /**
-     * API Key를 삭제합니다 (StorageService 호환)
+     * API Key를 삭제합니다
      */
     public async deleteApiKey(): Promise<void> {
         await this.deleteSecret(this.API_KEY_SECRET_KEY);
     }
 
     /**
-     * 현재 AI 모델을 저장합니다 (StorageService 호환)
+     * 현재 AI 모델을 저장합니다
      */
     public async saveCurrentAiModel(model: string): Promise<void> {
         await this.saveSecret(this.CURRENT_AI_MODEL_SECRET_KEY, model);
     }
 
     /**
-     * 현재 AI 모델을 가져옵니다 (StorageService 호환)
+     * 현재 AI 모델을 가져옵니다
      */
     public async getCurrentAiModel(): Promise<string | undefined> {
         return await this.getSecret(this.CURRENT_AI_MODEL_SECRET_KEY);
     }
 
     /**
-     * 현재 AI 모델을 삭제합니다 (StorageService 호환)
+     * 현재 AI 모델을 삭제합니다
      */
     public async deleteCurrentAiModel(): Promise<void> {
         await this.deleteSecret(this.CURRENT_AI_MODEL_SECRET_KEY);
     }
 
     /**
-     * Banya 라이센스 시리얼을 암호화하여 저장합니다 (StorageService 호환)
+     * Banya 라이센스 시리얼을 암호화하여 저장합니다
      */
     public async saveBanyaLicenseSerial(licenseSerial: string): Promise<void> {
         const encryptedSerial = CryptoUtils.encrypt(licenseSerial);
         await this.saveSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY, encryptedSerial);
-        console.log('[StateManager] Banya license serial encrypted and saved to SecretStorage.');
+        console.log('[StateManager] Banya license serial encrypted and saved.');
     }
 
     /**
-     * Banya 라이센스 시리얼을 복호화하여 가져옵니다 (StorageService 호환)
+     * Banya 라이센스 시리얼을 복호화하여 가져옵니다
      */
     public async getBanyaLicenseSerial(): Promise<string | undefined> {
         const encryptedSerial = await this.getSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY);
         if (encryptedSerial) {
             try {
-                // 암호화된 형식인지 확인
                 if (CryptoUtils.isEncrypted(encryptedSerial)) {
-                    const decryptedSerial = CryptoUtils.decrypt(encryptedSerial);
-                    return decryptedSerial;
-                } else {
-                    // 기존 암호화되지 않은 형식인 경우 그대로 반환 (하위 호환성)
-                    console.log('[StateManager] Banya license serial loaded from SecretStorage (legacy format).');
-                    return encryptedSerial;
+                    return CryptoUtils.decrypt(encryptedSerial);
                 }
+                return encryptedSerial;
             } catch (error) {
-                console.error('[StateManager] 라이센스 시리얼 복호화 중 오류 발생:', error);
+                console.error('[StateManager] Decrypt error:', error);
                 return undefined;
             }
-        } else {
-            console.log('[StateManager] No Banya license serial found in SecretStorage.');
-            return undefined;
         }
+        return undefined;
     }
 
     /**
-     * Banya 라이센스 시리얼을 삭제합니다 (StorageService 호환)
+     * Banya 라이센스 시리얼을 삭제합니다
      */
     public async deleteBanyaLicenseSerial(): Promise<void> {
         await this.deleteSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY);
     }
 
-    // Ollama 관련 메서드들 (StorageService 호환)
+    // Ollama 관련 메서드들
     public async saveOllamaServerType(serverType: string): Promise<void> {
         await this.saveSecret(this.OLLAMA_SERVER_TYPE_SECRET_KEY, serverType);
     }
@@ -445,21 +437,20 @@ export class StateManager extends BaseManager {
         return (await this.getSecret(this.REMOTE_OLLAMA_MODEL_SECRET_KEY)) || null;
     }
 
-    // 기타 StorageService 호환 메서드들
     public async getAiModel(): Promise<string> {
-        return (await this.getSecret('aidev-ide.aiModel')) || 'gemini';
+        return (await this.getSecret('aidev-ide.aiModel')) || 'ollama';
     }
 
     public async saveAiModel(model: string): Promise<void> {
         await this.saveSecret('aidev-ide.aiModel', model);
     }
 
-    public async getPlanningModel(): Promise<string | undefined> {
-        return await this.getSecret('aidev-ide.planningModel');
+    public async getGeminiModel(): Promise<string> {
+        return (await this.getSecret('aidev-ide.geminiModel')) || 'gemini-3-pro-preview';
     }
 
-    public async savePlanningModel(model: string): Promise<void> {
-        await this.saveSecret('aidev-ide.planningModel', model);
+    public async saveGeminiModel(model: string): Promise<void> {
+        await this.saveSecret('aidev-ide.geminiModel', model);
     }
 
     // License verified flag
@@ -516,4 +507,3 @@ export class StateManager extends BaseManager {
         return this.context.workspaceState.get<boolean>(this.AUTO_CORRECTION_ENABLED_KEY) ?? false;
     }
 }
-

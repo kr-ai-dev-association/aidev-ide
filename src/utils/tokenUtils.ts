@@ -4,7 +4,7 @@ import { AiModelType } from '../services/types';
 // 모델별 토큰 제한
 export const MODEL_TOKEN_LIMITS = {
     [AiModelType.GEMINI]: {
-        maxInputTokens: 1000000, // Gemini 2.5 Flash의 입력 토큰 제한
+        maxInputTokens: 1000000, // Gemini 3.0 Flash/Pro의 입력 토큰 제한
         maxOutputTokens: 500000, // 현재 설정된 출력 토큰 제한
         maxTotalTokens: 1500000  // 총 토큰 제한
     },
@@ -93,7 +93,7 @@ export function checkTokenLimit(
 function getDefaultModelName(modelType: AiModelType): string {
     switch (modelType) {
         case AiModelType.GEMINI:
-            return 'Gemini 2.5 Flash';
+            return 'Gemini 3.0 Pro';
         case AiModelType.OLLAMA:
             return 'Ollama Local Model';
         default:
@@ -122,11 +122,11 @@ export function logTokenUsage(
     // console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
 
     if (usagePercentage > 80) {
-        console.warn(`[TokenUtils] ⚠️ 토큰 사용률이 높습니다: ${usagePercentage.toFixed(1)}%`);
+        console.warn(`[TokenUtils] 토큰 사용률이 높습니다: ${usagePercentage.toFixed(1)}%`);
     }
 
     if (currentTokens > limits.maxInputTokens) {
-        console.error(`[TokenUtils] ❌ 토큰 제한 초과: ${currentTokens.toLocaleString()} > ${limits.maxInputTokens.toLocaleString()}`);
+        console.error(`[TokenUtils] 토큰 제한 초과: ${currentTokens.toLocaleString()} > ${limits.maxInputTokens.toLocaleString()}`);
     }
 }
 

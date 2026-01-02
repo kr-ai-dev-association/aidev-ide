@@ -549,6 +549,12 @@ function setModelLabel(name) {
 }
 
 function populateModelDropdown(models, current) {
+    // Gemini 모델 정의
+    const geminiModels = [
+        { name: 'gemini-3-pro-preview', displayName: 'Gemini 3.0 Pro' },
+        { name: 'gemini-3-flash-preview', displayName: 'Gemini 3.0 Flash' }
+    ];
+
     // models: [{name, displayName}] 또는 ["name", ...]
     availableOllamaModels = (models || []).map((m) => {
         if (typeof m === 'string') return { name: m, displayName: m };
@@ -560,14 +566,48 @@ function populateModelDropdown(models, current) {
     if (!modelDropdown) return;
     modelDropdown.innerHTML = '';
 
+    // Gemini 모델 먼저 추가
+    geminiModels.forEach((m) => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-option';
+        if (m.name === currentOllamaModel) item.classList.add('selected');
+        item.dataset.model = m.name;
+        item.textContent = m.displayName;
+        item.style.padding = '6px 10px';
+        item.style.cursor = 'pointer';
+        item.style.borderLeft = '3px solid #4285f4'; // Gemini 색상 포인트
+        item.addEventListener('click', () => {
+            currentOllamaModel = m.name;
+            setModelLabel(m.displayName);
+            if (modelDropdown) {
+                modelDropdown.classList.add('hidden');
+                modelDropdown.style.display = 'none';
+            }
+            vscode.postMessage({ command: 'setGeminiModel', model: m.name });
+        });
+        modelDropdown.appendChild(item);
+    });
+
+    // 구분선 (모델이 있을 경우에만)
+    if (availableOllamaModels.length > 0) {
+        const divider = document.createElement('div');
+        divider.style.height = '1px';
+        divider.style.backgroundColor = 'var(--vscode-panel-border)';
+        divider.style.margin = '4px 0';
+        modelDropdown.appendChild(divider);
+    }
+
+    // Ollama 모델 추가
     availableOllamaModels.forEach((m) => {
         const display = m.displayName || m.name;
         const item = document.createElement('div');
         item.className = 'dropdown-option';
+        if (m.name === currentOllamaModel) item.classList.add('selected');
         item.dataset.model = m.name;
         item.textContent = display;
         item.style.padding = '6px 10px';
         item.style.cursor = 'pointer';
+        item.style.borderLeft = '3px solid #f68537'; // Ollama 색상 포인트 (주황색)
         item.addEventListener('click', () => {
             currentOllamaModel = m.name;
             setModelLabel(display);
@@ -580,10 +620,12 @@ function populateModelDropdown(models, current) {
         modelDropdown.appendChild(item);
     });
 
-    const currentDisplay = (availableOllamaModels.find(m => m.name === currentOllamaModel)?.displayName) || currentOllamaModel || 'Model';
+    // 현재 선택된 모델 라벨 업데이트
+    const allModels = [...geminiModels, ...availableOllamaModels];
+    const currentDisplay = (allModels.find(m => m.name === currentOllamaModel)?.displayName) || currentOllamaModel || 'Model';
     setModelLabel(currentDisplay);
 
-    if (!availableOllamaModels.length) {
+    if (!allModels.length) {
         const empty = document.createElement('div');
         empty.className = 'dropdown-option';
         empty.textContent = '모델을 불러올 수 없습니다';
@@ -757,7 +799,12 @@ window.addEventListener('message', event => {
             break;
         case 'ollamaModelChanged':
             if (message.model) {
-                const display = (availableOllamaModels.find(m => m.name === message.model)?.displayName) || message.model;
+                const geminiModels = [
+                    { name: 'gemini-3-pro-preview', displayName: 'Gemini 3.0 Pro' },
+                    { name: 'gemini-3-flash-preview', displayName: 'Gemini 3.0 Flash' }
+                ];
+                const allModels = [...geminiModels, ...availableOllamaModels];
+                const display = (allModels.find(m => m.name === message.model)?.displayName) || message.model;
                 currentOllamaModel = message.model;
                 setModelLabel(display);
             }
@@ -1210,7 +1257,7 @@ function displayCodePilotMessage(markdownText) {
     const displayText = removeToolTags(markdownText);
 
     const messageContainer = document.createElement('div');
-    messageContainer.classList.add('aidev-ide-message-container');
+    messageContainer.classList.add('codepilot-message-container');
 
     const bubbleElement = document.createElement('div');
     bubbleElement.classList.add('message-bubble');

@@ -101,8 +101,8 @@ export class ConversationManager {
             }
 
             // 2. 의도 파악 및 프로젝트 분석
-            // 내부 Ollama 인스턴스와 현재 선택된 모델 타입을 사용하여 의도 파악 수행
-            const intent = await this.detectIntent(userQuery, this.llmManager.getOllamaApi(), options.currentModelType);
+            // 현재 선택된 모델 타입을 사용하여 의도 파악 수행
+            const intent = await this.detectIntent(userQuery);
 
             // 3. 컨텍스트 수집
             const context = await this.gatherContext(options, intent);
@@ -148,17 +148,9 @@ export class ConversationManager {
     /**
      * 사용자 의도 및 작업 타입 감지
      */
-    private async detectIntent(query: string, ollamaApi?: OllamaApi, modelType?: AiModelType): Promise<any> {
-        const api = ollamaApi || this.llmManager.getOllamaApi();
-        if (!api) {
-            console.warn('[ConversationManager] OllamaApi is missing, using hardcoded fallback intent');
-            // IntentDetector는 OllamaApi가 필수이므로, 없는 경우 기본 의도 반환
-            return { category: 'code', subtype: 'code_generate', taskType: 'code_work', confidence: 0.5, keywords: [], reasoning: 'Fallback' };
-        }
-        const detector = new IntentDetector(api);
+    private async detectIntent(query: string): Promise<any> {
+        const detector = new IntentDetector(this.llmManager);
 
-        // 모델명이 있으면 IntentDetector에 전달
-        // (v5.2.0: 이제 AiModelType 매핑 대신 settings에서 자동 로드됨)
         const intent = await detector.detectIntent(query);
 
         console.log(`[ConversationManager] Intent detected: ${intent.category}/${intent.subtype} (confidence: ${intent.confidence})`);

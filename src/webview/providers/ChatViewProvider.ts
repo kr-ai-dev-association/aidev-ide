@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
-import { PromptType, NotificationService, LicenseService, GitRepositoryService } from '../../services';
+import { PromptType, NotificationService, LicenseService, GitRepositoryService, GeminiApi } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 
@@ -16,7 +16,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly openLicensePanel: (viewColumn: vscode.ViewColumn) => void,
         private readonly configurationService: SettingsManager,
         private readonly notificationService: NotificationService,
-        private readonly gitRepositoryService: GitRepositoryService
+        private readonly gitRepositoryService: GitRepositoryService,
+        private readonly geminiApi: GeminiApi
     ) { }
 
     public resolveWebviewView(
@@ -92,11 +93,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             };
                         }).filter((m: any) => m.name);
 
-                        const current = await stateManager.getOllamaModel();
+                        const aiModelEngine = await stateManager.getAiModel();
+                        let currentModel = '';
+                        if (aiModelEngine === 'gemini') {
+                            currentModel = await stateManager.getGeminiModel();
+                        } else {
+                            currentModel = await stateManager.getOllamaModel();
+                        }
+
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models,
-                            current
+                            current: currentModel
                         });
                     } catch (e) {
                         console.warn('[ChatViewProvider] getOllamaModels failed:', e);
@@ -115,7 +123,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             throw new Error('Invalid model name');
                         }
                         const stateManager = StateManager.getInstance(this.context);
+                        
+                        // Ollama 모델인 경우 엔진을 ollama로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('ollama');
+                        await stateManager.saveCurrentAiModel('ollama');
                         await stateManager.saveOllamaModel(modelName);
+                        
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
                             model: modelName
@@ -127,6 +140,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             model: '',
                             error: '모델을 저장하지 못했습니다.'
                         });
+                    }
+                    break;
+                }
+                case 'setGeminiModel': {
+                    try {
+                        const modelName = typeof data.model === 'string' ? data.model : '';
+                        if (!modelName) {
+                            throw new Error('Invalid model name');
+                        }
+                        const stateManager = StateManager.getInstance(this.context);
+                        
+                        // Gemini 모델인 경우 엔진을 gemini로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('gemini');
+                        await stateManager.saveCurrentAiModel('gemini');
+                        await stateManager.saveGeminiModel(modelName);
+                        
+                        // GeminiApi 인스턴스 업데이트
+                        if (this.geminiApi) {
+                            this.geminiApi.updateModelName(modelName);
+                        }
+                        
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged', // 기존 UI 호환성을 위해 동일한 명령 사용 가능 또는 새 명령 정의
+                            model: modelName
+                        });
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] setGeminiModel failed:', e);
                     }
                     break;
                 }

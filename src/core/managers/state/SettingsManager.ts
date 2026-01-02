@@ -58,7 +58,9 @@ export class SettingsManager extends BaseManager {
 
         return {
             // LLM 설정
+            aiModel: ConfigurationService.get<'gemini' | 'ollama'>('aiModel', 'ollama') ?? 'ollama',
             geminiApiKey: ConfigurationService.get<string>('geminiApiKey') ?? '',
+            geminiModel: ConfigurationService.get<string>('geminiModel', 'gemini-3-pro-preview') ?? 'gemini-3-pro-preview',
             ollamaUrl: ConfigurationService.get<string>('ollamaUrl') ?? '',
             ollamaModel: ConfigurationService.get<string>('ollamaModel') ?? '',
             useRemoteOllama: ConfigurationService.get<boolean>('useRemoteOllama', false) ?? false,

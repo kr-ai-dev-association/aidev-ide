@@ -6,6 +6,14 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.1.0 (UI Refinement & Unified Intent Detection)
+- **Model Selection UI Refinement**: Added visual color bars (Gemini: Blue, Ollama: Orange) to the chat model dropdown for better differentiation and consistent styling.
+- **Unified Intent Detection Engine**: Refactored `IntentDetector` to use the currently active LLM (Gemini or Ollama), ensuring that if Gemini is selected, it is also used for intent classification, preventing unnecessary Ollama calls and errors.
+- **Branding Consistency (CODEPILOT)**: Standardized branding to "CODEPILOT" across the chat panel, settings UI, and localization files.
+- **Gemini Model Optimization**: Updated the default Gemini model to `gemini-3-pro-preview` and refined selection options.
+- **Responsive UI Layout**: Fixed layout issues in the settings panel where dropdowns would not expand correctly on narrower screens.
+- **Simplified Features**: Removed the unused "Planning (Reasoning)" feature to provide a cleaner and more focused user experience.
+
 ## v6.0.0 (LLM-First Intent & Intelligent Error Handling)
 - **LLM-First Intent Detection**: Completely removed hardcoded keyword matching in favor of LLM-driven intent classification for higher accuracy and flexibility.
 - **Intelligent Repeated Failure Detection**: Implemented logic to detect and alert the LLM when the same tool fails repeatedly, providing specific guidance (e.g., checking file existence) to encourage self-correction.

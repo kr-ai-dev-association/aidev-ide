@@ -3,7 +3,8 @@
  * 사용자 요청의 의도를 감지하는 서비스
  */
 
-import { OllamaApi } from '../../../services';
+import { OllamaApi, AiModelType } from '../../../services';
+import { LLMManager } from '../model/LLMManager';
 
 export type IntentCategory = 'code' | 'execution' | 'analysis' | 'documentation' | 'terminal';
 
@@ -66,7 +67,7 @@ export class IntentDetector {
         terminal_error_fix: 'terminal'
     };
 
-    constructor(private ollamaApi: OllamaApi) { }
+    constructor(private llmManager: LLMManager) { }
 
     /**
      * TaskType을 한글 라벨로 변환합니다.
@@ -88,11 +89,8 @@ export class IntentDetector {
     public async detectIntent(userQuery: string, options?: { modelName?: string }): Promise<IntentDetectionResult> {
         // 1. LLM을 통한 의도 판별 (Primary & Only)
         try {
-            const modelForIntent = options?.modelName && options.modelName.toLowerCase().includes('gemini')
-                ? undefined
-                : options?.modelName;
-
-            const llmRaw = await this.queryLLMForIntent(userQuery, modelForIntent);
+            // 현재 활성화된 모델을 사용하여 의도 파악
+            const llmRaw = await this.queryLLMForIntent(userQuery);
             if (llmRaw) {
                 const subtype = llmRaw.subtype;
                 const taskType = this.subtypeToTaskType[subtype] || 'analysis';
@@ -102,7 +100,7 @@ export class IntentDetector {
                     subtype: subtype,
                     taskType: taskType,
                     confidence: llmRaw.confidence,
-                    keywords: [], // 키워드 매칭 제거됨
+                    keywords: [],
                     reasoning: llmRaw.reasoning
                 };
 
@@ -128,8 +126,7 @@ export class IntentDetector {
      * LLM을 사용한 의도 분류
      */
     private async queryLLMForIntent(
-        userQuery: string,
-        modelName?: string
+        userQuery: string
     ): Promise<{ subtype: IntentSubtype; confidence: number; reasoning: string } | null> {
         const prompt = `다음 사용자 요청을 분석하여 의도(Subtype)를 분류하세요.
 
@@ -149,30 +146,13 @@ export class IntentDetector {
 
 사용자 요청: "${userQuery}"`;
 
-        const previousModel = this.ollamaApi.getModel();
-        const previousEndpoint = this.ollamaApi.getEndpoint();
-        const previousUrl = this.ollamaApi.getApiUrl();
-
-        const targetModel = modelName || previousModel
-        const targetEndpoint = previousEndpoint || '/api/generate';
-        const targetUrl = previousUrl || 'http://localhost:11434';
-
-        this.ollamaApi.setModel(targetModel);
-        this.ollamaApi.setEndpoint(targetEndpoint);
-        this.ollamaApi.setApiUrl(targetUrl);
-
         try {
-            try {
-                await this.ollamaApi.loadSettingsFromStorage();
-            } catch {
-                // 설정 로드 실패는 무시
-            }
-            const response = await this.ollamaApi.sendMessage(prompt, {});
+            // 현재 활성화된 모델(Gemini 또는 Ollama)로 메시지 전송
+            const response = await this.llmManager.sendMessage(prompt, {});
             return this.safeParseIntentResponse(response);
-        } finally {
-            this.ollamaApi.setModel(previousModel);
-            this.ollamaApi.setEndpoint(previousEndpoint);
-            this.ollamaApi.setApiUrl(previousUrl);
+        } catch (error) {
+            console.error('[IntentDetector] queryLLMForIntent failed:', error);
+            throw error;
         }
     }
 

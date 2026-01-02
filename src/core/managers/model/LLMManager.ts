@@ -82,7 +82,7 @@ export class LLMManager {
     public async getCurrentModelName(): Promise<string> {
         try {
             if (this.currentModelType === AiModelType.GEMINI) {
-                return 'Gemini 2.5 Flash';
+                return this.geminiApi.getModelName();
             } else if (this.ollamaApi) {
                 return this.ollamaApi.getModel?.() || this.ollamaApi.getCurrentModelName?.() || 'Ollama Model';
             }

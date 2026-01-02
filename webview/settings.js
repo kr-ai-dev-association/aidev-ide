@@ -59,6 +59,11 @@ if (autoExecuteToggle) {
 const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
 const saveGeminiApiKeyButton = document.getElementById('save-gemini-api-key-button');
 const geminiApiKeyStatus = document.getElementById('gemini-api-key-status');
+const geminiModelSelect = document.getElementById('gemini-model-select');
+const saveGeminiModelButton = document.getElementById('save-gemini-model-button');
+
+// Ollama 설정 그룹
+const ollamaSettingsGroup = document.getElementById('ollama-settings-group');
 
 // Ollama 서버 타입 관련 요소들
 const ollamaServerTypeSelect = document.getElementById('ollama-server-type-select');
@@ -122,7 +127,8 @@ let currentSettingsOllamaModel = null; // currentSettings에서 받은 Ollama �
 function updateSaveButtonsState() {
     // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
     const licenseRequiredButtons = [
-        saveGeminiApiKeyButton
+        saveGeminiApiKeyButton,
+        saveGeminiModelButton
     ];
 
     // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
@@ -132,7 +138,8 @@ function updateSaveButtonsState() {
         saveRemoteOllamaModelButton,
         saveRemoteOllamaApiUrlButton,
         saveRemoteOllamaEndpointButton,
-        saveOllamaServerTypeButton
+        saveOllamaServerTypeButton,
+        saveOllamaModelButton
     ];
 
     // console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
@@ -263,6 +270,12 @@ function applyLanguage() {
     if (apiKeySectionTitle && languageData['apiKeySectionTitle']) {
         apiKeySectionTitle.textContent = languageData['apiKeySectionTitle'];
         // console.log('Updated API key section title:', languageData['apiKeySectionTitle']);
+    }
+
+    // AI 모델 설정 설명
+    const aiModelSettingsDescription = document.querySelector('#api-key-section-title + p');
+    if (aiModelSettingsDescription && languageData['aiModelSettingsDescription']) {
+        aiModelSettingsDescription.textContent = languageData['aiModelSettingsDescription'];
     }
 
     // Gemini API 키 라벨
@@ -398,7 +411,7 @@ function applyLanguage() {
             if (languageData['settingsSavedImmediately']) {
                 msg.textContent = languageData['settingsSavedImmediately'];
             }
-        } else if (text && (text.includes('AIDEV-IDE의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
+        } else if (text && (text.includes('CODEPILOT의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
             text.includes('Set the Gemini API key to use AIDEV-IDE\'s AI features') ||
             text.includes('Establece la clave API de Gemini para usar las funciones de IA de AIDEV-IDE') ||
             text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de AIDEV-IDE') ||
@@ -1155,51 +1168,71 @@ if (aiModelSelect) {
         const selectedModel = aiModelSelect.value;
         // console.log('AI model selected:', selectedModel);
 
-        // 선택된 모델에 따라 설정 섹션 활성화/비활성화
+        // 선택된 모델에 따라 설정 섹션 활성화/비활성화 및 표시 제어
         if (selectedModel === 'gemini') {
+            geminiSettingsSection.style.display = 'block';
             geminiSettingsSection.classList.remove('disabled');
-            localOllamaSettingsSection.classList.add('disabled');
-            remoteOllamaSettingsSection.classList.add('disabled');
+            if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'none';
         } else if (selectedModel === 'ollama') {
+            geminiSettingsSection.style.display = 'none';
             geminiSettingsSection.classList.add('disabled');
-            // Ollama 선택 시 서버 타입을 기본값 'local'로 설정
-            if (ollamaServerTypeSelect) {
-                ollamaServerTypeSelect.value = 'local';
-                // 서버 타입 변경 이벤트 트리거
-                ollamaServerTypeSelect.dispatchEvent(new Event('change'));
-            }
-            // 서버 타입에 따라 활성 섹션 결정
+            if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'block';
+
+            // Ollama 선택 시 서버 타입에 따라 활성 섹션 결정
             const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
             if (serverType === 'remote') {
                 localOllamaSettingsSection.classList.add('disabled');
+                localOllamaSettingsSection.style.display = 'none';
                 remoteOllamaSettingsSection.classList.remove('disabled');
+                remoteOllamaSettingsSection.style.display = 'block';
             } else {
                 localOllamaSettingsSection.classList.remove('disabled');
+                localOllamaSettingsSection.style.display = 'block';
                 remoteOllamaSettingsSection.classList.add('disabled');
+                remoteOllamaSettingsSection.style.display = 'none';
             }
             // Ollama 선택 시 모델 목록 즉시 요청
             try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
-        } else {
-            // 모델이 선택되지 않은 경우 기본값(Gemini)으로 설정
-            aiModelSelect.value = 'gemini';
-            geminiSettingsSection.classList.remove('disabled');
-            localOllamaSettingsSection.classList.add('disabled');
-            remoteOllamaSettingsSection.classList.add('disabled');
         }
+
         // 선택 변경 시에도 즉시 저장(자동 저장)
         try {
             if (aiModelStatus) {
                 aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
                 aiModelStatus.className = 'info-message';
             }
-            if (aiModelSelect && aiModelSelect.value) {
-                const selectedModel = aiModelSelect.value;
-                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
-            }
+            vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
         } catch (e) {
             console.warn('Failed to autosave AI model:', e);
         }
+    });
+}
 
+// Gemini 모델 선택 이벤트 리스너 추가
+if (geminiModelSelect) {
+    geminiModelSelect.addEventListener('change', () => {
+        const selectedGeminiModel = geminiModelSelect.value;
+        try {
+            if (geminiApiKeyStatus) {
+                geminiApiKeyStatus.textContent = 'Gemini 모델 자동 저장 중...';
+                geminiApiKeyStatus.className = 'info-message';
+            }
+            vscode.postMessage({ command: 'saveGeminiModel', model: selectedGeminiModel });
+        } catch (e) {
+            console.warn('Failed to autosave Gemini model:', e);
+        }
+    });
+}
+
+// Gemini 모델 저장 버튼 이벤트 리스너
+if (saveGeminiModelButton) {
+    saveGeminiModelButton.addEventListener('click', () => {
+        const selectedGeminiModel = geminiModelSelect.value;
+        if (geminiApiKeyStatus) {
+            geminiApiKeyStatus.textContent = 'Gemini 모델 저장 중...';
+            geminiApiKeyStatus.className = 'info-message';
+        }
+        vscode.postMessage({ command: 'saveGeminiModel', model: selectedGeminiModel });
     });
 }
 
@@ -1237,6 +1270,20 @@ window.addEventListener('message', event => {
             if (aiModelStatus) {
                 aiModelStatus.textContent = `AI 모델 저장 실패: ${message.error}`;
                 aiModelStatus.className = 'error-message';
+            }
+            break;
+        }
+        case 'geminiModelSaved': {
+            if (geminiApiKeyStatus) {
+                geminiApiKeyStatus.textContent = 'Gemini 모델이 저장되었습니다.';
+                geminiApiKeyStatus.className = 'success-message';
+            }
+            break;
+        }
+        case 'geminiModelSaveError': {
+            if (geminiApiKeyStatus) {
+                geminiApiKeyStatus.textContent = `Gemini 모델 저장 실패: ${message.error}`;
+                geminiApiKeyStatus.className = 'error-message';
             }
             break;
         }
@@ -1297,7 +1344,18 @@ window.addEventListener('message', event => {
         }
         case 'currentSettings':
             // console.log('[Settings] Received currentSettings message:', message);
-            // console.log('[Settings] message.ollamaModel:', message.ollamaModel);
+
+            // AI 모델 엔진 설정 처리
+            if (message.aiModel && aiModelSelect) {
+                aiModelSelect.value = message.aiModel;
+                // AI 모델 선택에 따른 섹션 표시 업데이트
+                aiModelSelect.dispatchEvent(new Event('change'));
+            }
+
+            // Gemini 모델 설정 처리
+            if (message.geminiModel && geminiModelSelect) {
+                geminiModelSelect.value = message.geminiModel;
+            }
 
             // 언어 설정 처리
             if (message.language && languageSelect) {
@@ -2242,111 +2300,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('[Settings] DOMContentLoaded - Initial load sequence completed');
 });
-
-// === Planning (Reasoning) Section ===
-(function initPlanningSection() {
-    const planningContainer = document.createElement('div');
-    planningContainer.className = 'section-container';
-    planningContainer.innerHTML = `
-        <h2 id="planning-section-title">🧠 Planning (Reasoning)</h2>
-        <p class="info-message" id="planning-helper">키워드 추출 후 계획(Plan) 생성을 위한 Reasoning 모델을 선택하세요.</p>
-        <div class="api-key-section" id="planning-settings-section">
-            <div class="api-key-input-group">
-                <label for="planning-model-select" style="margin-right:10px; font-weight:bold;">Reasoning 모델</label>
-                <select id="planning-model-select" style="flex-grow:1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;"></select>
-                <button id="save-planning-model-button">모델 저장</button>
-            </div>
-            <p id="planning-model-status" class="info-message"></p>
-        </div>
-    `;
-
-    // 적절한 삽입 위치: Ollama 설정 섹션 바로 아래 배치 시도
-    const settingsRoot = document.body || document.documentElement;
-    settingsRoot.appendChild(planningContainer);
-
-    const planningSelect = document.getElementById('planning-model-select');
-    const planningStatus = document.getElementById('planning-model-status');
-    const planningHelper = document.getElementById('planning-helper');
-    const savePlanningModelButton = document.getElementById('save-planning-model-button');
-
-    function setPlanningStatus(text, cls) {
-        if (!planningStatus) return;
-        planningStatus.textContent = text || '';
-        planningStatus.className = 'info-message' + (cls ? ' ' + cls : '');
-    }
-
-    if (savePlanningModelButton) {
-        savePlanningModelButton.addEventListener('click', () => {
-            if (!planningSelect) return;
-            const model = planningSelect.value || '';
-            if (model && window.vscode) {
-                vscode.postMessage({ command: 'savePlanningModel', model });
-            }
-        });
-    }
-
-    // 메시지 수신 확장: reasoningModels/planningModel 사용
-    window.addEventListener('message', (event) => {
-        const message = event.data || {};
-        if (message.command === 'ollamaModels') {
-            if (Array.isArray(message.reasoningModels) && planningSelect) {
-                planningSelect.innerHTML = '';
-                const def = document.createElement('option');
-                def.value = '';
-                def.textContent = 'Reasoning 모델을 선택하세요';
-                planningSelect.appendChild(def);
-
-                message.reasoningModels.forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    planningSelect.appendChild(opt);
-                });
-
-                // 모델 없을 때 안내
-                if (message.reasoningModels.length === 0) {
-                    if (planningHelper) {
-                        planningHelper.textContent = '로컬 Ollama에 Reasoning 모델이 없습니다. 아래 Ollama 모델 다운로드 섹션에서 적절한 모델을 다운로드하세요.';
-                    }
-                } else {
-                    if (planningHelper) {
-                        planningHelper.textContent = '키워드 추출 후 계획(Plan) 생성을 위한 Reasoning 모델을 선택하세요.';
-                    }
-                }
-
-                // 현재 저장된 planningModel 적용
-                if (typeof message.planningModel === 'string' && message.planningModel) {
-                    const options = Array.from(planningSelect.options).map(o => o.value);
-                    if (options.includes(message.planningModel)) {
-                        planningSelect.value = message.planningModel;
-                    } else {
-                        // 목록에 없으면 앞에 추가
-                        const opt = document.createElement('option');
-                        opt.value = message.planningModel;
-                        opt.textContent = message.planningModel;
-                        planningSelect.insertBefore(opt, planningSelect.firstChild);
-                        planningSelect.value = message.planningModel;
-                    }
-                }
-            }
-        } else if (message.command === 'planningModelSaved') {
-            setPlanningStatus(`Planning 모델이 저장되었습니다: ${message.model}`, 'success-message');
-        } else if (message.command === 'planningModelSaveError') {
-            setPlanningStatus(`Planning 모델 저장 실패: ${message.error}`, 'error-message');
-        } else if (message.command === 'currentSettings') {
-            // 초기 로드 시 planningModel만 반영 (reasoningModels는 별도 ollamaModels에서 옴)
-            if (planningSelect && typeof message.planningModel === 'string' && message.planningModel) {
-                const options = Array.from(planningSelect.options).map(o => o.value);
-                if (options.includes(message.planningModel)) {
-                    planningSelect.value = message.planningModel;
-                } else if (message.planningModel) {
-                    const opt = document.createElement('option');
-                    opt.value = message.planningModel;
-                    opt.textContent = message.planningModel;
-                    planningSelect.insertBefore(opt, planningSelect.firstChild);
-                    planningSelect.value = message.planningModel;
-                }
-            }
-        }
-    });
-})();

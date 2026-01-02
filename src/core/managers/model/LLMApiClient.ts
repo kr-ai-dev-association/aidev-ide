@@ -27,7 +27,7 @@ export class LLMApiClient {
     constructor(
         geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
-        initialModelType: AiModelType = AiModelType.GEMINI
+        initialModelType: AiModelType = AiModelType.OLLAMA
     ) {
         this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
@@ -136,7 +136,7 @@ export class LLMApiClient {
      */
     public async getCurrentModelName(): Promise<string> {
         if (this.currentModelType === AiModelType.GEMINI) {
-            return 'gemini-pro';
+            return this.geminiApi.getModelName();
         } else {
             await this.ollamaApi.loadSettingsFromStorage();
             return this.ollamaApi.getModel() || 'unknown';

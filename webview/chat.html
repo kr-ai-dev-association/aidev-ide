@@ -238,6 +238,15 @@
             border-color: var(--vscode-focusBorder);
         }
 
+        .dropdown-option:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .dropdown-option.selected {
+            background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
         .dropdown-icon {
             font-size: 16px;
             opacity: 0.7;
@@ -340,7 +349,7 @@
             flex-shrink: 0;
         }
 
-        .aidev-ide-message-container {
+        .codepilot-message-container {
             margin-bottom: 15px;
             display: flex;
             flex-direction: column;
@@ -516,7 +525,7 @@
             z-index: 2;
         }
 
-        .aidev-ide-message-container:hover .copy-code-button,
+        .codepilot-message-container:hover .copy-code-button,
         .message-bubble:hover .copy-code-button {
             opacity: 1;
         }
@@ -967,10 +976,10 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             z-index: 1000;
             display: flex;
-            alignItems: center;
+            align-items: center;
             gap: 8px;
-            fontSize: 14px;
-            fontWeight: 500;
+            font-size: 14px;
+            font-weight: 500;
             border: 1px solid var(--vscode-button-border);
         }
 
