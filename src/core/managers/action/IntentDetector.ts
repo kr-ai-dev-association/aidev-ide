@@ -30,7 +30,6 @@ export interface IntentDetectionResult {
     subtype: IntentSubtype;
     taskType: TaskType;
     confidence: number;
-    keywords: string[];
     reasoning: string;
 }
 
@@ -87,7 +86,7 @@ export class IntentDetector {
      * 사용자 쿼리에서 의도를 감지합니다.
      */
     public async detectIntent(userQuery: string, options?: { modelName?: string }): Promise<IntentDetectionResult> {
-        // 1. LLM을 통한 의도 판별 (Primary & Only)
+        // 1. LLM을 통한 의도 판별 (Only)
         try {
             // 현재 활성화된 모델을 사용하여 의도 파악
             const llmRaw = await this.queryLLMForIntent(userQuery);
@@ -100,7 +99,6 @@ export class IntentDetector {
                     subtype: subtype,
                     taskType: taskType,
                     confidence: llmRaw.confidence,
-                    keywords: [],
                     reasoning: llmRaw.reasoning
                 };
 
@@ -117,7 +115,6 @@ export class IntentDetector {
             subtype: 'analysis_function',
             taskType: 'analysis',
             confidence: 0.1,
-            keywords: [],
             reasoning: 'LLM 의도 판별 실패로 인한 기본값 사용.'
         };
     }

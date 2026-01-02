@@ -471,9 +471,6 @@ export class ContextManager {
         lines.push(`세부 유형: ${intent.subtype}`);
         lines.push(`작업 유형: ${intent.taskType}`);
         lines.push(`신뢰도: ${(intent.confidence * 100).toFixed(0)}%`);
-        if (intent.keywords && intent.keywords.length > 0) {
-            lines.push(`매칭 키워드: ${intent.keywords.join(', ')}`);
-        }
         if (intent.reasoning) {
             lines.push(`근거: ${intent.reasoning}`);
         }

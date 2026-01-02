@@ -6,16 +6,21 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.1.1 (True LLM-Only Intent & Bug Fixes)
+- **True LLM-Only Intent Detection**: Completely removed `keywords` dependency from the intent analysis pipeline. The system now relies 100% on LLM reasoning for classification without any heuristic keyword matching.
+- **UI Simplification**: Removed the redundant "Keyword Analysis" step from the processing steps UI for a faster and cleaner agentic flow.
+- **Intent Engine Stability**: Fixed critical compilation errors in the `IntentDetector` by restoring subtype-to-category mapping logic.
+
 ## v6.1.0 (UI Refinement & Unified Intent Detection)
 - **Model Selection UI Refinement**: Added visual color bars (Gemini: Blue, Ollama: Orange) to the chat model dropdown for better differentiation and consistent styling.
-- **Unified Intent Detection Engine**: Refactored `IntentDetector` to use the currently active LLM (Gemini or Ollama), ensuring that if Gemini is selected, it is also used for intent classification, preventing unnecessary Ollama calls and errors.
+- **LLM-Only Intent Detection Engine**: Refactored `IntentDetector` to rely 100% on the currently active LLM (Gemini or Ollama) for intent classification, removing all hardcoded keyword matching and heuristic fallbacks.
 - **Branding Consistency (CODEPILOT)**: Standardized branding to "CODEPILOT" across the chat panel, settings UI, and localization files.
 - **Gemini Model Optimization**: Updated the default Gemini model to `gemini-3-pro-preview` and refined selection options.
 - **Responsive UI Layout**: Fixed layout issues in the settings panel where dropdowns would not expand correctly on narrower screens.
 - **Simplified Features**: Removed the unused "Planning (Reasoning)" feature to provide a cleaner and more focused user experience.
 
-## v6.0.0 (LLM-First Intent & Intelligent Error Handling)
-- **LLM-First Intent Detection**: Completely removed hardcoded keyword matching in favor of LLM-driven intent classification for higher accuracy and flexibility.
+## v6.0.0 (LLM-Only Intent & Intelligent Error Handling)
+- **LLM-Only Intent Detection**: Completely removed hardcoded keyword matching in favor of 100% LLM-driven intent classification for higher accuracy and flexibility.
 - **Intelligent Repeated Failure Detection**: Implemented logic to detect and alert the LLM when the same tool fails repeatedly, providing specific guidance (e.g., checking file existence) to encourage self-correction.
 - **Enhanced UI Localization**: Replaced raw English tool names with user-friendly Korean labels in the process steps UI.
 - **Improved Task Queue Visibility**: Fixed rendering issues where the task queue popup was hidden or non-interactive in the webview.

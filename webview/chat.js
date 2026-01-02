@@ -107,7 +107,7 @@ function setProcessingStep(stepName) {
     }
 
     // 이전 단계들을 완료로 표시
-    const stepOrder = ['systems', 'intent', 'keywords', 'plan', 'thinking', 'analyzing', 'assembling', 'executing', 'parsing', 'file_processing', 'printing'];
+    const stepOrder = ['systems', 'intent', 'plan', 'thinking', 'analyzing', 'assembling', 'executing', 'parsing', 'file_processing', 'printing'];
     const currentIndex = stepOrder.indexOf(stepName);
     for (let i = 0; i < currentIndex; i++) {
         const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);
@@ -199,7 +199,7 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
 
 function resetProcessingStatuses() {
     processingStepsArray = [];
-    const statuses = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+    const statuses = ['intent', 'analyzing', 'assembling', 'parsing', 'printing'];
     statuses.forEach(step => {
         const statusElement = document.getElementById(`${step}-status`);
         if (statusElement) {

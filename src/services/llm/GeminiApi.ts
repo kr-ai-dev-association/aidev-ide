@@ -251,7 +251,7 @@ export class GeminiApi {
             console.log('Banya Response (sendMessage):', text);
             return text;
         } catch (error: any) {
-            console.error('Error calling AIDEV-IDE API (sendMessage):', error);
+            console.error('Error calling CODEPILOT API (sendMessage):', error);
             console.error('API Key present:', !!this.apiKey);
             console.error('API Key length:', this.apiKey?.length || 0);
             console.error('Is initialized:', this.isInitialized());
@@ -336,7 +336,7 @@ export class GeminiApi {
 
             const response = result.response;
             if (response.promptFeedback && response.promptFeedback.blockReason) {
-                console.warn(`AIDEV-IDE API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
+                console.warn(`CODEPILOT API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
                 throw new Error(`Response was blocked by safety settings. Reason: ${response.promptFeedback.blockReason}. Please adjust your prompt or safety settings.`);
             }
             const text = response.text();
@@ -345,7 +345,7 @@ export class GeminiApi {
             return text;
 
         } catch (error: any) {
-            console.error('Error calling AIDEV-IDE API (sendMessageWithSystemPrompt):', error);
+            console.error('Error calling CODEPILOT API (sendMessageWithSystemPrompt):', error);
             console.error('API Key present:', !!this.apiKey);
             console.error('API Key length:', this.apiKey?.length || 0);
             console.error('Is initialized:', this.isInitialized());
@@ -388,10 +388,10 @@ export class GeminiApi {
             }
             // Common explicit causes
             if (error.message.includes('quota') || error.message.includes('Quota')) {
-                return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
+                return "Error: CODEPILOT API quota exceeded. Please check your CODEPILOT License detail.";
             }
             if (error.message.includes('Billing account not found')) {
-                return "Error: Billing account not found or not associated with the project. Please check your AIDEV-IDE payment account.";
+                return "Error: Billing account not found or not associated with the project. Please check your CODEPILOT payment account.";
             }
             if (error.message.includes('LOCATION_INVALID')) {
                 return "Error: Invalid location or model not available in the region. Please check model availability.";
@@ -435,9 +435,9 @@ export class GeminiApi {
             if (lowerMsg.includes('internal') || lowerMsg.includes('server error') || lowerMsg.includes('500')) {
                 return 'Error: Upstream server error. Please try again later.';
             }
-            return `Error communicating with AIDEV-IDE API: AIDEV-IDE agent orchestration service aborted LLM calling`;
+            return `Error communicating with CODEPILOT: CODEPILOT agent orchestration service aborted LLM calling`;
         }
-        return "Error: An unknown error occurred while communicating with the AIDEV-IDE API.";
+        return "Error: An unknown error occurred while communicating with the CODEPILOT.";
     }
 
     /**
