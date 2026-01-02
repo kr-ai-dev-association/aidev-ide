@@ -84,6 +84,22 @@ export class ToolSpecBuilder {
             });
         }
 
+        // ripgrep_search
+        if (!allowedTools || allowedTools.includes(Tool.RIPGREP_SEARCH)) {
+            specs.push({
+                name: Tool.RIPGREP_SEARCH,
+                description: 'ripgrep(rg)을 사용하여 고성능으로 파일 내용을 검색합니다. 대규모 프로젝트에서 매우 빠릅니다.',
+                parameters: [
+                    { name: 'pattern', required: true, description: '검색할 정규식 또는 키워드', type: 'string' },
+                    { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
+                    { name: 'include', required: false, description: '포함할 파일 패턴 (쉼표로 구분)', type: 'string' },
+                    { name: 'exclude', required: false, description: '제외할 파일 패턴 (쉼표로 구분)', type: 'string' },
+                    { name: 'caseSensitive', required: false, description: '대소문자 구분 여부 (true/false)', type: 'string' },
+                    { name: 'contextLines', required: false, description: '주변 컨텍스트 라인 수 (기본: 2)', type: 'string' }
+                ]
+            });
+        }
+
         // run_command
         if (!allowedTools || allowedTools.includes(Tool.RUN_COMMAND)) {
             specs.push({
@@ -112,7 +128,8 @@ export class ToolSpecBuilder {
         prompt += '5. **JSON 형식을 절대 사용하지 마세요.** 응답은 순수 텍스트와 XML이어야 합니다.\n';
         prompt += '6. **마크다운 코드 블록(```)을 절대 사용하지 마세요.** 모든 코드는 XML 도구 내부에 있어야 합니다.\n';
         prompt += '7. **수정 범위가 넓거나 복잡한 경우**: `update_file` 대신 `create_file`을 사용하여 파일 전체 내용을 새로 작성하세요. 특히 한 번의 응답에서 여러 파일을 다루는 경우 이것이 훨씬 안전합니다.\n';
-        prompt += '8. **도구 호출 시 중복된 설명을 피하세요.** "파일을 생성합니다"라고 말하고 <create_file>을 하는 대신, 필요한 경우 짧은 설명만 곁들이세요.\n\n';
+        prompt += '8. **도구 호출 시 텍스트 설명을 생략하세요.** "파일을 생성합니다"와 같은 말 없이 즉시 XML 도구를 출력하세요. 도구 호출이 포함된 응답에서 텍스트 요약은 불필요한 토큰만 낭비합니다.\n';
+        prompt += '9. **최종 요약은 마지막에만**: 모든 도구 실행 결과가 수집된 후, 마지막 턴에서만 한국어로 상세 요약을 제공하세요.\n\n';
 
         prompt += '### 도구 목록\n\n';
 

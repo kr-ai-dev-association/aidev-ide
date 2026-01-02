@@ -245,7 +245,7 @@ export class ConversationManager {
                 { signal: abortSignal }
             );
 
-            console.log(`[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`, llmResponse);
+            console.log(`[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`, llmResponse.length > 500 ? llmResponse.substring(0, 500) + '...' : llmResponse);
 
             // 1. 응답 정제 (<think> 태그 및 JSON 래핑 처리)
             let cleanResponse = llmResponse.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -541,6 +541,7 @@ export class ConversationManager {
             'analyze_code': '코드 분석',
             'verify_code': '코드 검증',
             'refactor_code': '리팩토링',
+            'ripgrep_search': '고성능 키워드 검색',
             'task_progress': '진행 상황 업데이트',
             'plan': '계획 수립'
         };
@@ -615,6 +616,9 @@ export class ConversationManager {
                         break;
                     case 'search_files':
                         displayMsg = `🔍 [Searched] ${params.pattern || params.query || ''}`;
+                        break;
+                    case 'ripgrep_search':
+                        displayMsg = `🚀 [Ripgrep] ${params.pattern || ''}`;
                         break;
                     case 'run_command':
                         displayMsg = `🚀 [Executed] ${command}`;

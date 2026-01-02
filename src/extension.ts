@@ -38,6 +38,7 @@ import {
     ReadFileToolHandler,
     ListFilesToolHandler,
     SearchFilesToolHandler,
+    RipgrepSearchToolHandler,
 } from './core/tools/file';
 import { RunCommandToolHandler } from './core/tools/terminal';
 
@@ -381,6 +382,7 @@ export async function activate(context: vscode.ExtensionContext) {
     toolRegistry.register(new ReadFileToolHandler());
     toolRegistry.register(new ListFilesToolHandler());
     toolRegistry.register(new SearchFilesToolHandler());
+    toolRegistry.register(new RipgrepSearchToolHandler());
     toolRegistry.register(new RunCommandToolHandler());
     console.log('[Extension] Tool handlers registered:', toolRegistry.getRegisteredTools());
 

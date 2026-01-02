@@ -6,6 +6,16 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.2.0 (High-Performance Search & Token Efficiency)
+- **Ripgrep-Powered Fast Search**: Added `ripgrep_search` tool for high-speed keyword and regex searching in large codebases.
+- **Contextual Results**: Search results now include multi-line code context (before/after matching lines) with pipe separators for better LLM understanding.
+- **Token Usage Optimization**: 
+  - Prohibited intermediate text summaries during tool calls to save tokens and improve speed. 
+  - Detailed Korean summaries are now only provided at the final turn of the task.
+- **Improved JSONC Parsing**: Added support for comments and trailing commas in configuration files (e.g., `tsconfig.json`, `jsconfig.json`) using a custom JSONC cleaner.
+- **Gemini Plan Parsing Fix**: Added explicit prompt instructions to prevent Gemini from using numbered lists in plans, enforcing the required XML structure.
+- **Log Management**: Truncated long LLM responses and removed redundant logging in the console to improve developer experience.
+
 ## v6.1.1 (True LLM-Only Intent & Bug Fixes)
 - **True LLM-Only Intent Detection**: Completely removed `keywords` dependency from the intent analysis pipeline. The system now relies 100% on LLM reasoning for classification without any heuristic keyword matching.
 - **UI Simplification**: Removed the redundant "Keyword Analysis" step from the processing steps UI for a faster and cleaner agentic flow.

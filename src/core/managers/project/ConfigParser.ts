@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { cleanJsonContent } from '../../../utils/string';
 import {
     ConfigFile,
     BuildCommands,
@@ -26,13 +27,13 @@ export class ConfigParser {
 
             // 파일 타입 결정
             if (fileName === 'package.json') {
-                parsed = JSON.parse(content);
+                parsed = JSON.parse(cleanJsonContent(content));
                 type = 'package';
             } else if (fileName === 'pom.xml' || fileName === 'build.gradle') {
                 type = 'build';
                 // XML/Gradle 파싱은 간단하게 (나중에 개선 가능)
             } else if (fileName === 'tsconfig.json' || fileName === 'jsconfig.json') {
-                parsed = JSON.parse(content);
+                parsed = JSON.parse(cleanJsonContent(content));
                 type = 'config';
             } else if (fileName === '.env' || fileName.startsWith('.env.')) {
                 type = 'env';

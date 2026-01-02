@@ -443,23 +443,53 @@ export class FileSearcher {
     /**
      * 검색 결과 하이라이트
      */
-    public highlightMatches(content: string, matches: Match[]): string {
-        let highlighted = content;
-        const sortedMatches = [...matches].sort((a, b) => b.line - a.line); // 역순 정렬
-
-        for (const match of sortedMatches) {
-            const lines = highlighted.split('\n');
-            if (lines[match.line - 1]) {
-                // 간단한 하이라이트 (마크다운 형식)
-                lines[match.line - 1] = lines[match.line - 1].replace(
-                    match.content,
-                    `**${match.content}**`
-                );
-            }
-            highlighted = lines.join('\n');
+    /**
+     * 검색 결과를 Cline 스타일로 포맷팅합니다.
+     */
+    public formatResults(results: SearchResult[], projectRoot: string): string {
+        if (results.length === 0) {
+            return "No matches found.";
         }
 
-        return highlighted;
+        let output = `Found ${results.length} files with matches.\n\n`;
+        const MAX_RESULTS_DISPLAY = 50; // 너무 많은 결과는 LLM 컨텍스트를 과도하게 소모하므로 제한
+
+        results.slice(0, MAX_RESULTS_DISPLAY).forEach((result) => {
+            const relativePath = path.relative(projectRoot, result.file);
+            output += `${relativePath}\n`;
+            output += `│----\n`;
+
+            result.matches.forEach((match, index) => {
+                // 이전 컨텍스트
+                if (match.context?.before) {
+                    match.context.before.forEach(line => {
+                        output += `│${line}\n`;
+                    });
+                }
+
+                // 매치된 라인
+                output += `│${match.content} (Line ${match.line})\n`;
+
+                // 이후 컨텍스트
+                if (match.context?.after) {
+                    match.context.after.forEach(line => {
+                        output += `│${line}\n`;
+                    });
+                }
+
+                if (index < result.matches.length - 1) {
+                    output += `│----\n`;
+                }
+            });
+
+            output += `│----\n\n`;
+        });
+
+        if (results.length > MAX_RESULTS_DISPLAY) {
+            output += `... and ${results.length - MAX_RESULTS_DISPLAY} more files. Use a more specific pattern if needed.`;
+        }
+
+        return output;
     }
 }
 

@@ -28,7 +28,8 @@ export enum Tool {
     RUN_COMMAND = 'run_command',           // 기존 TERMINAL_COMMAND와 매핑
     ANALYZE_CODE = 'analyze_code',          // 기존 ANALYSIS와 매핑
     VERIFY_CODE = 'verify_code',            // 기존 VERIFICATION과 매핑
-    REFACTOR_CODE = 'refactor_code'         // 기존 REFACTOR와 매핑
+    REFACTOR_CODE = 'refactor_code',        // 기존 REFACTOR와 매핑
+    RIPGREP_SEARCH = 'ripgrep_search'       // Ripgrep 기반 빠른 검색
 }
 
 /**

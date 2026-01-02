@@ -40,10 +40,12 @@ export class SearchFilesToolHandler implements IToolHandler {
             maxResults: toolUse.params.maxResults ? parseInt(toolUse.params.maxResults) : 100
         });
 
+        const formattedResults = searcher.formatResults(results, context.projectRoot);
+
         return {
             success: true,
             message: `Found ${results.length} matches`,
-            data: { results }
+            data: { results: formattedResults }
         };
     }
 

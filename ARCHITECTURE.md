@@ -176,7 +176,8 @@ src/
 │   │   │   ├── RemoveFileToolHandler.ts # v5.2.0: 삭제 안전 규칙 적용
 │   │   │   ├── ReadFileToolHandler.ts
 │   │   │   ├── ListFilesToolHandler.ts  # v5.2.0: 지능형 경로 필터링 추가
-│   │   │   └── SearchFilesToolHandler.ts
+│   │   │   ├── SearchFilesToolHandler.ts
+│   │   │   └── RipgrepSearchToolHandler.ts # v6.2.0: 고성능 키워드 검색 및 Cline 스타일 결과 포맷 도입
 │   │   ├── terminal/                # 터미널/명령 실행 툴
 │   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 지원
 │   │   └── code/                    # 코드 분석/리팩토링 툴
@@ -193,7 +194,7 @@ src/
 **역할**: AI가 코드를 수정하기 전 프로젝트 상태를 분석하는 '조사' 단계를 관리합니다.
 
 **책임**:
-- **읽기 전용 도구 제한**: 조사 단계에서 `read_file`, `list_files`, `search_files` 외의 도구 호출 차단.
+- **읽기 전용 도구 제한**: 조사 단계에서 `read_file`, `list_files`, `search_files`, `ripgrep_search` 외의 도구 호출 차단.
 - **단계 전환 관리**: 반드시 유효한 XML `<plan>`이 수립되어야만 '실행' 단계로의 전환 허용.
 - **조사 전용 지침 제공**: "Sherlock Holmes for Code" 역할을 LLM에게 부여하여 팩트 기반 분석 유도.
 

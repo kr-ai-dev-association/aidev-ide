@@ -146,7 +146,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         // 1. 요청 로직을 별도 Promise로 분리
         const rawResponse = await this.makeHttpRequest(url, requestData, options);
 
-        console.log('[OllamaApi] Raw response received:', JSON.stringify(rawResponse).substring(0, 500) + '...');
+        console.log('[OllamaApi] Raw response received:', JSON.stringify(rawResponse).length > 500 ? JSON.stringify(rawResponse).substring(0, 500) + '...' : JSON.stringify(rawResponse));
 
         // 2. 응답 데이터 추출 (다양한 포맷 대응)
         const responseContent = this.parseResponseFormat(rawResponse);

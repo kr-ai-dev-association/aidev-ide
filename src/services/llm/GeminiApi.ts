@@ -248,7 +248,6 @@ export class GeminiApi {
             const result = await this.model.generateContent(request, options);
             const response = result.response;
             const text = response.text();
-            console.log('Banya Response (sendMessage):', text);
             return text;
         } catch (error: any) {
             console.error('Error calling CODEPILOT API (sendMessage):', error);
@@ -270,14 +269,6 @@ export class GeminiApi {
     // <-- 수정: sendMessageWithSystemPrompt 메서드에서 webSearch 기능 제거 -->
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
-        console.log('[GeminiApi] sendMessageWithSystemPrompt called', {
-            systemInstructionLength: systemInstructionText?.length || 0,
-            userPartsCount: userParts?.length || 0,
-            isInitialized: this.isInitialized(),
-            hasApiKey: !!this.apiKey,
-            apiKeyLength: this.apiKey?.length || 0
-        });
-
         // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
             console.warn('[GeminiApi] API not initialized, checking API key...', {
@@ -340,8 +331,6 @@ export class GeminiApi {
                 throw new Error(`Response was blocked by safety settings. Reason: ${response.promptFeedback.blockReason}. Please adjust your prompt or safety settings.`);
             }
             const text = response.text();
-            // console.log('Banya Response (sendMessageWithSystemPrompt):', text);
-            console.log('Banya Response (sendMessageWithSystemPrompt):', text);
             return text;
 
         } catch (error: any) {
