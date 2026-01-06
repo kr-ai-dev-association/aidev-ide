@@ -336,6 +336,13 @@ export class ConversationManager {
                         // 도구 호출이 없으면 (이미 완료되었거나 요약만 출력한 경우) 해당 plan item을 완료 처리하고 다음으로 넘어감
                         console.log('[ConversationManager] No tool calls in plan-based execution. Marking current plan item as done and moving to next.');
 
+                        // 요약 텍스트를 UI에 출력
+                        const summaryText = this.extractResponseText(cleanResponse);
+                        if (summaryText && summaryText.trim()) {
+                            WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', summaryText);
+                            accumulatedUserParts.push({ text: llmResponse });
+                        }
+
                         if (currentPlanItem) {
                             // 이미 작업이 완료되었다고 판단하고 plan item을 완료 처리
                             taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
@@ -345,7 +352,6 @@ export class ConversationManager {
                         // 다음 계획 항목이 있으면 계속, 없으면 종료
                         const nextItem = taskManager.getNextPendingItem();
                         if (nextItem) {
-                            // 요약 텍스트는 누적하지 않고 다음 항목으로 넘어감
                             turnCount++;
                             continue;
                         } else {
@@ -647,13 +653,17 @@ export class ConversationManager {
             // EXECUTION phase에서 도구 호출 없이 요약만 출력한 경우, 현재 plan item을 완료 처리하고 다음으로 넘어감
             if (currentPhase === AgentPhase.EXECUTION && currentPlanItem && totalToolCalls.length === 0 && totalResponseText.length > 10) {
                 console.log('[ConversationManager] EXECUTION phase: No tool calls but summary text received. Marking current plan item as done.');
+
+                // 요약 텍스트를 UI에 출력
+                WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', totalResponseText);
+                accumulatedUserParts.push({ text: llmResponse });
+
                 taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
                 WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
 
                 // 다음 계획 항목이 있으면 계속, 없으면 종료
                 const nextItem = taskManager.getNextPendingItem();
                 if (nextItem) {
-                    // 요약 텍스트는 누적하지 않고 다음 항목으로 넘어감
                     turnCount++;
                     continue;
                 } else {
