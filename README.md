@@ -6,6 +6,12 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.4.0 (Investigation Phase Strengthening & UI Improvements)
+- **Enhanced Investigation Phase Prompts**: Strengthened prompts to strictly prohibit including execution tools (`<create_file>`, `<update_file>`, etc.) alongside `<plan>` tags in the same response. The investigation phase now clearly instructs to use only read-only tools and submit plans only.
+- **Task Plan Popup UI Improvement**: Fixed the issue where task titles and details were displayed on the same line in the task plan popup. Titles and details are now displayed on separate lines for improved readability.
+- **Verification Step-by-Step Status Display**: Real-time display of code verification (Smoke Test, Lint Check) progress. Each step (project type detection, Smoke Test execution, Lint Check execution) is shown in `processSteps` so users can clearly track the verification process.
+- **REVIEW Phase LLM Call Optimization**: Fixed the issue where the LLM was called twice during summary generation in the REVIEW phase. `generateVerifiedSummary` now only calls the LLM when there is no original summary, optimizing it to a single call.
+
 ## v6.3.0 (Lightweight FSM & Plan-First Architecture)
 - **Lightweight FSM Implementation**: Introduced `AgentStateManager` for centralized state management with strict transition rules and output contracts.
 - **State Transition Validation**: Enforces valid state transitions (INVESTIGATION → EXECUTION) with pre-transition condition checks.

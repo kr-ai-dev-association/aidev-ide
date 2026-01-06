@@ -223,6 +223,43 @@
             font-size: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
+            position: relative;
+        }
+
+        /* CODE/ASK 색상 포인트 */
+        #mode-selector::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background-color: #4CAF50;
+            /* CODE 기본 색상 (녹색) */
+            border-radius: 5px 0 0 5px;
+        }
+
+        #mode-selector[data-mode="ASK"]::before {
+            background-color: #2196F3;
+            /* ASK 색상 (파란색) */
+        }
+
+        /* 모델 선택 버튼 색상 포인트 */
+        #model-selector::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background-color: #f68537;
+            /* Ollama 기본 색상 (주황색) */
+            border-radius: 5px 0 0 5px;
+        }
+
+        #model-selector[data-model-type="gemini"]::before {
+            background-color: #4285f4;
+            /* Gemini 색상 (파란색) */
         }
 
         .dropdown-icon-img {
@@ -1249,6 +1286,27 @@
             font-size: 14px;
         }
 
+        .task-info {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            gap: 4px;
+        }
+
+        .task-title {
+            font-weight: 500;
+            color: var(--vscode-foreground);
+            line-height: 1.4;
+        }
+
+        .task-detail {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.4;
+            margin-top: 2px;
+            padding-left: 0;
+        }
+
         /* 상태별 텍스트 아이콘 */
         .status-text.pending {
             opacity: 0.6;
@@ -1442,12 +1500,14 @@
                     <img src="{{dropdownIconUri}}" class="dropdown-icon-img" alt="dropdown" />
                 </button>
                 <div id="mode-dropdown" class="hidden"
-                    style="display:none; position:absolute; margin-top:38px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
-                    <div class="dropdown-option" data-mode="CODE" style="padding:6px 10px; cursor:pointer;">CODE</div>
-                    <div class="dropdown-option" data-mode="ASK" style="padding:6px 10px; cursor:pointer;">ASK</div>
+                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
+                    <div class="dropdown-option" data-mode="CODE"
+                        style="padding:6px 10px; cursor:pointer; border-left: 3px solid #4CAF50;">CODE</div>
+                    <div class="dropdown-option" data-mode="ASK"
+                        style="padding:6px 10px; cursor:pointer; border-left: 3px solid #2196F3;">ASK</div>
                 </div>
                 <div id="model-dropdown" class="hidden"
-                    style="display:none; position:absolute; margin-top:38px; left: 110px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
+                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
                 </div>
             </div>
 
@@ -1515,6 +1575,10 @@
                 const normalized = mode === 'ASK' ? 'ASK' : 'CODE';
                 window.chatMode = normalized;
                 modeLabel.textContent = normalized;
+                // 모드에 따라 버튼의 data-mode 속성 설정 (색상 포인트용)
+                if (modeBtn) {
+                    modeBtn.setAttribute('data-mode', normalized);
+                }
                 window.dispatchEvent(new Event('chat-mode-changed'));
             };
 
@@ -2097,11 +2161,11 @@
                             key: 'info',
                             className: 'task-info'
                         }, [
-                            React.createElement('span', {
+                            React.createElement('div', {
                                 key: 'title',
                                 className: 'task-title'
                             }, `${index + 1}. ${task.title}`),
-                            task.detail && !isMinimized && React.createElement('span', {
+                            task.detail && !isMinimized && React.createElement('div', {
                                 key: 'detail',
                                 className: 'task-detail'
                             }, task.detail)

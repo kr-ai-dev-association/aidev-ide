@@ -12,9 +12,15 @@ import { TerminalManager } from '../terminal/TerminalManager';
 import { Tool } from '../../tools/types';
 import { IntentDetector } from '../action/IntentDetector';
 import { ProjectManager } from '../project/ProjectManager';
+import { ProjectDetector } from '../project/ProjectDetector';
+import { ProjectType } from '../project/types';
 import { InvestigationManager } from '../investigation/InvestigationManager';
+import { SettingsManager } from '../state/SettingsManager';
 import { AiModelType, OllamaApi, GeminiApi } from '../../../services';
 import { AgentStateManager, AgentPhase } from './AgentStateManager';
+import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
+import * as path from 'path';
 
 export interface ConversationOptions {
     userQuery: string;
@@ -176,6 +182,8 @@ export class ConversationManager {
         const maxTurns = 15;
         let turnCount = 0;
         let accumulatedUserParts = [...userParts];
+        let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
+        const maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount(); // 설정에서 최대 시도 횟수 가져오기
 
         const taskManager = TaskManager.getInstance();
         const actionManager = ActionManager.getInstance();
@@ -196,6 +204,12 @@ export class ConversationManager {
         let toolCallsFromPlanCreation: any[] = [];
         let hasInvestigationHistory = false; // 조사 이력 추적
 
+        // 파일 변경 추적 (요약 검증용)
+        const createdFiles: string[] = [];
+        const modifiedFiles: string[] = [];
+
+        let investigationTextOnlyCount = 0; // INVESTIGATION에서 텍스트만 출력한 횟수 추적
+
         while (turnCount < maxTurns) {
             if (abortSignal?.aborted) break;
 
@@ -211,6 +225,56 @@ export class ConversationManager {
             // FSM에서 현재 상태 가져오기
             const currentPhase = stateManager.getCurrentState();
             const statusPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
+
+            // REVIEW 또는 DONE 단계는 LLM 호출 없이 시스템이 처리
+            if (currentPhase === AgentPhase.REVIEW) {
+                console.log('[ConversationManager] REVIEW phase: Generating summary and transitioning to DONE.');
+                const currentProject = ProjectManager.getInstance().getCurrentProject();
+                const workspaceRoot = currentProject?.root || '';
+
+                // 페이즈별 프롬프트 보정 (REVIEW 단계용)
+                let activeSystemPrompt = systemPrompt;
+
+                // 요약 생성 (파일이 생성/수정된 경우)
+                // 단, LLM 호출은 1회만 수행 (generateVerifiedSummary 내부에서 파일 검증 후 요약 생성)
+                if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+                    // 실제 파일 목록을 확인하여 검증된 요약 생성 (LLM 호출 1회)
+                    const verifiedSummary = await this.generateVerifiedSummary(
+                        '', // 원본 요약 없음 (시스템이 직접 생성)
+                        createdFiles,
+                        modifiedFiles,
+                        workspaceRoot,
+                        activeSystemPrompt,
+                        accumulatedUserParts,
+                        abortSignal
+                    );
+
+                    // 요약이 생성되었으면 UI에 출력
+                    if (verifiedSummary && verifiedSummary.trim()) {
+                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', verifiedSummary);
+                    } else {
+                        // 요약 생성 실패 시 기본 메시지 출력
+                        const defaultSummary = `작업이 완료되었습니다.\n\n` +
+                            (createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}\n` : '') +
+                            (modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}\n` : '');
+                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', defaultSummary);
+                    }
+                } else {
+                    // 파일 변경이 없으면 기본 완료 메시지
+                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', '작업이 완료되었습니다.');
+                }
+
+                // REVIEW 완료 후 DONE으로 전환
+                stateManager.transitionTo(AgentPhase.DONE);
+                console.log('[ConversationManager] REVIEW completed, transitioning to DONE.');
+                break; // DONE은 최종 상태이므로 루프 종료
+            }
+
+            if (currentPhase === AgentPhase.DONE) {
+                console.log('[ConversationManager] DONE phase: All work completed.');
+                break; // 이미 완료 상태이므로 루프 종료
+            }
+
             const phaseLabel = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
             const actionText = currentPhase === AgentPhase.INVESTIGATION ? '조사 및 분석' : '작업 진행';
             WebviewBridge.sendProcessingStep(webviewToRespond, 'thinking');
@@ -258,6 +322,10 @@ export class ConversationManager {
                     });
 
                     this.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromPlanCreation, toolResults);
+
+                    // 파일 변경 추적 (요약 검증용)
+                    this.trackFileChanges(toolCallsFromPlanCreation, toolResults, createdFiles, modifiedFiles);
+
                     const resultSummary = this.createToolResultSummary(turnCount, toolCallsFromPlanCreation, toolResults);
 
                     if (this.hasSideEffects(toolCallsFromPlanCreation, toolResults)) {
@@ -267,7 +335,7 @@ export class ConversationManager {
                         }
                     }
 
-                    // 다음 계획 항목이 있으면 계속, 없으면 종료
+                    // 다음 계획 항목이 있으면 계속, 없으면 EXECUTION 완료 → REVIEW로 전환
                     const nextItem = taskManager.getNextPendingItem();
                     if (nextItem) {
                         accumulatedUserParts.push({ text: resultSummary });
@@ -275,8 +343,36 @@ export class ConversationManager {
                         turnCount++;
                         continue;
                     } else {
-                        console.log('[ConversationManager] All plan items completed. Breaking loop.');
-                        break;
+                        console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
+                        const currentProject = ProjectManager.getInstance().getCurrentProject();
+                        const workspaceRoot = currentProject?.root || '';
+                        const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                        if (testResult.success) {
+                            // 테스트 통과 → REVIEW로 전환
+                            console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                            stateManager.transitionTo(AgentPhase.REVIEW);
+                            turnCount++;
+                            continue; // 다음 루프에서 REVIEW 처리
+                        } else {
+                            // 테스트 실패 시 에러 메시지를 컨텍스트에 추가하고 EXECUTION 유지
+                            if (testFixAttempts < maxTestFixAttempts) {
+                                testFixAttempts++;
+                                console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                accumulatedUserParts.push({
+                                    text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                });
+                                turnCount++;
+                                continue; // EXECUTION 단계 유지하여 수정 시도
+                            } else {
+                                console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                // 실패해도 REVIEW로 전환하여 요약 생성
+                                stateManager.transitionTo(AgentPhase.REVIEW);
+                                turnCount++;
+                                continue;
+                            }
+                        }
                     }
                 } else {
                     // plan 생성 시 도구 호출이 없으면, plan의 첫 번째 항목을 기반으로 한 번만 LLM 호출
@@ -312,6 +408,10 @@ export class ConversationManager {
                         });
 
                         this.sendToolExecutionResultsToUI(webviewToRespond, toolCalls, toolResults);
+
+                        // 파일 변경 추적 (요약 검증용)
+                        this.trackFileChanges(toolCalls, toolResults, createdFiles, modifiedFiles);
+
                         const resultSummary = this.createToolResultSummary(turnCount, toolCalls, toolResults);
 
                         if (this.hasSideEffects(toolCalls, toolResults)) {
@@ -329,19 +429,17 @@ export class ConversationManager {
                             turnCount++;
                             continue;
                         } else {
-                            console.log('[ConversationManager] All plan items completed. Breaking loop.');
-                            break;
+                            console.log('[ConversationManager] All plan items completed. Transitioning to REVIEW.');
+                            // EXECUTION 완료 → REVIEW로 전환
+                            stateManager.transitionTo(AgentPhase.REVIEW);
+                            turnCount++;
+                            continue; // 다음 루프에서 REVIEW 처리
                         }
                     } else {
                         // 도구 호출이 없으면 (이미 완료되었거나 요약만 출력한 경우) 해당 plan item을 완료 처리하고 다음으로 넘어감
                         console.log('[ConversationManager] No tool calls in plan-based execution. Marking current plan item as done and moving to next.');
 
-                        // 요약 텍스트를 UI에 출력
-                        const summaryText = this.extractResponseText(cleanResponse);
-                        if (summaryText && summaryText.trim()) {
-                            WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', summaryText);
-                            accumulatedUserParts.push({ text: llmResponse });
-                        }
+                        // 요약은 REVIEW 단계에서 시스템이 생성하므로 여기서는 처리하지 않음
 
                         if (currentPlanItem) {
                             // 이미 작업이 완료되었다고 판단하고 plan item을 완료 처리
@@ -355,8 +453,36 @@ export class ConversationManager {
                             turnCount++;
                             continue;
                         } else {
-                            console.log('[ConversationManager] All plan items completed. Breaking loop.');
-                            break;
+                            console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
+                            const currentProject = ProjectManager.getInstance().getCurrentProject();
+                            const workspaceRoot = currentProject?.root || '';
+                            const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                            if (testResult.success) {
+                                // 테스트 통과 → REVIEW로 전환
+                                console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                                stateManager.transitionTo(AgentPhase.REVIEW);
+                                turnCount++;
+                                continue; // 다음 루프에서 REVIEW 처리
+                            } else {
+                                // 테스트 실패 시 에러 메시지를 컨텍스트에 추가하고 EXECUTION 유지
+                                if (testFixAttempts < maxTestFixAttempts) {
+                                    testFixAttempts++;
+                                    console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                    accumulatedUserParts.push({
+                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                    });
+                                    turnCount++;
+                                    continue; // EXECUTION 단계 유지하여 수정 시도
+                                } else {
+                                    console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                    // 실패해도 REVIEW로 전환하여 요약 생성
+                                    stateManager.transitionTo(AgentPhase.REVIEW);
+                                    turnCount++;
+                                    continue;
+                                }
+                            }
                         }
                     }
                 }
@@ -506,11 +632,20 @@ export class ConversationManager {
                             if (blockedCalls.length > 0) {
                                 console.log(`[ConversationManager] Blocking forbidden tools in ${currentPhase} phase: ${blockedCalls.map(c => c.name).join(', ')}`);
                                 const forbiddenTools = stateManager.getForbiddenTools();
-                                turnResultsSummary += `\n[System] ${stateManager.getStateDescription()}\n`;
-                                turnResultsSummary += `다음 도구는 현재 단계에서 사용할 수 없습니다: ${forbiddenTools.join(', ')}\n`;
+
+                                // INVESTIGATION 단계에서 EXECUTION 도구 차단 시 강력한 메시지
                                 if (currentPhase === AgentPhase.INVESTIGATION) {
-                                    turnResultsSummary += `먼저 <plan> 태그를 사용하여 작업 계획을 수립하세요.\n`;
+                                    turnResultsSummary += `\n[System] ⚠️ 조사(Investigation) 단계에서는 실행 도구(${blockedCalls.map(c => c.name).join(', ')})를 사용할 수 없습니다.\n`;
+                                    turnResultsSummary += `**필수 순서:**\n`;
+                                    turnResultsSummary += `1. 먼저 조사 도구(<read_file>, <list_files>, <ripgrep_search>)를 사용하여 정보를 수집하세요.\n`;
+                                    turnResultsSummary += `2. 충분한 정보를 수집한 후 <plan> 태그를 사용하여 작업 계획을 수립하세요.\n`;
+                                    turnResultsSummary += `3. 계획이 승인되면 실행 단계로 전환되어 실행 도구를 사용할 수 있습니다.\n\n`;
+                                    turnResultsSummary += `지금은 조사 도구만 사용하거나 계획을 수립하세요.\n`;
+                                } else {
+                                    turnResultsSummary += `\n[System] ${stateManager.getStateDescription()}\n`;
+                                    turnResultsSummary += `다음 도구는 현재 단계에서 사용할 수 없습니다: ${forbiddenTools.join(', ')}\n`;
                                 }
+
                                 accumulatedUserParts.push({ text: llmResponse });
                                 accumulatedUserParts.push({ text: turnResultsSummary });
                                 turnCount++;
@@ -566,6 +701,9 @@ export class ConversationManager {
                             // UI에 실행 결과 전송 (✅ [Created] ...)
                             this.sendToolExecutionResultsToUI(webviewToRespond, deduplicatedCalls, toolResults);
 
+                            // 파일 변경 추적 (요약 검증용)
+                            this.trackFileChanges(deduplicatedCalls, toolResults, createdFiles, modifiedFiles);
+
                             // 결과 요약 누적
                             const resultSummary = this.createToolResultSummary(turnCount, deduplicatedCalls, toolResults);
                             turnResultsSummary += resultSummary;
@@ -620,21 +758,47 @@ export class ConversationManager {
                         continue;
                     }
 
-                    // 실행 단계에서 도구를 실행했지만 남은 계획이 없다면 종료
-                    console.log('[ConversationManager] All tasks completed after tool execution. Breaking loop.');
-                    break;
+                    // 실행 단계에서 도구를 실행했지만 남은 계획이 없다면 자동 테스트 후 종료
+                    console.log('[ConversationManager] All tasks completed after tool execution. Running automated tests before breaking loop.');
+                    const currentProjectForTest = ProjectManager.getInstance().getCurrentProject();
+                    const workspaceRootForTest = currentProjectForTest?.root || '';
+                    const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRootForTest, createdFiles, modifiedFiles);
+
+                    if (testResult.success) {
+                        break; // 테스트 통과 시 루프 종료
+                    } else {
+                        // 테스트 실패 시 에러 메시지를 컨텍스트에 추가하고 continue
+                        if (testFixAttempts < maxTestFixAttempts) {
+                            testFixAttempts++;
+                            console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                            accumulatedUserParts.push({
+                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                            });
+                            turnCount++;
+                            continue;
+                        } else {
+                            console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 루프를 종료합니다.`);
+                            WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                            break;
+                        }
+                    }
                 }
             }
 
-            // INVESTIGATION 단계에서 도구 호출도 없고 plan도 없으면 nudge를 보내고 계속 진행
+            // INVESTIGATION 단계에서 도구 호출도 없고 plan도 없으면 텍스트 출력 차단
             if (currentPhase === AgentPhase.INVESTIGATION && totalToolCalls.length === 0 && !validPlanReceived && totalResponseText.length > 5) {
-                console.log('[ConversationManager] INVESTIGATION phase: No tools/plan but text received. Providing nudge and continuing.');
-                accumulatedUserParts.push({ text: llmResponse });
+                investigationTextOnlyCount++;
+                console.log(`[ConversationManager] INVESTIGATION phase: No tools/plan but text received (count: ${investigationTextOnlyCount}). Blocking text-only output.`);
 
-                const nudgeText = "\n[System] 조사(Investigation) 단계에서는 반드시 도구를 호출하거나 계획을 수립해야 합니다.\n" +
-                    "- 조사 도구 사용: <read_file>, <list_files>, <ripgrep_search>를 사용하여 정보를 수집하세요.\n" +
-                    "- 계획 수립: 충분한 정보를 수집했다면 <plan> 태그를 사용하여 작업 계획을 수립하세요.\n" +
-                    "- 설명만 하지 말고 반드시 XML 도구 태그를 호출하거나 <plan> 태그를 제출하세요.";
+                // 텍스트만 출력하는 것을 차단하고 강력한 안내 메시지 제공
+                const nudgeText = `\n[System] ⚠️ 조사(Investigation) 단계에서는 텍스트 설명만 출력하는 것이 금지됩니다.\n` +
+                    `**반드시 다음 중 하나를 수행해야 합니다:**\n` +
+                    `1. 조사 도구 호출: <read_file>, <list_files>, <ripgrep_search>를 사용하여 정보를 수집하세요.\n` +
+                    `2. 계획 수립: 충분한 정보를 수집했다면 <plan> 태그를 사용하여 작업 계획을 수립하세요.\n\n` +
+                    `**금지 사항:**\n` +
+                    `- "We need to read..." 같은 설명만 하는 것\n` +
+                    `- 계획 없이 <create_file>, <update_file> 같은 실행 도구를 호출하는 것\n\n` +
+                    `즉시 XML 도구 태그를 호출하거나 <plan> 태그를 제출하세요.`;
 
                 accumulatedUserParts.push({ text: nudgeText });
                 turnCount++;
@@ -650,25 +814,54 @@ export class ConversationManager {
             const currentPlanItemsAll = taskManager.listPlanItems();
             const remaining = currentPlanItemsAll.filter(i => i.status === 'pending' || i.status === 'in_progress');
 
-            // EXECUTION phase에서 도구 호출 없이 요약만 출력한 경우, 현재 plan item을 완료 처리하고 다음으로 넘어감
-            if (currentPhase === AgentPhase.EXECUTION && currentPlanItem && totalToolCalls.length === 0 && totalResponseText.length > 10) {
-                console.log('[ConversationManager] EXECUTION phase: No tool calls but summary text received. Marking current plan item as done.');
+            // EXECUTION phase에서 도구 호출 없이 텍스트만 출력한 경우, plan item 완료 처리
+            // (요약은 REVIEW 단계에서 시스템이 생성)
+            if (currentPhase === AgentPhase.EXECUTION && totalToolCalls.length === 0 && totalResponseText.length > 10) {
+                console.log('[ConversationManager] EXECUTION phase: No tool calls but text received. Marking plan item as done.');
 
-                // 요약 텍스트를 UI에 출력
-                WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', totalResponseText);
-                accumulatedUserParts.push({ text: llmResponse });
+                // 현재 plan item이 있으면 완료 처리
+                if (currentPlanItem) {
+                    taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
+                    WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+                }
 
-                taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
-                WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
-
-                // 다음 계획 항목이 있으면 계속, 없으면 종료
+                // 다음 계획 항목이 있으면 계속, 없으면 EXECUTION 완료 → REVIEW로 전환
                 const nextItem = taskManager.getNextPendingItem();
                 if (nextItem) {
                     turnCount++;
                     continue;
                 } else {
-                    console.log('[ConversationManager] All plan items completed. Breaking loop.');
-                    break;
+                    // 모든 plan item 완료 → 자동 테스트 실행
+                    console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
+                    const currentProject = ProjectManager.getInstance().getCurrentProject();
+                    const workspaceRoot = currentProject?.root || '';
+                    const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                    if (testResult.success) {
+                        // 테스트 통과 → REVIEW로 전환
+                        console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                        stateManager.transitionTo(AgentPhase.REVIEW);
+                        turnCount++;
+                        continue; // 다음 루프에서 REVIEW 처리
+                    } else {
+                        // 테스트 실패 시 에러 메시지를 컨텍스트에 추가하고 EXECUTION 유지
+                        if (testFixAttempts < maxTestFixAttempts) {
+                            testFixAttempts++;
+                            console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                            accumulatedUserParts.push({
+                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                            });
+                            turnCount++;
+                            continue; // EXECUTION 단계 유지하여 수정 시도
+                        } else {
+                            console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                            WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                            // 실패해도 REVIEW로 전환하여 요약 생성
+                            stateManager.transitionTo(AgentPhase.REVIEW);
+                            turnCount++;
+                            continue;
+                        }
+                    }
                 }
             }
 
@@ -711,7 +904,39 @@ export class ConversationManager {
                 if (turnCount === 0) {
                     WebviewBridge.receiveMessage(webviewToRespond, 'System', '⚠️ 에이전트가 생각만 하고 실제 도구를 호출하지 않았습니다. 모델을 바꾸거나 다시 시도해 보세요.');
                 }
+
+                // EXECUTION phase에서 파일이 생성/수정되었으면 REVIEW로 전환
+                if (currentPhase === AgentPhase.EXECUTION && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
+                    console.log('[ConversationManager] EXECUTION phase completed with file changes. Transitioning to REVIEW.');
+                    stateManager.transitionTo(AgentPhase.REVIEW);
+                    turnCount++;
+                    continue; // 다음 루프에서 REVIEW 처리
+                }
             }
+
+            // 루프 종료 전 자동 테스트 실행 (파일이 생성/수정된 경우)
+            if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+                const currentProject = ProjectManager.getInstance().getCurrentProject();
+                const workspaceRoot = currentProject?.root || '';
+                const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                if (!testResult.success) {
+                    // 테스트 실패 시 에러 메시지를 컨텍스트에 추가하고 continue
+                    if (testFixAttempts < maxTestFixAttempts) {
+                        testFixAttempts++;
+                        console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                        accumulatedUserParts.push({
+                            text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                        });
+                        turnCount++;
+                        continue; // break 대신 continue
+                    } else {
+                        console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 루프를 종료합니다.`);
+                        WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                    }
+                }
+            }
+
             break;
         }
 
@@ -935,7 +1160,7 @@ export class ConversationManager {
                 WebviewBridge.receiveMessage(webview, 'System', displayMsg);
             } else {
                 // 실패 시에는 항상 System 스타일로 에러 표시
-                WebviewBridge.receiveMessage(webview, 'System', `❌ [Failed] ${this.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
+                WebviewBridge.receiveMessage(webview, 'System', `[Failed] ${this.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
             }
         });
     }
@@ -944,4 +1169,242 @@ export class ConversationManager {
         const sideEffectTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
         return results.some((res, i) => res.success && sideEffectTools.includes(calls[i].name as Tool));
     }
+
+    /**
+     * 파일 변경 추적 (요약 검증용)
+     */
+    private trackFileChanges(toolCalls: any[], toolResults: any[], createdFiles: string[], modifiedFiles: string[]): void {
+        toolCalls.forEach((call, index) => {
+            const result = toolResults[index];
+            if (!result || !result.success) return;
+
+            const filePath = call.params?.path || call.params?.file_path || call.params?.target_file;
+            if (!filePath) return;
+
+            if (call.name === Tool.CREATE_FILE) {
+                if (!createdFiles.includes(filePath)) {
+                    createdFiles.push(filePath);
+                }
+            } else if (call.name === Tool.UPDATE_FILE) {
+                if (!modifiedFiles.includes(filePath)) {
+                    modifiedFiles.push(filePath);
+                }
+            }
+        });
+    }
+
+    /**
+     * 실제 파일 목록을 주입하여 검증된 요약 생성
+     */
+    private async generateVerifiedSummary(
+        originalSummary: string,
+        createdFiles: string[],
+        modifiedFiles: string[],
+        workspaceRoot: string,
+        systemPrompt: string,
+        accumulatedParts: any[],
+        abortSignal?: AbortSignal
+    ): Promise<string> {
+        // 실제 디스크에서 파일 존재 여부 확인
+        const verifiedCreated: string[] = [];
+        const verifiedModified: string[] = [];
+
+        for (const filePath of createdFiles) {
+            try {
+                const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+                await fs.access(absPath);
+                verifiedCreated.push(filePath);
+            } catch {
+                // 파일이 존재하지 않으면 무시
+            }
+        }
+
+        for (const filePath of modifiedFiles) {
+            try {
+                const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+                await fs.access(absPath);
+                verifiedModified.push(filePath);
+            } catch {
+                // 파일이 존재하지 않으면 무시
+            }
+        }
+
+        // 실제 파일 목록이 없으면 원본 요약 반환 (없으면 기본 메시지)
+        if (verifiedCreated.length === 0 && verifiedModified.length === 0) {
+            return originalSummary || '작업이 완료되었습니다.';
+        }
+
+        // 원본 요약이 있으면 검증만 수행, 없으면 새로 생성
+        if (originalSummary && originalSummary.trim()) {
+            // 원본 요약이 있는 경우: 파일 목록만 추가하여 반환 (LLM 호출 없음)
+            return originalSummary +
+                (verifiedCreated.length > 0 ? `\n\n[생성된 파일: ${verifiedCreated.join(', ')}]` : '') +
+                (verifiedModified.length > 0 ? `\n[수정된 파일: ${verifiedModified.join(', ')}]` : '');
+        } else {
+            // 원본 요약이 없는 경우: LLM에게 요약 생성 요청 (1회만)
+            const fileListContext = `\n\n[SYSTEM: 실제 생성/수정된 파일 목록]\n` +
+                (verifiedCreated.length > 0 ? `생성된 파일: ${verifiedCreated.join(', ')}\n` : '') +
+                (verifiedModified.length > 0 ? `수정된 파일: ${verifiedModified.join(', ')}\n` : '') +
+                `\n위 파일 목록을 기반으로 작업 결과를 간결하게 요약해주세요.`;
+
+            try {
+                const summaryPrompt = `다음 작업 결과를 요약하세요:${fileListContext}\n\n작업 내용을 간결하게 요약해주세요.`;
+                const verifiedSummary = await this.llmManager.sendMessageWithSystemPrompt(
+                    summaryPrompt,
+                    accumulatedParts,
+                    { signal: abortSignal }
+                );
+                return this.extractResponseText(verifiedSummary) ||
+                    `작업이 완료되었습니다.${fileListContext}`;
+            } catch (error) {
+                console.warn('[ConversationManager] Failed to generate verified summary:', error);
+                // 실패 시 기본 메시지 반환
+                return `작업이 완료되었습니다.${fileListContext}`;
+            }
+        }
+    }
+
+
+    /**
+     * 자동 테스트 검증 (Smoke Test & Lint Check) - 범용 버전
+     * @returns {Promise<{success: boolean, errorMessage?: string}>} 성공 여부와 에러 메시지
+     */
+    private async runAutomatedTests(
+        webview: vscode.Webview,
+        workspaceRoot: string,
+        createdFiles: string[],
+        modifiedFiles: string[]
+    ): Promise<{ success: boolean; errorMessage?: string }> {
+        try {
+            // 검증 시작
+            WebviewBridge.sendProcessingStep(webview, 'executing');
+            WebviewBridge.sendProcessingStatus(webview, 'executing', '코드 검증 시작...');
+
+            // ProjectDetector를 사용하여 프로젝트 타입 감지
+            WebviewBridge.sendProcessingStatus(webview, 'executing', '프로젝트 타입 감지 중...');
+            const detector = new ProjectDetector();
+            const projectInfo = await detector.detectProjectType(workspaceRoot);
+
+            // Fallback: 규칙으로 찾지 못했을 때 LLM에게 판단 넘기기
+            if (projectInfo.type === ProjectType.UNKNOWN) {
+                console.log('[ConversationManager] Unknown project type, trying LLM fallback...');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', '프로젝트 타입 LLM 감지 중...');
+                const currentProject = ProjectManager.getInstance().getCurrentProject();
+                const llmManager = LLMManager.getInstance();
+                const currentModelType = llmManager.getCurrentModel();
+                const geminiApi = llmManager.getGeminiApi();
+                const ollamaApi = llmManager.getOllamaApi();
+
+                const llmResult = await detector.detectWithLLMFallback(
+                    workspaceRoot,
+                    currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi,
+                    currentModelType
+                );
+
+                if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
+                    console.log(`[ConversationManager] LLM fallback detected project type: ${llmResult.type}`);
+                    // projectInfo를 LLM 결과로 업데이트
+                    Object.assign(projectInfo, llmResult);
+                } else {
+                    console.log('[ConversationManager] Unknown project type, skipping automated tests.');
+                    WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 완료 (프로젝트 타입 미확인)');
+                    return { success: true }; // 알 수 없는 프로젝트 타입은 성공으로 간주
+                }
+            }
+
+            const testResults: string[] = [];
+
+            // 1. Smoke Test: 프로젝트 타입별 필수 파일 존재 확인
+            WebviewBridge.sendProcessingStatus(webview, 'executing', 'Smoke Test 실행 중 (필수 파일 확인)...');
+            const criticalFiles = detector.getCriticalFiles(projectInfo.type, workspaceRoot);
+
+            const missingFiles: string[] = [];
+            for (const file of criticalFiles) {
+                try {
+                    const filePath = path.isAbsolute(file) ? file : path.join(workspaceRoot, file);
+                    await fs.access(filePath);
+                } catch {
+                    // build.gradle와 build.gradle.kts는 둘 중 하나만 있으면 됨
+                    if (projectInfo.type === ProjectType.SPRING_BOOT && projectInfo.buildTool.toString().includes('gradle') && (file === 'build.gradle' || file === 'build.gradle.kts')) {
+                        const otherFile = file === 'build.gradle' ? 'build.gradle.kts' : 'build.gradle';
+                        try {
+                            await fs.access(path.join(workspaceRoot, otherFile));
+                            continue; // 다른 파일이 있으면 통과
+                        } catch { }
+                    }
+                    // requirements.txt와 pyproject.toml도 둘 중 하나만 있으면 됨
+                    if ((projectInfo.type === ProjectType.PYTHON || projectInfo.type === ProjectType.DJANGO || projectInfo.type === ProjectType.FLASK || projectInfo.type === ProjectType.FASTAPI) && (file === 'requirements.txt' || file === 'pyproject.toml')) {
+                        const otherFile = file === 'requirements.txt' ? 'pyproject.toml' : 'requirements.txt';
+                        try {
+                            await fs.access(path.join(workspaceRoot, otherFile));
+                            continue; // 다른 파일이 있으면 통과
+                        } catch { }
+                    }
+                    missingFiles.push(file);
+                }
+            }
+
+            if (missingFiles.length > 0) {
+                testResults.push(`Smoke Test 실패: 다음 파일이 누락되었습니다: ${missingFiles.join(', ')}`);
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'Smoke Test 실패');
+            } else {
+                testResults.push(`Smoke Test 통과: 모든 필수 파일이 존재합니다.`);
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'Smoke Test 통과');
+            }
+
+            // 2. Lint Check: 프로젝트 타입별 컴파일/빌드 검사
+            const validationCmd = detector.getValidationCommand(projectInfo.type, workspaceRoot, createdFiles, modifiedFiles);
+
+            if (validationCmd) {
+                WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 실행 중...`);
+                try {
+                    const executionManager = ExecutionManager.getInstance();
+                    const result = await executionManager.executeCommand(
+                        validationCmd.command,
+                        { cwd: workspaceRoot, timeout: 15000 }
+                    );
+
+                    if (result.exitCode === 0) {
+                        testResults.push(`${validationCmd.description} 통과: 문법 오류가 없습니다.`);
+                        WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 통과`);
+                    } else {
+                        const errorOutput = result.stderr || result.stdout || '';
+                        // 너무 긴 출력은 축약
+                        const truncatedOutput = errorOutput.length > 500
+                            ? errorOutput.substring(0, 500) + '...'
+                            : errorOutput;
+                        testResults.push(`${validationCmd.description} 실패: 오류가 발견되었습니다.\n${truncatedOutput}`);
+                        WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 실패`);
+                    }
+                } catch (error) {
+                    testResults.push(`${validationCmd.description} 실행 실패: ${error instanceof Error ? error.message : String(error)}`);
+                    WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 실행 실패`);
+                }
+            } else {
+                testResults.push(`컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어가 정의되지 않았습니다.`);
+                WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 명령어 없음 (건너뜀)');
+            }
+
+            // 실패한 테스트 확인
+            const hasFailedTests = testResults.some(r => r.includes('실패') || r.includes('Failed'));
+
+            if (hasFailedTests) {
+                // 실패한 테스트의 에러 메시지 추출
+                const failedTestMessages = testResults.filter(r => r.includes('실패') || r.includes('Failed'));
+                const errorMessage = failedTestMessages.join('\n');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 완료 (실패)');
+                return { success: false, errorMessage };
+            }
+
+            // 모든 테스트 통과
+            WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 완료 (통과)');
+            return { success: true };
+
+        } catch (error) {
+            console.error('[ConversationManager] Error running automated tests:', error);
+            const errorMsg = `자동 테스트 실행 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`;
+            return { success: false, errorMessage: errorMsg };
+        }
+    }
+
 }

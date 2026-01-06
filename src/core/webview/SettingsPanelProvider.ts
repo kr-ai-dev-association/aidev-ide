@@ -75,6 +75,9 @@ export function openSettingsPanel(
             const remoteOllamaEndpoint =
               await stateManager.getRemoteOllamaEndpoint();
             const remoteOllamaModel = await stateManager.getRemoteOllamaModel();
+            const autoTestRetryEnabled =
+              await settingsManager.isAutoTestRetryEnabled();
+            const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
             const outputLogEnabled = await stateManager.getOutputLogEnabled();
@@ -107,10 +110,12 @@ export function openSettingsPanel(
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
               remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
               remoteOllamaModel: remoteOllamaModel || "",
+              autoTestRetryEnabled: autoTestRetryEnabled || false,
+              testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
               outputLogEnabled: outputLogEnabled || false,
               autoUpdateEnabled: autoUpdateEnabled || false,
-              errorRetryCount: errorRetryCount || 3,
+              errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
               aiModel: modelToUse, // AI 모델 정보 추가
@@ -797,6 +802,58 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setAutoTestRetryEnabled": // 자동 테스트 재시도 설정 저장 케이스 추가
+          const autoTestRetryEnabledToSet = data.enabled;
+          if (typeof autoTestRetryEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoTestRetryEnabled(
+                autoTestRetryEnabledToSet,
+              );
+              safePostMessage(panel, { command: "autoTestRetryEnabledSet" });
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoTestRetryEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Test Retry: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoTestRetryEnabledSetError",
+              error: "Invalid Auto Test Retry setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Test Retry setting provided.",
+            );
+          }
+          break;
+        case "setTestRetryCount": // 자동 테스트 재시도 횟수 설정 저장
+          const testRetryCountToSet = data.count;
+          if (typeof testRetryCountToSet === "number" && testRetryCountToSet >= 1 && testRetryCountToSet <= 10) {
+            try {
+              await settingsManager.updateTestRetryCount(testRetryCountToSet);
+              safePostMessage(panel, { command: "testRetryCountSet" });
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "testRetryCountSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Test Retry Count: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "testRetryCountSetError",
+              error: "Invalid Test Retry Count setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Test Retry Count setting provided.",
+            );
+          }
+          break;
         case "setAutoExecuteCommandsEnabled": // 명령어 자동 실행 설정 저장 케이스 추가
           const autoExecuteCommandsEnabledToSet = data.enabled;
           if (typeof autoExecuteCommandsEnabledToSet === "boolean") {
@@ -1211,6 +1268,9 @@ export function openSettingsPanel(
             const remoteOllamaEndpoint =
               await stateManager.getRemoteOllamaEndpoint();
             const remoteOllamaModel = await stateManager.getRemoteOllamaModel();
+            const autoTestRetryEnabled =
+              await settingsManager.isAutoTestRetryEnabled();
+            const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
             const outputLogEnabled = await stateManager.getOutputLogEnabled();
@@ -1234,9 +1294,11 @@ export function openSettingsPanel(
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
               remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
               remoteOllamaModel: remoteOllamaModel || "",
+              autoTestRetryEnabled: autoTestRetryEnabled || false,
+              testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
               outputLogEnabled: outputLogEnabled || false,
-              errorRetryCount: errorRetryCount || 3,
+              errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
               aiModel: aiModel || "gemini", // AI 모델 정보 추가
@@ -1266,6 +1328,9 @@ export function openSettingsPanel(
             const remoteOllamaEndpoint =
               await stateManager.getRemoteOllamaEndpoint();
             const remoteOllamaModel = await stateManager.getRemoteOllamaModel();
+            const autoTestRetryEnabled =
+              await settingsManager.isAutoTestRetryEnabled();
+            const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
             const outputLogEnabled = await stateManager.getOutputLogEnabled();
@@ -1292,9 +1357,11 @@ export function openSettingsPanel(
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
               remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
               remoteOllamaModel: remoteOllamaModel || "",
+              autoTestRetryEnabled: autoTestRetryEnabled || false,
+              testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
               outputLogEnabled: outputLogEnabled || false,
-              errorRetryCount: errorRetryCount || 3,
+              errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified,
               aiModel: modelToUse,

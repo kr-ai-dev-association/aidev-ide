@@ -298,7 +298,7 @@ export class SettingsManager extends BaseManager {
      * 자동 오류 수정 횟수를 가져옵니다
      */
     public async getErrorRetryCount(): Promise<number> {
-        const count = ConfigurationService.get<number>('errorRetryCount') ?? 3;
+        const count = ConfigurationService.get<number>('errorRetryCount') ?? 2;
         return Math.max(1, Math.min(10, count));
     }
 
@@ -356,6 +356,38 @@ export class SettingsManager extends BaseManager {
      */
     public async updateDebugEnabled(enabled: boolean): Promise<void> {
         await this.updateUserSetting('debugEnabled' as any, enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
+     * 자동 테스트 실패 시 재시도 On/Off 상태를 가져옵니다
+     */
+    public async isAutoTestRetryEnabled(): Promise<boolean> {
+        const value = ConfigurationService.get<boolean>('autoTestRetryEnabled') ?? false;
+        return value;
+    }
+
+    /**
+     * 자동 테스트 실패 시 재시도 On/Off 상태를 저장합니다
+     */
+    public async updateAutoTestRetryEnabled(enabled: boolean): Promise<void> {
+        console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Workspace)`);
+        await this.updateUserSetting('autoTestRetryEnabled' as any, enabled, vscode.ConfigurationTarget.Workspace);
+    }
+
+    /**
+     * 자동 테스트 재시도 횟수를 가져옵니다
+     */
+    public async getTestRetryCount(): Promise<number> {
+        const count = ConfigurationService.get<number>('testRetryCount') ?? 2;
+        return Math.max(1, Math.min(10, count));
+    }
+
+    /**
+     * 자동 테스트 재시도 횟수를 업데이트합니다
+     */
+    public async updateTestRetryCount(count: number): Promise<void> {
+        const validCount = Math.max(1, Math.min(10, count));
+        await this.updateUserSetting('testRetryCount' as any, validCount, vscode.ConfigurationTarget.Global);
     }
 }
 

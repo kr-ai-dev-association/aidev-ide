@@ -44,6 +44,11 @@ export enum ProjectType {
     GO = 'go',
     RUST = 'rust',
     FLUTTER = 'flutter',
+    PHP = 'php',
+    CSHARP = 'csharp',
+    RUBY = 'ruby',
+    SWIFT = 'swift',
+    C_CPP = 'c-cpp',
     UNKNOWN = 'unknown'
 }
 
@@ -62,6 +67,10 @@ export enum BuildTool {
     PIP = 'pip',
     POETRY = 'poetry',
     PUB = 'pub',
+    COMPOSER = 'composer',
+    BUNDLER = 'bundler',
+    DOTNET = 'dotnet',
+    CMAKE = 'cmake',
     UNKNOWN = 'unknown'
 }
 

@@ -664,6 +664,11 @@ export class ProjectManager {
             [ProjectType.GO]: 'Go',
             [ProjectType.RUST]: 'Rust',
             [ProjectType.FLUTTER]: 'Dart',
+            [ProjectType.PHP]: 'PHP',
+            [ProjectType.CSHARP]: 'C#',
+            [ProjectType.RUBY]: 'Ruby',
+            [ProjectType.SWIFT]: 'Swift',
+            [ProjectType.C_CPP]: 'C/C++',
             [ProjectType.UNKNOWN]: 'Unknown'
         };
 

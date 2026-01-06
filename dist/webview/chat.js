@@ -12093,9 +12093,17 @@ function requestOllamaModels() {
     });
   }
 }
-function setModelLabel(name) {
+function setModelLabel(name, modelType) {
   if (modelLabel) {
     modelLabel.textContent = name || 'Model';
+  }
+  // 모델 타입에 따라 버튼의 data-model-type 속성 설정 (색상 포인트용)
+  if (modelSelectorButton) {
+    if (modelType === 'gemini') {
+      modelSelectorButton.setAttribute('data-model-type', 'gemini');
+    } else {
+      modelSelectorButton.setAttribute('data-model-type', 'ollama');
+    }
   }
 }
 function populateModelDropdown(models, current) {
@@ -12135,7 +12143,7 @@ function populateModelDropdown(models, current) {
     item.style.borderLeft = '3px solid #4285f4'; // Gemini 색상 포인트
     item.addEventListener('click', () => {
       currentOllamaModel = m.name;
-      setModelLabel(m.displayName);
+      setModelLabel(m.displayName, 'gemini');
       if (modelDropdown) {
         modelDropdown.classList.add('hidden');
         modelDropdown.style.display = 'none';
@@ -12170,7 +12178,7 @@ function populateModelDropdown(models, current) {
     item.style.borderLeft = '3px solid #f68537'; // Ollama 색상 포인트 (주황색)
     item.addEventListener('click', () => {
       currentOllamaModel = m.name;
-      setModelLabel(display);
+      setModelLabel(display, 'ollama');
       if (modelDropdown) {
         modelDropdown.classList.add('hidden');
         modelDropdown.style.display = 'none';
@@ -12185,8 +12193,10 @@ function populateModelDropdown(models, current) {
 
   // 현재 선택된 모델 라벨 업데이트
   const allModels = [...geminiModels, ...availableOllamaModels];
-  const currentDisplay = allModels.find(m => m.name === currentOllamaModel)?.displayName || currentOllamaModel || 'Model';
-  setModelLabel(currentDisplay);
+  const currentModel = allModels.find(m => m.name === currentOllamaModel);
+  const currentDisplay = currentModel?.displayName || currentOllamaModel || 'Model';
+  const modelType = geminiModels.some(m => m.name === currentOllamaModel) ? 'gemini' : 'ollama';
+  setModelLabel(currentDisplay, modelType);
   if (!allModels.length) {
     const empty = document.createElement('div');
     empty.className = 'dropdown-option';
@@ -12205,6 +12215,15 @@ function bindModelDropdownEvents() {
     e.stopPropagation();
     const willShow = modelDropdown.classList.contains('hidden');
     if (willShow) {
+      // 모델 선택 버튼의 위치에 맞춰 드롭다운 위치 조정
+      const buttonRect = modelSelectorButton.getBoundingClientRect();
+      const parentRect = modelSelectorButton.parentElement.getBoundingClientRect();
+
+      // 버튼의 왼쪽 위치를 기준으로 드롭다운 위치 설정
+      const leftOffset = buttonRect.left - parentRect.left;
+      modelDropdown.style.left = leftOffset + 'px';
+      modelDropdown.style.right = 'auto';
+      modelDropdown.style.width = buttonRect.width + 'px';
       modelDropdown.classList.remove('hidden');
       modelDropdown.style.display = 'block';
     } else {
@@ -12363,9 +12382,11 @@ window.addEventListener('message', event => {
           displayName: 'Gemini 3.0 Flash'
         }];
         const allModels = [...geminiModels, ...availableOllamaModels];
-        const display = allModels.find(m => m.name === message.model)?.displayName || message.model;
+        const currentModel = allModels.find(m => m.name === message.model);
+        const display = currentModel?.displayName || message.model;
         currentOllamaModel = message.model;
-        setModelLabel(display);
+        const modelType = geminiModels.some(m => m.name === message.model) ? 'gemini' : 'ollama';
+        setModelLabel(display, modelType);
       }
       if (message.error) {
         console.warn('[chat] ollamaModelChanged error:', message.error);

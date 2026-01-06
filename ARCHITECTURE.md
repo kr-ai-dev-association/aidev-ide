@@ -118,17 +118,20 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합)
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화)
 │   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
 │   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
 │   │   │                            # - 스마트 너징(Nudging) 로직
 │   │   │                            # - 경량 FSM을 통한 상태 관리 및 전환 검증
+│   │   │                            # - v6.4.0: REVIEW 단계 LLM 호출 최적화 (2회 → 1회)
+│   │   │                            # - v6.4.0: 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황)
 │   │   ├── AgentStateManager.ts     # v6.3.0: 경량 FSM - 상태 관리, 전환 규칙, Output Contract
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
 │   ├── investigation/               # 7. Investigation Manager
 │   │   ├── InvestigationManager.ts  # v5.2.0: 조사 단계 강제 및 읽기 전용 도구 제한
+│   │   │                            # v6.4.0: 프롬프트 강화로 plan과 실행 도구 동시 사용 금지
 │   │   └── index.ts
 │   │
 │   ├── state/                       # 8. State/Session Manager
@@ -192,7 +195,7 @@ src/
 
 ## 🎭 매니저별 상세 책임 (v5.2.0 업데이트)
 
-### 7️⃣ Investigation Manager (v5.2.0 신규, v6.3.0 FSM 통합)
+### 7️⃣ Investigation Manager (v5.2.0 신규, v6.3.0 FSM 통합, v6.4.0 프롬프트 강화)
 **역할**: AI가 코드를 수정하기 전 프로젝트 상태를 분석하는 '조사' 단계를 관리합니다.
 
 **책임**:
@@ -200,6 +203,7 @@ src/
 - **단계 전환 관리**: 반드시 유효한 XML `<plan>`이 수립되어야만 '실행' 단계로의 전환 허용.
 - **조사 전용 지침 제공**: "Sherlock Holmes for Code" 역할을 LLM에게 부여하여 팩트 기반 분석 유도.
 - **v6.3.0**: `AgentStateManager`와 통합되어 상태 전환 검증 및 Output Contract 강제.
+- **v6.4.0**: 프롬프트 강화로 `<plan>` 태그와 실행 도구를 같은 응답에 포함하는 것을 엄격히 금지. 조사 단계에서는 오직 읽기 전용 도구만 사용하고 계획만 제출하도록 명확히 지시.
 
 ### 🔟 Agent State Manager (v6.3.0 신규)
 **역할**: 에이전트의 상태 관리 및 전환 규칙을 중앙화하여 관리하는 경량 FSM입니다.
@@ -229,14 +233,15 @@ src/
 - **엄격한 계획 파싱**: `<plan><item>...` 구조를 강제하며, 일반 텍스트 리스트는 무시합니다.
 - **인터리브드 파싱**: 텍스트와 XML이 섞인 응답에서 순서를 유지하며 요소를 분리합니다.
 
-### 📱 Webview Bridge (v5.2.1 개선)
+### 📱 Webview Bridge (v5.2.1 개선, v6.4.0 UI 개선)
 **역할**: 확장 기능과 채팅 UI 간의 실시간 통신 및 상태 표시를 담당합니다.
 
 **책임**:
 - **조건부 스티키 메시지**: 진행 상태 메시지가 스크롤 시 상단에 고정되도록 제어.
 - **타자기 애니메이션**: 현재 에이전트의 페이즈와 진행 단계를 애니메이션으로 시각화.
 - **작업 큐(Plan) 실시간 동기화**: `TaskQueue` 팝업 UI와 연동하여 작업 진행 상태를 실시간 업데이트.
-- **도구 결과 렌더링**: 실행된 코드나 터미널 출력을 채팅 패널에 통합 표시.│
+- **도구 결과 렌더링**: 실행된 코드나 터미널 출력을 채팅 패널에 통합 표시.
+- **v6.4.0**: 작업 계획 팝업 UI 개선 (제목/상세 분리 표시), 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황).│
 └── index.ts                     # 모든 매니저 및 추상화 export
 │
 ├── services/                        # 보조 서비스 (도메인별 분류)

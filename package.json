@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "6.3.0",
+  "version": "6.4.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -198,16 +198,30 @@
         },
         "aidevIde.errorRetryCount": {
           "type": "number",
-          "default": 3,
+          "default": 2,
           "minimum": 1,
           "maximum": 10,
-          "description": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 3 times)",
+          "description": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 2 times)",
           "scope": "resource"
         },
         "aidevIde.autoCorrectionEnabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic terminal error correction.",
+          "scope": "resource"
+        },
+        "aidevIde.autoTestRetryEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable or disable automatic retry when automated tests (Smoke Test, Lint Check) fail. When enabled, the system will automatically retry failed tests up to the configured number of times.",
+          "scope": "resource"
+        },
+        "aidevIde.testRetryCount": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Set the maximum number of automatic test retry attempts when automated tests fail. (1-10 times, default: 2 times)",
           "scope": "resource"
         },
         "aidevIde.autoExecuteCommands": {

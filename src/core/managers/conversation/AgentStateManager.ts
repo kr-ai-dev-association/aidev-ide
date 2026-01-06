@@ -10,7 +10,9 @@ import { Tool } from '../../tools/types';
  */
 export enum AgentPhase {
     INVESTIGATION = 'investigation',
-    EXECUTION = 'execution'
+    EXECUTION = 'execution',
+    REVIEW = 'review',
+    DONE = 'done'
 }
 
 /**
@@ -32,7 +34,9 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
         Tool.RUN_COMMAND
-    ]
+    ],
+    [AgentPhase.REVIEW]: [], // REVIEW 단계에서는 도구 사용 불가 (시스템이 요약 생성)
+    [AgentPhase.DONE]: [] // DONE 단계에서는 도구 사용 불가
 };
 
 /**
@@ -45,7 +49,27 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.REMOVE_FILE,
         Tool.RUN_COMMAND
     ],
-    [AgentPhase.EXECUTION]: [] // EXECUTION에서는 모든 도구 허용
+    [AgentPhase.EXECUTION]: [], // EXECUTION에서는 모든 도구 허용
+    [AgentPhase.REVIEW]: [
+        Tool.CREATE_FILE,
+        Tool.UPDATE_FILE,
+        Tool.REMOVE_FILE,
+        Tool.READ_FILE,
+        Tool.LIST_FILES,
+        Tool.SEARCH_FILES,
+        Tool.RIPGREP_SEARCH,
+        Tool.RUN_COMMAND
+    ], // REVIEW에서는 모든 도구 금지
+    [AgentPhase.DONE]: [
+        Tool.CREATE_FILE,
+        Tool.UPDATE_FILE,
+        Tool.REMOVE_FILE,
+        Tool.READ_FILE,
+        Tool.LIST_FILES,
+        Tool.SEARCH_FILES,
+        Tool.RIPGREP_SEARCH,
+        Tool.RUN_COMMAND
+    ] // DONE에서는 모든 도구 금지
 };
 
 /**
@@ -53,7 +77,9 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
  */
 const VALID_TRANSITIONS: Record<AgentPhase, AgentPhase[]> = {
     [AgentPhase.INVESTIGATION]: [AgentPhase.EXECUTION],
-    [AgentPhase.EXECUTION]: [] // EXECUTION에서는 다른 상태로 전환 불가 (작업 완료 시 종료)
+    [AgentPhase.EXECUTION]: [AgentPhase.REVIEW], // EXECUTION 완료 시 REVIEW로 전환
+    [AgentPhase.REVIEW]: [AgentPhase.DONE], // REVIEW 완료 시 DONE으로 전환
+    [AgentPhase.DONE]: [] // DONE에서는 전환 불가 (최종 상태)
 };
 
 /**
@@ -81,7 +107,7 @@ const OUTPUT_CONTRACTS: Record<AgentPhase, OutputContract> = {
                 const hasPlan = context.hasPlan || false;
                 const hasToolCalls = (context.toolCallsInTurn?.length || 0) > 0;
                 const hasInvestigationHistory = context.hasInvestigationHistory || false;
-                
+
                 // plan이 있고, (도구 호출이 있거나 조사 이력이 있으면) 전환 가능
                 return hasPlan && (hasToolCalls || hasInvestigationHistory);
             }
@@ -90,7 +116,17 @@ const OUTPUT_CONTRACTS: Record<AgentPhase, OutputContract> = {
     [AgentPhase.EXECUTION]: {
         allowPlan: false, // EXECUTION에서는 새로운 plan 생성 금지
         allowToolCalls: true,
-        allowTextOnly: true // 요약 등은 허용
+        allowTextOnly: false // EXECUTION에서는 텍스트만 출력 금지 (도구 호출 필수)
+    },
+    [AgentPhase.REVIEW]: {
+        allowPlan: false,
+        allowToolCalls: false, // REVIEW에서는 도구 호출 금지
+        allowTextOnly: false // REVIEW는 시스템이 자동으로 처리하므로 LLM 응답 불필요
+    },
+    [AgentPhase.DONE]: {
+        allowPlan: false,
+        allowToolCalls: false,
+        allowTextOnly: false // DONE은 최종 상태이므로 LLM 응답 불필요
     }
 };
 
@@ -151,12 +187,12 @@ export class AgentStateManager {
     isToolAllowed(toolName: Tool): boolean {
         const allowed = ALLOWED_TOOLS[this.currentState];
         const forbidden = FORBIDDEN_TOOLS[this.currentState];
-        
+
         // 금지 목록에 있으면 차단
         if (forbidden.includes(toolName)) {
             return false;
         }
-        
+
         // 허용 목록에 있으면 허용
         return allowed.includes(toolName);
     }
@@ -231,7 +267,9 @@ export class AgentStateManager {
     getStateDescription(): string {
         const descriptions: Record<AgentPhase, string> = {
             [AgentPhase.INVESTIGATION]: '조사(Investigation) 단계: 정보 수집 및 계획 수립',
-            [AgentPhase.EXECUTION]: '실행(Execution) 단계: 계획에 따른 작업 수행'
+            [AgentPhase.EXECUTION]: '실행(Execution) 단계: 계획에 따른 작업 수행',
+            [AgentPhase.REVIEW]: '검토(Review) 단계: 작업 결과 요약 및 검증',
+            [AgentPhase.DONE]: '완료(Done) 단계: 모든 작업 완료'
         };
         return descriptions[this.currentState];
     }

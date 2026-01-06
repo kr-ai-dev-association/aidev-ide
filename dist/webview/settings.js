@@ -23,12 +23,36 @@ const autoUpdateToggle = document.getElementById('auto-update-toggle');
 const autoUpdateStatus = document.getElementById('auto-update-status');
 const outputLogToggle = document.getElementById('output-log-toggle');
 const outputLogStatus = document.getElementById('output-log-status');
+const testRetrySpinner = document.getElementById('test-retry-spinner');
+const testRetryStatus = document.getElementById('test-retry-status');
+const autoTestRetryToggle = document.getElementById('auto-test-retry-toggle');
+const autoTestRetryStatus = document.getElementById('auto-test-retry-status');
 const errorRetrySpinner = document.getElementById('error-retry-spinner');
 const errorRetryStatus = document.getElementById('error-retry-status');
 const autoCorrectionToggle = document.getElementById('auto-correction-toggle');
 const autoCorrectionStatus = document.getElementById('auto-correction-status');
 const autoExecuteToggle = document.getElementById('auto-execute-toggle');
 const autoExecuteStatus = document.getElementById('auto-execute-status');
+// 자동 테스트 재시도 토글
+if (autoTestRetryToggle) {
+  autoTestRetryToggle.addEventListener('change', () => {
+    const enabled = autoTestRetryToggle.checked;
+    if (autoTestRetryStatus) {
+      autoTestRetryStatus.textContent = enabled ? languageData['autoTestRetryOn'] || '자동 테스트 재시도: 켜짐' : languageData['autoTestRetryOff'] || '자동 테스트 재시도: 꺼짐';
+    }
+    if (testRetrySpinner) {
+      testRetrySpinner.disabled = !enabled;
+      testRetrySpinner.style.opacity = enabled ? '1' : '0.5';
+    }
+    if (vscode) {
+      vscode.postMessage({
+        command: 'setAutoTestRetryEnabled',
+        enabled
+      });
+    }
+  });
+}
+
 // 자동 오류 수정 토글
 if (autoCorrectionToggle) {
   autoCorrectionToggle.addEventListener('change', () => {
@@ -771,6 +795,24 @@ if (outputLogToggle) {
 }
 
 // 이벤트 리스너: 오류 수정 횟수 스피너
+if (testRetrySpinner) {
+  testRetrySpinner.addEventListener('change', () => {
+    const count = parseInt(testRetrySpinner.value);
+    if (count >= 1 && count <= 10) {
+      vscode.postMessage({
+        command: 'setTestRetryCount',
+        count: count
+      });
+      const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
+      if (testRetryStatus) {
+        testRetryStatus.textContent = `${settingChangeText} ${count}회`;
+      }
+    } else {
+      // 범위를 벗어나면 기본값으로 되돌림
+      testRetrySpinner.value = 3;
+    }
+  });
+}
 if (errorRetrySpinner) {
   errorRetrySpinner.addEventListener('change', () => {
     const count = parseInt(errorRetrySpinner.value);
@@ -1628,6 +1670,29 @@ window.addEventListener('message', event => {
         const statusText = `${errorRetryStatusText} ${message.count}${timesText}`;
         showStatus(errorRetryStatus, statusText, 'success');
         errorRetryStatus.textContent = statusText;
+      }
+      break;
+    case 'autoTestRetryEnabledSet':
+      if (typeof message.enabled === 'boolean' && autoTestRetryToggle) {
+        autoTestRetryToggle.checked = message.enabled;
+        if (autoTestRetryStatus) {
+          autoTestRetryStatus.textContent = message.enabled ? languageData['autoTestRetryOn'] || '자동 테스트 재시도: 켜짐' : languageData['autoTestRetryOff'] || '자동 테스트 재시도: 꺼짐';
+        }
+        if (testRetrySpinner) {
+          testRetrySpinner.disabled = !message.enabled;
+          testRetrySpinner.style.opacity = message.enabled ? '1' : '0.5';
+        }
+      }
+      break;
+    case 'testRetryCountSet':
+      if (typeof message.count === 'number' && testRetrySpinner) {
+        testRetrySpinner.value = message.count;
+        const testRetryStatusText = languageData['testRetryStatus'] || '현재: 최대 테스트 재시도 횟수';
+        const timesText = languageData['testRetryTimes'] || '회';
+        const statusText = `${testRetryStatusText} ${message.count}${timesText}`;
+        if (testRetryStatus) {
+          testRetryStatus.textContent = statusText;
+        }
       }
       break;
     case 'autoCorrectionStatusChanged':

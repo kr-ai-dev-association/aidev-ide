@@ -6,6 +6,12 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v6.4.0 (Investigation 단계 강화 및 UI 개선)
+- **Investigation 단계 프롬프트 강화**: `<plan>` 태그와 실행 도구(`<create_file>`, `<update_file>` 등)를 같은 응답에 포함하는 것을 엄격히 금지하도록 프롬프트를 강화했습니다. 조사 단계에서는 오직 읽기 전용 도구만 사용하고, 계획만 제출하도록 명확히 지시합니다.
+- **작업 계획 팝업 UI 개선**: 작업 계획 팝업에서 제목과 상세 설명이 한 줄로 붙어 보이던 문제를 해결했습니다. 이제 제목과 상세가 다음 줄로 분리되어 가독성이 향상되었습니다.
+- **검증 단계별 상태 표시**: 코드 검증(Smoke Test, Lint Check) 과정을 실시간으로 표시합니다. 프로젝트 타입 감지, Smoke Test 실행, Lint Check 실행 등 각 단계별 진행 상황을 `processSteps`에 표시하여 사용자가 검증 과정을 명확히 파악할 수 있습니다.
+- **REVIEW 단계 LLM 호출 최적화**: REVIEW 단계에서 요약 생성 시 LLM을 2번 호출하던 문제를 해결했습니다. 이제 `generateVerifiedSummary`가 원본 요약이 없을 때만 LLM을 호출하여 1회로 최적화되었습니다.
+
 ## v6.3.0 (경량 FSM 및 Plan-First 아키텍처)
 - **경량 FSM 구현**: 상태 관리 중앙화, 엄격한 전환 규칙, Output Contract를 제공하는 `AgentStateManager`를 도입했습니다.
 - **상태 전환 검증**: 전환 전 조건 검사를 통해 유효한 상태 전환(INVESTIGATION → EXECUTION)만 허용합니다.
