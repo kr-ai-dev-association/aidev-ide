@@ -51,9 +51,10 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.READ_FILE)) {
             specs.push({
                 name: Tool.READ_FILE,
-                description: '지정된 경로의 파일 내용을 읽습니다.',
+                description: '지정된 경로의 파일 내용을 읽습니다. 여러 파일을 한 번에 읽으려면 <paths> 태그에 쉼표로 구분된 경로 목록을 제공하거나, 여러 <path> 태그를 사용할 수 있습니다.',
                 parameters: [
-                    { name: 'path', required: true, description: '읽을 파일 경로', type: 'string' }
+                    { name: 'path', required: false, description: '읽을 파일 경로 (단일 파일인 경우)', type: 'string' },
+                    { name: 'paths', required: false, description: '읽을 파일 경로 목록 (쉼표로 구분된 문자열 또는 여러 <path> 태그)', type: 'string' }
                 ]
             });
         }

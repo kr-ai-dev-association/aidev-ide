@@ -84,7 +84,7 @@ export class TerminalManager {
      */
     public setExtensionContext(context: vscode.ExtensionContext): void {
         this.extensionContext = context;
-        this.daemonOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal Daemon');
+        this.daemonOutputChannel = vscode.window.createOutputChannel('CODEPILOT Terminal Daemon');
     }
 
     public static getInstance(context?: vscode.ExtensionContext): TerminalManager {
@@ -556,7 +556,7 @@ export class TerminalManager {
     private static captureOutputChannel: vscode.OutputChannel | undefined;
 
     /**
-     * AIDEV-IDE 터미널을 가져오거나 생성합니다 (terminal/terminalManager.ts 호환)
+     * CODEPILOT 터미널을 가져오거나 생성합니다 (terminal/terminalManager.ts 호환)
      */
     public static getAidevIdeTerminal(projectRoot?: string, alwaysNew: boolean = true): vscode.Terminal {
         if (alwaysNew) {
@@ -802,7 +802,7 @@ export class TerminalManager {
         if (!TerminalManager.outputLogEnabled) {
             // OUTPUT 로그가 비활성화된 경우 더미 채널 반환
             return {
-                name: 'AIDEV-IDE Terminal (Disabled)',
+                name: 'CODEPILOT Terminal (Disabled)',
                 append: () => { },
                 appendLine: () => { },
                 clear: () => { },
@@ -814,7 +814,7 @@ export class TerminalManager {
         }
 
         if (!TerminalManager.captureOutputChannel) {
-            TerminalManager.captureOutputChannel = vscode.window.createOutputChannel('AIDEV-IDE Terminal');
+            TerminalManager.captureOutputChannel = vscode.window.createOutputChannel('CODEPILOT Terminal');
         }
         return TerminalManager.captureOutputChannel;
     }

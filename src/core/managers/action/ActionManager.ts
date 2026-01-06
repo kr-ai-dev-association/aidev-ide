@@ -621,18 +621,9 @@ export class ActionManager {
             const existsInDevDeps = packageJson.devDependencies[pkgName];
 
             if (!existsInDeps && !existsInDevDeps) {
-                // 의존성 추가 (특정 패키지는 고정 버전 사용)
-                const targetDeps = isDevDep ? packageJson.devDependencies : packageJson.dependencies;
-                const version = this.getPackageVersion(pkgName);
-                // 버전이 비어있으면 추가하지 않음 ("latest" 사용 금지)
-                if (version) {
-                    targetDeps[pkgName] = version;
-                    updated = true;
-                    addedPackages.push(pkgName);
-                    console.log(`[ActionManager] Added ${pkgName}@${version} to ${isDevDep ? 'devDependencies' : 'dependencies'}`);
-                } else {
-                    console.log(`[ActionManager] Skipping ${pkgName} - version not specified (latest is not allowed)`);
-                }
+                // 의존성 추가는 LLM이 프롬프트의 패키지 버전 정보를 참조하여 package.json에 직접 추가하도록 함
+                // 이 함수는 자동으로 패키지를 추가하지 않고, LLM이 코드 생성 시 package.json을 수정하도록 의존
+                console.log(`[ActionManager] Package ${pkgName} not found in package.json. LLM should add it with appropriate version from prompt guidelines.`);
 
                 // TypeScript 프로젝트이고 @types 패키지가 필요한 경우
                 // react-router-dom v6는 타입이 내장되어 있으므로 @types가 필요없음
@@ -648,16 +639,8 @@ export class ActionManager {
                     }
 
                     if (!packageJson.devDependencies[typesPackageName]) {
-                        const typesVersion = this.getPackageVersion(typesPackageName);
-                        // 버전이 비어있으면 추가하지 않음 (실제 버전을 확인할 수 없는 경우)
-                        if (typesVersion) {
-                            packageJson.devDependencies[typesPackageName] = typesVersion;
-                            updated = true;
-                            addedPackages.push(typesPackageName);
-                            console.log(`[ActionManager] Added ${typesPackageName}@${typesVersion} to devDependencies`);
-                        } else {
-                            console.log(`[ActionManager] Skipping ${typesPackageName} - version not specified`);
-                        }
+                        // 타입 정의 패키지 추가는 LLM이 프롬프트의 패키지 버전 정보를 참조하여 package.json에 직접 추가하도록 함
+                        console.log(`[ActionManager] Type definitions package ${typesPackageName} not found. LLM should add it with appropriate version from prompt guidelines.`);
                     }
                 }
             }
@@ -745,28 +728,6 @@ export class ActionManager {
         return packages;
     }
 
-    /**
-     * 패키지 버전을 가져옵니다 (특정 패키지는 고정 버전 사용)
-     */
-    private getPackageVersion(packageName: string): string {
-        // 특정 패키지는 고정 버전 사용
-        const fixedVersions: Record<string, string> = {
-            'react-router-dom': '^6.22.3',
-            '@vitejs/plugin-react-swc': '^3.5.0',
-            '@types/axios': '^1.6.3'
-        };
-
-        const lowerName = packageName.toLowerCase();
-        for (const [pkg, version] of Object.entries(fixedVersions)) {
-            if (lowerName === pkg.toLowerCase()) {
-                return version;
-            }
-        }
-
-        // "latest" 버전은 사용하지 않음 - 실제 버전을 확인할 수 없으면 추가하지 않음
-        console.warn(`[ActionManager] Version not specified for ${packageName}, skipping auto-add. Please specify exact version in code.`);
-        return '';
-    }
 
     /**
      * 패키지가 개발 의존성인지 확인

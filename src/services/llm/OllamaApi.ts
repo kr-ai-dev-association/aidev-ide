@@ -60,10 +60,8 @@ export class OllamaApi {
                 if (remoteApiUrl) this.setApiUrl(remoteApiUrl);
                 if (remoteEndpoint) this.setEndpoint(remoteEndpoint);
 
-                // 주의: 명시적으로 모델명이 설정된 경우(예: dropdown 선택) 
-                // 저장된 설정을 덮어쓰지 않도록 체크가 필요할 수 있음
-                // 여기서는 일단 remoteModel이 있을 때만 설정
-                if (remoteModel && !this.modelName.includes('-cloud')) {
+                // 저장된 모델명이 있으면 설정
+                if (remoteModel) {
                     this.setModel(remoteModel);
                 }
             } else {
@@ -74,8 +72,8 @@ export class OllamaApi {
                 if (localApiUrl) this.setApiUrl(localApiUrl);
                 if (localEndpoint) this.setEndpoint(localEndpoint);
 
-                // 로컬 설정 모델이 있고, 현재 모델이 기본값이거나 비어있는 경우에만 덮어씀
-                if (localModel && (this.modelName === 'gemma2:9b' || !this.modelName)) {
+                // 저장된 모델명이 있으면 설정
+                if (localModel) {
                     this.setModel(localModel);
                 }
             }

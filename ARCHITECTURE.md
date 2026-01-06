@@ -118,10 +118,12 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v5.2.0 리팩토링)
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합)
 │   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
 │   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
 │   │   │                            # - 스마트 너징(Nudging) 로직
+│   │   │                            # - 경량 FSM을 통한 상태 관리 및 전환 검증
+│   │   ├── AgentStateManager.ts     # v6.3.0: 경량 FSM - 상태 관리, 전환 규칙, Output Contract
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
@@ -177,7 +179,7 @@ src/
 │   │   │   ├── ReadFileToolHandler.ts
 │   │   │   ├── ListFilesToolHandler.ts  # v5.2.0: 지능형 경로 필터링 추가
 │   │   │   ├── SearchFilesToolHandler.ts
-│   │   │   └── RipgrepSearchToolHandler.ts # v6.2.0: 고성능 키워드 검색 및 Cline 스타일 결과 포맷 도입
+│   │   │   └── RipgrepSearchToolHandler.ts # v6.2.0: 고성능 키워드 검색 및 결과 포맷 도입
 │   │   ├── terminal/                # 터미널/명령 실행 툴
 │   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 지원
 │   │   └── code/                    # 코드 분석/리팩토링 툴
@@ -190,13 +192,35 @@ src/
 
 ## 🎭 매니저별 상세 책임 (v5.2.0 업데이트)
 
-### 7️⃣ Investigation Manager (v5.2.0 신규)
+### 7️⃣ Investigation Manager (v5.2.0 신규, v6.3.0 FSM 통합)
 **역할**: AI가 코드를 수정하기 전 프로젝트 상태를 분석하는 '조사' 단계를 관리합니다.
 
 **책임**:
 - **읽기 전용 도구 제한**: 조사 단계에서 `read_file`, `list_files`, `search_files`, `ripgrep_search` 외의 도구 호출 차단.
 - **단계 전환 관리**: 반드시 유효한 XML `<plan>`이 수립되어야만 '실행' 단계로의 전환 허용.
 - **조사 전용 지침 제공**: "Sherlock Holmes for Code" 역할을 LLM에게 부여하여 팩트 기반 분석 유도.
+- **v6.3.0**: `AgentStateManager`와 통합되어 상태 전환 검증 및 Output Contract 강제.
+
+### 🔟 Agent State Manager (v6.3.0 신규)
+**역할**: 에이전트의 상태 관리 및 전환 규칙을 중앙화하여 관리하는 경량 FSM입니다.
+
+**책임**:
+- **상태 관리**: `INVESTIGATION`, `EXECUTION` 상태 추적 및 현재 상태 반환.
+- **도구 허용/금지 관리**: 각 상태별로 허용되는 도구 목록을 정의하고 검증.
+- **상태 전환 검증**: 유효한 전환만 허용하며, 전환 전 조건(plan 존재, 조사 이력 등)을 검사.
+- **Output Contract 강제**: 각 상태에서 허용되는 출력 형식(plan 태그, 도구 호출, 텍스트만)을 검증.
+- **조사 이력 추적**: INVESTIGATION 단계에서 조사 도구 사용 이력을 추적하여 Blind Planning 방지.
+
+**구현 파일**:
+- `AgentStateManager.ts` - 경량 FSM 구현
+
+**상태 전환 규칙**:
+- `INVESTIGATION` → `EXECUTION`: plan 존재 + (도구 호출 또는 조사 이력) 필요
+- `EXECUTION` → 종료: 모든 plan item 완료 시
+
+**Output Contract**:
+- `INVESTIGATION`: plan 허용, 조사 도구만 허용, 텍스트 허용
+- `EXECUTION`: plan 금지, 모든 도구 허용, 텍스트 허용
 
 ### 🔟 Tool Parser (v5.2.0 개선)
 **역할**: LLM 응답에서 XML 도구 호출 및 계획 정보를 정밀하게 추출합니다.
@@ -784,25 +808,72 @@ class FileChangeTracker {
 
 ## 🔄 통신 플로우
 
-### 기본 플로우
+### 기본 플로우 (v6.3.0: FSM 통합)
 ```
 사용자 입력
   ↓
+ConversationService.handleUserMessage()
+  ↓
+ConversationManager.handleUserMessageAndRespond()
+  ↓
+IntentDetector (의도 분석 - LLM 기반)
+  ↓
+AgentStateManager 초기화 (INVESTIGATION 또는 EXECUTION)
+  ↓
+[INVESTIGATION Phase]
+  ↓
+InvestigationManager (조사 프롬프트 생성)
+  ↓
 Context Manager (컨텍스트 수집)
   ↓
-Model Manager (LLM 호출)
+LLM Manager (LLM 호출)
   ↓
-Action Manager (액션 매핑 & 검증)
+ToolParser (도구 호출 파싱)
   ↓
-Task Manager (작업 큐잉)
+AgentStateManager.validateOutput() (Output Contract 검증)
   ↓
-Execution Manager (실제 실행)
+AgentStateManager.isToolAllowed() (도구 허용 여부 검증)
+  ↓
+ToolExecutor (도구 실행 - read_file, list_files 등)
+  ↓
+[Plan 생성 시]
+  ↓
+AgentStateManager.transitionTo(EXECUTION) (상태 전환 검증)
+  ↓
+[EXECUTION Phase]
+  ↓
+TaskManager (Plan Item 관리)
+  ↓
+ToolExecutor (도구 실행 - create_file, update_file 등)
+  ↓
+Execution Manager (명령 실행)
   ↓
 Terminal Manager (터미널 세션)
   ↓
 Error Manager (에러 감지)
   ↓
-State Manager (상태 저장)
+WebviewBridge (UI 업데이트)
+```
+
+### 상태 전환 플로우 (v6.3.0)
+```
+INVESTIGATION Phase
+  ├─ 조사 도구 사용 (read_file, list_files, ripgrep_search)
+  ├─ 조사 이력 추적 (hasInvestigationHistory = true)
+  ├─ Plan 생성 (<plan> 태그)
+  ├─ AgentStateManager.transitionTo(EXECUTION) 호출
+  │   ├─ 전환 조건 검증:
+  │   │   - hasPlan: true
+  │   │   - toolCallsInTurn.length > 0 OR hasInvestigationHistory: true
+  │   └─ 조건 충족 시 전환 성공
+  └─ EXECUTION Phase로 전환
+
+EXECUTION Phase
+  ├─ Plan Item 순차 실행
+  ├─ 도구 호출 (create_file, update_file, remove_file, run_command)
+  ├─ AgentStateManager.isToolAllowed() 검증 (모든 도구 허용)
+  ├─ Plan Item 완료 처리
+  └─ 모든 Plan Item 완료 시 루프 종료
 ```
 
 ### 에러 복구 플로우

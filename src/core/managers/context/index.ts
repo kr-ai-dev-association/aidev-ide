@@ -11,6 +11,5 @@ export * from './file';
 export { EditorContextCollector } from './EditorContext';
 export { TerminalContextCollector } from './TerminalContext';
 export { ContextHistoryManager } from './ContextHistoryManager';
-export { ConversationSummarizer } from './ConversationSummarizer';
 export * from './types/contextHistory';
 

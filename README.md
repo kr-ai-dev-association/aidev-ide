@@ -6,6 +6,15 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.3.0 (Lightweight FSM & Plan-First Architecture)
+- **Lightweight FSM Implementation**: Introduced `AgentStateManager` for centralized state management with strict transition rules and output contracts.
+- **State Transition Validation**: Enforces valid state transitions (INVESTIGATION → EXECUTION) with pre-transition condition checks.
+- **Output Contract Enforcement**: Each state (INVESTIGATION, EXECUTION) has explicit rules for allowed outputs (plan tags, tool calls, text-only responses).
+- **Blind Planning Prevention**: INVESTIGATION phase now requires tool calls or investigation history before transitioning to EXECUTION, preventing plans without information gathering.
+- **Batch File Reading**: `read_file` tool now supports reading multiple files in a single call using multiple `<path>` tags or a `<paths>` parameter.
+- **Automatic Plan Item Completion**: EXECUTION phase automatically marks plan items as done when LLM provides summary-only responses without tool calls.
+- **Investigation History Tracking**: System tracks investigation tool usage to validate state transitions and prevent premature execution.
+
 ## v6.2.0 (High-Performance Search & Token Efficiency)
 - **Ripgrep-Powered Fast Search**: Added `ripgrep_search` tool for high-speed keyword and regex searching in large codebases.
 - **Contextual Results**: Search results now include multi-line code context (before/after matching lines) with pipe separators for better LLM understanding.
@@ -686,7 +695,7 @@ VSCode base code assistant plugin with LLM and LM support.
 #### Version 3.0.0 - Major Update (2025/10/04)
 - **Terminal-Daemon Integration**:
   - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs
-  - Logs stream to the `AIDEV-IDE Terminal Capture` output channel
+  - Logs stream to the `CODEPILOT Terminal Capture` output channel
   - Only truly interactive commands open the single reused `aidev-ide Terminal`
 - **Cleaner Output**: PTY ANSI control sequences are stripped so logs render cleanly in Output
 - **Stronger Error Monitoring**: Expanded detection for npm errors (e.g., "Missing script:"), "Exit status X", and "Process exited (code X)", auto-forwarded to chat and LLM for fixes

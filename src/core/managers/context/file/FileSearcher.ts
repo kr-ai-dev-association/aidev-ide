@@ -349,7 +349,7 @@ export class FileSearcher {
 
                     // 시스템 내부 디렉토리 명시적 제외 (macOS/Windows 공통)
                     const lowerName = name.toLowerCase();
-                    if (lowerName === 'node_modules' || lowerName === '.git' || 
+                    if (lowerName === 'node_modules' || lowerName === '.git' ||
                         lowerName === 'library' || lowerName === 'application support' ||
                         lowerName === 'windows' || lowerName === 'program files') {
                         continue;
@@ -442,9 +442,6 @@ export class FileSearcher {
 
     /**
      * 검색 결과 하이라이트
-     */
-    /**
-     * 검색 결과를 Cline 스타일로 포맷팅합니다.
      */
     public formatResults(results: SearchResult[], projectRoot: string): string {
         if (results.length === 0) {

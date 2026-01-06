@@ -17,7 +17,6 @@ import {
     MessageHistoryIndex
 } from './types/contextHistory';
 import { estimateTokens } from '../../../utils';
-import { ConversationSummarizer } from './ConversationSummarizer';
 
 export class ContextHistoryManager {
     private static instance: ContextHistoryManager;
@@ -34,7 +33,6 @@ export class ContextHistoryManager {
     // 이중 히스토리 구조 (향후 확장용)
     private apiConversationHistory: any[] = []; // API에 전송할 실제 대화 히스토리
     private uiMessages: ConversationEntry[] = []; // UI에 표시할 메시지들
-    private summarizer?: ConversationSummarizer;
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -263,126 +261,7 @@ export class ContextHistoryManager {
         this.saveHistory();
     }
 
-    /**
-     * Conversation Summarizer 설정
-     */
-    public setSummarizer(summarizer: ConversationSummarizer): void {
-        this.summarizer = summarizer;
-    }
 
-    /**
-     * 자동 요약 트리거
-     */
-    public async triggerAutoSummarization(
-        conversationHistory: ConversationEntry[],
-        contextData?: ContextData,
-        taskProgress?: TaskProgress
-    ): Promise<ConversationSummary | null> {
-        if (!this.summarizer) {
-            console.warn('[ContextHistoryManager] Summarizer not set, cannot summarize');
-            return null;
-        }
-
-        const sizeInfo = this.checkContextSize(contextData, conversationHistory);
-
-        if (!sizeInfo.isExceeded) {
-            console.log('[ContextHistoryManager] Context size within limits, no summarization needed');
-            return null;
-        }
-
-        console.log(`[ContextHistoryManager] Context size exceeded (${sizeInfo.characterCount}/${sizeInfo.maxSize}), triggering summarization...`);
-
-        try {
-            const summary = await this.summarizer.summarizeConversation(conversationHistory, {
-                includeTechnicalDetails: true,
-                includeCodeSnippets: true,
-                includeFileChanges: true
-            }, taskProgress);
-
-            // 요약 후 처리: 삭제 범위 업데이트
-            const apiHistory = this.getApiConversationHistory();
-            const currentDeletedRange = this.getConversationHistoryDeletedRange();
-            const newDeletedRange = this.getNextTruncationRange(
-                apiHistory,
-                currentDeletedRange,
-                'none' // 요약 후에는 모든 메시지를 삭제하고 요약으로 대체
-            );
-            this.setConversationHistoryDeletedRange(newDeletedRange);
-
-            // 요약 저장
-            this.summaries.set(summary.id, summary);
-            this.saveHistory();
-
-            console.log(`[ContextHistoryManager] Summarization completed: ${summary.id}`);
-            return summary;
-        } catch (error) {
-            console.error('[ContextHistoryManager] Summarization failed:', error);
-            return null;
-        }
-    }
-
-    /**
-     * 저장된 요약 가져오기
-     */
-    public getSummary(summaryId: string): ConversationSummary | undefined {
-        return this.summaries.get(summaryId);
-    }
-
-    /**
-     * 모든 요약 가져오기
-     */
-    public getAllSummaries(): ConversationSummary[] {
-        return Array.from(this.summaries.values());
-    }
-
-    /**
-     * 요약된 세션 재개 프롬프트 생성
-     */
-    public createContinuationPrompt(summary: ConversationSummary): string {
-        const lines: string[] = [];
-
-        lines.push('## 이전 대화 요약');
-        lines.push(`이 세션은 컨텍스트가 부족해진 이전 대화에서 계속됩니다. 대화 요약은 아래와 같습니다:\n`);
-        lines.push(`**주요 요청**: ${summary.primaryRequest}`);
-
-        if (summary.keyConcepts.length > 0) {
-            lines.push(`**핵심 개념**: ${summary.keyConcepts.join(', ')}`);
-        }
-
-        if (summary.filesModified.length > 0) {
-            lines.push(`**수정된 파일**: ${summary.filesModified.join(', ')}`);
-        }
-        if (summary.filesCreated.length > 0) {
-            lines.push(`**생성된 파일**: ${summary.filesCreated.join(', ')}`);
-        }
-        if (summary.filesDeleted.length > 0) {
-            lines.push(`**삭제된 파일**: ${summary.filesDeleted.join(', ')}`);
-        }
-
-        if (summary.pendingTasks.length > 0) {
-            lines.push(`**대기 중인 작업**: ${summary.pendingTasks.join(', ')}`);
-        }
-
-        if (summary.currentWork) {
-            lines.push(`**현재 작업**: ${summary.currentWork}`);
-        }
-
-        if (summary.nextStep) {
-            lines.push(`**다음 단계**: ${summary.nextStep}`);
-        }
-
-        if (summary.requiredFiles.length > 0) {
-            lines.push(`**필요한 파일**: ${summary.requiredFiles.join(', ')}`);
-        }
-
-        if (summary.technicalDetails) {
-            lines.push(`\n**기술 세부사항**:\n${summary.technicalDetails}`);
-        }
-
-        lines.push(`\n이전 대화를 이어서 계속 진행해주세요. 사용자에게 추가 질문을 하지 말고, 마지막 작업을 계속 진행하세요.`);
-
-        return lines.join('\n');
-    }
 
     /**
      * 최대 컨텍스트 크기 설정

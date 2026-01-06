@@ -12,16 +12,16 @@ export class ToolParser {
     static parseToolCalls(content: string): ToolUse[] {
         const toolCalls: ToolUse[] = [];
         const toolNames = Object.values(Tool);
-        
+
         // XML 태그 기반 파싱
         for (const toolName of toolNames) {
             const pattern = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
             let match;
-            
+
             while ((match = pattern.exec(content)) !== null) {
                 const innerContent = match[1];
                 const params = this.parseToolParams(innerContent);
-                
+
                 toolCalls.push({
                     name: toolName as Tool,
                     params,
@@ -29,10 +29,10 @@ export class ToolParser {
                 });
             }
         }
-        
+
         return toolCalls;
     }
-    
+
     /**
      * 툴 파라미터 파싱
      */
@@ -40,15 +40,29 @@ export class ToolParser {
         const params: Record<string, string> = {};
         const paramPattern = /<(\w+)>([\s\S]*?)<\/\1>/g;
         let match;
-        
+        const pathValues: string[] = [];
+
         while ((match = paramPattern.exec(content)) !== null) {
             const [, paramName, paramValue] = match;
-            params[paramName] = paramValue.trim();
+            
+            // read_file의 경우 여러 <path> 태그를 paths로 변환
+            if (paramName === 'path') {
+                pathValues.push(paramValue.trim());
+            } else {
+                params[paramName] = paramValue.trim();
+            }
         }
-        
+
+        // path 태그가 여러 개인 경우 paths로 변환
+        if (pathValues.length > 1) {
+            params['paths'] = pathValues.join(',');
+        } else if (pathValues.length === 1) {
+            params['path'] = pathValues[0];
+        }
+
         return params;
     }
-    
+
     /**
      * 부분 블록 감지 (스트리밍 중)
      */
@@ -58,7 +72,7 @@ export class ToolParser {
         const closeTags = content.match(/<\/(\w+)>/g) || [];
         return openTags.length > closeTags.length;
     }
-    
+
     /**
      * 부분 툴 콜 파싱 (스트리밍 중)
      */
@@ -66,10 +80,10 @@ export class ToolParser {
         // 열린 태그만 있는 경우 감지
         const openTagPattern = /<(\w+)>/g;
         const closeTagPattern = /<\/(\w+)>/g;
-        
+
         const openTags: string[] = [];
         const closeTags: string[] = [];
-        
+
         let match;
         while ((match = openTagPattern.exec(content)) !== null) {
             openTags.push(match[1]);
@@ -77,7 +91,7 @@ export class ToolParser {
         while ((match = closeTagPattern.exec(content)) !== null) {
             closeTags.push(match[1]);
         }
-        
+
         // 닫히지 않은 태그가 있으면 부분 블록
         if (openTags.length > closeTags.length) {
             const lastOpenTag = openTags[openTags.length - 1];
@@ -91,10 +105,10 @@ export class ToolParser {
                 };
             }
         }
-        
+
         return null;
     }
-    
+
     /**
      * 부분 파라미터 파싱
      */
@@ -102,11 +116,11 @@ export class ToolParser {
         const params: Record<string, string> = {};
         const toolStart = content.lastIndexOf(`<${toolName}>`);
         if (toolStart === -1) return params;
-        
+
         const toolContent = content.substring(toolStart);
         const paramPattern = /<(\w+)>([\s\S]*?)(?:<\/\1>|$)/g;
         let match;
-        
+
         while ((match = paramPattern.exec(toolContent)) !== null) {
             const [, paramName, paramValue] = match;
             if (paramValue && !paramValue.includes(`</${paramName}>`)) {
@@ -114,7 +128,7 @@ export class ToolParser {
                 params[paramName] = paramValue.trim();
             }
         }
-        
+
         return params;
     }
 

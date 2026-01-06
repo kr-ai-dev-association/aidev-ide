@@ -17,7 +17,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly configurationService: SettingsManager,
         private readonly notificationService: NotificationService,
         private readonly gitRepositoryService: GitRepositoryService,
-        private readonly geminiApi: GeminiApi
+        private readonly geminiApi: GeminiApi,
+        private readonly ollamaApi: any
     ) { }
 
     public resolveWebviewView(
@@ -129,6 +130,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         await stateManager.saveCurrentAiModel('ollama');
                         await stateManager.saveOllamaModel(modelName);
                         
+                        // 원격 서버를 사용하는 경우에도 모델명이 적용되도록 저장
+                        const serverType = await stateManager.getOllamaServerType();
+                        if (serverType === 'remote') {
+                            await stateManager.saveRemoteOllamaModel(modelName);
+                        }
+
+                        // OllamaApi 인스턴스 업데이트
+                        if (this.ollamaApi) {
+                            this.ollamaApi.setModel(modelName);
+                        }
+                        
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
                             model: modelName
@@ -201,7 +213,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             this.notificationService.showInfoMessage('분석할 오류가 없습니다.');
                             webviewView.webview.postMessage({
                                 command: 'receiveMessage',
-                                sender: 'AIDEV-IDE',
+                                sender: 'CODEPILOT',
                                 text: '최근 터미널 오류가 없습니다.'
                             });
                             break;
@@ -544,17 +556,17 @@ ${JSON.stringify(errorContext, null, 2)}
 
             if (userOS === 'windows') {
                 shellPath = 'powershell.exe';
-                terminalName = 'AIDEV-IDE PowerShell Commands';
+                terminalName = 'CODEPILOT PowerShell Commands';
             } else if (userOS === 'macos') {
                 shellPath = '/bin/bash';
-                terminalName = 'AIDEV-IDE Bash Commands';
+                terminalName = 'CODEPILOT Bash Commands';
             } else if (userOS === 'linux') {
                 shellPath = '/bin/bash';
-                terminalName = 'AIDEV-IDE Bash Commands';
+                terminalName = 'CODEPILOT Bash Commands';
             } else {
                 const osAdapter = ExecutionManager.getInstance().getOSAdapter();
                 shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
-                terminalName = osAdapter.osType === 'win32' ? 'AIDEV-IDE PowerShell Commands' : 'AIDEV-IDE Bash Commands';
+                terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Bash Commands';
             }
 
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.

@@ -822,9 +822,9 @@ window.addEventListener('message', event => {
             });
             // hideLoading 이벤트에서 처리하므로 여기서는 처리하지 않음
 
-            if (message.sender === 'AIDEV-IDE' && message.text !== undefined) {
+            if ((message.sender === 'CODEPILOT' || message.sender === 'AIDEV-IDE') && message.text !== undefined) {
                 console.log('Calling displayCodePilotMessage with text length:', message.text.length);
-                window.displayCodePilotMessage(message.text); // AIDEV-IDE 메시지 표시
+                window.displayCodePilotMessage(message.text); // CODEPILOT 메시지 표시
             } else if (message.sender === 'System' && message.text !== undefined) {
                 window.displaySystemMessage(message.text); // 시스템 메시지 (툴 실행 결과 등) 표시
             }
@@ -1244,7 +1244,7 @@ function removeToolTags(text) {
     return result;
 }
 
-// AIDEV-IDE 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
+// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
 function displayCodePilotMessage(markdownText) {
     console.log('displayCodePilotMessage called with text length:', markdownText.length);
     if (!chatMessages) {

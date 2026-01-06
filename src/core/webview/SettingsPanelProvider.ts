@@ -34,7 +34,7 @@ function safePostMessage(panel: vscode.WebviewPanel, message: any): void {
 }
 
 /**
- * AIDEV-IDE 설정 패널을 엽니다.
+ * CODEPILOT 설정 패널을 엽니다.
  */
 export function openSettingsPanel(
   extensionUri: vscode.Uri,
@@ -185,7 +185,7 @@ export function openSettingsPanel(
               if (initialized) {
                 safePostMessage(panel, { command: "apiKeySaved" });
                 notificationService.showInfoMessage(
-                  "AIDEV-IDE: Gemini API Key saved and initialized successfully.",
+                  "CODEPILOT: Gemini API Key saved and initialized successfully.",
                 );
               } else {
                 safePostMessage(panel, {
@@ -194,7 +194,7 @@ export function openSettingsPanel(
                     "API key saved but initialization failed. Please check your API key.",
                 });
                 notificationService.showWarningMessage(
-                  "AIDEV-IDE: API key saved but initialization failed. Please verify your API key is correct.",
+                  "CODEPILOT: API key saved but initialization failed. Please verify your API key is correct.",
                 );
               }
             } catch (error: any) {
@@ -225,7 +225,7 @@ export function openSettingsPanel(
               }
               safePostMessage(panel, { command: "geminiModelSaved" });
               notificationService.showInfoMessage(
-                `AIDEV-IDE: Gemini Model saved as ${geminiModelToSave}.`,
+                `CODEPILOT: Gemini Model saved as ${geminiModelToSave}.`,
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -251,7 +251,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaApiUrl(ollamaApiUrlToSave);
               safePostMessage(panel, { command: "ollamaApiUrlSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Ollama API URL saved.",
+                "CODEPILOT: Ollama API URL saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -282,7 +282,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaEndpoint(ollamaEndpointToSave);
               safePostMessage(panel, { command: "ollamaEndpointSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Ollama Endpoint saved.",
+                "CODEPILOT: Ollama Endpoint saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -313,7 +313,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaApiUrl(localOllamaApiUrlToSave);
               safePostMessage(panel, { command: "localOllamaApiUrlSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Local Ollama API URL saved.",
+                "CODEPILOT: Local Ollama API URL saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -345,7 +345,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaEndpoint(localOllamaEndpointToSave);
               safePostMessage(panel, { command: "localOllamaEndpointSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Local Ollama Endpoint saved.",
+                "CODEPILOT: Local Ollama Endpoint saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -373,7 +373,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaModel(ollamaModelToSave);
               safePostMessage(panel, { command: "ollamaModelSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Ollama Model saved.",
+                "CODEPILOT: Ollama Model saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -405,7 +405,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaServerType(ollamaServerTypeToSave);
               safePostMessage(panel, { command: "ollamaServerTypeSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Ollama Server Type saved.",
+                "CODEPILOT: Ollama Server Type saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -438,7 +438,7 @@ export function openSettingsPanel(
               );
               safePostMessage(panel, { command: "remoteOllamaApiUrlSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Remote Ollama API URL saved.",
+                "CODEPILOT: Remote Ollama API URL saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -471,7 +471,7 @@ export function openSettingsPanel(
               );
               safePostMessage(panel, { command: "remoteOllamaEndpointSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Remote Ollama Endpoint saved.",
+                "CODEPILOT: Remote Ollama Endpoint saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -502,7 +502,7 @@ export function openSettingsPanel(
               await stateManager.saveRemoteOllamaModel(remoteOllamaModelToSave);
               safePostMessage(panel, { command: "remoteOllamaModelSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Remote Ollama Model saved.",
+                "CODEPILOT: Remote Ollama Model saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -535,7 +535,7 @@ export function openSettingsPanel(
               );
               safePostMessage(panel, { command: "banyaLicenseSerialSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Banya License Serial saved.",
+                "CODEPILOT: Banya License Serial saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -579,7 +579,7 @@ export function openSettingsPanel(
                   message: verificationResult.message,
                 });
                 notificationService.showInfoMessage(
-                  `AIDEV-IDE: License verified successfully. ${verificationResult.message}`,
+                  `CODEPILOT: License verified successfully. ${verificationResult.message}`,
                 );
               } else {
                 await stateManager.saveIsLicenseVerified(false);
@@ -589,7 +589,7 @@ export function openSettingsPanel(
                   message: verificationResult.message,
                 });
                 notificationService.showErrorMessage(
-                  `AIDEV-IDE: License verification failed. ${verificationResult.message}`,
+                  `CODEPILOT: License verification failed. ${verificationResult.message}`,
                 );
               }
             } catch (error: any) {
@@ -600,7 +600,7 @@ export function openSettingsPanel(
                 message: error.message,
               });
               notificationService.showErrorMessage(
-                `AIDEV-IDE: License verification error. ${error.message}`,
+                `CODEPILOT: License verification error. ${error.message}`,
               );
             }
           } else {
@@ -620,7 +620,7 @@ export function openSettingsPanel(
             await stateManager.saveIsLicenseVerified(false);
             safePostMessage(panel, { command: "banyaLicenseDeleted" });
             notificationService.showInfoMessage(
-              "AIDEV-IDE: Banya License Serial deleted.",
+              "CODEPILOT: Banya License Serial deleted.",
             );
           } catch (error: any) {
             safePostMessage(panel, {
@@ -649,7 +649,7 @@ export function openSettingsPanel(
               } catch { }
               safePostMessage(panel, { command: "autoUpdateEnabledSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Auto Update setting saved.",
+                "CODEPILOT: Auto Update setting saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -678,7 +678,7 @@ export function openSettingsPanel(
               await stateManager.saveOutputLogEnabled(outputLogEnabledToSave);
               safePostMessage(panel, { command: "outputLogEnabledSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Output Log setting saved.",
+                "CODEPILOT: Output Log setting saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -710,7 +710,7 @@ export function openSettingsPanel(
               await stateManager.saveErrorRetryCount(errorRetryCountToSave);
               safePostMessage(panel, { command: "errorRetryCountSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Error Retry Count setting saved.",
+                "CODEPILOT: Error Retry Count setting saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -745,7 +745,7 @@ export function openSettingsPanel(
               );
               safePostMessage(panel, { command: "autoCorrectionEnabledSaved" });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Auto Correction setting saved.",
+                "CODEPILOT: Auto Correction setting saved.",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -844,7 +844,7 @@ export function openSettingsPanel(
               await stateManager.saveCurrentAiModel(toRuntime);
 
               safePostMessage(panel, { command: "aiModelSaved" });
-              notificationService.showInfoMessage("AIDEV-IDE: AI Model saved.");
+              notificationService.showInfoMessage("CODEPILOT: AI Model saved.");
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "aiModelSaveError",
@@ -874,7 +874,7 @@ export function openSettingsPanel(
                 language: languageToSave,
               });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Language setting updated.",
+                "CODEPILOT: Language setting updated.",
               );
             } catch (error: any) {
               console.error("[PanelManager] Failed to save language:", error);
@@ -915,11 +915,11 @@ export function openSettingsPanel(
             });
             if (result.success) {
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Ollama connection test successful.",
+                "CODEPILOT: Ollama connection test successful.",
               );
             } else {
               notificationService.showErrorMessage(
-                `AIDEV-IDE: Ollama connection test failed: ${result.error}`,
+                `CODEPILOT: Ollama connection test failed: ${result.error}`,
               );
             }
           } catch (error: any) {
@@ -929,7 +929,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AIDEV-IDE: Ollama connection test failed: ${error.message}`,
+              `CODEPILOT: Ollama connection test failed: ${error.message}`,
             );
           }
           break;
@@ -943,7 +943,7 @@ export function openSettingsPanel(
                 error: "No API key found",
               });
               notificationService.showErrorMessage(
-                "AIDEV-IDE: No Gemini API key found.",
+                "CODEPILOT: No Gemini API key found.",
               );
               return;
             }
@@ -961,11 +961,11 @@ export function openSettingsPanel(
             });
             if (testResult.success) {
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Gemini connection test successful.",
+                "CODEPILOT: Gemini connection test successful.",
               );
             } else {
               notificationService.showErrorMessage(
-                `AIDEV-IDE: Gemini connection test failed: ${testResult.error}`,
+                `CODEPILOT: Gemini connection test failed: ${testResult.error}`,
               );
             }
           } catch (error: any) {
@@ -975,7 +975,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AIDEV-IDE: Gemini connection test failed: ${error.message}`,
+              `CODEPILOT: Gemini connection test failed: ${error.message}`,
             );
           }
           break;
@@ -989,7 +989,7 @@ export function openSettingsPanel(
                 error: "No Banya License Serial found",
               });
               notificationService.showErrorMessage(
-                "AIDEV-IDE: No Banya License Serial found.",
+                "CODEPILOT: No Banya License Serial found.",
               );
               return;
             }
@@ -1003,7 +1003,7 @@ export function openSettingsPanel(
                 data: testResult,
               });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Banya License connection test successful.",
+                "CODEPILOT: Banya License connection test successful.",
               );
             } else {
               safePostMessage(panel, {
@@ -1012,7 +1012,7 @@ export function openSettingsPanel(
                 error: testResult.message,
               });
               notificationService.showErrorMessage(
-                `AIDEV-IDE: Banya License connection test failed: ${testResult.message}`,
+                `CODEPILOT: Banya License connection test failed: ${testResult.message}`,
               );
             }
           } catch (error: any) {
@@ -1022,7 +1022,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AIDEV-IDE: Banya License connection test failed: ${error.message}`,
+              `CODEPILOT: Banya License connection test failed: ${error.message}`,
             );
           }
           break;
@@ -1035,7 +1035,7 @@ export function openSettingsPanel(
                 error: "Ollama Blocker service not available",
               });
               notificationService.showErrorMessage(
-                "AIDEV-IDE: Ollama Blocker service not available.",
+                "CODEPILOT: Ollama Blocker service not available.",
               );
               return;
             }
@@ -1048,7 +1048,7 @@ export function openSettingsPanel(
                 data: testResult.data,
               });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Ollama Blocker connection test successful.",
+                "CODEPILOT: Ollama Blocker connection test successful.",
               );
             } else {
               safePostMessage(panel, {
@@ -1057,7 +1057,7 @@ export function openSettingsPanel(
                 error: testResult.error,
               });
               notificationService.showErrorMessage(
-                `AIDEV-IDE: Ollama Blocker connection test failed: ${testResult.error}`,
+                `CODEPILOT: Ollama Blocker connection test failed: ${testResult.error}`,
               );
             }
           } catch (error: any) {
@@ -1067,7 +1067,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AIDEV-IDE: Ollama Blocker connection test failed: ${error.message}`,
+              `CODEPILOT: Ollama Blocker connection test failed: ${error.message}`,
             );
           }
           break;
@@ -1083,7 +1083,7 @@ export function openSettingsPanel(
                 data: testResult.data,
               });
               notificationService.showInfoMessage(
-                "AIDEV-IDE: Terminal Daemon connection test successful.",
+                "CODEPILOT: Terminal Daemon connection test successful.",
               );
             } else {
               safePostMessage(panel, {
@@ -1092,7 +1092,7 @@ export function openSettingsPanel(
                 error: testResult.error,
               });
               notificationService.showErrorMessage(
-                `AIDEV-IDE: Terminal Daemon connection test failed: ${testResult.error}`,
+                `CODEPILOT: Terminal Daemon connection test failed: ${testResult.error}`,
               );
             }
           } catch (error: any) {
@@ -1102,7 +1102,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AIDEV-IDE: Terminal Daemon connection test failed: ${error.message}`,
+              `CODEPILOT: Terminal Daemon connection test failed: ${error.message}`,
             );
           }
           break;
@@ -1186,7 +1186,7 @@ export function openSettingsPanel(
               results,
             });
             notificationService.showInfoMessage(
-              "AIDEV-IDE: All connections test completed.",
+              "CODEPILOT: All connections test completed.",
             );
           } catch (error: any) {
             safePostMessage(panel, {
@@ -1194,7 +1194,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AIDEV-IDE: All connections test failed: ${error.message}`,
+              `CODEPILOT: All connections test failed: ${error.message}`,
             );
           }
           break;
@@ -1428,7 +1428,7 @@ export function openPlanPanel(
     extensionUri,
     context,
     "plan",
-    "AIDEV-IDE Plan Queue",
+    "CODEPILOT Plan Queue",
     "plan",
     vscode.ViewColumn.Two,
     async (data, panel: vscode.WebviewPanel) => {

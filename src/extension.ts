@@ -27,7 +27,6 @@ import { LLMApiClient } from './core/managers/model/LLMApiClient';
 import { IntentDetector } from './core/managers/action/IntentDetector';
 import { ExternalApiService } from './services/external/ExternalApiService';
 import { ContextHistoryManager } from './core/managers/context/ContextHistoryManager';
-import { ConversationSummarizer } from './core/managers/context/ConversationSummarizer';
 import { FileChangeTracker } from './core/managers/action/file/FileChangeTracker';
 import { FileContextTracker } from './core/managers/context/file/FileContextTracker';
 import { ToolRegistry } from './core/tools/ToolRegistry';
@@ -361,11 +360,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
     const contextHistoryManager = ContextHistoryManager.getInstance(context);
     conversationManager.setContextHistoryManager(contextHistoryManager);
-    
-    // ConversationSummarizer 초기화 및 설정 (Phase 4.4)
-    const conversationSummarizer = new ConversationSummarizer();
-    conversationSummarizer.setLLMClient(llmApiClient);
-    conversationManager.setConversationSummarizer(conversationSummarizer);
 
     // FileChangeTracker / FileContextTracker 초기화 및 ActionManager에 설정
     const fileChangeTracker = FileChangeTracker.getInstance(context);
@@ -427,7 +421,8 @@ export async function activate(context: vscode.ExtensionContext) {
         settingsManager,
         notificationService,
         gitRepositoryService,
-        geminiApi
+        geminiApi,
+        ollamaApi
     );
 
     context.subscriptions.push(

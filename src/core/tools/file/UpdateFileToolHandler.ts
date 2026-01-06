@@ -9,6 +9,7 @@ import {
   fixModelHtmlEscaping,
   removeCDataSections,
 } from "../../../utils/string";
+import { FileMutationManager, PatchStrategy } from "../../managers/file/FileMutationManager";
 import * as fs from "fs/promises";
 import * as path from "path";
 
@@ -29,6 +30,8 @@ export class UpdateFileToolHandler implements IToolHandler {
         error: { code: "MISSING_PARAM", message: "path and diff are required" },
       };
     }
+
+    const mutationManager = FileMutationManager.getInstance();
 
     // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
     let cleanedDiff = fixModelHtmlEscaping(diff);
@@ -65,6 +68,14 @@ export class UpdateFileToolHandler implements IToolHandler {
           message: error instanceof Error ? error.message : String(error),
         },
       };
+    }
+
+    // --- 사전 파일 검사 (Preflight Inspection) ---
+    const analysis = mutationManager.analyzeFile(fileContent);
+    const strategy = mutationManager.chooseStrategy(analysis, replacements[0].search);
+    
+    if (strategy === PatchStrategy.STRUCTURAL_REWRITE) {
+        console.log(`[UpdateFileToolHandler] Strategy switched to STRUCTURAL_REWRITE for ${filePath}`);
     }
 
     // 각 REPLACE 블록의 매칭 위치를 찾아서 저장
@@ -116,7 +127,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // 매칭 전략 4: 구조적 공백 무시 매칭 (가장 강력한 폴백)
+      // 매칭 전략 4: 구조적 공백 무시 매칭
       if (!matchResult) {
         const structuralMatch = this.structuralFallbackMatch(
           fileContent,
@@ -131,6 +142,17 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
+      // 매칭 전략 5: 퍼지 매칭 (유사도 기반)
+      if (!matchResult) {
+        const fuzzyMatch = mutationManager.fuzzyMatch(fileContent, replacement.search, 0.8);
+        if (fuzzyMatch) {
+          matchResult = fuzzyMatch;
+          console.log(
+            `[UpdateFileToolHandler] Fuzzy match found for ${filePath} (threshold: 0.8)`,
+          );
+        }
+      }
+
       // 매칭 성공 시 적용 목록에 추가
       if (matchResult) {
         replacementsToApply.push({
@@ -139,15 +161,23 @@ export class UpdateFileToolHandler implements IToolHandler {
           replace: replacement.replace,
         });
       } else {
+        // --- 실패 시 Fallback 및 사용자 친화적 메시지 ---
         console.warn(
           `[UpdateFileToolHandler] Search pattern not found in file: ${filePath}`,
         );
-        console.log(
-          `[UpdateFileToolHandler] Failed SEARCH block (lines: ${replacement.search.split("\n").length}):\n[START]\n${replacement.search}\n[END]`,
-        );
 
-        let errorMessage = `파일(${filePath})에서 SEARCH 블록의 내용을 찾을 수 없습니다.\n\n`;
-        errorMessage += `**현재 파일의 실제 내용:**\n`;
+        let errorMessage = `❌ **수정 실패: SEARCH 블록을 찾을 수 없습니다** (파일: ${filePath})\n\n`;
+        
+        if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
+            errorMessage += `⚠️ **분석 결과:** 이 파일은 기본 Vite 템플릿 상태입니다. 에이전트가 예상한 메뉴나 네비게이션 구조가 아직 구현되지 않아 부분 수정(SEARCH/REPLACE)이 불가능합니다.\n\n`;
+            errorMessage += `💡 **권장 해결 방법:**\n`;
+            errorMessage += `1. \`create_file\` 도구를 사용하여 파일 전체 내용을 새 구조로 재작성하세요.\n`;
+            errorMessage += `2. 또는 \`read_file\`로 현재 파일의 실제 구조를 다시 확인한 후 SEARCH 블록을 수정하세요.\n\n`;
+        } else {
+            errorMessage += `에이전트가 제시한 SEARCH 블록의 내용이 실제 파일의 내용과 일치하지 않습니다. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
+        }
+
+        errorMessage += `**현재 파일의 실제 내용 (아래 내용을 복사하여 SEARCH 블록에 사용하세요):**\n`;
         errorMessage += `\`\`\`\n${fileContent}\n\`\`\`\n`;
 
         return {
