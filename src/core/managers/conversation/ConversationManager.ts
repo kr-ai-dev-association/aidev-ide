@@ -225,21 +225,38 @@ export class ConversationManager {
                 { signal: abortSignal }
             );
 
-            // 응답 정제: thinking 태그 및 불필요한 태그 제거
-            let cleanGreetingResponse = greetingResponse
-                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                .trim();
+            // 응답 정제: extractResponseText 사용하여 일관된 정제
+            let cleanGreetingResponse = this.extractResponseText(greetingResponse);
+
+            // JSON 래핑이 있는 경우 추가 파싱 (extractResponseText에서 처리되지 않은 경우)
+            if (!cleanGreetingResponse || cleanGreetingResponse.trim().length < 2) {
+                try {
+                    // JSON 형태로 래핑된 경우 파싱 시도
+                    const jsonMatch = greetingResponse.match(/^\{[\s\S]*\}$/);
+                    if (jsonMatch) {
+                        const parsed = JSON.parse(greetingResponse);
+                        cleanGreetingResponse = parsed.response || parsed.content || parsed.message || '';
+                    }
+                } catch (e) {
+                    // JSON 파싱 실패 시 원본 사용
+                }
+            }
 
             // 응답이 비어있거나 너무 짧은 경우 기본 응답 사용
-            if (!cleanGreetingResponse || cleanGreetingResponse.length < 2) {
+            if (!cleanGreetingResponse || cleanGreetingResponse.trim().length < 2) {
                 console.warn('[ConversationManager] Greeting response is empty or too short, using default response.');
                 cleanGreetingResponse = '안녕하세요! 무엇을 도와드릴까요?';
             }
 
+            // 최종 정제: 앞뒤 공백 제거
+            cleanGreetingResponse = cleanGreetingResponse.trim();
+
             console.log(`[ConversationManager] Sending greeting response to webview (length: ${cleanGreetingResponse.length}): ${cleanGreetingResponse.substring(0, 100)}...`);
-            WebviewBridge.receiveMessage(webviewToRespond, 'Assistant', cleanGreetingResponse);
+            console.log(`[ConversationManager] Webview valid: ${!!webviewToRespond}`);
+
+            // CODEPILOT 타입으로 전송 (다른 일반 질의응답과 동일한 타입 사용)
+            WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanGreetingResponse);
+            console.log(`[ConversationManager] Greeting message sent to webview.`);
             return; // 즉시 종료
         }
 
@@ -647,7 +664,7 @@ export class ConversationManager {
                                                     WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
                                                 } else {
                                                     console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
                                                 }
                                                 stateManager.transitionTo(AgentPhase.REVIEW);
                                                 turnCount++;
@@ -829,7 +846,7 @@ export class ConversationManager {
                                                 WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
                                             } else {
                                                 console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
                                             }
                                             // 실패해도 REVIEW로 전환하여 요약 생성
                                             stateManager.transitionTo(AgentPhase.REVIEW);
@@ -841,6 +858,15 @@ export class ConversationManager {
                             } else {
                                 // LLM을 호출했지만 여전히 도구 호출이 없다면, 해당 plan item을 완료로 간주하고 다음으로 이동
                                 console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
+
+                                // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시
+                                const textResponse = this.extractResponseText(cleanExecutionResponse);
+                                if (textResponse && textResponse.trim().length > 0) {
+                                    console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Displaying in panel.`);
+                                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', textResponse);
+                                    // 텍스트 응답을 accumulatedUserParts에 추가하여 다음 턴에서 참조 가능하도록 함
+                                    accumulatedUserParts.push({ text: llmResponseForExecution });
+                                }
 
                                 if (currentPlanItem) {
                                     taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
@@ -877,7 +903,7 @@ export class ConversationManager {
                                                 WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
                                             } else {
                                                 console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
                                             }
                                             stateManager.transitionTo(AgentPhase.REVIEW);
                                             turnCount++;
@@ -929,7 +955,7 @@ export class ConversationManager {
                                         WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
                                     } else {
                                         console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                        WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                        WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
                                     }
                                     // 실패해도 REVIEW로 전환하여 요약 생성
                                     stateManager.transitionTo(AgentPhase.REVIEW);
