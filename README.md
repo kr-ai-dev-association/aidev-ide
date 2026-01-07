@@ -6,6 +6,31 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.7.0 (Auto Test Control & Investigation Phase Improvements)
+- **Auto Test Execution Control**: Automated tests (Smoke Test, Lint Check) and error messages are now only executed and displayed when the "auto test retry" setting is enabled. When disabled, tests are skipped entirely and no error messages are shown.
+- **INVESTIGATION Phase Tool Transition**: When execution tools are blocked in the INVESTIGATION phase, the system now automatically transitions to EXECUTION phase and executes the tools together, ensuring smooth phase transitions.
+- **Unified File List Format**: INVESTIGATION phase now uses the same `[D] [F]` formatted file inventory as EXECUTION phase for consistency. The `formatFileTree` method has been removed in favor of `buildProjectInventorySection`.
+
+## v6.6.0 (LLM Call Optimization Complete & Execution Guarantee)
+- **LLM Call Optimization Complete**: 
+  - Completely removed LLM calls in the DONE phase.
+  - Ensured that both test pass and failure cases go through the REVIEW phase for summary generation.
+  - Prevented duplicate test execution before loop termination to eliminate unnecessary LLM calls.
+- **EXECUTION Phase Execution Guarantee**: 
+  - Strengthened FSM transition conditions to prevent transitioning to EXECUTION when only a plan is provided without tool calls during INVESTIGATION.
+  - Improved the EXECUTION phase to call the LLM when a plan item has no executable tool calls, ensuring all plan items are actually executed.
+  - All plan items are now guaranteed to be executed and files are created.
+- **CODE/ASK Color Swap**: Swapped colors so CODE mode is blue and ASK mode is green for better visual distinction.
+
+## v6.5.0 (LLM Call Optimization & Execution Logic Improvements)
+- **EXECUTION Phase Execution Logic Improvement**: Fixed the issue where the system would transition to EXECUTION phase even when only a plan was provided without tool calls during INVESTIGATION. Now, the system only transitions to EXECUTION after investigation is complete, preventing premature termination without file creation.
+- **Plan Item Execution Guarantee**: Improved the EXECUTION phase to call the LLM when a plan item has no executable tool calls, ensuring all plan items are actually executed and files are created.
+- **LLM Call Optimization**: 
+  - Confirmed and fixed that no LLM calls occur in the DONE phase.
+  - Improved flow so that both test pass and failure cases go through the REVIEW phase for summary generation.
+  - Prevented duplicate test execution before loop termination to eliminate unnecessary LLM calls.
+- **CODE/ASK Color Swap**: Swapped colors so CODE mode is blue and ASK mode is green for better visual distinction.
+
 ## v6.4.0 (Investigation Phase Strengthening & UI Improvements)
 - **Enhanced Investigation Phase Prompts**: Strengthened prompts to strictly prohibit including execution tools (`<create_file>`, `<update_file>`, etc.) alongside `<plan>` tags in the same response. The investigation phase now clearly instructs to use only read-only tools and submit plans only.
 - **Task Plan Popup UI Improvement**: Fixed the issue where task titles and details were displayed on the same line in the task plan popup. Titles and details are now displayed on separate lines for improved readability.

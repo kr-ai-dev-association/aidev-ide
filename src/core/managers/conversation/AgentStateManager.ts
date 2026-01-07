@@ -24,7 +24,7 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.LIST_FILES,
         Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH
-    ],
+    ], // Investigation에서는 조사 도구 허용 (파일 수정 없음, 조사 행위)
     [AgentPhase.EXECUTION]: [
         Tool.CREATE_FILE,
         Tool.UPDATE_FILE,
@@ -47,8 +47,9 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.CREATE_FILE,
         Tool.UPDATE_FILE,
         Tool.REMOVE_FILE,
+        // Tool.READ_FILE, Tool.LIST_FILES, Tool.SEARCH_FILES, Tool.RIPGREP_SEARCH는 허용 (조사 행위, 부작용 없음)
         Tool.RUN_COMMAND
-    ],
+    ], // Investigation에서는 조사 도구만 허용, 실행 도구 금지
     [AgentPhase.EXECUTION]: [], // EXECUTION에서는 모든 도구 허용
     [AgentPhase.REVIEW]: [
         Tool.CREATE_FILE,
@@ -98,18 +99,19 @@ interface OutputContract {
 const OUTPUT_CONTRACTS: Record<AgentPhase, OutputContract> = {
     [AgentPhase.INVESTIGATION]: {
         allowPlan: true,
-        allowToolCalls: true, // 조사 도구만 허용
-        allowTextOnly: true, // nudge 등을 위해 허용
+        allowToolCalls: true, // Investigation에서는 조사 도구 호출 허용
+        allowTextOnly: true, // nudge 등을 위해 허용 (의도 없을 때만)
         requiredBeforeTransition: {
             to: AgentPhase.EXECUTION,
             condition: (context: any) => {
-                // EXECUTION으로 전환하려면 plan이 있어야 하고, 조사 도구가 실행되었거나 plan과 함께 도구 호출이 있어야 함
+                // EXECUTION으로 전환하려면 유효한 plan이 있으면 충분함
+                // plan 자체가 조사 완료의 증거이므로, plan만 있어도 전환 가능
+                // 실행 도구는 EXECUTION 단계에서 생성할 수 있음
                 const hasPlan = context.hasPlan || false;
-                const hasToolCalls = (context.toolCallsInTurn?.length || 0) > 0;
-                const hasInvestigationHistory = context.hasInvestigationHistory || false;
 
-                // plan이 있고, (도구 호출이 있거나 조사 이력이 있으면) 전환 가능
-                return hasPlan && (hasToolCalls || hasInvestigationHistory);
+                // plan이 있으면 즉시 전환 가능 (plan 자체가 조사 완료의 증거)
+                // 실행 도구가 없으면 EXECUTION 단계에서 LLM을 호출하여 생성
+                return hasPlan;
             }
         }
     },

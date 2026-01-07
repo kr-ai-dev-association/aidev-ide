@@ -118,13 +118,18 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화)
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화, v6.5.0: 실행 로직 개선, v6.6.0: LLM 호출 최적화 완료, v6.7.0: 자동 테스트 제어 및 Investigation 단계 개선)
 │   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
 │   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
 │   │   │                            # - 스마트 너징(Nudging) 로직
 │   │   │                            # - 경량 FSM을 통한 상태 관리 및 전환 검증
 │   │   │                            # - v6.4.0: REVIEW 단계 LLM 호출 최적화 (2회 → 1회)
 │   │   │                            # - v6.4.0: 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황)
+│   │   │                            # - v6.5.0: INVESTIGATION에서 plan만 있을 때 EXECUTION 전환 방지
+│   │   │                            # - v6.5.0: EXECUTION에서 plan item에 tool call 없을 때 LLM 호출하여 생성
+│   │   │                            # - v6.6.0: DONE 단계 LLM 호출 완전 제거 확인, 테스트 후 REVIEW 전환 보장 강화
+│   │   │                            # - v6.6.0: 루프 종료 전 중복 테스트 실행 방지, 모든 경로에서 REVIEW 거쳐 요약 생성 보장
+│   │   │                            # - v6.7.0: 자동 테스트 실행 제어 (설정이 활성화된 경우에만 실행), INVESTIGATION에서 EXECUTION 전환 시 도구 함께 실행, 통일된 파일 리스트 형식 ([D] [F])
 │   │   ├── AgentStateManager.ts     # v6.3.0: 경량 FSM - 상태 관리, 전환 규칙, Output Contract
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
@@ -219,8 +224,10 @@ src/
 - `AgentStateManager.ts` - 경량 FSM 구현
 
 **상태 전환 규칙**:
-- `INVESTIGATION` → `EXECUTION`: plan 존재 + (도구 호출 또는 조사 이력) 필요
-- `EXECUTION` → 종료: 모든 plan item 완료 시
+- `INVESTIGATION` → `EXECUTION`: plan 존재 + (도구 호출 또는 조사 이력) 필요 (v6.5.0: 전환 조건 강화, v6.6.0: 완전 적용)
+- `EXECUTION` → `REVIEW`: 모든 plan item 완료 + 자동 테스트 실행 후
+- `REVIEW` → `DONE`: 요약 생성 완료 후
+- `DONE`: 최종 상태, LLM 호출 없음 (v6.6.0: 완전 제거 확인 및 강화)
 
 **Output Contract**:
 - `INVESTIGATION`: plan 허용, 조사 도구만 허용, 텍스트 허용
@@ -860,7 +867,7 @@ Error Manager (에러 감지)
 WebviewBridge (UI 업데이트)
 ```
 
-### 상태 전환 플로우 (v6.3.0)
+### 상태 전환 플로우 (v6.3.0, v6.5.0 개선)
 ```
 INVESTIGATION Phase
   ├─ 조사 도구 사용 (read_file, list_files, ripgrep_search)
@@ -870,15 +877,26 @@ INVESTIGATION Phase
   │   ├─ 전환 조건 검증:
   │   │   - hasPlan: true
   │   │   - toolCallsInTurn.length > 0 OR hasInvestigationHistory: true
-  │   └─ 조건 충족 시 전환 성공
-  └─ EXECUTION Phase로 전환
+  │   └─ 조건 충족 시 전환 성공, 미충족 시 INVESTIGATION 유지 (v6.5.0)
+  └─ EXECUTION Phase로 전환 (조건 충족 시)
 
 EXECUTION Phase
   ├─ Plan Item 순차 실행
   ├─ 도구 호출 (create_file, update_file, remove_file, run_command)
+  │   ├─ plan 생성 시 tool call이 있으면 즉시 실행
+  │   └─ tool call이 없으면 LLM 호출하여 생성 (v6.5.0, v6.6.0: 완전 적용)
   ├─ AgentStateManager.isToolAllowed() 검증 (모든 도구 허용)
   ├─ Plan Item 완료 처리
-  └─ 모든 Plan Item 완료 시 루프 종료
+  ├─ 모든 Plan Item 완료 시 자동 테스트 실행
+  └─ 테스트 완료 후 REVIEW Phase로 전환 (v6.5.0, v6.6.0: 모든 경로 보장)
+
+REVIEW Phase
+  ├─ 파일 변경 검증 (실제 디스크 상태 확인)
+  ├─ LLM 호출하여 요약 생성 (1회만, v6.4.0, v6.6.0: 최적화 완료)
+  └─ DONE Phase로 전환
+
+DONE Phase
+  └─ 최종 상태, LLM 호출 없음 (v6.6.0: 완전 제거 확인 및 강화)
 ```
 
 ### 에러 복구 플로우

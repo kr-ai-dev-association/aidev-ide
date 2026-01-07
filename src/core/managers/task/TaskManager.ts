@@ -28,6 +28,7 @@ export interface PlanItem {
     id: string;
     title: string;
     detail?: string;
+    kind?: 'investigation' | 'execution'; // plan item의 종류 (조사 작업 vs 실행 작업)
     status: PlanItemStatus;
     createdAt: number;
 }
@@ -629,7 +630,7 @@ export class TaskManager {
     /**
      * 새로운 플랜 아이템들을 설정합니다 (기존 아이템 대체)
      */
-    public setPlanItems(items: Array<{ title: string; detail?: string }>): void {
+    public setPlanItems(items: Array<{ title: string; detail?: string; kind?: 'investigation' | 'execution' }>): void {
         const queue = this.getActivePlanQueueOrCreate();
         queue.items = []; // 기존 아이템 제거
         this.addItemsToPlanQueue(queue, items, 'pending');

@@ -9,7 +9,7 @@ export class ToolParser {
     /**
      * LLM 응답에서 툴 콜을 파싱
      */
-    static parseToolCalls(content: string): ToolUse[] {
+    static parseToolCalls(content: string, warnings?: string[]): ToolUse[] {
         const toolCalls: ToolUse[] = [];
         const toolNames = Object.values(Tool);
 
@@ -21,6 +21,15 @@ export class ToolParser {
             while ((match = pattern.exec(content)) !== null) {
                 const innerContent = match[1];
                 const params = this.parseToolParams(innerContent);
+
+                // create_file은 content 필수: 누락 시 경고를 추가하고 스킵
+                if (toolName === Tool.CREATE_FILE) {
+                    const hasContent = typeof params.content === 'string' && params.content.trim().length > 0;
+                    if (!hasContent) {
+                        warnings?.push(`⚠️ create_file에 content가 없습니다 (path=${params.path || 'unknown'})`);
+                        continue; // 이 호출은 무시
+                    }
+                }
 
                 toolCalls.push({
                     name: toolName as Tool,
@@ -164,10 +173,10 @@ export class ToolParser {
     }
 
     /**
-     * LLM 응답에서 플랜 아이템들을 파싱 (v5.2.0: 엄격한 XML 구조 강제)
+     * LLM 응답에서 플랜 아이템들을 파싱 (v5.2.0: 엄격한 XML 구조 강제, kind 필드 추가)
      */
-    static parsePlanItems(content: string): Array<{ title: string; detail?: string }> {
-        const items: Array<{ title: string; detail?: string }> = [];
+    static parsePlanItems(content: string): Array<{ title: string; detail?: string; kind?: 'investigation' | 'execution' }> {
+        const items: Array<{ title: string; detail?: string; kind?: 'investigation' | 'execution' }> = [];
         const planPattern = /<plan>([\s\S]*?)<\/plan>/gi;
         const match = planPattern.exec(content);
 
@@ -182,16 +191,30 @@ export class ToolParser {
                 const itemContent = itemMatch[1];
                 const titleMatch = /<title>([\s\S]*?)<\/title>/gi.exec(itemContent);
                 const detailMatch = /<detail>([\s\S]*?)<\/detail>/gi.exec(itemContent);
+                const kindMatch = /<kind>([\s\S]*?)<\/kind>/gi.exec(itemContent);
 
                 if (titleMatch && titleMatch[1]) {
+                    const kindValue = kindMatch && kindMatch[1] ? kindMatch[1].trim().toLowerCase() : undefined;
+                    const kind = (kindValue === 'investigation' || kindValue === 'execution') ? kindValue : undefined;
+
                     items.push({
                         title: titleMatch[1].trim(),
-                        detail: detailMatch ? detailMatch[1].trim() : undefined
+                        detail: detailMatch ? detailMatch[1].trim() : undefined,
+                        kind: kind as 'investigation' | 'execution' | undefined
                     });
                 }
             }
         }
 
         return items;
+    }
+
+    /**
+     * LLM 응답에서 <investigation_done/> 토큰을 파싱
+     * 조사 완료를 명시적으로 선언하는 토큰
+     */
+    static parseInvestigationDone(content: string): boolean {
+        const pattern = /<investigation_done\s*\/?>/gi;
+        return pattern.test(content);
     }
 }

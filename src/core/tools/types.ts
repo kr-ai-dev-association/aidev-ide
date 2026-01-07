@@ -19,17 +19,17 @@
  * - REFACTOR_CODE → REFACTOR (리팩토링)
  */
 export enum Tool {
-    CREATE_FILE = 'create_file',           // 기존 CODE_GENERATION과 매핑
-    UPDATE_FILE = 'update_file',           // 기존 FILE_OPERATION UPDATE와 매핑
-    REMOVE_FILE = 'remove_file',           // 기존 FILE_OPERATION DELETE와 매핑
-    READ_FILE = 'read_file',               // 기존 FILE_READ와 매핑
-    LIST_FILES = 'list_files',             // 기존 FILE_LIST와 매핑
-    SEARCH_FILES = 'search_files',          // 기존 FILE_SEARCH와 매핑
-    RUN_COMMAND = 'run_command',           // 기존 TERMINAL_COMMAND와 매핑
-    ANALYZE_CODE = 'analyze_code',          // 기존 ANALYSIS와 매핑
-    VERIFY_CODE = 'verify_code',            // 기존 VERIFICATION과 매핑
-    REFACTOR_CODE = 'refactor_code',        // 기존 REFACTOR와 매핑
-    RIPGREP_SEARCH = 'ripgrep_search'       // Ripgrep 기반 빠른 검색
+    CREATE_FILE = 'create_file',
+    UPDATE_FILE = 'update_file',
+    REMOVE_FILE = 'remove_file',
+    READ_FILE = 'read_file',
+    LIST_FILES = 'list_files',
+    SEARCH_FILES = 'search_files',
+    RUN_COMMAND = 'run_command',
+    ANALYZE_CODE = 'analyze_code',
+    VERIFY_CODE = 'verify_code',
+    REFACTOR_CODE = 'refactor_code',
+    RIPGREP_SEARCH = 'ripgrep_search'
 }
 
 /**

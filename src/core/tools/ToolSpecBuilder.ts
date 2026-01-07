@@ -28,7 +28,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.UPDATE_FILE)) {
             specs.push({
                 name: Tool.UPDATE_FILE,
-                description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.** 파일이 이미 수정되었거나 다른 내용일 수 있으므로, 추측하지 말고 항상 최신 내용을 확인하세요.',
+                description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.**',
                 parameters: [
                     { name: 'path', required: true, description: '수정할 파일 경로', type: 'string' },
                     { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식:\n<<<<<<< SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n>>>>>>> REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
@@ -89,7 +89,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.RIPGREP_SEARCH)) {
             specs.push({
                 name: Tool.RIPGREP_SEARCH,
-                description: 'ripgrep(rg)을 사용하여 고성능으로 파일 내용을 검색합니다. 대규모 프로젝트에서 매우 빠릅니다.',
+                description: 'ripgrep(rg)을 사용하여 파일 내용을 검색합니다. 대규모 프로젝트에서 매우 빠릅니다.',
                 parameters: [
                     { name: 'pattern', required: true, description: '검색할 정규식 또는 키워드', type: 'string' },
                     { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
