@@ -1018,7 +1018,10 @@ export class ConversationManager {
                 }
             }
 
-            // 2. 시스템 내부 토큰 제거 (사용자에게 표시되면 안 됨)
+            // 2. <investigation_done/> 토큰 파싱 (제거 전에 먼저 파싱)
+            const investigationDoneToken = ToolParser.parseInvestigationDone(cleanResponse);
+
+            // 3. 시스템 내부 토큰 제거 (사용자에게 표시되면 안 됨)
             // <investigation_done/> 토큰은 시스템 내부용이므로 제거
             cleanResponse = cleanResponse.replace(/<investigation_done\s*\/>/gi, '').trim();
 
@@ -1603,8 +1606,8 @@ export class ConversationManager {
                                 // ⚠️ 핵심 수정: INVESTIGATION 단계에서는 모든 investigation item이 완료될 때까지 유지
                                 // <investigation_done/> 토큰이 있거나, 모든 investigation item이 완료되어야만 EXECUTION으로 전환
 
-                                // <investigation_done/> 토큰 확인
-                                const investigationDone = ToolParser.parseInvestigationDone(cleanResponse);
+                                // <investigation_done/> 토큰 확인 (이미 위에서 파싱됨)
+                                const investigationDone = investigationDoneToken;
 
                                 // execution kind가 있는 plan item이 있는지 확인 (현재 응답 기준)
                                 const hasExecutionPlanItem = planItems.some(item => item.kind === 'execution');
@@ -2230,8 +2233,13 @@ export class ConversationManager {
                 continue;
             }
 
-            // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
-            if (!totalResponseText || !totalResponseText.trim()) {
+            // ⚠️ 핵심 수정: analysis intent이고 investigation_done 토큰이 있으면, 빈 응답이어도 analysis 답변 생성 후 종료
+            // (analysis 답변 생성 로직은 INVESTIGATION phase 처리 블록에서 실행됨)
+            if (investigationDoneToken && intent && intent.category === 'analysis' && !hasExecutionIntentEver) {
+                console.log('[ConversationManager] Analysis intent with investigation_done token detected. Will generate answer in INVESTIGATION phase block.');
+                // 빈 응답 체크를 건너뛰고 계속 진행 (INVESTIGATION phase 블록에서 analysis 답변 생성)
+            } else if (!totalResponseText || !totalResponseText.trim()) {
+                // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
                 console.log('[ConversationManager] Empty response or invalid plan, ending loop');
                 break;
             }
@@ -2631,7 +2639,7 @@ export class ConversationManager {
             'analyze_code': '코드 분석',
             'verify_code': '코드 검증',
             'refactor_code': '리팩토링',
-            'ripgrep_search': '고성능 키워드 검색',
+            'ripgrep_search': '키워드 검색',
             'task_progress': '진행 상황 업데이트',
             'plan': '계획 수립'
         };
