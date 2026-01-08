@@ -152,6 +152,8 @@ ${fileListContext}
 위 파일 목록을 기반으로 작업 결과를 간결하게 요약해주세요.
 
 ## 중요 지침:
+- **절대 금지**: 도구 호출 태그(<create_file>, <update_file>, <read_file> 등)를 출력하지 마세요. 이 단계는 요약만 생성하는 단계입니다.
+- **절대 금지**: thinking, reasoning, explanation 등의 내부 사고 과정을 출력하지 마세요. 순수한 요약 텍스트만 출력하세요.
 - **명령어 형식 (CRITICAL)**: 실행 가능한 명령어(예: \`npm run dev\`, \`npm install\`, \`python main.py\` 등)는 반드시 코드 블록 형식으로 작성하세요
   - ❌ 잘못된 예: "npm install && npm run dev 로 바로 개발 서버를 실행할 수 있습니다"
   - ✅ 올바른 예: "\`\`\`bash\nnpm install && npm run dev\n\`\`\` 로 바로 개발 서버를 실행할 수 있습니다"

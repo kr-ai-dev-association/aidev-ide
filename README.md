@@ -6,6 +6,13 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v6.10.0 (Execution-First Detection Logic Unification & FSM Consistency)
+- **Execution-First Detection Logic Unification**: Unified execution-first task detection into a common function `isExecutionFirstTask()` to apply consistent criteria across all locations. Tasks like `code_generate` and `code_run` are now consistently handled in both initial and subsequent detections, ensuring correct FSM state transitions, tool permissions, and retry/auto-transition behavior.
+- **Logical Operator Precedence Clarification**: Added parentheses to clarify logical operator precedence in phase transition conditions for correct behavior.
+
+## v6.9.0 (Analysis Response Display Fix)
+- **Analysis Response Panel Display Fix**: Fixed the issue where analysis responses generated after `investigation_done` were not displayed in the panel. Changed the `'Assistant'` sender to `'CODEPILOT'` in `WebviewBridge.receiveMessage` so that the webview processes it correctly.
+
 ## v6.8.0 (Test Retry Logic Improvements & TypeScript Validation Order Optimization)
 - **EXECUTION Phase Tool Execution Guarantee**: Fixed the issue where `run_command` was blocked in EXECUTION phase. Now, fix commands suggested by the LLM after test failures (e.g., `npm install`) execute properly.
 - **Test Retry Prompt Enhancement**: Added guidance "Do not create files that already exist" to the test retry prompt to prevent duplicate file creation issues.

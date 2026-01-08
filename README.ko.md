@@ -6,6 +6,13 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v6.10.0 (Execution-first 판단 로직 통일 및 FSM 일관성 보장)
+- **Execution-first 판단 로직 통일**: execution-first 작업 판단을 공통 함수 `isExecutionFirstTask()`로 통일하여 모든 위치에서 동일한 기준을 적용합니다. 이제 `code_generate`, `code_run` 같은 작업도 초기 판단과 후속 판단에서 일관되게 처리되어 FSM 상태 전환, 도구 허용 여부, retry/auto-transition이 올바르게 동작합니다.
+- **논리 연산자 우선순위 명확화**: Phase 전환 조건의 논리 연산자 우선순위를 괄호로 명확히 하여 의도한 대로 동작하도록 수정했습니다.
+
+## v6.9.0 (Analysis 응답 표시 문제 해결)
+- **Analysis 응답 패널 표시 수정**: `investigation_done` 후 생성된 analysis 응답이 패널에 표시되지 않던 문제를 해결했습니다. `WebviewBridge.receiveMessage`에서 `'Assistant'` sender를 `'CODEPILOT'`으로 변경하여 webview에서 정상적으로 처리되도록 수정했습니다.
+
 ## v6.8.0 (테스트 재시도 로직 개선 및 TypeScript 검증 순서 최적화)
 - **EXECUTION phase 도구 실행 보장**: EXECUTION phase에서 `run_command`가 차단되는 문제를 해결했습니다. 이제 테스트 실패 후 LLM이 제안한 수정 명령어(`npm install` 등)가 정상적으로 실행됩니다.
 - **테스트 재시도 프롬프트 개선**: 테스트 실패 후 재시도 시 "이미 존재하는 파일은 생성하지 말 것" 안내를 추가하여 중복 파일 생성 문제를 방지합니다.

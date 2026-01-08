@@ -189,6 +189,10 @@ export class ConversationManager {
         const maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount(); // 설정에서 최대 시도 횟수 가져오기
         const isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled(); // 자동 테스트 재시도 설정 확인
 
+        // 🔥 문제 1 해결: npm install 등 명령어 중복 실행 방지 (전역 추적)
+        const recentlyExecutedCommands = new Set<string>(); // 최근 실행된 명령어 추적
+        const lastFailurePattern = { pattern: '', count: 0 }; // 실패 패턴 추적 (문제 3 해결용)
+
         const taskManager = TaskManager.getInstance();
         const actionManager = ActionManager.getInstance();
         const executionManager = ExecutionManager.getInstance();
@@ -261,14 +265,8 @@ export class ConversationManager {
         }
 
         // ⚠️ 핵심 수정: execution-first task 감지 및 바로 EXECUTION으로 전환
-        // execution intent가 있고 investigation이 필요 없으면 INVESTIGATION phase를 스킵
-        // 단, code_modify는 기존 코드 수정이므로 반드시 investigation(read)이 선행되어야 함
-        const isExecutionFirstTask = intent &&
-            (intent.category === 'execution' ||
-                (intent.category === 'code' &&
-                    (intent.subtype === 'code_generate' || intent.subtype === 'code_run'))) &&
-            intent.confidence >= 0.7 &&
-            !hasActivePlan;
+        // 공통 함수 사용으로 모든 곳에서 동일한 기준 적용
+        const isExecutionFirstTask = this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan);
 
         // ⚠️ 안전 장치: 기존 프로젝트가 존재하면 execution-first라도 INVESTIGATION으로 시작
         // “기존 프로젝트” 판단: 루트에 실제 파일/디렉터리가 하나라도 있으면 true
@@ -430,16 +428,59 @@ export class ConversationManager {
                     allowedTools // 도구 제한 전달
                 };
                 activeSystemPrompt = investigationPrompt + '\n\n' + this.promptBuilder.generateSystemPrompt(promptOptions);
+
+                // 🔥 문제 해결: execution-first 작업일 때 investigation item 금지
+                // 공통 함수 사용으로 일관된 판단
+                if (this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan)) {
+                    activeSystemPrompt += `\n\n⚠️ **EXECUTION-FIRST TASK RULE (CRITICAL)**\n\n` +
+                        `**현재 작업은 execution-first 작업입니다.** 사용자 요청은 파일 생성, 코드 수정, 프로젝트 초기화 등 실행 작업입니다.\n\n` +
+                        `**절대 금지:**\n` +
+                        `- ❌ <kind>investigation</kind> 항목을 plan에 포함하는 것\n` +
+                        `- ❌ 조사 작업을 계획에 추가하는 것\n` +
+                        `- ❌ "요구사항 확인", "파일 구조 조사" 같은 investigation item 추가\n\n` +
+                        `**필수:**\n` +
+                        `- ✅ <plan> 태그에는 <kind>execution</kind> 항목만 포함하세요\n` +
+                        `- ✅ 조사가 필요하면 시스템이 자동으로 처리합니다\n` +
+                        `- ✅ 바로 실행 계획(<kind>execution</kind>)만 제시하세요\n\n` +
+                        `**예시 (올바른 plan):**\n` +
+                        `<plan>\n` +
+                        `  <item>\n` +
+                        `    <kind>execution</kind>\n` +
+                        `    <title>React TypeScript Vite 프로젝트 생성</title>\n` +
+                        `    <detail>package.json, tsconfig.json, vite.config.ts, index.html, src/main.tsx, src/App.tsx 등을 생성합니다.</detail>\n` +
+                        `  </item>\n` +
+                        `</plan>\n\n` +
+                        `**잘못된 예시 (절대 금지):**\n` +
+                        `<plan>\n` +
+                        `  <item>\n` +
+                        `    <kind>investigation</kind>  ← ❌ execution-first에서는 금지!\n` +
+                        `    <title>요구사항 확인</title>\n` +
+                        `  </item>\n` +
+                        `  <item>\n` +
+                        `    <kind>execution</kind>\n` +
+                        `    <title>프로젝트 생성</title>\n` +
+                        `  </item>\n` +
+                        `</plan>\n\n`;
+                }
             } else if (currentPhase === AgentPhase.EXECUTION) {
                 // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
-                const executionEnforcementPrompt = `\n\n⚠️ **EXECUTION PHASE - CRITICAL RULES**\n\n` +
-                    `You are in EXECUTION phase. Rules:\n` +
-                    `- Do NOT explore the project (investigation is already complete)\n` +
-                    `- Do NOT read files unless explicitly required to perform the action\n` +
-                    `- Do NOT think or explain (NO "We should...", "We need to...", "Let's call...")\n` +
-                    `- Output ONLY executable XML tool calls\n` +
-                    `- If no tool call is required, output nothing\n\n` +
-                    `**You already have enough information. Start execution immediately.**\n`;
+                // 🔥 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
+                const executionEnforcementPrompt = `\n\n⚠️ **EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)**\n\n` +
+                    `You are in EXECUTION phase. You are a DSL compiler, NOT a human assistant.\n\n` +
+                    `**ABSOLUTELY FORBIDDEN:**\n` +
+                    `- NO thinking, reasoning, or explanation\n` +
+                    `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
+                    `- NO meta-analysis of rules or next steps\n` +
+                    `- NO natural language text (except inside tool parameters)\n` +
+                    `- NO file exploration (investigation is already complete)\n` +
+                    `- NO reading files unless explicitly required for the action\n\n` +
+                    `**REQUIRED OUTPUT:**\n` +
+                    `- ONLY executable XML tool calls (<create_file>, <update_file>, <run_command>, etc.)\n` +
+                    `- NO text before or after tool calls\n` +
+                    `- If no tool call is required, output NOTHING (empty response)\n\n` +
+                    `**CRITICAL:** Any natural language text (thinking, explanation, reasoning) will be IGNORED.\n` +
+                    `Only XML tool calls will be executed. You already have all necessary information.\n` +
+                    `Start execution immediately without any explanation.\n`;
                 activeSystemPrompt += executionEnforcementPrompt;
             }
 
@@ -585,7 +626,7 @@ export class ConversationManager {
                                             testFixAttempts++;
                                             console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                             accumulatedUserParts.push({
-                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
                                             });
                                             turnCount++;
                                             continue;
@@ -734,34 +775,34 @@ export class ConversationManager {
                             }
 
                             const planContextForExecution =
-                                `\n\n[EXECUTION PHASE - STRICT RULES]\n` +
+                                `\n\n[EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)]\n` +
                                 `CURRENT TASK: ${currentPlanItem.title}` +
                                 (currentPlanItem.detail ? `\nDETAIL: ${currentPlanItem.detail}` : '') +
                                 projectInventoryContext +
                                 preloadedFilesContextForExecution +
-                                `\n\n**절대 금지 사항:**\n` +
-                                `- 프로젝트 탐색 금지 (Do NOT explore the project)\n` +
-                                `- **이미 읽은 파일 다시 읽기 금지**: 위에 나열된 파일들은 이미 읽었고 내용이 제공되었으므로 다시 <read_file>을 호출하지 마세요\n` +
-                                `- 설명 금지 (Do NOT think or explain)\n` +
-                                `- 계획 재수립 금지 (Do NOT create a new plan)\n\n` +
-                                `**필수 사항:**\n` +
-                                `- 실행 가능한 XML 도구 호출만 출력 (Output ONLY executable XML tool calls)\n` +
-                                `- 설명 없이 도구만 호출하세요\n` +
-                                `- **파일 읽기 전략**: 위 프로젝트 파일 구조를 참고하여 정말 필요한 파일만 선택적으로 읽으세요\n` +
-                                `  - 이미 읽은 파일은 다시 읽지 마세요 (위에 내용이 제공됨)\n` +
-                                `  - 새로 생성할 파일이나 수정할 파일만 읽으세요\n` +
-                                `  - 예: App.tsx를 수정해야 한다면 <read_file><path>src/App.tsx</path></read_file> (단, 이미 읽지 않은 경우만)\n` +
-                                `- **다중 도구 호출 필수 (CRITICAL)**: 필요한 파일이 여러 개라면 반드시 한 번의 응답에 모든 도구를 호출하세요\n` +
-                                `  - 여러 <read_file>, <list_files>, <update_file>, <create_file> 태그를 동시에 출력하는 것이 허용됩니다\n` +
-                                `  - 한 번에 최대한 많은 작업을 수행하세요\n` +
-                                `  - 파일을 하나씩 읽는 것은 비효율적입니다. 필요한 모든 파일을 한 번에 요청하세요\n` +
-                                `- **Multi-Tool 허용 조건 (CRITICAL)**: 여러 도구를 한 번에 호출할 때는 다음 규칙을 반드시 지켜야 합니다:\n` +
-                                `  - **Read-only 묶음 허용**: 여러 파일을 동시에 읽는 것은 안전합니다.\n` +
-                                `  - **Write-only 묶음 허용**: 서로 다른 파일을 동시에 생성/수정하는 것은 독립적이므로 허용됩니다.\n` +
-                                `  - **Read A + Update B (조건부 허용)**: A 파일을 읽고 B 파일을 수정하는 것은 논리적으로 가능하지만, A 파일의 내용을 실제로 확인한 후 B를 수정해야 합니다.\n` +
-                                `  - **Read A + Update A (절대 금지)**: 같은 파일을 읽고 수정하는 것을 같은 턴에 하면 안 됩니다. LLM은 파일 내용을 실제로 확인하지 못한 상태에서 상상으로 수정하게 됩니다. 반드시 턴을 나눠야 합니다:\n` +
-                                `- 도구 호출이 필요 없으면 아무것도 출력하지 마세요\n\n` +
-                                `이 계획 항목을 실행하기 위해 필요한 모든 XML 도구 호출을 한 번에 즉시 제공하세요.`;
+                                `\n\n**🔥 ABSOLUTELY FORBIDDEN (시스템이 자동으로 무시함):**\n` +
+                                `- NO thinking, reasoning, explanation, or meta-analysis\n` +
+                                `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
+                                `- NO natural language text (except inside tool parameters)\n` +
+                                `- NO project exploration (investigation is already complete)\n` +
+                                `- NO re-reading files already provided above\n` +
+                                `- NO plan creation (planning phase is over)\n\n` +
+                                `**✅ REQUIRED OUTPUT (ONLY THIS):**\n` +
+                                `- ONLY executable XML tool calls (<create_file>, <update_file>, <run_command>, etc.)\n` +
+                                `- NO text before or after tool calls\n` +
+                                `- If no tool call is required, output NOTHING (empty response)\n\n` +
+                                `**CRITICAL:** You are a DSL compiler, NOT a human assistant.\n` +
+                                `Any natural language text will be IGNORED by the system.\n` +
+                                `Only XML tool calls will be executed.\n\n` +
+                                `**파일 읽기 전략 (시스템이 자동 관리):**\n` +
+                                `- 위에 이미 제공된 파일 내용을 참고하세요 (다시 읽지 마세요)\n` +
+                                `- 새로 생성/수정할 파일만 필요시 읽으세요\n` +
+                                `- **다중 도구 호출 필수**: 필요한 모든 파일을 한 번에 처리하세요\n` +
+                                `  - 여러 <read_file>, <update_file>, <create_file> 태그를 동시에 출력 가능\n` +
+                                `  - 한 번에 최대한 많은 작업 수행\n` +
+                                `- **Read A + Update A 규칙**: 같은 파일을 읽고 수정하는 것은 시스템이 자동으로 턴을 나눕니다. LLM은 신경 쓰지 마세요.\n\n` +
+                                `이 계획 항목을 실행하기 위해 필요한 모든 XML 도구 호출을 한 번에 즉시 제공하세요.\n` +
+                                `설명 없이 도구만 호출하세요.`;
 
                             const llmResponseForExecution = await this.llmManager.sendMessageWithSystemPrompt(
                                 activeSystemPrompt + planContextForExecution,
@@ -836,7 +877,7 @@ export class ConversationManager {
                                             testFixAttempts++;
                                             console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                             accumulatedUserParts.push({
-                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
                                             });
                                             turnCount++;
                                             continue; // EXECUTION 단계 유지하여 수정 시도
@@ -893,7 +934,7 @@ export class ConversationManager {
                                             testFixAttempts++;
                                             console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                             accumulatedUserParts.push({
-                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
                                             });
                                             turnCount++;
                                             continue;
@@ -945,7 +986,7 @@ export class ConversationManager {
                                     testFixAttempts++;
                                     console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                     accumulatedUserParts.push({
-                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 <update_file> 도구를 사용하여 수정하세요.\n`
+                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
                                     });
                                     turnCount++;
                                     continue; // EXECUTION 단계 유지하여 수정 시도
@@ -999,6 +1040,7 @@ export class ConversationManager {
                 .trim();
 
             // XML 태그만 남기고 자연어 텍스트 제거 (EXECUTION phase에서 특히 중요)
+            // 🔥 핵심: EXECUTION phase에서는 "생각", "설명" → 전부 무시, XML tool call만 추출
             if (currentPhase === AgentPhase.EXECUTION) {
                 // ⚠️ 수정: 중첩된 태그를 제대로 처리하기 위해 Tool enum의 모든 태그를 사용
                 const toolNames = Object.values(Tool);
@@ -1016,13 +1058,15 @@ export class ConversationManager {
                 }
 
                 if (matchedTags.length > 0) {
-                    // XML 태그만 남기고 나머지 자연어 텍스트 제거
+                    // XML 태그만 남기고 나머지 자연어 텍스트 완전 제거
                     // 줄바꿈을 유지하여 중첩된 태그 구조 보존
                     cleanResponse = matchedTags.join('\n');
-                    console.log(`[ConversationManager] EXECUTION phase: Extracted ${matchedTags.length} XML tag(s) from response`);
+                    console.log(`[ConversationManager] EXECUTION phase: Extracted ${matchedTags.length} XML tag(s), removed all natural language text`);
                 } else {
-                    // XML 태그가 없으면 원본 유지 (자연어 응답일 수 있음)
-                    console.log(`[ConversationManager] EXECUTION phase: No XML tags found in response, keeping original`);
+                    // XML 태그가 없으면 자연어 응답으로 간주하고 경고
+                    console.warn(`[ConversationManager] EXECUTION phase: No XML tags found. LLM provided natural language instead of tool calls.`);
+                    // 자연어 텍스트를 완전히 제거하고 빈 응답으로 처리
+                    cleanResponse = '';
                 }
             }
             // JSON 래핑 처리는 위의 재시도 루프에서 이미 처리됨
@@ -1042,9 +1086,9 @@ export class ConversationManager {
 
                 // <plan>과 실행 도구가 함께 있으면 즉시 재요청 (ripgrep_search는 허용)
                 if (hasPlanTag && hasExecutionTool) {
-                    console.log('[ConversationManager] ⚠️ INVESTIGATION Output Contract Violation: <plan>과 실행 도구가 함께 제공됨. 즉시 재요청합니다.');
+                    console.log('[ConversationManager] INVESTIGATION Output Contract Violation: <plan>과 실행 도구가 함께 제공됨. 즉시 재요청합니다.');
                     accumulatedUserParts.push({
-                        text: `\n[System] ⚠️ **조사(Investigation) 단계 Output Contract 위반**\n\n` +
+                        text: `\n[System] **조사(Investigation) 단계 Output Contract 위반**\n\n` +
                             `조사 단계에서는 다음이 허용됩니다:\n` +
                             `1. 조사 도구 사용: <read_file>, <list_files>, <search_files>, <ripgrep_search> (파일 수정 없이 조사만)\n` +
                             `2. 계획 제출: <plan>...</plan> (실행 도구 없이)\n` +
@@ -1068,6 +1112,30 @@ export class ConversationManager {
             // <investigation_done/> 토큰은 시스템 내부용이므로 제거
             cleanResponse = cleanResponse.replace(/<investigation_done\s*\/>/gi, '').trim();
 
+            // 🔥 EXECUTION phase에서 텍스트만 나오면 즉시 재요청 (핵심 개선)
+            if (currentPhase === AgentPhase.EXECUTION && cleanResponse.trim()) {
+                // XML 태그가 있는지 확인
+                const hasXmlTag = /<[a-z_]+>[\s\S]*?<\/[a-z_]+>/i.test(cleanResponse);
+                if (!hasXmlTag) {
+                    // 텍스트만 있고 XML 태그가 없으면 자연어 응답으로 간주
+                    console.warn(`[ConversationManager] EXECUTION phase: LLM provided natural language text instead of tool calls. Rejecting and requesting again.`);
+                    accumulatedUserParts.push({
+                        text: `\n[System] ⚠️ **EXECUTION 단계 Output Contract 위반**\n\n` +
+                            `EXECUTION 단계에서는 자연어 텍스트(생각, 설명, 메타 분석)가 금지되어 있습니다.\n` +
+                            `시스템이 자동으로 모든 자연어 텍스트를 무시합니다.\n\n` +
+                            `**필수 사항:**\n` +
+                            `- 실행 가능한 XML 도구 호출만 출력하세요 (<create_file>, <update_file>, <run_command> 등)\n` +
+                            `- 설명 없이 도구만 호출하세요\n` +
+                            `- "We need to...", "According to...", "Let's call..." 같은 텍스트는 출력하지 마세요\n` +
+                            `- 도구 호출이 필요 없으면 아무것도 출력하지 마세요\n\n` +
+                            `**중요:** 당신은 DSL 컴파일러입니다. Planning/Reasoning은 이미 완료되었습니다.\n` +
+                            `이제 실행만 하세요. 설명 없이 XML 도구 호출만 제공하세요.\n`
+                    });
+                    turnCount++;
+                    continue; // 즉시 재요청
+                }
+            }
+
             // 3. 텍스트와 도구 호출 인터리브 처리
             const toolNames = Object.values(Tool);
             const tags = [...toolNames, 'plan', 'task_progress'];
@@ -1075,6 +1143,14 @@ export class ConversationManager {
 
             // 텍스트와 태그 분리 (capturing group을 사용하여 태그도 결과에 포함)
             const parts = cleanResponse.split(tagPattern);
+
+            // 🔥 중복 실행 방지: 전체 cleanResponse에서 모든 tool call을 한 번만 파싱
+            const allToolCallsFromResponse = ToolParser.parseToolCalls(cleanResponse);
+            const parsedToolCallsMap = new Map<string, any>();
+            allToolCallsFromResponse.forEach(call => {
+                const key = `${call.name}:${JSON.stringify(call.params)}`;
+                parsedToolCallsMap.set(key, call);
+            });
 
             let turnHasSideEffects = false;
             let turnResultsSummary = '';
@@ -1109,15 +1185,32 @@ export class ConversationManager {
 
                         const planItems = ToolParser.parsePlanItems(part);
                         if (planItems.length > 0) {
+                            // 🔥 문제 해결: execution-first 작업일 때 investigation item 자동 필터링
+                            // 공통 함수 사용으로 일관된 판단
+                            const isExecutionFirst = this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan);
+                            let filteredPlanItems = planItems;
+
+                            if (isExecutionFirst) {
+                                const investigationItems = planItems.filter(item => item.kind === 'investigation');
+                                const executionItems = planItems.filter(item => item.kind === 'execution');
+
+                                if (investigationItems.length > 0 && executionItems.length > 0) {
+                                    console.log(`[ConversationManager] ⚠️ Execution-first task detected but plan contains investigation items. Filtering out ${investigationItems.length} investigation item(s).`);
+                                    filteredPlanItems = executionItems; // investigation item 제거, execution item만 유지
+                                    turnResultsSummary += `\n[System] ⚠️ 실행 작업(execution-first)이므로 조사 항목은 제외하고 실행 항목만 진행합니다.\n`;
+                                }
+                            }
+
                             // Plan이 "할 일 없음"을 의미하는지 확인: kind 기반 판별
                             // 모든 plan item이 investigation kind만 있고 execution kind가 없으면 "할 일 없음"
-                            const hasExecutionAction = planItems.some(item => item.kind === 'execution');
-                            const allInvestigationOnly = planItems.every(item => item.kind === 'investigation' || !item.kind);
+                            const hasExecutionAction = filteredPlanItems.some(item => item.kind === 'execution');
+                            const allInvestigationOnly = filteredPlanItems.every(item => item.kind === 'investigation' || !item.kind);
 
                             // kind가 명시되지 않은 경우, 기본값은 'execution'으로 간주 (하위 호환성)
                             // 따라서 kind가 없으면 실행 작업으로 간주
-                            const hasAnyExplicitExecution = planItems.some(item => item.kind === 'execution');
-                            const allExplicitInvestigation = planItems.length > 0 && planItems.every(item => item.kind === 'investigation');
+                            // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
+                            const hasAnyExplicitExecution = filteredPlanItems.some(item => item.kind === 'execution');
+                            const allExplicitInvestigation = filteredPlanItems.length > 0 && filteredPlanItems.every(item => item.kind === 'investigation');
 
                             // ⚠️ 핵심 수정: Investigation 단계에서는 조사 도구가 호출되었다면 "할 일 없음"으로 판단하지 않음
                             // 조사 도구가 없고 investigation kind만 있는 경우, plan의 detail에서 파일 경로를 추출하여 자동으로 조사 도구 실행
@@ -1220,7 +1313,8 @@ export class ConversationManager {
                             // ⚠️ 핵심 수정: investigation item이 있으면 시스템이 자동으로 조사 도구를 실행
                             // "LLM should call investigation tools" 규칙 제거 - 시스템이 plan 기반으로 자동 실행
                             // execution item이 함께 있어도 investigation part는 자동 조사 수행
-                            const investigationItems = planItems.filter(item => item.kind === 'investigation');
+                            // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
+                            const investigationItems = filteredPlanItems.filter(item => item.kind === 'investigation');
                             if (investigationItems.length > 0 && !hasInvestigationToolCalls) {
                                 console.log('[ConversationManager] Plan contains investigation tasks. Auto-executing investigation tools based on plan detail.');
 
@@ -1475,8 +1569,41 @@ export class ConversationManager {
                                     // 자동 조사가 실제로 수행되었음을 표시 (조사 완료 판정에 사용)
                                     autoInvestigationCompleted = true;
 
-                                    // 조사 도구 실행 후 INVESTIGATION 단계 유지 (LLM이 조사 완료 판단할 때까지)
-                                    console.log(`[ConversationManager] Auto-investigation completed. Remaining in INVESTIGATION phase for LLM to continue investigation or declare completion.`);
+                                    // 🔥 문제 해결: 자동 조사 완료 후 LLM에게 명확한 지시 추가
+                                    // execution item이 있으면 자동으로 EXECUTION으로 전환, 없으면 LLM에게 조사 완료 선언 요청
+                                    // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
+                                    const hasExecutionItem = filteredPlanItems.some(item => item.kind === 'execution');
+
+                                    if (hasExecutionItem) {
+                                        // execution item이 있으면 자동으로 EXECUTION으로 전환
+                                        console.log(`[ConversationManager] Auto-investigation completed. Execution items found. Auto-transitioning to EXECUTION phase.`);
+                                        const transitionContext = {
+                                            hasPlan: true,
+                                            toolCallsInTurn: [],
+                                            hasInvestigationHistory: true
+                                        };
+                                        const transitionResult = stateManager.transitionTo(AgentPhase.EXECUTION, transitionContext);
+                                        if (transitionResult.success) {
+                                            console.log('[ConversationManager] Successfully transitioned to EXECUTION phase after auto-investigation.');
+                                            turnResultsSummary += `\n[System] 자동 조사가 완료되었습니다. 이제 '실행(Execution)' 단계입니다.\n`;
+                                            // EXECUTION으로 전환했으므로 다음 루프에서 EXECUTION 처리
+                                            turnCount++;
+                                            continue;
+                                        }
+                                    } else {
+                                        // execution item이 없으면 LLM에게 조사 완료 선언 요청
+                                        console.log(`[ConversationManager] Auto-investigation completed. No execution items found. Requesting LLM to declare investigation completion.`);
+                                        accumulatedUserParts.push({
+                                            text: `\n[System] ⚠️ **자동 조사가 완료되었습니다.**\n\n` +
+                                                `다음 파일들이 자동으로 읽혔습니다:\n` +
+                                                filePathsToRead.map(path => `- ${path}`).join('\n') + `\n\n` +
+                                                `**다음 단계를 선택하세요:**\n` +
+                                                `1. **추가 조사가 필요하면**: 조사 도구(<read_file>, <list_files>, <ripgrep_search>)를 사용하여 계속 조사하세요.\n` +
+                                                `2. **조사가 완료되었으면**: <investigation_done/> 토큰을 출력하여 조사 완료를 선언하세요.\n` +
+                                                `3. **실행 계획이 있으면**: <plan> 태그에 <kind>execution</kind> 항목을 추가하세요.\n\n` +
+                                                `**중요**: 조사가 완료되었다고 판단되면 반드시 <investigation_done/> 토큰을 출력하거나 실행 계획을 제시하세요.\n`
+                                        });
+                                    }
                                 } else {
                                     // 파일 경로를 추출할 수 없거나 모든 파일이 이미 읽혔으면 조사 완료로 간주
                                     // investigation item을 자동으로 완료 처리하고 다음 단계로 진행
@@ -1485,8 +1612,9 @@ export class ConversationManager {
                                         console.log(`[ConversationManager] All ${filePathsToRead.length} file(s) mentioned in plan detail are already read. Investigation item is complete. Auto-completing investigation item.`);
 
                                         // investigation item을 완료 처리
+                                        // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
                                         investigationItems.forEach(item => {
-                                            const planItem = planItems.find(p => p.title === item.title && p.kind === 'investigation');
+                                            const planItem = filteredPlanItems.find(p => p.title === item.title && p.kind === 'investigation');
                                             if (planItem) {
                                                 const taskItem = taskManager.listPlanItems().find(t => t.title === planItem.title);
                                                 if (taskItem) {
@@ -1499,7 +1627,8 @@ export class ConversationManager {
                                         WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
 
                                         // 조사가 완료되었으므로 execution item이 있으면 EXECUTION으로 전환, 없으면 LLM에게 안내
-                                        const hasExecutionItem = planItems.some(item => item.kind === 'execution');
+                                        // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
+                                        const hasExecutionItem = filteredPlanItems.some(item => item.kind === 'execution');
                                         if (hasExecutionItem) {
                                             // execution item이 있으면 EXECUTION으로 전환
                                             const transitionContext = {
@@ -1587,13 +1716,15 @@ export class ConversationManager {
                             // ⚠️ 핵심 수정: execution plan이 이미 존재하는 경우, investigation-only plan으로 덮어쓰지 않음
                             const existingPlanItemsForQueue = taskManager.listPlanItems();
                             const existingHasExecutionForQueue = existingPlanItemsForQueue.some(item => item.kind === 'execution');
-                            const newHasExecutionForQueue = planItems.some(item => item.kind === 'execution');
+                            // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
+                            const newHasExecutionForQueue = filteredPlanItems.some(item => item.kind === 'execution');
 
                             if (existingHasExecutionForQueue && !newHasExecutionForQueue && existingPlanItemsForQueue.length > 0) {
                                 // 기존 execution plan이 있는데 새로운 plan에 execution이 없다면, 조사 보조 plan으로 간주하고 큐는 유지
                                 console.log('[ConversationManager] Existing execution plan items detected. Ignoring new investigation-only plan to preserve execution plan queue.');
                             } else {
-                                taskManager.setPlanItems(planItems);
+                                // 🔥 문제 해결: filteredPlanItems 사용 (execution-first에서 investigation item 제거됨)
+                                taskManager.setPlanItems(filteredPlanItems);
                                 WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
                             }
                             hasPlanTag = true;
@@ -1698,14 +1829,21 @@ export class ConversationManager {
                                 // investigation item이 없고 execution intent가 있으면 바로 전환 (조사 불필요)
                                 // ⚠️ 핵심 수정: execution item이 없으면 EXECUTION으로 전환하지 않음
                                 const hasExecutionItems = planItems.some(item => item.kind === 'execution');
-                                const canTransitionToExecution = (investigationDone || allInvestigationItemsCompleted) &&
-                                    hasExecutionItems && // execution item이 있어야만 전환
-                                    (hasExecutionIntentEver || hasExecutionIntent) ||
-                                    (investigationItems.length === 0 && (hasExecutionIntentEver || hasExecutionIntent)) || // investigation item이 없으면 바로 전환 가능
-                                    (!hasInvestigationHistory && (hasExecutionIntentEver || hasExecutionIntent) && investigationItems.length === 0); // execution-first task: 조사 없이 바로 실행
+                                // 🔥 문제 해결: 공통 함수 사용으로 execution-first 판단 일관성 보장
+                                const isExecutionFirst = this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan, hasExecutionIntent);
+                                // 🔥 문제 해결: 자동 조사 완료 후 execution item이 있으면 자동 전환
+                                // 🔥 논리 연산자 우선순위 명확화: 괄호 추가
+                                const canTransitionToExecution = (investigationDone || allInvestigationItemsCompleted) && (
+                                    (hasExecutionItems && isExecutionFirst) || // execution item이 있고 execution-first면 전환
+                                    (investigationItems.length === 0 && isExecutionFirst) || // investigation item이 없고 execution-first면 바로 전환 가능
+                                    (!hasInvestigationHistory && isExecutionFirst && investigationItems.length === 0) || // execution-first task: 조사 없이 바로 실행
+                                    (autoInvestigationCompleted && hasExecutionItems && isExecutionFirst) // 🔥 자동 조사 완료 + execution item 있으면 전환
+                                );
 
                                 // ⚠️ 핵심 수정: analysis intent이고 investigation-only인 경우, <investigation_done/> 후 바로 답변 생성
-                                if (investigationDone && intent && intent.category === 'analysis' && !hasExecutionIntentEver && !hasExecutionIntent) {
+                                // 🔥 문제 해결: 공통 함수 사용으로 execution-first 판단 일관성 보장
+                                const isExecutionFirstForAnalysis = this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan, hasExecutionIntent);
+                                if (investigationDone && intent && intent.category === 'analysis' && !isExecutionFirstForAnalysis) {
                                     console.log('[ConversationManager] Analysis intent with investigation_done. Calling LLM to generate answer.');
                                     const analysisPrompt = systemPrompt +
                                         '\n\n[System] ⚠️ 지금까지 읽은 파일과 검색 결과를 기반으로, 사용자의 질문에 한국어로 간단히 직접 답변하세요. **도구를 다시 호출하지 말고**, 한 번의 자연어 답변만 출력하세요.\n' +
@@ -1744,7 +1882,8 @@ export class ConversationManager {
                                     }
 
                                     console.log(`[ConversationManager] Sending analysis response to webview (length: ${cleanAnalysisResponse.length}): ${cleanAnalysisResponse.substring(0, 100)}...`);
-                                    WebviewBridge.receiveMessage(webviewToRespond, 'Assistant', cleanAnalysisResponse);
+                                    // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
+                                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanAnalysisResponse);
 
                                     // DONE으로 전환
                                     stateManager.transitionTo(AgentPhase.DONE, {});
@@ -1781,8 +1920,29 @@ export class ConversationManager {
                                     }
                                 } else {
                                     // ⚠️ 조사가 완료되었지만 execution item이 없는 경우
-                                    // 조사 결과를 바탕으로 다음 단계 계획을 세우도록 LLM에게 요청
+                                    // 🔥 문제 해결: 자동 조사 완료 후 LLM에게 명확한 지시 추가
                                     const hasExecutionItems = planItems.some(item => item.kind === 'execution');
+
+                                    // 자동 조사가 완료되었고 execution item이 없으면 LLM에게 조사 완료 선언 요청
+                                    if (autoInvestigationCompleted && !hasExecutionItems && !hasExecutionIntentEver && !hasExecutionIntent) {
+                                        console.log('[ConversationManager] Auto-investigation completed but no execution items. Requesting LLM to declare completion or create execution plan.');
+
+                                        // 조사 결과를 바탕으로 다음 단계 계획을 요청
+                                        accumulatedUserParts.push({
+                                            text: `\n[System] ⚠️ **자동 조사가 완료되었습니다.**\n\n` +
+                                                `**다음 단계를 선택하세요:**\n` +
+                                                `1. **조사가 완료되었으면**: <investigation_done/> 토큰을 출력하여 조사 완료를 선언하세요.\n` +
+                                                `2. **실행 계획이 있으면**: <plan> 태그에 <kind>execution</kind> 항목을 추가하세요.\n` +
+                                                `3. **추가 조사가 필요하면**: 조사 도구(<read_file>, <list_files>, <ripgrep_search>)를 사용하여 계속 조사하세요.\n\n` +
+                                                `**중요**: 조사가 완료되었다고 판단되면 반드시 <investigation_done/> 토큰을 출력하거나 실행 계획을 제시하세요.\n`
+                                        });
+
+                                        // INVESTIGATION phase에서 계속 진행 (다음 턴에서 LLM이 execution plan을 제시할 것)
+                                        console.log('[ConversationManager] Remaining in INVESTIGATION phase for LLM to declare completion or create execution plan.');
+                                        turnCount++;
+                                        continue;
+                                    }
+
                                     if (allInvestigationItemsCompleted && !hasExecutionItems && !hasExecutionIntentEver && !hasExecutionIntent) {
                                         console.log('[ConversationManager] Investigation completed but no execution items. Requesting next step plan from LLM.');
 
@@ -1791,7 +1951,8 @@ export class ConversationManager {
                                             text: `\n[System] ⚠️ 조사(Investigation)가 완료되었습니다. 조사 결과를 바탕으로 다음 단계 계획을 세우세요:\n` +
                                                 `- 조사한 내용(design.md, src/App.tsx 등)을 바탕으로 실행(execution) 계획을 수립하세요.\n` +
                                                 `- <plan> 태그를 사용하여 <kind>execution</kind> 항목을 포함한 계획을 제시하세요.\n` +
-                                                `- 예: "RefundLookup 컴포넌트 생성", "App.tsx 수정" 등 실제 파일 생성/수정 작업을 계획하세요.\n`
+                                                `- 예: "RefundLookup 컴포넌트 생성", "App.tsx 수정" 등 실제 파일 생성/수정 작업을 계획하세요.\n` +
+                                                `- 또는 <investigation_done/> 토큰을 출력하여 조사 완료를 선언하세요.\n`
                                         });
 
                                         // INVESTIGATION phase에서 계속 진행 (다음 턴에서 LLM이 execution plan을 제시할 것)
@@ -1845,7 +2006,8 @@ export class ConversationManager {
                                             }
 
                                             console.log(`[ConversationManager] Sending analysis response to webview (length: ${cleanAnalysisResponse.length}): ${cleanAnalysisResponse.substring(0, 100)}...`);
-                                            WebviewBridge.receiveMessage(webviewToRespond, 'Assistant', cleanAnalysisResponse);
+                                            // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
+                                            WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanAnalysisResponse);
                                         } else {
                                             // 그 외 순수 조사-only 작업: 기존 시스템 메시지로 종료
                                             WebviewBridge.receiveMessage(
@@ -1885,22 +2047,29 @@ export class ConversationManager {
                     }
                     // 2-3. 도구 실행 처리
                     else {
-                        // ⚠️ 핵심 수정: part 단위가 아닌 전체 cleanResponse에서 모든 tool call을 파싱
-                        // INVESTIGATION에서 execution tool이 차단될 때, 전체 응답에서 모든 tool call을 확인해야 함
+                        // 🔥 중복 실행 방지: 이미 파싱된 tool calls를 재사용 (전체 cleanResponse는 위에서 한 번만 파싱)
+                        // part에서 파싱된 tool call과 이미 파싱된 전체 응답의 tool call을 병합 (중복 제거)
                         const toolCallsFromPart = ToolParser.parseToolCalls(part);
-                        // 전체 응답에서도 tool call을 파싱하여 누락 방지
-                        const allToolCallsFromResponse = ToolParser.parseToolCalls(cleanResponse);
-                        // part에서 파싱된 tool call과 전체 응답에서 파싱된 tool call을 병합 (중복 제거)
                         const toolCallsMap = new Map<string, any>();
-                        allToolCallsFromResponse.forEach(call => {
-                            const key = `${call.name}:${JSON.stringify(call.params)}`;
-                            toolCallsMap.set(key, call);
-                        });
+
+                        // part에서 파싱된 tool calls만 사용 (이미 파싱된 전체 응답은 재사용하지 않음 - 중복 방지)
+                        // 전체 응답은 이미 위에서 파싱했으므로, part에서만 파싱한 결과를 사용
                         toolCallsFromPart.forEach(call => {
                             const key = `${call.name}:${JSON.stringify(call.params)}`;
-                            toolCallsMap.set(key, call);
+                            // 이미 실행된 tool call은 제외
+                            if (!executedInTurn.has(key)) {
+                                toolCallsMap.set(key, call);
+                            } else {
+                                console.log(`[ConversationManager] Skipping already executed tool call from part: ${call.name} (key: ${key})`);
+                            }
                         });
+
                         const toolCalls = Array.from(toolCallsMap.values());
+
+                        if (toolCalls.length === 0) {
+                            console.log(`[ConversationManager] All tool calls from this part were already executed. Skipping.`);
+                            continue;
+                        }
 
                         if (toolCalls.length > 0) {
                             // FSM을 사용한 도구 허용 여부 검증
@@ -2058,19 +2227,49 @@ export class ConversationManager {
                             }
 
                             // 중복 도구 호출 방지 (동일 파라미터인 경우)
+                            // 🔥 문제 1 해결: run_command 중복 실행 방지 강화 (전역 추적 + 실행 직전 최종 확인)
                             const deduplicatedCalls = toolCalls.filter(call => {
                                 const key = `${call.name}:${JSON.stringify(call.params)}`;
+
+                                // 현재 턴에서 이미 실행된 경우
                                 if (executedInTurn.has(key)) {
-                                    console.log(`[ConversationManager] Skipping duplicate tool call: ${call.name}`);
+                                    console.log(`[ConversationManager] Skipping duplicate tool call in same turn: ${call.name} (key: ${key})`);
                                     return false;
                                 }
+
+                                // run_command의 경우, 동일 명령어가 최근에 실행되었는지 확인 (전역 추적)
+                                if (call.name === Tool.RUN_COMMAND && call.params.command) {
+                                    const command = call.params.command.trim();
+                                    // 최근 실행된 명령어와 비교 (npm install, pip install 등)
+                                    if (recentlyExecutedCommands.has(command)) {
+                                        console.log(`[ConversationManager] Skipping duplicate command execution (recently executed): ${command}`);
+                                        return false;
+                                    }
+                                    // 실행 예정 명령어로 추가 (실행 전에 미리 추가하여 중복 방지)
+                                    recentlyExecutedCommands.add(command);
+                                }
+
+                                // 실행 예정으로 표시 (실제 실행 전에 미리 추가)
                                 executedInTurn.add(key);
                                 return true;
                             });
 
-                            if (deduplicatedCalls.length === 0) continue;
+                            // 🔥 최종 안전장치: 실행 직전에 한 번 더 중복 확인
+                            const finalDeduplicatedCalls = deduplicatedCalls.filter(call => {
+                                const key = `${call.name}:${JSON.stringify(call.params)}`;
+                                if (executedInTurn.has(key) && !deduplicatedCalls.includes(call)) {
+                                    console.log(`[ConversationManager] Final check: Skipping duplicate tool call: ${call.name} (key: ${key})`);
+                                    return false;
+                                }
+                                return true;
+                            });
 
-                            console.log('[ConversationManager] Executing Tools:', deduplicatedCalls.map(call => call.name));
+                            if (finalDeduplicatedCalls.length === 0) {
+                                console.log(`[ConversationManager] All tool calls were filtered out as duplicates. Skipping execution.`);
+                                continue;
+                            }
+
+                            console.log(`[ConversationManager] Executing Tools (${finalDeduplicatedCalls.length} after deduplication):`, finalDeduplicatedCalls.map(call => call.name));
 
                             // 도구 실행 직전에 해당 계획 항목을 '진행 중'으로 변경
                             if (currentActiveItem && currentActiveItem.status === 'pending') {
@@ -2081,12 +2280,12 @@ export class ConversationManager {
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
                             const executingPrefix = currentActiveItem ? `[${currentActiveItem.title}] ` : '';
                             const phaseLabelExec = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${this.getToolLabel(deduplicatedCalls[0].name)} 실행 중...`);
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${this.getToolLabel(finalDeduplicatedCalls[0].name)} 실행 중...`);
 
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
 
-                            const toolResults = await toolExecutor.executeTools(deduplicatedCalls, {
+                            const toolResults = await toolExecutor.executeTools(finalDeduplicatedCalls, {
                                 projectRoot: workspaceRoot,
                                 workspaceRoot: workspaceRoot,
                                 actionManager,
@@ -2096,10 +2295,10 @@ export class ConversationManager {
                             });
 
                             // UI에 실행 결과 전송 (✅ [Created] ...)
-                            this.sendToolExecutionResultsToUI(webviewToRespond, deduplicatedCalls, toolResults);
+                            this.sendToolExecutionResultsToUI(webviewToRespond, finalDeduplicatedCalls, toolResults);
 
                             // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
-                            deduplicatedCalls.forEach((call, index) => {
+                            finalDeduplicatedCalls.forEach((call, index) => {
                                 if (call.name === Tool.READ_FILE && toolResults[index]?.success) {
                                     const filePath = call.params.path || call.params.paths?.split(',')[0];
                                     if (filePath) {
@@ -2109,59 +2308,22 @@ export class ConversationManager {
                             });
 
                             // 파일 변경 추적 (요약 검증용)
-                            this.trackFileChanges(deduplicatedCalls, toolResults, createdFiles, modifiedFiles);
+                            this.trackFileChanges(finalDeduplicatedCalls, toolResults, createdFiles, modifiedFiles);
 
                             // 결과 요약 누적
-                            const resultSummary = this.createToolResultSummary(turnCount, deduplicatedCalls, toolResults);
+                            const resultSummary = this.createToolResultSummary(turnCount, finalDeduplicatedCalls, toolResults);
                             turnResultsSummary += resultSummary;
 
                             // ⚠️ 핵심 수정: 테스트 실패 후 수정 시도한 경우, 도구 실행 후 자동으로 테스트 재실행
-                            const hasRunCommand = deduplicatedCalls.some(call => call.name === Tool.RUN_COMMAND);
-                            const hasWriteTool = deduplicatedCalls.some(call =>
+                            const hasRunCommand = finalDeduplicatedCalls.some(call => call.name === Tool.RUN_COMMAND);
+                            const hasWriteTool = finalDeduplicatedCalls.some(call =>
                                 [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND].includes(call.name as Tool)
                             );
 
-                            // 이전에 테스트가 실패했고, 이번 턴에 수정 도구가 실행된 경우 자동 재테스트
-                            if (testFixAttempts > 0 && isAutoTestRetryEnabled && hasWriteTool && currentPhase === AgentPhase.EXECUTION) {
-                                console.log(`[ConversationManager] 테스트 실패 후 수정 도구 실행됨 (run_command: ${hasRunCommand}). 자동으로 테스트를 재실행합니다.`);
-                                const currentProject = ProjectManager.getInstance().getCurrentProject();
-                                const workspaceRoot = currentProject?.root || '';
-                                const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                            // 🔥 문제 1 해결: 중복 테스트 실행 방지
+                            // "All tasks completed" 경로에서만 테스트 실행하므로, 여기서는 테스트를 실행하지 않음
 
-                                if (testResult.success) {
-                                    // 테스트 통과 → REVIEW로 전환
-                                    console.log('[ConversationManager] Tests passed after fix. Transitioning to REVIEW phase.');
-                                    testFixAttempts = 0; // 재시도 카운터 리셋
-                                    stateManager.transitionTo(AgentPhase.REVIEW);
-                                    // REVIEW로 전환했으므로 즉시 다음 루프로 넘어가서 REVIEW 처리
-                                    // (이전에 파싱된 LLM 응답은 무시하고 루프 시작 부분의 phase 체크로 넘어감)
-                                    turnCount++;
-                                    continue; // 다음 루프에서 REVIEW 처리 (루프 시작 부분의 phase 체크에서 REVIEW 처리됨)
-                                } else {
-                                    // 테스트 여전히 실패 → 카운터 증가
-                                    testFixAttempts++;
-                                    console.log(`[ConversationManager] 테스트 여전히 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
-
-                                    if (testFixAttempts < maxTestFixAttempts) {
-                                        const errorMessage = testResult.errorMessage || '알 수 없는 오류';
-                                        accumulatedUserParts.push({
-                                            text: `\n[System] ⚠️ **자동 테스트가 여전히 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n오류를 분석하고 필요한 수정을 수행하세요. 필요하다면 <run_command> 도구를 사용하여 명령어를 실행하세요.\n`
-                                        });
-                                        accumulatedUserParts.push({ text: llmResponse });
-                                        accumulatedUserParts.push({ text: turnResultsSummary });
-                                        turnCount++;
-                                        continue; // EXECUTION 단계 유지하여 수정 시도
-                                    } else {
-                                        console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                        WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
-                                        stateManager.transitionTo(AgentPhase.REVIEW);
-                                        turnCount++;
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            if (this.hasSideEffects(deduplicatedCalls, toolResults)) {
+                            if (this.hasSideEffects(finalDeduplicatedCalls, toolResults)) {
                                 turnHasSideEffects = true;
 
                                 // ⚠️ 핵심 수정: plan.detail에 언급된 모든 파일이 처리되었을 때만 plan item을 완료
@@ -2300,6 +2462,7 @@ export class ConversationManager {
 
                     // 실행 단계에서 도구를 실행했지만 남은 계획이 없다면 자동 테스트 후 REVIEW로 전환
                     // ⚠️ 핵심 수정: 자동 테스트 수정이 on일 때만 테스트 실행
+                    // 🔥 문제 1 해결: 중복 테스트 실행 방지 (한 곳에서만 테스트 실행)
                     if (isAutoTestRetryEnabled) {
                         console.log('[ConversationManager] All tasks completed after tool execution. Running automated tests before transitioning to REVIEW.');
                         const currentProjectForTest = ProjectManager.getInstance().getCurrentProject();
@@ -2315,10 +2478,43 @@ export class ConversationManager {
                         } else {
                             // 테스트 실패 시: 자동 재시도가 켜져 있을 때만 수정 시도
                             if (testFixAttempts < maxTestFixAttempts) {
-                                testFixAttempts++;
+                                // 🔥 문제 3 해결: 실패 패턴 추적
+                                const errorMessage = testResult.errorMessage || '알 수 없는 오류';
+                                const errorPattern = this.extractErrorPattern(errorMessage);
+                                const isSamePattern = lastFailurePattern.pattern === errorPattern;
+
+                                if (isSamePattern) {
+                                    lastFailurePattern.count++;
+                                    console.log(`[ConversationManager] 같은 실패 패턴 감지 (${lastFailurePattern.count}회): ${errorPattern}. retry 횟수 소모 안 함.`);
+                                } else {
+                                    lastFailurePattern.pattern = errorPattern;
+                                    lastFailurePattern.count = 1;
+                                }
+
+                                // 같은 패턴이면 retry 횟수 소모 안 함
+                                if (!isSamePattern || lastFailurePattern.count === 1) {
+                                    testFixAttempts++;
+                                } else {
+                                    testFixAttempts--; // 횟수 소모 취소
+                                    console.log(`[ConversationManager] 같은 실패 패턴이므로 retry 횟수 소모 안 함. 현재 횟수: ${testFixAttempts}/${maxTestFixAttempts}`);
+                                }
+
                                 console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                 accumulatedUserParts.push({
-                                    text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                    text: `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n**🔥 중요: 오류를 먼저 분석하세요**\n` +
+                                        `1. **오류 유형 파악**: TypeScript 컴파일 오류인가? 의존성 누락인가? 런타임 오류인가?\n` +
+                                        `2. **오류 원인 분석**:\n` +
+                                        `   - TypeScript 오류 (예: "Cannot find module", "Property does not exist") → 파일 수정 필요, npm install로 해결 안 됨\n` +
+                                        `   - 의존성 오류 (예: "Cannot find module 'xxx'", "Module not found") → npm install 필요\n` +
+                                        `   - 빌드 오류 (예: "Command failed", "Build failed") → 빌드 설정 또는 코드 오류 확인\n` +
+                                        `3. **적절한 조치 선택**:\n` +
+                                        `   - TypeScript/컴파일 오류 → <update_file>로 파일 수정\n` +
+                                        `   - 의존성 누락 → <run_command>로 npm install (단, 이미 실행했다면 다른 원인 확인)\n` +
+                                        `   - 빌드 설정 오류 → 설정 파일 수정\n\n` +
+                                        `**절대 하지 말 것**:\n` +
+                                        `- 오류 분석 없이 무작정 npm install 실행 (이미 실행했다면 효과 없음)\n` +
+                                        `- 같은 명령어 반복 실행 (중복 실행 방지됨)\n\n` +
+                                        `오류를 분석한 후 적절한 수정을 수행하세요.\n`
                                 });
                                 turnCount++;
                                 continue;
@@ -2348,7 +2544,8 @@ export class ConversationManager {
                 // 의도가 없거나 단순 인사인 경우 텍스트 응답 허용하고 종료
                 if (hasNoIntent) {
                     console.log('[ConversationManager] INVESTIGATION phase: No intent detected, allowing text-only response and terminating.');
-                    WebviewBridge.receiveMessage(webviewToRespond, 'Assistant', totalResponseText);
+                    // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
+                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', totalResponseText);
                     return; // 즉시 종료
                 }
 
@@ -2362,7 +2559,8 @@ export class ConversationManager {
                         .trim();
 
                     if (cleanResponse && cleanResponse.length > 2) {
-                        WebviewBridge.receiveMessage(webviewToRespond, 'Assistant', cleanResponse);
+                        // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
+                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanResponse);
                         // DONE으로 전환
                         stateManager.transitionTo(AgentPhase.DONE, {});
                         console.log('[ConversationManager] Analysis response sent. Transitioning to DONE.');
@@ -2436,13 +2634,48 @@ export class ConversationManager {
                         } else {
                             // 테스트 실패 시 에러 메시지를 컨텍스트에 추가하고 EXECUTION 유지
                             if (testFixAttempts < maxTestFixAttempts) {
-                                testFixAttempts++;
+                                // 오류 메시지를 LLM에 전달하여 LLM이 스스로 판단하도록 함
+                                // 🔥 문제 2 해결: 에러 메시지 분석 프롬프트 강화
+                                const errorMessage = testResult.errorMessage || '알 수 없는 오류';
+
+                                // 🔥 문제 3 해결: 실패 패턴 추적 및 같은 패턴이면 retry 횟수 소모 안 함
+                                const errorPattern = this.extractErrorPattern(errorMessage);
+                                const isSamePattern = lastFailurePattern.pattern === errorPattern;
+
+                                if (isSamePattern) {
+                                    lastFailurePattern.count++;
+                                    console.log(`[ConversationManager] 같은 실패 패턴 감지 (${lastFailurePattern.count}회): ${errorPattern}. retry 횟수 소모 안 함.`);
+                                } else {
+                                    lastFailurePattern.pattern = errorPattern;
+                                    lastFailurePattern.count = 1;
+                                }
+
+                                // 같은 패턴이면 retry 횟수 소모 안 함 (문제 3 해결)
+                                if (!isSamePattern || lastFailurePattern.count === 1) {
+                                    // 첫 번째 실패 또는 새로운 패턴이면 retry 횟수 소모
+                                    testFixAttempts++;
+                                } else {
+                                    // 같은 패턴이면 retry 횟수 소모 안 함
+                                    console.log(`[ConversationManager] 같은 실패 패턴이므로 retry 횟수 소모 안 함. 현재 횟수: ${testFixAttempts}/${maxTestFixAttempts}`);
+                                }
+
                                 console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
 
-                                // 오류 메시지를 LLM에 전달하여 LLM이 스스로 판단하도록 함
-                                const errorMessage = testResult.errorMessage || '알 수 없는 오류';
                                 accumulatedUserParts.push({
-                                    text: `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n오류를 분석하고 필요한 수정을 수행하세요. 필요하다면 <run_command> 도구를 사용하여 명령어를 실행하세요.\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 <update_file> 도구를 사용하여 수정하세요.\n`
+                                    text: `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n**🔥 중요: 오류를 먼저 분석하세요**\n` +
+                                        `1. **오류 유형 파악**: TypeScript 컴파일 오류인가? 의존성 누락인가? 런타임 오류인가?\n` +
+                                        `2. **오류 원인 분석**:\n` +
+                                        `   - TypeScript 오류 (예: "Cannot find module", "Property does not exist") → 파일 수정 필요, npm install로 해결 안 됨\n` +
+                                        `   - 의존성 오류 (예: "Cannot find module 'xxx'", "Module not found") → npm install 필요\n` +
+                                        `   - 빌드 오류 (예: "Command failed", "Build failed") → 빌드 설정 또는 코드 오류 확인\n` +
+                                        `3. **적절한 조치 선택**:\n` +
+                                        `   - TypeScript/컴파일 오류 → <update_file>로 파일 수정\n` +
+                                        `   - 의존성 누락 → <run_command>로 npm install (단, 이미 실행했다면 다른 원인 확인)\n` +
+                                        `   - 빌드 설정 오류 → 설정 파일 수정\n\n` +
+                                        `**절대 하지 말 것**:\n` +
+                                        `- 오류 분석 없이 무작정 npm install 실행 (이미 실행했다면 효과 없음)\n` +
+                                        `- 같은 명령어 반복 실행 (중복 실행 방지됨)\n\n` +
+                                        `오류를 분석한 후 적절한 수정을 수행하세요.\n`
                                 });
                                 turnCount++;
                                 continue; // EXECUTION 단계 유지하여 수정 시도
@@ -2496,7 +2729,55 @@ export class ConversationManager {
                 }
             }
 
-            if (currentPlanItemsAll.length > 0 && remaining.length > 0) {
+            // 🔥 문제 해결: analysis intent이고 investigation_done 토큰이 있으면 여기서 바로 답변 생성
+            if (investigationDoneToken && intent && intent.category === 'analysis' && !hasExecutionIntentEver && currentPhase === AgentPhase.INVESTIGATION) {
+                console.log('[ConversationManager] Analysis intent with investigation_done token detected. Generating answer now.');
+
+                const analysisPrompt = systemPrompt +
+                    '\n\n[System] ⚠️ 지금까지 읽은 파일과 검색 결과를 기반으로, 사용자의 질문에 한국어로 간단히 직접 답변하세요. **도구를 다시 호출하지 말고**, 한 번의 자연어 답변만 출력하세요.\n' +
+                    '[System] 예: "handleSearch 함수는 src/components/SearchBar.tsx 파일의 45번째 줄에 정의되어 있습니다."처럼 위치/결과만 명확하게 알려주세요.\n' +
+                    '[System] **절대 금지**: <list_files>, <read_file>, <ripgrep_search> 등 도구 태그를 출력하는 것. 자연어 답변만 출력하세요.\n';
+
+                const analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
+                    analysisPrompt,
+                    accumulatedUserParts,
+                    { signal: abortSignal }
+                );
+
+                // 응답 정제: thinking 태그 및 JSON 래핑 제거
+                let cleanAnalysisResponse = analysisResponse
+                    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+                    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                    .trim();
+
+                // JSON 래핑이 있는 경우 파싱
+                try {
+                    const jsonMatch = cleanAnalysisResponse.match(/^\{[\s\S]*\}$/);
+                    if (jsonMatch) {
+                        const parsed = JSON.parse(cleanAnalysisResponse);
+                        if (parsed.response) {
+                            cleanAnalysisResponse = parsed.response;
+                        }
+                    }
+                } catch (e) {
+                    // JSON 파싱 실패 시 원본 사용
+                }
+
+                // 응답이 비어있거나 너무 짧은 경우 기본 메시지
+                if (!cleanAnalysisResponse || cleanAnalysisResponse.length < 2) {
+                    cleanAnalysisResponse = '조사 결과를 바탕으로 답변을 생성할 수 없습니다.';
+                }
+
+                console.log(`[ConversationManager] Sending analysis response to webview (length: ${cleanAnalysisResponse.length}): ${cleanAnalysisResponse.substring(0, 100)}...`);
+                // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
+                WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanAnalysisResponse);
+
+                // DONE으로 전환
+                stateManager.transitionTo(AgentPhase.DONE, {});
+                console.log('[ConversationManager] Analysis response sent. Transitioning to DONE.');
+                break;
+            } else if (currentPlanItemsAll.length > 0 && remaining.length > 0) {
                 console.log(`[ConversationManager] Tools missing while plan remains. Ending loop.`);
             } else {
                 console.log(`[ConversationManager] No tools/plan in response. Ending loop.`);
@@ -2588,6 +2869,49 @@ export class ConversationManager {
      * @param text 추출할 텍스트
      * @returns 추출된 파일 경로 배열 (중복 제거됨)
      */
+    /**
+     * 에러 메시지에서 실패 패턴을 추출합니다 (문제 3 해결: 같은 패턴이면 retry 횟수 소모 안 함)
+     * @param errorMessage 에러 메시지
+     * @returns 에러 패턴 (예: "typescript_compile_error", "dependency_missing", "build_failed")
+     */
+    private extractErrorPattern(errorMessage: string): string {
+        if (!errorMessage) return 'unknown_error';
+
+        const lowerMessage = errorMessage.toLowerCase();
+
+        // TypeScript/컴파일 오류 패턴
+        if (lowerMessage.includes('cannot find module') ||
+            lowerMessage.includes('property') && lowerMessage.includes('does not exist') ||
+            lowerMessage.includes('type') && lowerMessage.includes('is not assignable') ||
+            lowerMessage.includes('ts') && (lowerMessage.includes('error') || lowerMessage.includes('failed'))) {
+            return 'typescript_compile_error';
+        }
+
+        // 의존성 누락 오류 패턴
+        if (lowerMessage.includes('module not found') ||
+            lowerMessage.includes('cannot resolve') ||
+            lowerMessage.includes('package') && lowerMessage.includes('not found')) {
+            return 'dependency_missing';
+        }
+
+        // 빌드 오류 패턴
+        if (lowerMessage.includes('build failed') ||
+            lowerMessage.includes('command failed') ||
+            lowerMessage.includes('exit code') && !lowerMessage.includes('exit code 0')) {
+            return 'build_failed';
+        }
+
+        // 기타: 에러 메시지의 핵심 키워드 추출 (최대 50자)
+        const keywords = lowerMessage
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 3)
+            .slice(0, 5)
+            .join('_');
+
+        return keywords || 'unknown_error';
+    }
+
     private extractFilePathsFromText(text: string): string[] {
         if (!text) return [];
 
@@ -2743,6 +3067,48 @@ export class ConversationManager {
     /**
      * 텍스트 응답 추출
      */
+    /**
+     * execution-first 작업인지 판단하는 공통 함수
+     * 모든 곳에서 동일한 기준으로 판단하여 FSM 일관성 보장
+     * 
+     * @param intent 의도 분석 결과
+     * @param hasExecutionIntentEver 이미 execution plan item이 존재하는지 여부
+     * @param hasActivePlan 기존 활성 plan이 있는지 여부 (초기 판단에만 사용, 기본값: false)
+     * @param hasExecutionIntent 현재 plan에 execution item이 있는지 여부 (선택적, 기본값: false)
+     * @returns execution-first 작업 여부
+     */
+    private isExecutionFirstTask(
+        intent: any,
+        hasExecutionIntentEver: boolean,
+        hasActivePlan: boolean = false,
+        hasExecutionIntent: boolean = false
+    ): boolean {
+        // 이미 execution plan이 있거나 현재 plan에 execution item이 있으면 execution-first로 간주
+        if (hasExecutionIntentEver || hasExecutionIntent) {
+            return true;
+        }
+
+        // intent가 없으면 execution-first 아님
+        if (!intent) {
+            return false;
+        }
+
+        // 초기 판단 시: hasActivePlan이 있으면 execution-first 아님
+        if (hasActivePlan) {
+            return false;
+        }
+
+        // execution 카테고리 또는 code 카테고리의 code_generate/code_run 서브타입
+        const isExecutionCategory = intent.category === 'execution';
+        const isCodeGenerateOrRun = intent.category === 'code' &&
+            (intent.subtype === 'code_generate' || intent.subtype === 'code_run');
+
+        // confidence >= 0.7 필수
+        const hasHighConfidence = intent.confidence >= 0.7;
+
+        return (isExecutionCategory || isCodeGenerateOrRun) && hasHighConfidence;
+    }
+
     private extractResponseText(llmResponse: string): string {
         if (!llmResponse) return '';
         let text = llmResponse.trim();
@@ -2755,8 +3121,14 @@ export class ConversationManager {
             } catch { }
         }
 
-        // 2. <think> 태그 제거 (DeepSeek R1 등 모델 대응)
+        // 2. thinking/reasoning 태그 제거 (모든 변형 포함)
+        text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+        text = text.replace(/<think>[\s\S]*?<\/redacted_reasoning>/gi, '');
         text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+        // Ollama의 "thinking" 필드 제거 (JSON 응답에서)
+        text = text.replace(/"thinking"\s*:\s*"[^"]*"/gi, '');
+        text = text.replace(/"thinking"\s*:\s*\{[^}]*\}/gi, '');
 
         // 3. 시스템 내부 토큰 제거 (사용자에게 표시되면 안 됨)
         text = text.replace(/<investigation_done\s*\/>/gi, '');
@@ -3018,7 +3390,34 @@ export class ConversationManager {
                     accumulatedParts,
                     { signal: abortSignal }
                 );
-                const summaryText = this.extractResponseText(verifiedSummary);
+
+                // 🔥 문제 해결: REVIEW 단계에서 도구 호출 및 thinking 제거 강화
+                let summaryText = this.extractResponseText(verifiedSummary);
+
+                // 도구 호출이 포함된 경우 추가 필터링
+                const toolCallPatterns = [
+                    /<create_file>[\s\S]*?<\/create_file>/gi,
+                    /<update_file>[\s\S]*?<\/update_file>/gi,
+                    /<read_file>[\s\S]*?<\/read_file>/gi,
+                    /<run_command>[\s\S]*?<\/run_command>/gi,
+                    /<plan>[\s\S]*?<\/plan>/gi
+                ];
+                for (const pattern of toolCallPatterns) {
+                    summaryText = summaryText.replace(pattern, '');
+                }
+
+                // thinking/reasoning 패턴 추가 제거 (LLM의 내부 사고 과정)
+                summaryText = summaryText.replace(/We need to[^.]*\./gi, '');
+                summaryText = summaryText.replace(/But that's[^.]*\./gi, '');
+                summaryText = summaryText.replace(/However[^.]*\./gi, '');
+                summaryText = summaryText.replace(/Not sure[^.]*\./gi, '');
+                summaryText = summaryText.replace(/Possibly[^.]*\./gi, '');
+                summaryText = summaryText.replace(/The rule says[^.]*\./gi, '');
+                summaryText = summaryText.replace(/Given[^.]*\./gi, '');
+                summaryText = summaryText.replace(/Let's[^.]*\./gi, '');
+
+                // 정제된 텍스트 반환
+                summaryText = summaryText.trim();
                 return summaryText || '작업이 완료되었습니다.';
             } catch (error) {
                 console.warn('[ConversationManager] Failed to generate verified summary:', error);
@@ -3242,3 +3641,4 @@ JSON 형식으로 응답하세요:
     }
 
 }
+
