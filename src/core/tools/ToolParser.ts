@@ -21,12 +21,28 @@ export class ToolParser {
             while ((match = pattern.exec(content)) !== null) {
                 const innerContent = match[1];
                 const params = this.parseToolParams(innerContent);
+                
+                // 디버깅: run_command 파싱 확인
+                if (toolName === Tool.RUN_COMMAND) {
+                    console.log(`[ToolParser] run_command 태그 발견! innerContent 길이: ${innerContent.length}, params:`, JSON.stringify(params));
+                }
 
                 // create_file은 content 필수: 누락 시 경고를 추가하고 스킵
                 if (toolName === Tool.CREATE_FILE) {
                     const hasContent = typeof params.content === 'string' && params.content.trim().length > 0;
                     if (!hasContent) {
                         warnings?.push(`⚠️ create_file에 content가 없습니다 (path=${params.path || 'unknown'})`);
+                        continue; // 이 호출은 무시
+                    }
+                }
+
+                // run_command는 command 파라미터 필수: 누락 시 경고를 추가하고 스킵
+                if (toolName === Tool.RUN_COMMAND) {
+                    const hasCommand = typeof params.command === 'string' && params.command.trim().length > 0;
+                    console.log(`[ToolParser] run_command 파싱: innerContent="${innerContent.substring(0, 100)}", params=`, params, `hasCommand=${hasCommand}`);
+                    if (!hasCommand) {
+                        warnings?.push(`⚠️ run_command에 command가 없습니다`);
+                        console.log(`[ToolParser] run_command 스킵: command 파라미터가 없습니다. params:`, params);
                         continue; // 이 호출은 무시
                     }
                 }
@@ -59,6 +75,10 @@ export class ToolParser {
                 pathValues.push(paramValue.trim());
             } else {
                 params[paramName] = paramValue.trim();
+                // 디버깅: command 파라미터 파싱 확인
+                if (paramName === 'command') {
+                    console.log(`[ToolParser] parseToolParams: command 파라미터 발견, value="${paramValue.trim()}"`);
+                }
             }
         }
 

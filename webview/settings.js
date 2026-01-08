@@ -1477,6 +1477,26 @@ window.addEventListener('message', event => {
                     errorRetrySpinner.style.opacity = message.autoCorrectionEnabled ? '1' : '0.5';
                 }
             }
+            if (typeof message.autoTestRetryEnabled === 'boolean' && autoTestRetryToggle) {
+                autoTestRetryToggle.checked = message.autoTestRetryEnabled;
+                if (autoTestRetryStatus) {
+                    autoTestRetryStatus.textContent = message.autoTestRetryEnabled ? (languageData['autoTestRetryOn'] || '자동 테스트 재시도: 켜짐') : (languageData['autoTestRetryOff'] || '자동 테스트 재시도: 꺼짐');
+                }
+                if (testRetrySpinner) {
+                    testRetrySpinner.disabled = !message.autoTestRetryEnabled;
+                    testRetrySpinner.style.opacity = message.autoTestRetryEnabled ? '1' : '0.5';
+                }
+            }
+            if (typeof message.testRetryCount === 'number' && testRetrySpinner) {
+                testRetrySpinner.value = message.testRetryCount;
+                const testRetryStatusText = languageData['testRetryStatus'] || '현재: 최대 테스트 재시도 횟수';
+                const timesText = languageData['testRetryTimes'] || '회';
+                const statusText = `${testRetryStatusText} ${message.testRetryCount}${timesText}`;
+                if (testRetryStatus) {
+                    showStatus(testRetryStatus, statusText, 'success');
+                    testRetryStatus.textContent = statusText;
+                }
+            }
             if (typeof message.projectRoot === 'string') {
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootLoadedText = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';

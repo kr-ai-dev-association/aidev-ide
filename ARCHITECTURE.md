@@ -57,7 +57,7 @@ src/
 │   │
 │   ├── project/                     # 5. Project Manager
 │   │   ├── ProjectManager.ts        # 프로젝트 구조 관리
-│   │   ├── ProjectDetector.ts       # 프로젝트 타입 감지
+│   │   ├── ProjectDetector.ts       # 프로젝트 타입 감지 (v6.8.0: TypeScript 검증 순서 최적화 - tsc --noEmit 먼저 실행)
 │   │   ├── ProjectIndexer.ts        # 파일 인덱싱
 │   │   ├── ConfigParser.ts           # 설정 파일 파싱
 │   │   ├── types.ts
@@ -118,7 +118,7 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화, v6.5.0: 실행 로직 개선, v6.6.0: LLM 호출 최적화 완료, v6.7.0: 자동 테스트 제어 및 Investigation 단계 개선)
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화, v6.5.0: 실행 로직 개선, v6.6.0: LLM 호출 최적화 완료, v6.7.0: 자동 테스트 제어 및 Investigation 단계 개선, v6.8.0: 테스트 재시도 로직 개선 및 EXECUTION phase 도구 실행 보장)
 │   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
 │   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
 │   │   │                            # - 스마트 너징(Nudging) 로직
@@ -130,6 +130,7 @@ src/
 │   │   │                            # - v6.6.0: DONE 단계 LLM 호출 완전 제거 확인, 테스트 후 REVIEW 전환 보장 강화
 │   │   │                            # - v6.6.0: 루프 종료 전 중복 테스트 실행 방지, 모든 경로에서 REVIEW 거쳐 요약 생성 보장
 │   │   │                            # - v6.7.0: 자동 테스트 실행 제어 (설정이 활성화된 경우에만 실행), INVESTIGATION에서 EXECUTION 전환 시 도구 함께 실행, 통일된 파일 리스트 형식 ([D] [F])
+│   │   │                            # - v6.8.0: EXECUTION phase에서 run_command 차단 문제 해결, 테스트 재시도 프롬프트에 중복 파일 생성 방지 안내 추가, 테스트 성공 후 REVIEW 전환 로직 개선
 │   │   ├── AgentStateManager.ts     # v6.3.0: 경량 FSM - 상태 관리, 전환 규칙, Output Contract
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts

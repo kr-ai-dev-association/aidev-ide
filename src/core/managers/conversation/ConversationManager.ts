@@ -514,7 +514,7 @@ export class ConversationManager {
                                     testFixAttempts++;
                                     console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                     accumulatedUserParts.push({
-                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 <update_file> 도구를 사용하여 수정하세요.\n`
                                     });
                                     turnCount++;
                                     continue; // EXECUTION 단계 유지하여 수정 시도
@@ -945,7 +945,7 @@ export class ConversationManager {
                                     testFixAttempts++;
                                     console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
                                     accumulatedUserParts.push({
-                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 <update_file> 도구를 사용하여 수정하세요.\n`
                                     });
                                     turnCount++;
                                     continue; // EXECUTION 단계 유지하여 수정 시도
@@ -1000,12 +1000,29 @@ export class ConversationManager {
 
             // XML 태그만 남기고 자연어 텍스트 제거 (EXECUTION phase에서 특히 중요)
             if (currentPhase === AgentPhase.EXECUTION) {
-                // XML 태그 패턴 추출
-                const xmlTagPattern = /<[^>]+>[\s\S]*?<\/[^>]+>|<[^>]+\/>/g;
-                const xmlTags = cleanResponse.match(xmlTagPattern);
-                if (xmlTags && xmlTags.length > 0) {
+                // ⚠️ 수정: 중첩된 태그를 제대로 처리하기 위해 Tool enum의 모든 태그를 사용
+                const toolNames = Object.values(Tool);
+                const allTags = [...toolNames, 'plan', 'task_progress'];
+
+                // 각 태그에 대해 중첩된 구조를 포함하여 매칭
+                const matchedTags: string[] = [];
+                for (const tag of allTags) {
+                    // 중첩된 태그를 포함한 전체 태그 블록 매칭
+                    const tagPattern = new RegExp(`<${tag}>[\\s\\S]*?<\\/${tag}>`, 'gi');
+                    let match;
+                    while ((match = tagPattern.exec(cleanResponse)) !== null) {
+                        matchedTags.push(match[0]);
+                    }
+                }
+
+                if (matchedTags.length > 0) {
                     // XML 태그만 남기고 나머지 자연어 텍스트 제거
-                    cleanResponse = xmlTags.join('');
+                    // 줄바꿈을 유지하여 중첩된 태그 구조 보존
+                    cleanResponse = matchedTags.join('\n');
+                    console.log(`[ConversationManager] EXECUTION phase: Extracted ${matchedTags.length} XML tag(s) from response`);
+                } else {
+                    // XML 태그가 없으면 원본 유지 (자연어 응답일 수 있음)
+                    console.log(`[ConversationManager] EXECUTION phase: No XML tags found in response, keeping original`);
                 }
             }
             // JSON 래핑 처리는 위의 재시도 루프에서 이미 처리됨
@@ -1915,17 +1932,18 @@ export class ConversationManager {
                                         if (transitionResult.success) {
                                             console.log('[ConversationManager] Successfully transitioned to EXECUTION phase for execution-first task.');
                                             turnResultsSummary += `\n[System] 실행(Execution) 의도가 감지되어 조사(Investigation) 단계를 건너뛰고 실행 단계로 전환합니다.\n`;
-                                            // EXECUTION phase로 전환되었으므로 도구 실행 허용
-                                            // blockedCalls를 제외한 나머지 tool calls는 실행 가능
-                                            // blockedCalls에 포함되지 않은 tool call만 남김
-                                            const blockedCallKeys = new Set(blockedCalls.map(c => `${c.name}:${JSON.stringify(c.params)}`));
+
+                                            // ⚠️ 핵심 수정: EXECUTION phase로 전환되었으므로 모든 execution tool을 허용
+                                            // INVESTIGATION에서 차단되었던 도구들도 이제 허용됨
+                                            // 전환 후에는 blockedCalls를 무시하고 모든 tool calls를 실행
                                             const executionToolCalls = toolCalls.filter(call => {
-                                                const callKey = `${call.name}:${JSON.stringify(call.params)}`;
-                                                const isBlocked = blockedCallKeys.has(callKey);
-                                                if (!isBlocked) {
-                                                    console.log(`[ConversationManager] Allowing tool call after transition: ${call.name}`);
+                                                // EXECUTION phase에서는 모든 execution tool 허용
+                                                const executionTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
+                                                const isExecutionTool = executionTools.includes(call.name as Tool);
+                                                if (isExecutionTool) {
+                                                    console.log(`[ConversationManager] Allowing execution tool after transition: ${call.name}`);
                                                 }
-                                                return !isBlocked;
+                                                return isExecutionTool;
                                             });
 
                                             console.log(`[ConversationManager] Filtered ${executionToolCalls.length} execution tool call(s) after transition (from ${toolCalls.length} total).`);
@@ -1976,13 +1994,58 @@ export class ConversationManager {
                                         continue;
                                     }
                                 } else {
-                                    turnResultsSummary += `\n[System] ${stateManager.getStateDescription()}\n`;
-                                    turnResultsSummary += `다음 도구는 현재 단계에서 사용할 수 없습니다: ${forbiddenTools.join(', ')}\n`;
+                                    // EXECUTION phase에서는 blockedCalls를 무시하고 실행
+                                    // (AgentStateManager에서 EXECUTION phase는 모든 도구 허용이지만, 
+                                    //  혹시 모를 차단을 방지하기 위해 명시적으로 허용)
+                                    if (currentPhase === AgentPhase.EXECUTION) {
+                                        console.log(`[ConversationManager] EXECUTION phase: blockedCalls detected but allowing execution. Filtering out blocked calls.`);
+                                        // blockedCalls를 제외한 나머지 tool calls만 실행
+                                        const allowedCalls = toolCalls.filter(call => !blockedCalls.some(blocked =>
+                                            blocked.name === call.name && JSON.stringify(blocked.params) === JSON.stringify(call.params)
+                                        ));
 
-                                    accumulatedUserParts.push({ text: llmResponse });
-                                    accumulatedUserParts.push({ text: turnResultsSummary });
-                                    turnCount++;
-                                    continue;
+                                        if (allowedCalls.length > 0) {
+                                            // toolCalls를 allowedCalls로 교체하고 blockedCalls를 비움
+                                            toolCalls.length = 0;
+                                            toolCalls.push(...allowedCalls);
+                                            blockedCalls.length = 0;
+                                            console.log(`[ConversationManager] EXECUTION phase: Will execute ${allowedCalls.length} allowed tool call(s): ${allowedCalls.map(c => c.name).join(', ')}`);
+                                            // 아래 도구 실행 로직으로 계속 진행
+                                        } else {
+                                            // 모든 tool call이 blocked이면 REVIEW로 전환
+                                            // (테스트가 이미 성공했거나, 더 이상 실행할 작업이 없는 경우)
+                                            console.log(`[ConversationManager] EXECUTION phase: All tool calls were blocked. Checking if should transition to REVIEW.`);
+
+                                            // 테스트가 이미 성공했는지 확인 (testFixAttempts가 0이고 테스트가 통과한 경우)
+                                            // 또는 더 이상 실행할 plan item이 없는 경우
+                                            const hasRemainingPlanItems = taskManager.getNextPendingItem() !== null;
+
+                                            if (!hasRemainingPlanItems) {
+                                                // 더 이상 실행할 작업이 없으면 REVIEW로 전환
+                                                console.log(`[ConversationManager] No remaining plan items. Transitioning to REVIEW phase.`);
+                                                stateManager.transitionTo(AgentPhase.REVIEW);
+                                                turnCount++;
+                                                continue; // 다음 루프에서 REVIEW 처리
+                                            } else {
+                                                // 아직 실행할 작업이 있으면 다음 턴으로
+                                                console.log(`[ConversationManager] EXECUTION phase: All tool calls were blocked but plan items remain. Continuing to next turn.`);
+                                                turnResultsSummary += `\n[System] ⚠️ 모든 도구 호출이 차단되었습니다. 다시 시도하세요.\n`;
+                                                accumulatedUserParts.push({ text: llmResponse });
+                                                accumulatedUserParts.push({ text: turnResultsSummary });
+                                                turnCount++;
+                                                continue;
+                                            }
+                                        }
+                                    } else {
+                                        // INVESTIGATION이 아닌 다른 phase에서 blockedCalls가 있으면 차단
+                                        turnResultsSummary += `\n[System] ${stateManager.getStateDescription()}\n`;
+                                        turnResultsSummary += `다음 도구는 현재 단계에서 사용할 수 없습니다: ${forbiddenTools.join(', ')}\n`;
+
+                                        accumulatedUserParts.push({ text: llmResponse });
+                                        accumulatedUserParts.push({ text: turnResultsSummary });
+                                        turnCount++;
+                                        continue;
+                                    }
                                 }
                             }
 
@@ -2051,6 +2114,52 @@ export class ConversationManager {
                             // 결과 요약 누적
                             const resultSummary = this.createToolResultSummary(turnCount, deduplicatedCalls, toolResults);
                             turnResultsSummary += resultSummary;
+
+                            // ⚠️ 핵심 수정: 테스트 실패 후 수정 시도한 경우, 도구 실행 후 자동으로 테스트 재실행
+                            const hasRunCommand = deduplicatedCalls.some(call => call.name === Tool.RUN_COMMAND);
+                            const hasWriteTool = deduplicatedCalls.some(call =>
+                                [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND].includes(call.name as Tool)
+                            );
+
+                            // 이전에 테스트가 실패했고, 이번 턴에 수정 도구가 실행된 경우 자동 재테스트
+                            if (testFixAttempts > 0 && isAutoTestRetryEnabled && hasWriteTool && currentPhase === AgentPhase.EXECUTION) {
+                                console.log(`[ConversationManager] 테스트 실패 후 수정 도구 실행됨 (run_command: ${hasRunCommand}). 자동으로 테스트를 재실행합니다.`);
+                                const currentProject = ProjectManager.getInstance().getCurrentProject();
+                                const workspaceRoot = currentProject?.root || '';
+                                const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                                if (testResult.success) {
+                                    // 테스트 통과 → REVIEW로 전환
+                                    console.log('[ConversationManager] Tests passed after fix. Transitioning to REVIEW phase.');
+                                    testFixAttempts = 0; // 재시도 카운터 리셋
+                                    stateManager.transitionTo(AgentPhase.REVIEW);
+                                    // REVIEW로 전환했으므로 즉시 다음 루프로 넘어가서 REVIEW 처리
+                                    // (이전에 파싱된 LLM 응답은 무시하고 루프 시작 부분의 phase 체크로 넘어감)
+                                    turnCount++;
+                                    continue; // 다음 루프에서 REVIEW 처리 (루프 시작 부분의 phase 체크에서 REVIEW 처리됨)
+                                } else {
+                                    // 테스트 여전히 실패 → 카운터 증가
+                                    testFixAttempts++;
+                                    console.log(`[ConversationManager] 테스트 여전히 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+
+                                    if (testFixAttempts < maxTestFixAttempts) {
+                                        const errorMessage = testResult.errorMessage || '알 수 없는 오류';
+                                        accumulatedUserParts.push({
+                                            text: `\n[System] ⚠️ **자동 테스트가 여전히 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n오류를 분석하고 필요한 수정을 수행하세요. 필요하다면 <run_command> 도구를 사용하여 명령어를 실행하세요.\n`
+                                        });
+                                        accumulatedUserParts.push({ text: llmResponse });
+                                        accumulatedUserParts.push({ text: turnResultsSummary });
+                                        turnCount++;
+                                        continue; // EXECUTION 단계 유지하여 수정 시도
+                                    } else {
+                                        console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                                        WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                        stateManager.transitionTo(AgentPhase.REVIEW);
+                                        turnCount++;
+                                        continue;
+                                    }
+                                }
+                            }
 
                             if (this.hasSideEffects(deduplicatedCalls, toolResults)) {
                                 turnHasSideEffects = true;
@@ -2122,6 +2231,26 @@ export class ConversationManager {
             // 3. 루프 종료 조건 확인 및 턴 관리
             const totalToolCalls = ToolParser.parseToolCalls(cleanResponse, toolParseWarnings);
             const totalResponseText = this.extractResponseText(cleanResponse);
+
+            // 디버깅: run_command 파싱 확인
+            if (cleanResponse.includes('<run_command>')) {
+                console.log(`[ConversationManager] Debug: cleanResponse contains <run_command>, parsed ${totalToolCalls.length} tool calls`);
+                console.log(`[ConversationManager] Debug: Parsed tool calls:`, totalToolCalls.map(c => c.name));
+
+                // run_command가 파싱되지 않은 경우 상세 로그
+                const runCommandMatches = cleanResponse.match(/<run_command>([\s\S]*?)<\/run_command>/gi);
+                if (runCommandMatches) {
+                    console.log(`[ConversationManager] Debug: Found ${runCommandMatches.length} <run_command> tag(s) in cleanResponse`);
+                    runCommandMatches.forEach((match, idx) => {
+                        console.log(`[ConversationManager] Debug: run_command[${idx}]:`, match.substring(0, 200));
+                    });
+                }
+
+                const hasRunCommand = totalToolCalls.some(c => c.name === Tool.RUN_COMMAND);
+                if (!hasRunCommand) {
+                    console.log(`[ConversationManager] Debug: ⚠️ run_command가 파싱되지 않았습니다!`);
+                }
+            }
 
             // create_file content 누락 등 툴 파싱 경고를 사용자 컨텍스트에 추가
             if (toolParseWarnings.length > 0) {
@@ -2309,8 +2438,11 @@ export class ConversationManager {
                             if (testFixAttempts < maxTestFixAttempts) {
                                 testFixAttempts++;
                                 console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+
+                                // 오류 메시지를 LLM에 전달하여 LLM이 스스로 판단하도록 함
+                                const errorMessage = testResult.errorMessage || '알 수 없는 오류';
                                 accumulatedUserParts.push({
-                                    text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                    text: `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n오류를 분석하고 필요한 수정을 수행하세요. 필요하다면 <run_command> 도구를 사용하여 명령어를 실행하세요.\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 <update_file> 도구를 사용하여 수정하세요.\n`
                                 });
                                 turnCount++;
                                 continue; // EXECUTION 단계 유지하여 수정 시도
@@ -2401,8 +2533,11 @@ export class ConversationManager {
                     if (testFixAttempts < maxTestFixAttempts) {
                         testFixAttempts++;
                         console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+
+                        // 오류 메시지를 LLM에 전달하여 LLM이 스스로 판단하도록 함
+                        const errorMessage = testResult.errorMessage || '알 수 없는 오류';
                         accumulatedUserParts.push({
-                            text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                            text: `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n오류를 분석하고 필요한 수정을 수행하세요. 필요하다면 <run_command> 도구를 사용하여 명령어를 실행하세요.\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 <update_file> 도구를 사용하여 수정하세요.\n`
                         });
                         turnCount++;
                         continue; // break 대신 continue
@@ -2936,7 +3071,7 @@ export class ConversationManager {
                     Object.assign(projectInfo, llmResult);
                 } else {
                     console.log('[ConversationManager] Unknown project type, skipping automated tests.');
-                    WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 완료 (프로젝트 타입 미확인)');
+                    WebviewBridge.sendProcessingStatus(webview, 'executing', '프로젝트 타입 미확인 테스트 검증 완료');
                     return { success: true }; // 알 수 없는 프로젝트 타입은 성공으로 간주
                 }
             }
@@ -3021,12 +3156,12 @@ export class ConversationManager {
                 // 실패한 테스트의 에러 메시지 추출
                 const failedTestMessages = testResults.filter(r => r.includes('실패') || r.includes('Failed'));
                 const errorMessage = failedTestMessages.join('\n');
-                WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 완료 (실패)');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', '테스트 검증 실패');
                 return { success: false, errorMessage };
             }
 
             // 모든 테스트 통과
-            WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 완료 (통과)');
+            WebviewBridge.sendProcessingStatus(webview, 'executing', '테스트 검증 통과');
             return { success: true };
 
         } catch (error) {

@@ -381,10 +381,49 @@ export class ProjectDetector {
                 // =========================================================
                 // LEVEL 3: 웹/Node.js 생태계 (가장 복잡하고 다양함)
                 // =========================================================
+
+                // TypeScript 프로젝트인지 먼저 확인
+                const hasTypeScript = createdFiles.some(f => f.endsWith('.ts') || f.endsWith('.tsx')) ||
+                    modifiedFiles.some(f => f.endsWith('.ts') || f.endsWith('.tsx')) ||
+                    fs.existsSync(path.join(projectRoot, 'tsconfig.json'));
+
+                if (hasTypeScript) {
+                    // TypeScript 프로젝트: tsc --noEmit을 먼저 실행하고, 그 다음 린트 실행
+                    if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
+                        const pm = this.detectPackageManager(projectRoot);
+
+                        // Biome (매우 빠른 최신 툴)
+                        if (fs.existsSync(path.join(projectRoot, 'biome.json'))) {
+                            return { command: `tsc --noEmit && ${pm} biome check .`, description: 'TypeScript 타입 검사 + Biome 검사' };
+                        }
+
+                        // Deno
+                        if (fs.existsSync(path.join(projectRoot, 'deno.json'))) {
+                            return { command: 'tsc --noEmit && deno lint', description: 'TypeScript 타입 검사 + Deno Lint' };
+                        }
+
+                        // package.json scripts: tsc --noEmit 후 린트 실행
+                        if (this.hasScript(projectRoot, 'lint')) {
+                            return { command: `tsc --noEmit && ${pm} run lint`, description: 'TypeScript 타입 검사 + Lint' };
+                        }
+                        if (this.hasScript(projectRoot, 'type-check')) {
+                            return { command: `tsc --noEmit && ${pm} run type-check`, description: 'TypeScript 타입 검사 + Type Check' };
+                        }
+                        if (this.hasScript(projectRoot, 'validate')) {
+                            return { command: `tsc --noEmit && ${pm} run validate`, description: 'TypeScript 타입 검사 + Validate' };
+                        }
+                        if (this.hasScript(projectRoot, 'build')) {
+                            return { command: `tsc --noEmit && ${pm} run build`, description: 'TypeScript 타입 검사 + Build' };
+                        }
+                    }
+
+                    // package.json이 없거나 스크립트가 없는 경우 tsc --noEmit만 실행
+                    return { command: 'tsc --noEmit', description: 'TypeScript 컴파일 검사' };
+                }
+
+                // JavaScript만 있는 경우
                 if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
                     const pm = this.detectPackageManager(projectRoot);
-
-                    // 우선순위: Biome > Deno > Lint 스크립트 > Type Check > Build 스크립트
 
                     // Biome (매우 빠른 최신 툴)
                     if (fs.existsSync(path.join(projectRoot, 'biome.json'))) {
@@ -403,14 +442,6 @@ export class ProjectDetector {
                     if (this.hasScript(projectRoot, 'build')) return { command: `${pm} run build`, description: 'Build 스크립트' };
                 }
 
-                // TypeScript 프로젝트인지 확인
-                const hasTypeScript = createdFiles.some(f => f.endsWith('.ts') || f.endsWith('.tsx')) ||
-                    modifiedFiles.some(f => f.endsWith('.ts') || f.endsWith('.tsx')) ||
-                    fs.existsSync(path.join(projectRoot, 'tsconfig.json'));
-
-                if (hasTypeScript) {
-                    return { command: 'tsc --noEmit', description: 'TypeScript 컴파일 검사' };
-                }
                 // JavaScript만 있는 경우 npm run build 시도 (package.json에 build 스크립트가 있는 경우)
                 return { command: 'npm run build --dry-run 2>/dev/null || echo "No build script"', description: 'Node.js 빌드 검사' };
 

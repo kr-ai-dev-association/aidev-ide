@@ -627,10 +627,10 @@
             <label for="auto-test-retry-toggle">Toggle</label>
         </div>
         <p id="auto-test-retry-status" class="info-message"></p>
-        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Lint Check)이 실패했을 때 자동으로 재시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 2회)</p>
+        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Lint Check)이 실패했을 때 자동으로 재시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 3회)</p>
         <div class="spinner-container">
             <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
-            <input type="number" id="test-retry-spinner" min="1" max="10" value="2" />
+            <input type="number" id="test-retry-spinner" min="1" max="10" value="3" />
             <span data-i18n="testRetryTimes">회</span>
         </div>
         <p id="test-retry-status" class="info-message" style="margin-top: 5px;"></p>
@@ -644,10 +644,10 @@
         </div>
         <p id="auto-correction-status" class="info-message"></p>
         <p class="info-message" data-i18n="errorRetryDescription">터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를 설정합니다. (1-10회,
-            기본값: 2회)</p>
+            기본값: 3회)</p>
         <div class="spinner-container">
             <label for="error-retry-spinner" data-i18n="errorRetrySpinnerLabel">최대 오류 수정 횟수:</label>
-            <input type="number" id="error-retry-spinner" min="1" max="10" value="2" />
+            <input type="number" id="error-retry-spinner" min="1" max="10" value="3" />
             <span data-i18n="errorRetryTimes">회</span>
         </div>
         <p id="error-retry-status" class="info-message" style="margin-top: 5px;"></p>

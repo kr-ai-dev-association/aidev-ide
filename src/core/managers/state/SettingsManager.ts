@@ -298,7 +298,7 @@ export class SettingsManager extends BaseManager {
      * 자동 오류 수정 횟수를 가져옵니다
      */
     public async getErrorRetryCount(): Promise<number> {
-        const count = ConfigurationService.get<number>('errorRetryCount') ?? 2;
+        const count = ConfigurationService.get<number>('errorRetryCount') ?? 3;
         return Math.max(1, Math.min(10, count));
     }
 
@@ -362,7 +362,12 @@ export class SettingsManager extends BaseManager {
      * 자동 테스트 실패 시 재시도 On/Off 상태를 가져옵니다
      */
     public async isAutoTestRetryEnabled(): Promise<boolean> {
-        const value = ConfigurationService.get<boolean>('autoTestRetryEnabled') ?? false;
+        // 워크스페이스 설정을 명시적으로 읽기
+        const config = vscode.workspace.getConfiguration('aidevIde');
+        const workspaceValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceValue;
+        const workspaceFolderValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceFolderValue;
+        const value = workspaceFolderValue ?? workspaceValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
+        console.log(`[SettingsManager] Get autoTestRetryEnabled: ${value} (workspaceFolder: ${workspaceFolderValue}, workspace: ${workspaceValue})`);
         return value;
     }
 
@@ -378,8 +383,14 @@ export class SettingsManager extends BaseManager {
      * 자동 테스트 재시도 횟수를 가져옵니다
      */
     public async getTestRetryCount(): Promise<number> {
-        const count = ConfigurationService.get<number>('testRetryCount') ?? 2;
-        return Math.max(1, Math.min(10, count));
+        // 워크스페이스 설정을 명시적으로 읽기
+        const config = vscode.workspace.getConfiguration('aidevIde');
+        const workspaceValue = config.inspect<number>('testRetryCount')?.workspaceValue;
+        const workspaceFolderValue = config.inspect<number>('testRetryCount')?.workspaceFolderValue;
+        const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 3;
+        const validCount = Math.max(1, Math.min(10, count));
+        console.log(`[SettingsManager] Get testRetryCount: ${validCount} (workspaceFolder: ${workspaceFolderValue}, workspace: ${workspaceValue})`);
+        return validCount;
     }
 
     /**
@@ -387,7 +398,8 @@ export class SettingsManager extends BaseManager {
      */
     public async updateTestRetryCount(count: number): Promise<void> {
         const validCount = Math.max(1, Math.min(10, count));
-        await this.updateUserSetting('testRetryCount' as any, validCount, vscode.ConfigurationTarget.Global);
+        console.log(`[SettingsManager] Update testRetryCount -> ${validCount} (Workspace)`);
+        await this.updateUserSetting('testRetryCount' as any, validCount, vscode.ConfigurationTarget.Workspace);
     }
 }
 
