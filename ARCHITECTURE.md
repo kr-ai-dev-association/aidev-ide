@@ -58,6 +58,9 @@ src/
 │   ├── project/                     # 5. Project Manager
 │   │   ├── ProjectManager.ts        # 프로젝트 구조 관리
 │   │   ├── ProjectDetector.ts       # 프로젝트 타입 감지 (v6.8.0: TypeScript 검증 순서 최적화 - tsc --noEmit 먼저 실행)
+│   │   │                            # - getValidationCommand(): 규칙 기반 검증 명령어 반환, null 반환 시 LLM fallback 사용
+│   │   │                            # - 판단 기준: null은 규칙 기반으로 안전하게 결정 가능한 검증 명령이 없음을 의미
+│   │   │                            # - 하드코딩에 포함되지 않는 프로젝트 타입이나 특수한 경우를 LLM으로 처리
 │   │   ├── ProjectIndexer.ts        # 파일 인덱싱
 │   │   ├── ConfigParser.ts           # 설정 파일 파싱
 │   │   ├── types.ts
@@ -889,6 +892,11 @@ EXECUTION Phase
   ├─ AgentStateManager.isToolAllowed() 검증 (모든 도구 허용)
   ├─ Plan Item 완료 처리
   ├─ 모든 Plan Item 완료 시 자동 테스트 실행
+  │  ├─ Smoke Test: 필수 파일 존재 확인
+  │  ├─ Lint Check: getValidationCommand()로 검증 명령어 결정
+  │  │  ├─ null 반환 시: LLM에게 질의 (fallback)
+  │  │  └─ 명령어 반환 시: 규칙 기반 검증 실행
+  │  └─ 테스트 실패 시 자동 수정 및 재시도 (설정 활성화 시)
   └─ 테스트 완료 후 REVIEW Phase로 전환 (v6.5.0, v6.6.0: 모든 경로 보장)
 
 REVIEW Phase

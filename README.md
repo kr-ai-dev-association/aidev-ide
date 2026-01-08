@@ -12,6 +12,7 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Improved REVIEW Transition After Test Success**: Enhanced logic to immediately transition to REVIEW phase after test success. When all tools are blocked in EXECUTION phase and there are no remaining tasks, the system automatically transitions to REVIEW.
 - **TypeScript Validation Order Optimization**: Improved validation order for TypeScript projects to run `tsc --noEmit` first, then lint tools. Type errors are checked before lint errors.
 - **Settings Panel UI Synchronization Fix**: Fixed the issue where saved `autoTestRetryEnabled` value was not reflected in the toggle when reopening the settings panel.
+- **Validation Command Decision Criteria**: When `getValidationCommand()` returns null, the system queries the LLM. null indicates that no validation command can be safely determined through rule-based logic, and the LLM is used only as a fallback inference mechanism in this case. This design handles project types or special cases not covered by hardcoded rules.
 
 ## v6.7.0 (Auto Test Control & Investigation Phase Improvements)
 - **Auto Test Execution Control**: Automated tests (Smoke Test, Lint Check) and error messages are now only executed and displayed when the "auto test retry" setting is enabled. When disabled, tests are skipped entirely and no error messages are shown.

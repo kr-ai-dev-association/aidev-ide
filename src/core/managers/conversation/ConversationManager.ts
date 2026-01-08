@@ -3117,7 +3117,67 @@ export class ConversationManager {
             }
 
             // 2. Lint Check: 프로젝트 타입별 컴파일/빌드 검사
-            const validationCmd = detector.getValidationCommand(projectInfo.type, workspaceRoot, createdFiles, modifiedFiles);
+            let validationCmd = detector.getValidationCommand(projectInfo.type, workspaceRoot, createdFiles, modifiedFiles);
+
+            // Fallback: getValidationCommand()가 null을 반환하면 LLM에게 질의
+            // null은 규칙 기반으로 안전하게 결정 가능한 검증 명령이 존재하지 않음을 의미하며,
+            // 이 경우에만 LLM을 보조적인 추론 수단(fallback)으로 사용
+            if (!validationCmd) {
+                console.log('[ConversationManager] getValidationCommand() returned null. Querying LLM for validation command...');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 명령어 LLM 추론 중...');
+
+                const llmManager = LLMManager.getInstance();
+                const currentModelType = llmManager.getCurrentModel();
+                const geminiApi = llmManager.getGeminiApi();
+                const ollamaApi = llmManager.getOllamaApi();
+                const llmApi = currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi;
+
+                if (llmApi) {
+                    try {
+                        // 프로젝트 정보 수집
+                        const fileList = [...createdFiles, ...modifiedFiles].slice(0, 10).join(', ');
+                        const projectTypeStr = projectInfo.type.toString();
+
+                        const prompt = `다음 프로젝트에 대한 검증 명령어를 추론하세요.
+
+프로젝트 타입: ${projectTypeStr}
+프로젝트 루트: ${workspaceRoot}
+생성/수정된 파일: ${fileList || '없음'}
+
+규칙 기반으로 결정할 수 없는 검증 명령어를 추론해야 합니다.
+프로젝트 타입과 파일 정보를 바탕으로 적절한 검증 명령어(컴파일, 빌드, 린트 등)를 제안하세요.
+
+JSON 형식으로 응답하세요:
+{
+  "command": "실행할 명령어 (예: npm run build, mvn compile, python -m pytest 등)",
+  "description": "검증 설명 (예: Node.js 빌드 검사, Python 테스트 실행 등)"
+}
+
+중요: 명령어는 실제로 실행 가능해야 하며, 프로젝트 타입에 맞는 검증 도구를 사용해야 합니다.`;
+
+                        const response = await llmApi.sendMessage(prompt);
+
+                        // JSON 파싱
+                        const jsonMatch = response.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            try {
+                                const parsed = JSON.parse(jsonMatch[0]);
+                                if (parsed.command && parsed.description) {
+                                    validationCmd = {
+                                        command: parsed.command,
+                                        description: parsed.description
+                                    };
+                                    console.log(`[ConversationManager] LLM suggested validation command: ${validationCmd.command}`);
+                                }
+                            } catch (parseError) {
+                                console.error('[ConversationManager] Failed to parse LLM response for validation command:', parseError);
+                            }
+                        }
+                    } catch (llmError) {
+                        console.error('[ConversationManager] Error querying LLM for validation command:', llmError);
+                    }
+                }
+            }
 
             if (validationCmd) {
                 WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 실행 중...`);
@@ -3145,7 +3205,7 @@ export class ConversationManager {
                     WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 실행 실패`);
                 }
             } else {
-                testResults.push(`컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어가 정의되지 않았습니다.`);
+                testResults.push(`컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어를 결정할 수 없습니다. (규칙 기반 및 LLM fallback 모두 실패)`);
                 WebviewBridge.sendProcessingStatus(webview, 'executing', '검증 명령어 없음 (건너뜀)');
             }
 
