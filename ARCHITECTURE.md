@@ -121,7 +121,7 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화, v6.5.0: 실행 로직 개선, v6.6.0: LLM 호출 최적화 완료, v6.7.0: 자동 테스트 제어 및 Investigation 단계 개선, v6.8.0: 테스트 재시도 로직 개선 및 EXECUTION phase 도구 실행 보장, v6.9.0: Analysis 응답 패널 표시 문제 해결, v6.10.0: Execution-first 판단 로직 통일 및 FSM 일관성 보장)
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화, v6.5.0: 실행 로직 개선, v6.6.0: LLM 호출 최적화 완료, v6.7.0: 자동 테스트 제어 및 Investigation 단계 개선, v6.8.0: 테스트 재시도 로직 개선 및 EXECUTION phase 도구 실행 보장, v6.9.0: Analysis 응답 패널 표시 문제 해결, v6.10.0: Execution-first 판단 로직 통일 및 FSM 일관성 보장, v7.0.0: 리팩토링 및 Analysis 답변 생성 로직 개선)
 │   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
 │   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
 │   │   │                            # - 스마트 너징(Nudging) 로직
@@ -136,6 +136,7 @@ src/
 │   │   │                            # - v6.8.0: EXECUTION phase에서 run_command 차단 문제 해결, 테스트 재시도 프롬프트에 중복 파일 생성 방지 안내 추가, 테스트 성공 후 REVIEW 전환 로직 개선
 │   │   │                            # - v6.9.0: investigation_done 후 생성된 analysis 응답이 패널에 표시되지 않던 문제 해결 (Assistant sender를 CODEPILOT으로 변경)
 │   │   │                            # - v6.10.0: execution-first 판단 로직을 공통 함수 `isExecutionFirstTask()`로 통일하여 모든 위치에서 동일한 기준 적용, FSM 일관성 보장
+│   │   │                            # - v7.0.0: ripgrep_search 결과 파싱 개선 (rawResults 추가), 함수명 추출 로직 개선 (사용자 쿼리 우선), 자동 조사 도구 중복 실행 방지, investigation_done 없이도 ripgrep_search 결과가 있으면 자동 답변 생성, 중복 출력 문제 해결, ripgrep_search 패턴 파싱 오류 처리, 요약 한글 강제
 │   │   ├── AgentStateManager.ts     # v6.3.0: 경량 FSM - 상태 관리, 전환 규칙, Output Contract
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
@@ -193,7 +194,7 @@ src/
 │   │   │   ├── ReadFileToolHandler.ts
 │   │   │   ├── ListFilesToolHandler.ts  # v5.2.0: 지능형 경로 필터링 추가
 │   │   │   ├── SearchFilesToolHandler.ts
-│   │   │   └── RipgrepSearchToolHandler.ts # v6.2.0: 고성능 키워드 검색 및 결과 포맷 도입
+│   │   │   └── RipgrepSearchToolHandler.ts # v6.2.0: 고성능 키워드 검색 및 결과 포맷 도입, v7.0.0: 원본 SearchResult[] 배열을 rawResults로 함께 반환하여 파싱 개선
 │   │   ├── terminal/                # 터미널/명령 실행 툴
 │   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 지원
 │   │   └── code/                    # 코드 분석/리팩토링 툴

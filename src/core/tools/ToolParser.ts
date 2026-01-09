@@ -21,11 +21,6 @@ export class ToolParser {
             while ((match = pattern.exec(content)) !== null) {
                 const innerContent = match[1];
                 const params = this.parseToolParams(innerContent);
-                
-                // 디버깅: run_command 파싱 확인
-                if (toolName === Tool.RUN_COMMAND) {
-                    console.log(`[ToolParser] run_command 태그 발견! innerContent 길이: ${innerContent.length}, params:`, JSON.stringify(params));
-                }
 
                 // create_file은 content 필수: 누락 시 경고를 추가하고 스킵
                 if (toolName === Tool.CREATE_FILE) {
@@ -43,6 +38,16 @@ export class ToolParser {
                     if (!hasCommand) {
                         warnings?.push(`⚠️ run_command에 command가 없습니다`);
                         console.log(`[ToolParser] run_command 스킵: command 파라미터가 없습니다. params:`, params);
+                        continue; // 이 호출은 무시
+                    }
+                }
+
+                // ripgrep_search는 pattern 파라미터 필수: 누락 시 경고를 추가하고 스킵
+                if (toolName === Tool.RIPGREP_SEARCH) {
+                    const hasPattern = typeof params.pattern === 'string' && params.pattern.trim().length > 0;
+                    if (!hasPattern) {
+                        warnings?.push(`ripgrep_search에 pattern이 없습니다`);
+                        console.log(`[ToolParser] ripgrep_search 스킵: pattern 파라미터가 없습니다. innerContent="${innerContent.substring(0, 200)}", params:`, params);
                         continue; // 이 호출은 무시
                     }
                 }
@@ -69,7 +74,7 @@ export class ToolParser {
 
         while ((match = paramPattern.exec(content)) !== null) {
             const [, paramName, paramValue] = match;
-            
+
             // read_file의 경우 여러 <path> 태그를 paths로 변환
             if (paramName === 'path') {
                 pathValues.push(paramValue.trim());

@@ -48,7 +48,10 @@ export class RipgrepSearchToolHandler implements IToolHandler {
         return {
             success: true,
             message: `ripgrep found ${results.length} files with matches`,
-            data: { results: formattedResults }
+            data: { 
+                results: formattedResults,  // 포맷된 문자열 (LLM용)
+                rawResults: results  // 원본 SearchResult[] 배열 (파싱용)
+            }
         };
     }
 

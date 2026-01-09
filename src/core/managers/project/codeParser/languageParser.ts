@@ -34,18 +34,45 @@ async function loadLanguage(langName: string): Promise<Parser.Language> {
     return await Parser.Language.load(wasmPath);
 }
 
-let isParserInitialized = false;
+/**
+ * Parser 초기화 상태 관리 클래스
+ * 전역변수 대신 클래스로 캡슐화
+ */
+class ParserInitializer {
+    private static initialized = false;
+
+    /**
+     * Parser 초기화 (한 번만 실행)
+     */
+    static async initialize(): Promise<void> {
+        if (!this.initialized) {
+            console.log('[TreeSitter] Initializing Parser...');
+            await Parser.init();
+            this.initialized = true;
+            console.log('[TreeSitter] Parser initialized ✓');
+        }
+    }
+
+    /**
+     * 초기화 상태 확인
+     */
+    static isInitialized(): boolean {
+        return this.initialized;
+    }
+
+    /**
+     * 초기화 상태 리셋 (테스트용)
+     */
+    static reset(): void {
+        this.initialized = false;
+    }
+}
 
 /**
  * Parser 초기화 (한 번만 실행)
  */
 async function initializeParser(): Promise<void> {
-    if (!isParserInitialized) {
-        console.log('[TreeSitter] Initializing Parser...');
-        await Parser.init();
-        isParserInitialized = true;
-        console.log('[TreeSitter] Parser initialized ✓');
-    }
+    await ParserInitializer.initialize();
 }
 
 /**

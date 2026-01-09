@@ -6,6 +6,24 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v7.1.0 (프롬프트 파일 통합 및 구조 개선)
+- **프롬프트 파일 통합**: 분산되어 있던 프롬프트 파일들을 분류별로 통합하여 유지보수성을 크게 향상시켰습니다.
+  - `base/` 디렉토리 (11개 파일) → `base.ts` 하나로 통합: `agentRole`, `objective`, `rules`, `fileOperations`, `codeVsScript`, `codeGeneration`, `errorCorrection`, `outputFormat`, `tools`, `terminalCommands`, `commonRules` 등 모든 기본 프롬프트 컴포넌트를 단일 파일로 통합
+  - `rules/` 디렉토리 (2개 파일) → `rules.ts` 하나로 통합: `executionFirst`, `errorRetry` 규칙 프롬프트 통합
+  - `task/` 디렉토리 (3개 파일) → `task.ts` 하나로 통합: `CodeWorkPrompt`, `ExecutionWorkPrompt`, `summarize` 작업 타입별 프롬프트 통합
+  - `phase/` 디렉토리 (2개 파일) → `phase.ts` 하나로 통합: `investigation`, `execution` 단계별 프롬프트 통합
+- **Import 경로 정리**: 모든 프롬프트 호출 위치의 import 경로를 통합된 파일 구조에 맞게 수정하여 일관성을 보장했습니다.
+- **코드 구조 개선**: 프롬프트 파일 수를 18개에서 4개로 대폭 감소시켜 파일 탐색과 수정이 훨씬 쉬워졌습니다.
+
+## v7.0.0 (리팩토링 및 Analysis 답변 생성 로직 개선)
+- **리팩토링: `ripgrep_search` 결과 파싱 개선**: `RipgrepSearchToolHandler`가 원본 `SearchResult[]` 배열을 `rawResults`로 함께 반환하도록 수정하여 자동 답변 생성 로직이 올바르게 파싱할 수 있도록 개선했습니다.
+- **리팩토링: 함수명 추출 로직 개선**: 함수 검색 시 사용자 쿼리에서 먼저 함수명을 추출하도록 우선순위를 변경했습니다. 이제 "test 함수가 어디에 있어?" 같은 쿼리에서 "test"를 정확히 추출할 수 있습니다.
+- **리팩토링: 자동 조사 도구 중복 실행 방지**: 자동 조사에서 실행한 도구를 `executedInTurn`에 추가하여 LLM이 동일한 도구를 다시 호출할 때 중복 실행을 방지합니다.
+- **Analysis 답변 생성 로직 개선**: `investigation_done` 토큰이 없어도 `ripgrep_search` 결과가 있으면 자동으로 답변을 생성하도록 개선했습니다. LLM 호출 없이 검색 결과를 직접 파싱하여 답변을 생성합니다.
+- **중복 출력 문제 해결**: `ripgrep_search` 결과가 있을 때 LLM이 직접 답변을 생성해도 자동 답변 생성 로직이 우선 처리되어 중복 출력을 방지합니다.
+- **`ripgrep_search` 패턴 파싱 오류 처리**: `ripgrep_search`의 `pattern` 파라미터가 없거나 비어있으면 경고를 추가하고 해당 호출을 스킵하도록 검증 로직을 추가했습니다.
+- **요약 한글 강제**: REVIEW 단계에서 생성되는 요약이 항상 한글로 출력되도록 프롬프트에 명시적인 지시를 추가했습니다.
+
 ## v6.10.0 (Execution-first 판단 로직 통일 및 FSM 일관성 보장)
 - **Execution-first 판단 로직 통일**: execution-first 작업 판단을 공통 함수 `isExecutionFirstTask()`로 통일하여 모든 위치에서 동일한 기준을 적용합니다. 이제 `code_generate`, `code_run` 같은 작업도 초기 판단과 후속 판단에서 일관되게 처리되어 FSM 상태 전환, 도구 허용 여부, retry/auto-transition이 올바르게 동작합니다.
 - **논리 연산자 우선순위 명확화**: Phase 전환 조건의 논리 연산자 우선순위를 괄호로 명확히 하여 의도한 대로 동작하도록 수정했습니다.

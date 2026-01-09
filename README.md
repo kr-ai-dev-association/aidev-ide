@@ -6,6 +6,24 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v7.1.0 (Prompt File Consolidation and Structure Improvements)
+- **Prompt File Consolidation**: Consolidated scattered prompt files by category to significantly improve maintainability.
+  - `base/` directory (11 files) → consolidated into `base.ts`: All basic prompt components including `agentRole`, `objective`, `rules`, `fileOperations`, `codeVsScript`, `codeGeneration`, `errorCorrection`, `outputFormat`, `tools`, `terminalCommands`, `commonRules` unified into a single file
+  - `rules/` directory (2 files) → consolidated into `rules.ts`: `executionFirst` and `errorRetry` rule prompts unified
+  - `task/` directory (3 files) → consolidated into `task.ts`: `CodeWorkPrompt`, `ExecutionWorkPrompt`, and `summarize` task-type prompts unified
+  - `phase/` directory (2 files) → consolidated into `phase.ts`: `investigation` and `execution` phase prompts unified
+- **Import Path Cleanup**: Updated all prompt import paths across the codebase to match the consolidated file structure for consistency.
+- **Code Structure Improvement**: Reduced prompt files from 18 to 4, making file navigation and modification much easier.
+
+## v7.0.0 (Refactoring & Analysis Response Generation Logic Improvements)
+- **Refactoring: Improved `ripgrep_search` Result Parsing**: Modified `RipgrepSearchToolHandler` to return the original `SearchResult[]` array as `rawResults` alongside formatted results, enabling the auto-answer generation logic to parse correctly.
+- **Refactoring: Improved Function Name Extraction Logic**: Changed the priority to extract function names from user queries first. Now accurately extracts "test" from queries like "test 함수가 어디에 있어?".
+- **Refactoring: Prevent Duplicate Auto-Investigation Tool Execution**: Added auto-investigation tools to `executedInTurn` to prevent duplicate execution when the LLM calls the same tool again.
+- **Analysis Response Generation Logic Improvements**: Enhanced to automatically generate answers when `ripgrep_search` results exist, even without `investigation_done` token. Generates answers by directly parsing search results without LLM calls.
+- **Fixed Duplicate Output Issue**: When `ripgrep_search` results exist, the auto-answer generation logic takes priority over LLM-generated direct answers to prevent duplicate output.
+- **`ripgrep_search` Pattern Parsing Error Handling**: Added validation logic to skip calls and add warnings when `ripgrep_search`'s `pattern` parameter is missing or empty.
+- **Summary Korean Language Enforcement**: Added explicit instructions to the prompt to ensure summaries generated in the REVIEW phase are always output in Korean.
+
 ## v6.10.0 (Execution-First Detection Logic Unification & FSM Consistency)
 - **Execution-First Detection Logic Unification**: Unified execution-first task detection into a common function `isExecutionFirstTask()` to apply consistent criteria across all locations. Tasks like `code_generate` and `code_run` are now consistently handled in both initial and subsequent detections, ensuring correct FSM state transitions, tool permissions, and retry/auto-transition behavior.
 - **Logical Operator Precedence Clarification**: Added parentheses to clarify logical operator precedence in phase transition conditions for correct behavior.

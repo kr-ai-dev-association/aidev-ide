@@ -10,7 +10,7 @@ import * as base from './base';
 import * as os from './os';
 import * as llm from './llm';
 import * as framework from './framework';
-import * as task from './task';
+import { getCodeWorkPrompt, getExecutionWorkPrompt } from './task';
 import { FrameworkPromptBuilder } from './framework/FrameworkPromptBuilder';
 import { Tool } from '../../../tools/types';
 
@@ -122,9 +122,9 @@ ${codebaseContext}` : '';
     private static getTaskPrompt(taskType: string): string {
         switch (taskType) {
             case 'code_work':
-                return task.getCodeWorkPrompt();
+                return getCodeWorkPrompt();
             case 'execution_work':
-                return task.getExecutionWorkPrompt();
+                return getExecutionWorkPrompt();
             default:
                 return '';
         }

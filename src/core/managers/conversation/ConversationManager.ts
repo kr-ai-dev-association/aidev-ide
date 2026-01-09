@@ -18,10 +18,18 @@ import { InvestigationManager } from '../investigation/InvestigationManager';
 import { SettingsManager } from '../state/SettingsManager';
 import { AiModelType, OllamaApi, GeminiApi } from '../../../services';
 import { AgentStateManager, AgentPhase } from './AgentStateManager';
-import { getSimpleSummaryPrompt } from '../context/prompts/task/summarize';
+import { getSimpleSummaryPrompt } from '../context/prompts/task';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
+import { TestRunner } from './handlers/TestRunner';
+import { ResponseProcessor } from './handlers/ResponseProcessor';
+import { ToolExecutionCoordinator } from './handlers/ToolExecutionCoordinator';
+import { AgentConfig } from '../../config/AgentConfig';
+import { StringUtils } from '../../utils/StringUtils';
+import { getExecutionPhasePrompt } from '../context/prompts/phase';
+import { getExecutionFirstRulePrompt, getErrorRetryPrompt, getSimpleErrorRetryPrompt, getTestRetryExceededMessage } from '../context/prompts/rules';
+import { getGeneralAnalysisPrompt } from '../context/prompts/analysis/generalAnalysis';
 
 export interface ConversationOptions {
     userQuery: string;
@@ -50,11 +58,13 @@ export class ConversationManager {
     private promptBuilder: PromptBuilder;
     private contextManager: ContextManager;
     private llmManager: LLMManager;
+    private responseProcessor: ResponseProcessor;
 
     private constructor(userOS: string, geminiApi: GeminiApi, ollamaApi: OllamaApi) {
         this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA);
         this.contextManager = ContextManager.getInstance();
         this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi);
+        this.responseProcessor = new ResponseProcessor(this.llmManager);
     }
 
     public static getInstance(userOS: string = process.platform, geminiApi?: GeminiApi, ollamaApi?: OllamaApi): ConversationManager {
@@ -182,12 +192,13 @@ export class ConversationManager {
         // intent를 클로저에 저장하여 도구 차단 로직에서 사용 가능하도록 함
         const executionIntent = intent && (intent.category === 'execution' || intent.category === 'code');
         const { webviewToRespond, abortSignal } = options;
-        const maxTurns = 15;
+        const maxTurns = AgentConfig.MAX_TURNS;
         let turnCount = 0;
         let accumulatedUserParts = [...userParts];
         let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
         const maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount(); // 설정에서 최대 시도 횟수 가져오기
         const isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled(); // 자동 테스트 재시도 설정 확인
+        let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
 
         // 🔥 문제 1 해결: npm install 등 명령어 중복 실행 방지 (전역 추적)
         const recentlyExecutedCommands = new Set<string>(); // 최근 실행된 명령어 추적
@@ -215,10 +226,10 @@ export class ConversationManager {
         // 의도가 없거나 단순 인사인 경우만 바로 응답하고 종료
         // 분석(analysis) 요청은 INVESTIGATION 단계로 들어가서 실제 코드베이스를 확인해야 함
         const hasNoIntent = !intent ||
-            intent.confidence < 0.3 ||
+            intent.confidence < AgentConfig.MIN_INTENT_CONFIDENCE ||
             (!intent.subtype && !intent.category) ||
             (intent.subtype === null && !intent.category) ||
-            (intent.reasoning && intent.reasoning.includes('인사') && intent.confidence < 0.5);
+            (intent.reasoning && intent.reasoning.includes('인사') && intent.confidence < AgentConfig.MIN_GREETING_CONFIDENCE);
 
         if (hasNoIntent && !hasActivePlan) {
             console.log('[ConversationManager] No clear intent detected or simple greeting. Responding directly without investigation.');
@@ -230,7 +241,7 @@ export class ConversationManager {
             );
 
             // 응답 정제: extractResponseText 사용하여 일관된 정제
-            let cleanGreetingResponse = this.extractResponseText(greetingResponse);
+            let cleanGreetingResponse = this.responseProcessor.extractResponseText(greetingResponse);
 
             // JSON 래핑이 있는 경우 추가 파싱 (extractResponseText에서 처리되지 않은 경우)
             if (!cleanGreetingResponse || cleanGreetingResponse.trim().length < 2) {
@@ -247,9 +258,9 @@ export class ConversationManager {
             }
 
             // 응답이 비어있거나 너무 짧은 경우 기본 응답 사용
-            if (!cleanGreetingResponse || cleanGreetingResponse.trim().length < 2) {
+            if (!cleanGreetingResponse || cleanGreetingResponse.trim().length < AgentConfig.MIN_RESPONSE_LENGTH) {
                 console.warn('[ConversationManager] Greeting response is empty or too short, using default response.');
-                cleanGreetingResponse = '안녕하세요! 무엇을 도와드릴까요?';
+                cleanGreetingResponse = AgentConfig.DEFAULT_GREETING_MESSAGE;
             }
 
             // 최종 정제: 앞뒤 공백 제거
@@ -279,8 +290,7 @@ export class ConversationManager {
                 hasExistingProject = entries.some(e => {
                     const name = e.name;
                     // 숨김/무시 대상
-                    const ignored = ['.git', '.cursor', '.DS_Store', 'node_modules', '.idea', '.vscode'];
-                    if (ignored.includes(name)) return false;
+                    if (AgentConfig.IGNORED_DIRECTORIES.includes(name)) return false;
                     return true; // 하나라도 있으면 존재한다고 판단
                 });
             } catch (e) {
@@ -306,7 +316,7 @@ export class ConversationManager {
         if (initialState === AgentPhase.INVESTIGATION && !hasActivePlan) {
             try {
                 const projectManager = ProjectManager.getInstance();
-                const inventory = await projectManager.buildProjectInventorySection(200); // 최대 200개 파일
+                const inventory = await projectManager.buildProjectInventorySection(AgentConfig.MAX_PROJECT_INVENTORY_FILES);
                 if (inventory) {
                     accumulatedUserParts.push({
                         text: `${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.`
@@ -368,7 +378,7 @@ export class ConversationManager {
                 // 단, LLM 호출은 1회만 수행 (generateVerifiedSummary 내부에서 파일 검증 후 요약 생성)
                 if (createdFiles.length > 0 || modifiedFiles.length > 0) {
                     // 실제 파일 목록을 확인하여 검증된 요약 생성 (LLM 호출 1회)
-                    const verifiedSummary = await this.generateVerifiedSummary(
+                    const verifiedSummary = await this.responseProcessor.generateVerifiedSummary(
                         '', // 원본 요약 없음 (시스템이 직접 생성)
                         createdFiles,
                         modifiedFiles,
@@ -432,56 +442,12 @@ export class ConversationManager {
                 // 🔥 문제 해결: execution-first 작업일 때 investigation item 금지
                 // 공통 함수 사용으로 일관된 판단
                 if (this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan)) {
-                    activeSystemPrompt += `\n\n⚠️ **EXECUTION-FIRST TASK RULE (CRITICAL)**\n\n` +
-                        `**현재 작업은 execution-first 작업입니다.** 사용자 요청은 파일 생성, 코드 수정, 프로젝트 초기화 등 실행 작업입니다.\n\n` +
-                        `**절대 금지:**\n` +
-                        `- ❌ <kind>investigation</kind> 항목을 plan에 포함하는 것\n` +
-                        `- ❌ 조사 작업을 계획에 추가하는 것\n` +
-                        `- ❌ "요구사항 확인", "파일 구조 조사" 같은 investigation item 추가\n\n` +
-                        `**필수:**\n` +
-                        `- ✅ <plan> 태그에는 <kind>execution</kind> 항목만 포함하세요\n` +
-                        `- ✅ 조사가 필요하면 시스템이 자동으로 처리합니다\n` +
-                        `- ✅ 바로 실행 계획(<kind>execution</kind>)만 제시하세요\n\n` +
-                        `**예시 (올바른 plan):**\n` +
-                        `<plan>\n` +
-                        `  <item>\n` +
-                        `    <kind>execution</kind>\n` +
-                        `    <title>React TypeScript Vite 프로젝트 생성</title>\n` +
-                        `    <detail>package.json, tsconfig.json, vite.config.ts, index.html, src/main.tsx, src/App.tsx 등을 생성합니다.</detail>\n` +
-                        `  </item>\n` +
-                        `</plan>\n\n` +
-                        `**잘못된 예시 (절대 금지):**\n` +
-                        `<plan>\n` +
-                        `  <item>\n` +
-                        `    <kind>investigation</kind>  ← ❌ execution-first에서는 금지!\n` +
-                        `    <title>요구사항 확인</title>\n` +
-                        `  </item>\n` +
-                        `  <item>\n` +
-                        `    <kind>execution</kind>\n` +
-                        `    <title>프로젝트 생성</title>\n` +
-                        `  </item>\n` +
-                        `</plan>\n\n`;
+                    activeSystemPrompt += getExecutionFirstRulePrompt();
                 }
             } else if (currentPhase === AgentPhase.EXECUTION) {
                 // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
                 // 🔥 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
-                const executionEnforcementPrompt = `\n\n⚠️ **EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)**\n\n` +
-                    `You are in EXECUTION phase. You are a DSL compiler, NOT a human assistant.\n\n` +
-                    `**ABSOLUTELY FORBIDDEN:**\n` +
-                    `- NO thinking, reasoning, or explanation\n` +
-                    `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
-                    `- NO meta-analysis of rules or next steps\n` +
-                    `- NO natural language text (except inside tool parameters)\n` +
-                    `- NO file exploration (investigation is already complete)\n` +
-                    `- NO reading files unless explicitly required for the action\n\n` +
-                    `**REQUIRED OUTPUT:**\n` +
-                    `- ONLY executable XML tool calls (<create_file>, <update_file>, <run_command>, etc.)\n` +
-                    `- NO text before or after tool calls\n` +
-                    `- If no tool call is required, output NOTHING (empty response)\n\n` +
-                    `**CRITICAL:** Any natural language text (thinking, explanation, reasoning) will be IGNORED.\n` +
-                    `Only XML tool calls will be executed. You already have all necessary information.\n` +
-                    `Start execution immediately without any explanation.\n`;
-                activeSystemPrompt += executionEnforcementPrompt;
+                activeSystemPrompt += getExecutionPhasePrompt();
             }
 
             // [핵심 수정] EXECUTION phase에서 plan이 있으면 우선 plan 기반 도구를 직접 실행하고,
@@ -507,7 +473,7 @@ export class ConversationManager {
                         contextManager: this.contextManager
                     });
 
-                    this.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromPlanCreation, toolResults);
+                    ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromPlanCreation, toolResults);
 
                     // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
                     toolCallsFromPlanCreation.forEach((call, index) => {
@@ -520,10 +486,10 @@ export class ConversationManager {
                     });
 
                     // 파일 변경 추적 (요약 검증용)
-                    this.trackFileChanges(toolCallsFromPlanCreation, toolResults, createdFiles, modifiedFiles);
+                    ToolExecutionCoordinator.trackFileChanges(toolCallsFromPlanCreation, toolResults, createdFiles, modifiedFiles);
 
                     // 현재 Plan Item 완료 처리
-                    if (this.hasSideEffects(toolCallsFromPlanCreation, toolResults) && currentPlanItem) {
+                    if (ToolExecutionCoordinator.hasSideEffects(toolCallsFromPlanCreation, toolResults) && currentPlanItem) {
                         taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
                         WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
                     }
@@ -541,7 +507,7 @@ export class ConversationManager {
                             console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
-                            const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                            const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                             if (testResult.success) {
                                 // 테스트 통과 → REVIEW로 전환
@@ -614,7 +580,7 @@ export class ConversationManager {
                                     console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                     const currentProject = ProjectManager.getInstance().getCurrentProject();
                                     const workspaceRoot = currentProject?.root || '';
-                                    const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                    const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                     if (testResult.success) {
                                         console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
@@ -632,7 +598,7 @@ export class ConversationManager {
                                             continue;
                                         } else {
                                             console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                            WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                            WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
                                             stateManager.transitionTo(AgentPhase.REVIEW);
                                             turnCount++;
                                             continue;
@@ -683,7 +649,7 @@ export class ConversationManager {
                                         console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                         const currentProject = ProjectManager.getInstance().getCurrentProject();
                                         const workspaceRoot = currentProject?.root || '';
-                                        const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                        const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                         if (testResult.success) {
                                             console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
@@ -702,7 +668,7 @@ export class ConversationManager {
                                             } else {
                                                 if (isAutoTestRetryEnabled) {
                                                     console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
                                                 } else {
                                                     console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
                                                     WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
@@ -726,7 +692,7 @@ export class ConversationManager {
                             let projectInventoryContext = '';
                             try {
                                 const projectManager = ProjectManager.getInstance();
-                                const inventory = await projectManager.buildProjectInventorySection(200); // 최대 200개 파일
+                                const inventory = await projectManager.buildProjectInventorySection(AgentConfig.MAX_PROJECT_INVENTORY_FILES);
                                 if (inventory) {
                                     projectInventoryContext = `\n\n${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.\n`;
                                 }
@@ -763,7 +729,7 @@ export class ConversationManager {
                                     preloadedFilesContextForExecution += `**이미 읽은 파일 내용 (위 대화 기록에서 확인 가능):**\n\n`;
                                     preloadedFilesContent.forEach(({ path, content }) => {
                                         const lines = content.split('\n');
-                                        const preview = lines.length > 50 ? lines.slice(0, 50).join('\n') + '\n... (파일이 길어 일부만 표시)' : content;
+                                        const preview = StringUtils.truncateLines(content, AgentConfig.MAX_FILE_PREVIEW_LINES, '\n... (파일이 길어 일부만 표시)');
                                         preloadedFilesContextForExecution += `\n**파일: ${path}**\n\`\`\`\n${preview}\n\`\`\`\n`;
                                     });
                                     preloadedFilesContextForExecution += `\n**중요**: 위 파일들은 이미 읽었고 내용이 위에 제공되었습니다.\n` +
@@ -830,7 +796,7 @@ export class ConversationManager {
                                     contextManager: this.contextManager
                                 });
 
-                                this.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromExecution, toolResults);
+                                ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromExecution, toolResults);
 
                                 // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
                                 toolCallsFromExecution.forEach((call, index) => {
@@ -843,11 +809,11 @@ export class ConversationManager {
                                 });
 
                                 // 파일 변경 추적 (요약 검증용)
-                                this.trackFileChanges(toolCallsFromExecution, toolResults, createdFiles, modifiedFiles);
+                                ToolExecutionCoordinator.trackFileChanges(toolCallsFromExecution, toolResults, createdFiles, modifiedFiles);
 
-                                const resultSummary = this.createToolResultSummary(turnCount, toolCallsFromExecution, toolResults);
+                                const resultSummary = ToolExecutionCoordinator.createToolResultSummary(turnCount, toolCallsFromExecution, toolResults);
 
-                                if (this.hasSideEffects(toolCallsFromExecution, toolResults) && currentPlanItem) {
+                                if (ToolExecutionCoordinator.hasSideEffects(toolCallsFromExecution, toolResults) && currentPlanItem) {
                                     taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
                                     WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
                                 }
@@ -863,7 +829,7 @@ export class ConversationManager {
                                     console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                     const currentProject = ProjectManager.getInstance().getCurrentProject();
                                     const workspaceRoot = currentProject?.root || '';
-                                    const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                    const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                     if (testResult.success) {
                                         // 테스트 통과 → REVIEW로 전환
@@ -884,7 +850,7 @@ export class ConversationManager {
                                         } else {
                                             if (isAutoTestRetryEnabled) {
                                                 console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
                                             } else {
                                                 console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
                                                 WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
@@ -901,7 +867,7 @@ export class ConversationManager {
                                 console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
 
                                 // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시
-                                const textResponse = this.extractResponseText(cleanExecutionResponse);
+                                const textResponse = this.responseProcessor.extractResponseText(cleanExecutionResponse);
                                 if (textResponse && textResponse.trim().length > 0) {
                                     console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Displaying in panel.`);
                                     WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', textResponse);
@@ -922,7 +888,7 @@ export class ConversationManager {
                                     console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                     const currentProject = ProjectManager.getInstance().getCurrentProject();
                                     const workspaceRoot = currentProject?.root || '';
-                                    const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                    const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                     if (testResult.success) {
                                         console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
@@ -941,7 +907,7 @@ export class ConversationManager {
                                         } else {
                                             if (isAutoTestRetryEnabled) {
                                                 console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
+                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
                                             } else {
                                                 console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
                                                 WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
@@ -972,7 +938,7 @@ export class ConversationManager {
                             console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
-                            const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                            const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                             if (testResult.success) {
                                 // 테스트 통과 → REVIEW로 전환
@@ -1030,14 +996,15 @@ export class ConversationManager {
 
             // 1. 응답 정제 (<think> 태그 및 JSON 래핑 처리)
             // ⚠️ 핵심 수정: LLM response에서 thinking 노출 차단 강화
-            // "We need to...", "According to...", "Let's call..." 같은 자연어 텍스트 제거
-            let cleanResponse = llmResponse
-                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-                .replace(/We need to[\s\S]*?Thus:/gi, '') // "We need to... Thus:" 패턴 제거
-                .replace(/According to[\s\S]*?So we should/gi, '') // "According to... So we should" 패턴 제거
-                .replace(/Let's call[\s\S]*?<[a-z_]+>/gi, '<') // "Let's call... <tool>" 패턴 제거
-                .trim();
+            // StringUtils를 사용하여 모든 패턴 제거
+            let cleanResponse = StringUtils.cleanText(llmResponse, {
+                removeThinking: true,
+                removeNaturalLanguage: true, // INVESTIGATION phase에서도 자연어 추론 패턴 제거 (thinking 노출 방지)
+                removeSystemMessages: false, // 이 컨텍스트에서는 시스템 메시지 제거하지 않음
+                removeToolTags: false, // 도구 태그는 유지
+                removeJsonThinking: true,
+                extractJson: false
+            });
 
             // XML 태그만 남기고 자연어 텍스트 제거 (EXECUTION phase에서 특히 중요)
             // 🔥 핵심: EXECUTION phase에서는 "생각", "설명" → 전부 무시, XML tool call만 추출
@@ -1106,7 +1073,11 @@ export class ConversationManager {
             }
 
             // 2. <investigation_done/> 토큰 파싱 (제거 전에 먼저 파싱)
-            const investigationDoneToken = ToolParser.parseInvestigationDone(cleanResponse);
+            // ⚠️ 중요: llmResponse에서 직접 파싱 (cleanResponse는 이미 정제되었을 수 있음)
+            const investigationDoneToken = ToolParser.parseInvestigationDone(llmResponse);
+            if (investigationDoneToken) {
+                console.log(`[ConversationManager] investigation_done token detected in raw response`);
+            }
 
             // 3. 시스템 내부 토큰 제거 (사용자에게 표시되면 안 됨)
             // <investigation_done/> 토큰은 시스템 내부용이므로 제거
@@ -1352,34 +1323,67 @@ export class ConversationManager {
                                             /(?:어디|where).*?(?:함수|function)/i.test(item.detail);
 
                                         if (hasFunctionSearchIntent) {
-                                            // 함수명 추출 시도 (title이나 detail에서)
+                                            // 함수명 추출 시도 (사용자 쿼리 → title → detail 순서)
                                             const functionNamePatterns = [
-                                                // title에서: "handleSearch 함수 위치 조사" → "handleSearch"
+                                                // "test 함수" 또는 "test function" 패턴 (가장 우선)
                                                 /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:함수|function)/i,
-                                                // detail에서: "handleSearch 함수 정의를 찾습니다" → "handleSearch"
-                                                /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:함수|function)/i,
-                                                // 일반적인 함수명 패턴
-                                                /\b([a-zA-Z_$][a-zA-Z0-9_$]+)\b/
+                                                // "함수 test" 또는 "function test" 패턴
+                                                /(?:함수|function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/i,
+                                                // "test가 어디" 또는 "test is where" 패턴
+                                                /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:가|는|이|을|를|어디|where)/i,
+                                                // "test 함수가 어디" 같은 복합 패턴
+                                                /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:함수|function).*?(?:가|는|이|어디|where)/i
                                             ];
 
                                             let functionName: string | null = null;
+                                            const excludedWords = ['src', 'app', 'main', 'index', 'component', 'page', 'file', 'dir', 'directory', 'folder', '디렉터리', '디렉토리'];
 
-                                            // title에서 먼저 시도
-                                            for (const pattern of functionNamePatterns) {
-                                                const match = item.title.match(pattern);
-                                                if (match && match[1]) {
-                                                    functionName = match[1];
-                                                    break;
+                                            // 1. 사용자 쿼리에서 먼저 시도 (가장 정확)
+                                            const userQuery = options.userQuery || '';
+                                            if (userQuery) {
+                                                for (const pattern of functionNamePatterns) {
+                                                    const match = userQuery.match(pattern);
+                                                    if (match && match[1]) {
+                                                        const candidate = match[1].toLowerCase();
+                                                        // 일반적인 단어는 제외하되, 실제 함수명일 가능성이 높은 것만 허용
+                                                        if (!excludedWords.includes(candidate) && candidate.length >= 2) {
+                                                            functionName = match[1];
+                                                            extractedFunctionName = functionName; // 전역 변수에 저장
+                                                            console.log(`[ConversationManager] Extracted function name from user query: ${functionName}`);
+                                                            break;
+                                                        }
+                                                    }
                                                 }
                                             }
 
-                                            // title에서 못 찾으면 detail에서 시도
+                                            // 2. title에서 시도
+                                            if (!functionName) {
+                                                for (const pattern of functionNamePatterns) {
+                                                    const match = item.title.match(pattern);
+                                                    if (match && match[1]) {
+                                                        const candidate = match[1].toLowerCase();
+                                                        if (!excludedWords.includes(candidate) && candidate.length >= 2) {
+                                                            functionName = match[1];
+                                                            console.log(`[ConversationManager] Extracted function name from title: ${functionName}`);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // 3. detail에서 시도 (마지막, 하지만 일반 단어 제외를 더 엄격하게)
                                             if (!functionName) {
                                                 for (const pattern of functionNamePatterns) {
                                                     const match = item.detail.match(pattern);
                                                     if (match && match[1]) {
-                                                        functionName = match[1];
-                                                        break;
+                                                        const candidate = match[1].toLowerCase();
+                                                        // detail에서는 더 엄격하게 필터링 (파일 경로나 디렉터리 이름 제외)
+                                                        if (!excludedWords.includes(candidate) && candidate.length >= 3 &&
+                                                            !candidate.includes('/') && !candidate.includes('\\')) {
+                                                            functionName = match[1];
+                                                            console.log(`[ConversationManager] Extracted function name from detail: ${functionName}`);
+                                                            break;
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1390,7 +1394,7 @@ export class ConversationManager {
                                                 toolCallsFromPlanDetail.push({
                                                     name: Tool.RIPGREP_SEARCH,
                                                     params: {
-                                                        query: searchPattern,
+                                                        pattern: searchPattern,
                                                         path: '.',
                                                         caseSensitive: 'false'
                                                     },
@@ -1520,6 +1524,9 @@ export class ConversationManager {
                                         contextManager: this.contextManager
                                     });
 
+                                    // UI에 조사 도구 실행 결과 전송 (🧩 [Ripgrep], 📖 [Read] 등)
+                                    ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, autoInvestigationToolCalls, toolResults);
+
                                     // 조사 도구 실행 결과를 accumulatedUserParts에 추가
                                     let hasListFilesAuto = false;
                                     for (let index = 0; index < toolResults.length; index++) {
@@ -1529,7 +1536,8 @@ export class ConversationManager {
                                             if (toolCall.name === Tool.RIPGREP_SEARCH) {
                                                 // ripgrep_search 결과 처리
                                                 if (result.data) {
-                                                    const searchResults = result.data;
+                                                    // rawResults가 있으면 사용, 없으면 기존 data 사용 (하위 호환성)
+                                                    const searchResults = result.data.rawResults || result.data.results || result.data;
                                                     const pattern = toolCall.params.pattern || toolCall.params.query || 'unknown';
                                                     accumulatedUserParts.push({
                                                         text: `[System] ⚠️ **검색 결과 (이미 검색함)**: ${pattern}\n\`\`\`json\n${JSON.stringify(searchResults, null, 2)}\n\`\`\`\n\n**중요**: 이 검색 결과는 이미 확인했으므로 다시 <ripgrep_search>를 호출하지 마세요. 위 검색 결과를 참고하여 작업을 진행하세요.`
@@ -1845,10 +1853,7 @@ export class ConversationManager {
                                 const isExecutionFirstForAnalysis = this.isExecutionFirstTask(intent, hasExecutionIntentEver, hasActivePlan, hasExecutionIntent);
                                 if (investigationDone && intent && intent.category === 'analysis' && !isExecutionFirstForAnalysis) {
                                     console.log('[ConversationManager] Analysis intent with investigation_done. Calling LLM to generate answer.');
-                                    const analysisPrompt = systemPrompt +
-                                        '\n\n[System] ⚠️ 지금까지 읽은 파일과 검색 결과를 기반으로, 사용자의 질문에 한국어로 간단히 직접 답변하세요. **도구를 다시 호출하지 말고**, 한 번의 자연어 답변만 출력하세요.\n' +
-                                        '[System] 예: "handleSearch 함수는 src/components/SearchBar.tsx 파일의 45번째 줄에 정의되어 있습니다."처럼 위치/결과만 명확하게 알려주세요.\n' +
-                                        '[System] **절대 금지**: <list_files>, <read_file>, <ripgrep_search> 등 도구 태그를 출력하는 것. 자연어 답변만 출력하세요.\n';
+                                    const analysisPrompt = systemPrompt + getGeneralAnalysisPrompt();
 
                                     const analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
                                         analysisPrompt,
@@ -1856,25 +1861,15 @@ export class ConversationManager {
                                         { signal: abortSignal }
                                     );
 
-                                    // 응답 정제: thinking 태그 및 JSON 래핑 제거
-                                    let cleanAnalysisResponse = analysisResponse
-                                        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                                        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-                                        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                                        .trim();
-
-                                    // JSON 래핑이 있는 경우 파싱
-                                    try {
-                                        const jsonMatch = cleanAnalysisResponse.match(/^\{[\s\S]*\}$/);
-                                        if (jsonMatch) {
-                                            const parsed = JSON.parse(cleanAnalysisResponse);
-                                            if (parsed.response) {
-                                                cleanAnalysisResponse = parsed.response;
-                                            }
-                                        }
-                                    } catch (e) {
-                                        // JSON 파싱 실패 시 원본 사용
-                                    }
+                                    // 응답 정제: StringUtils 사용
+                                    let cleanAnalysisResponse = StringUtils.cleanText(analysisResponse, {
+                                        removeThinking: true,
+                                        removeNaturalLanguage: false, // 분석 응답은 자연어 포함 가능
+                                        removeSystemMessages: false,
+                                        removeToolTags: true,
+                                        removeJsonThinking: true,
+                                        extractJson: true
+                                    });
 
                                     // 응답이 비어있거나 너무 짧은 경우 기본 메시지
                                     if (!cleanAnalysisResponse || cleanAnalysisResponse.length < 2) {
@@ -1969,10 +1964,7 @@ export class ConversationManager {
                                         // 분석(analysis) 의도인 경우: 조사 결과를 바탕으로 한 번 더 LLM을 호출해 직접 답변하도록 함
                                         if (intent && intent.category === 'analysis') {
                                             console.log('[ConversationManager] Analysis intent detected. Calling LLM once to answer analysis question from investigated context.');
-                                            const analysisPrompt = systemPrompt +
-                                                '\n\n[System] ⚠️ 지금까지 읽은 파일과 검색 결과를 기반으로, 사용자의 질문에 한국어로 간단히 직접 답변하세요. **도구를 다시 호출하지 말고**, 한 번의 자연어 답변만 출력하세요.\n' +
-                                                '[System] 예: "handleSearch 함수는 src/components/SearchBar.tsx 파일의 45번째 줄에 정의되어 있습니다."처럼 위치/결과만 명확하게 알려주세요.\n' +
-                                                '[System] **절대 금지**: <list_files>, <read_file>, <ripgrep_search> 등 도구 태그를 출력하는 것. 자연어 답변만 출력하세요.\n';
+                                            const analysisPrompt = systemPrompt + getGeneralAnalysisPrompt();
 
                                             const analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
                                                 analysisPrompt,
@@ -1980,25 +1972,15 @@ export class ConversationManager {
                                                 { signal: abortSignal }
                                             );
 
-                                            // 응답 정제: thinking 태그 및 JSON 래핑 제거
-                                            let cleanAnalysisResponse = analysisResponse
-                                                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                                                .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-                                                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                                                .trim();
-
-                                            // JSON 래핑이 있는 경우 파싱
-                                            try {
-                                                const jsonMatch = cleanAnalysisResponse.match(/^\{[\s\S]*\}$/);
-                                                if (jsonMatch) {
-                                                    const parsed = JSON.parse(cleanAnalysisResponse);
-                                                    if (parsed.response) {
-                                                        cleanAnalysisResponse = parsed.response;
-                                                    }
-                                                }
-                                            } catch (e) {
-                                                // JSON 파싱 실패 시 원본 사용
-                                            }
+                                            // 응답 정제: StringUtils 사용
+                                            let cleanAnalysisResponse = StringUtils.cleanText(analysisResponse, {
+                                                removeThinking: true,
+                                                removeNaturalLanguage: false, // 분석 응답은 자연어 포함 가능
+                                                removeSystemMessages: false,
+                                                removeToolTags: true,
+                                                removeJsonThinking: true,
+                                                extractJson: true
+                                            });
 
                                             // 응답이 비어있거나 너무 짧은 경우 기본 메시지
                                             if (!cleanAnalysisResponse || cleanAnalysisResponse.length < 2) {
@@ -2280,7 +2262,7 @@ export class ConversationManager {
                             WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
                             const executingPrefix = currentActiveItem ? `[${currentActiveItem.title}] ` : '';
                             const phaseLabelExec = currentPhase === AgentPhase.INVESTIGATION ? '[조사]' : '[실행]';
-                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${this.getToolLabel(finalDeduplicatedCalls[0].name)} 실행 중...`);
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabelExec}[단계 ${turnCount + 1}] ${executingPrefix}${ToolExecutionCoordinator.getToolLabel(finalDeduplicatedCalls[0].name)} 실행 중...`);
 
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
@@ -2295,7 +2277,7 @@ export class ConversationManager {
                             });
 
                             // UI에 실행 결과 전송 (✅ [Created] ...)
-                            this.sendToolExecutionResultsToUI(webviewToRespond, finalDeduplicatedCalls, toolResults);
+                            ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, finalDeduplicatedCalls, toolResults);
 
                             // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
                             finalDeduplicatedCalls.forEach((call, index) => {
@@ -2308,10 +2290,10 @@ export class ConversationManager {
                             });
 
                             // 파일 변경 추적 (요약 검증용)
-                            this.trackFileChanges(finalDeduplicatedCalls, toolResults, createdFiles, modifiedFiles);
+                            ToolExecutionCoordinator.trackFileChanges(finalDeduplicatedCalls, toolResults, createdFiles, modifiedFiles);
 
                             // 결과 요약 누적
-                            const resultSummary = this.createToolResultSummary(turnCount, finalDeduplicatedCalls, toolResults);
+                            const resultSummary = ToolExecutionCoordinator.createToolResultSummary(turnCount, finalDeduplicatedCalls, toolResults);
                             turnResultsSummary += resultSummary;
 
                             // ⚠️ 핵심 수정: 테스트 실패 후 수정 시도한 경우, 도구 실행 후 자동으로 테스트 재실행
@@ -2323,7 +2305,7 @@ export class ConversationManager {
                             // 🔥 문제 1 해결: 중복 테스트 실행 방지
                             // "All tasks completed" 경로에서만 테스트 실행하므로, 여기서는 테스트를 실행하지 않음
 
-                            if (this.hasSideEffects(finalDeduplicatedCalls, toolResults)) {
+                            if (ToolExecutionCoordinator.hasSideEffects(finalDeduplicatedCalls, toolResults)) {
                                 turnHasSideEffects = true;
 
                                 // ⚠️ 핵심 수정: plan.detail에 언급된 모든 파일이 처리되었을 때만 plan item을 완료
@@ -2382,7 +2364,7 @@ export class ConversationManager {
                     }
                 } else {
                     // 2-4. 일반 텍스트 처리
-                    const responseText = this.extractResponseText(part);
+                    const responseText = this.responseProcessor.extractResponseText(part);
                     if (responseText && responseText.trim()) {
                         // [수정] 도구 호출 유무와 관계없이 텍스트 응답을 UI에 표시하여 3번째 요약 호출 방지
                         WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', responseText);
@@ -2392,17 +2374,14 @@ export class ConversationManager {
 
             // 3. 루프 종료 조건 확인 및 턴 관리
             const totalToolCalls = ToolParser.parseToolCalls(cleanResponse, toolParseWarnings);
-            const totalResponseText = this.extractResponseText(cleanResponse);
+            const totalResponseText = this.responseProcessor.extractResponseText(cleanResponse);
 
             // 디버깅: run_command 파싱 확인
             if (cleanResponse.includes('<run_command>')) {
-                console.log(`[ConversationManager] Debug: cleanResponse contains <run_command>, parsed ${totalToolCalls.length} tool calls`);
-                console.log(`[ConversationManager] Debug: Parsed tool calls:`, totalToolCalls.map(c => c.name));
 
                 // run_command가 파싱되지 않은 경우 상세 로그
                 const runCommandMatches = cleanResponse.match(/<run_command>([\s\S]*?)<\/run_command>/gi);
                 if (runCommandMatches) {
-                    console.log(`[ConversationManager] Debug: Found ${runCommandMatches.length} <run_command> tag(s) in cleanResponse`);
                     runCommandMatches.forEach((match, idx) => {
                         console.log(`[ConversationManager] Debug: run_command[${idx}]:`, match.substring(0, 200));
                     });
@@ -2480,7 +2459,7 @@ export class ConversationManager {
                             if (testFixAttempts < maxTestFixAttempts) {
                                 // 🔥 문제 3 해결: 실패 패턴 추적
                                 const errorMessage = testResult.errorMessage || '알 수 없는 오류';
-                                const errorPattern = this.extractErrorPattern(errorMessage);
+                                const errorPattern = TestRunner.extractErrorPattern(errorMessage);
                                 const isSamePattern = lastFailurePattern.pattern === errorPattern;
 
                                 if (isSamePattern) {
@@ -2540,7 +2519,25 @@ export class ConversationManager {
             // INVESTIGATION 단계에서 도구 호출도 없고 plan도 없으면 텍스트 출력 차단
             // 단, 의도가 없거나 단순 인사인 경우는 허용
             // ⚠️ 핵심 수정: analysis intent이고 조사가 완료된 경우, 자연어 답변 허용
+            // 🔥 최적화: investigation_done 토큰이 있고 ripgrep_search 결과가 있으면 텍스트 차단을 건너뛰고 바로 자동 답변 생성
             if (currentPhase === AgentPhase.INVESTIGATION && totalToolCalls.length === 0 && !validPlanReceived && totalResponseText.length > 5) {
+                // investigation_done 토큰이 있고 ripgrep_search 결과가 있으면 텍스트 차단을 건너뛰고 자동 답변 생성 로직으로 넘어감
+                if (investigationDoneToken && intent && intent.category === 'analysis') {
+                    let hasRipgrepResults = false;
+                    for (const part of accumulatedUserParts) {
+                        if (part.text && part.text.includes('**검색 결과 (이미 검색함)**')) {
+                            hasRipgrepResults = true;
+                            break;
+                        }
+                    }
+                    if (hasRipgrepResults) {
+                        console.log('[ConversationManager] INVESTIGATION phase: investigation_done + ripgrep_search results found. Skipping text blocking, will generate auto-answer.');
+                        // 텍스트 차단을 건너뛰고 자동 답변 생성 로직으로 넘어감
+                    } else {
+                        // ripgrep_search 결과가 없으면 기존 로직 계속
+                    }
+                }
+
                 // 의도가 없거나 단순 인사인 경우 텍스트 응답 허용하고 종료
                 if (hasNoIntent) {
                     console.log('[ConversationManager] INVESTIGATION phase: No intent detected, allowing text-only response and terminating.');
@@ -2550,21 +2547,43 @@ export class ConversationManager {
                 }
 
                 // ⚠️ 핵심 수정: analysis intent이고 조사가 완료된 경우, 자연어 답변 허용
-                if (intent && intent.category === 'analysis' && hasInvestigationHistory) {
-                    console.log('[ConversationManager] INVESTIGATION phase: Analysis intent with completed investigation. Allowing text-only response.');
-                    // 응답 정제: thinking 태그 제거
-                    let cleanResponse = totalResponseText
-                        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-                        .trim();
+                // 🔥 중복 방지: investigation_done 토큰이 있으면 위의 블록(2732 라인)에서 이미 처리되므로 여기서는 처리하지 않음
+                // 🔥 추가 중복 방지: ripgrep_search 결과가 있으면 자동 답변 생성 로직(2732 라인)에서 처리되므로 여기서는 처리하지 않음
+                if (intent && intent.category === 'analysis' && hasInvestigationHistory && !investigationDoneToken) {
+                    // ripgrep_search 결과가 있는지 확인
+                    let hasRipgrepResults = false;
+                    for (const part of accumulatedUserParts) {
+                        if (part.text && part.text.includes('**검색 결과 (이미 검색함)**')) {
+                            hasRipgrepResults = true;
+                            break;
+                        }
+                    }
 
-                    if (cleanResponse && cleanResponse.length > 2) {
-                        // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
-                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanResponse);
-                        // DONE으로 전환
-                        stateManager.transitionTo(AgentPhase.DONE, {});
-                        console.log('[ConversationManager] Analysis response sent. Transitioning to DONE.');
-                        break;
+                    // ripgrep_search 결과가 있으면 자동 답변 생성 로직(2732 라인)에서 처리되므로 여기서는 처리하지 않음
+                    if (hasRipgrepResults) {
+                        console.log('[ConversationManager] INVESTIGATION phase: ripgrep_search results found. Will be handled by auto-answer generation logic.');
+                        // 자동 답변 생성 로직으로 넘어가도록 continue하지 않고 계속 진행
+                    } else {
+                        // ripgrep_search 결과가 없고 LLM이 직접 답변을 생성한 경우만 처리
+                        console.log('[ConversationManager] INVESTIGATION phase: Analysis intent with completed investigation. Allowing text-only response.');
+                        // 응답 정제: thinking 태그 제거
+                        let cleanResponse = StringUtils.cleanText(totalResponseText, {
+                            removeThinking: true,
+                            removeNaturalLanguage: true, // thinking 노출 방지
+                            removeSystemMessages: false,
+                            removeToolTags: false,
+                            removeJsonThinking: true,
+                            extractJson: false
+                        });
+
+                        if (cleanResponse && cleanResponse.length > 2) {
+                            // 🔥 문제 해결: 'Assistant' sender는 webview에서 처리되지 않으므로 'CODEPILOT'으로 변경
+                            WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', cleanResponse);
+                            // DONE으로 전환
+                            stateManager.transitionTo(AgentPhase.DONE, {});
+                            console.log('[ConversationManager] Analysis response sent. Transitioning to DONE.');
+                            break;
+                        }
                     }
                 }
 
@@ -2588,13 +2607,27 @@ export class ConversationManager {
 
             // ⚠️ 핵심 수정: analysis intent이고 investigation_done 토큰이 있으면, 빈 응답이어도 analysis 답변 생성 후 종료
             // (analysis 답변 생성 로직은 INVESTIGATION phase 처리 블록에서 실행됨)
-            if (investigationDoneToken && intent && intent.category === 'analysis' && !hasExecutionIntentEver) {
+            // 🔥 디버깅: 조건 확인
+            if (investigationDoneToken) {
+                console.log(`[ConversationManager] Debug: investigationDoneToken=true, intent=${intent?.category}, currentPhase=${currentPhase}`);
+            }
+            if (investigationDoneToken && intent && intent.category === 'analysis' && currentPhase === AgentPhase.INVESTIGATION) {
                 console.log('[ConversationManager] Analysis intent with investigation_done token detected. Will generate answer in INVESTIGATION phase block.');
                 // 빈 응답 체크를 건너뛰고 계속 진행 (INVESTIGATION phase 블록에서 analysis 답변 생성)
             } else if (!totalResponseText || !totalResponseText.trim()) {
-                // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
-                console.log('[ConversationManager] Empty response or invalid plan, ending loop');
-                break;
+                // 도구 호출도 없고 유효한 계획도 없는 경우
+                // 🔥 추가: investigation_done 토큰이 있으면 analysis 답변 생성 시도
+                if (investigationDoneToken && intent && intent.category === 'analysis' && currentPhase === AgentPhase.INVESTIGATION) {
+                    console.log('[ConversationManager] Empty response but investigation_done token found. Will generate answer in INVESTIGATION phase block.');
+                    // 빈 응답 체크를 건너뛰고 계속 진행
+                } else {
+                    // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
+                    if (investigationDoneToken) {
+                        console.log(`[ConversationManager] Debug: investigationDoneToken=true but conditions not met. intent=${intent?.category}, currentPhase=${currentPhase}`);
+                    }
+                    console.log('[ConversationManager] Empty response or invalid plan, ending loop');
+                    break;
+                }
             }
 
             const currentPlanItemsAll = taskManager.listPlanItems();
@@ -2639,7 +2672,7 @@ export class ConversationManager {
                                 const errorMessage = testResult.errorMessage || '알 수 없는 오류';
 
                                 // 🔥 문제 3 해결: 실패 패턴 추적 및 같은 패턴이면 retry 횟수 소모 안 함
-                                const errorPattern = this.extractErrorPattern(errorMessage);
+                                const errorPattern = TestRunner.extractErrorPattern(errorMessage);
                                 const isSamePattern = lastFailurePattern.pattern === errorPattern;
 
                                 if (isSamePattern) {
@@ -2729,44 +2762,152 @@ export class ConversationManager {
                 }
             }
 
-            // 🔥 문제 해결: analysis intent이고 investigation_done 토큰이 있으면 여기서 바로 답변 생성
-            if (investigationDoneToken && intent && intent.category === 'analysis' && !hasExecutionIntentEver && currentPhase === AgentPhase.INVESTIGATION) {
-                console.log('[ConversationManager] Analysis intent with investigation_done token detected. Generating answer now.');
+            // 🔥 문제 해결: analysis intent이고 (investigation_done 토큰이 있거나 ripgrep_search 결과가 있으면) 여기서 바로 답변 생성
+            // ripgrep_search 결과 확인
+            let hasRipgrepResultsForAutoAnswer = false;
+            for (const part of accumulatedUserParts) {
+                if (part.text && part.text.includes('**검색 결과 (이미 검색함)**')) {
+                    hasRipgrepResultsForAutoAnswer = true;
+                    break;
+                }
+            }
 
-                const analysisPrompt = systemPrompt +
-                    '\n\n[System] ⚠️ 지금까지 읽은 파일과 검색 결과를 기반으로, 사용자의 질문에 한국어로 간단히 직접 답변하세요. **도구를 다시 호출하지 말고**, 한 번의 자연어 답변만 출력하세요.\n' +
-                    '[System] 예: "handleSearch 함수는 src/components/SearchBar.tsx 파일의 45번째 줄에 정의되어 있습니다."처럼 위치/결과만 명확하게 알려주세요.\n' +
-                    '[System] **절대 금지**: <list_files>, <read_file>, <ripgrep_search> 등 도구 태그를 출력하는 것. 자연어 답변만 출력하세요.\n';
-
-                const analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
-                    analysisPrompt,
-                    accumulatedUserParts,
-                    { signal: abortSignal }
-                );
-
-                // 응답 정제: thinking 태그 및 JSON 래핑 제거
-                let cleanAnalysisResponse = analysisResponse
-                    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-                    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                    .trim();
-
-                // JSON 래핑이 있는 경우 파싱
-                try {
-                    const jsonMatch = cleanAnalysisResponse.match(/^\{[\s\S]*\}$/);
-                    if (jsonMatch) {
-                        const parsed = JSON.parse(cleanAnalysisResponse);
-                        if (parsed.response) {
-                            cleanAnalysisResponse = parsed.response;
-                        }
-                    }
-                } catch (e) {
-                    // JSON 파싱 실패 시 원본 사용
+            if ((investigationDoneToken || hasRipgrepResultsForAutoAnswer) && intent && intent.category === 'analysis' && currentPhase === AgentPhase.INVESTIGATION) {
+                if (investigationDoneToken) {
+                    console.log('[ConversationManager] Analysis intent with investigation_done token detected. Checking for existing search results...');
+                } else {
+                    console.log('[ConversationManager] Analysis intent with ripgrep_search results detected. Checking for existing search results...');
                 }
 
-                // 응답이 비어있거나 너무 짧은 경우 기본 메시지
-                if (!cleanAnalysisResponse || cleanAnalysisResponse.length < 2) {
-                    cleanAnalysisResponse = '조사 결과를 바탕으로 답변을 생성할 수 없습니다.';
+                // 🔥 최적화: ripgrep_search 결과가 이미 있으면 LLM 호출 없이 직접 답변 생성
+                let hasRipgrepResults = false;
+                let ripgrepResults: any = null;
+                let ripgrepPattern = '';
+
+                // accumulatedUserParts에서 ripgrep_search 결과 찾기
+                for (const part of accumulatedUserParts) {
+                    if (part.text && part.text.includes('**검색 결과 (이미 검색함)**')) {
+                        // JSON 결과 추출
+                        const jsonMatch = part.text.match(/```json\n([\s\S]*?)\n```/);
+                        if (jsonMatch) {
+                            try {
+                                ripgrepResults = JSON.parse(jsonMatch[1]);
+                                // 패턴 추출
+                                const patternMatch = part.text.match(/\*\*검색 결과 \(이미 검색함\)\*\*: (.+?)\n/);
+                                if (patternMatch) {
+                                    ripgrepPattern = patternMatch[1];
+                                }
+                                hasRipgrepResults = true;
+                                console.log(`[ConversationManager] Found existing ripgrep_search results for pattern: ${ripgrepPattern}`);
+                                break;
+                            } catch (e) {
+                                console.warn('[ConversationManager] Failed to parse ripgrep_search results from accumulatedUserParts:', e);
+                            }
+                        }
+                    }
+                }
+
+                let cleanAnalysisResponse: string;
+
+                if (hasRipgrepResults && ripgrepResults) {
+                    // 🔥 LLM 호출 없이 검색 결과를 직접 파싱하여 답변 생성
+                    console.log('[ConversationManager] Using existing ripgrep_search results to generate answer without LLM call.');
+                    console.log('[ConversationManager] Debug: ripgrepResults type:', Array.isArray(ripgrepResults) ? 'array' : typeof ripgrepResults);
+                    console.log('[ConversationManager] Debug: ripgrepResults length:', Array.isArray(ripgrepResults) ? ripgrepResults.length : 'N/A');
+                    if (Array.isArray(ripgrepResults) && ripgrepResults.length > 0) {
+                        console.log('[ConversationManager] Debug: ripgrepResults[0]:', JSON.stringify(ripgrepResults[0], null, 2).substring(0, 500));
+                    }
+
+                    // 검색 결과에서 함수 위치 추출 (SearchResult[] 형식)
+                    const results: string[] = [];
+                    if (Array.isArray(ripgrepResults)) {
+                        for (const searchResult of ripgrepResults) {
+                            if (searchResult && searchResult.file && searchResult.matches && Array.isArray(searchResult.matches)) {
+                                const fileName = searchResult.file.split(/[/\\]/).pop() || searchResult.file;
+                                // 첫 번째 매칭 결과의 라인 번호 사용
+                                if (searchResult.matches.length > 0 && searchResult.matches[0] && searchResult.matches[0].line) {
+                                    results.push(`${fileName} 파일의 ${searchResult.matches[0].line}번째 줄`);
+                                }
+                            }
+                        }
+                    }
+
+                    if (results.length > 0) {
+                        // 함수명 추출: 사용자 쿼리에서 추출한 함수명 우선, 없으면 패턴에서 추출
+                        let functionName: string = extractedFunctionName || '';
+                        if (!functionName) {
+                            // 패턴에서 마지막 함수명 추출 (패턴 끝부분의 함수명)
+                            // 예: (?:function|const|let|var|export\s+(?:function|const|let|var)|export\s+default\s+function)\s+handleSearch\b
+                            // → handleSearch 추출
+                            const functionNameMatch = ripgrepPattern.match(/\\(\w+)\\b$/);
+                            if (functionNameMatch) {
+                                functionName = functionNameMatch[1];
+                            } else {
+                                // 대안: 패턴에서 \s+ 다음의 단어 추출 (마지막 매칭)
+                                const altMatch = ripgrepPattern.match(/\\s\+(\w+)\\b/);
+                                if (altMatch) {
+                                    functionName = altMatch[1];
+                                } else {
+                                    // 최후의 수단: 패턴에서 마지막 단어 추출
+                                    const words = ripgrepPattern.split(/\\s\+/);
+                                    if (words.length > 0) {
+                                        const lastWord = words[words.length - 1].replace(/\\b$/, '');
+                                        if (lastWord && lastWord.length > 0 && !lastWord.includes('\\')) {
+                                            functionName = lastWord;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (!functionName) {
+                            functionName = '함수';
+                        }
+
+                        cleanAnalysisResponse = `${functionName} 함수는 ${results.join(', ')}에 정의되어 있습니다.`;
+                        console.log(`[ConversationManager] Generated answer from ripgrep results: ${cleanAnalysisResponse}`);
+                    } else {
+                        console.warn('[ConversationManager] Failed to extract results from ripgrep_search data. ripgrepResults:', JSON.stringify(ripgrepResults, null, 2).substring(0, 1000));
+                        cleanAnalysisResponse = '검색 결과를 찾을 수 없습니다.';
+                    }
+                } else {
+                    // 기존 로직: LLM 호출하여 답변 생성
+                    console.log('[ConversationManager] No existing ripgrep_search results found. Calling LLM to generate answer.');
+
+                    const analysisPrompt = systemPrompt + getGeneralAnalysisPrompt();
+
+                    const analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
+                        analysisPrompt,
+                        accumulatedUserParts,
+                        { signal: abortSignal }
+                    );
+
+                    // 응답 정제: thinking 태그 및 JSON 래핑 제거
+                    cleanAnalysisResponse = StringUtils.cleanText(analysisResponse, {
+                        removeThinking: true,
+                        removeNaturalLanguage: false,
+                        removeSystemMessages: false,
+                        removeToolTags: true,
+                        removeJsonThinking: true,
+                        extractJson: true
+                    });
+
+                    // JSON 래핑이 있는 경우 파싱
+                    try {
+                        const jsonMatch = cleanAnalysisResponse.match(/^\{[\s\S]*\}$/);
+                        if (jsonMatch) {
+                            const parsed = JSON.parse(cleanAnalysisResponse);
+                            if (parsed.response) {
+                                cleanAnalysisResponse = parsed.response;
+                            }
+                        }
+                    } catch (e) {
+                        // JSON 파싱 실패 시 원본 사용
+                    }
+
+                    // 응답이 비어있거나 너무 짧은 경우 기본 메시지
+                    if (!cleanAnalysisResponse || cleanAnalysisResponse.length < 2) {
+                        cleanAnalysisResponse = '조사 결과를 바탕으로 답변을 생성할 수 없습니다.';
+                    }
                 }
 
                 console.log(`[ConversationManager] Sending analysis response to webview (length: ${cleanAnalysisResponse.length}): ${cleanAnalysisResponse.substring(0, 100)}...`);
@@ -3109,228 +3250,16 @@ export class ConversationManager {
         return (isExecutionCategory || isCodeGenerateOrRun) && hasHighConfidence;
     }
 
+    /**
+     * @deprecated 이 메서드는 ResponseProcessor.extractResponseText로 대체되었습니다.
+     * 호환성을 위해 유지하지만, 내부적으로는 ResponseProcessor를 사용합니다.
+     */
     private extractResponseText(llmResponse: string): string {
-        if (!llmResponse) return '';
-        let text = llmResponse.trim();
-
-        // 1. JSON 형태의 응답인 경우 (일부 모델의 실수 대응)
-        if (text.startsWith('{') && text.endsWith('}')) {
-            try {
-                const parsed = JSON.parse(text);
-                text = parsed.response || parsed.content || parsed.message || text;
-            } catch { }
-        }
-
-        // 2. thinking/reasoning 태그 제거 (모든 변형 포함)
-        text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-        text = text.replace(/<think>[\s\S]*?<\/redacted_reasoning>/gi, '');
-        text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
-        text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
-        // Ollama의 "thinking" 필드 제거 (JSON 응답에서)
-        text = text.replace(/"thinking"\s*:\s*"[^"]*"/gi, '');
-        text = text.replace(/"thinking"\s*:\s*\{[^}]*\}/gi, '');
-
-        // 3. 시스템 내부 토큰 제거 (사용자에게 표시되면 안 됨)
-        text = text.replace(/<investigation_done\s*\/>/gi, '');
-
-        // 4. 모든 도구 호출 태그 제거
-        const tags = ['create_file', 'update_file', 'remove_file', 'read_file', 'list_files', 'search_files', 'run_command', 'task_progress', 'plan'];
-        for (const tag of tags) {
-            text = text.replace(new RegExp(`<${tag}[\\s\\S]*?<\\/${tag}>`, 'gi'), '');
-        }
-
-        // 5. 마크다운 코드 블록 보존
-        // 기존에는 중복 방지를 위해 제거했으나, 명령어 안내 등 필요한 정보가 누락되는 문제로 인해 보존하도록 수정
-        // 중복 방지는 프롬프트 지침(rules.ts)을 통해 유도함
-
-        // 6. 시스템 내부용 메시지(Tool Execution Results 등)가 에코되어 출력되는 경우 필터링
-        // LLM이 시스템 가이드라인이나 이전 실행 결과를 답변에 포함시키는 경우를 정규식으로 제거
-        text = text.replace(/=== Tool Execution Results [\s\S]*?===/gi, '');
-        text = text.replace(/\[Tool: [\s\S]*?Status: (Success|Failed)/gi, '');
-        // Output Data 형식 필터링 (여러 줄에 걸친 JSON 포함)
-        text = text.replace(/Output Data:[\s\S]*?"\s*}\s*/gi, '');
-        text = text.replace(/Output Data:[\s\S]*?-------------------/gi, '');
-        text = text.replace(/Wait: We should produce an XML call now\./gi, '');
-        text = text.replace(/We need result\./gi, '');
-        text = text.replace(/We haven't read [\s\S]*?\./gi, '');
-
-        return text.trim();
+        return this.responseProcessor.extractResponseText(llmResponse);
     }
 
-    /**
-     * 도구 이름을 사용자 친화적인 한글 이름으로 변환합니다.
-     */
-    private getToolLabel(toolName: string): string {
-        const labels: Record<string, string> = {
-            'create_file': '파일 생성',
-            'update_file': '파일 수정',
-            'remove_file': '파일 삭제',
-            'read_file': '파일 읽기',
-            'list_files': '파일 목록 확인',
-            'search_files': '파일 검색',
-            'run_command': '명령어 실행',
-            'analyze_code': '코드 분석',
-            'verify_code': '코드 검증',
-            'refactor_code': '리팩토링',
-            'ripgrep_search': '키워드 검색',
-            'task_progress': '진행 상황 업데이트',
-            'plan': '계획 수립'
-        };
-        return labels[toolName] || toolName;
-    }
-
-    private createToolResultSummary(turn: number, calls: any[], results: any[]): string {
-        let summary = '';
-        results.forEach((res, i) => {
-            const toolName = calls[i].name;
-            summary += `[Tool: ${toolName}]\n`;
-            summary += `Status: ${res.success ? 'Success' : 'Failed'}\n`;
-            if (res.message && !res.success) {
-                summary += `Error Message: ${res.message}\n`;
-            } else if (res.message && res.success && !res.data && !res.fileContent) {
-                // 데이터는 없지만 성공 메시지가 있는 경우 (예: 파일 생성 성공)
-                summary += `Message: ${res.message}\n`;
-            }
-
-            // read_file 도구는 파일 내용을 명시적으로 포함해야 LLM이 반복 호출하지 않음
-            if (toolName === Tool.READ_FILE) {
-                if (res.success && res.data) {
-                    // 여러 파일인 경우 (files 배열)
-                    if (res.data.files && Array.isArray(res.data.files)) {
-                        res.data.files.forEach((file: any, index: number) => {
-                            summary += `File ${index + 1}: ${file.path}\n`;
-                            if (file.error) {
-                                summary += `Error: ${file.error}\n`;
-                            } else if (file.content) {
-                                summary += `Content:\n${file.content}\n`;
-                            }
-                            summary += `---\n`;
-                        });
-                    } else {
-                        // 단일 파일인 경우 (기존 형식)
-                        summary += `File: ${res.data.path || 'unknown'}\n`;
-                        if (res.data.content) {
-                            summary += `Content:\n${res.data.content}\n`;
-                        }
-                    }
-                }
-            } else {
-                // 도구 실행 결과 데이터 포함 (가장 중요)
-                if (res.data) {
-                    const dataStr = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2);
-                    summary += `Output Data:\n${dataStr}\n`;
-                } else if (res.fileContent) {
-                    summary += `File Content:\n${res.fileContent}\n`;
-                }
-            }
-
-            summary += `-------------------\n`;
-        });
-        return summary;
-    }
-
-    /**
-     * 툴 실행 결과를 UI에 표시합니다.
-     */
-    private sendToolExecutionResultsToUI(webview: vscode.Webview, calls: any[], results: any[]): void {
-        results.forEach((res, i) => {
-            const toolName = calls[i].name;
-            const params = calls[i].params || {};
-            const path = params.path || params.file_path || params.target_file || '';
-            const command = params.command || '';
-
-            if (res.success) {
-                // 파일 생성/수정인 경우 헤더는 System 스타일로, 내용은 CODEPILOT 스타일로 분리하여 표시
-                if (toolName === Tool.CREATE_FILE || toolName === Tool.UPDATE_FILE) {
-                    const action = toolName === Tool.CREATE_FILE ? 'Created' : 'Updated';
-                    const icon = toolName === Tool.CREATE_FILE ? '✅' : '📝';
-                    const content = toolName === Tool.CREATE_FILE ? (params.content || '') : (res.fileContent || '');
-                    const ext = path.split('.').pop() || '';
-
-                    // 1. 헤더 전송 (테두리와 색상이 있는 시스템 스타일)
-                    WebviewBridge.receiveMessage(webview, 'System', `${icon} [${action}] ${path}`);
-
-                    // 2. 코드 내용 전송 (복사 버튼이 있는 마크다운 스타일)
-                    if (content) {
-                        const codeMarkdown = `\`\`\`${ext}\n${content}\n\`\`\``;
-                        WebviewBridge.receiveMessage(webview, 'CODEPILOT', codeMarkdown);
-                    }
-                    return;
-                }
-
-                // 나머지 도구들은 기존처럼 System 스타일 메시지로 표시 (테두리/색상 적용)
-                let displayMsg = '';
-                switch (toolName) {
-                    case 'remove_file':
-                        displayMsg = `🗑️ [Deleted] ${path}`;
-                        break;
-                    case 'read_file':
-                        displayMsg = `📖 [Read] ${path}`;
-                        break;
-                    case 'list_files':
-                        displayMsg = `📂 [Listed] ${path || 'root'}`;
-                        break;
-                    case 'search_files':
-                        displayMsg = `🔍 [Searched] ${params.pattern || params.query || ''}`;
-                        break;
-                    case 'ripgrep_search':
-                        displayMsg = `🧩 [Ripgrep] ${params.pattern || ''}`;
-                        break;
-                    case 'run_command':
-                        displayMsg = `🚀 [Executed] ${command}`;
-
-                        // 터미널 실행 결과가 있으면 추가로 표시 (사용자 요청 반영)
-                        const output = res.data?.output || '';
-                        if (output) {
-                            // 헤더 먼저 전송
-                            WebviewBridge.receiveMessage(webview, 'System', displayMsg);
-                            // 실행 결과(터미널 출력)를 마크다운 코드 블록으로 전송
-                            const terminalMarkdown = `\`\`\`bash\n${output}\n\`\`\``;
-                            WebviewBridge.receiveMessage(webview, 'CODEPILOT', terminalMarkdown);
-                            return;
-                        }
-                        break;
-                    case 'analyze_code':
-                        displayMsg = `🔬 [Analyzed] ${path}`;
-                        break;
-                    default:
-                        displayMsg = `✔️ [Success] ${this.getToolLabel(toolName)}`;
-                }
-                WebviewBridge.receiveMessage(webview, 'System', displayMsg);
-            } else {
-                // 실패 시에는 항상 System 스타일로 에러 표시
-                WebviewBridge.receiveMessage(webview, 'System', `[Failed] ${this.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
-            }
-        });
-    }
-
-    private hasSideEffects(calls: any[], results: any[]): boolean {
-        const sideEffectTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
-        return results.some((res, i) => res.success && sideEffectTools.includes(calls[i].name as Tool));
-    }
-
-    /**
-     * 파일 변경 추적 (요약 검증용)
-     */
-    private trackFileChanges(toolCalls: any[], toolResults: any[], createdFiles: string[], modifiedFiles: string[]): void {
-        toolCalls.forEach((call, index) => {
-            const result = toolResults[index];
-            if (!result || !result.success) return;
-
-            const filePath = call.params?.path || call.params?.file_path || call.params?.target_file;
-            if (!filePath) return;
-
-            if (call.name === Tool.CREATE_FILE) {
-                if (!createdFiles.includes(filePath)) {
-                    createdFiles.push(filePath);
-                }
-            } else if (call.name === Tool.UPDATE_FILE) {
-                if (!modifiedFiles.includes(filePath)) {
-                    modifiedFiles.push(filePath);
-                }
-            }
-        });
-    }
+    // getToolLabel, createToolResultSummary, sendToolExecutionResultsToUI, hasSideEffects, trackFileChanges는
+    // ToolExecutionCoordinator로 이동되었습니다. 이 메서드들은 더 이상 사용되지 않습니다.
 
     /**
      * 실제 파일 목록을 주입하여 검증된 요약 생성
@@ -3392,7 +3321,7 @@ export class ConversationManager {
                 );
 
                 // 🔥 문제 해결: REVIEW 단계에서 도구 호출 및 thinking 제거 강화
-                let summaryText = this.extractResponseText(verifiedSummary);
+                let summaryText = this.responseProcessor.extractResponseText(verifiedSummary);
 
                 // 도구 호출이 포함된 경우 추가 필터링
                 const toolCallPatterns = [
