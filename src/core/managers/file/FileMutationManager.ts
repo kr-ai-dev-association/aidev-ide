@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { BaseManager } from '../base/BaseManager';
+import { AgentConfig } from '../../config/AgentConfig';
 
 export interface FileAnalysis {
     hasDefaultExport: boolean;
@@ -94,7 +95,7 @@ export class FileMutationManager extends BaseManager {
     /**
      * 유사도 기반 퍼지 매칭
      */
-    public fuzzyMatch(content: string, search: string, threshold: number = 0.8): [number, number] | false {
+    public fuzzyMatch(content: string, search: string, threshold: number = AgentConfig.MIN_FUZZY_MATCH_THRESHOLD): [number, number] | false {
         const searchLines = search.split('\n').filter(l => l.trim() !== '');
         if (searchLines.length === 0) return false;
 

@@ -12,6 +12,7 @@ import {
     Permission,
     FileOperationType
 } from './types';
+import { AgentConfig } from '../../config/AgentConfig';
 
 export class ActionMapper {
     private actionIdCounter = 0;
@@ -28,7 +29,7 @@ export class ActionMapper {
             return {
                 actions: llmResponse.actions,
                 explanation: llmResponse.explanation,
-                confidence: 0.95
+                confidence: AgentConfig.ACTION_CONFIDENCE.LLM_PROVIDED
             };
         }
 
@@ -874,7 +875,7 @@ export class ActionMapper {
             metadata: {
                 source: 'llm',
                 timestamp: Date.now(),
-                confidence: 0.9
+                confidence: AgentConfig.ACTION_CONFIDENCE.FILE_CREATE
             }
         };
     }
@@ -898,7 +899,7 @@ export class ActionMapper {
             metadata: {
                 source: 'llm',
                 timestamp: Date.now(),
-                confidence: 0.85
+                confidence: AgentConfig.ACTION_CONFIDENCE.TERMINAL_SAFE
             }
         };
     }
@@ -938,7 +939,7 @@ export class ActionMapper {
             metadata: {
                 source: 'llm',
                 timestamp: Date.now(),
-                confidence: 0.8
+                confidence: AgentConfig.ACTION_CONFIDENCE.FILE_OPERATION
             }
         };
     }
@@ -990,7 +991,7 @@ export class ActionMapper {
 
         let totalConfidence = 0;
         for (const action of actions) {
-            totalConfidence += action.metadata?.confidence || 0.5;
+            totalConfidence += action.metadata?.confidence || AgentConfig.ACTION_CONFIDENCE.DEFAULT;
         }
 
         const averageConfidence = totalConfidence / actions.length;

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { StateManager } from "../managers/state/StateManager";
 import {
   GeminiApi,
@@ -1451,6 +1452,436 @@ export function openSettingsPanel(
               command: "languageDataLoadError",
               error: error.message,
             });
+          }
+          break;
+        case "uploadAgentPolicyStableVersion": // Stable Version Markdown 저장
+          try {
+            const mdContent = data.mdContent || data.xmlContent; // 호환성을 위해 xmlContent도 허용
+            if (mdContent && typeof mdContent === "string") {
+              // 워크스페이스 루트 가져오기
+              const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              if (!workspaceRoot) {
+                throw new Error("워크스페이스가 열려있지 않습니다.");
+              }
+
+              // ./.agent/rules 디렉토리 생성
+              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              const agentDirUri = vscode.Uri.file(agentDir);
+              await vscode.workspace.fs.createDirectory(agentDirUri);
+
+              // 파일 저장
+              const filePath = path.join(agentDir, "stable-version.md");
+              const fileUri = vscode.Uri.file(filePath);
+              await vscode.workspace.fs.writeFile(fileUri, Buffer.from(mdContent, "utf8"));
+
+              // 메모리에도 저장 (호환성)
+              await stateManager.saveAgentPolicyStableVersion(mdContent);
+              
+              safePostMessage(panel, { command: "agentPolicyStableVersionSaved" });
+              notificationService.showInfoMessage(
+                `CODEPILOT: Stable Version Markdown saved to ${filePath}`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "agentPolicyStableVersionSaveError",
+                error: "Invalid Markdown content",
+              });
+              notificationService.showErrorMessage(
+                "Invalid Markdown content provided.",
+              );
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyStableVersionSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error saving Stable Version Markdown: ${error.message}`,
+            );
+          }
+          break;
+        case "uploadAgentPolicyCodingStyle": // Coding Style Markdown 저장
+          try {
+            const mdContent = data.mdContent || data.xmlContent; // 호환성을 위해 xmlContent도 허용
+            if (mdContent && typeof mdContent === "string") {
+              // 워크스페이스 루트 가져오기
+              const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              if (!workspaceRoot) {
+                throw new Error("워크스페이스가 열려있지 않습니다.");
+              }
+
+              // ./.agent/rules 디렉토리 생성
+              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              const agentDirUri = vscode.Uri.file(agentDir);
+              await vscode.workspace.fs.createDirectory(agentDirUri);
+
+              // 파일 저장
+              const filePath = path.join(agentDir, "coding-style.md");
+              const fileUri = vscode.Uri.file(filePath);
+              await vscode.workspace.fs.writeFile(fileUri, Buffer.from(mdContent, "utf8"));
+
+              // 메모리에도 저장 (호환성)
+              await stateManager.saveAgentPolicyCodingStyle(mdContent);
+              
+              safePostMessage(panel, { command: "agentPolicyCodingStyleSaved" });
+              notificationService.showInfoMessage(
+                `CODEPILOT: Coding Style Markdown saved to ${filePath}`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "agentPolicyCodingStyleSaveError",
+                error: "Invalid Markdown content",
+              });
+              notificationService.showErrorMessage(
+                "Invalid Markdown content provided.",
+              );
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyCodingStyleSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error saving Coding Style Markdown: ${error.message}`,
+            );
+          }
+          break;
+        case "uploadAgentPolicyProjectArchitecture": // Project Architecture Markdown 저장
+          try {
+            const mdContent = data.mdContent || data.xmlContent; // 호환성을 위해 xmlContent도 허용
+            if (mdContent && typeof mdContent === "string") {
+              // 워크스페이스 루트 가져오기
+              const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              if (!workspaceRoot) {
+                throw new Error("워크스페이스가 열려있지 않습니다.");
+              }
+
+              // ./.agent/rules 디렉토리 생성
+              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              const agentDirUri = vscode.Uri.file(agentDir);
+              await vscode.workspace.fs.createDirectory(agentDirUri);
+
+              // 파일 저장
+              const filePath = path.join(agentDir, "project-architecture.md");
+              const fileUri = vscode.Uri.file(filePath);
+              await vscode.workspace.fs.writeFile(fileUri, Buffer.from(mdContent, "utf8"));
+
+              // 메모리에도 저장 (호환성)
+              await stateManager.saveAgentPolicyProjectArchitecture(mdContent);
+              
+              safePostMessage(panel, { command: "agentPolicyProjectArchitectureSaved" });
+              notificationService.showInfoMessage(
+                `CODEPILOT: Project Architecture Markdown saved to ${filePath}`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "agentPolicyProjectArchitectureSaveError",
+                error: "Invalid Markdown content",
+              });
+              notificationService.showErrorMessage(
+                "Invalid Markdown content provided.",
+              );
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyProjectArchitectureSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error saving Project Architecture Markdown: ${error.message}`,
+            );
+          }
+          break;
+        case "uploadAgentPolicyDependencyPolicy": // Dependency Policy Markdown 저장
+          try {
+            const mdContent = data.mdContent || data.xmlContent; // 호환성을 위해 xmlContent도 허용
+            if (mdContent && typeof mdContent === "string") {
+              // 워크스페이스 루트 가져오기
+              const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              if (!workspaceRoot) {
+                throw new Error("워크스페이스가 열려있지 않습니다.");
+              }
+
+              // ./.agent/rules 디렉토리 생성
+              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              const agentDirUri = vscode.Uri.file(agentDir);
+              await vscode.workspace.fs.createDirectory(agentDirUri);
+
+              // 파일 저장
+              const filePath = path.join(agentDir, "dependency-policy.md");
+              const fileUri = vscode.Uri.file(filePath);
+              await vscode.workspace.fs.writeFile(fileUri, Buffer.from(mdContent, "utf8"));
+
+              // 메모리에도 저장 (호환성)
+              await stateManager.saveAgentPolicyDependencyPolicy(mdContent);
+              
+              safePostMessage(panel, { command: "agentPolicyDependencyPolicySaved" });
+              notificationService.showInfoMessage(
+                `CODEPILOT: Dependency Policy Markdown saved to ${filePath}`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "agentPolicyDependencyPolicySaveError",
+                error: "Invalid Markdown content",
+              });
+              notificationService.showErrorMessage(
+                "Invalid Markdown content provided.",
+              );
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyDependencyPolicySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error saving Dependency Policy Markdown: ${error.message}`,
+            );
+          }
+          break;
+        case "uploadAgentPolicyDbPolicy": // DB Policy Markdown 저장
+          try {
+            const mdContent = data.mdContent || data.xmlContent; // 호환성을 위해 xmlContent도 허용
+            if (mdContent && typeof mdContent === "string") {
+              // 워크스페이스 루트 가져오기
+              const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              if (!workspaceRoot) {
+                throw new Error("워크스페이스가 열려있지 않습니다.");
+              }
+
+              // ./.agent/rules 디렉토리 생성
+              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              const agentDirUri = vscode.Uri.file(agentDir);
+              await vscode.workspace.fs.createDirectory(agentDirUri);
+
+              // 파일 저장
+              const filePath = path.join(agentDir, "db-policy.md");
+              const fileUri = vscode.Uri.file(filePath);
+              await vscode.workspace.fs.writeFile(fileUri, Buffer.from(mdContent, "utf8"));
+
+              // 메모리에도 저장 (호환성)
+              await stateManager.saveAgentPolicyDbPolicy(mdContent);
+              
+              safePostMessage(panel, { command: "agentPolicyDbPolicySaved" });
+              notificationService.showInfoMessage(
+                `CODEPILOT: DB Policy Markdown saved to ${filePath}`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "agentPolicyDbPolicySaveError",
+                error: "Invalid Markdown content",
+              });
+              notificationService.showErrorMessage(
+                "Invalid Markdown content provided.",
+              );
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyDbPolicySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error saving DB Policy Markdown: ${error.message}`,
+            );
+          }
+          break;
+        case "getAgentPolicyStableVersion": // Stable Version Markdown 로드
+          try {
+            const mdContent = await stateManager.getAgentPolicyStableVersion();
+            safePostMessage(panel, {
+              command: "agentPolicyStableVersionLoaded",
+              mdContent: mdContent || "",
+              xmlContent: mdContent || "", // 호환성을 위해 xmlContent도 포함
+            });
+          } catch (error: any) {
+            console.error("Error loading Stable Version Markdown:", error);
+            safePostMessage(panel, {
+              command: "agentPolicyStableVersionLoadError",
+              error: error.message,
+            });
+          }
+          break;
+        case "getAgentPolicyCodingStyle": // Coding Style Markdown 로드
+          try {
+            const mdContent = await stateManager.getAgentPolicyCodingStyle();
+            safePostMessage(panel, {
+              command: "agentPolicyCodingStyleLoaded",
+              mdContent: mdContent || "",
+              xmlContent: mdContent || "", // 호환성을 위해 xmlContent도 포함
+            });
+          } catch (error: any) {
+            console.error("Error loading Coding Style Markdown:", error);
+            safePostMessage(panel, {
+              command: "agentPolicyCodingStyleLoadError",
+              error: error.message,
+            });
+          }
+          break;
+        case "getAgentPolicyProjectArchitecture": // Project Architecture Markdown 로드
+          try {
+            const mdContent = await stateManager.getAgentPolicyProjectArchitecture();
+            safePostMessage(panel, {
+              command: "agentPolicyProjectArchitectureLoaded",
+              mdContent: mdContent || "",
+              xmlContent: mdContent || "", // 호환성을 위해 xmlContent도 포함
+            });
+          } catch (error: any) {
+            console.error("Error loading Project Architecture Markdown:", error);
+            safePostMessage(panel, {
+              command: "agentPolicyProjectArchitectureLoadError",
+              error: error.message,
+            });
+          }
+          break;
+        case "getAgentPolicyDependencyPolicy": // Dependency Policy Markdown 로드
+          try {
+            const mdContent = await stateManager.getAgentPolicyDependencyPolicy();
+            safePostMessage(panel, {
+              command: "agentPolicyDependencyPolicyLoaded",
+              mdContent: mdContent || "",
+              xmlContent: mdContent || "", // 호환성을 위해 xmlContent도 포함
+            });
+          } catch (error: any) {
+            console.error("Error loading Dependency Policy Markdown:", error);
+            safePostMessage(panel, {
+              command: "agentPolicyDependencyPolicyLoadError",
+              error: error.message,
+            });
+          }
+          break;
+        case "getAgentPolicyDbPolicy": // DB Policy Markdown 로드
+          try {
+            const mdContent = await stateManager.getAgentPolicyDbPolicy();
+            safePostMessage(panel, {
+              command: "agentPolicyDbPolicyLoaded",
+              mdContent: mdContent || "",
+              xmlContent: mdContent || "", // 호환성을 위해 xmlContent도 포함
+            });
+          } catch (error: any) {
+            console.error("Error loading DB Policy Markdown:", error);
+            safePostMessage(panel, {
+              command: "agentPolicyDbPolicyLoadError",
+              error: error.message,
+            });
+          }
+          break;
+        case "deleteAgentPolicyStableVersion": // Stable Version Markdown 삭제
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+              const filePath = path.join(workspaceRoot, ".agent", "rules", "stable-version.md");
+              const fileUri = vscode.Uri.file(filePath);
+              try {
+                await vscode.workspace.fs.delete(fileUri);
+              } catch (e: any) {
+                // 파일이 없으면 무시
+                if (e.code !== "FileNotFound") throw e;
+              }
+            }
+            await stateManager.deleteAgentPolicyStableVersion();
+            safePostMessage(panel, { command: "agentPolicyStableVersionDeleted" });
+            notificationService.showInfoMessage("CODEPILOT: Stable Version Markdown deleted.");
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyStableVersionDeleteError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(`Error deleting Stable Version Markdown: ${error.message}`);
+          }
+          break;
+        case "deleteAgentPolicyCodingStyle": // Coding Style Markdown 삭제
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+              const filePath = path.join(workspaceRoot, ".agent", "rules", "coding-style.md");
+              const fileUri = vscode.Uri.file(filePath);
+              try {
+                await vscode.workspace.fs.delete(fileUri);
+              } catch (e: any) {
+                // 파일이 없으면 무시
+                if (e.code !== "FileNotFound") throw e;
+              }
+            }
+            await stateManager.deleteAgentPolicyCodingStyle();
+            safePostMessage(panel, { command: "agentPolicyCodingStyleDeleted" });
+            notificationService.showInfoMessage("CODEPILOT: Coding Style Markdown deleted.");
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyCodingStyleDeleteError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(`Error deleting Coding Style Markdown: ${error.message}`);
+          }
+          break;
+        case "deleteAgentPolicyProjectArchitecture": // Project Architecture Markdown 삭제
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+              const filePath = path.join(workspaceRoot, ".agent", "rules", "project-architecture.md");
+              const fileUri = vscode.Uri.file(filePath);
+              try {
+                await vscode.workspace.fs.delete(fileUri);
+              } catch (e: any) {
+                // 파일이 없으면 무시
+                if (e.code !== "FileNotFound") throw e;
+              }
+            }
+            await stateManager.deleteAgentPolicyProjectArchitecture();
+            safePostMessage(panel, { command: "agentPolicyProjectArchitectureDeleted" });
+            notificationService.showInfoMessage("CODEPILOT: Project Architecture Markdown deleted.");
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyProjectArchitectureDeleteError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(`Error deleting Project Architecture Markdown: ${error.message}`);
+          }
+          break;
+        case "deleteAgentPolicyDependencyPolicy": // Dependency Policy Markdown 삭제
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+              const filePath = path.join(workspaceRoot, ".agent", "rules", "dependency-policy.md");
+              const fileUri = vscode.Uri.file(filePath);
+              try {
+                await vscode.workspace.fs.delete(fileUri);
+              } catch (e: any) {
+                // 파일이 없으면 무시
+                if (e.code !== "FileNotFound") throw e;
+              }
+            }
+            await stateManager.deleteAgentPolicyDependencyPolicy();
+            safePostMessage(panel, { command: "agentPolicyDependencyPolicyDeleted" });
+            notificationService.showInfoMessage("CODEPILOT: Dependency Policy Markdown deleted.");
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyDependencyPolicyDeleteError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(`Error deleting Dependency Policy Markdown: ${error.message}`);
+          }
+          break;
+        case "deleteAgentPolicyDbPolicy": // DB Policy Markdown 삭제
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+              const filePath = path.join(workspaceRoot, ".agent", "rules", "db-policy.md");
+              const fileUri = vscode.Uri.file(filePath);
+              try {
+                await vscode.workspace.fs.delete(fileUri);
+              } catch (e: any) {
+                // 파일이 없으면 무시
+                if (e.code !== "FileNotFound") throw e;
+              }
+            }
+            await stateManager.deleteAgentPolicyDbPolicy();
+            safePostMessage(panel, { command: "agentPolicyDbPolicyDeleted" });
+            notificationService.showInfoMessage("CODEPILOT: DB Policy Markdown deleted.");
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyDbPolicyDeleteError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(`Error deleting DB Policy Markdown: ${error.message}`);
           }
           break;
         default:

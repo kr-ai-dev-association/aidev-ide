@@ -417,7 +417,6 @@ export async function activate(context: vscode.ExtensionContext) {
         context.extensionUri,
         context,
         (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, undefined),
-        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined),
         settingsManager,
         notificationService,
         gitRepositoryService,
@@ -448,9 +447,6 @@ export async function activate(context: vscode.ExtensionContext) {
         openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined);
     }));
     // Command registered: aidevIdeCode.openSettingsPanel
-    // context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openLicensePanel', () => {
-    //     openLicensePanel(context.extensionUri, context, vscode.ViewColumn.One, storageService, geminiApi, notificationService, configurationService);
-    // }));
 
     // 언어 변경 브로드캐스트 명령어 등록
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.broadcastLanguageChange', (language: string) => {

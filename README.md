@@ -6,6 +6,24 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v7.0.1 (Probability-Based Decision Logic Consistency Improvements)
+- **Centralized Threshold Management**: All probability-based decision thresholds (confidence, thresholds, percentages) are now centralized in `AgentConfig.ts` for better maintainability and consistency.
+- **Consistent Confidence Values**: Unified confidence values for the same purposes:
+  - Local detection: All set to 0.8 (previously 0.7, 0.8 mixed)
+  - Framework detection: Express also set to 0.8 (previously 0.7)
+  - Python project detection: Django 0.9, Flask/FastAPI 0.85, General 0.8
+  - Error fix confidence: Automated 0.9, Semi-auto 0.85, Manual 0.7
+- **Hierarchical Confidence System**: Implemented a hierarchical confidence system based on detection methods:
+  - `DEPENDENCY_BASED` (0.95): package.json dependencies (most accurate)
+  - `FILE_BASED` (0.9): Configuration file existence
+  - `LOCAL_HEURISTIC` (0.8): Local file pattern matching
+  - `KEYWORD_BASED` (0.7): User query keywords (least certain)
+- **Updated Files**: Replaced hardcoded values with `AgentConfig` constants in:
+  - `ProjectManager.ts`, `ProjectDetector.ts`, `FileMutationManager.ts`
+  - `UpdateFileToolHandler.ts`, `tokenUtils.ts`, `ActionMapper.ts`
+  - `ErrorManager.ts`, `KeywordSelector.ts`
+- **Documentation**: Created `PROBABILITY_BASED_DECISIONS.md` documenting all probability-based decision logic, improvements, and removed logic history.
+
 ## v7.1.0 (Prompt File Consolidation and Structure Improvements)
 - **Prompt File Consolidation**: Consolidated scattered prompt files by category to significantly improve maintainability.
   - `base/` directory (11 files) → consolidated into `base.ts`: All basic prompt components including `agentRole`, `objective`, `rules`, `fileOperations`, `codeVsScript`, `codeGeneration`, `errorCorrection`, `outputFormat`, `tools`, `terminalCommands`, `commonRules` unified into a single file

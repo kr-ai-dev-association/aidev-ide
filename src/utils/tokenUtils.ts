@@ -1,5 +1,6 @@
 // 순환 참조 방지: services/types에서 직접 import
 import { AiModelType } from '../services/types';
+import { AgentConfig } from '../core/config/AgentConfig';
 
 // 모델별 토큰 제한
 export const MODEL_TOKEN_LIMITS = {
@@ -121,7 +122,7 @@ export function logTokenUsage(
     // console.log(`  - 최대 토큰: ${limits.maxInputTokens.toLocaleString()}개`);
     // console.log(`  - 사용률: ${usagePercentage.toFixed(1)}%`);
 
-    if (usagePercentage > 80) {
+    if (usagePercentage > AgentConfig.TOKEN_USAGE_WARNING_THRESHOLD) {
         console.warn(`[TokenUtils] 토큰 사용률이 높습니다: ${usagePercentage.toFixed(1)}%`);
     }
 

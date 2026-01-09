@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "7.0.0",
+  "version": "7.0.1",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -22,8 +22,7 @@
   "activationEvents": [
     "onView:aidevIde.chatView",
     "onCommand:aidevIdeCode.openChatView",
-    "onCommand:aidevIdeCode.openSettingsPanel",
-    "onCommand:aidevIdeCode.openLicensePanel"
+    "onCommand:aidevIdeCode.openSettingsPanel"
   ],
   "repository": {
     "type": "git",
@@ -61,10 +60,6 @@
       {
         "command": "aidevIdeCode.openSettingsPanel",
         "title": "Setting"
-      },
-      {
-        "command": "aidevIdeCode.openLicensePanel",
-        "title": "License"
       },
       {
         "command": "aidevIdeCode.openChatView",
@@ -108,14 +103,6 @@
           "order": 1,
           "icon": "$(settings-gear)",
           "title": "Setting"
-        },
-        {
-          "command": "aidevIdeCode.openLicensePanel",
-          "when": "view == aidevIde.chatView",
-          "group": "navigation",
-          "order": 2,
-          "icon": "$(law)",
-          "title": "License"
         }
       ]
     },

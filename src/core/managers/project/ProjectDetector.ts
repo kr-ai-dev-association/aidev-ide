@@ -9,6 +9,7 @@ import {
     ProjectType,
     BuildTool
 } from './types';
+import { AgentConfig } from '../../config/AgentConfig';
 
 export class ProjectDetector {
     /**
@@ -54,7 +55,7 @@ export class ProjectDetector {
                 if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
                     return {
                         type: ProjectType.REACT,
-                        confidence: 0.95,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
                         buildTool: this.detectBuildTool(projectRoot)
                     };
                 }
@@ -63,7 +64,7 @@ export class ProjectDetector {
                 if (packageJson.dependencies?.vue || packageJson.devDependencies?.vue) {
                     return {
                         type: ProjectType.VUE,
-                        confidence: 0.95,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
                         buildTool: this.detectBuildTool(projectRoot)
                     };
                 }
@@ -72,7 +73,7 @@ export class ProjectDetector {
                 if (packageJson.dependencies?.['@angular/core'] || packageJson.devDependencies?.['@angular/core']) {
                     return {
                         type: ProjectType.ANGULAR,
-                        confidence: 0.95,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
                         buildTool: this.detectBuildTool(projectRoot)
                     };
                 }
@@ -81,7 +82,7 @@ export class ProjectDetector {
                 if (fs.existsSync(path.join(projectRoot, 'tsconfig.json'))) {
                     return {
                         type: ProjectType.TYPESCRIPT,
-                        confidence: 0.9,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                         buildTool: this.detectBuildTool(projectRoot)
                     };
                 }
@@ -89,7 +90,7 @@ export class ProjectDetector {
                 // JavaScript/Node.js
                 return {
                     type: ProjectType.NODE,
-                    confidence: 0.85,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
                     buildTool: this.detectBuildTool(projectRoot)
                 };
             }
@@ -98,7 +99,7 @@ export class ProjectDetector {
             if (fs.existsSync(path.join(projectRoot, 'pom.xml'))) {
                 return {
                     type: ProjectType.SPRING_BOOT,
-                    confidence: 0.9,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.MAVEN
                 };
             }
@@ -108,7 +109,7 @@ export class ProjectDetector {
                 fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
                 return {
                     type: ProjectType.SPRING_BOOT,
-                    confidence: 0.9,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.GRADLE
                 };
             }
@@ -122,7 +123,7 @@ export class ProjectDetector {
                 if (fs.existsSync(path.join(projectRoot, 'manage.py'))) {
                     return {
                         type: ProjectType.DJANGO,
-                        confidence: 0.95,
+                        confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.DJANGO,
                         buildTool: BuildTool.PIP
                     };
                 }
@@ -132,7 +133,7 @@ export class ProjectDetector {
                     fs.existsSync(path.join(projectRoot, 'flask_app.py'))) {
                     return {
                         type: ProjectType.FLASK,
-                        confidence: 0.9,
+                        confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.FLASK_FASTAPI,
                         buildTool: BuildTool.PIP
                     };
                 }
@@ -143,7 +144,7 @@ export class ProjectDetector {
                     if (mainPy.includes('FastAPI') || mainPy.includes('from fastapi')) {
                         return {
                             type: ProjectType.FASTAPI,
-                            confidence: 0.9,
+                            confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.FLASK_FASTAPI,
                             buildTool: BuildTool.PIP
                         };
                     }
@@ -152,7 +153,7 @@ export class ProjectDetector {
                 // 일반 Python
                 return {
                     type: ProjectType.PYTHON,
-                    confidence: 0.8,
+                    confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.GENERAL,
                     buildTool: BuildTool.PIP
                 };
             }
@@ -161,7 +162,7 @@ export class ProjectDetector {
             if (fs.existsSync(path.join(projectRoot, 'go.mod'))) {
                 return {
                     type: ProjectType.GO,
-                    confidence: 0.95,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.GO_MOD
                 };
             }
@@ -170,7 +171,7 @@ export class ProjectDetector {
             if (fs.existsSync(path.join(projectRoot, 'Cargo.toml'))) {
                 return {
                     type: ProjectType.RUST,
-                    confidence: 0.95,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.CARGO
                 };
             }
@@ -179,7 +180,7 @@ export class ProjectDetector {
             if (fs.existsSync(path.join(projectRoot, 'pubspec.yaml'))) {
                 return {
                     type: ProjectType.FLUTTER,
-                    confidence: 0.95,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.PUB
                 };
             }
@@ -188,7 +189,7 @@ export class ProjectDetector {
             if (fs.existsSync(path.join(projectRoot, 'composer.json'))) {
                 return {
                     type: ProjectType.PHP,
-                    confidence: 0.95,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.COMPOSER
                 };
             }
@@ -201,7 +202,7 @@ export class ProjectDetector {
                 if (csprojFiles.length > 0) {
                     return {
                         type: ProjectType.CSHARP,
-                        confidence: 0.95,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                         buildTool: BuildTool.DOTNET
                     };
                 }
@@ -214,7 +215,7 @@ export class ProjectDetector {
                 fs.existsSync(path.join(projectRoot, 'Rakefile'))) {
                 return {
                     type: ProjectType.RUBY,
-                    confidence: 0.9,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.BUNDLER
                 };
             }
@@ -223,7 +224,7 @@ export class ProjectDetector {
             if (process.platform === 'darwin' && fs.existsSync(path.join(projectRoot, 'Package.swift'))) {
                 return {
                     type: ProjectType.SWIFT,
-                    confidence: 0.95,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                     buildTool: BuildTool.UNKNOWN
                 };
             }
@@ -234,7 +235,7 @@ export class ProjectDetector {
                     if (xcodeprojFiles.length > 0) {
                         return {
                             type: ProjectType.SWIFT,
-                            confidence: 0.9,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                             buildTool: BuildTool.UNKNOWN
                         };
                     }
@@ -473,29 +474,76 @@ export class ProjectDetector {
             case ProjectType.DJANGO:
             case ProjectType.FLASK:
             case ProjectType.FASTAPI:
-                // Python 확장 검증 옵션
-                if (fs.existsSync(path.join(projectRoot, 'poetry.lock'))) {
-                    return { command: 'poetry check', description: 'Poetry 설정 검사' };
-                }
-                if (fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
-                    return { command: 'pipenv check', description: 'Pipenv 보안/설정 검사' };
-                }
-                if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) || fs.existsSync(path.join(projectRoot, '.ruff.toml'))) {
-                    return { command: 'ruff check .', description: 'Ruff Lint' };
-                }
-                if (fs.existsSync(path.join(projectRoot, 'mypy.ini'))) {
-                    return { command: 'mypy .', description: 'Mypy Type Check' };
-                }
-
-                // 생성/수정된 Python 파일들에 대해 컴파일 검사
+                // =========================================================
+                // Python 프로젝트: 린터 → 타입 체커 → 문법 검사 순으로 실행
+                // =========================================================
+                
                 const pythonFiles = allFiles.filter(f => f.endsWith('.py'));
+                
                 if (pythonFiles.length > 0) {
-                    // 여러 파일을 한 번에 검사
                     const relativePaths = pythonFiles.map(f =>
                         path.isAbsolute(f) ? path.relative(projectRoot, f) : f
                     ).join(' ');
-                    return { command: `python3 -m compileall -q -j 0 ${relativePaths}`, description: 'Python Syntax Check' };
+                    
+                    // 1순위: Ruff (매우 빠른 최신 린터 + 포매터)
+                    if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) || 
+                        fs.existsSync(path.join(projectRoot, '.ruff.toml')) ||
+                        fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
+                        return { 
+                            command: `ruff check ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
+                            description: 'Ruff Lint + Python Syntax Check' 
+                        };
+                    }
+                    
+                    // 2순위: Flake8 (널리 사용되는 린터)
+                    if (fs.existsSync(path.join(projectRoot, '.flake8')) ||
+                        fs.existsSync(path.join(projectRoot, 'setup.cfg'))) {
+                        return { 
+                            command: `flake8 ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
+                            description: 'Flake8 Lint + Python Syntax Check' 
+                        };
+                    }
+                    
+                    // 3순위: Pylint (강력한 린터)
+                    if (fs.existsSync(path.join(projectRoot, '.pylintrc')) ||
+                        fs.existsSync(path.join(projectRoot, 'pylintrc'))) {
+                        return { 
+                            command: `pylint ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
+                            description: 'Pylint + Python Syntax Check' 
+                        };
+                    }
+                    
+                    // 4순위: Mypy (타입 체커)
+                    if (fs.existsSync(path.join(projectRoot, 'mypy.ini')) ||
+                        fs.existsSync(path.join(projectRoot, '.mypy.ini'))) {
+                        return { 
+                            command: `mypy ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
+                            description: 'Mypy Type Check + Python Syntax Check' 
+                        };
+                    }
+                    
+                    // 5순위: Poetry/Pipenv 환경 검사
+                    if (fs.existsSync(path.join(projectRoot, 'poetry.lock'))) {
+                        return { 
+                            command: `poetry check && python3 -m compileall -q -j 0 ${relativePaths}`, 
+                            description: 'Poetry Check + Python Syntax Check' 
+                        };
+                    }
+                    
+                    if (fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
+                        return { 
+                            command: `pipenv check && python3 -m compileall -q -j 0 ${relativePaths}`, 
+                            description: 'Pipenv Check + Python Syntax Check' 
+                        };
+                    }
+                    
+                    // 기본: 문법 검사만 수행
+                    return { 
+                        command: `python3 -m compileall -q -j 0 ${relativePaths}`, 
+                        description: 'Python Syntax Check' 
+                    };
                 }
+                
                 return null;
 
             case ProjectType.GO:

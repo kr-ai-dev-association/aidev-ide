@@ -25,6 +25,7 @@ import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
 import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
+import { AgentConfig } from '../../config/AgentConfig';
 
 export class ProjectManager {
     private static instance: ProjectManager;
@@ -169,7 +170,7 @@ export class ProjectManager {
                     console.log(`[ProjectManager] Keyword-based project type detection: ${keywordType}`);
                     return {
                         projectType: keywordType,
-                        confidence: 0.8,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.KEYWORD_BASED,
                         needsUserSelection: false
                     };
                 }
@@ -209,7 +210,7 @@ export class ProjectManager {
                 if (localProjectType !== 'unknown') {
                     return {
                         projectType: localProjectType,
-                        confidence: 0.8,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
                         needsUserSelection: false
                     };
                 }
@@ -231,7 +232,7 @@ export class ProjectManager {
                 if (localProjectType !== 'unknown') {
                     return {
                         projectType: localProjectType,
-                        confidence: 0.8,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
                         needsUserSelection: false
                     };
                 }
@@ -250,9 +251,9 @@ export class ProjectManager {
                 try {
                     const result = JSON.parse(jsonMatch[0]);
                     if (result.projectType && supportedTypes.includes(result.projectType)) {
-                        const confidence = result.confidence || 0.5;
-                        // confidence가 0.5 미만이면 사용자 선택 필요
-                        const needsUserSelection = confidence < 0.5 || (result.needsUserSelection === true);
+                        const confidence = result.confidence || AgentConfig.MIN_PROJECT_TYPE_CONFIDENCE;
+                        // confidence가 임계값 미만이면 사용자 선택 필요
+                        const needsUserSelection = confidence < AgentConfig.MIN_PROJECT_TYPE_CONFIDENCE || (result.needsUserSelection === true);
                         console.log(`[ProjectManager] LLM 프로젝트 타입 감지 성공: ${result.projectType} (신뢰도: ${confidence}, 사용자 선택 필요: ${needsUserSelection})`);
                         return {
                             projectType: result.projectType,
@@ -270,7 +271,7 @@ export class ProjectManager {
                 console.warn('[ProjectManager] LLM 프로젝트 타입 감지 실패 - 로컬 감지 결과 사용');
                 return {
                     projectType: localProjectType,
-                    confidence: 0.7,
+                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
                     needsUserSelection: false
                 };
             }
@@ -865,25 +866,25 @@ export class ProjectManager {
         const has = (library: string) => deps[library] !== undefined;
 
         if (has('react') || has('react-dom')) {
-            addFramework('React', 0.9, 'Found react dependency');
+            addFramework('React', AgentConfig.FRAMEWORK_CONFIDENCE.MAJOR, 'Found react dependency');
         }
         if (has('vue')) {
-            addFramework('Vue', 0.9, 'Found vue dependency');
+            addFramework('Vue', AgentConfig.FRAMEWORK_CONFIDENCE.MAJOR, 'Found vue dependency');
         }
         if (has('@angular/core')) {
-            addFramework('Angular', 0.9, 'Found @angular/core dependency');
+            addFramework('Angular', AgentConfig.FRAMEWORK_CONFIDENCE.MAJOR, 'Found @angular/core dependency');
         }
         if (has('vite')) {
-            addFramework('Vite', 0.8, 'Found vite dependency');
+            addFramework('Vite', AgentConfig.FRAMEWORK_CONFIDENCE.COMMON, 'Found vite dependency');
         }
         if (has('next')) {
-            addFramework('Next.js', 0.8, 'Found next dependency');
+            addFramework('Next.js', AgentConfig.FRAMEWORK_CONFIDENCE.COMMON, 'Found next dependency');
         }
         if (has('@nestjs/core')) {
-            addFramework('NestJS', 0.8, 'Found @nestjs/core dependency');
+            addFramework('NestJS', AgentConfig.FRAMEWORK_CONFIDENCE.COMMON, 'Found @nestjs/core dependency');
         }
         if (has('express')) {
-            addFramework('Express', 0.7, 'Found express dependency');
+            addFramework('Express', AgentConfig.FRAMEWORK_CONFIDENCE.COMMON, 'Found express dependency');
         }
     }
 
@@ -919,7 +920,7 @@ export class ProjectManager {
         }
 
         const add = (framework: string, evidence: string) => {
-            frameworks.push({ framework, confidence: 0.8, evidence: [evidence] });
+            frameworks.push({ framework, confidence: AgentConfig.FRAMEWORK_CONFIDENCE.COMMON, evidence: [evidence] });
         };
 
         const matched = (needle: string) => dependencies.some(dep => dep.toLowerCase().includes(needle));
@@ -932,7 +933,7 @@ export class ProjectManager {
      * Java 프레임워크를 감지합니다
      */
     private populateJavaFrameworks(inputs: { pomXml?: string; buildGradle?: string; buildGradleKts?: string }, frameworks: FrameworkMatch[]): void {
-        const add = (framework: string, evidence: string) => frameworks.push({ framework, confidence: 0.8, evidence: [evidence] });
+        const add = (framework: string, evidence: string) => frameworks.push({ framework, confidence: AgentConfig.FRAMEWORK_CONFIDENCE.COMMON, evidence: [evidence] });
 
         const detect = (content: string | undefined, needle: string) => content && content.includes(needle);
 

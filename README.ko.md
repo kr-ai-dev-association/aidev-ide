@@ -6,6 +6,24 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v7.0.1 (확률 기반 판단 로직 일관성 개선)
+- **임계값 중앙화 관리**: 모든 확률 기반 판단 임계값(confidence, threshold, percentage)을 `AgentConfig.ts`에 중앙화하여 유지보수성과 일관성을 크게 향상시켰습니다.
+- **일관된 Confidence 값**: 같은 용도에 대해 통일된 confidence 값 적용:
+  - 로컬 감지: 모두 0.8로 통일 (이전: 0.7, 0.8 혼재)
+  - 프레임워크 감지: Express도 0.8로 통일 (이전: 0.7)
+  - Python 프로젝트 감지: Django 0.9, Flask/FastAPI 0.85, 일반 0.8
+  - 에러 수정 confidence: 자동 0.9, 반자동 0.85, 수동 0.7
+- **계층화된 Confidence 체계**: 감지 방법에 따라 계층화된 confidence 체계 구현:
+  - `DEPENDENCY_BASED` (0.95): package.json dependencies 기반 (가장 정확)
+  - `FILE_BASED` (0.9): 설정 파일 존재 기반
+  - `LOCAL_HEURISTIC` (0.8): 로컬 파일 패턴 매칭
+  - `KEYWORD_BASED` (0.7): 사용자 쿼리 키워드 기반 (가장 불확실)
+- **업데이트된 파일**: 하드코딩된 값을 `AgentConfig` 상수로 교체:
+  - `ProjectManager.ts`, `ProjectDetector.ts`, `FileMutationManager.ts`
+  - `UpdateFileToolHandler.ts`, `tokenUtils.ts`, `ActionMapper.ts`
+  - `ErrorManager.ts`, `KeywordSelector.ts`
+- **문서화**: `PROBABILITY_BASED_DECISIONS.md` 문서를 생성하여 모든 확률 기반 판단 로직, 개선 사항, 제거된 로직 히스토리를 문서화했습니다.
+
 ## v7.1.0 (프롬프트 파일 통합 및 구조 개선)
 - **프롬프트 파일 통합**: 분산되어 있던 프롬프트 파일들을 분류별로 통합하여 유지보수성을 크게 향상시켰습니다.
   - `base/` 디렉토리 (11개 파일) → `base.ts` 하나로 통합: `agentRole`, `objective`, `rules`, `fileOperations`, `codeVsScript`, `codeGeneration`, `errorCorrection`, `outputFormat`, `tools`, `terminalCommands`, `commonRules` 등 모든 기본 프롬프트 컴포넌트를 단일 파일로 통합

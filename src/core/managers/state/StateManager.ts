@@ -506,4 +506,121 @@ export class StateManager {
     public async getAutoCorrectionEnabled(): Promise<boolean> {
         return this.context.workspaceState.get<boolean>(this.AUTO_CORRECTION_ENABLED_KEY) ?? false;
     }
+
+    // ===== AgentPolicy 관련 메서드들 =====
+    private readonly AGENT_POLICY_STABLE_VERSION_KEY = 'aidev-ide.agentPolicy.stableVersion';
+    private readonly AGENT_POLICY_CODING_STYLE_KEY = 'aidev-ide.agentPolicy.codingStyle';
+    private readonly AGENT_POLICY_PROJECT_ARCHITECTURE_KEY = 'aidev-ide.agentPolicy.projectArchitecture';
+    private readonly AGENT_POLICY_DEPENDENCY_POLICY_KEY = 'aidev-ide.agentPolicy.dependencyPolicy';
+    private readonly AGENT_POLICY_DB_POLICY_KEY = 'aidev-ide.agentPolicy.dbPolicy';
+
+    /**
+     * Stable Version Markdown을 저장합니다
+     */
+    public async saveAgentPolicyStableVersion(mdContent: string): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_STABLE_VERSION_KEY, mdContent);
+        console.log('[StateManager] AgentPolicy Stable Version saved.');
+    }
+
+    /**
+     * Stable Version Markdown을 가져옵니다
+     */
+    public async getAgentPolicyStableVersion(): Promise<string | undefined> {
+        return this.context.workspaceState.get<string>(this.AGENT_POLICY_STABLE_VERSION_KEY);
+    }
+
+    /**
+     * Stable Version Markdown을 삭제합니다
+     */
+    public async deleteAgentPolicyStableVersion(): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_STABLE_VERSION_KEY, undefined);
+    }
+
+    /**
+     * Coding Style Markdown을 저장합니다
+     */
+    public async saveAgentPolicyCodingStyle(mdContent: string): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_CODING_STYLE_KEY, mdContent);
+        console.log('[StateManager] AgentPolicy Coding Style saved.');
+    }
+
+    /**
+     * Coding Style Markdown을 가져옵니다
+     */
+    public async getAgentPolicyCodingStyle(): Promise<string | undefined> {
+        return this.context.workspaceState.get<string>(this.AGENT_POLICY_CODING_STYLE_KEY);
+    }
+
+    /**
+     * Coding Style Markdown을 삭제합니다
+     */
+    public async deleteAgentPolicyCodingStyle(): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_CODING_STYLE_KEY, undefined);
+    }
+
+    /**
+     * Project Architecture Markdown을 저장합니다
+     */
+    public async saveAgentPolicyProjectArchitecture(mdContent: string): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_PROJECT_ARCHITECTURE_KEY, mdContent);
+        console.log('[StateManager] AgentPolicy Project Architecture saved.');
+    }
+
+    /**
+     * Project Architecture Markdown을 가져옵니다
+     */
+    public async getAgentPolicyProjectArchitecture(): Promise<string | undefined> {
+        return this.context.workspaceState.get<string>(this.AGENT_POLICY_PROJECT_ARCHITECTURE_KEY);
+    }
+
+    /**
+     * Project Architecture Markdown을 삭제합니다
+     */
+    public async deleteAgentPolicyProjectArchitecture(): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_PROJECT_ARCHITECTURE_KEY, undefined);
+    }
+
+    /**
+     * Dependency Policy Markdown을 저장합니다
+     */
+    public async saveAgentPolicyDependencyPolicy(mdContent: string): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_DEPENDENCY_POLICY_KEY, mdContent);
+        console.log('[StateManager] AgentPolicy Dependency Policy saved.');
+    }
+
+    /**
+     * Dependency Policy Markdown을 가져옵니다
+     */
+    public async getAgentPolicyDependencyPolicy(): Promise<string | undefined> {
+        return this.context.workspaceState.get<string>(this.AGENT_POLICY_DEPENDENCY_POLICY_KEY);
+    }
+
+    /**
+     * Dependency Policy Markdown을 삭제합니다
+     */
+    public async deleteAgentPolicyDependencyPolicy(): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_DEPENDENCY_POLICY_KEY, undefined);
+    }
+
+    /**
+     * DB Policy Markdown을 저장합니다
+     */
+    public async saveAgentPolicyDbPolicy(mdContent: string): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_DB_POLICY_KEY, mdContent);
+        console.log('[StateManager] AgentPolicy DB Policy saved.');
+    }
+
+    /**
+     * DB Policy Markdown을 가져옵니다
+     */
+    public async getAgentPolicyDbPolicy(): Promise<string | undefined> {
+        return this.context.workspaceState.get<string>(this.AGENT_POLICY_DB_POLICY_KEY);
+    }
+
+    /**
+     * DB Policy Markdown을 삭제합니다
+     */
+    public async deleteAgentPolicyDbPolicy(): Promise<void> {
+        await this.context.workspaceState.update(this.AGENT_POLICY_DB_POLICY_KEY, undefined);
+    }
 }

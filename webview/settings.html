@@ -627,7 +627,8 @@
             <label for="auto-test-retry-toggle">Toggle</label>
         </div>
         <p id="auto-test-retry-status" class="info-message"></p>
-        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Lint Check)이 실패했을 때 자동으로 재시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 3회)</p>
+        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Lint Check)이 실패했을 때 자동으로 재시도하는 최대
+            횟수를 설정합니다. (1-10회, 기본값: 3회)</p>
         <div class="spinner-container">
             <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
             <input type="number" id="test-retry-spinner" min="1" max="10" value="3" />
@@ -815,7 +816,90 @@
         </div>
     </div>
 
+    <div class="section-container">
+        <h2 id="agent-policy-section-title">개발 규칙</h2>
+        <p class="info-message">AI 에이전트가 따라야 할 개발 규칙을 Markdown 파일로 저장할 수 있습니다. 각 규칙은 프로젝트 루트의 ./.agent/rules 디렉토리에 저장되며,
+            응답 생성
+            시
+            참고됩니다.</p>
 
+        <!-- Stable Version Markdown -->
+        <div class="api-key-section">
+            <h3>버전 관리 규칙</h3>
+            <p class="info-message">프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown" style="display: none;">
+                <button id="select-stable-version-button" type="button">파일 선택</button>
+                <button id="upload-stable-version-button" type="button" disabled>저장</button>
+                <button id="delete-stable-version-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="stable-version-status" class="info-message"></p>
+            <p id="stable-version-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+
+        <!-- Coding Style Markdown -->
+        <div class="api-key-section">
+            <h3>코딩 스타일 규칙</h3>
+            <p class="info-message">프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-coding-style-input" accept=".md장.markdown" style="display: none;">
+                <button id="select-coding-style-button" type="button">파일 선택</button>
+                <button id="upload-coding-style-button" type="button" disabled>저장</button>
+                <button id="delete-coding-style-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="coding-style-status" class="info-message"></p>
+            <p id="coding-style-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+
+        <!-- Project Architecture Markdown -->
+        <div class="api-key-section">
+            <h3>프로젝트 아키텍처 규칙</h3>
+            <p class="info-message">프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown"
+                    style="display: none;">
+                <button id="select-project-architecture-button" type="button">파일 선택</button>
+                <button id="upload-project-architecture-button" type="button" disabled>저장</button>
+                <button id="delete-project-architecture-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="project-architecture-status" class="info-message"></p>
+            <p id="project-architecture-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+
+        <!-- Dependency Policy Markdown -->
+        <div class="api-key-section">
+            <h3>의존성 정책 규칙</h3>
+            <p class="info-message">프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown"
+                    style="display: none;">
+                <button id="select-dependency-policy-button" type="button">파일 선택</button>
+                <button id="upload-dependency-policy-button" type="button" disabled>저장</button>
+                <button id="delete-dependency-policy-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="dependency-policy-status" class="info-message"></p>
+            <p id="dependency-policy-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+
+        <!-- DB Policy Markdown -->
+        <div class="api-key-section">
+            <h3>DB 규칙</h3>
+            <p class="info-message">프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown" style="display: none;">
+                <button id="select-db-policy-button" type="button">파일 선택</button>
+                <button id="upload-db-policy-button" type="button" disabled>저장</button>
+                <button id="delete-db-policy-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="db-policy-status" class="info-message"></p>
+            <p id="db-policy-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+    </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>

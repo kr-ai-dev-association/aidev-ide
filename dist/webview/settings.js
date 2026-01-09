@@ -2342,6 +2342,287 @@ document.addEventListener('DOMContentLoaded', () => {
     banyaLicenseSerialInput.readOnly = false;
   }
   console.log('[Settings] DOMContentLoaded - Initial load sequence completed');
+
+  // AgentPolicy XML 파일 로드
+  loadAgentPolicyFiles();
+});
+
+// ===== AgentPolicy 관련 함수들 =====
+
+// AgentPolicy 파일 업로드 핸들러
+function setupAgentPolicyFileUpload(inputId, selectButtonId, uploadButtonId, deleteButtonId, statusId, fileNameId, uploadCommand) {
+  const fileInput = document.getElementById(inputId);
+  const selectButton = document.getElementById(selectButtonId);
+  const uploadButton = document.getElementById(uploadButtonId);
+  const deleteButton = document.getElementById(deleteButtonId);
+  const statusElement = document.getElementById(statusId);
+  const fileNameElement = document.getElementById(fileNameId);
+  if (!fileInput || !selectButton || !uploadButton || !statusElement) {
+    return;
+  }
+
+  // 파일 선택 버튼 클릭
+  selectButton.addEventListener('click', () => {
+    fileInput.click();
+  });
+
+  // 파일 선택 시
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
+        showStatus(statusElement, 'Markdown 파일만 저장할 수 있습니다.', 'error');
+        fileInput.value = '';
+        uploadButton.disabled = true;
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = event => {
+        const mdContent = event.target.result;
+        if (fileNameElement) {
+          fileNameElement.textContent = `선택된 파일: ${file.name}`;
+        }
+        uploadButton.disabled = false;
+        uploadButton.dataset.mdContent = mdContent;
+        uploadButton.dataset.xmlContent = mdContent; // 호환성을 위해 xmlContent도 저장
+      };
+      reader.onerror = () => {
+        showStatus(statusElement, '파일 읽기 실패', 'error');
+        uploadButton.disabled = true;
+      };
+      reader.readAsText(file);
+    }
+  });
+
+  // 저장 버튼 클릭
+  uploadButton.addEventListener('click', () => {
+    const mdContent = uploadButton.dataset.mdContent || uploadButton.dataset.xmlContent;
+    if (mdContent) {
+      showStatus(statusElement, '저장 중...', 'info');
+      uploadButton.disabled = true;
+      vscode.postMessage({
+        command: uploadCommand,
+        mdContent: mdContent,
+        xmlContent: mdContent // 호환성을 위해 xmlContent도 포함
+      });
+    }
+  });
+
+  // 삭제 버튼 클릭
+  if (deleteButton) {
+    deleteButton.addEventListener('click', () => {
+      if (confirm('정말로 이 파일을 삭제하시겠습니까?')) {
+        showStatus(statusElement, '삭제 중...', 'info');
+        // 삭제 명령어 매핑
+        const deleteCommandMap = {
+          'agent-policy-stable-version-input': 'deleteAgentPolicyStableVersion',
+          'agent-policy-coding-style-input': 'deleteAgentPolicyCodingStyle',
+          'agent-policy-project-architecture-input': 'deleteAgentPolicyProjectArchitecture',
+          'agent-policy-dependency-policy-input': 'deleteAgentPolicyDependencyPolicy',
+          'agent-policy-db-policy-input': 'deleteAgentPolicyDbPolicy'
+        };
+        const deleteCommand = deleteCommandMap[inputId];
+        if (deleteCommand && vscode) {
+          vscode.postMessage({
+            command: deleteCommand
+          });
+        }
+      }
+    });
+  }
+}
+
+// AgentPolicy 파일 로드
+function loadAgentPolicyFiles() {
+  vscode.postMessage({
+    command: 'getAgentPolicyStableVersion'
+  });
+  vscode.postMessage({
+    command: 'getAgentPolicyCodingStyle'
+  });
+  vscode.postMessage({
+    command: 'getAgentPolicyProjectArchitecture'
+  });
+  vscode.postMessage({
+    command: 'getAgentPolicyDependencyPolicy'
+  });
+  vscode.postMessage({
+    command: 'getAgentPolicyDbPolicy'
+  });
+}
+
+// AgentPolicy 파일 업로드 설정
+setupAgentPolicyFileUpload('agent-policy-stable-version-input', 'select-stable-version-button', 'upload-stable-version-button', 'delete-stable-version-button', 'stable-version-status', 'stable-version-file-name', 'uploadAgentPolicyStableVersion');
+setupAgentPolicyFileUpload('agent-policy-coding-style-input', 'select-coding-style-button', 'upload-coding-style-button', 'delete-coding-style-button', 'coding-style-status', 'coding-style-file-name', 'uploadAgentPolicyCodingStyle');
+setupAgentPolicyFileUpload('agent-policy-project-architecture-input', 'select-project-architecture-button', 'upload-project-architecture-button', 'delete-project-architecture-button', 'project-architecture-status', 'project-architecture-file-name', 'uploadAgentPolicyProjectArchitecture');
+setupAgentPolicyFileUpload('agent-policy-dependency-policy-input', 'select-dependency-policy-button', 'upload-dependency-policy-button', 'delete-dependency-policy-button', 'dependency-policy-status', 'dependency-policy-file-name', 'uploadAgentPolicyDependencyPolicy');
+setupAgentPolicyFileUpload('agent-policy-db-policy-input', 'select-db-policy-button', 'upload-db-policy-button', 'delete-db-policy-button', 'db-policy-status', 'db-policy-file-name', 'uploadAgentPolicyDbPolicy');
+
+// AgentPolicy 관련 메시지 핸들러
+window.addEventListener('message', event => {
+  const message = event.data;
+  switch (message.command) {
+    case 'agentPolicyStableVersionSaved':
+      showStatus(document.getElementById('stable-version-status'), 'Stable Version Markdown이 저장되었습니다.', 'success');
+      const stableVersionInput = document.getElementById('agent-policy-stable-version-input');
+      const stableVersionUploadBtn = document.getElementById('upload-stable-version-button');
+      const stableVersionDeleteBtn = document.getElementById('delete-stable-version-button');
+      const stableVersionFileName = document.getElementById('stable-version-file-name');
+      if (stableVersionInput) stableVersionInput.value = '';
+      if (stableVersionUploadBtn) {
+        stableVersionUploadBtn.disabled = true;
+        delete stableVersionUploadBtn.dataset.mdContent;
+        delete stableVersionUploadBtn.dataset.xmlContent;
+      }
+      if (stableVersionDeleteBtn) stableVersionDeleteBtn.style.display = 'inline-block';
+      if (stableVersionFileName) stableVersionFileName.textContent = '';
+      break;
+    case 'agentPolicyStableVersionSaveError':
+      showStatus(document.getElementById('stable-version-status'), `저장 실패: ${message.error}`, 'error');
+      document.getElementById('upload-stable-version-button').disabled = false;
+      break;
+    case 'agentPolicyStableVersionLoaded':
+      if (message.mdContent || message.xmlContent) {
+        showStatus(document.getElementById('stable-version-status'), 'Stable Version Markdown이 로드되었습니다.', 'success');
+        document.getElementById('delete-stable-version-button').style.display = 'inline-block';
+      }
+      break;
+    case 'agentPolicyCodingStyleSaved':
+      showStatus(document.getElementById('coding-style-status'), 'Coding Style Markdown이 저장되었습니다.', 'success');
+      const codingStyleInput = document.getElementById('agent-policy-coding-style-input');
+      const codingStyleUploadBtn = document.getElementById('upload-coding-style-button');
+      const codingStyleDeleteBtn = document.getElementById('delete-coding-style-button');
+      const codingStyleFileName = document.getElementById('coding-style-file-name');
+      if (codingStyleInput) codingStyleInput.value = '';
+      if (codingStyleUploadBtn) {
+        codingStyleUploadBtn.disabled = true;
+        delete codingStyleUploadBtn.dataset.mdContent;
+        delete codingStyleUploadBtn.dataset.xmlContent;
+      }
+      if (codingStyleDeleteBtn) codingStyleDeleteBtn.style.display = 'inline-block';
+      if (codingStyleFileName) codingStyleFileName.textContent = '';
+      break;
+    case 'agentPolicyCodingStyleSaveError':
+      showStatus(document.getElementById('coding-style-status'), `저장 실패: ${message.error}`, 'error');
+      document.getElementById('upload-coding-style-button').disabled = false;
+      break;
+    case 'agentPolicyCodingStyleLoaded':
+      if (message.mdContent || message.xmlContent) {
+        showStatus(document.getElementById('coding-style-status'), 'Coding Style Markdown이 로드되었습니다.', 'success');
+        document.getElementById('delete-coding-style-button').style.display = 'inline-block';
+      }
+      break;
+    case 'agentPolicyProjectArchitectureSaved':
+      showStatus(document.getElementById('project-architecture-status'), 'Project Architecture Markdown이 저장되었습니다.', 'success');
+      const projectArchInput = document.getElementById('agent-policy-project-architecture-input');
+      const projectArchUploadBtn = document.getElementById('upload-project-architecture-button');
+      const projectArchDeleteBtn = document.getElementById('delete-project-architecture-button');
+      const projectArchFileName = document.getElementById('project-architecture-file-name');
+      if (projectArchInput) projectArchInput.value = '';
+      if (projectArchUploadBtn) {
+        projectArchUploadBtn.disabled = true;
+        delete projectArchUploadBtn.dataset.mdContent;
+        delete projectArchUploadBtn.dataset.xmlContent;
+      }
+      if (projectArchDeleteBtn) projectArchDeleteBtn.style.display = 'inline-block';
+      if (projectArchFileName) projectArchFileName.textContent = '';
+      break;
+    case 'agentPolicyProjectArchitectureSaveError':
+      showStatus(document.getElementById('project-architecture-status'), `저장 실패: ${message.error}`, 'error');
+      document.getElementById('upload-project-architecture-button').disabled = false;
+      break;
+    case 'agentPolicyProjectArchitectureLoaded':
+      if (message.mdContent || message.xmlContent) {
+        showStatus(document.getElementById('project-architecture-status'), 'Project Architecture Markdown이 로드되었습니다.', 'success');
+        document.getElementById('delete-project-architecture-button').style.display = 'inline-block';
+      }
+      break;
+    case 'agentPolicyDependencyPolicySaved':
+      showStatus(document.getElementById('dependency-policy-status'), 'Dependency Policy Markdown이 저장되었습니다.', 'success');
+      const dependencyPolicyInput = document.getElementById('agent-policy-dependency-policy-input');
+      const dependencyPolicyUploadBtn = document.getElementById('upload-dependency-policy-button');
+      const dependencyPolicyDeleteBtn = document.getElementById('delete-dependency-policy-button');
+      const dependencyPolicyFileName = document.getElementById('dependency-policy-file-name');
+      if (dependencyPolicyInput) dependencyPolicyInput.value = '';
+      if (dependencyPolicyUploadBtn) {
+        dependencyPolicyUploadBtn.disabled = true;
+        delete dependencyPolicyUploadBtn.dataset.mdContent;
+        delete dependencyPolicyUploadBtn.dataset.xmlContent;
+      }
+      if (dependencyPolicyDeleteBtn) dependencyPolicyDeleteBtn.style.display = 'inline-block';
+      if (dependencyPolicyFileName) dependencyPolicyFileName.textContent = '';
+      break;
+    case 'agentPolicyDependencyPolicySaveError':
+      showStatus(document.getElementById('dependency-policy-status'), `저장 실패: ${message.error}`, 'error');
+      document.getElementById('upload-dependency-policy-button').disabled = false;
+      break;
+    case 'agentPolicyDependencyPolicyLoaded':
+      if (message.mdContent || message.xmlContent) {
+        showStatus(document.getElementById('dependency-policy-status'), 'Dependency Policy Markdown이 로드되었습니다.', 'success');
+        document.getElementById('delete-dependency-policy-button').style.display = 'inline-block';
+      }
+      break;
+    case 'agentPolicyDbPolicySaved':
+      showStatus(document.getElementById('db-policy-status'), 'DB Policy Markdown이 저장되었습니다.', 'success');
+      const dbPolicyInput = document.getElementById('agent-policy-db-policy-input');
+      const dbPolicyUploadBtn = document.getElementById('upload-db-policy-button');
+      const dbPolicyDeleteBtn = document.getElementById('delete-db-policy-button');
+      const dbPolicyFileName = document.getElementById('db-policy-file-name');
+      if (dbPolicyInput) dbPolicyInput.value = '';
+      if (dbPolicyUploadBtn) {
+        dbPolicyUploadBtn.disabled = true;
+        delete dbPolicyUploadBtn.dataset.mdContent;
+        delete dbPolicyUploadBtn.dataset.xmlContent;
+      }
+      if (dbPolicyDeleteBtn) dbPolicyDeleteBtn.style.display = 'inline-block';
+      if (dbPolicyFileName) dbPolicyFileName.textContent = '';
+      break;
+    case 'agentPolicyDbPolicySaveError':
+      showStatus(document.getElementById('db-policy-status'), `저장 실패: ${message.error}`, 'error');
+      document.getElementById('upload-db-policy-button').disabled = false;
+      break;
+    case 'agentPolicyDbPolicyLoaded':
+      if (message.mdContent || message.xmlContent) {
+        showStatus(document.getElementById('db-policy-status'), 'DB Policy Markdown이 로드되었습니다.', 'success');
+        document.getElementById('delete-db-policy-button').style.display = 'inline-block';
+      }
+      break;
+    case 'agentPolicyStableVersionDeleted':
+      showStatus(document.getElementById('stable-version-status'), 'Stable Version Markdown이 삭제되었습니다.', 'success');
+      document.getElementById('delete-stable-version-button').style.display = 'none';
+      break;
+    case 'agentPolicyStableVersionDeleteError':
+      showStatus(document.getElementById('stable-version-status'), `삭제 실패: ${message.error}`, 'error');
+      break;
+    case 'agentPolicyCodingStyleDeleted':
+      showStatus(document.getElementById('coding-style-status'), 'Coding Style Markdown이 삭제되었습니다.', 'success');
+      document.getElementById('delete-coding-style-button').style.display = 'none';
+      break;
+    case 'agentPolicyCodingStyleDeleteError':
+      showStatus(document.getElementById('coding-style-status'), `삭제 실패: ${message.error}`, 'error');
+      break;
+    case 'agentPolicyProjectArchitectureDeleted':
+      showStatus(document.getElementById('project-architecture-status'), 'Project Architecture Markdown이 삭제되었습니다.', 'success');
+      document.getElementById('delete-project-architecture-button').style.display = 'none';
+      break;
+    case 'agentPolicyProjectArchitectureDeleteError':
+      showStatus(document.getElementById('project-architecture-status'), `삭제 실패: ${message.error}`, 'error');
+      break;
+    case 'agentPolicyDependencyPolicyDeleted':
+      showStatus(document.getElementById('dependency-policy-status'), 'Dependency Policy Markdown이 삭제되었습니다.', 'success');
+      document.getElementById('delete-dependency-policy-button').style.display = 'none';
+      break;
+    case 'agentPolicyDependencyPolicyDeleteError':
+      showStatus(document.getElementById('dependency-policy-status'), `삭제 실패: ${message.error}`, 'error');
+      break;
+    case 'agentPolicyDbPolicyDeleted':
+      showStatus(document.getElementById('db-policy-status'), 'DB Policy Markdown이 삭제되었습니다.', 'success');
+      document.getElementById('delete-db-policy-button').style.display = 'none';
+      break;
+    case 'agentPolicyDbPolicyDeleteError':
+      showStatus(document.getElementById('db-policy-status'), `삭제 실패: ${message.error}`, 'error');
+      break;
+  }
 });
 /******/ 	return __webpack_exports__;
 /******/ })()

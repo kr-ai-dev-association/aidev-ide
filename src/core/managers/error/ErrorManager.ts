@@ -20,6 +20,7 @@ import { ErrorParser } from './ErrorParser';
 import { StackTraceAnalyzer } from './StackTraceAnalyzer';
 import { ErrorHistory } from './ErrorHistory';
 import { ExecutionManager } from '../execution/ExecutionManager';
+import { AgentConfig } from '../../config/AgentConfig';
 
 /**
  * 터미널 에러 이벤트 (terminalMonitorService에서 사용하던 인터페이스)
@@ -238,7 +239,7 @@ export class ErrorManager {
                         type: 'install',
                         title: `Install ${error.metadata.package}`,
                         description: `Run: npm install ${error.metadata.package}`,
-                        confidence: 0.9,
+                        confidence: AgentConfig.ERROR_FIX_CONFIDENCE.AUTOMATED,
                         automated: true,
                         fix: {
                             packages: [error.metadata.package],
@@ -255,7 +256,7 @@ export class ErrorManager {
                         type: 'code',
                         title: 'Create missing file',
                         description: `Create the file: ${error.location.file}`,
-                        confidence: 0.8,
+                        confidence: AgentConfig.ERROR_FIX_CONFIDENCE.MANUAL,
                         automated: false
                     });
                 }
@@ -379,7 +380,7 @@ export class ErrorManager {
                 type: 'command',
                 title: 'Kill process on port',
                 description: `Stop the process using the port`,
-                confidence: 0.9,
+                confidence: AgentConfig.ERROR_FIX_CONFIDENCE.SEMI_AUTO,
                 automated: false
             }]
         });

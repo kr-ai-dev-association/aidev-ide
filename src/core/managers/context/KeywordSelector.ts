@@ -1,3 +1,5 @@
+import { AgentConfig } from '../../config/AgentConfig';
+
 export interface KeywordSelectionResult {
     keywords: string[];
     reasoning: string;
@@ -63,7 +65,7 @@ ${availableKeywords.map((keyword, index) => `${index + 1}. ${keyword}`).join('\n
 {
   "keywords": ["선택된_키워드1", "선택된_키워드2", "선택된_키워드3"],
   "reasoning": "키워드 선택 이유를 간단히 설명",
-  "confidence": 0.85
+  "confidence": ${AgentConfig.KEYWORD_SELECTION_CONFIDENCE}
 }
 
 선택 기준:

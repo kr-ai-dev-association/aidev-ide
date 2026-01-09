@@ -179,7 +179,7 @@ export class ToolExecutionCoordinator {
                         // 패턴 예: "(?:function|const|let|var|export\s+(?:function|const|let|var)|export\s+default\s+function)\s+test\b"
                         // → "function test"로 표시
                         let displayPattern = pattern;
-                        
+
                         // 패턴 끝에서 함수명 추출 시도 (예: ...)\s+test\b)
                         // 이스케이프된 백슬래시를 고려하여 매칭: "\\s+" → 실제로는 "\s+"를 의미
                         const functionNameAtEnd = pattern.match(/\\s\+([a-zA-Z_$][a-zA-Z0-9_$]*)\\b/);
@@ -188,7 +188,7 @@ export class ToolExecutionCoordinator {
                         } else {
                             // 다른 패턴 시도 (이스케이프되지 않은 경우)
                             const functionNameMatch = pattern.match(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/) ||
-                                                      pattern.match(/(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=/);
+                                pattern.match(/(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=/);
                             if (functionNameMatch && functionNameMatch[1]) {
                                 displayPattern = `function ${functionNameMatch[1]}`;
                             } else if (pattern.length > 50) {
@@ -222,7 +222,7 @@ export class ToolExecutionCoordinator {
                 WebviewBridge.receiveMessage(webview, 'System', displayMsg);
             } else {
                 // 실패 시에는 항상 System 스타일로 에러 표시
-                WebviewBridge.receiveMessage(webview, 'System', `[Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
+                WebviewBridge.receiveMessage(webview, 'System', `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
             }
         });
     }

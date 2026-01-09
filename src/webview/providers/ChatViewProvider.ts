@@ -13,7 +13,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly extensionUri: vscode.Uri,
         private readonly context: vscode.ExtensionContext,
         private readonly openSettingsPanel: (viewColumn: vscode.ViewColumn) => void,
-        private readonly openLicensePanel: (viewColumn: vscode.ViewColumn) => void,
         private readonly configurationService: SettingsManager,
         private readonly notificationService: NotificationService,
         private readonly gitRepositoryService: GitRepositoryService,
@@ -335,7 +334,6 @@ ${JSON.stringify(errorContext, null, 2)}
                         panelViewColumn = vscode.window.activeTextEditor.viewColumn;
                     }
                     if (data.panel === 'settings') this.openSettingsPanel(panelViewColumn);
-                    else if (data.panel === 'license') this.openLicensePanel(panelViewColumn);
                     break;
                 case 'webviewLoaded':
                     console.log('[ChatViewProvider] Chat webview loaded.');

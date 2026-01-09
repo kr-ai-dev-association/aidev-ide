@@ -618,308 +618,262 @@ export class ConversationManager {
                     // ⚠️ 핵심 수정: investigation item이 아닌 execution item에 대해서만 LLM 호출
                     // investigation item은 위에서 이미 처리되었으므로 여기서는 execution item만 처리
                     if (!hasAnyFileChange && currentPlanItem && currentPlanItem.kind !== 'investigation') {
-                        // 🚀 최적화: Plan Item의 목표가 이미 달성되었는지 확인 (이미 완료된 작업인지 체크)
-                        let isPlanItemAlreadyDone = false;
-                        if (currentPlanItem.detail) {
-                            // detail에서 파일 경로 추출 (단순화된 메서드 사용)
-                            const mentionedFiles = this.extractFilePathsFromText(currentPlanItem.detail);
+                        // ⚠️ 자동 완료 로직 제거: 파일 존재만으로는 작업 완료를 보장할 수 없음
+                        // LLM이 작업 상태를 가장 정확히 알고 있으므로, LLM이 항상 판단하도록 함
+                        // 파일이 생성/수정되었다고 해서 Plan Item의 목표가 달성되었다고 보장할 수 없음
+                        // 예: "user authentication 기능 추가" 계획에서 auth.ts 파일만 생성되고 실제 로직은 비어있을 수 있음
 
-                            // 추출된 파일들이 이미 생성/수정되었는지 확인
-                            if (mentionedFiles.length > 0) {
-                                const allCompletedFiles = [...createdFiles, ...modifiedFiles];
-                                const completedCount = mentionedFiles.filter(file =>
-                                    allCompletedFiles.some(completed =>
-                                        completed === file || completed.endsWith(file) || file.endsWith(completed)
-                                    )
-                                ).length;
+                        // LLM 호출하여 작업 상태 확인 및 계속 진행
+                        // 아직 파일이 생성되지 않았고 plan item이 execution kind이면 LLM을 1회 호출하여 tool call 생성
+                        console.log(`[ConversationManager] EXECUTION phase: no tool calls from plan creation, calling LLM once for execution plan item "${currentPlanItem.title}".`);
 
-                                // Plan Item에서 언급된 파일의 대부분(80% 이상)이 이미 완료되었다면 자동 완료 처리
-                                if (completedCount > 0 && (completedCount / mentionedFiles.length) >= 0.8) {
-                                    isPlanItemAlreadyDone = true;
-                                    console.log(`[ConversationManager] EXECUTION phase: plan item "${currentPlanItem.title}" is already done (${completedCount}/${mentionedFiles.length} files completed). Auto-completing and skipping LLM call.`);
-                                    taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
-                                    WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+                        // 🚀 최적화: 프로젝트 파일 인벤토리 제공 (buildProjectInventorySection 활용)
+                        let projectInventoryContext = '';
+                        try {
+                            const projectManager = ProjectManager.getInstance();
+                            const inventory = await projectManager.buildProjectInventorySection(AgentConfig.MAX_PROJECT_INVENTORY_FILES);
+                            if (inventory) {
+                                projectInventoryContext = `\n\n${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.\n`;
+                            }
+                        } catch (error) {
+                            console.warn('[ConversationManager] Failed to build project inventory:', error);
+                        }
 
-                                    // 다음 계획 항목이 있으면 계속, 없으면 자동 테스트 후 REVIEW로 전환
-                                    const nextItem = taskManager.getNextPendingItem();
-                                    if (nextItem) {
+                        // Pre-load된 파일 목록과 실제 내용을 EXECUTION 컨텍스트에 명확하게 포함
+                        // ⚠️ 핵심 수정: Pre-load된 파일의 실제 내용을 accumulatedUserParts에서 추출하여 포함
+                        let preloadedFilesContextForExecution = '';
+                        const preloadedFilesContent: Array<{ path: string; content: string }> = [];
+                        const processedPaths = new Set<string>(); // 중복 체크용
+
+                        // accumulatedUserParts에서 Pre-load된 파일 내용 추출
+                        for (const part of accumulatedUserParts) {
+                            try {
+                                if (part.text && part.text.includes('[System] ⚠️ **이미 읽은 파일')) {
+                                    // 개선된 정규식: 파일 경로 추출 (언어 태그 지원)
+                                    const fileMatch = part.text.match(/이미 읽은 파일[^:]*:\s*(.+?)(?:\n|$)/);
+                                    const contentMatch = part.text.match(/```[\w]*\n([\s\S]*?)```/);
+
+                                    if (fileMatch && contentMatch) {
+                                        // 경로 정규화 및 중복 체크
+                                        const filePath = path.normalize(fileMatch[1].trim());
+                                        const content = contentMatch[1].trim();
+
+                                        // 빈 내용 무시 및 중복 체크
+                                        if (content && !processedPaths.has(filePath)) {
+                                            processedPaths.add(filePath);
+                                            preloadedFilesContent.push({
+                                                path: filePath,
+                                                content: content
+                                            });
+                                        }
+                                    }
+                                }
+                            } catch (error) {
+                                console.warn('[ConversationManager] Failed to extract preloaded file content:', error);
+                                // 계속 진행
+                            }
+                        }
+
+                        if (preloadedFiles.size > 0 || preloadedFilesContent.length > 0) {
+                            const preloadedFilesArray = Array.from(preloadedFiles);
+                            preloadedFilesContextForExecution = `\n\n**⚠️ 이미 읽은 파일 목록 (다시 읽지 마세요):**\n${preloadedFilesArray.map(f => `- ${f}`).join('\n')}\n\n`;
+
+                            // Pre-load된 파일의 실제 내용 제공
+                            if (preloadedFilesContent.length > 0) {
+                                console.log(`[ConversationManager] Extracted ${preloadedFilesContent.length} preloaded file contents`);
+                                preloadedFilesContextForExecution += `**이미 읽은 파일 내용 (위 대화 기록에서 확인 가능):**\n\n`;
+                                preloadedFilesContent.forEach(({ path, content }) => {
+                                    const lines = content.split('\n');
+                                    const preview = StringUtils.truncateLines(content, AgentConfig.MAX_FILE_PREVIEW_LINES, '\n... (파일이 길어 일부만 표시)');
+                                    preloadedFilesContextForExecution += `\n**파일: ${path}**\n\`\`\`\n${preview}\n\`\`\`\n`;
+                                });
+                                preloadedFilesContextForExecution += `\n**중요**: 위 파일들은 이미 읽었고 내용이 위에 제공되었습니다.\n` +
+                                    `다시 <read_file>을 호출하지 마세요. 위 내용을 참고하여 작업을 진행하세요.\n`;
+                            } else {
+                                preloadedFilesContextForExecution += `**중요**: 위 파일들은 이미 읽었고, 위 대화 기록에서 파일 내용이 제공되었습니다.\n` +
+                                    `다시 <read_file>을 호출하지 마세요. 위 대화 기록에서 파일 내용을 확인하세요.\n`;
+                            }
+                        }
+
+                        const planContextForExecution =
+                            `\n\n[EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)]\n` +
+                            `CURRENT TASK: ${currentPlanItem.title}` +
+                            (currentPlanItem.detail ? `\nDETAIL: ${currentPlanItem.detail}` : '') +
+                            projectInventoryContext +
+                            preloadedFilesContextForExecution +
+                            `\n\n**🔥 ABSOLUTELY FORBIDDEN (시스템이 자동으로 무시함):**\n` +
+                            `- NO thinking, reasoning, explanation, or meta-analysis\n` +
+                            `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
+                            `- NO natural language text (except inside tool parameters)\n` +
+                            `- NO project exploration (investigation is already complete)\n` +
+                            `- NO re-reading files already provided above\n` +
+                            `- NO plan creation (planning phase is over)\n\n` +
+                            `**✅ REQUIRED OUTPUT (ONLY THIS):**\n` +
+                            `- ONLY executable XML tool calls (<create_file>, <update_file>, <run_command>, etc.)\n` +
+                            `- NO text before or after tool calls\n` +
+                            `- If no tool call is required, output NOTHING (empty response)\n\n` +
+                            `**CRITICAL:** You are a DSL compiler, NOT a human assistant.\n` +
+                            `Any natural language text will be IGNORED by the system.\n` +
+                            `Only XML tool calls will be executed.\n\n` +
+                            `**파일 읽기 전략 (시스템이 자동 관리):**\n` +
+                            `- 위에 이미 제공된 파일 내용을 참고하세요 (다시 읽지 마세요)\n` +
+                            `- 새로 생성/수정할 파일만 필요시 읽으세요\n` +
+                            `- **다중 도구 호출 필수**: 필요한 모든 파일을 한 번에 처리하세요\n` +
+                            `  - 여러 <read_file>, <update_file>, <create_file> 태그를 동시에 출력 가능\n` +
+                            `  - 한 번에 최대한 많은 작업 수행\n` +
+                            `- **Read A + Update A 규칙**: 같은 파일을 읽고 수정하는 것은 시스템이 자동으로 턴을 나눕니다. LLM은 신경 쓰지 마세요.\n\n` +
+                            `이 계획 항목을 실행하기 위해 필요한 모든 XML 도구 호출을 한 번에 즉시 제공하세요.\n` +
+                            `설명 없이 도구만 호출하세요.`;
+
+                        const llmResponseForExecution = await this.llmManager.sendMessageWithSystemPrompt(
+                            activeSystemPrompt + planContextForExecution,
+                            accumulatedUserParts,
+                            { signal: abortSignal }
+                        );
+
+                        const cleanExecutionResponse = llmResponseForExecution.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                        const toolCallsFromExecution = ToolParser.parseToolCalls(cleanExecutionResponse);
+
+                        if (toolCallsFromExecution.length > 0) {
+                            // 도구 실행 로직
+                            const currentProject = ProjectManager.getInstance().getCurrentProject();
+                            const workspaceRoot = currentProject?.root || '';
+
+                            WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabel}도구 실행 중...`);
+
+                            const toolResults = await toolExecutor.executeTools(toolCallsFromExecution, {
+                                projectRoot: workspaceRoot,
+                                workspaceRoot: workspaceRoot,
+                                actionManager,
+                                executionManager,
+                                terminalManager,
+                                contextManager: this.contextManager
+                            });
+
+                            ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromExecution, toolResults);
+
+                            // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
+                            toolCallsFromExecution.forEach((call, index) => {
+                                if (call.name === Tool.READ_FILE && toolResults[index]?.success) {
+                                    const filePath = call.params.path || call.params.paths?.split(',')[0];
+                                    if (filePath) {
+                                        preloadedFiles.add(filePath);
+                                    }
+                                }
+                            });
+
+                            // 파일 변경 추적 (요약 검증용)
+                            ToolExecutionCoordinator.trackFileChanges(toolCallsFromExecution, toolResults, createdFiles, modifiedFiles);
+
+                            const resultSummary = ToolExecutionCoordinator.createToolResultSummary(turnCount, toolCallsFromExecution, toolResults);
+
+                            if (ToolExecutionCoordinator.hasSideEffects(toolCallsFromExecution, toolResults) && currentPlanItem) {
+                                taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
+                                WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+                            }
+
+                            // 다음 계획 항목이 있으면 계속, 없으면 자동 테스트 후 REVIEW로 전환
+                            const nextItem = taskManager.getNextPendingItem();
+                            if (nextItem) {
+                                accumulatedUserParts.push({ text: llmResponseForExecution });
+                                accumulatedUserParts.push({ text: resultSummary });
+                                turnCount++;
+                                continue;
+                            } else {
+                                console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
+                                const currentProject = ProjectManager.getInstance().getCurrentProject();
+                                const workspaceRoot = currentProject?.root || '';
+                                const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                                if (testResult.success) {
+                                    // 테스트 통과 → REVIEW로 전환
+                                    console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                                    stateManager.transitionTo(AgentPhase.REVIEW);
+                                    turnCount++;
+                                    continue; // 다음 루프에서 REVIEW 처리
+                                } else {
+                                    // 테스트 실패 시: 자동 재시도가 켜져 있을 때만 수정 시도
+                                    if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
+                                        testFixAttempts++;
+                                        console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                        accumulatedUserParts.push({
+                                            text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                        });
+                                        turnCount++;
+                                        continue; // EXECUTION 단계 유지하여 수정 시도
+                                    } else {
+                                        if (isAutoTestRetryEnabled) {
+                                            console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                                            WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
+                                        } else {
+                                            console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
+                                            WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
+                                        }
+                                        // 실패해도 REVIEW로 전환하여 요약 생성
+                                        stateManager.transitionTo(AgentPhase.REVIEW);
+                                        turnCount++;
+                                        continue;
+                                    }
+                                }
+                            }
+                        } else {
+                            // LLM을 호출했지만 여전히 도구 호출이 없다면, 해당 plan item을 완료로 간주하고 다음으로 이동
+                            console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
+
+                            // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시
+                            const textResponse = this.responseProcessor.extractResponseText(cleanExecutionResponse);
+                            if (textResponse && textResponse.trim().length > 0) {
+                                console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Displaying in panel.`);
+                                WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', textResponse);
+                                // 텍스트 응답을 accumulatedUserParts에 추가하여 다음 턴에서 참조 가능하도록 함
+                                accumulatedUserParts.push({ text: llmResponseForExecution });
+                            }
+
+                            if (currentPlanItem) {
+                                taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
+                                WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+                            }
+
+                            const nextItem = taskManager.getNextPendingItem();
+                            if (nextItem) {
+                                turnCount++;
+                                continue;
+                            } else {
+                                console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
+                                const currentProject = ProjectManager.getInstance().getCurrentProject();
+                                const workspaceRoot = currentProject?.root || '';
+                                const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+
+                                if (testResult.success) {
+                                    console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                                    stateManager.transitionTo(AgentPhase.REVIEW);
+                                    turnCount++;
+                                    continue;
+                                } else {
+                                    if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
+                                        testFixAttempts++;
+                                        console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                        accumulatedUserParts.push({
+                                            text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                        });
                                         turnCount++;
                                         continue;
                                     } else {
-                                        console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
-                                        const currentProject = ProjectManager.getInstance().getCurrentProject();
-                                        const workspaceRoot = currentProject?.root || '';
-                                        const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
-
-                                        if (testResult.success) {
-                                            console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
-                                            stateManager.transitionTo(AgentPhase.REVIEW);
-                                            turnCount++;
-                                            continue;
+                                        if (isAutoTestRetryEnabled) {
+                                            console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                                            WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
                                         } else {
-                                            if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
-                                                testFixAttempts++;
-                                                console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
-                                                accumulatedUserParts.push({
-                                                    text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
-                                                });
-                                                turnCount++;
-                                                continue;
-                                            } else {
-                                                if (isAutoTestRetryEnabled) {
-                                                    console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
-                                                } else {
-                                                    console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                                    WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
-                                                }
-                                                stateManager.transitionTo(AgentPhase.REVIEW);
-                                                turnCount++;
-                                                continue;
-                                            }
+                                            console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
+                                            WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
                                         }
+                                        stateManager.transitionTo(AgentPhase.REVIEW);
+                                        turnCount++;
+                                        continue;
                                     }
                                 }
                             }
                         }
-
-                        // Plan Item이 이미 완료되지 않았을 때만 LLM 호출
-                        if (!isPlanItemAlreadyDone) {
-                            // 아직 파일이 생성되지 않았고 plan item이 execution kind이면 LLM을 1회 호출하여 tool call 생성
-                            console.log(`[ConversationManager] EXECUTION phase: no tool calls from plan creation, calling LLM once for execution plan item "${currentPlanItem.title}".`);
-
-                            // 🚀 최적화: 프로젝트 파일 인벤토리 제공 (buildProjectInventorySection 활용)
-                            let projectInventoryContext = '';
-                            try {
-                                const projectManager = ProjectManager.getInstance();
-                                const inventory = await projectManager.buildProjectInventorySection(AgentConfig.MAX_PROJECT_INVENTORY_FILES);
-                                if (inventory) {
-                                    projectInventoryContext = `\n\n${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.\n`;
-                                }
-                            } catch (error) {
-                                console.warn('[ConversationManager] Failed to build project inventory:', error);
-                            }
-
-                            // Pre-load된 파일 목록과 실제 내용을 EXECUTION 컨텍스트에 명확하게 포함
-                            // ⚠️ 핵심 수정: Pre-load된 파일의 실제 내용을 accumulatedUserParts에서 추출하여 포함
-                            let preloadedFilesContextForExecution = '';
-                            const preloadedFilesContent: Array<{ path: string; content: string }> = [];
-
-                            // accumulatedUserParts에서 Pre-load된 파일 내용 추출
-                            for (const part of accumulatedUserParts) {
-                                if (part.text && part.text.includes('[System] ⚠️ **이미 읽은 파일')) {
-                                    // 파일 경로와 내용 추출
-                                    const fileMatch = part.text.match(/이미 읽은 파일.*?\): (.+?)\n/);
-                                    const contentMatch = part.text.match(/```\n([\s\S]*?)\n```/);
-                                    if (fileMatch && contentMatch) {
-                                        preloadedFilesContent.push({
-                                            path: fileMatch[1],
-                                            content: contentMatch[1]
-                                        });
-                                    }
-                                }
-                            }
-
-                            if (preloadedFiles.size > 0 || preloadedFilesContent.length > 0) {
-                                const preloadedFilesArray = Array.from(preloadedFiles);
-                                preloadedFilesContextForExecution = `\n\n**⚠️ 이미 읽은 파일 목록 (다시 읽지 마세요):**\n${preloadedFilesArray.map(f => `- ${f}`).join('\n')}\n\n`;
-
-                                // Pre-load된 파일의 실제 내용 제공
-                                if (preloadedFilesContent.length > 0) {
-                                    preloadedFilesContextForExecution += `**이미 읽은 파일 내용 (위 대화 기록에서 확인 가능):**\n\n`;
-                                    preloadedFilesContent.forEach(({ path, content }) => {
-                                        const lines = content.split('\n');
-                                        const preview = StringUtils.truncateLines(content, AgentConfig.MAX_FILE_PREVIEW_LINES, '\n... (파일이 길어 일부만 표시)');
-                                        preloadedFilesContextForExecution += `\n**파일: ${path}**\n\`\`\`\n${preview}\n\`\`\`\n`;
-                                    });
-                                    preloadedFilesContextForExecution += `\n**중요**: 위 파일들은 이미 읽었고 내용이 위에 제공되었습니다.\n` +
-                                        `다시 <read_file>을 호출하지 마세요. 위 내용을 참고하여 작업을 진행하세요.\n`;
-                                } else {
-                                    preloadedFilesContextForExecution += `**중요**: 위 파일들은 이미 읽었고, 위 대화 기록에서 파일 내용이 제공되었습니다.\n` +
-                                        `다시 <read_file>을 호출하지 마세요. 위 대화 기록에서 파일 내용을 확인하세요.\n`;
-                                }
-                            }
-
-                            const planContextForExecution =
-                                `\n\n[EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)]\n` +
-                                `CURRENT TASK: ${currentPlanItem.title}` +
-                                (currentPlanItem.detail ? `\nDETAIL: ${currentPlanItem.detail}` : '') +
-                                projectInventoryContext +
-                                preloadedFilesContextForExecution +
-                                `\n\n**🔥 ABSOLUTELY FORBIDDEN (시스템이 자동으로 무시함):**\n` +
-                                `- NO thinking, reasoning, explanation, or meta-analysis\n` +
-                                `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
-                                `- NO natural language text (except inside tool parameters)\n` +
-                                `- NO project exploration (investigation is already complete)\n` +
-                                `- NO re-reading files already provided above\n` +
-                                `- NO plan creation (planning phase is over)\n\n` +
-                                `**✅ REQUIRED OUTPUT (ONLY THIS):**\n` +
-                                `- ONLY executable XML tool calls (<create_file>, <update_file>, <run_command>, etc.)\n` +
-                                `- NO text before or after tool calls\n` +
-                                `- If no tool call is required, output NOTHING (empty response)\n\n` +
-                                `**CRITICAL:** You are a DSL compiler, NOT a human assistant.\n` +
-                                `Any natural language text will be IGNORED by the system.\n` +
-                                `Only XML tool calls will be executed.\n\n` +
-                                `**파일 읽기 전략 (시스템이 자동 관리):**\n` +
-                                `- 위에 이미 제공된 파일 내용을 참고하세요 (다시 읽지 마세요)\n` +
-                                `- 새로 생성/수정할 파일만 필요시 읽으세요\n` +
-                                `- **다중 도구 호출 필수**: 필요한 모든 파일을 한 번에 처리하세요\n` +
-                                `  - 여러 <read_file>, <update_file>, <create_file> 태그를 동시에 출력 가능\n` +
-                                `  - 한 번에 최대한 많은 작업 수행\n` +
-                                `- **Read A + Update A 규칙**: 같은 파일을 읽고 수정하는 것은 시스템이 자동으로 턴을 나눕니다. LLM은 신경 쓰지 마세요.\n\n` +
-                                `이 계획 항목을 실행하기 위해 필요한 모든 XML 도구 호출을 한 번에 즉시 제공하세요.\n` +
-                                `설명 없이 도구만 호출하세요.`;
-
-                            const llmResponseForExecution = await this.llmManager.sendMessageWithSystemPrompt(
-                                activeSystemPrompt + planContextForExecution,
-                                accumulatedUserParts,
-                                { signal: abortSignal }
-                            );
-
-                            const cleanExecutionResponse = llmResponseForExecution.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                            const toolCallsFromExecution = ToolParser.parseToolCalls(cleanExecutionResponse);
-
-                            if (toolCallsFromExecution.length > 0) {
-                                // 도구 실행 로직
-                                const currentProject = ProjectManager.getInstance().getCurrentProject();
-                                const workspaceRoot = currentProject?.root || '';
-
-                                WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
-                                WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `${phaseLabel}도구 실행 중...`);
-
-                                const toolResults = await toolExecutor.executeTools(toolCallsFromExecution, {
-                                    projectRoot: workspaceRoot,
-                                    workspaceRoot: workspaceRoot,
-                                    actionManager,
-                                    executionManager,
-                                    terminalManager,
-                                    contextManager: this.contextManager
-                                });
-
-                                ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromExecution, toolResults);
-
-                                // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
-                                toolCallsFromExecution.forEach((call, index) => {
-                                    if (call.name === Tool.READ_FILE && toolResults[index]?.success) {
-                                        const filePath = call.params.path || call.params.paths?.split(',')[0];
-                                        if (filePath) {
-                                            preloadedFiles.add(filePath);
-                                        }
-                                    }
-                                });
-
-                                // 파일 변경 추적 (요약 검증용)
-                                ToolExecutionCoordinator.trackFileChanges(toolCallsFromExecution, toolResults, createdFiles, modifiedFiles);
-
-                                const resultSummary = ToolExecutionCoordinator.createToolResultSummary(turnCount, toolCallsFromExecution, toolResults);
-
-                                if (ToolExecutionCoordinator.hasSideEffects(toolCallsFromExecution, toolResults) && currentPlanItem) {
-                                    taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
-                                    WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
-                                }
-
-                                // 다음 계획 항목이 있으면 계속, 없으면 자동 테스트 후 REVIEW로 전환
-                                const nextItem = taskManager.getNextPendingItem();
-                                if (nextItem) {
-                                    accumulatedUserParts.push({ text: llmResponseForExecution });
-                                    accumulatedUserParts.push({ text: resultSummary });
-                                    turnCount++;
-                                    continue;
-                                } else {
-                                    console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
-                                    const currentProject = ProjectManager.getInstance().getCurrentProject();
-                                    const workspaceRoot = currentProject?.root || '';
-                                    const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
-
-                                    if (testResult.success) {
-                                        // 테스트 통과 → REVIEW로 전환
-                                        console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
-                                        stateManager.transitionTo(AgentPhase.REVIEW);
-                                        turnCount++;
-                                        continue; // 다음 루프에서 REVIEW 처리
-                                    } else {
-                                        // 테스트 실패 시: 자동 재시도가 켜져 있을 때만 수정 시도
-                                        if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
-                                            testFixAttempts++;
-                                            console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
-                                            accumulatedUserParts.push({
-                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
-                                            });
-                                            turnCount++;
-                                            continue; // EXECUTION 단계 유지하여 수정 시도
-                                        } else {
-                                            if (isAutoTestRetryEnabled) {
-                                                console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
-                                            } else {
-                                                console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
-                                            }
-                                            // 실패해도 REVIEW로 전환하여 요약 생성
-                                            stateManager.transitionTo(AgentPhase.REVIEW);
-                                            turnCount++;
-                                            continue;
-                                        }
-                                    }
-                                }
-                            } else {
-                                // LLM을 호출했지만 여전히 도구 호출이 없다면, 해당 plan item을 완료로 간주하고 다음으로 이동
-                                console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
-
-                                // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시
-                                const textResponse = this.responseProcessor.extractResponseText(cleanExecutionResponse);
-                                if (textResponse && textResponse.trim().length > 0) {
-                                    console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Displaying in panel.`);
-                                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', textResponse);
-                                    // 텍스트 응답을 accumulatedUserParts에 추가하여 다음 턴에서 참조 가능하도록 함
-                                    accumulatedUserParts.push({ text: llmResponseForExecution });
-                                }
-
-                                if (currentPlanItem) {
-                                    taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
-                                    WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
-                                }
-
-                                const nextItem = taskManager.getNextPendingItem();
-                                if (nextItem) {
-                                    turnCount++;
-                                    continue;
-                                } else {
-                                    console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
-                                    const currentProject = ProjectManager.getInstance().getCurrentProject();
-                                    const workspaceRoot = currentProject?.root || '';
-                                    const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
-
-                                    if (testResult.success) {
-                                        console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
-                                        stateManager.transitionTo(AgentPhase.REVIEW);
-                                        turnCount++;
-                                        continue;
-                                    } else {
-                                        if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
-                                            testFixAttempts++;
-                                            console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
-                                            accumulatedUserParts.push({
-                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(<update_file>)으로 해결하세요.\n- <create_file>을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
-                                            });
-                                            turnCount++;
-                                            continue;
-                                        } else {
-                                            if (isAutoTestRetryEnabled) {
-                                                console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', getTestRetryExceededMessage(maxTestFixAttempts, testResult.errorMessage || '알 수 없는 오류'));
-                                            } else {
-                                                console.log(`[ConversationManager] 자동 테스트 재시도가 비활성화되어 있습니다. REVIEW로 전환합니다.`);
-                                                WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 자동 테스트가 실패했습니다:\n${testResult.errorMessage || '알 수 없는 오류'}\n`);
-                                            }
-                                            stateManager.transitionTo(AgentPhase.REVIEW);
-                                            turnCount++;
-                                            continue;
-                                        }
-                                    }
-                                }
-                            }
-                        } // if (!isPlanItemAlreadyDone) 블록 닫기
                     } else {
                         // 이미 파일이 생성된 경우: LLM 호출 없이 plan item 완료 처리
                         console.log('[ConversationManager] EXECUTION phase: plan item has no executable tool calls and files already exist. Marking as done without additional LLM call.');
