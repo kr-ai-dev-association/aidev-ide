@@ -6,6 +6,194 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v7.0.1 (Probability-Based Decision Logic Consistency Improvements)
+- **Centralized Threshold Management**: All probability-based decision thresholds (confidence, thresholds, percentages) are now centralized in `AgentConfig.ts` for better maintainability and consistency.
+- **Consistent Confidence Values**: Unified confidence values for the same purposes:
+  - Local detection: All set to 0.8 (previously 0.7, 0.8 mixed)
+  - Framework detection: Express also set to 0.8 (previously 0.7)
+  - Python project detection: Django 0.9, Flask/FastAPI 0.85, General 0.8
+  - Error fix confidence: Automated 0.9, Semi-auto 0.85, Manual 0.7
+- **Hierarchical Confidence System**: Implemented a hierarchical confidence system based on detection methods:
+  - `DEPENDENCY_BASED` (0.95): package.json dependencies (most accurate)
+  - `FILE_BASED` (0.9): Configuration file existence
+  - `LOCAL_HEURISTIC` (0.8): Local file pattern matching
+  - `KEYWORD_BASED` (0.7): User query keywords (least certain)
+- **Updated Files**: Replaced hardcoded values with `AgentConfig` constants in:
+  - `ProjectManager.ts`, `ProjectDetector.ts`, `FileMutationManager.ts`
+  - `UpdateFileToolHandler.ts`, `tokenUtils.ts`, `ActionMapper.ts`
+  - `ErrorManager.ts`, `KeywordSelector.ts`
+- **Documentation**: Created `PROBABILITY_BASED_DECISIONS.md` documenting all probability-based decision logic, improvements, and removed logic history.
+
+## v7.1.0 (Prompt File Consolidation and Structure Improvements)
+- **Prompt File Consolidation**: Consolidated scattered prompt files by category to significantly improve maintainability.
+  - `base/` directory (11 files) → consolidated into `base.ts`: All basic prompt components including `agentRole`, `objective`, `rules`, `fileOperations`, `codeVsScript`, `codeGeneration`, `errorCorrection`, `outputFormat`, `tools`, `terminalCommands`, `commonRules` unified into a single file
+  - `rules/` directory (2 files) → consolidated into `rules.ts`: `executionFirst` and `errorRetry` rule prompts unified
+  - `task/` directory (3 files) → consolidated into `task.ts`: `CodeWorkPrompt`, `ExecutionWorkPrompt`, and `summarize` task-type prompts unified
+  - `phase/` directory (2 files) → consolidated into `phase.ts`: `investigation` and `execution` phase prompts unified
+- **Import Path Cleanup**: Updated all prompt import paths across the codebase to match the consolidated file structure for consistency.
+- **Code Structure Improvement**: Reduced prompt files from 18 to 4, making file navigation and modification much easier.
+
+## v7.0.0 (Refactoring & Analysis Response Generation Logic Improvements)
+- **Refactoring: Improved `ripgrep_search` Result Parsing**: Modified `RipgrepSearchToolHandler` to return the original `SearchResult[]` array as `rawResults` alongside formatted results, enabling the auto-answer generation logic to parse correctly.
+- **Refactoring: Improved Function Name Extraction Logic**: Changed the priority to extract function names from user queries first. Now accurately extracts "test" from queries like "test 함수가 어디에 있어?".
+- **Refactoring: Prevent Duplicate Auto-Investigation Tool Execution**: Added auto-investigation tools to `executedInTurn` to prevent duplicate execution when the LLM calls the same tool again.
+- **Analysis Response Generation Logic Improvements**: Enhanced to automatically generate answers when `ripgrep_search` results exist, even without `investigation_done` token. Generates answers by directly parsing search results without LLM calls.
+- **Fixed Duplicate Output Issue**: When `ripgrep_search` results exist, the auto-answer generation logic takes priority over LLM-generated direct answers to prevent duplicate output.
+- **`ripgrep_search` Pattern Parsing Error Handling**: Added validation logic to skip calls and add warnings when `ripgrep_search`'s `pattern` parameter is missing or empty.
+- **Summary Korean Language Enforcement**: Added explicit instructions to the prompt to ensure summaries generated in the REVIEW phase are always output in Korean.
+
+## v6.10.0 (Execution-First Detection Logic Unification & FSM Consistency)
+- **Execution-First Detection Logic Unification**: Unified execution-first task detection into a common function `isExecutionFirstTask()` to apply consistent criteria across all locations. Tasks like `code_generate` and `code_run` are now consistently handled in both initial and subsequent detections, ensuring correct FSM state transitions, tool permissions, and retry/auto-transition behavior.
+- **Logical Operator Precedence Clarification**: Added parentheses to clarify logical operator precedence in phase transition conditions for correct behavior.
+
+## v6.9.0 (Analysis Response Display Fix)
+- **Analysis Response Panel Display Fix**: Fixed the issue where analysis responses generated after `investigation_done` were not displayed in the panel. Changed the `'Assistant'` sender to `'CODEPILOT'` in `WebviewBridge.receiveMessage` so that the webview processes it correctly.
+
+## v6.8.0 (Test Retry Logic Improvements & TypeScript Validation Order Optimization)
+- **EXECUTION Phase Tool Execution Guarantee**: Fixed the issue where `run_command` was blocked in EXECUTION phase. Now, fix commands suggested by the LLM after test failures (e.g., `npm install`) execute properly.
+- **Test Retry Prompt Enhancement**: Added guidance "Do not create files that already exist" to the test retry prompt to prevent duplicate file creation issues.
+- **Improved REVIEW Transition After Test Success**: Enhanced logic to immediately transition to REVIEW phase after test success. When all tools are blocked in EXECUTION phase and there are no remaining tasks, the system automatically transitions to REVIEW.
+- **TypeScript Validation Order Optimization**: Improved validation order for TypeScript projects to run `tsc --noEmit` first, then lint tools. Type errors are checked before lint errors.
+- **Settings Panel UI Synchronization Fix**: Fixed the issue where saved `autoTestRetryEnabled` value was not reflected in the toggle when reopening the settings panel.
+- **Validation Command Decision Criteria**: When `getValidationCommand()` returns null, the system queries the LLM. null indicates that no validation command can be safely determined through rule-based logic, and the LLM is used only as a fallback inference mechanism in this case. This design handles project types or special cases not covered by hardcoded rules.
+
+## v6.7.0 (Auto Test Control & Investigation Phase Improvements)
+- **Auto Test Execution Control**: Automated tests (Smoke Test, Lint Check) and error messages are now only executed and displayed when the "auto test retry" setting is enabled. When disabled, tests are skipped entirely and no error messages are shown.
+- **INVESTIGATION Phase Tool Transition**: When execution tools are blocked in the INVESTIGATION phase, the system now automatically transitions to EXECUTION phase and executes the tools together, ensuring smooth phase transitions.
+- **Unified File List Format**: INVESTIGATION phase now uses the same `[D] [F]` formatted file inventory as EXECUTION phase for consistency. The `formatFileTree` method has been removed in favor of `buildProjectInventorySection`.
+
+## v6.6.0 (LLM Call Optimization Complete & Execution Guarantee)
+- **LLM Call Optimization Complete**: 
+  - Completely removed LLM calls in the DONE phase.
+  - Ensured that both test pass and failure cases go through the REVIEW phase for summary generation.
+  - Prevented duplicate test execution before loop termination to eliminate unnecessary LLM calls.
+- **EXECUTION Phase Execution Guarantee**: 
+  - Strengthened FSM transition conditions to prevent transitioning to EXECUTION when only a plan is provided without tool calls during INVESTIGATION.
+  - Improved the EXECUTION phase to call the LLM when a plan item has no executable tool calls, ensuring all plan items are actually executed.
+  - All plan items are now guaranteed to be executed and files are created.
+- **CODE/ASK Color Swap**: Swapped colors so CODE mode is blue and ASK mode is green for better visual distinction.
+
+## v6.5.0 (LLM Call Optimization & Execution Logic Improvements)
+- **EXECUTION Phase Execution Logic Improvement**: Fixed the issue where the system would transition to EXECUTION phase even when only a plan was provided without tool calls during INVESTIGATION. Now, the system only transitions to EXECUTION after investigation is complete, preventing premature termination without file creation.
+- **Plan Item Execution Guarantee**: Improved the EXECUTION phase to call the LLM when a plan item has no executable tool calls, ensuring all plan items are actually executed and files are created.
+- **LLM Call Optimization**: 
+  - Confirmed and fixed that no LLM calls occur in the DONE phase.
+  - Improved flow so that both test pass and failure cases go through the REVIEW phase for summary generation.
+  - Prevented duplicate test execution before loop termination to eliminate unnecessary LLM calls.
+- **CODE/ASK Color Swap**: Swapped colors so CODE mode is blue and ASK mode is green for better visual distinction.
+
+## v6.4.0 (Investigation Phase Strengthening & UI Improvements)
+- **Enhanced Investigation Phase Prompts**: Strengthened prompts to strictly prohibit including execution tools (`<create_file>`, `<update_file>`, etc.) alongside `<plan>` tags in the same response. The investigation phase now clearly instructs to use only read-only tools and submit plans only.
+- **Task Plan Popup UI Improvement**: Fixed the issue where task titles and details were displayed on the same line in the task plan popup. Titles and details are now displayed on separate lines for improved readability.
+- **Verification Step-by-Step Status Display**: Real-time display of code verification (Smoke Test, Lint Check) progress. Each step (project type detection, Smoke Test execution, Lint Check execution) is shown in `processSteps` so users can clearly track the verification process.
+- **REVIEW Phase LLM Call Optimization**: Fixed the issue where the LLM was called twice during summary generation in the REVIEW phase. `generateVerifiedSummary` now only calls the LLM when there is no original summary, optimizing it to a single call.
+
+## v6.3.0 (Lightweight FSM & Plan-First Architecture)
+- **Lightweight FSM Implementation**: Introduced `AgentStateManager` for centralized state management with strict transition rules and output contracts.
+- **State Transition Validation**: Enforces valid state transitions (INVESTIGATION → EXECUTION) with pre-transition condition checks.
+- **Output Contract Enforcement**: Each state (INVESTIGATION, EXECUTION) has explicit rules for allowed outputs (plan tags, tool calls, text-only responses).
+- **Blind Planning Prevention**: INVESTIGATION phase now requires tool calls or investigation history before transitioning to EXECUTION, preventing plans without information gathering.
+- **Batch File Reading**: `read_file` tool now supports reading multiple files in a single call using multiple `<path>` tags or a `<paths>` parameter.
+- **Automatic Plan Item Completion**: EXECUTION phase automatically marks plan items as done when LLM provides summary-only responses without tool calls.
+- **Investigation History Tracking**: System tracks investigation tool usage to validate state transitions and prevent premature execution.
+
+## v6.2.0 (High-Performance Search & Token Efficiency)
+- **Ripgrep-Powered Fast Search**: Added `ripgrep_search` tool for high-speed keyword and regex searching in large codebases.
+- **Contextual Results**: Search results now include multi-line code context (before/after matching lines) with pipe separators for better LLM understanding.
+- **Token Usage Optimization**: 
+  - Prohibited intermediate text summaries during tool calls to save tokens and improve speed. 
+  - Detailed Korean summaries are now only provided at the final turn of the task.
+- **Improved JSONC Parsing**: Added support for comments and trailing commas in configuration files (e.g., `tsconfig.json`, `jsconfig.json`) using a custom JSONC cleaner.
+- **Gemini Plan Parsing Fix**: Added explicit prompt instructions to prevent Gemini from using numbered lists in plans, enforcing the required XML structure.
+- **Log Management**: Truncated long LLM responses and removed redundant logging in the console to improve developer experience.
+
+## v6.1.1 (True LLM-Only Intent & Bug Fixes)
+- **True LLM-Only Intent Detection**: Completely removed `keywords` dependency from the intent analysis pipeline. The system now relies 100% on LLM reasoning for classification without any heuristic keyword matching.
+- **UI Simplification**: Removed the redundant "Keyword Analysis" step from the processing steps UI for a faster and cleaner agentic flow.
+- **Intent Engine Stability**: Fixed critical compilation errors in the `IntentDetector` by restoring subtype-to-category mapping logic.
+
+## v6.1.0 (UI Refinement & Unified Intent Detection)
+- **Model Selection UI Refinement**: Added visual color bars (Gemini: Blue, Ollama: Orange) to the chat model dropdown for better differentiation and consistent styling.
+- **LLM-Only Intent Detection Engine**: Refactored `IntentDetector` to rely 100% on the currently active LLM (Gemini or Ollama) for intent classification, removing all hardcoded keyword matching and heuristic fallbacks.
+- **Branding Consistency (CODEPILOT)**: Standardized branding to "CODEPILOT" across the chat panel, settings UI, and localization files.
+- **Gemini Model Optimization**: Updated the default Gemini model to `gemini-3-pro-preview` and refined selection options.
+- **Responsive UI Layout**: Fixed layout issues in the settings panel where dropdowns would not expand correctly on narrower screens.
+- **Simplified Features**: Removed the unused "Planning (Reasoning)" feature to provide a cleaner and more focused user experience.
+
+## v6.0.0 (LLM-Only Intent & Intelligent Error Handling)
+- **LLM-Only Intent Detection**: Completely removed hardcoded keyword matching in favor of 100% LLM-driven intent classification for higher accuracy and flexibility.
+- **Intelligent Repeated Failure Detection**: Implemented logic to detect and alert the LLM when the same tool fails repeatedly, providing specific guidance (e.g., checking file existence) to encourage self-correction.
+- **Enhanced UI Localization**: Replaced raw English tool names with user-friendly Korean labels in the process steps UI.
+- **Improved Task Queue Visibility**: Fixed rendering issues where the task queue popup was hidden or non-interactive in the webview.
+- **Softened Agent Constraints**: Updated the Investigation phase to allow more autonomous agent behavior, permitting the LLM to decide when to move from investigation to execution.
+- **Aggressive Self-Correction**: Enhanced API-level retries for empty responses and added strict rules to ensure every turn produces actionable output.
+
+## v5.2.2 (LLM Autonomy & Intent Refactor)
+- **Enhanced Intent Refactor**: Moved towards a more LLM-driven intent detection, reducing reliance on hardcoded keywords for better flexibility.
+- **LLM Self-Correction (Ollama)**: Implemented a robust self-correction logic that automatically retries and nudges the model if it provides internal thoughts (`thinking`) without actionable XML tool calls.
+- **Action-First System Prompts**: Strengthened global rules to enforce that every turn must include at least one XML tool call, treating explanation-only responses as system errors.
+- **Cleaned Conversation Loop**: Removed redundant manual nudging in favor of improved system prompts and API-level self-correction for a more natural agentic flow.
+
+## v5.2.1 (Task Queue UI Revolution & Reliability)
+- **Floating Task Queue**: Re-introduced the Task Queue as a dynamic, React-based floating popup.
+  - **Live Status Sync**: Real-time synchronization of task status (`pending`, `in_progress`, `done`).
+  - **Visual Progress**: Completion progress indicator (e.g., "2/5 tasks done") in the header.
+  - **Animated Status**: Pulsing circle icons for active tasks to provide clear visual feedback.
+  - **Control Features**: Minimize/maximize and close functionality for a less intrusive UI.
+- **Reliability Improvements**:
+  - **Automatic Cleanup**: Task queue is now automatically cleared and hidden when a new request starts.
+  - **Turn-based Deduplication**: Prevents duplicate tool execution (e.g., redundant `read_file` calls) within a single turn to declutter UI logs.
+  - **Smart Task Completion**: Automatically marks remaining tasks as done when the agent successfully finishes the loop.
+  - **Side-Effect Tracking**: Immediate status updates for tasks causing file or system changes.
+- **Log Optimization**: Removed unnecessary internal system headers from console output for a cleaner debugging experience.
+
+## v5.2.0 (Investigation Manager & UI/UX Transformation)
+- **Investigation Manager**:
+  - **Read-Only Phase**: Enforces a mandatory "Investigation" phase before any code modification. Only read tools (`read_file`, `list_files`, `search_files`) are allowed.
+  - **Strict Phase Transition**: Transition to the "Execution" phase occurs only after a valid, strictly formatted `<plan>` is submitted and approved.
+  - **Safe Deletion Rules**: Implemented strict rules against arbitrary file deletion. `remove_file` is only permitted when explicitly requested by the user or specified in an approved plan.
+- **UI/UX Revolution**:
+  - **Phase Labels**: Real-time status now includes `[Investigation]` and `[Execution]` labels to clearly show the agent's current mode.
+  - **Consolidated Status**: Removed `TaskQueue` panel and top `ProcessingSteps`. All progress is integrated into a terminal-style loading area with typing animation.
+  - **Conditional Sticky Bar**: The processing status bar stays inline when visible and sticks to the top when scrolled out of view.
+- **Enhanced Agentic Loop**:
+  - **Strict Plan Format**: Enforces a strict XML structure for plans (`<plan><item>...`) to ensure clarity and actionable steps.
+  - **Interleaved Execution**: Displays LLM reasoning and tool results (with code previews) in sequence for maximum transparency.
+  - **Smart Nudging**: Nudges the LLM to take action or create plans when it only provides analysis without proceeding.
+- **Robust Tooling & Intent Detection**:
+  - **Advanced update_file**: Implemented fuzzy matching, block anchors, and structural matching for resilient file edits.
+  - **Intent Detection Fix**: Improved classification for TypeScript compilation and lint errors, correctly routing them to code modification tasks.
+  - **Smart list_files Filtering**: Automatically excludes `node_modules`, `.git`, and build folders from listings.
+
+## v5.1.3 (External API Removal)
+- **External API removal**: Removed all external API integrations (Weather, Stock, News APIs)
+  - Removed Weather API integration (Korean Meteorological Administration API)
+  - Removed Stock API integration (Alpha Vantage API)
+  - Removed News API integration (Naver News API)
+  - Removed all related UI components, settings, and handlers
+  - Cleaned up configuration entries and state management code
+
+## v5.1.2 (LLM Autonomy & Enhanced File Modification)
+- **LLM autonomy**: Removed system-generated follow-ups. LLM now autonomously decides when to retry failed operations and generate subsequent tool calls
+- **Enhanced update_file matching**: 
+  - Line-trimmed matching: Compares lines after trimming whitespace (preserves indentation structure)
+  - Block anchor matching: Uses first/last lines as anchors for 3+ line blocks
+  - Improved error messages: Includes latest file content when SEARCH pattern fails, allowing LLM to self-correct
+- **Korean prompt translation**: All tool-related prompts translated to Korean for better LLM understanding.
+- **CDATA section handling**: Added `removeCDataSections()` utility to handle LLM-generated CDATA sections in file operations.
+- **Error handling improvements**: Failed `update_file` operations now include latest file content in error messages, enabling LLM to retry with correct patterns.
+
+## v5.1.1 (Tree-sitter Based Function Location Search & read_file Display Improvement)
+- **Tree-sitter integration**: Uses tree-sitter AST parsing instead of regex to accurately find function/class locations.
+- **read_file display improvement**: Shows only the context around a specific line (5 lines above and below) instead of the entire file for better readability.
+- **Task queue count alignment**: Excludes `list_files` from successCount/failCount so the task queue display count matches the execution completion count.
+- **Duplicate display removal**: Follow-up tool call `read_file` results are not displayed to prevent duplicate output.
+- **Automatic function location search**: Extracts function names from user queries and uses tree-sitter to find accurate declaration locations.
+
+## v5.0.11 (Processing Steps UI Improvement)
+- **ProcessingSteps status update fix**: Fixed issue where `updateProcessingStatus` messages were not displaying progress when no initial step was set. Now automatically creates a new step if it doesn't exist when receiving status updates.
+- **Debug logging**: Added console logging for `setProcessingStep` and `updateProcessingStatus` commands to help diagnose progress display issues.
+
 ## v5.0.10 (File Context Tracker Integration & Stability Guard)
 - **FileContextTracker integration**: `FileContextTracker` is now wired into both `ContextManager.collectFileContext` and `ActionManager` so that files are only read after they have stabilized on disk.
 - **Pre-action stability guard**: Before executing `CODE_GENERATION` and `FILE_OPERATION` actions, `ActionManager` calls `trackFile()` and `waitForFileStability()` to avoid reading half-written files when immediately re-collecting context.
@@ -410,19 +598,6 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Drag & Drop Interface**: Easy image attachment via clipboard paste
 - **Visual Context**: AI can analyze screenshots, diagrams, and code images
 
-### 🌐 Real-Time Information Services
-- **Weather Information**: Korean Meteorological Administration API integration
-  - Current weather conditions and forecasts
-  - 7-day weather predictions
-  - Location-specific weather data
-- **News Updates**: NewsAPI integration for latest headlines
-  - Topic-specific news searches
-  - Real-time news aggregation
-  - Source attribution and timestamps
-- **Stock Market Data**: Alpha Vantage API integration
-  - Real-time stock prices and changes
-  - Major stock tracking (AAPL, GOOGL, MSFT, TSLA, AMZN)
-  - Percentage change calculations
 
 ### 🔢 Token Management System
 - **Input Token Calculation**: Automatic token counting for both Gemini and Ollama models
@@ -445,11 +620,8 @@ VSCode base code assistant plugin with LLM and LM support.
     - Vessl AI Cluster: `https://model-service-gateway-xxx.eu.h100-cluster.vessl.ai` + `/api/chat`
   - **Dynamic Settings**: Enable/disable model-specific settings based on selection
   - **Automatic Migration**: Legacy 'ollama' settings automatically converted to specific model types
-- **API Key Management**: Secure storage for multiple external API keys
+- **API Key Management**: Secure storage for API keys
   - Gemini API key configuration
-  - Weather API key configuration
-  - News API credentials (Client ID & Secret)
-  - Stock API key management
   - **Banya License Management**: 
     - Encrypted license serial storage with AES-256-CBC
     - Firebase Firestore verification system
@@ -605,7 +777,7 @@ VSCode base code assistant plugin with LLM and LM support.
 #### Version 3.0.0 - Major Update (2025/10/04)
 - **Terminal-Daemon Integration**:
   - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs
-  - Logs stream to the `AIDEV-IDE Terminal Capture` output channel
+  - Logs stream to the `CODEPILOT Terminal Capture` output channel
   - Only truly interactive commands open the single reused `aidev-ide Terminal`
 - **Cleaner Output**: PTY ANSI control sequences are stripped so logs render cleanly in Output
 - **Stronger Error Monitoring**: Expanded detection for npm errors (e.g., "Missing script:"), "Exit status X", and "Process exited (code X)", auto-forwarded to chat and LLM for fixes
@@ -649,8 +821,6 @@ VSCode base code assistant plugin with LLM and LM support.
 ### 📋 Usage Examples
 - **Code Generation**: "Create a React component for user authentication"
 - **Code Modification**: "Add error handling to this function"
-- **Real-time Info**: "What's the weather in Seoul?" or "Show me the latest tech news"
-- **Stock Queries**: "What are the current stock prices?"
 - **File Operations**: "Create a new utility file for date formatting"
 - **File Selection**: Use the @ button to select specific files for context inclusion
 - **CODE Tab Operations**: "Analyze and refactor this code" (full file operations)
@@ -726,10 +896,6 @@ VSCode base code assistant plugin with LLM and LM support.
    ollama pull codellama:7b
    ```
 
-3. **Optional External APIs**
-   - **Weather API**: Get API key from [KMA API Hub](https://apihub.kma.go.kr/)
-   - **News API**: Get Client ID & Secret from [Naver Developers](https://developers.naver.com/)
-   - **Stock API**: Get API key from [Alpha Vantage](https://www.alphavantage.co/)
 
 ### CLI binaries: PATH and aliases (optional)
 To run bundled binaries directly from your terminal, add PATH entries or aliases in your shell profile (macOS zsh example).
@@ -807,10 +973,6 @@ npm run lint
    - Ask: "What is TypeScript?"
    - Verify informative response
    
-   # Test real-time information
-   - Ask: "What's the weather in Seoul?"
-   - Ask: "Show me latest tech news"
-   - Ask: "What are current stock prices?"
    ```
 
 4. **Settings Testing**
@@ -872,7 +1034,13 @@ Calling out known issues can help limit users opening duplicate issues against y
 Please see [RELEASE.md](RELEASE.md).
 
 ### Latest Release
-- **🚀 Version 4.9.0** (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
+- **🚀 Version 5.1.0** (2025/12/23) - XML Tool-Only Prompts & Tool UX Polish  
+  - **XML-only prompts**: Removed markdown file directives; fileOperations/outputFormat/CodeWorkPrompt simplified to XML tool calls only.  
+  - **Required content for create_file**: Prompt enforces non-empty `content`; prevents empty-file errors.  
+  - **Task queue UX**: `list_files` tool calls are hidden from the job queue to reduce noise.  
+  - **Tool docs**: Added `prompt.md` and updated `ARCHITECTURE.md` for new tool layout (`tools/file`, `tools/terminal`, `tools/code`).  
+  - **Response discipline**: Stronger guidance to leave `thinking` empty and place XML tool calls in `response` only.
+- **Version 4.9.0** (2025/11/05) - Command Execution Summary Enhancement & Task Queue Completion Status
   - **Command Execution Summary Descriptions**: User-friendly description phrases for each command in execution summary
   - **Automatic Task Queue Status Updates**: Task queue items automatically update status when terminal commands are executed
   - **Real-time Webview Updates**: Task queue status changes are immediately reflected in the webview

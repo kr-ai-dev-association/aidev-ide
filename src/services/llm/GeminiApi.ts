@@ -13,11 +13,7 @@ export class GeminiApi {
     private genAI: GoogleGenerativeAI | undefined;
     private model: any; // SDK의 GenerativeModel 타입으로 지정 권장 (GenerativeModel)
     public apiKey: string | undefined;
-
-    private readonly MODEL_NAME = "gemini-flash-latest";
-    //private readonly MODEL_NAME = "gemini-1.5-flash";
-    //private readonly MODEL_NAME = "gemini-1.5-pro";
-    //private readonly MODEL_NAME = "gemini-2.0-flash-exp"; // Experimental
+    private modelName: string = "gemini-3-pro-preview";
 
     private readonly defaultGenerationConfig: GenerationConfig = {
         temperature: 0.7,
@@ -73,20 +69,20 @@ export class GeminiApi {
             this.genAI = new GoogleGenerativeAI(apiKey);
             console.log('[GeminiApi] GoogleGenerativeAI instance created', {
                 genAI: !!this.genAI,
-                modelName: this.MODEL_NAME
+                modelName: this.modelName
             });
-            
+
             console.log('[GeminiApi] Getting generative model...');
             this.model = this.genAI.getGenerativeModel({
-                model: this.MODEL_NAME,
+                model: this.modelName,
                 safetySettings: this.defaultSafetySettings,
             });
             console.log('[GeminiApi] Generative model obtained', {
                 model: !!this.model
             });
-            
-            console.log(`[GeminiApi] API initialized with model: ${this.MODEL_NAME}${systemInstructionText ? " and system instruction." : "."}`);
-            
+
+            console.log(`[GeminiApi] API initialized with model: ${this.modelName}${systemInstructionText ? " and system instruction." : "."}`);
+
             // 초기화 후 검증
             const isInitialized = this.isInitialized();
             console.log('[GeminiApi] Initialization verification', {
@@ -94,7 +90,7 @@ export class GeminiApi {
                 model: !!this.model,
                 isInitialized: isInitialized
             });
-            
+
             if (!isInitialized) {
                 console.error('[GeminiApi] API initialization failed: genAI or model is null/undefined', {
                     genAI: !!this.genAI,
@@ -129,7 +125,7 @@ export class GeminiApi {
             apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
             previousApiKeyExists: !!this.apiKey
         });
-        
+
         this.apiKey = apiKey;
         if (apiKey && apiKey.trim() !== '') {
             console.log('[GeminiApi] Updating API key and initializing...');
@@ -140,7 +136,7 @@ export class GeminiApi {
                 hasModel: !!this.model,
                 hasGenAI: !!this.genAI
             });
-            
+
             if (initialized) {
                 console.log('[GeminiApi] API Key updated and initialized successfully.');
             } else {
@@ -162,6 +158,18 @@ export class GeminiApi {
             console.warn('[GeminiApi] API Key removed. API is now uninitialized.');
             return false;
         }
+    }
+
+    updateModelName(modelName: string): void {
+        console.log(`[GeminiApi] Updating model name to: ${modelName}`);
+        this.modelName = modelName;
+        if (this.apiKey) {
+            this.initializeApi(this.apiKey);
+        }
+    }
+
+    public getModelName(): string {
+        return this.modelName;
     }
 
     public isInitialized(): boolean {
@@ -186,7 +194,7 @@ export class GeminiApi {
             hasApiKey: !!this.apiKey,
             apiKeyLength: this.apiKey?.length || 0
         });
-        
+
         // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
             console.warn('[GeminiApi] API not initialized, checking API key...', {
@@ -195,18 +203,18 @@ export class GeminiApi {
                 apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
                 apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A'
             });
-            
+
             if (this.apiKey && this.apiKey.trim() !== '') {
                 console.warn('[GeminiApi] API not initialized but API key exists. Attempting to reinitialize...');
                 this.initializeApi(this.apiKey);
-                
+
                 const reinitialized = this.isInitialized();
                 console.log('[GeminiApi] Reinitialization result', {
                     success: reinitialized,
                     hasModel: !!this.model,
                     hasGenAI: !!this.genAI
                 });
-                
+
                 if (!reinitialized) {
                     console.error('[GeminiApi] API reinitialization failed. Full status:', {
                         hasApiKey: !!this.apiKey,
@@ -218,7 +226,7 @@ export class GeminiApi {
                         modelType: typeof this.model,
                         genAIType: typeof this.genAI
                     });
-                    throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+                    throw new Error("ACODEPILO API is not initialized. Please set your API Key in the ACODEPILO settings (License section).");
                 }
                 console.log('[GeminiApi] API reinitialized successfully.');
             } else {
@@ -227,7 +235,7 @@ export class GeminiApi {
                     apiKeyValue: this.apiKey || 'undefined',
                     apiKeyType: typeof this.apiKey
                 });
-                throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+                throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
             }
         }
 
@@ -240,10 +248,9 @@ export class GeminiApi {
             const result = await this.model.generateContent(request, options);
             const response = result.response;
             const text = response.text();
-            console.log('Banya Response (sendMessage):', text);
             return text;
         } catch (error: any) {
-            console.error('Error calling AIDEV-IDE API (sendMessage):', error);
+            console.error('Error calling CODEPILOT API (sendMessage):', error);
             console.error('API Key present:', !!this.apiKey);
             console.error('API Key length:', this.apiKey?.length || 0);
             console.error('Is initialized:', this.isInitialized());
@@ -262,14 +269,6 @@ export class GeminiApi {
     // <-- 수정: sendMessageWithSystemPrompt 메서드에서 webSearch 기능 제거 -->
     // userPrompt: string 대신 userParts: Part[]를 받도록 변경
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
-        console.log('[GeminiApi] sendMessageWithSystemPrompt called', {
-            systemInstructionLength: systemInstructionText?.length || 0,
-            userPartsCount: userParts?.length || 0,
-            isInitialized: this.isInitialized(),
-            hasApiKey: !!this.apiKey,
-            apiKeyLength: this.apiKey?.length || 0
-        });
-        
         // API 키가 있지만 초기화되지 않은 경우 재시도
         if (!this.isInitialized()) {
             console.warn('[GeminiApi] API not initialized, checking API key...', {
@@ -278,18 +277,18 @@ export class GeminiApi {
                 apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
                 apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A'
             });
-            
+
             if (this.apiKey && this.apiKey.trim() !== '') {
                 console.warn('[GeminiApi] API not initialized but API key exists. Attempting to reinitialize...');
                 this.initializeApi(this.apiKey, systemInstructionText);
-                
+
                 const reinitialized = this.isInitialized();
                 console.log('[GeminiApi] Reinitialization result', {
                     success: reinitialized,
                     hasModel: !!this.model,
                     hasGenAI: !!this.genAI
                 });
-                
+
                 if (!reinitialized) {
                     console.error('[GeminiApi] API reinitialization failed. Full status:', {
                         hasApiKey: !!this.apiKey,
@@ -301,7 +300,7 @@ export class GeminiApi {
                         modelType: typeof this.model,
                         genAIType: typeof this.genAI
                     });
-                    throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+                    throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
                 }
                 console.log('[GeminiApi] API reinitialized successfully.');
             } else {
@@ -310,7 +309,7 @@ export class GeminiApi {
                     apiKeyValue: this.apiKey || 'undefined',
                     apiKeyType: typeof this.apiKey
                 });
-                throw new Error("AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).");
+                throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
             }
         }
 
@@ -321,23 +320,21 @@ export class GeminiApi {
                 contents: [{ role: "user", parts: userParts }],
                 generationConfig: this.defaultGenerationConfig,
                 safetySettings: this.defaultSafetySettings,
-                model: this.MODEL_NAME,
+                model: this.modelName,
             };
             // @types 제한으로 any 사용. SDK는 request 내 systemInstruction를 허용
             const result = await (this.model as any).generateContent(request, options);
 
             const response = result.response;
             if (response.promptFeedback && response.promptFeedback.blockReason) {
-                console.warn(`AIDEV-IDE API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
+                console.warn(`CODEPILOT API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
                 throw new Error(`Response was blocked by safety settings. Reason: ${response.promptFeedback.blockReason}. Please adjust your prompt or safety settings.`);
             }
             const text = response.text();
-            // console.log('Banya Response (sendMessageWithSystemPrompt):', text);
-            console.log('Banya Response (sendMessageWithSystemPrompt):', text);
             return text;
 
         } catch (error: any) {
-            console.error('Error calling AIDEV-IDE API (sendMessageWithSystemPrompt):', error);
+            console.error('Error calling CODEPILOT API (sendMessageWithSystemPrompt):', error);
             console.error('API Key present:', !!this.apiKey);
             console.error('API Key length:', this.apiKey?.length || 0);
             console.error('Is initialized:', this.isInitialized());
@@ -355,14 +352,14 @@ export class GeminiApi {
 
     private handleApiError(error: any): string {
         if (error.name === 'AbortError') {
-            return "Error: AIDEV-IDE API call was cancelled.";
+            return "Error: API call was cancelled.";
         }
-        
+
         // API 키가 없거나 초기화되지 않은 경우
         if (!this.apiKey || !this.isInitialized()) {
-            return "Error: AIDEV-IDE API is not initialized. Please set your API Key in the AIDEV-IDE settings (License section).";
+            return "Error: CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).";
         }
-        
+
         if (error.message) {
             const lowerMsg = String(error.message).toLowerCase();
             const isOffline =
@@ -380,10 +377,10 @@ export class GeminiApi {
             }
             // Common explicit causes
             if (error.message.includes('quota') || error.message.includes('Quota')) {
-                return "Error: AIDEV-IDE API quota exceeded. Please check your AIDEV-IDE License detail.";
+                return "Error: CODEPILOT API quota exceeded. Please check your CODEPILOT License detail.";
             }
             if (error.message.includes('Billing account not found')) {
-                return "Error: Billing account not found or not associated with the project. Please check your AIDEV-IDE payment account.";
+                return "Error: Billing account not found or not associated with the project. Please check your CODEPILOT payment account.";
             }
             if (error.message.includes('LOCATION_INVALID')) {
                 return "Error: Invalid location or model not available in the region. Please check model availability.";
@@ -427,9 +424,9 @@ export class GeminiApi {
             if (lowerMsg.includes('internal') || lowerMsg.includes('server error') || lowerMsg.includes('500')) {
                 return 'Error: Upstream server error. Please try again later.';
             }
-            return `Error communicating with AIDEV-IDE API: AIDEV-IDE agent orchestration service aborted LLM calling`;
+            return `Error communicating with CODEPILOT: CODEPILOT agent orchestration service aborted LLM calling`;
         }
-        return "Error: An unknown error occurred while communicating with the AIDEV-IDE API.";
+        return "Error: An unknown error occurred while communicating with the CODEPILOT.";
     }
 
     /**

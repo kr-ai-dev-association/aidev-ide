@@ -1,9 +1,3 @@
-/**
- * Webview Bridge
- * 웹뷰와의 통신을 담당하는 유틸리티
- * 처리 단계 및 상태 업데이트를 웹뷰로 전송
- */
-
 import * as vscode from 'vscode';
 import { safePostMessage } from '../../utils';
 
@@ -17,10 +11,73 @@ export interface ProcessingStepCallback {
 
 /**
  * 웹뷰 브리지 유틸리티 클래스
+ * 모든 웹뷰 통신은 이 클래스를 통해 일원화됩니다.
  */
 export class WebviewBridge {
     /**
-     * 처리 단계를 웹뷰로 전송
+     * 처리 상태 업데이트 (로딩 바 표시용)
+     */
+    public static updateProcessingStatus(webview: vscode.Webview | undefined, status: string, step: 'processing' | 'done' | 'error' | 'Waiting...'): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'updateProcessingStatus', 
+                status, 
+                step 
+            });
+        }
+    }
+
+    /**
+     * 채팅 메시지 전송
+     */
+    public static receiveMessage(webview: vscode.Webview | undefined, sender: string, text: string): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'receiveMessage', 
+                sender, 
+                text 
+            });
+        }
+    }
+
+    /**
+     * 로딩 상태 숨기기
+     */
+    public static hideLoading(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'hideLoading' 
+            });
+        }
+    }
+
+    /**
+     * 작업 큐(플랜) 업데이트
+     */
+    public static updateTaskQueue(webview: vscode.Webview | undefined, tasks: any[]): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'updateTaskQueue', 
+                tasks 
+            });
+        }
+    }
+
+    /**
+     * 작업 큐 초기화 (새 요청 시작 시)
+     */
+    public static clearTaskQueue(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            safePostMessage(webview, { 
+                command: 'updateTaskQueue', 
+                tasks: [],
+                clear: true
+            });
+        }
+    }
+
+    /**
+     * 처리 단계 전송 (호환성 유지)
      */
     public static sendProcessingStep(webview: vscode.Webview | undefined, step: string): void {
         if (webview) {
@@ -29,7 +86,7 @@ export class WebviewBridge {
     }
 
     /**
-     * 처리 상태를 웹뷰로 전송
+     * 처리 상태 전송 (호환성 유지)
      */
     public static sendProcessingStatus(webview: vscode.Webview | undefined, step: string, status: string): void {
         if (webview) {
@@ -55,4 +112,3 @@ export class WebviewBridge {
         };
     }
 }
-

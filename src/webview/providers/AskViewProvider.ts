@@ -61,7 +61,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
 
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: licenseNotSetMessage
                         });
                         return;
@@ -73,7 +73,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: `시리얼 번호 검증 실패: ${verificationResult.message}`
                         });
                         return;
@@ -138,7 +138,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                         await ConversationService.clearHistory(PromptType.GENERAL_ASK, this.context);
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: '대화기록이 삭제되었습니다.'
                         });
                         // React 컴포넌트에도 메시지 초기화 신호 전송
@@ -149,7 +149,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                         console.error('[AskViewProvider] Failed to clear history:', error);
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: '대화기록 삭제에 실패했습니다.'
                         });
                     }
@@ -240,18 +240,18 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
 
             if (userOS === 'windows') {
                 shellPath = 'powershell.exe';
-                terminalName = 'AIDEV-IDE PowerShell Commands';
+                terminalName = 'CODEPILOT PowerShell Commands';
             } else if (userOS === 'macos') {
                 shellPath = '/bin/bash';
-                terminalName = 'AIDEV-IDE Bash Commands';
+                terminalName = 'CODEPILOT Bash Commands';
             } else if (userOS === 'linux') {
                 shellPath = '/bin/bash';
-                terminalName = 'AIDEV-IDE Bash Commands';
+                terminalName = 'CODEPILOT Bash Commands';
             } else {
                 // 기본값 (unknown OS)
                 const osAdapter = ExecutionManager.getInstance().getOSAdapter();
                 shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
-                terminalName = osAdapter.osType === 'win32' ? 'AIDEV-IDE PowerShell Commands' : 'AIDEV-IDE Bash Commands';
+                terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Bash Commands';
             }
 
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
@@ -302,8 +302,8 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         // 터미널 명령어 체크
         if (this.hasBashCommands(cleanedResponse)) {
             const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
-            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
-            this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
+            safePostMessage(webview, { command: 'receiveMessage', sender: 'CODEPILOT', text: warningMsg });
+            this.notificationService.showWarningMessage(`CODEPILOT: ${warningMsg}`);
             hasWarnings = true;
             cleanedResponse = this.removeBashCommands(cleanedResponse);
         }
@@ -311,15 +311,15 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         // 파일 작업 지시어 체크
         if (cleanedResponse.includes("새 파일:") || cleanedResponse.includes("수정 파일:") || cleanedResponse.includes("삭제 파일:")) {
             const warningMsg = "ASK 탭에서는 파일 생성, 수정, 삭제를 할 수 없습니다. CODE 탭을 사용해주세요.";
-            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: warningMsg });
-            this.notificationService.showWarningMessage(`AIDEV-IDE: ${warningMsg}`);
+            safePostMessage(webview, { command: 'receiveMessage', sender: 'CODEPILOT', text: warningMsg });
+            this.notificationService.showWarningMessage(`CODEPILOT: ${warningMsg}`);
             hasWarnings = true;
             cleanedResponse = this.removeFileDirectives(cleanedResponse);
         }
 
         // 정리된 응답 전송
         if (cleanedResponse.trim()) {
-            safePostMessage(webview, { command: 'receiveMessage', sender: 'AIDEV-IDE', text: cleanedResponse });
+            safePostMessage(webview, { command: 'receiveMessage', sender: 'CODEPILOT', text: cleanedResponse });
         }
     }
 

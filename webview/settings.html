@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- CSP를 위한 meta 태그는 extension.ts에서 getHtmlContentWithUris 함수를 통해 동적으로 삽입됩니다. -->
     <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; img-src {{cspSource}} https: data:; script-src 'nonce-{{nonce}}'; font-src {{cspSource}};"> -->
-    <title>AIDEV-IDE Settings</title>
+    <title>CODEPILOT Settings</title>
     <!-- commonStylesUri와 settingsStylesUri는 extension.ts에서 치환됩니다. -->
     <link rel="stylesheet" type="text/css" href="{{commonStylesUri}}">
     <link rel="stylesheet" type="text/css" href="{{settingsStylesUri}}">
@@ -204,8 +204,19 @@
             margin-top: 10px;
         }
 
-        .api-key-input-group input[type="password"] {
+        .api-key-input-group label,
+        .license-input-row label {
+            margin-right: 10px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .api-key-input-group select,
+        .api-key-input-group input[type="text"],
+        .api-key-input-group input[type="password"],
+        .settings-section select {
             flex-grow: 1;
+            width: 100%;
             padding: 8px;
             border: 1px solid var(--vscode-input-border);
             background-color: var(--vscode-input-background);
@@ -214,6 +225,11 @@
             font-family: var(--vscode-font-family);
             font-size: var(--vscode-font-size);
             border-radius: 3px;
+            min-width: 0;
+        }
+
+        .api-key-input-group input[type="password"] {
+            padding: 8px;
         }
 
         .api-key-input-group input[type="password"]:focus {
@@ -468,6 +484,7 @@
             font-family: var(--vscode-font-family);
             font-size: var(--vscode-font-size);
             border-radius: 3px;
+            min-width: 0;
         }
 
         .model-selection-container select:focus {
@@ -504,11 +521,38 @@
         .api-key-input-group button:disabled:hover {
             background-color: var(--vscode-disabledForeground);
         }
+
+        /* 반응형 레이아웃 */
+        @media (max-width: 600px) {
+
+            .api-key-input-group,
+            .license-input-row,
+            .settings-section>div[style*="flex"] {
+                flex-direction: column !important;
+                align-items: stretch !important;
+            }
+
+            .api-key-input-group button,
+            .license-input-row button,
+            .settings-section button {
+                width: 100% !important;
+                margin-left: 0 !important;
+                margin-top: 5px;
+            }
+
+            .api-key-input-group select,
+            .api-key-input-group input,
+            .license-input-row input,
+            .settings-section select {
+                width: 100% !important;
+                margin-right: 0 !important;
+            }
+        }
     </style>
 </head>
 
 <body>
-    <h1 id="settings-title">AIDEV-IDE 설정</h1>
+    <h1 id="settings-title">CODEPILOT 설정</h1>
 
     <!-- 언어 설정 드롭다운 추가 -->
     <div class="settings-section">
@@ -528,8 +572,8 @@
     </div>
 
     <div class="section-container">
-        <h2 id="banya-license-title">🔑 AIDEV 시리얼 번호 인증</h2>
-        <p class="info-message">ollama-blocker와 연동된 AIDEV 시리얼 번호를 입력하고 검증합니다.</p>
+        <h2 id="banya-license-title">CODEPILOT 시리얼 번호 인증</h2>
+        <p class="info-message">ollama-blocker와 연동된 CODEPILOT 시리얼 번호를 입력하고 검증합니다.</p>
 
         <div class="api-key-section">
             <h3 id="banya-license-label">시리얼 번호</h3>
@@ -564,7 +608,7 @@
     </div>
 
     <div class="section-container">
-        <h2 id="output-log-label" data-i18n="outputLogLabel">📋 OUTPUT 로그 제어</h2>
+        <h2 id="output-log-label" data-i18n="outputLogLabel">OUTPUT 로그 제어</h2>
         <p class="info-message" data-i18n="outputLogDescription">VS Code의 OUTPUT 패널에 표시되는 로그를 활성화/비활성화할 수 있습니다. 비활성화하면
             터미널 로그 확인이 더 편해집니다.</p>
         <div class="toggle-switch-container">
@@ -577,7 +621,24 @@
     </div>
 
     <div class="section-container">
-        <h2 id="error-retry-label" data-i18n="autoCorrectionSection">🔄 자동 오류 수정</h2>
+        <h2 id="test-retry-label" data-i18n="autoTestRetrySection">자동 테스트 실패 시 재시도</h2>
+        <div class="toggle-switch-container" style="margin-bottom:8px;">
+            <input type="checkbox" id="auto-test-retry-toggle" />
+            <label for="auto-test-retry-toggle">Toggle</label>
+        </div>
+        <p id="auto-test-retry-status" class="info-message"></p>
+        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Lint Check)이 실패했을 때 자동으로 재시도하는 최대
+            횟수를 설정합니다. (1-10회, 기본값: 3회)</p>
+        <div class="spinner-container">
+            <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
+            <input type="number" id="test-retry-spinner" min="1" max="10" value="3" />
+            <span data-i18n="testRetryTimes">회</span>
+        </div>
+        <p id="test-retry-status" class="info-message" style="margin-top: 5px;"></p>
+    </div>
+
+    <div class="section-container">
+        <h2 id="error-retry-label" data-i18n="autoCorrectionSection">자동 오류 수정</h2>
         <div class="toggle-switch-container" style="margin-bottom:8px;">
             <input type="checkbox" id="auto-correction-toggle" />
             <label for="auto-correction-toggle">Toggle</label>
@@ -594,210 +655,249 @@
     </div>
 
     <div class="section-container">
-        <h2 id="auto-execute-section" data-i18n="autoExecuteSection">⚡ 명령어 자동 실행</h2>
+        <h2 id="auto-execute-section" data-i18n="autoExecuteSection">명령어 자동 실행</h2>
         <div class="toggle-switch-container" style="margin-bottom:8px;">
             <input type="checkbox" id="auto-execute-toggle" />
             <label for="auto-execute-toggle">Toggle</label>
         </div>
         <p id="auto-execute-status" class="info-message"></p>
-        <p class="info-message" data-i18n="autoExecuteDescription">LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지 여부를 설정합니다. 비활성화하면 수동으로 실행해야 합니다.</p>
+        <p class="info-message" data-i18n="autoExecuteDescription">LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지 여부를
+            설정합니다. 비활성화하면 수동으로 실행해야 합니다.</p>
     </div>
 
     <div class="section-container">
-        <h2 id="api-key-section-title">🤖 AI 모델 설정</h2>
-        <p class="info-message">AIDEV-IDE의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을 선택하고 해당 설정을 구성하세요.</p>
+        <h2 id="api-key-section-title">AI 모델 설정</h2>
+        <p class="info-message" data-i18n="aiModelSettingsDescription">CODEPILOT의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을
+            선택하고 해당 설정을 구성하세요.</p>
 
         <!-- AI 모델 선택 드롭다운 -->
         <div class="model-selection-container">
-            <label id="ai-model-select-label" for="ai-model-select"><b>AI 모델 선택</b></label>
+            <label id="ai-model-select-label" for="ai-model-select"><b>AI 모델 엔진 선택</b></label>
             <select id="ai-model-select">
-                <option value="gemini" selected>Gemini 2.5 Pro Flash</option>
-                <option value="ollama">Ollama</option>
+                <option value="ollama">Ollama (Local/Remote)</option>
+                <option value="gemini">Google Gemini</option>
             </select>
-            <button id="save-ai-model-button" style="margin-left: 10px;">모델 저장</button>
         </div>
         <p id="ai-model-status" class="info-message"></p>
 
         <!-- Gemini API 키 설정 -->
         <div class="api-key-section" id="gemini-settings-section">
-            <h3 id="gemini-api-key-label">🌐 Gemini 2.5 Pro Flash</h3>
-            <p class="info-message">Google의 Gemini 2.5 Pro Flash API를 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
+            <h3 id="gemini-api-key-label">Gemini 설정</h3>
+            <p class="info-message">Google의 Gemini API를 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
+
+            <!-- Gemini 모델 선택 추가 -->
+            <div class="api-key-input-group" style="margin-bottom: 15px;">
+                <select id="gemini-model-select">
+                    <option value="gemini-3-pro-preview" selected>Gemini 3 Pro Preview</option>
+                    <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                </select>
+                <button id="save-gemini-model-button">모델 저장</button>
+            </div>
+
             <p class="info-message"><strong>등록 방법:</strong> <a href="https://aistudio.google.com/app/apikey"
                     target="_blank">Google AI Studio API 키 페이지</a>에서 새 API 키를 생성하세요.</p>
             <div class="api-key-input-group">
                 <input type="password" id="gemini-api-key-input" placeholder="Gemini API 키를 입력하세요...">
-                <button id="save-gemini-api-key-button">저장</button>
+                <button id="save-gemini-api-key-button">API 키 저장</button>
             </div>
             <p id="gemini-api-key-status" class="info-message"></p>
         </div>
 
-        <!-- Ollama 서버 타입 선택 토글 -->
-        <div class="model-selection-container">
-            <label id="ollama-server-type-label" for="ollama-server-type-select"><b>Ollama 서버 타입</b></label>
-            <select id="ollama-server-type-select">
-                <option value="local">로컬 머신</option>
-                <option value="remote">원격 서버</option>
-            </select>
-            <button id="save-ollama-server-type-button" style="margin-left: 10px;">서버 타입 저장</button>
-        </div>
-        <p id="ollama-server-type-status" class="info-message"></p>
-
-        <!-- Ollama 설치 섹션 -->
-        <div class="api-key-section" id="ollama-install-section">
-            <h3 id="ollama-install-label">📥 Ollama 설치</h3>
-            <p class="info-message">Ollama를 설치하여 로컬에서 LLM 모델을 실행할 수 있습니다.</p>
-            <p class="info-message"><strong>설치 방법:</strong> 아래 링크에서 운영체제에 맞는 Ollama 설치 파일을 다운로드하여 설치하세요.</p>
-            <div class="api-key-input-group">
-                <a href="https://ollama.ai/download" target="_blank" class="download-link">
-                    <button id="download-ollama-button">Ollama 다운로드</button>
-                </a>
-            </div>
-            <p class="info-message">설치 후 터미널에서 <code>ollama --version</code> 명령어로 설치를 확인하세요.</p>
-        </div>
-
-        <!-- 로컬 Ollama 설정 -->
-        <div class="api-key-section" id="local-ollama-settings-section">
-            <h3 id="local-ollama-api-label">🏠 Local Ollama</h3>
-            <p class="info-message">로컬 머신에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
-            <p class="info-message"><strong>설정 방법:</strong> 로컬 머신에서 실행 중인 Ollama 서버의 HTTP API 주소를 입력하세요. (예:
-                http://localhost:11434)</p>
-
-            <!-- Ollama 모델 선택 -->
-            <div class="api-key-input-group" style="margin-bottom: 15px;">
-                <label for="ollama-model-select" style="margin-right: 10px; font-weight: bold;">Ollama 모델:</label>
-                <select id="ollama-model-select"
-                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;"></select>
-                <button id="save-ollama-model-button">모델 저장</button>
-            </div>
-            <p id="ollama-model-status" class="info-message"></p>
-
-            <!-- Ollama 인증 섹션 (gpt-oss-120b:cloud 모델용) -->
-            <div id="ollama-auth-section" class="api-key-input-group" style="margin-bottom: 15px; display: none;">
-                <label for="ollama-auth-serial" style="margin-right: 10px; font-weight: bold;">인증 시리얼:</label>
-                <input type="text" id="ollama-auth-serial" placeholder="Ollama 인증 시리얼 번호를 입력하세요"
-                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;">
-                <button id="ollama-auth-button">인증</button>
-            </div>
-            <p id="ollama-auth-status" class="info-message" style="display: none;"></p>
-
-            <!-- 로컬 Ollama API URL 설정 -->
-            <div class="api-key-input-group">
-                <input type="text" id="local-ollama-api-url-input" placeholder="http://localhost:11434">
-                <button id="save-local-ollama-api-url-button">저장</button>
-            </div>
-            <p id="local-ollama-api-url-status" class="info-message"></p>
-
-            <!-- 로컬 Ollama 엔드포인트 선택 -->
-            <div class="api-key-input-group" style="margin-top: 15px;">
-                <label for="local-ollama-endpoint-select" style="margin-right: 10px; font-weight: bold;">API
-                    엔드포인트:</label>
-                <select id="local-ollama-endpoint-select"
-                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;">
-                    <option value="/api/generate">/api/generate (로컬 Ollama)</option>
-                    <option value="/api/chat">/api/chat (외부 서버)</option>
+        <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
+        <div id="ollama-settings-group">
+            <!-- Ollama 서버 타입 선택 토글 -->
+            <div class="model-selection-container">
+                <label id="ollama-server-type-label" for="ollama-server-type-select"><b>Ollama 서버 타입</b></label>
+                <select id="ollama-server-type-select">
+                    <option value="local">로컬 머신 (Localhost)</option>
+                    <option value="remote">원격 서버 (Remote Server)</option>
                 </select>
-                <button id="save-local-ollama-endpoint-button">엔드포인트 저장</button>
+                <button id="save-ollama-server-type-button">서버 타입 저장</button>
             </div>
-            <p id="local-ollama-endpoint-status" class="info-message"></p>
-        </div>
+            <p id="ollama-server-type-status" class="info-message"></p>
 
-        <!-- 원격 서버 Ollama 설정 -->
-        <div class="api-key-section" id="remote-ollama-settings-section" style="display: none;">
-            <h3 id="remote-ollama-api-label">🌐 원격 서버</h3>
-            <p class="info-message">원격 서버에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
-            <p class="info-message"><strong>설정 방법:</strong> 원격 서버의 HTTP API 주소, 모델명, 엔드포인트를 입력하세요.</p>
-
-            <!-- 원격 서버 모델명 입력 -->
-            <div class="api-key-input-group" style="margin-bottom: 15px;">
-                <label for="remote-ollama-model-input" style="margin-right: 10px; font-weight: bold;">모델명:</label>
-                <input type="text" id="remote-ollama-model-input" placeholder="예: gemma3:27b"
-                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;">
-                <button id="save-remote-ollama-model-button">모델 저장</button>
+            <!-- Ollama 설치 섹션 -->
+            <div class="api-key-section" id="ollama-install-section">
+                <h3 id="ollama-install-label">Ollama 설치</h3>
+                <p class="info-message">Ollama를 설치하여 로컬에서 LLM 모델을 실행할 수 있습니다.</p>
+                <p class="info-message"><strong>설치 방법:</strong> 아래 링크에서 운영체제에 맞는 Ollama 설치 파일을 다운로드하여 설치하세요.</p>
+                <div class="api-key-input-group">
+                    <a href="https://ollama.ai/download" target="_blank" class="download-link">
+                        <button id="download-ollama-button">Ollama 다운로드</button>
+                    </a>
+                </div>
+                <p class="info-message">설치 후 터미널에서 <code>ollama --version</code> 명령어로 설치를 확인하세요.</p>
             </div>
-            <p id="remote-ollama-model-status" class="info-message"></p>
 
-            <!-- 원격 서버 API URL 설정 -->
-            <div class="api-key-input-group">
-                <input type="text" id="remote-ollama-api-url-input" placeholder="http://192.168.1.100:11434">
-                <button id="save-remote-ollama-api-url-button">저장</button>
-            </div>
-            <p id="remote-ollama-api-url-status" class="info-message"></p>
+            <!-- 로컬 Ollama 설정 -->
+            <div class="api-key-section" id="local-ollama-settings-section">
+                <h3 id="local-ollama-api-label">Local Ollama 설정</h3>
+                <p class="info-message">로컬 머신에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
+                <p class="info-message"><strong>설정 방법:</strong> 로컬 머신에서 실행 중인 Ollama 서버의 HTTP API 주소를 입력하세요. (예:
+                    http://localhost:11434)</p>
 
-            <!-- 원격 서버 엔드포인트 선택 -->
-            <div class="api-key-input-group" style="margin-top: 15px;">
-                <label for="remote-ollama-endpoint-select" style="margin-right: 10px; font-weight: bold;">API
-                    엔드포인트:</label>
-                <select id="remote-ollama-endpoint-select"
-                    style="flex-grow: 1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;">
-                    <option value="/api/generate">/api/generate (로컬 Ollama)</option>
-                    <option value="/api/chat">/api/chat (외부 서버)</option>
-                </select>
-                <button id="save-remote-ollama-endpoint-button">엔드포인트 저장</button>
-            </div>
-            <p id="remote-ollama-endpoint-status" class="info-message"></p>
-        </div>
+                <!-- Ollama 모델 선택 -->
+                <div class="api-key-input-group" style="margin-bottom: 15px;">
+                    <select id="ollama-model-select"></select>
+                    <button id="save-ollama-model-button">모델 저장</button>
+                </div>
+                <p id="ollama-model-status" class="info-message"></p>
 
-        <!-- Ollama 모델 다운로드 섹션 -->
-        <div class="api-key-section" id="ollama-model-download-section">
-            <h3 id="ollama-model-download-label">📦 Ollama 모델 다운로드</h3>
-            <p class="info-message">로컬 Ollama에 사용할 수 있는 다양한 LLM 모델을 다운로드할 수 있습니다.</p>
-            <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에 추가됩니다.</p>
-            
-            <div id="ollama-model-list" class="model-list-container">
-                <!-- 모델 리스트가 여기에 동적으로 로드됩니다 -->
+                <!-- Ollama 인증 섹션 (gpt-oss-120b:cloud 모델용) -->
+                <div id="ollama-auth-section" class="api-key-input-group" style="margin-bottom: 15px; display: none;">
+                    <input type="text" id="ollama-auth-serial" placeholder="Ollama 인증 시리얼 번호를 입력하세요">
+                    <button id="ollama-auth-button">인증</button>
+                </div>
+                <p id="ollama-auth-status" class="info-message" style="display: none;"></p>
+
+                <!-- 로컬 Ollama API URL 설정 -->
+                <div class="api-key-input-group">
+                    <input type="text" id="local-ollama-api-url-input" placeholder="http://localhost:11434">
+                    <button id="save-local-ollama-api-url-button">주소 저장</button>
+                </div>
+                <p id="local-ollama-api-url-status" class="info-message"></p>
+
+                <!-- 로컬 Ollama 엔드포인트 선택 -->
+                <div class="api-key-input-group" style="margin-top: 15px;">
+                    <select id="local-ollama-endpoint-select">
+                        <option value="/api/generate">/api/generate (로컬 Ollama)</option>
+                        <option value="/api/chat">/api/chat (외부 서버)</option>
+                    </select>
+                    <button id="save-local-ollama-endpoint-button">엔드포인트 저장</button>
+                </div>
+                <p id="local-ollama-endpoint-status" class="info-message"></p>
             </div>
-            
-            <p id="ollama-model-download-status" class="info-message"></p>
+
+            <!-- 원격 서버 Ollama 설정 -->
+            <div class="api-key-section" id="remote-ollama-settings-section" style="display: none;">
+                <h3 id="remote-ollama-api-label">🌐 원격 Ollama 서버 설정</h3>
+                <p class="info-message">원격 서버에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
+                <p class="info-message"><strong>설정 방법:</strong> 원격 서버의 HTTP API 주소, 모델명, 엔드포인트를 입력하세요.</p>
+
+                <!-- 원격 서버 모델명 입력 -->
+                <div class="api-key-input-group" style="margin-bottom: 15px;">
+                    <input type="text" id="remote-ollama-model-input" placeholder="예: gemma3:27b">
+                    <button id="save-remote-ollama-model-button">모델 저장</button>
+                </div>
+                <p id="remote-ollama-model-status" class="info-message"></p>
+
+                <!-- 원격 서버 API URL 설정 -->
+                <div class="api-key-input-group">
+                    <input type="text" id="remote-ollama-api-url-input" placeholder="http://192.168.1.100:11434">
+                    <button id="save-remote-ollama-api-url-button">주소 저장</button>
+                </div>
+                <p id="remote-ollama-api-url-status" class="info-message"></p>
+
+                <!-- 원격 서버 엔드포인트 선택 -->
+                <div class="api-key-input-group" style="margin-top: 15px;">
+                    <select id="remote-ollama-endpoint-select">
+                        <option value="/api/generate">/api/generate (로컬 Ollama)</option>
+                        <option value="/api/chat">/api/chat (외부 서버)</option>
+                    </select>
+                    <button id="save-remote-ollama-endpoint-button">엔드포인트 저장</button>
+                </div>
+                <p id="remote-ollama-endpoint-status" class="info-message"></p>
+            </div>
+
+            <!-- Ollama 모델 다운로드 섹션 -->
+            <div class="api-key-section" id="ollama-model-download-section">
+                <h3 id="ollama-model-download-label">Ollama 모델 다운로드</h3>
+                <p class="info-message">로컬 Ollama에 사용할 수 있는 다양한 LLM 모델을 다운로드할 수 있습니다.</p>
+                <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에
+                    추가됩니다.
+                </p>
+
+                <div id="ollama-model-list" class="model-list-container">
+                    <!-- 모델 리스트가 여기에 동적으로 로드됩니다 -->
+                </div>
+
+                <p id="ollama-model-download-status" class="info-message"></p>
+            </div>
         </div>
     </div>
 
-
     <div class="section-container">
-        <h2 id="external-api-keys-title">외부 API 키 설정</h2>
-        <p class="info-message">실시간 정보 기능을 사용하기 위한 외부 API 키들을 설정합니다. 각 서비스의 웹사이트에서 API 키를 발급받아 입력하세요.</p>
+        <h2 id="agent-policy-section-title">개발 규칙</h2>
+        <p class="info-message">AI 에이전트가 따라야 할 개발 규칙을 Markdown 파일로 저장할 수 있습니다. 각 규칙은 프로젝트 루트의 ./.agent/rules 디렉토리에 저장되며,
+            응답 생성
+            시
+            참고됩니다.</p>
 
-        <!-- 기상청 API 키 -->
+        <!-- Stable Version Markdown -->
         <div class="api-key-section">
-            <h3 id="weather-api-key-label">🌤️ 기상청 API 키</h3>
-            <p class="info-message">한국의 정확한 날씨 정보를 제공합니다.</p>
-            <p class="info-message"><strong>등록 방법:</strong> <a href="https://apihub.kma.go.kr/" target="_blank">기상청 API
-                    허브</a>에서 회원가입 후 API 키를 발급받으세요.</p>
+            <h3>버전 관리 규칙</h3>
+            <p class="info-message">프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="password" id="weather-api-key-input" placeholder="기상청 API 키를 입력하세요...">
-                <button id="save-weather-api-key-button" class="save-button">저장</button>
+                <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown" style="display: none;">
+                <button id="select-stable-version-button" type="button">파일 선택</button>
+                <button id="upload-stable-version-button" type="button" disabled>저장</button>
+                <button id="delete-stable-version-button" type="button" style="display: none;">삭제</button>
             </div>
-            <p id="weather-api-key-status" class="info-message"></p>
+            <p id="stable-version-status" class="info-message"></p>
+            <p id="stable-version-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
         </div>
 
-        <!-- 네이버 뉴스 API 키 -->
+        <!-- Coding Style Markdown -->
         <div class="api-key-section">
-            <h3 id="news-api-key-label">📰 네이버 뉴스 API</h3>
-            <p class="info-message">한국의 최신 뉴스 정보를 제공합니다.</p>
-            <p class="info-message"><strong>등록 방법:</strong> <a href="https://developers.naver.com/apps/#/list"
-                    target="_blank">네이버 개발자 센터</a>에서 애플리케이션을 등록하고 Client ID와 Client Secret을 발급받으세요.</p>
+            <h3>코딩 스타일 규칙</h3>
+            <p class="info-message">프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="password" id="news-api-key-input" placeholder="네이버 API Client ID를 입력하세요...">
-                <button id="save-news-api-key-button" class="save-button">저장</button>
+                <input type="file" id="agent-policy-coding-style-input" accept=".md장.markdown" style="display: none;">
+                <button id="select-coding-style-button" type="button">파일 선택</button>
+                <button id="upload-coding-style-button" type="button" disabled>저장</button>
+                <button id="delete-coding-style-button" type="button" style="display: none;">삭제</button>
             </div>
-            <p id="news-api-key-status" class="info-message"></p>
-            <div class="api-key-input-group" style="margin-top: 10px;">
-                <input type="password" id="news-api-secret-input" placeholder="네이버 API Client Secret을 입력하세요...">
-                <button id="save-news-api-secret-button" class="save-button">저장</button>
-            </div>
-            <p id="news-api-secret-status" class="info-message"></p>
+            <p id="coding-style-status" class="info-message"></p>
+            <p id="coding-style-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
         </div>
 
-        <!-- 주식 API 키 -->
+        <!-- Project Architecture Markdown -->
         <div class="api-key-section">
-            <h3 id="stock-api-key-label">📈 주식 API 키</h3>
-            <p class="info-message">실시간 주식 정보를 제공합니다.</p>
-            <p class="info-message"><strong>등록 방법:</strong> <a href="https://www.alphavantage.co/support/#api-key"
-                    target="_blank">Alpha Vantage</a>에서 무료 API 키를 발급받으세요.</p>
+            <h3>프로젝트 아키텍처 규칙</h3>
+            <p class="info-message">프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="password" id="stock-api-key-input" placeholder="Alpha Vantage API 키를 입력하세요...">
-                <button id="save-stock-api-key-button" class="save-button">저장</button>
+                <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown"
+                    style="display: none;">
+                <button id="select-project-architecture-button" type="button">파일 선택</button>
+                <button id="upload-project-architecture-button" type="button" disabled>저장</button>
+                <button id="delete-project-architecture-button" type="button" style="display: none;">삭제</button>
             </div>
-            <p id="stock-api-key-status" class="info-message"></p>
+            <p id="project-architecture-status" class="info-message"></p>
+            <p id="project-architecture-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+
+        <!-- Dependency Policy Markdown -->
+        <div class="api-key-section">
+            <h3>의존성 정책 규칙</h3>
+            <p class="info-message">프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown"
+                    style="display: none;">
+                <button id="select-dependency-policy-button" type="button">파일 선택</button>
+                <button id="upload-dependency-policy-button" type="button" disabled>저장</button>
+                <button id="delete-dependency-policy-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="dependency-policy-status" class="info-message"></p>
+            <p id="dependency-policy-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
+        </div>
+
+        <!-- DB Policy Markdown -->
+        <div class="api-key-section">
+            <h3>DB 규칙</h3>
+            <p class="info-message">프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.</p>
+            <div class="api-key-input-group">
+                <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown" style="display: none;">
+                <button id="select-db-policy-button" type="button">파일 선택</button>
+                <button id="upload-db-policy-button" type="button" disabled>저장</button>
+                <button id="delete-db-policy-button" type="button" style="display: none;">삭제</button>
+            </div>
+            <p id="db-policy-status" class="info-message"></p>
+            <p id="db-policy-file-name" class="info-message"
+                style="font-size: 0.85em; color: var(--vscode-descriptionForeground);"></p>
         </div>
     </div>
 

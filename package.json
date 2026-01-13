@@ -2,7 +2,7 @@
   "name": "aidevIde",
   "displayName": "aidev-ide",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "5.0.0",
+  "version": "7.0.1",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -22,8 +22,7 @@
   "activationEvents": [
     "onView:aidevIde.chatView",
     "onCommand:aidevIdeCode.openChatView",
-    "onCommand:aidevIdeCode.openSettingsPanel",
-    "onCommand:aidevIdeCode.openLicensePanel"
+    "onCommand:aidevIdeCode.openSettingsPanel"
   ],
   "repository": {
     "type": "git",
@@ -61,10 +60,6 @@
       {
         "command": "aidevIdeCode.openSettingsPanel",
         "title": "Setting"
-      },
-      {
-        "command": "aidevIdeCode.openLicensePanel",
-        "title": "License"
       },
       {
         "command": "aidevIdeCode.openChatView",
@@ -108,14 +103,6 @@
           "order": 1,
           "icon": "$(settings-gear)",
           "title": "Setting"
-        },
-        {
-          "command": "aidevIdeCode.openLicensePanel",
-          "when": "view == aidevIde.chatView",
-          "group": "navigation",
-          "order": 2,
-          "icon": "$(law)",
-          "title": "License"
         }
       ]
     },
@@ -137,6 +124,26 @@
           "scope": "resource",
           "markdownDescription": "AIDEV API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장되며, 확장이 이 키를 사용하여 Gemini API에 접근합니다. [여기](https://aistudio.google.com/app/apikey)에서 API 키를 얻을 수 있습니다."
         },
+        "aidevIde.aiModel": {
+          "type": "string",
+          "default": "ollama",
+          "enum": [
+            "gemini",
+            "ollama"
+          ],
+          "description": "사용할 AI 모델 엔진을 선택합니다.",
+          "scope": "resource"
+        },
+        "aidevIde.geminiModel": {
+          "type": "string",
+          "default": "gemini-3-pro-preview",
+          "enum": [
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview"
+          ],
+          "description": "사용할 Gemini 모델을 선택합니다.",
+          "scope": "resource"
+        },
         "aidevIde.autoUpdateFiles": {
           "type": "boolean",
           "default": false,
@@ -147,30 +154,6 @@
           "type": "string",
           "default": "",
           "description": "aidev-ide가 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다. 이 경로는 파일 경로를 참조할 때 기준점으로 사용될 수 있습니다.",
-          "scope": "resource"
-        },
-        "aidevIde.weatherApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "기상청 API 키를 설정합니다. 날씨 정보 조회에 사용됩니다. (https://apihub.kma.go.kr/)",
-          "scope": "resource"
-        },
-        "aidevIde.newsApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "네이버 API Client ID를 설정합니다. 뉴스 정보 조회에 사용됩니다. (https://developers.naver.com/)",
-          "scope": "resource"
-        },
-        "aidevIde.newsApiSecret": {
-          "type": "string",
-          "default": "",
-          "description": "네이버 API Client Secret을 설정합니다. 뉴스 정보 조회에 사용됩니다. (https://developers.naver.com/)",
-          "scope": "resource"
-        },
-        "aidevIde.stockApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Alpha Vantage API 키를 설정합니다. 주식 정보 조회에 사용됩니다.",
           "scope": "resource"
         },
         "aidevIde.language": {
@@ -212,6 +195,20 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic terminal error correction.",
+          "scope": "resource"
+        },
+        "aidevIde.autoTestRetryEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable or disable automatic retry when automated tests (Smoke Test, Lint Check) fail. When enabled, the system will automatically retry failed tests up to the configured number of times.",
+          "scope": "resource"
+        },
+        "aidevIde.testRetryCount": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Set the maximum number of automatic test retry attempts when automated tests fail. (1-10 times, default: 3 times)",
           "scope": "resource"
         },
         "aidevIde.autoExecuteCommands": {

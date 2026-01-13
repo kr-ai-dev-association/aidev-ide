@@ -17,19 +17,29 @@ import {
     SessionManager,
     SettingsManager,
     ProjectManager,
-    ModelManager,
     AutoFix,
-    AutoFixLlmClient
+    AutoFixLlmClient,
+    LLMManager
 } from './core';
-import { PromptBuilder } from './core/context/PromptBuilder';
-import { ConversationManager } from './core/conversation/ConversationManager';
-import { LLMApiClient } from './core/model/LLMApiClient';
-import { IntentDetector } from './core/action/IntentDetector';
+import { PromptBuilder } from './core/managers/context/PromptBuilder';
+import { ConversationManager } from './core/managers/conversation/ConversationManager';
+import { LLMApiClient } from './core/managers/model/LLMApiClient';
+import { IntentDetector } from './core/managers/action/IntentDetector';
 import { ExternalApiService } from './services/external/ExternalApiService';
-import { ContextHistoryManager } from './core/context/ContextHistoryManager';
-import { ConversationSummarizer } from './core/context/ConversationSummarizer';
-import { FileChangeTracker } from './core/action/file/FileChangeTracker';
-import { FileContextTracker } from './core/context/file/FileContextTracker';
+import { ContextHistoryManager } from './core/managers/context/ContextHistoryManager';
+import { FileChangeTracker } from './core/managers/action/file/FileChangeTracker';
+import { FileContextTracker } from './core/managers/context/file/FileContextTracker';
+import { ToolRegistry } from './core/tools/ToolRegistry';
+import {
+    CreateFileToolHandler,
+    UpdateFileToolHandler,
+    RemoveFileToolHandler,
+    ReadFileToolHandler,
+    ListFilesToolHandler,
+    SearchFilesToolHandler,
+    RipgrepSearchToolHandler,
+} from './core/tools/file';
+import { RunCommandToolHandler } from './core/tools/terminal';
 
 
 // 전역 변수
@@ -41,6 +51,15 @@ let ollamaBlockerService: OllamaBlockerService;
 let gitRepositoryService: GitRepositoryService;
 
 export async function activate(context: vscode.ExtensionContext) {
+    // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
+    const originalEmitWarning = process.emitWarning;
+    process.emitWarning = (warning: string | Error, ...args: any[]) => {
+        if (typeof warning === 'string' && warning.includes('punycode')) {
+            return; // punycode deprecation 경고 무시
+        }
+        return originalEmitWarning.call(process, warning, ...args);
+    };
+
     // 서비스 초기화 (순서 중요: 의존성 주입)
     notificationService = new NotificationService();
 
@@ -116,6 +135,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // fallback: 설정에서 모델 타입을 유추하거나 기본값 처리 가능 (여기서는 문자열 비교만)
     const isGeminiSelected = (currentAiModelInit || '').toLowerCase() === 'gemini';
     const initialApiKey = await stateManager.getApiKey();
+    const initialGeminiModel = await stateManager.getGeminiModel();
 
     if (isGeminiSelected) {
         if (!initialApiKey || initialApiKey.trim() === '') {
@@ -124,6 +144,7 @@ export async function activate(context: vscode.ExtensionContext) {
             geminiApi = new GeminiApi();
         } else {
             geminiApi = new GeminiApi(initialApiKey);
+            geminiApi.updateModelName(initialGeminiModel || 'gemini-3-pro-preview');
             const isInitialized = geminiApi.isInitialized();
             if (!isInitialized) {
                 console.error('[Extension] API initialization failed on extension activation. API Key status:', {
@@ -147,6 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
     } else {
         // Gemini가 선택되지 않은 경우 키 유무와 상관없이 조용히 초기화 (경고 출력 안 함)
         geminiApi = new GeminiApi(initialApiKey);
+        geminiApi.updateModelName(initialGeminiModel || 'gemini-3-pro-preview');
     }
 
     // Ollama API 초기화
@@ -167,9 +189,9 @@ export async function activate(context: vscode.ExtensionContext) {
             require('os').platform() === 'linux' ? 'Linux' : 'Unknown';
 
     // AiModelType이 제대로 로드되었는지 확인
-    let defaultModelForPrompt: AiModelType = 'gemini' as AiModelType;
-    if (AiModelType && AiModelType.GEMINI) {
-        defaultModelForPrompt = AiModelType.GEMINI;
+    let defaultModelForPrompt: AiModelType = 'ollama' as AiModelType;
+    if (AiModelType && AiModelType.OLLAMA) {
+        defaultModelForPrompt = AiModelType.OLLAMA;
     }
     const promptBuilder = new PromptBuilder(userOS, (currentAiModel as AiModelType) || defaultModelForPrompt);
     promptBuilder.setUserOS(userOS);
@@ -206,15 +228,16 @@ export async function activate(context: vscode.ExtensionContext) {
             // ErrorManager를 통해 오류 수정 메시지 전송
             const errorManager = ErrorManager.getInstance();
             // AiModelType이 제대로 로드되었는지 확인
-            let defaultModelForError: AiModelType = 'gemini' as AiModelType;
-            if (AiModelType && AiModelType.GEMINI) {
-                defaultModelForError = AiModelType.GEMINI;
+            let defaultModelForError: AiModelType = 'ollama' as AiModelType;
+            if (AiModelType && AiModelType.OLLAMA) {
+                defaultModelForError = AiModelType.OLLAMA;
             } else {
+                // 동적 import도 정적 import와 동일한 모듈 경로를 사용합니다.
                 const typesModule = await import('./services/types');
                 if (typesModule.AiModelType) {
-                    const geminiValue = typesModule.AiModelType.GEMINI;
-                    if (geminiValue) {
-                        defaultModelForError = geminiValue;
+                    const ollamaValue = typesModule.AiModelType.OLLAMA;
+                    if (ollamaValue) {
+                        defaultModelForError = ollamaValue;
                     }
                 }
             }
@@ -269,9 +292,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // stateManager와 settingsManager는 이미 위에서 초기화됨
     const sessionManager = SessionManager.getInstance(context);
 
-    // Model Manager 초기화
-    const modelManager = ModelManager.getInstance(context);
-
     // Project Manager는 이미 위에서 초기화됨
     if (workspacePath) {
         try {
@@ -293,7 +313,7 @@ export async function activate(context: vscode.ExtensionContext) {
     errorManager.setExecutionManager(execManager);
 
     // Task Manager 초기화 및 시작
-    const taskManager = TaskManager.getInstance();
+    const taskManager = TaskManager.getInstance(context);
     taskManager.start();
 
     // Manager 간 연결 설정
@@ -301,53 +321,33 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Manager System initialized successfully
 
-    // 현재 AI 모델 설정 로드 (runtime 키와 UI 키를 모두 읽어 정합성 맞춤)
-    // currentAiModel은 이미 위에서 선언됨, 여기서는 업데이트만 수행
+    // 현재 AI 모델 설정 로드
     currentAiModel = await stateManager.getCurrentAiModel();
     const uiAiModel = await stateManager.getAiModel();
-    // 마이그레이션: 과거 'ollama' 값이 저장된 경우, 현재 Ollama 모델을 확인하여 구체적인 타입으로 변환
-    if (currentAiModel === 'ollama') {
-        const storedOllamaModel = await stateManager.getOllamaModel();
-        if (storedOllamaModel === 'deepseek-r1:70b') {
-            currentAiModel = 'ollama-deepseek';
-        } else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) {
-            currentAiModel = 'ollama-codellama';
-        } else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud') {
-            currentAiModel = 'ollama-gpt-oss';
-        } else if (storedOllamaModel && storedOllamaModel.startsWith('qwen')) {
-            currentAiModel = 'ollama-gpt-oss';
-        } else {
-            currentAiModel = 'ollama-gemma';
-        }
-        await stateManager.saveCurrentAiModel(currentAiModel as any);
-    }
-    // UI에서 저장된 모델이 우선 (과거 버전 잔존값 교정)
-    try {
-        if (uiAiModel && uiAiModel !== currentAiModel) {
-            let mappedUiModel: string = uiAiModel;
-            // 'ollama' 일반 문자열이 들어온 경우, 저장된 Ollama 실제 모델을 기준으로 구체 타입으로 변환
-            if (uiAiModel === 'ollama') {
-                try {
-                    const storedOllamaModel = await stateManager.getOllamaModel();
-                    if (storedOllamaModel === 'deepseek-r1:70b') mappedUiModel = 'ollama-deepseek';
-                    else if (storedOllamaModel && storedOllamaModel.startsWith('codellama')) mappedUiModel = 'ollama-codellama';
-                    else if (storedOllamaModel === 'gpt-oss:120b-cloud' || storedOllamaModel === 'gpt-oss-120b:cloud' || (storedOllamaModel && storedOllamaModel.startsWith('qwen'))) mappedUiModel = 'ollama-gpt-oss';
-                    else mappedUiModel = 'ollama-gemma';
-                } catch { mappedUiModel = 'ollama-gemma'; }
-            }
-            currentAiModel = mappedUiModel as any;
-            await stateManager.saveCurrentAiModel(mappedUiModel);
-        }
-    } catch { /* noop */ }
 
-    // ModelManager는 ConversationManager 초기화 시 설정됨
+    // 마이그레이션: 과거 구체적인 'ollama-*' 타입이 저장된 경우 'ollama'로 통일
+    if (currentAiModel && currentAiModel.toString().startsWith('ollama')) {
+        currentAiModel = 'ollama' as any;
+        await stateManager.saveCurrentAiModel('ollama' as any);
+    }
+
+    // UI에서 저장된 모델이 우선
+    if (uiAiModel && uiAiModel !== currentAiModel) {
+        let mappedUiModel: string = uiAiModel;
+        if (uiAiModel.startsWith('ollama')) {
+            mappedUiModel = 'ollama';
+        }
+        currentAiModel = mappedUiModel as any;
+        await stateManager.saveCurrentAiModel(mappedUiModel as any);
+    }
 
     // ConversationManager 초기화 및 설정
 
-    const conversationManager = ConversationManager.getInstance();
+    const conversationManager = ConversationManager.getInstance(userOS, geminiApi, ollamaApi);
     const llmApiClient = new LLMApiClient(geminiApi, ollamaApi, currentAiModel as any);
+    const llmManager = LLMManager.getInstance(geminiApi, ollamaApi, currentAiModel as any);
     // promptBuilder는 이미 위에서 선언됨
-    const intentDetector = new IntentDetector(ollamaApi);
+    const intentDetector = new IntentDetector(llmManager);
     const externalApiService = new ExternalApiService(context);
 
     conversationManager.setLLMService(llmApiClient);
@@ -360,11 +360,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
     const contextHistoryManager = ContextHistoryManager.getInstance(context);
     conversationManager.setContextHistoryManager(contextHistoryManager);
-    
-    // ConversationSummarizer 초기화 및 설정 (Phase 4.4)
-    const conversationSummarizer = new ConversationSummarizer();
-    conversationSummarizer.setLLMClient(llmApiClient);
-    conversationManager.setConversationSummarizer(conversationSummarizer);
 
     // FileChangeTracker / FileContextTracker 초기화 및 ActionManager에 설정
     const fileChangeTracker = FileChangeTracker.getInstance(context);
@@ -372,6 +367,18 @@ export async function activate(context: vscode.ExtensionContext) {
     const actionManager = ActionManager.getInstance();
     actionManager.setFileChangeTracker(fileChangeTracker);
     actionManager.setFileContextTracker(fileContextTracker);
+    
+    // Tool 핸들러 등록
+    const toolRegistry = ToolRegistry.getInstance();
+    toolRegistry.register(new CreateFileToolHandler());
+    toolRegistry.register(new UpdateFileToolHandler());
+    toolRegistry.register(new RemoveFileToolHandler());
+    toolRegistry.register(new ReadFileToolHandler());
+    toolRegistry.register(new ListFilesToolHandler());
+    toolRegistry.register(new SearchFilesToolHandler());
+    toolRegistry.register(new RipgrepSearchToolHandler());
+    toolRegistry.register(new RunCommandToolHandler());
+    console.log('[Extension] Tool handlers registered:', toolRegistry.getRegisteredTools());
 
 
     // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
@@ -410,10 +417,11 @@ export async function activate(context: vscode.ExtensionContext) {
         context.extensionUri,
         context,
         (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, undefined),
-        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined),
         settingsManager,
         notificationService,
-        gitRepositoryService
+        gitRepositoryService,
+        geminiApi,
+        ollamaApi
     );
 
     context.subscriptions.push(
@@ -439,9 +447,6 @@ export async function activate(context: vscode.ExtensionContext) {
         openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined);
     }));
     // Command registered: aidevIdeCode.openSettingsPanel
-    // context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openLicensePanel', () => {
-    //     openLicensePanel(context.extensionUri, context, vscode.ViewColumn.One, storageService, geminiApi, notificationService, configurationService);
-    // }));
 
     // 언어 변경 브로드캐스트 명령어 등록
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.broadcastLanguageChange', (language: string) => {
@@ -553,7 +558,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 터미널 모니터링 테스트 명령어
     context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testTerminalMonitoring', async () => {
         try {
-            const { ErrorManager } = await import('./core/error/ErrorManager.js');
+            const { ErrorManager } = await import('./core/managers/error/ErrorManager');
             const errorManager = ErrorManager.getInstance();
             if (errorManager) {
                 const stats = errorManager.getStats();

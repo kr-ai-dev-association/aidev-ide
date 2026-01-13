@@ -12,22 +12,85 @@ if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefin
 }
 const vscode = window.vscode || null;
 
-// 처리 단계 제어 함수들
+// 처리 단계 제어 변수들
+let processingStepsArray = [];
+let typingInterval = null;
+let lastFullText = '';
+
 function showProcessingSteps() {
-    const processingSteps = document.getElementById('processing-steps');
-    if (processingSteps) {
-        processingSteps.style.display = 'block';
-    }
+    // 상단 고정 UI 삭제됨 - 하단 타자기 효과로 통합
 }
 
 function hideProcessingSteps() {
-    const processingSteps = document.getElementById('processing-steps');
-    if (processingSteps) {
-        processingSteps.style.display = 'none';
+    // 상단 고정 UI 삭제됨 - 하단 타자기 효과로 통합
+}
+
+function updateThinkingBubbleText() {
+    if (!thinkingBubbleElement) return;
+
+    // 모든 단계를 '|'로 이어 붙이는 대신, 현재 진행 중인 최신 단계 하나만 표시합니다.
+    // (사용자 피드백: 히스토리를 다 보여주지 말고 현재 상태만 깔끔하게 출력 요청 반영)
+    const lastStep = processingStepsArray[processingStepsArray.length - 1];
+    if (!lastStep) return;
+
+    const status = lastStep.status || '';
+    const stepName = lastStep.step || '';
+
+    // 'processing'이나 'Waiting...' 같은 기본값보다는 실제 의미 있는 상태 메시지(status)를 우선 사용합니다.
+    const stepLabels = {
+        'intent': '의도 분석',
+        'assembling': '컨텍스트 수집',
+        'thinking': '분석 및 생각',
+        'plan': '작업 계획 수립',
+        'executing': '도구 실행',
+        'done': '작업 완료'
+    };
+
+    let displayMsg = (status && status !== 'processing' && status !== 'Waiting...') ? status : (stepLabels[stepName] || stepName);
+
+    // 터미널 느낌을 주기 위해 '>' 기호를 접두어로 사용합니다.
+    const newFullText = `> ${displayMsg}`;
+
+    // 이미 같은 텍스트면 중단
+    if (newFullText === lastFullText) return;
+    lastFullText = newFullText;
+
+    // 이전 타이핑 인터벌 중지
+    if (typingInterval) {
+        clearInterval(typingInterval);
     }
+
+    const textElement = thinkingBubbleElement.querySelector('.thinking-text');
+    if (!textElement) return;
+
+    // 타자기 효과 시작
+    let index = 0;
+    textElement.textContent = '';
+    typingInterval = setInterval(() => {
+        if (index < newFullText.length) {
+            textElement.textContent += newFullText[index];
+            index++;
+            // 스크롤 유지
+            if (chatMessages) {
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        } else {
+            clearInterval(typingInterval);
+            typingInterval = null;
+        }
+    }, 20); // 타자기 속도
 }
 
 function setProcessingStep(stepName) {
+    // global array update
+    const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
+    if (existingStepIndex === -1) {
+        processingStepsArray.push({ step: stepName, status: 'processing' });
+    } else {
+        processingStepsArray[existingStepIndex].status = 'processing';
+    }
+    updateThinkingBubbleText();
+
     const processingSteps = document.getElementById('processing-steps');
     if (!processingSteps) return;
 
@@ -44,7 +107,7 @@ function setProcessingStep(stepName) {
     }
 
     // 이전 단계들을 완료로 표시
-    const stepOrder = ['systems', 'intent', 'keywords', 'plan', 'analyzing', 'assembling', 'executing', 'parsing', 'file_processing', 'printing'];
+    const stepOrder = ['systems', 'intent', 'plan', 'thinking', 'analyzing', 'assembling', 'executing', 'parsing', 'file_processing', 'printing'];
     const currentIndex = stepOrder.indexOf(stepName);
     for (let i = 0; i < currentIndex; i++) {
         const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);
@@ -55,9 +118,43 @@ function setProcessingStep(stepName) {
 }
 
 function updateProcessingStatus(stepName, status) {
+    // global array update
+    const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
+    if (existingStepIndex !== -1) {
+        processingStepsArray[existingStepIndex].status = status;
+    } else {
+        processingStepsArray.push({ step: stepName, status: status });
+    }
+    updateThinkingBubbleText();
+    handleScroll(); // 상태 업데이트 시 위치 체크
+
     const statusElement = document.getElementById(`${stepName}-status`);
     if (statusElement) {
         statusElement.textContent = status;
+    }
+}
+
+// 스크롤 감지하여 버블 고정/해제 처리
+function handleScroll() {
+    if (!thinkingBubbleElement || !chatContainer) return;
+
+    const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+    const containerRect = chatContainer.getBoundingClientRect();
+
+    // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
+    const bottomFixedArea = document.querySelector('.bottom-fixed-area');
+    const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
+    const visibleBottom = containerRect.bottom - bottomHeight;
+
+    // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
+    if (bubbleRect.top > visibleBottom - 20) {
+        thinkingBubbleElement.classList.add('is-forced-top');
+    } else {
+        // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
+        const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 100;
+        if (isAtBottom) {
+            thinkingBubbleElement.classList.remove('is-forced-top');
+        }
     }
 }
 
@@ -101,7 +198,8 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
 }
 
 function resetProcessingStatuses() {
-    const statuses = ['intent', 'keywords', 'analyzing', 'assembling', 'parsing', 'printing'];
+    processingStepsArray = [];
+    const statuses = ['intent', 'analyzing', 'assembling', 'parsing', 'printing'];
     statuses.forEach(step => {
         const statusElement = document.getElementById(`${step}-status`);
         if (statusElement) {
@@ -444,13 +542,27 @@ function requestOllamaModels() {
     }
 }
 
-function setModelLabel(name) {
+function setModelLabel(name, modelType) {
     if (modelLabel) {
         modelLabel.textContent = name || 'Model';
+    }
+    // 모델 타입에 따라 버튼의 data-model-type 속성 설정 (색상 포인트용)
+    if (modelSelectorButton) {
+        if (modelType === 'gemini') {
+            modelSelectorButton.setAttribute('data-model-type', 'gemini');
+        } else {
+            modelSelectorButton.setAttribute('data-model-type', 'ollama');
+        }
     }
 }
 
 function populateModelDropdown(models, current) {
+    // Gemini 모델 정의
+    const geminiModels = [
+        { name: 'gemini-3-pro-preview', displayName: 'Gemini 3.0 Pro' },
+        { name: 'gemini-3-flash-preview', displayName: 'Gemini 3.0 Flash' }
+    ];
+
     // models: [{name, displayName}] 또는 ["name", ...]
     availableOllamaModels = (models || []).map((m) => {
         if (typeof m === 'string') return { name: m, displayName: m };
@@ -462,17 +574,51 @@ function populateModelDropdown(models, current) {
     if (!modelDropdown) return;
     modelDropdown.innerHTML = '';
 
+    // Gemini 모델 먼저 추가
+    geminiModels.forEach((m) => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-option';
+        if (m.name === currentOllamaModel) item.classList.add('selected');
+        item.dataset.model = m.name;
+        item.textContent = m.displayName;
+        item.style.padding = '6px 10px';
+        item.style.cursor = 'pointer';
+        item.style.borderLeft = '3px solid #4285f4'; // Gemini 색상 포인트
+        item.addEventListener('click', () => {
+            currentOllamaModel = m.name;
+            setModelLabel(m.displayName, 'gemini');
+            if (modelDropdown) {
+                modelDropdown.classList.add('hidden');
+                modelDropdown.style.display = 'none';
+            }
+            vscode.postMessage({ command: 'setGeminiModel', model: m.name });
+        });
+        modelDropdown.appendChild(item);
+    });
+
+    // 구분선 (모델이 있을 경우에만)
+    if (availableOllamaModels.length > 0) {
+        const divider = document.createElement('div');
+        divider.style.height = '1px';
+        divider.style.backgroundColor = 'var(--vscode-panel-border)';
+        divider.style.margin = '4px 0';
+        modelDropdown.appendChild(divider);
+    }
+
+    // Ollama 모델 추가
     availableOllamaModels.forEach((m) => {
         const display = m.displayName || m.name;
         const item = document.createElement('div');
         item.className = 'dropdown-option';
+        if (m.name === currentOllamaModel) item.classList.add('selected');
         item.dataset.model = m.name;
         item.textContent = display;
         item.style.padding = '6px 10px';
         item.style.cursor = 'pointer';
+        item.style.borderLeft = '3px solid #f68537'; // Ollama 색상 포인트 (주황색)
         item.addEventListener('click', () => {
             currentOllamaModel = m.name;
-            setModelLabel(display);
+            setModelLabel(display, 'ollama');
             if (modelDropdown) {
                 modelDropdown.classList.add('hidden');
                 modelDropdown.style.display = 'none';
@@ -482,10 +628,14 @@ function populateModelDropdown(models, current) {
         modelDropdown.appendChild(item);
     });
 
-    const currentDisplay = (availableOllamaModels.find(m => m.name === currentOllamaModel)?.displayName) || currentOllamaModel || 'Model';
-    setModelLabel(currentDisplay);
+    // 현재 선택된 모델 라벨 업데이트
+    const allModels = [...geminiModels, ...availableOllamaModels];
+    const currentModel = allModels.find(m => m.name === currentOllamaModel);
+    const currentDisplay = currentModel?.displayName || currentOllamaModel || 'Model';
+    const modelType = geminiModels.some(m => m.name === currentOllamaModel) ? 'gemini' : 'ollama';
+    setModelLabel(currentDisplay, modelType);
 
-    if (!availableOllamaModels.length) {
+    if (!allModels.length) {
         const empty = document.createElement('div');
         empty.className = 'dropdown-option';
         empty.textContent = '모델을 불러올 수 없습니다';
@@ -506,6 +656,16 @@ function bindModelDropdownEvents() {
         e.stopPropagation();
         const willShow = modelDropdown.classList.contains('hidden');
         if (willShow) {
+            // 모델 선택 버튼의 위치에 맞춰 드롭다운 위치 조정
+            const buttonRect = modelSelectorButton.getBoundingClientRect();
+            const parentRect = modelSelectorButton.parentElement.getBoundingClientRect();
+            
+            // 버튼의 왼쪽 위치를 기준으로 드롭다운 위치 설정
+            const leftOffset = buttonRect.left - parentRect.left;
+            modelDropdown.style.left = leftOffset + 'px';
+            modelDropdown.style.right = 'auto';
+            modelDropdown.style.width = buttonRect.width + 'px';
+            
             modelDropdown.classList.remove('hidden');
             modelDropdown.style.display = 'block';
         } else {
@@ -578,6 +738,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         updateChatContainerPadding();
     }, 100); // DOM이 완전히 로드된 후 실행
+
+    // 스크롤 이벤트 리스너 등록 (버블 고정용)
+    if (chatContainer) {
+        chatContainer.addEventListener('scroll', handleScroll);
+    }
 
     // 모델 목록 요청 및 드롭다운 초기화
     bindModelDropdownEvents();
@@ -654,9 +819,16 @@ window.addEventListener('message', event => {
             break;
         case 'ollamaModelChanged':
             if (message.model) {
-                const display = (availableOllamaModels.find(m => m.name === message.model)?.displayName) || message.model;
+                const geminiModels = [
+                    { name: 'gemini-3-pro-preview', displayName: 'Gemini 3.0 Pro' },
+                    { name: 'gemini-3-flash-preview', displayName: 'Gemini 3.0 Flash' }
+                ];
+                const allModels = [...geminiModels, ...availableOllamaModels];
+                const currentModel = allModels.find(m => m.name === message.model);
+                const display = currentModel?.displayName || message.model;
                 currentOllamaModel = message.model;
-                setModelLabel(display);
+                const modelType = geminiModels.some(m => m.name === message.model) ? 'gemini' : 'ollama';
+                setModelLabel(display, modelType);
             }
             if (message.error) {
                 console.warn('[chat] ollamaModelChanged error:', message.error);
@@ -672,9 +844,11 @@ window.addEventListener('message', event => {
             });
             // hideLoading 이벤트에서 처리하므로 여기서는 처리하지 않음
 
-            if (message.sender === 'AIDEV-IDE' && message.text !== undefined) {
+            if ((message.sender === 'CODEPILOT' || message.sender === 'AIDEV-IDE') && message.text !== undefined) {
                 console.log('Calling displayCodePilotMessage with text length:', message.text.length);
-                window.displayCodePilotMessage(message.text); // AIDEV-IDE 메시지 표시
+                window.displayCodePilotMessage(message.text); // CODEPILOT 메시지 표시
+            } else if (message.sender === 'System' && message.text !== undefined) {
+                window.displaySystemMessage(message.text); // 시스템 메시지 (툴 실행 결과 등) 표시
             }
             break;
 
@@ -749,6 +923,43 @@ function displayUserMessage(text, imageData = null) { // imageData 파라미터 
     scrollToUserMessage(userMessageElement);
 }
 
+// 시스템 메시지 (툴 실행 결과 등)를 표시하는 함수
+function displaySystemMessage(text) {
+    if (!chatMessages) return;
+    const systemMessageElement = document.createElement('div');
+    systemMessageElement.classList.add('system-message');
+
+    // 이모지에 따라 색상 다르게 표시
+    let color = 'var(--vscode-descriptionForeground)';
+    if (text.includes('✅') || text.includes('✔️') || text.includes('📖') || text.includes('📂')) {
+        color = 'var(--vscode-testing-iconPassed)';
+    } else if (text.includes('❌') || text.includes('Failed')) {
+        color = 'var(--vscode-testing-iconFailed)';
+    } else if (text.includes('🚀') || text.includes('Executed')) {
+        color = 'var(--vscode-terminal-ansiCyan)';
+    } else if (text.includes('📝') || text.includes('Updated') || text.includes('Created')) {
+        color = 'var(--vscode-terminal-ansiYellow)';
+    }
+
+    systemMessageElement.style.cssText = `
+        padding: 4px 8px;
+        margin: 2px 0;
+        font-size: 12px;
+        font-family: var(--vscode-editor-font-family);
+        color: ${color};
+        background: rgba(128, 128, 128, 0.05);
+        border-radius: 4px;
+        border-left: 2px solid ${color};
+        word-break: break-all;
+    `;
+
+    systemMessageElement.innerHTML = DOMPurify.sanitize(text);
+    chatMessages.appendChild(systemMessageElement);
+
+    // 자동 스크롤
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 // 사용자 메시지로 스크롤하는 함수 (여러 번 시도)
 function scrollToUserMessage(userMessageElement) {
     let attempts = 0;
@@ -791,10 +1002,18 @@ function showLoading() {
     }
     const messageContainer = document.createElement('div');
     messageContainer.classList.add('thinking-bubble');
-    messageContainer.innerHTML = 'thinking <span class="thinking-dots"><span></span><span></span><span></span></span>';
+
+    // 타자기 효과를 위한 구조
+    messageContainer.innerHTML = '<span class="thinking-text"></span><span class="thinking-cursor">|</span>';
 
     chatMessages.appendChild(messageContainer);
     thinkingBubbleElement = messageContainer; // 엘리먼트 참조 저장
+
+    // 상태 초기화
+    lastFullText = '';
+
+    // 현재 진행 중인 상태가 있다면 즉시 업데이트
+    updateThinkingBubbleText();
 
     // 로딩 애니메이션이 보일 때 Clear 버튼 비활성화, Cancel 버튼 활성화
     if (clearHistoryButton) {
@@ -850,6 +1069,9 @@ function hideLoading() {
         chatMessages.removeChild(thinkingBubbleElement);
         thinkingBubbleElement = null;
     }
+    // 상태 배열 초기화
+    processingStepsArray = [];
+
     // 로딩 애니메이션이 사라질 때 Clear 버튼 활성화, Cancel 버튼 비활성화
     if (clearHistoryButton) {
         clearHistoryButton.disabled = false;
@@ -988,7 +1210,63 @@ function handleClearHistory() {
     });
 }
 
-// AIDEV-IDE 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
+/**
+ * XML 툴 태그를 제거하거나 사용자 친화적인 텍스트로 변환
+ * @param {string} text - 원본 텍스트 (XML 툴 태그 포함 가능)
+ * @returns {string} - 툴 태그가 제거되거나 변환된 텍스트
+ */
+function removeToolTags(text) {
+    if (!text) return text;
+
+    let result = text;
+
+    // aidev-ide 툴 이름 목록
+    const toolNames = [
+        'create_file',
+        'update_file',
+        'remove_file',
+        'read_file',
+        'list_files',
+        'search_files',
+        'run_command',
+        'analyze_code',
+        'verify_code',
+        'refactor_code'
+    ];
+
+    // 각 툴 태그를 처리
+    for (const toolName of toolNames) {
+        // 정규식: <toolName>...</toolName> 또는 <toolName>...</toolName> (개행 포함)
+        const toolTagRegex = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
+
+        result = result.replace(toolTagRegex, (match, content) => {
+            // 툴 태그를 완전히 제거
+            return '';
+        });
+    }
+
+    // 부분 태그 제거 (스트리밍 중 닫히지 않은 태그)
+    const lastOpenBracketIndex = result.lastIndexOf('<');
+    if (lastOpenBracketIndex !== -1) {
+        const possibleTag = result.slice(lastOpenBracketIndex);
+        // 닫는 태그가 없고 툴 이름과 일치하면 제거
+        if (!possibleTag.includes('</') && toolNames.some(name => possibleTag.startsWith(`<${name}`))) {
+            result = result.slice(0, lastOpenBracketIndex);
+        }
+    }
+
+    // 기타 XML 태그 제거 (thinking, function_calls 등)
+    result = result.replace(/<thinking>\s?/g, '');
+    result = result.replace(/\s?<\/thinking>/g, '');
+    result = result.replace(/<think>\s?/g, '');
+    result = result.replace(/\s?<\/think>/g, '');
+    result = result.replace(/<function_calls>\s?/g, '');
+    result = result.replace(/\s?<\/function_calls>/g, '');
+
+    return result;
+}
+
+// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
 function displayCodePilotMessage(markdownText) {
     console.log('displayCodePilotMessage called with text length:', markdownText.length);
     if (!chatMessages) {
@@ -997,8 +1275,11 @@ function displayCodePilotMessage(markdownText) {
     }
     console.log('chatMessages element found, creating message container...');
 
+    // 1. XML 툴 태그 제거
+    const displayText = removeToolTags(markdownText);
+
     const messageContainer = document.createElement('div');
-    messageContainer.classList.add('aidev-ide-message-container');
+    messageContainer.classList.add('codepilot-message-container');
 
     const bubbleElement = document.createElement('div');
     bubbleElement.classList.add('message-bubble');
@@ -1010,8 +1291,8 @@ function displayCodePilotMessage(markdownText) {
 
     let match;
     // 모든 코드 블록을 순회하며 일반 텍스트와 코드 블록을 분리 처리
-    while ((match = codeBlockRegex.exec(markdownText)) !== null) {
-        const precedingText = markdownText.substring(lastIndex, match.index);
+    while ((match = codeBlockRegex.exec(displayText)) !== null) {
+        const precedingText = displayText.substring(lastIndex, match.index);
         const codeBlockFullMatch = match[0]; // ```...``` 전체
         const lang = match[1]; // 언어명
         const codeContent = match[2]; // 코드 내용
@@ -1084,7 +1365,7 @@ function displayCodePilotMessage(markdownText) {
     }
 
     // 3. 마지막 코드 블록 이후의 텍스트 처리 (Markdown 포맷 적용)
-    const remainingText = markdownText.substring(lastIndex);
+    const remainingText = displayText.substring(lastIndex);
     const processedRemainingHtml = md.render(remainingText); // markdown-it 사용
     tempHtmlElements.innerHTML += DOMPurify.sanitize(processedRemainingHtml);
 
@@ -1122,6 +1403,7 @@ function renderBasicMarkdown(markdownText) {
 
 // --- 웹뷰 메시지 핸들러에서 호출되는 함수들을 전역 window 객체에 할당 ---
 window.displayUserMessage = displayUserMessage;
+window.displaySystemMessage = displaySystemMessage;
 window.showLoading = showLoading;
 window.hideLoading = hideLoading;
 window.displayCodePilotMessage = displayCodePilotMessage;

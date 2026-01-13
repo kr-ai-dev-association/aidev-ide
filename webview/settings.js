@@ -13,6 +13,11 @@ const autoUpdateStatus = document.getElementById('auto-update-status');
 const outputLogToggle = document.getElementById('output-log-toggle');
 const outputLogStatus = document.getElementById('output-log-status');
 
+const testRetrySpinner = document.getElementById('test-retry-spinner');
+const testRetryStatus = document.getElementById('test-retry-status');
+const autoTestRetryToggle = document.getElementById('auto-test-retry-toggle');
+const autoTestRetryStatus = document.getElementById('auto-test-retry-status');
+
 const errorRetrySpinner = document.getElementById('error-retry-spinner');
 const errorRetryStatus = document.getElementById('error-retry-status');
 const autoCorrectionToggle = document.getElementById('auto-correction-toggle');
@@ -20,6 +25,23 @@ const autoCorrectionStatus = document.getElementById('auto-correction-status');
 
 const autoExecuteToggle = document.getElementById('auto-execute-toggle');
 const autoExecuteStatus = document.getElementById('auto-execute-status');
+// 자동 테스트 재시도 토글
+if (autoTestRetryToggle) {
+    autoTestRetryToggle.addEventListener('change', () => {
+        const enabled = autoTestRetryToggle.checked;
+        if (autoTestRetryStatus) {
+            autoTestRetryStatus.textContent = enabled ? (languageData['autoTestRetryOn'] || '자동 테스트 재시도: 켜짐') : (languageData['autoTestRetryOff'] || '자동 테스트 재시도: 꺼짐');
+        }
+        if (testRetrySpinner) {
+            testRetrySpinner.disabled = !enabled;
+            testRetrySpinner.style.opacity = enabled ? '1' : '0.5';
+        }
+        if (vscode) {
+            vscode.postMessage({ command: 'setAutoTestRetryEnabled', enabled });
+        }
+    });
+}
+
 // 자동 오류 수정 토글
 if (autoCorrectionToggle) {
     autoCorrectionToggle.addEventListener('change', () => {
@@ -54,26 +76,16 @@ if (autoExecuteToggle) {
 
 
 // API 키 관련 요소들
-const weatherApiKeyInput = document.getElementById('weather-api-key-input');
-const saveWeatherApiKeyButton = document.getElementById('save-weather-api-key-button');
-const weatherApiKeyStatus = document.getElementById('weather-api-key-status');
-
-const newsApiKeyInput = document.getElementById('news-api-key-input');
-const saveNewsApiKeyButton = document.getElementById('save-news-api-key-button');
-const newsApiKeyStatus = document.getElementById('news-api-key-status');
-
-const newsApiSecretInput = document.getElementById('news-api-secret-input');
-const saveNewsApiSecretButton = document.getElementById('save-news-api-secret-button');
-const newsApiSecretStatus = document.getElementById('news-api-secret-status');
-
-const stockApiKeyInput = document.getElementById('stock-api-key-input');
-const saveStockApiKeyButton = document.getElementById('save-stock-api-key-button');
-const stockApiKeyStatus = document.getElementById('stock-api-key-status');
 
 // Gemini API 키 관련 요소들
 const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
 const saveGeminiApiKeyButton = document.getElementById('save-gemini-api-key-button');
 const geminiApiKeyStatus = document.getElementById('gemini-api-key-status');
+const geminiModelSelect = document.getElementById('gemini-model-select');
+const saveGeminiModelButton = document.getElementById('save-gemini-model-button');
+
+// Ollama 설정 그룹
+const ollamaSettingsGroup = document.getElementById('ollama-settings-group');
 
 // Ollama 서버 타입 관련 요소들
 const ollamaServerTypeSelect = document.getElementById('ollama-server-type-select');
@@ -138,10 +150,7 @@ function updateSaveButtonsState() {
     // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
     const licenseRequiredButtons = [
         saveGeminiApiKeyButton,
-        saveWeatherApiKeyButton,
-        saveNewsApiKeyButton,
-        saveNewsApiSecretButton,
-        saveStockApiKeyButton
+        saveGeminiModelButton
     ];
 
     // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
@@ -151,7 +160,8 @@ function updateSaveButtonsState() {
         saveRemoteOllamaModelButton,
         saveRemoteOllamaApiUrlButton,
         saveRemoteOllamaEndpointButton,
-        saveOllamaServerTypeButton
+        saveOllamaServerTypeButton,
+        saveOllamaModelButton
     ];
 
     // console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
@@ -284,6 +294,12 @@ function applyLanguage() {
         // console.log('Updated API key section title:', languageData['apiKeySectionTitle']);
     }
 
+    // AI 모델 설정 설명
+    const aiModelSettingsDescription = document.querySelector('#api-key-section-title + p');
+    if (aiModelSettingsDescription && languageData['aiModelSettingsDescription']) {
+        aiModelSettingsDescription.textContent = languageData['aiModelSettingsDescription'];
+    }
+
     // Gemini API 키 라벨
     const geminiApiKeyLabel = document.getElementById('gemini-api-key-label');
     if (geminiApiKeyLabel && languageData['geminiApiKeyLabel']) {
@@ -329,93 +345,6 @@ function applyLanguage() {
         } else if (currentText.includes('미저장') || currentText.includes('Not Saved') || currentText.includes('Nicht gespeichert') || currentText.includes('No guardado') || currentText.includes('Non enregistré') || currentText.includes('未保存') || currentText.includes('未保存')) {
             geminiApiKeyStatus.textContent = languageData['geminiApiKeyStatusNotSaved'];
         }
-    }
-
-    // Weather API 키 라벨
-    const weatherApiKeyLabel = document.getElementById('weather-api-key-label');
-    if (weatherApiKeyLabel && languageData['weatherApiKeyLabel']) {
-        weatherApiKeyLabel.textContent = languageData['weatherApiKeyLabel'];
-        // console.log('Updated weather API key label:', languageData['weatherApiKeyLabel']);
-    }
-
-    // Weather API 설명
-    const weatherApiDescription = document.querySelector('#weather-api-key-label + p');
-    if (weatherApiDescription && languageData['weatherApiDescription']) {
-        weatherApiDescription.textContent = languageData['weatherApiDescription'];
-        // console.log('Updated weather API description:', languageData['weatherApiDescription']);
-    }
-
-    // Weather API 등록 방법
-    const weatherApiRegistrationMethod = document.querySelector('#weather-api-key-label + p + p');
-    if (weatherApiRegistrationMethod && languageData['weatherApiRegistrationMethod']) {
-        // 링크는 유지하면서 텍스트만 업데이트
-        const linkMatch = weatherApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-        if (linkMatch) {
-            const linkText = linkMatch[1];
-            const newText = languageData['weatherApiRegistrationMethod'].replace('기상청 API 허브', `<a href="https://apihub.kma.go.kr/" target="_blank">${linkText}</a>`);
-            weatherApiRegistrationMethod.innerHTML = newText;
-        } else {
-            weatherApiRegistrationMethod.textContent = languageData['weatherApiRegistrationMethod'];
-        }
-        // console.log('Updated weather API registration method:', languageData['weatherApiRegistrationMethod']);
-    }
-
-    // News API 키 라벨
-    const newsApiKeyLabel = document.getElementById('news-api-key-label');
-    if (newsApiKeyLabel && languageData['newsApiKeyLabel']) {
-        newsApiKeyLabel.textContent = languageData['newsApiKeyLabel'];
-        // console.log('Updated news API key label:', languageData['newsApiKeyLabel']);
-    }
-
-    // News API 설명
-    const newsApiDescription = document.querySelector('#news-api-key-label + p');
-    if (newsApiDescription && languageData['newsApiDescription']) {
-        newsApiDescription.textContent = languageData['newsApiDescription'];
-        // console.log('Updated news API description:', languageData['newsApiDescription']);
-    }
-
-    // News API 등록 방법
-    const newsApiRegistrationMethod = document.querySelector('#news-api-key-label + p + p');
-    if (newsApiRegistrationMethod && languageData['newsApiRegistrationMethod']) {
-        // 링크는 유지하면서 텍스트만 업데이트
-        const linkMatch = newsApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-        if (linkMatch) {
-            const linkText = linkMatch[1];
-            const newText = languageData['newsApiRegistrationMethod'].replace('네이버 개발자 센터', `<a href="https://developers.naver.com/apps/#/list" target="_blank">${linkText}</a>`);
-            newsApiRegistrationMethod.innerHTML = newText;
-        } else {
-            newsApiRegistrationMethod.textContent = languageData['newsApiRegistrationMethod'];
-        }
-        // console.log('Updated news API registration method:', languageData['newsApiRegistrationMethod']);
-    }
-
-    // Stock API 키 라벨
-    const stockApiKeyLabel = document.getElementById('stock-api-key-label');
-    if (stockApiKeyLabel && languageData['stockApiKeyLabel']) {
-        stockApiKeyLabel.textContent = languageData['stockApiKeyLabel'];
-        // console.log('Updated stock API key label:', languageData['stockApiKeyLabel']);
-    }
-
-    // Stock API 설명
-    const stockApiDescription = document.querySelector('#stock-api-key-label + p');
-    if (stockApiDescription && languageData['stockApiDescription']) {
-        stockApiDescription.textContent = languageData['stockApiDescription'];
-        // console.log('Updated stock API description:', languageData['stockApiDescription']);
-    }
-
-    // Stock API 등록 방법
-    const stockApiRegistrationMethod = document.querySelector('#stock-api-key-label + p + p');
-    if (stockApiRegistrationMethod && languageData['stockApiRegistrationMethod']) {
-        // 링크는 유지하면서 텍스트만 업데이트
-        const linkMatch = stockApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-        if (linkMatch) {
-            const linkText = linkMatch[1];
-            const newText = languageData['stockApiRegistrationMethod'].replace('Alpha Vantage', `<a href="https://www.alphavantage.co/support/#api-key" target="_blank">${linkText}</a>`);
-            stockApiRegistrationMethod.innerHTML = newText;
-        } else {
-            stockApiRegistrationMethod.textContent = languageData['stockApiRegistrationMethod'];
-        }
-        // console.log('Updated stock API registration method:', languageData['stockApiRegistrationMethod']);
     }
 
     // 공통 저장 버튼들
@@ -467,12 +396,7 @@ function applyLanguage() {
         // console.log('Updated auto update enabled text:', languageData['autoUpdateEnabled']);
     }
 
-    // 외부 API 키 설정 제목
-    const externalApiKeysTitle = document.getElementById('external-api-keys-title');
-    if (externalApiKeysTitle && languageData['externalApiKeysTitle']) {
-        externalApiKeysTitle.textContent = languageData['externalApiKeysTitle'];
-        // console.log('Updated external API keys title:', languageData['externalApiKeysTitle']);
-    }
+
 
     // 기타 설명 텍스트들 (p 태그들) - 더 정확한 매칭으로 개선
     const infoMessages = document.querySelectorAll('.info-message');
@@ -509,7 +433,7 @@ function applyLanguage() {
             if (languageData['settingsSavedImmediately']) {
                 msg.textContent = languageData['settingsSavedImmediately'];
             }
-        } else if (text && (text.includes('AIDEV-IDE의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
+        } else if (text && (text.includes('CODEPILOT의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
             text.includes('Set the Gemini API key to use AIDEV-IDE\'s AI features') ||
             text.includes('Establece la clave API de Gemini para usar las funciones de IA de AIDEV-IDE') ||
             text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de AIDEV-IDE') ||
@@ -538,36 +462,6 @@ function applyLanguage() {
             // 외부 API 키 설명
             if (languageData['externalApiKeysDescription']) {
                 msg.textContent = languageData['externalApiKeysDescription'];
-            }
-        } else if (text && (text.includes('한국의 정확한 날씨 정보를 제공합니다') ||
-            text.includes('Provides accurate weather information for Korea') ||
-            text.includes('Proporciona información meteorológica precisa para Corea') ||
-            text.includes('Fournit des informations météorologiques précises pour la Corée') ||
-            text.includes('提供韩国的准确天气信息') ||
-            text.includes('韓国の正確な天気情報を提供します'))) {
-            // 날씨 API 설명
-            if (languageData['weatherApiDescription']) {
-                msg.textContent = languageData['weatherApiDescription'];
-            }
-        } else if (text && (text.includes('한국의 최신 뉴스 정보를 제공합니다') ||
-            text.includes('Provides the latest news information from Korea') ||
-            text.includes('Proporciona la información de noticias más reciente de Corea') ||
-            text.includes('Fournit les dernières informations d\'actualités de Corée') ||
-            text.includes('提供韩国的最新新闻信息') ||
-            text.includes('韓国の最新ニュース情報を提供します'))) {
-            // 뉴스 API 설명
-            if (languageData['newsApiDescription']) {
-                msg.textContent = languageData['newsApiDescription'];
-            }
-        } else if (text && (text.includes('실시간 주식 정보를 제공합니다') ||
-            text.includes('Provides real-time stock information') ||
-            text.includes('Proporciona información de acciones en tiempo real') ||
-            text.includes('Fournit des informations boursières en temps réel') ||
-            text.includes('提供实时股票信息') ||
-            text.includes('リアルタイムの株式情報を提供します'))) {
-            // 주식 API 설명
-            if (languageData['stockApiDescription']) {
-                msg.textContent = languageData['stockApiDescription'];
             }
         }
     });
@@ -802,26 +696,6 @@ function applyLanguage() {
         remoteOllamaApiUrlInput.placeholder = languageData['pleaseEnterOllamaApiUrl'];
     }
 
-    // Weather API 키 입력 필드
-    if (weatherApiKeyInput && languageData['pleaseEnterApiKey']) {
-        weatherApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
-    }
-
-    // News API 키 입력 필드
-    if (newsApiKeyInput && languageData['pleaseEnterApiKey']) {
-        newsApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
-    }
-
-    // News API Secret 입력 필드
-    if (newsApiSecretInput && languageData['pleaseEnterApiKey']) {
-        newsApiSecretInput.placeholder = languageData['pleaseEnterApiKey'];
-    }
-
-    // Stock API 키 입력 필드
-    if (stockApiKeyInput && languageData['pleaseEnterApiKey']) {
-        stockApiKeyInput.placeholder = languageData['pleaseEnterApiKey'];
-    }
-
     // 모든 상태 메시지 업데이트
     // Gemini API 키 상태
     if (geminiApiKeyStatus && geminiApiKeyStatus.textContent) {
@@ -873,69 +747,7 @@ function applyLanguage() {
         }
     }
 
-    // Weather API 키 상태
-    if (weatherApiKeyStatus && weatherApiKeyStatus.textContent) {
-        const currentText = weatherApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
-            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-            currentText.includes('est définie') || currentText.includes('設定されています') ||
-            currentText.includes('已设置')) {
-            weatherApiKeyStatus.textContent = languageData['weatherApiKeySet'] || '기상청 API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
-            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-            currentText.includes('未设置')) {
-            weatherApiKeyStatus.textContent = languageData['weatherApiKeyNotSet'] || '기상청 API 키가 설정되지 않았습니다.';
-        }
-    }
 
-    // News API 키 상태
-    if (newsApiKeyStatus && newsApiKeyStatus.textContent) {
-        const currentText = newsApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
-            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-            currentText.includes('est définie') || currentText.includes('設定されています') ||
-            currentText.includes('已设置')) {
-            newsApiKeyStatus.textContent = languageData['newsApiKeySet'] || '네이버 API Client ID가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
-            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-            currentText.includes('未设置')) {
-            newsApiKeyStatus.textContent = languageData['newsApiKeyNotSet'] || '네이버 API Client ID가 설정되지 않았습니다.';
-        }
-    }
-
-    // News API Secret 상태
-    if (newsApiSecretStatus && newsApiSecretStatus.textContent) {
-        const currentText = newsApiSecretStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
-            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-            currentText.includes('est définie') || currentText.includes('設定されています') ||
-            currentText.includes('已设置')) {
-            newsApiSecretStatus.textContent = languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
-            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-            currentText.includes('未设置')) {
-            newsApiSecretStatus.textContent = languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.';
-        }
-    }
-
-    // Stock API 키 상태
-    if (stockApiKeyStatus && stockApiKeyStatus.textContent) {
-        const currentText = stockApiKeyStatus.textContent;
-        if (currentText.includes('설정되어 있습니다') || currentText.includes('is set') ||
-            currentText.includes('ist festgelegt') || currentText.includes('está configurada') ||
-            currentText.includes('est définie') || currentText.includes('設定されています') ||
-            currentText.includes('已设置')) {
-            stockApiKeyStatus.textContent = languageData['stockApiKeySet'] || '주식 API 키가 설정되어 있습니다.';
-        } else if (currentText.includes('설정되지 않았습니다') || currentText.includes('not set') ||
-            currentText.includes('nicht festgelegt') || currentText.includes('no está configurada') ||
-            currentText.includes('n\'est pas définie') || currentText.includes('設定されていません') ||
-            currentText.includes('未设置')) {
-            stockApiKeyStatus.textContent = languageData['stockApiKeyNotSet'] || '주식 API 키가 설정되지 않았습니다.';
-        }
-    }
 }
 
 if (languageSelect) {
@@ -1041,6 +853,22 @@ if (outputLogToggle) {
 }
 
 // 이벤트 리스너: 오류 수정 횟수 스피너
+if (testRetrySpinner) {
+    testRetrySpinner.addEventListener('change', () => {
+        const count = parseInt(testRetrySpinner.value);
+        if (count >= 1 && count <= 10) {
+            vscode.postMessage({ command: 'setTestRetryCount', count: count });
+            const settingChangeText = languageData['settingChangeInProgress'] || '설정 변경 중...';
+            if (testRetryStatus) {
+                testRetryStatus.textContent = `${settingChangeText} ${count}회`;
+            }
+        } else {
+            // 범위를 벗어나면 기본값으로 되돌림
+            testRetrySpinner.value = 3;
+        }
+    });
+}
+
 if (errorRetrySpinner) {
     errorRetrySpinner.addEventListener('change', () => {
         const count = parseInt(errorRetrySpinner.value);
@@ -1085,42 +913,6 @@ if (ollamaServerTypeSelect) {
 }
 
 // API 키 저장 이벤트 리스너들
-if (saveWeatherApiKeyButton) {
-    saveWeatherApiKeyButton.addEventListener('click', () => {
-        const apiKey = weatherApiKeyInput.value.trim();
-        vscode.postMessage({ command: 'saveWeatherApiKey', apiKey: apiKey });
-        const savingText = languageData['apiKeysLoading'] || '기상청 API 키 저장 중...';
-        showStatus(weatherApiKeyStatus, savingText, 'info');
-    });
-}
-
-if (saveNewsApiKeyButton) {
-    saveNewsApiKeyButton.addEventListener('click', () => {
-        const apiKey = newsApiKeyInput.value.trim();
-        vscode.postMessage({ command: 'saveNewsApiKey', apiKey: apiKey });
-        const savingText = languageData['apiKeysLoading'] || '네이버 API Client ID 저장 중...';
-        showStatus(newsApiKeyStatus, savingText, 'info');
-    });
-}
-
-if (saveNewsApiSecretButton) {
-    saveNewsApiSecretButton.addEventListener('click', () => {
-        const apiSecret = newsApiSecretInput.value.trim();
-        vscode.postMessage({ command: 'saveNewsApiSecret', apiSecret: apiSecret });
-        const savingText = languageData['apiKeysLoading'] || '네이버 API Client Secret 저장 중...';
-        showStatus(newsApiSecretStatus, savingText, 'info');
-    });
-}
-
-if (saveStockApiKeyButton) {
-    saveStockApiKeyButton.addEventListener('click', () => {
-        const apiKey = stockApiKeyInput.value.trim();
-        vscode.postMessage({ command: 'saveStockApiKey', apiKey: apiKey });
-        const savingText = languageData['apiKeysLoading'] || '주식 API 키 저장 중...';
-        showStatus(stockApiKeyStatus, savingText, 'info');
-    });
-}
-
 // Gemini API 키 저장 이벤트 리스너
 if (saveGeminiApiKeyButton) {
     saveGeminiApiKeyButton.addEventListener('click', () => {
@@ -1414,51 +1206,71 @@ if (aiModelSelect) {
         const selectedModel = aiModelSelect.value;
         // console.log('AI model selected:', selectedModel);
 
-        // 선택된 모델에 따라 설정 섹션 활성화/비활성화
+        // 선택된 모델에 따라 설정 섹션 활성화/비활성화 및 표시 제어
         if (selectedModel === 'gemini') {
+            geminiSettingsSection.style.display = 'block';
             geminiSettingsSection.classList.remove('disabled');
-            localOllamaSettingsSection.classList.add('disabled');
-            remoteOllamaSettingsSection.classList.add('disabled');
+            if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'none';
         } else if (selectedModel === 'ollama') {
+            geminiSettingsSection.style.display = 'none';
             geminiSettingsSection.classList.add('disabled');
-            // Ollama 선택 시 서버 타입을 기본값 'local'로 설정
-            if (ollamaServerTypeSelect) {
-                ollamaServerTypeSelect.value = 'local';
-                // 서버 타입 변경 이벤트 트리거
-                ollamaServerTypeSelect.dispatchEvent(new Event('change'));
-            }
-            // 서버 타입에 따라 활성 섹션 결정
+            if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'block';
+
+            // Ollama 선택 시 서버 타입에 따라 활성 섹션 결정
             const serverType = ollamaServerTypeSelect ? ollamaServerTypeSelect.value : 'local';
             if (serverType === 'remote') {
                 localOllamaSettingsSection.classList.add('disabled');
+                localOllamaSettingsSection.style.display = 'none';
                 remoteOllamaSettingsSection.classList.remove('disabled');
+                remoteOllamaSettingsSection.style.display = 'block';
             } else {
                 localOllamaSettingsSection.classList.remove('disabled');
+                localOllamaSettingsSection.style.display = 'block';
                 remoteOllamaSettingsSection.classList.add('disabled');
+                remoteOllamaSettingsSection.style.display = 'none';
             }
             // Ollama 선택 시 모델 목록 즉시 요청
             try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
-        } else {
-            // 모델이 선택되지 않은 경우 기본값(Gemini)으로 설정
-            aiModelSelect.value = 'gemini';
-            geminiSettingsSection.classList.remove('disabled');
-            localOllamaSettingsSection.classList.add('disabled');
-            remoteOllamaSettingsSection.classList.add('disabled');
         }
+
         // 선택 변경 시에도 즉시 저장(자동 저장)
         try {
             if (aiModelStatus) {
                 aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
                 aiModelStatus.className = 'info-message';
             }
-            if (aiModelSelect && aiModelSelect.value) {
-                const selectedModel = aiModelSelect.value;
-                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
-            }
+            vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
         } catch (e) {
             console.warn('Failed to autosave AI model:', e);
         }
+    });
+}
 
+// Gemini 모델 선택 이벤트 리스너 추가
+if (geminiModelSelect) {
+    geminiModelSelect.addEventListener('change', () => {
+        const selectedGeminiModel = geminiModelSelect.value;
+        try {
+            if (geminiApiKeyStatus) {
+                geminiApiKeyStatus.textContent = 'Gemini 모델 자동 저장 중...';
+                geminiApiKeyStatus.className = 'info-message';
+            }
+            vscode.postMessage({ command: 'saveGeminiModel', model: selectedGeminiModel });
+        } catch (e) {
+            console.warn('Failed to autosave Gemini model:', e);
+        }
+    });
+}
+
+// Gemini 모델 저장 버튼 이벤트 리스너
+if (saveGeminiModelButton) {
+    saveGeminiModelButton.addEventListener('click', () => {
+        const selectedGeminiModel = geminiModelSelect.value;
+        if (geminiApiKeyStatus) {
+            geminiApiKeyStatus.textContent = 'Gemini 모델 저장 중...';
+            geminiApiKeyStatus.className = 'info-message';
+        }
+        vscode.postMessage({ command: 'saveGeminiModel', model: selectedGeminiModel });
     });
 }
 
@@ -1496,6 +1308,20 @@ window.addEventListener('message', event => {
             if (aiModelStatus) {
                 aiModelStatus.textContent = `AI 모델 저장 실패: ${message.error}`;
                 aiModelStatus.className = 'error-message';
+            }
+            break;
+        }
+        case 'geminiModelSaved': {
+            if (geminiApiKeyStatus) {
+                geminiApiKeyStatus.textContent = 'Gemini 모델이 저장되었습니다.';
+                geminiApiKeyStatus.className = 'success-message';
+            }
+            break;
+        }
+        case 'geminiModelSaveError': {
+            if (geminiApiKeyStatus) {
+                geminiApiKeyStatus.textContent = `Gemini 모델 저장 실패: ${message.error}`;
+                geminiApiKeyStatus.className = 'error-message';
             }
             break;
         }
@@ -1556,7 +1382,18 @@ window.addEventListener('message', event => {
         }
         case 'currentSettings':
             // console.log('[Settings] Received currentSettings message:', message);
-            // console.log('[Settings] message.ollamaModel:', message.ollamaModel);
+
+            // AI 모델 엔진 설정 처리
+            if (message.aiModel && aiModelSelect) {
+                aiModelSelect.value = message.aiModel;
+                // AI 모델 선택에 따른 섹션 표시 업데이트
+                aiModelSelect.dispatchEvent(new Event('change'));
+            }
+
+            // Gemini 모델 설정 처리
+            if (message.geminiModel && geminiModelSelect) {
+                geminiModelSelect.value = message.geminiModel;
+            }
 
             // 언어 설정 처리
             if (message.language && languageSelect) {
@@ -1640,6 +1477,26 @@ window.addEventListener('message', event => {
                     errorRetrySpinner.style.opacity = message.autoCorrectionEnabled ? '1' : '0.5';
                 }
             }
+            if (typeof message.autoTestRetryEnabled === 'boolean' && autoTestRetryToggle) {
+                autoTestRetryToggle.checked = message.autoTestRetryEnabled;
+                if (autoTestRetryStatus) {
+                    autoTestRetryStatus.textContent = message.autoTestRetryEnabled ? (languageData['autoTestRetryOn'] || '자동 테스트 재시도: 켜짐') : (languageData['autoTestRetryOff'] || '자동 테스트 재시도: 꺼짐');
+                }
+                if (testRetrySpinner) {
+                    testRetrySpinner.disabled = !message.autoTestRetryEnabled;
+                    testRetrySpinner.style.opacity = message.autoTestRetryEnabled ? '1' : '0.5';
+                }
+            }
+            if (typeof message.testRetryCount === 'number' && testRetrySpinner) {
+                testRetrySpinner.value = message.testRetryCount;
+                const testRetryStatusText = languageData['testRetryStatus'] || '현재: 최대 테스트 재시도 횟수';
+                const timesText = languageData['testRetryTimes'] || '회';
+                const statusText = `${testRetryStatusText} ${message.testRetryCount}${timesText}`;
+                if (testRetryStatus) {
+                    showStatus(testRetryStatus, statusText, 'success');
+                    testRetryStatus.textContent = statusText;
+                }
+            }
             if (typeof message.projectRoot === 'string') {
                 updateProjectRootDisplay(message.projectRoot);
                 const projectRootLoadedText = languageData['projectRootLoaded'] || '프로젝트 Root 로드 완료.';
@@ -1653,8 +1510,7 @@ window.addEventListener('message', event => {
             if (aiModelSelect && typeof message.aiModel === 'string') {
                 // 저장된 모델을 UI 표시용으로 변환
                 let displayModel = message.aiModel;
-                if (message.aiModel === 'ollama-gemma' || message.aiModel === 'ollama-deepseek' ||
-                    message.aiModel === 'ollama-codellama' || message.aiModel === 'ollama-gpt-oss') {
+                if (message.aiModel.startsWith('ollama')) {
                     displayModel = 'ollama';
                 } else if (message.aiModel === 'gemini') {
                     displayModel = 'gemini';
@@ -1780,18 +1636,14 @@ window.addEventListener('message', event => {
             break;
         case 'currentAiModel':
             if (aiModelSelect && message.model) {
-                // console.log('Received current AI model:', message.model);
-
                 // 저장된 모델을 UI 표시용으로 변환
                 let displayModel = message.model;
-                if (message.model === 'ollama-gemma' || message.model === 'ollama-deepseek' ||
-                    message.model === 'ollama-codellama' || message.model === 'ollama-gpt-oss') {
+                if (message.model.startsWith('ollama')) {
                     displayModel = 'ollama';
                 } else if (message.model === 'gemini') {
                     displayModel = 'gemini';
                 }
 
-                // console.log('Setting AI model select to:', displayModel);
                 aiModelSelect.value = displayModel;
 
                 // 모델에 따라 섹션 활성화/비활성화
@@ -1848,6 +1700,29 @@ window.addEventListener('message', event => {
                 errorRetryStatus.textContent = statusText;
             }
             break;
+        case 'autoTestRetryEnabledSet':
+            if (typeof message.enabled === 'boolean' && autoTestRetryToggle) {
+                autoTestRetryToggle.checked = message.enabled;
+                if (autoTestRetryStatus) {
+                    autoTestRetryStatus.textContent = message.enabled ? (languageData['autoTestRetryOn'] || '자동 테스트 재시도: 켜짐') : (languageData['autoTestRetryOff'] || '자동 테스트 재시도: 꺼짐');
+                }
+                if (testRetrySpinner) {
+                    testRetrySpinner.disabled = !message.enabled;
+                    testRetrySpinner.style.opacity = message.enabled ? '1' : '0.5';
+                }
+            }
+            break;
+        case 'testRetryCountSet':
+            if (typeof message.count === 'number' && testRetrySpinner) {
+                testRetrySpinner.value = message.count;
+                const testRetryStatusText = languageData['testRetryStatus'] || '현재: 최대 테스트 재시도 횟수';
+                const timesText = languageData['testRetryTimes'] || '회';
+                const statusText = `${testRetryStatusText} ${message.count}${timesText}`;
+                if (testRetryStatus) {
+                    testRetryStatus.textContent = statusText;
+                }
+            }
+            break;
         case 'autoCorrectionStatusChanged':
             if (typeof message.enabled === 'boolean' && autoCorrectionToggle) {
                 autoCorrectionToggle.checked = message.enabled;
@@ -1862,34 +1737,6 @@ window.addEventListener('message', event => {
             break;
         case 'currentApiKeys':
             // API 키 상태 로드
-            if (weatherApiKeyInput && typeof message.weatherApiKey === 'string') {
-                weatherApiKeyInput.value = message.weatherApiKey;
-                const weatherApiKeySetText = message.weatherApiKey ?
-                    (languageData['weatherApiKeySet'] || '기상청 API 키가 설정되어 있습니다.') :
-                    (languageData['weatherApiKeyNotSet'] || '기상청 API 키가 설정되지 않았습니다.');
-                showStatus(weatherApiKeyStatus, weatherApiKeySetText, message.weatherApiKey ? 'success' : 'info');
-            }
-            if (newsApiKeyInput && typeof message.newsApiKey === 'string') {
-                newsApiKeyInput.value = message.newsApiKey;
-                const newsApiKeySetText = message.newsApiKey ?
-                    (languageData['newsApiKeySet'] || '네이버 API Client ID가 설정되어 있습니다.') :
-                    (languageData['newsApiKeyNotSet'] || '네이버 API Client ID가 설정되지 않았습니다.');
-                showStatus(newsApiKeyStatus, newsApiKeySetText, message.newsApiKey ? 'success' : 'info');
-            }
-            if (newsApiSecretInput && typeof message.newsApiSecret === 'string') {
-                newsApiSecretInput.value = message.newsApiSecret;
-                const newsApiSecretSetText = message.newsApiSecret ?
-                    (languageData['newsApiSecretSet'] || '네이버 API Client Secret이 설정되어 있습니다.') :
-                    (languageData['newsApiSecretNotSet'] || '네이버 API Client Secret이 설정되지 않았습니다.');
-                showStatus(newsApiSecretStatus, newsApiSecretSetText, message.newsApiSecret ? 'success' : 'info');
-            }
-            if (stockApiKeyInput && typeof message.stockApiKey === 'string') {
-                stockApiKeyInput.value = message.stockApiKey;
-                const stockApiKeySetText = message.stockApiKey ?
-                    (languageData['stockApiKeySet'] || '주식 API 키가 설정되어 있습니다.') :
-                    (languageData['stockApiKeyNotSet'] || '주식 API 키가 설정되지 않았습니다.');
-                showStatus(stockApiKeyStatus, stockApiKeySetText, message.stockApiKey ? 'success' : 'info');
-            }
             // Gemini API 키 상태 로드
             if (geminiApiKeyInput && typeof message.geminiApiKey === 'string') {
                 geminiApiKeyInput.value = message.geminiApiKey;
@@ -2029,42 +1876,6 @@ window.addEventListener('message', event => {
                 updateSaveButtonsState();
                 updateLicenseButtonsState();
             }, 100);
-            break;
-        case 'weatherApiKeySaved':
-            const weatherApiKeySavedText = languageData['weatherApiKeySaved'] || '기상청 API 키가 저장되었습니다.';
-            showStatus(weatherApiKeyStatus, weatherApiKeySavedText, 'success');
-            weatherApiKeyInput.value = '';
-            break;
-        case 'weatherApiKeyError':
-            const weatherApiKeyErrorText = languageData['weatherApiKeyError'] || '기상청 API 키 저장 실패:';
-            showStatus(weatherApiKeyStatus, `${weatherApiKeyErrorText} ${message.error}`, 'error');
-            break;
-        case 'newsApiKeySaved':
-            const newsApiKeySavedText = languageData['newsApiKeySaved'] || '네이버 API Client ID가 저장되었습니다.';
-            showStatus(newsApiKeyStatus, newsApiKeySavedText, 'success');
-            newsApiKeyInput.value = '';
-            break;
-        case 'newsApiKeyError':
-            const newsApiKeyErrorText = languageData['newsApiKeyError'] || '네이버 API Client ID 저장 실패:';
-            showStatus(newsApiKeyStatus, `${newsApiKeyErrorText} ${message.error}`, 'error');
-            break;
-        case 'newsApiSecretSaved':
-            const newsApiSecretSavedText = languageData['newsApiSecretSaved'] || '네이버 API Client Secret이 저장되었습니다.';
-            showStatus(newsApiSecretStatus, newsApiSecretSavedText, 'success');
-            newsApiSecretInput.value = '';
-            break;
-        case 'newsApiSecretError':
-            const newsApiSecretErrorText = languageData['newsApiSecretError'] || '네이버 API Client Secret 저장 실패:';
-            showStatus(newsApiSecretStatus, `${newsApiSecretErrorText} ${message.error}`, 'error');
-            break;
-        case 'stockApiKeySaved':
-            const stockApiKeySavedText = languageData['stockApiKeySaved'] || '주식 API 키가 저장되었습니다.';
-            showStatus(stockApiKeyStatus, stockApiKeySavedText, 'success');
-            stockApiKeyInput.value = '';
-            break;
-        case 'stockApiKeyError':
-            const stockApiKeyErrorText = languageData['stockApiKeyError'] || '주식 API 키 저장 실패:';
-            showStatus(stockApiKeyStatus, `${stockApiKeyErrorText} ${message.error}`, 'error');
             break;
         case 'apiKeySaved':
             const geminiApiKeySavedText = languageData['geminiApiKeySaved'] || 'Gemini API 키가 저장되었습니다.';
@@ -2340,9 +2151,6 @@ vscode.postMessage({ command: 'loadAiModel' });
 vscode.postMessage({ command: 'loadOllamaModel' });
 
 const apiKeysLoadingText = languageData['apiKeysLoading'] || 'API 키 로드 중...';
-showStatus(weatherApiKeyStatus, apiKeysLoadingText, 'info');
-showStatus(newsApiKeyStatus, apiKeysLoadingText, 'info');
-showStatus(stockApiKeyStatus, apiKeysLoadingText, 'info');
 showStatus(geminiApiKeyStatus, apiKeysLoadingText, 'info');
 if (localOllamaApiUrlStatus) showStatus(localOllamaApiUrlStatus, apiKeysLoadingText, 'info');
 if (remoteOllamaApiUrlStatus) showStatus(remoteOllamaApiUrlStatus, apiKeysLoadingText, 'info');
@@ -2393,71 +2201,14 @@ if (localOllamaApiUrlInput) {
     });
 }
 
-// Ollama 모델 다운로드 기능
+// Ollama 모델 다운로드 기능 제거
 let supportedModels = [];
 
-// 지원되는 모델 목록 로드
-async function loadSupportedModels() {
-    // console.log('[Settings] Starting to load supported models...');
-    try {
-        if (vscode) {
-            // console.log('[Settings] Sending getSupportedModels command to extension');
-            vscode.postMessage({ command: 'getSupportedModels' });
-        } else {
-            throw new Error('VS Code API not available');
-        }
-    } catch (error) {
-        console.error('[Settings] Failed to load supported models:', error);
-        const modelListContainer = document.getElementById('ollama-model-list');
-        if (modelListContainer) {
-            modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';
-        }
-    }
-}
-
-// 모델 리스트 렌더링
+// 모델 리스트 렌더링 (비어있음)
 function renderModelList() {
-    // console.log('[Settings] renderModelList called with supportedModels:', supportedModels);
     const modelListContainer = document.getElementById('ollama-model-list');
-    if (!modelListContainer) {
-        console.error('[Settings] ollama-model-list container not found');
-        return;
-    }
-
-    modelListContainer.innerHTML = '';
-    // console.log('[Settings] Rendering', supportedModels.length, 'models');
-
-    supportedModels.forEach(model => {
-        const modelItem = document.createElement('div');
-        modelItem.className = 'model-item';
-        modelItem.setAttribute('data-model', model.name);
-        modelItem.innerHTML = `
-            <div class="model-info">
-                <div class="model-name">${model.displayName}</div>
-                <div class="model-description">${model.description}</div>
-                <div class="model-size">크기: ${model.size}</div>
-                <div class="model-tags">
-                    ${model.tags.map(tag => `<span class="model-tag">${tag}</span>`).join('')}
-                </div>
-            </div>
-            <button class="model-download-button" data-model="${model.name}">
-                다운로드
-            </button>
-        `;
-        modelListContainer.appendChild(modelItem);
-    });
-
-    // 다운로드 버튼 이벤트 리스너 추가
-    const downloadButtons = modelListContainer.querySelectorAll('.model-download-button');
-    downloadButtons.forEach(button => {
-        button.addEventListener('click', (e) => {
-            const modelName = e.target.getAttribute('data-model');
-            downloadModel(modelName, e.target);
-        });
-    });
-
-    // 현재 로컬에 다운로드된 모델 확인하여 버튼 상태 업데이트
-    checkDownloadedModels();
+    if (!modelListContainer) return;
+    modelListContainer.innerHTML = '<p class="info-message">추천 모델 리스트가 삭제되었습니다. 이미 설치된 모델을 선택하여 사용하세요.</p>';
 }
 
 // 현재 다운로드된 모델 확인
@@ -2620,8 +2371,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 6. Ollama 모델 로드
     vscode.postMessage({ command: 'loadOllamaModel' });
 
-    // 7. 지원되는 모델 목록 로드
-    loadSupportedModels();
+    // 7. 지원되는 모델 목록 로드 제거
+    // loadSupportedModels();
 
     // 8. 라이센스 입력 필드 초기 상태 설정
     if (banyaLicenseSerialInput) {
@@ -2629,112 +2380,320 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     console.log('[Settings] DOMContentLoaded - Initial load sequence completed');
+
+    // AgentPolicy XML 파일 로드
+    loadAgentPolicyFiles();
 });
 
-// === Planning (Reasoning) Section ===
-(function initPlanningSection() {
-    const planningContainer = document.createElement('div');
-    planningContainer.className = 'section-container';
-    planningContainer.innerHTML = `
-        <h2 id="planning-section-title">🧠 Planning (Reasoning)</h2>
-        <p class="info-message" id="planning-helper">키워드 추출 후 계획(Plan) 생성을 위한 Reasoning 모델을 선택하세요.</p>
-        <div class="api-key-section" id="planning-settings-section">
-            <div class="api-key-input-group">
-                <label for="planning-model-select" style="margin-right:10px; font-weight:bold;">Reasoning 모델</label>
-                <select id="planning-model-select" style="flex-grow:1; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;"></select>
-                <button id="save-planning-model-button">모델 저장</button>
-            </div>
-            <p id="planning-model-status" class="info-message"></p>
-        </div>
-    `;
+// ===== AgentPolicy 관련 함수들 =====
 
-    // 적절한 삽입 위치: Ollama 설정 섹션 바로 아래 배치 시도
-    const settingsRoot = document.body || document.documentElement;
-    settingsRoot.appendChild(planningContainer);
+// AgentPolicy 파일 업로드 핸들러
+function setupAgentPolicyFileUpload(inputId, selectButtonId, uploadButtonId, deleteButtonId, statusId, fileNameId, uploadCommand) {
+    const fileInput = document.getElementById(inputId);
+    const selectButton = document.getElementById(selectButtonId);
+    const uploadButton = document.getElementById(uploadButtonId);
+    const deleteButton = document.getElementById(deleteButtonId);
+    const statusElement = document.getElementById(statusId);
+    const fileNameElement = document.getElementById(fileNameId);
 
-    const planningSelect = document.getElementById('planning-model-select');
-    const planningStatus = document.getElementById('planning-model-status');
-    const planningHelper = document.getElementById('planning-helper');
-    const savePlanningModelButton = document.getElementById('save-planning-model-button');
-
-    function setPlanningStatus(text, cls) {
-        if (!planningStatus) return;
-        planningStatus.textContent = text || '';
-        planningStatus.className = 'info-message' + (cls ? ' ' + cls : '');
+    if (!fileInput || !selectButton || !uploadButton || !statusElement) {
+        return;
     }
 
-    if (savePlanningModelButton) {
-        savePlanningModelButton.addEventListener('click', () => {
-            if (!planningSelect) return;
-            const model = planningSelect.value || '';
-            if (model && window.vscode) {
-                vscode.postMessage({ command: 'savePlanningModel', model });
+    // 파일 선택 버튼 클릭
+    selectButton.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // 파일 선택 시
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown')) {
+                showStatus(statusElement, 'Markdown 파일만 저장할 수 있습니다.', 'error');
+                fileInput.value = '';
+                uploadButton.disabled = true;
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const mdContent = event.target.result;
+                if (fileNameElement) {
+                    fileNameElement.textContent = `선택된 파일: ${file.name}`;
+                }
+                uploadButton.disabled = false;
+                uploadButton.dataset.mdContent = mdContent;
+                uploadButton.dataset.xmlContent = mdContent; // 호환성을 위해 xmlContent도 저장
+            };
+            reader.onerror = () => {
+                showStatus(statusElement, '파일 읽기 실패', 'error');
+                uploadButton.disabled = true;
+            };
+            reader.readAsText(file);
+        }
+    });
+
+    // 저장 버튼 클릭
+    uploadButton.addEventListener('click', () => {
+        const mdContent = uploadButton.dataset.mdContent || uploadButton.dataset.xmlContent;
+        if (mdContent) {
+            showStatus(statusElement, '저장 중...', 'info');
+            uploadButton.disabled = true;
+            vscode.postMessage({
+                command: uploadCommand,
+                mdContent: mdContent,
+                xmlContent: mdContent // 호환성을 위해 xmlContent도 포함
+            });
+        }
+    });
+
+    // 삭제 버튼 클릭
+    if (deleteButton) {
+        deleteButton.addEventListener('click', () => {
+            if (confirm('정말로 이 파일을 삭제하시겠습니까?')) {
+                showStatus(statusElement, '삭제 중...', 'info');
+                // 삭제 명령어 매핑
+                const deleteCommandMap = {
+                    'agent-policy-stable-version-input': 'deleteAgentPolicyStableVersion',
+                    'agent-policy-coding-style-input': 'deleteAgentPolicyCodingStyle',
+                    'agent-policy-project-architecture-input': 'deleteAgentPolicyProjectArchitecture',
+                    'agent-policy-dependency-policy-input': 'deleteAgentPolicyDependencyPolicy',
+                    'agent-policy-db-policy-input': 'deleteAgentPolicyDbPolicy'
+                };
+                const deleteCommand = deleteCommandMap[inputId];
+                if (deleteCommand && vscode) {
+                    vscode.postMessage({ command: deleteCommand });
+                }
             }
         });
     }
+}
 
-    // 메시지 수신 확장: reasoningModels/planningModel 사용
-    window.addEventListener('message', (event) => {
-        const message = event.data || {};
-        if (message.command === 'ollamaModels') {
-            if (Array.isArray(message.reasoningModels) && planningSelect) {
-                planningSelect.innerHTML = '';
-                const def = document.createElement('option');
-                def.value = '';
-                def.textContent = 'Reasoning 모델을 선택하세요';
-                planningSelect.appendChild(def);
+// AgentPolicy 파일 로드
+function loadAgentPolicyFiles() {
+    vscode.postMessage({ command: 'getAgentPolicyStableVersion' });
+    vscode.postMessage({ command: 'getAgentPolicyCodingStyle' });
+    vscode.postMessage({ command: 'getAgentPolicyProjectArchitecture' });
+    vscode.postMessage({ command: 'getAgentPolicyDependencyPolicy' });
+    vscode.postMessage({ command: 'getAgentPolicyDbPolicy' });
+}
 
-                message.reasoningModels.forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    planningSelect.appendChild(opt);
-                });
+// AgentPolicy 파일 업로드 설정
+setupAgentPolicyFileUpload(
+    'agent-policy-stable-version-input',
+    'select-stable-version-button',
+    'upload-stable-version-button',
+    'delete-stable-version-button',
+    'stable-version-status',
+    'stable-version-file-name',
+    'uploadAgentPolicyStableVersion'
+);
 
-                // 모델 없을 때 안내
-                if (message.reasoningModels.length === 0) {
-                    if (planningHelper) {
-                        planningHelper.textContent = '로컬 Ollama에 Reasoning 모델이 없습니다. 아래 Ollama 모델 다운로드 섹션에서 적절한 모델을 다운로드하세요.';
-                    }
-                } else {
-                    if (planningHelper) {
-                        planningHelper.textContent = '키워드 추출 후 계획(Plan) 생성을 위한 Reasoning 모델을 선택하세요.';
-                    }
-                }
+setupAgentPolicyFileUpload(
+    'agent-policy-coding-style-input',
+    'select-coding-style-button',
+    'upload-coding-style-button',
+    'delete-coding-style-button',
+    'coding-style-status',
+    'coding-style-file-name',
+    'uploadAgentPolicyCodingStyle'
+);
 
-                // 현재 저장된 planningModel 적용
-                if (typeof message.planningModel === 'string' && message.planningModel) {
-                    const options = Array.from(planningSelect.options).map(o => o.value);
-                    if (options.includes(message.planningModel)) {
-                        planningSelect.value = message.planningModel;
-                    } else {
-                        // 목록에 없으면 앞에 추가
-                        const opt = document.createElement('option');
-                        opt.value = message.planningModel;
-                        opt.textContent = message.planningModel;
-                        planningSelect.insertBefore(opt, planningSelect.firstChild);
-                        planningSelect.value = message.planningModel;
-                    }
-                }
+setupAgentPolicyFileUpload(
+    'agent-policy-project-architecture-input',
+    'select-project-architecture-button',
+    'upload-project-architecture-button',
+    'delete-project-architecture-button',
+    'project-architecture-status',
+    'project-architecture-file-name',
+    'uploadAgentPolicyProjectArchitecture'
+);
+
+setupAgentPolicyFileUpload(
+    'agent-policy-dependency-policy-input',
+    'select-dependency-policy-button',
+    'upload-dependency-policy-button',
+    'delete-dependency-policy-button',
+    'dependency-policy-status',
+    'dependency-policy-file-name',
+    'uploadAgentPolicyDependencyPolicy'
+);
+
+setupAgentPolicyFileUpload(
+    'agent-policy-db-policy-input',
+    'select-db-policy-button',
+    'upload-db-policy-button',
+    'delete-db-policy-button',
+    'db-policy-status',
+    'db-policy-file-name',
+    'uploadAgentPolicyDbPolicy'
+);
+
+// AgentPolicy 관련 메시지 핸들러
+window.addEventListener('message', (event) => {
+    const message = event.data;
+
+    switch (message.command) {
+        case 'agentPolicyStableVersionSaved':
+            showStatus(document.getElementById('stable-version-status'), 'Stable Version Markdown이 저장되었습니다.', 'success');
+            const stableVersionInput = document.getElementById('agent-policy-stable-version-input');
+            const stableVersionUploadBtn = document.getElementById('upload-stable-version-button');
+            const stableVersionDeleteBtn = document.getElementById('delete-stable-version-button');
+            const stableVersionFileName = document.getElementById('stable-version-file-name');
+            if (stableVersionInput) stableVersionInput.value = '';
+            if (stableVersionUploadBtn) {
+                stableVersionUploadBtn.disabled = true;
+                delete stableVersionUploadBtn.dataset.mdContent;
+                delete stableVersionUploadBtn.dataset.xmlContent;
             }
-        } else if (message.command === 'planningModelSaved') {
-            setPlanningStatus(`Planning 모델이 저장되었습니다: ${message.model}`, 'success-message');
-        } else if (message.command === 'planningModelSaveError') {
-            setPlanningStatus(`Planning 모델 저장 실패: ${message.error}`, 'error-message');
-        } else if (message.command === 'currentSettings') {
-            // 초기 로드 시 planningModel만 반영 (reasoningModels는 별도 ollamaModels에서 옴)
-            if (planningSelect && typeof message.planningModel === 'string' && message.planningModel) {
-                const options = Array.from(planningSelect.options).map(o => o.value);
-                if (options.includes(message.planningModel)) {
-                    planningSelect.value = message.planningModel;
-                } else if (message.planningModel) {
-                    const opt = document.createElement('option');
-                    opt.value = message.planningModel;
-                    opt.textContent = message.planningModel;
-                    planningSelect.insertBefore(opt, planningSelect.firstChild);
-                    planningSelect.value = message.planningModel;
-                }
+            if (stableVersionDeleteBtn) stableVersionDeleteBtn.style.display = 'inline-block';
+            if (stableVersionFileName) stableVersionFileName.textContent = '';
+            break;
+        case 'agentPolicyStableVersionSaveError':
+            showStatus(document.getElementById('stable-version-status'), `저장 실패: ${message.error}`, 'error');
+            document.getElementById('upload-stable-version-button').disabled = false;
+            break;
+        case 'agentPolicyStableVersionLoaded':
+            if (message.mdContent || message.xmlContent) {
+                showStatus(document.getElementById('stable-version-status'), 'Stable Version Markdown이 로드되었습니다.', 'success');
+                document.getElementById('delete-stable-version-button').style.display = 'inline-block';
             }
-        }
-    });
-})();
+            break;
+        case 'agentPolicyCodingStyleSaved':
+            showStatus(document.getElementById('coding-style-status'), 'Coding Style Markdown이 저장되었습니다.', 'success');
+            const codingStyleInput = document.getElementById('agent-policy-coding-style-input');
+            const codingStyleUploadBtn = document.getElementById('upload-coding-style-button');
+            const codingStyleDeleteBtn = document.getElementById('delete-coding-style-button');
+            const codingStyleFileName = document.getElementById('coding-style-file-name');
+            if (codingStyleInput) codingStyleInput.value = '';
+            if (codingStyleUploadBtn) {
+                codingStyleUploadBtn.disabled = true;
+                delete codingStyleUploadBtn.dataset.mdContent;
+                delete codingStyleUploadBtn.dataset.xmlContent;
+            }
+            if (codingStyleDeleteBtn) codingStyleDeleteBtn.style.display = 'inline-block';
+            if (codingStyleFileName) codingStyleFileName.textContent = '';
+            break;
+        case 'agentPolicyCodingStyleSaveError':
+            showStatus(document.getElementById('coding-style-status'), `저장 실패: ${message.error}`, 'error');
+            document.getElementById('upload-coding-style-button').disabled = false;
+            break;
+        case 'agentPolicyCodingStyleLoaded':
+            if (message.mdContent || message.xmlContent) {
+                showStatus(document.getElementById('coding-style-status'), 'Coding Style Markdown이 로드되었습니다.', 'success');
+                document.getElementById('delete-coding-style-button').style.display = 'inline-block';
+            }
+            break;
+        case 'agentPolicyProjectArchitectureSaved':
+            showStatus(document.getElementById('project-architecture-status'), 'Project Architecture Markdown이 저장되었습니다.', 'success');
+            const projectArchInput = document.getElementById('agent-policy-project-architecture-input');
+            const projectArchUploadBtn = document.getElementById('upload-project-architecture-button');
+            const projectArchDeleteBtn = document.getElementById('delete-project-architecture-button');
+            const projectArchFileName = document.getElementById('project-architecture-file-name');
+            if (projectArchInput) projectArchInput.value = '';
+            if (projectArchUploadBtn) {
+                projectArchUploadBtn.disabled = true;
+                delete projectArchUploadBtn.dataset.mdContent;
+                delete projectArchUploadBtn.dataset.xmlContent;
+            }
+            if (projectArchDeleteBtn) projectArchDeleteBtn.style.display = 'inline-block';
+            if (projectArchFileName) projectArchFileName.textContent = '';
+            break;
+        case 'agentPolicyProjectArchitectureSaveError':
+            showStatus(document.getElementById('project-architecture-status'), `저장 실패: ${message.error}`, 'error');
+            document.getElementById('upload-project-architecture-button').disabled = false;
+            break;
+        case 'agentPolicyProjectArchitectureLoaded':
+            if (message.mdContent || message.xmlContent) {
+                showStatus(document.getElementById('project-architecture-status'), 'Project Architecture Markdown이 로드되었습니다.', 'success');
+                document.getElementById('delete-project-architecture-button').style.display = 'inline-block';
+            }
+            break;
+        case 'agentPolicyDependencyPolicySaved':
+            showStatus(document.getElementById('dependency-policy-status'), 'Dependency Policy Markdown이 저장되었습니다.', 'success');
+            const dependencyPolicyInput = document.getElementById('agent-policy-dependency-policy-input');
+            const dependencyPolicyUploadBtn = document.getElementById('upload-dependency-policy-button');
+            const dependencyPolicyDeleteBtn = document.getElementById('delete-dependency-policy-button');
+            const dependencyPolicyFileName = document.getElementById('dependency-policy-file-name');
+            if (dependencyPolicyInput) dependencyPolicyInput.value = '';
+            if (dependencyPolicyUploadBtn) {
+                dependencyPolicyUploadBtn.disabled = true;
+                delete dependencyPolicyUploadBtn.dataset.mdContent;
+                delete dependencyPolicyUploadBtn.dataset.xmlContent;
+            }
+            if (dependencyPolicyDeleteBtn) dependencyPolicyDeleteBtn.style.display = 'inline-block';
+            if (dependencyPolicyFileName) dependencyPolicyFileName.textContent = '';
+            break;
+        case 'agentPolicyDependencyPolicySaveError':
+            showStatus(document.getElementById('dependency-policy-status'), `저장 실패: ${message.error}`, 'error');
+            document.getElementById('upload-dependency-policy-button').disabled = false;
+            break;
+        case 'agentPolicyDependencyPolicyLoaded':
+            if (message.mdContent || message.xmlContent) {
+                showStatus(document.getElementById('dependency-policy-status'), 'Dependency Policy Markdown이 로드되었습니다.', 'success');
+                document.getElementById('delete-dependency-policy-button').style.display = 'inline-block';
+            }
+            break;
+        case 'agentPolicyDbPolicySaved':
+            showStatus(document.getElementById('db-policy-status'), 'DB Policy Markdown이 저장되었습니다.', 'success');
+            const dbPolicyInput = document.getElementById('agent-policy-db-policy-input');
+            const dbPolicyUploadBtn = document.getElementById('upload-db-policy-button');
+            const dbPolicyDeleteBtn = document.getElementById('delete-db-policy-button');
+            const dbPolicyFileName = document.getElementById('db-policy-file-name');
+            if (dbPolicyInput) dbPolicyInput.value = '';
+            if (dbPolicyUploadBtn) {
+                dbPolicyUploadBtn.disabled = true;
+                delete dbPolicyUploadBtn.dataset.mdContent;
+                delete dbPolicyUploadBtn.dataset.xmlContent;
+            }
+            if (dbPolicyDeleteBtn) dbPolicyDeleteBtn.style.display = 'inline-block';
+            if (dbPolicyFileName) dbPolicyFileName.textContent = '';
+            break;
+        case 'agentPolicyDbPolicySaveError':
+            showStatus(document.getElementById('db-policy-status'), `저장 실패: ${message.error}`, 'error');
+            document.getElementById('upload-db-policy-button').disabled = false;
+            break;
+        case 'agentPolicyDbPolicyLoaded':
+            if (message.mdContent || message.xmlContent) {
+                showStatus(document.getElementById('db-policy-status'), 'DB Policy Markdown이 로드되었습니다.', 'success');
+                document.getElementById('delete-db-policy-button').style.display = 'inline-block';
+            }
+            break;
+        case 'agentPolicyStableVersionDeleted':
+            showStatus(document.getElementById('stable-version-status'), 'Stable Version Markdown이 삭제되었습니다.', 'success');
+            document.getElementById('delete-stable-version-button').style.display = 'none';
+            break;
+        case 'agentPolicyStableVersionDeleteError':
+            showStatus(document.getElementById('stable-version-status'), `삭제 실패: ${message.error}`, 'error');
+            break;
+        case 'agentPolicyCodingStyleDeleted':
+            showStatus(document.getElementById('coding-style-status'), 'Coding Style Markdown이 삭제되었습니다.', 'success');
+            document.getElementById('delete-coding-style-button').style.display = 'none';
+            break;
+        case 'agentPolicyCodingStyleDeleteError':
+            showStatus(document.getElementById('coding-style-status'), `삭제 실패: ${message.error}`, 'error');
+            break;
+        case 'agentPolicyProjectArchitectureDeleted':
+            showStatus(document.getElementById('project-architecture-status'), 'Project Architecture Markdown이 삭제되었습니다.', 'success');
+            document.getElementById('delete-project-architecture-button').style.display = 'none';
+            break;
+        case 'agentPolicyProjectArchitectureDeleteError':
+            showStatus(document.getElementById('project-architecture-status'), `삭제 실패: ${message.error}`, 'error');
+            break;
+        case 'agentPolicyDependencyPolicyDeleted':
+            showStatus(document.getElementById('dependency-policy-status'), 'Dependency Policy Markdown이 삭제되었습니다.', 'success');
+            document.getElementById('delete-dependency-policy-button').style.display = 'none';
+            break;
+        case 'agentPolicyDependencyPolicyDeleteError':
+            showStatus(document.getElementById('dependency-policy-status'), `삭제 실패: ${message.error}`, 'error');
+            break;
+        case 'agentPolicyDbPolicyDeleted':
+            showStatus(document.getElementById('db-policy-status'), 'DB Policy Markdown이 삭제되었습니다.', 'success');
+            document.getElementById('delete-db-policy-button').style.display = 'none';
+            break;
+        case 'agentPolicyDbPolicyDeleteError':
+            showStatus(document.getElementById('db-policy-status'), `삭제 실패: ${message.error}`, 'error');
+            break;
+    }
+});

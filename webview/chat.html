@@ -71,7 +71,7 @@
 
         #chat-container {
             /* 하단 고정 영역의 높이를 고려한 패딩 설정 */
-            padding: 10px 10px 220px 10px;
+            padding: 0 0 220px 0;
             /* 입력 영역 + Processing Steps를 고려해 하단 여백 확대 */
             /* 하단 패딩을 120px로 증가 (입력 영역 + 파일 선택 영역 고려) */
             overflow-y: auto;
@@ -93,6 +93,9 @@
             flex-direction: column;
             width: 100%;
             align-items: flex-start;
+            padding: 10px 10px 0 10px;
+            /* 컨테이너 대신 메시지 그룹에 패딩 부여 */
+            box-sizing: border-box;
         }
 
         /* 하단 고정 영역 - 파일 선택 영역과 입력 영역 */
@@ -103,7 +106,8 @@
             width: 100%;
             background-color: var(--vscode-editor-background);
             border-top: 1px solid var(--vscode-panel-border);
-            z-index: 10;
+            z-index: 1000;
+            /* 상단 고정 steps(100) 보다 위에 오도록 수정 */
             display: flex;
             flex-direction: column;
         }
@@ -219,6 +223,43 @@
             font-size: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
+            position: relative;
+        }
+
+        /* CODE/ASK 색상 포인트 */
+        #mode-selector::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background-color: #2196F3;
+            /* CODE 기본 색상 (파란색) */
+            border-radius: 5px 0 0 5px;
+        }
+
+        #mode-selector[data-mode="ASK"]::before {
+            background-color: #4CAF50;
+            /* ASK 색상 (녹색) */
+        }
+
+        /* 모델 선택 버튼 색상 포인트 */
+        #model-selector::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background-color: #f68537;
+            /* Ollama 기본 색상 (주황색) */
+            border-radius: 5px 0 0 5px;
+        }
+
+        #model-selector[data-model-type="gemini"]::before {
+            background-color: #4285f4;
+            /* Gemini 색상 (파란색) */
         }
 
         .dropdown-icon-img {
@@ -232,6 +273,15 @@
         .dropdown-button:hover {
             background-color: rgba(255, 255, 255, 0.05);
             border-color: var(--vscode-focusBorder);
+        }
+
+        .dropdown-option:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .dropdown-option.selected {
+            background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
         }
 
         .dropdown-icon {
@@ -336,7 +386,7 @@
             flex-shrink: 0;
         }
 
-        .aidev-ide-message-container {
+        .codepilot-message-container {
             margin-bottom: 15px;
             display: flex;
             flex-direction: column;
@@ -354,7 +404,7 @@
             padding: 0;
             margin: 0;
             word-wrap: break-word;
-            white-space: pre-wrap;
+            /* white-space: pre-wrap; <- 제거: Markdown 렌더링 시 불필요한 공백/줄바꿈 유발 */
             align-self: stretch;
             max-width: 100%;
             min-width: 100%;
@@ -363,102 +413,62 @@
         }
 
         .thinking-bubble {
-            background-color: var(--vscode-sideBar-background);
-            color: var(--vscode-foreground);
-            padding: 10px 15px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            align-self: flex-start;
-            display: inline-block;
-            max-width: 50%;
-            min-width: 60px;
-            animation: pulse 1.5s infinite ease-in-out;
-        }
-
-        /* 처리 단계 표시 UI */
-        .processing-steps {
-            position: fixed;
-            /* 오버레이 */
-            left: 50%;
-            bottom: 170px;
-            /* 입력 영역 위로 띄움 */
-            transform: translateX(-50%);
-            width: 85%;
-            max-width: 90vw;
-            height: 60px;
-            max-height: 60px;
-            background: #1e1e1e;
-            border: 1px solid #00ff00;
-            border-radius: 8px;
-            overflow: hidden;
+            background-color: var(--vscode-editor-background);
+            color: #00ff00;
             padding: 8px 12px;
-            line-height: 22px;
-            z-index: 2147483647;
-            /* 최상단 */
-            color: #ffffff;
-            font-size: 13px;
-            box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
-            opacity: 0.95;
-            display: flex;
-            align-items: center;
-            pointer-events: none;
-            /* 아래 요소와 상호작용 방해 금지 */
-            transition: opacity 0.8s ease-out, transform 0.8s ease-out;
-        }
-
-        .processing-steps.fade-out {
-            opacity: 0;
-            transform: translate(-50%, 10px);
-        }
-
-        .processing-step {
-            display: flex;
-            align-items: flex-start;
-            margin: 5px 0;
-            opacity: 0.5;
-            transition: opacity 0.3s ease;
-        }
-
-        .processing-step.active {
-            opacity: 1;
-            color: var(--vscode-textLink-activeForeground);
-        }
-
-        .processing-step.completed {
-            opacity: 0.7;
-            color: var(--vscode-textPreformat-foreground);
-        }
-
-        .step-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 12px;
-            margin-top: 2px;
-            background-color: var(--vscode-panel-border);
-            transition: all 0.3s ease;
-            flex-shrink: 0;
-        }
-
-        .processing-step.active .step-indicator {
-            background-color: var(--vscode-textLink-activeForeground);
-            animation: pulse 1.5s infinite ease-in-out;
-        }
-
-        .processing-step.completed .step-indicator {
-            background-color: var(--vscode-textPreformat-foreground);
-        }
-
-        .step-text {
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .step-description {
+            margin: -10px -10px 15px -10px;
+            /* 상단 빈틈과 좌우 패딩을 상쇄하기 위한 음수 마진 */
+            align-self: stretch;
+            display: block;
+            width: calc(100% + 20px);
+            max-width: calc(100% + 20px);
+            font-family: 'Courier New', Courier, monospace;
             font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-            margin-left: 0;
-            margin-top: 2px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+
+            /* Sticky position: 패널 흐름에 있다가 상단에 닿으면 고정 */
+            position: sticky;
+            top: 0;
+            z-index: 100;
+
+            box-sizing: border-box;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* 하단에서 가려질 때 강제로 최상단에 고정 */
+        .thinking-bubble.is-forced-top {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            z-index: 2000 !important;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
+        .thinking-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 14px;
+            background: #00ff00;
+            margin-left: 4px;
+            animation: blink 1s infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
         }
 
         @keyframes fadeIn {
@@ -495,21 +505,6 @@
             50% {
                 opacity: 0.5;
             }
-        }
-
-        .thinking-dots {
-            display: inline-block;
-            margin-left: 5px;
-        }
-
-        .thinking-dots span {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            margin: 0 2px;
-            background-color: var(--vscode-foreground);
-            border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out both;
         }
 
         @keyframes bounce {
@@ -567,7 +562,7 @@
             z-index: 2;
         }
 
-        .aidev-ide-message-container:hover .copy-code-button,
+        .codepilot-message-container:hover .copy-code-button,
         .message-bubble:hover .copy-code-button {
             opacity: 1;
         }
@@ -639,9 +634,17 @@
             box-sizing: border-box;
         }
 
-        .message-bubble li {
+        .message-bubble li p {
+            margin-top: 0;
             margin-bottom: 5px;
+            display: inline;
+            /* 리스트 안의 p 태그는 한 줄로 표시 */
+        }
+
+        .message-bubble li {
+            margin-bottom: 8px;
             word-wrap: break-word;
+            line-height: 1.5;
         }
 
         .message-bubble h1,
@@ -1010,10 +1013,10 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             z-index: 1000;
             display: flex;
-            alignItems: center;
+            align-items: center;
             gap: 8px;
-            fontSize: 14px;
-            fontWeight: 500;
+            font-size: 14px;
+            font-weight: 500;
             border: 1px solid var(--vscode-button-border);
         }
 
@@ -1159,6 +1162,181 @@
             font-weight: bold;
         }
 
+        @keyframes pulse-circle {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.3);
+                opacity: 0.5;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .status-circle {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+
+        .status-circle.pending {
+            border: 1px solid var(--vscode-descriptionForeground);
+            background: transparent;
+        }
+
+        .status-circle.done {
+            background: var(--vscode-testing-iconPassed);
+        }
+
+        .status-circle.working {
+            background: var(--vscode-button-background);
+            animation: pulse-circle 1.5s infinite;
+            box-shadow: 0 0 5px var(--vscode-button-background);
+        }
+
+        /* Task Queue Popup Styles */
+        .task-queue-popup {
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            width: 320px;
+            max-height: 400px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            z-index: 1500;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: fadeIn 0.3s ease;
+            pointer-events: auto;
+        }
+
+        .task-queue-header {
+            padding: 10px 12px;
+            background: var(--vscode-sideBar-background);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+            /* 헤더 클릭 시 최소화/최대화 가능하게 */
+        }
+
+        .task-queue-header-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .task-queue-popup.minimized {
+            height: auto;
+            max-height: 38px;
+        }
+
+        .task-queue-popup.minimized .task-queue-content {
+            display: none;
+        }
+
+        .task-queue-content {
+            padding: 10px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            padding: 6px;
+            border-radius: 4px;
+            background: rgba(128, 128, 128, 0.05);
+        }
+
+        .task-item.done {
+            opacity: 0.7;
+        }
+
+        .task-item.working {
+            background: rgba(0, 122, 204, 0.1);
+            border-left: 2px solid var(--vscode-button-background);
+        }
+
+        .task-status-icon {
+            flex-shrink: 0;
+            margin-top: 2px;
+            width: 14px;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .task-info {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            gap: 4px;
+        }
+
+        .task-title {
+            font-weight: 500;
+            color: var(--vscode-foreground);
+            line-height: 1.4;
+        }
+
+        .task-detail {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.4;
+            margin-top: 2px;
+            padding-left: 0;
+        }
+
+        /* 상태별 텍스트 아이콘 */
+        .status-text.pending {
+            opacity: 0.6;
+        }
+
+        .status-text.done {
+            opacity: 1;
+        }
+
+        .status-text.working {
+            opacity: 1;
+        }
+
+        @keyframes pulse-text {
+            0% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.3;
+                transform: scale(1.2);
+            }
+
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
         #selected-files-container {
             flex-grow: 1;
             display: flex;
@@ -1289,11 +1467,12 @@
     <div class="main-container">
         <div id="chat-container">
             <div id="chat-messages"></div>
-            <!-- React Components Container (채팅 스크롤 영역 안으로 이동) -->
-            <div id="react-components"></div>
         </div>
-
     </div>
+
+    <!-- React Components Container (채팅 영역 밖으로 이동하여 가려짐 방지) -->
+    <div id="react-components"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1500;"></div>
 
     <div class="bottom-fixed-area">
         <!-- Pending Question Queue Area -->
@@ -1321,12 +1500,14 @@
                     <img src="{{dropdownIconUri}}" class="dropdown-icon-img" alt="dropdown" />
                 </button>
                 <div id="mode-dropdown" class="hidden"
-                    style="display:none; position:absolute; margin-top:38px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
-                    <div class="dropdown-option" data-mode="CODE" style="padding:6px 10px; cursor:pointer;">CODE</div>
-                    <div class="dropdown-option" data-mode="ASK" style="padding:6px 10px; cursor:pointer;">ASK</div>
+                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
+                    <div class="dropdown-option" data-mode="CODE"
+                        style="padding:6px 10px; cursor:pointer; border-left: 3px solid #2196F3;">CODE</div>
+                    <div class="dropdown-option" data-mode="ASK"
+                        style="padding:6px 10px; cursor:pointer; border-left: 3px solid #4CAF50;">ASK</div>
                 </div>
                 <div id="model-dropdown" class="hidden"
-                    style="display:none; position:absolute; margin-top:38px; left: 110px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
+                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
                 </div>
             </div>
 
@@ -1394,6 +1575,10 @@
                 const normalized = mode === 'ASK' ? 'ASK' : 'CODE';
                 window.chatMode = normalized;
                 modeLabel.textContent = normalized;
+                // 모드에 따라 버튼의 data-mode 속성 설정 (색상 포인트용)
+                if (modeBtn) {
+                    modeBtn.setAttribute('data-mode', normalized);
+                }
                 window.dispatchEvent(new Event('chat-mode-changed'));
             };
 
@@ -1477,7 +1662,8 @@
                     gap: '8px',
                     fontSize: '14px',
                     fontWeight: '500',
-                    border: '1px solid var(--vscode-button-border)'
+                    border: '1px solid var(--vscode-button-border)',
+                    pointerEvents: 'auto'
                 }
             }, [
                 React.createElement('div', {
@@ -1602,7 +1788,8 @@
                     gap: '8px',
                     fontSize: '14px',
                     fontWeight: '500',
-                    border: '1px solid var(--vscode-button-border)'
+                    border: '1px solid var(--vscode-button-border)',
+                    pointerEvents: 'auto'
                 }
             }, [
                 React.createElement('div', {
@@ -1712,335 +1899,6 @@
             return { displayedText, isTyping };
         }
 
-        // Emoji mapper for processing steps
-        function getStepEmoji(step) {
-            if (!step || typeof step !== 'string') return '🔹';
-            const s = step.toLowerCase();
-            if (s.includes('intent')) return '🎯';
-            if (s.includes('keyword')) return '🧩';
-            if (s.includes('analy')) return '🔎';
-            if (s.includes('assembl') || s.includes('generate') || s.includes('answer')) return '🧠';
-            if (s.includes('markdown') || s.includes('parse')) return '🧾';
-            if (s.includes('file') || s.includes('write') || s.includes('update')) return '📂';
-            if (s.includes('print') || s.includes('render') || s.includes('prepare')) return '🖨️';
-            if (s.includes('error') || s.includes('correct')) return '🛠️';
-            return '🔹';
-        }
-
-        // Individual Processing Step Component with Typing Animation
-        function ProcessingStep({ step, status }) {
-            const [stepText, setStepText] = useState('');
-            const [statusText, setStatusText] = useState('');
-            const [isStepTyping, setIsStepTyping] = useState(false);
-            const [isStatusTyping, setIsStatusTyping] = useState(false);
-
-            // 단계별 타이핑 애니메이션
-            useEffect(() => {
-                if (step) {
-                    setIsStepTyping(true);
-                    setStepText('');
-                    let index = 0;
-                    const timer = setInterval(() => {
-                        if (index < step.length) {
-                            setStepText(step.slice(0, index + 1));
-                            index++;
-                        } else {
-                            setIsStepTyping(false);
-                            clearInterval(timer);
-                        }
-                    }, 30);
-                    return () => clearInterval(timer);
-                }
-            }, [step]);
-
-            // 상태별 타이핑 애니메이션
-            useEffect(() => {
-                if (status) {
-                    setIsStatusTyping(true);
-                    setStatusText('');
-                    let index = 0;
-                    const timer = setInterval(() => {
-                        if (index < status.length) {
-                            setStatusText(status.slice(0, index + 1));
-                            index++;
-                        } else {
-                            setIsStatusTyping(false);
-                            clearInterval(timer);
-                        }
-                    }, 20);
-                    return () => clearInterval(timer);
-                }
-            }, [status]);
-
-            return React.createElement('div', {
-                className: 'processing-step',
-                style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
-                }
-            }, [
-                React.createElement('div', {
-                    key: 'indicator',
-                    className: 'step-indicator',
-                    style: {
-                        width: '12px',
-                        height: '12px',
-                        borderRadius: '50%',
-                        background: 'var(--vscode-button-background)',
-                        animation: isStepTyping ? 'pulse 1s infinite' : 'pulse 2s infinite'
-                    }
-                }),
-                React.createElement('div', {
-                    key: 'content',
-                    style: { flex: 1 }
-                }, [
-                    React.createElement('div', {
-                        key: 'status',
-                        className: 'step-description',
-                        style: {
-                            fontSize: '12px',
-                            color: 'var(--vscode-foreground)',
-                            opacity: 0.7,
-                            fontFamily: 'monospace',
-                            marginLeft: '0px'
-                        }
-                    }, [
-                        statusText,
-                        isStatusTyping && React.createElement('span', {
-                            key: 'cursor',
-                            style: {
-                                animation: 'blink 1s infinite',
-                                color: 'var(--vscode-button-background)',
-                                fontWeight: 'bold'
-                            }
-                        }, '|')
-                    ])
-                ])
-            ]);
-        }
-
-        // Processing Steps Component with Horizontal Typing Animation
-        function ProcessingSteps() {
-            const [steps, setSteps] = useState([]);
-            const [isVisible, setIsVisible] = useState(false);
-            const [hasUserQuery, setHasUserQuery] = useState(false);
-            const [displayedText, setDisplayedText] = useState('');
-            const [isTyping, setIsTyping] = useState(false);
-            const [fullText, setFullText] = useState('');
-
-            // 현재 활성 단계의 아이콘과 모든 단계를 하나의 텍스트로 결합 (아이콘 제외)
-            const [currentIcon, setCurrentIcon] = useState('');
-
-            useEffect(() => {
-                if (steps.length === 0) {
-                    setFullText('');
-                    setDisplayedText('');
-                    setCurrentIcon('');
-                    return;
-                }
-
-                // 현재 활성 단계의 아이콘 추출 (가장 마지막 또는 processing 상태인 단계)
-                const activeStep = steps[steps.length - 1];
-                if (activeStep) {
-                    const emoji = getStepEmoji(activeStep.step);
-                    setCurrentIcon(emoji);
-                }
-
-                // 단계별 텍스트를 가로 방향으로 결합 (이모지 제외)
-                const textParts = steps.map(s => {
-                    const stepName = s.step || '';
-                    const status = s.status || '';
-                    if (status && status !== 'processing' && status !== 'Waiting...') {
-                        return `${stepName}: ${status} | `;
-                    }
-                    return `${stepName} | `;
-                });
-
-                const newFullText = textParts.join('');
-                setFullText(newFullText);
-            }, [steps]);
-
-            // 타이핑 애니메이션
-            useEffect(() => {
-                if (!fullText) {
-                    setDisplayedText('');
-                    setIsTyping(false);
-                    return;
-                }
-
-                setIsTyping(true);
-                let index = 0;
-                const timer = setInterval(() => {
-                    if (index < fullText.length) {
-                        setDisplayedText(fullText.slice(0, index + 1));
-                        index++;
-                    } else {
-                        setIsTyping(false);
-                        clearInterval(timer);
-                    }
-                }, 30); // 타이핑 속도
-
-                return () => clearInterval(timer);
-            }, [fullText]);
-
-            useEffect(() => {
-                const handleMessage = (event) => {
-                    const data = event.data;
-                    if (data.command === 'setProcessingStep') {
-                        // 새로운 처리 세션 시작 시 steps 초기화
-                        setSteps([{ step: data.step, status: 'processing' }]);
-                        setIsVisible(true);
-                        setHasUserQuery(true);
-                    } else if (data.command === 'updateProcessingStatus') {
-                        setIsVisible(true);
-                        setSteps(prev => prev.map(s =>
-                            s.step === data.step ? { ...s, status: data.status } : s
-                        ));
-                    } else if (data.command === 'hideLoading') {
-                        // 페이드아웃 애니메이션 적용
-                        const processingStepsElement = document.querySelector('.processing-steps');
-                        if (processingStepsElement) {
-                            processingStepsElement.classList.add('fade-out');
-                            setTimeout(() => {
-                                setIsVisible(false);
-                                setSteps([]);
-                                setDisplayedText('');
-                            }, 800);
-                        } else {
-                            setIsVisible(false);
-                            setSteps([]);
-                            setDisplayedText('');
-                        }
-                    } else if (data.command === 'cancelProcessing') {
-                        setIsVisible(false);
-                        setSteps([]);
-                        setHasUserQuery(false);
-                        setDisplayedText('');
-                    } else if (data.command === 'resetProcessingState') {
-                        setIsVisible(false);
-                        setSteps([]);
-                        setHasUserQuery(false);
-                        setDisplayedText('');
-                    } else if (data.command === 'showErrorCorrectionSummary') {
-                        const summaryStatus = `✅ 오류 수정 완료 보고서: ${data.summary.substring(0, 100)}...`;
-                        setSteps(prev => [...prev, { step: 'error_correction_summary', status: summaryStatus }]);
-                    } else if (data.command === 'showErrorCorrectionFailure') {
-                        setSteps(prev => [...prev, { step: 'error_correction_failure', status: data.message }]);
-                    } else if (data.command === 'showErrorCorrectionSuccess') {
-                        setSteps(prev => [...prev, { step: 'error_correction_success', status: data.message }]);
-                    } else if (data.command === 'showErrorCorrectionStopped') {
-                        setSteps(prev => [...prev, { step: 'error_correction_stopped', status: data.message }]);
-                    }
-                };
-
-                window.addEventListener('message', handleMessage);
-                return () => {
-                    window.removeEventListener('message', handleMessage);
-                };
-            }, []);
-
-            if (!isVisible) return null;
-
-            return React.createElement('div', {
-                className: 'processing-steps',
-                id: 'processing-steps-debug',
-                style: {
-                    background: '#1e1e1e',
-                    border: '1px solid #00ff00',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    position: 'fixed',
-                    left: '50%',
-                    top: '10px',
-                    transform: 'translateX(-50%)',
-                    width: '85%',
-                    maxWidth: '90vw',
-                    height: '60px',
-                    maxHeight: '60px',
-                    zIndex: 2147483647,
-                    pointerEvents: 'none',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    boxShadow: '0 4px 12px rgba(0, 255, 0, 0.3)',
-                    opacity: '0.95',
-                    overflow: 'hidden',
-                    gap: '10px'
-                }
-            }, [
-                // 좌측 아이콘 영역 (고정 너비)
-                React.createElement('div', {
-                    key: 'icon',
-                    style: {
-                        flexShrink: 0,
-                        width: '24px',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        justifyContent: 'center',
-                        paddingTop: '2px'
-                    }
-                }, currentIcon || '🔹'),
-                // 우측 문자열 영역 (나머지 공간)
-                React.createElement('div', {
-                    key: 'content',
-                    style: {
-                        flex: 1,
-                        overflow: 'hidden',
-                        fontFamily: 'monospace',
-                        color: '#00ff00',
-                        lineHeight: '22px',
-                        maxHeight: '44px',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        wordBreak: 'break-all',
-                        textAlign: 'left',
-                        paddingRight: '30px' // 우측 로딩 아이콘과 겹치지 않도록 여백 확보
-                    }
-                }, [
-                    React.createElement('span', {
-                        key: 'text',
-                        style: {
-                            display: 'inline',
-                            wordBreak: 'break-all'
-                        }
-                    }, displayedText),
-                    isTyping && React.createElement('span', {
-                        key: 'cursor',
-                        style: {
-                            display: 'inline-block',
-                            width: '2px',
-                            height: '16px',
-                            background: '#00ff00',
-                            marginLeft: '2px',
-                            animation: 'blink 1s infinite',
-                            verticalAlign: 'middle'
-                        }
-                    })
-                ]),
-                // 상단 우측 로딩 스피너
-                React.createElement('div', {
-                    key: 'spinner',
-                    style: {
-                        position: 'absolute',
-                        top: '8px',
-                        right: '12px',
-                        width: '14px',
-                        height: '14px',
-                        border: '2px solid #00ff00',
-                        borderTop: '2px solid transparent',
-                        borderRadius: '50%',
-                        animation: 'spin 1s linear infinite',
-                        opacity: 0.9,
-                        flexShrink: 0
-                    }
-                })
-            ]);
-        }
-
         // ProjectTypeSelection Component - 프로젝트 타입 선택 UI
         function ProjectTypeSelection() {
             const [isVisible, setIsVisible] = useState(false);
@@ -2091,7 +1949,8 @@
                     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
                     zIndex: 2147483648, // Processing Steps(2147483647)보다 높게 설정
                     padding: '20px',
-                    animation: 'fadeIn 0.3s ease'
+                    animation: 'fadeIn 0.3s ease',
+                    pointerEvents: 'auto'
                 }
             }, [
                 React.createElement('div', {
@@ -2200,7 +2059,7 @@
             ]);
         }
 
-        // TaskQueue Component - 작업 큐를 표시하고 실행 상태를 추적
+        // TaskQueue Component - 작업 큐 표시
         function TaskQueue() {
             const [tasks, setTasks] = useState([]);
             const [isVisible, setIsVisible] = useState(false);
@@ -2210,271 +2069,119 @@
                 const handleMessage = (event) => {
                     const data = event.data;
                     if (data.command === 'updateTaskQueue') {
-                        if (data.items && Array.isArray(data.items)) {
-                            setTasks(data.items);
-                            setIsVisible(data.items.length > 0);
-                        }
-                    } else if (data.command === 'taskQueueUpdate') {
-                        // 개별 작업 상태 업데이트
-                        if (data.item) {
-                            setTasks(prevTasks => {
-                                const updated = prevTasks.map(task =>
-                                    task.id === data.item.id ? { ...task, ...data.item } : task
-                                );
-                                return updated;
-                            });
+                        setTasks(data.tasks || []);
+                        if (data.clear) {
+                            setIsVisible(false);
+                            setIsMinimized(false);
+                        } else if (data.tasks && data.tasks.length > 0) {
+                            setIsVisible(true);
+                        } else {
+                            setIsVisible(false);
                         }
                     }
                 };
 
                 window.addEventListener('message', handleMessage);
-                return () => {
-                    window.removeEventListener('message', handleMessage);
-                };
+                return () => window.removeEventListener('message', handleMessage);
             }, []);
 
             if (!isVisible || tasks.length === 0) return null;
 
             return React.createElement('div', {
-                className: 'task-queue-container',
-                style: {
-                    position: 'fixed',
-                    top: '90px',
-                    right: '20px',
-                    width: isMinimized ? 'auto' : '400px',
-                    maxWidth: isMinimized ? 'auto' : 'calc(100vw - 40px)', // 화면 너비를 넘지 않도록
-                    height: isMinimized ? 'auto' : 'auto',
-                    maxHeight: isMinimized ? 'none' : '60vh',
-                    background: 'var(--vscode-editor-background)',
-                    border: '1px solid var(--vscode-panel-border)',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-                    zIndex: 1000,
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    transition: 'all 0.3s ease'
-                }
-            }, (() => {
-                const children = [
-                    // 헤더
+                className: `task-queue-popup ${isMinimized ? 'minimized' : ''}`
+            }, [
+                React.createElement('div', {
+                    key: 'header',
+                    className: 'task-queue-header',
+                    onClick: () => setIsMinimized(!isMinimized)
+                }, [
+                    React.createElement('span', { key: 'title' }, `작업 계획 (${tasks.filter(t => t.status === 'done').length}/${tasks.length})`),
                     React.createElement('div', {
-                        key: 'header',
-                        style: {
-                            padding: '12px 16px',
-                            borderBottom: isMinimized ? 'none' : '1px solid var(--vscode-panel-border)',
-                            background: 'var(--vscode-sideBar-background)',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            cursor: 'pointer',
-                            minWidth: '120px'
-                        },
-                        onClick: () => {
-                            if (isMinimized) {
-                                setIsMinimized(false);
-                            }
-                        }
+                        key: 'actions',
+                        className: 'task-queue-header-actions'
                     }, [
-                        React.createElement('h3', {
-                            key: 'title',
-                            style: {
-                                margin: 0,
-                                fontSize: '14px',
-                                fontWeight: '600',
-                                color: 'var(--vscode-foreground)'
-                            }
-                        }, '작업 큐'),
-                        React.createElement('div', {
-                            key: 'buttons',
-                            style: {
-                                display: 'flex',
-                                gap: '8px',
-                                alignItems: 'center'
+                        React.createElement('button', {
+                            key: 'minimize',
+                            onClick: (e) => {
+                                e.stopPropagation();
+                                setIsMinimized(!isMinimized);
                             },
-                            onClick: (e) => e.stopPropagation()
-                        }, [
-                            React.createElement('button', {
-                                key: 'minimize',
-                                onClick: () => setIsMinimized(!isMinimized),
-                                style: {
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--vscode-foreground)',
-                                    cursor: 'pointer',
-                                    fontSize: '16px',
-                                    padding: '4px',
-                                    width: '24px',
-                                    height: '24px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: '4px',
-                                    transition: 'background-color 0.2s'
-                                },
-                                onMouseEnter: (e) => {
-                                    e.target.style.background = 'var(--vscode-list-hoverBackground)';
-                                },
-                                onMouseLeave: (e) => {
-                                    e.target.style.background = 'none';
-                                },
-                                title: isMinimized ? '최대화' : '최소화'
-                            }, isMinimized ? '□' : '_'),
-                            React.createElement('button', {
-                                key: 'close',
-                                onClick: () => setIsVisible(false),
-                                style: {
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--vscode-foreground)',
-                                    cursor: 'pointer',
-                                    fontSize: '18px',
-                                    padding: '0',
-                                    width: '24px',
-                                    height: '24px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: '4px',
-                                    transition: 'background-color 0.2s'
-                                },
-                                onMouseEnter: (e) => e.target.style.background = 'var(--vscode-list-hoverBackground)',
-                                onMouseLeave: (e) => e.target.style.background = 'none'
-                            }, '×')
-                        ])
-                    ])
-                ];
-
-                // 작업 목록 (최소화 상태가 아닐 때만 추가)
-                if (!isMinimized) {
-                    children.push(React.createElement('div', {
-                        key: 'list',
-                        style: {
-                            overflowY: 'auto',
-                            maxHeight: 'calc(60vh - 50px)',
-                            padding: '0',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '0'
-                        }
-                    }, tasks.map((task, index) => {
-                        const isDone = task.status === 'done';
-                        const isInProgress = task.status === 'in_progress';
-                        const isPending = task.status === 'pending';
-
-                        return React.createElement('div', {
-                            key: task.id || index,
-                            className: `task-item task-${task.status}`,
                             style: {
-                                padding: '12px',
-                                marginBottom: '0',
-                                borderRadius: '0',
-                                background: isDone
-                                    ? 'var(--vscode-editor-background)'
-                                    : isInProgress
-                                        ? 'var(--vscode-list-activeSelectionBackground)'
-                                        : 'var(--vscode-list-hoverBackground)',
+                                background: 'none',
                                 border: 'none',
-                                display: 'flex',
-                                alignItems: 'flex-start',
-                                gap: '12px',
-                                transition: 'all 0.3s ease',
-                                animation: isInProgress ? 'pulse 2s ease-in-out infinite' : 'none'
-                            }
-                        }, [
-                            // 상태 표시기 (파란 불)
-                            React.createElement('div', {
-                                key: 'indicator',
-                                style: {
-                                    width: '12px',
-                                    height: '12px',
-                                    borderRadius: '50%',
-                                    background: isDone
-                                        ? '#007acc' // 파란색
-                                        : isInProgress
-                                            ? '#ffa500' // 주황색
-                                            : 'var(--vscode-input-foreground)',
-                                    flexShrink: 0,
-                                    marginTop: '4px',
-                                    boxShadow: isDone ? '0 0 8px rgba(0, 122, 204, 0.6), 0 0 12px rgba(0, 122, 204, 0.4)' : 'none',
-                                    animation: isDone ? 'lightGlow 2s ease-in-out infinite' : 'none',
-                                    transition: 'all 0.3s ease'
-                                }
-                            }),
-                            // 작업 내용
-                            React.createElement('div', {
-                                key: 'content',
-                                style: {
-                                    flex: 1,
-                                    minWidth: 0
-                                }
-                            }, [
-                                React.createElement('div', {
-                                    key: 'title',
-                                    style: {
-                                        fontSize: '13px',
-                                        fontWeight: isDone ? '500' : '500',
-                                        color: isDone
-                                            ? '#007acc' // 파란색
-                                            : 'var(--vscode-foreground)',
-                                        textDecoration: 'none',
-                                        marginBottom: task.detail ? '4px' : '0',
-                                        transition: 'all 0.3s ease'
-                                    }
-                                }, task.title || '작업'),
-                                task.detail && React.createElement('div', {
-                                    key: 'detail',
-                                    style: {
-                                        fontSize: '11px',
-                                        color: 'var(--vscode-descriptionForeground)',
-                                        marginTop: '4px'
-                                    }
-                                }, task.detail)
-                            ])
-                        ]);
-                    })));
-                }
+                                color: 'var(--vscode-foreground)',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                padding: '0 4px'
+                            },
+                            title: isMinimized ? '최대화' : '최소화'
+                        }, isMinimized ? '□' : '_'),
+                        React.createElement('button', {
+                            key: 'close',
+                            onClick: (e) => {
+                                e.stopPropagation();
+                                setIsVisible(false);
+                            },
+                            style: {
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--vscode-foreground)',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                padding: '0 4px'
+                            },
+                            title: '닫기'
+                        }, '×')
+                    ])
+                ]),
+                React.createElement('div', {
+                    key: 'content',
+                    className: 'task-queue-content'
+                }, tasks.map((task, index) => {
+                    const isDone = task.status === 'done';
+                    const isWorking = task.status === 'in_progress';
+                    const isFailed = task.status === 'failed';
 
-                return children;
-            })())
+                    let statusClass = 'pending';
+                    if (isDone) statusClass = 'done';
+                    else if (isWorking) statusClass = 'working';
+                    else if (isFailed) statusClass = 'failed';
+
+                    return React.createElement('div', {
+                        key: task.id || index,
+                        className: `task-item ${isDone ? 'done' : ''} ${isWorking ? 'working' : ''}`
+                    }, [
+                        React.createElement('div', {
+                            key: 'icon',
+                            className: 'task-status-icon'
+                        }, React.createElement('span', {
+                            className: `status-circle ${statusClass}`
+                        })),
+                        React.createElement('div', {
+                            key: 'info',
+                            className: 'task-info'
+                        }, [
+                            React.createElement('div', {
+                                key: 'title',
+                                className: 'task-title'
+                            }, `${index + 1}. ${task.title}`),
+                            task.detail && !isMinimized && React.createElement('div', {
+                                key: 'detail',
+                                className: 'task-detail'
+                            }, task.detail)
+                        ])
+                    ]);
+                }))
+            ]);
         }
 
         // Main React App Component
         function ReactApp() {
-            const [processingStepsVisible, setProcessingStepsVisible] = useState(false); // 초기에는 숨김
-
             useEffect(() => {
                 const handleMessage = (event) => {
                     const data = event.data;
-                    if (data.command === 'setProcessingStep') {
-                        setProcessingStepsVisible(true);
-                    } else if (data.command === 'updateProcessingStatus') {
-                        setProcessingStepsVisible(true);
-                    } else if (data.command === 'hideLoading') {
-                        setProcessingStepsVisible(false);
-                    } else if (data.command === 'cancelProcessing') {
-                        setProcessingStepsVisible(false);
-                    } else if (data.command === 'resetProcessingState') {
-                        setProcessingStepsVisible(false);
-                    } else if (data.command === 'clearHistory') {
+                    if (data.command === 'clearHistory') {
                         setMessages([]);
-                    } else if (data.command === 'showErrorCorrection') {
-                        // 오류 수정 정보를 ProcessingSteps에 표시
-                        const errorCorrectionStatus = `🔧 오류 수정 시도 ${data.retryCount}/3: ${data.originalCommand} → ${data.correctedCommand}`;
-                        updateProcessingStatus('error_correction', errorCorrectionStatus);
-                    } else if (data.command === 'showErrorCorrectionSummary') {
-                        // 오류 수정 완료 보고서를 ProcessingSteps에 표시
-                        const summaryStatus = `✅ 오류 수정 완료 보고서: ${data.summary.substring(0, 100)}...`;
-                        updateProcessingStatus('error_correction_summary', summaryStatus);
-                    } else if (data.command === 'showErrorCorrectionFailure') {
-                        // 오류 수정 실패 메시지를 ProcessingSteps에 표시
-                        updateProcessingStatus('error_correction_failure', data.message);
-                    } else if (data.command === 'showErrorCorrectionSuccess') {
-                        // 오류 수정 성공 메시지를 ProcessingSteps에 표시
-                        updateProcessingStatus('error_correction_success', data.message);
-                    } else if (data.command === 'showErrorCorrectionStopped') {
-                        // 오류 수정 중단 메시지를 ProcessingSteps에 표시
-                        updateProcessingStatus('error_correction_stopped', data.message);
                     } else if (data.command === 'showCalloutExecuting') {
                         // 모든 callout 박스에 executing 상태 표시
                         showAllCalloutExecuting();
@@ -2490,16 +2197,13 @@
                 };
             }, []);
 
-
-
             return React.createElement('div', {
                 style: { position: 'relative', width: '100%', height: '100%' }
             }, [
                 React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
-                React.createElement(ProcessingSteps, { key: 'processing-steps' }),
-                React.createElement(TaskQueue, { key: 'task-queue' }),
-                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }) // 프로젝트 타입 선택 컴포넌트 추가
+                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }), // 프로젝트 타입 선택 컴포넌트 추가
+                React.createElement(TaskQueue, { key: 'task-queue' }) // 작업 큐 컴포넌트 추가
             ]);
         }
 
@@ -2513,58 +2217,13 @@
             // container not found
         }
 
-        // ProcessingSteps 업데이트 함수들
-        function updateProcessingStep(step) {
-            const container = document.getElementById('processing-steps');
-            if (!container) return;
-            const steps = container.querySelectorAll('.processing-step');
-            if (!steps || steps.length === 0) return;
-            steps.forEach((stepElement) => {
-                if (!stepElement) return;
-                const nameEl = stepElement.querySelector('.step-name');
-                const statusEl = stepElement.querySelector('.step-status');
-                if (!nameEl || !statusEl) return;
-                const stepName = (nameEl.textContent || '').toLowerCase().replace(' ', '');
-                if (stepName.includes(String(step).toLowerCase())) {
-                    statusEl.textContent = 'Active';
-                    statusEl.className = 'step-status active';
-                } else {
-                    statusEl.textContent = 'Waiting...';
-                    statusEl.className = 'step-status';
-                }
-            });
-        }
-
-        function updateProcessingStatus(step, status) {
-            const container = document.getElementById('processing-steps');
-            if (!container) return;
-            const steps = container.querySelectorAll('.processing-step');
-            if (!steps || steps.length === 0) return;
-            steps.forEach((stepElement) => {
-                if (!stepElement) return;
-                const nameEl = stepElement.querySelector('.step-name');
-                if (!nameEl) return;
-                const stepName = (nameEl.textContent || '').toLowerCase().replace(' ', '');
-                if (stepName.includes(String(step).toLowerCase())) {
-                    const statusElement = stepElement.querySelector('.step-status');
-                    if (!statusElement) return;
-                    statusElement.textContent = status;
-                    statusElement.className = 'step-status active';
-                }
-            });
-        }
-
         // 메시지 수신 처리
         window.addEventListener('message', function (event) {
             const data = event.data;
-            if (data.command === 'setProcessingStep') {
-                updateProcessingStep(data.step);
-            } else if (data.command === 'updateProcessingStatus') {
-                updateProcessingStatus(data.step, data.status);
-            } else if (data.command === 'showErrorCorrection') {
+            if (data.command === 'showErrorCorrection') {
                 // 오류 수정 정보를 ProcessingSteps에 표시
                 const errorCorrectionStatus = `🔧 오류 수정 시도 ${data.retryCount}/3: ${data.originalCommand} → ${data.correctedCommand}`;
-                updateProcessingStatus('error_correction', errorCorrectionStatus);
+                // updateProcessingStatus('error_correction', errorCorrectionStatus);
             }
         });
 

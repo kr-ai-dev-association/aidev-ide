@@ -10,6 +10,8 @@ export class LocaleService {
             path.join(__dirname, '..', 'locales', `lang_${language}.json`),
             path.join(__dirname, '..', '..', 'locales', `lang_${language}.json`),
             path.join(__dirname, '..', '..', '..', 'locales', `lang_${language}.json`),
+            path.join(__dirname, '..', 'webview', 'locales', `lang_${language}.json`), // dist/../webview/locales
+            path.join(__dirname, '..', '..', 'webview', 'locales', `lang_${language}.json`), // dist/../../webview/locales
             path.join(process.cwd(), 'webview', 'locales', `lang_${language}.json`),
             path.join(process.cwd(), 'aidev-ide', 'webview', 'locales', `lang_${language}.json`),
         ];
@@ -40,7 +42,7 @@ export class LocaleService {
             }
         }
 
-        console.warn('[LocaleService] No locale file found, returning empty object');
+        // console.warn('[LocaleService] No locale file found, returning empty object');
         return {};
     }
 }

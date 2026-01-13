@@ -1,10 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
-import { PromptType, NotificationService, LicenseService, GitRepositoryService } from '../../services';
+import { PromptType, NotificationService, LicenseService, GitRepositoryService, GeminiApi } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
-import { SupportedModelService } from '../services/SupportedModelService';
-import { ModelConnectionService } from '../../core/model/ModelConnectionService';
+import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aidevIde.chatView';
@@ -14,10 +13,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly extensionUri: vscode.Uri,
         private readonly context: vscode.ExtensionContext,
         private readonly openSettingsPanel: (viewColumn: vscode.ViewColumn) => void,
-        private readonly openLicensePanel: (viewColumn: vscode.ViewColumn) => void,
         private readonly configurationService: SettingsManager,
         private readonly notificationService: NotificationService,
-        private readonly gitRepositoryService: GitRepositoryService
+        private readonly gitRepositoryService: GitRepositoryService,
+        private readonly geminiApi: GeminiApi,
+        private readonly ollamaApi: any
     ) { }
 
     public resolveWebviewView(
@@ -93,11 +93,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             };
                         }).filter((m: any) => m.name);
 
-                        const current = await stateManager.getOllamaModel();
+                        const aiModelEngine = await stateManager.getAiModel();
+                        let currentModel = '';
+                        if (aiModelEngine === 'gemini') {
+                            currentModel = await stateManager.getGeminiModel();
+                        } else {
+                            currentModel = await stateManager.getOllamaModel();
+                        }
+
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models,
-                            current
+                            current: currentModel
                         });
                     } catch (e) {
                         console.warn('[ChatViewProvider] getOllamaModels failed:', e);
@@ -116,7 +123,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             throw new Error('Invalid model name');
                         }
                         const stateManager = StateManager.getInstance(this.context);
+                        
+                        // Ollama 모델인 경우 엔진을 ollama로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('ollama');
+                        await stateManager.saveCurrentAiModel('ollama');
                         await stateManager.saveOllamaModel(modelName);
+                        
+                        // 원격 서버를 사용하는 경우에도 모델명이 적용되도록 저장
+                        const serverType = await stateManager.getOllamaServerType();
+                        if (serverType === 'remote') {
+                            await stateManager.saveRemoteOllamaModel(modelName);
+                        }
+
+                        // OllamaApi 인스턴스 업데이트
+                        if (this.ollamaApi) {
+                            this.ollamaApi.setModel(modelName);
+                        }
+                        
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
                             model: modelName
@@ -128,6 +151,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             model: '',
                             error: '모델을 저장하지 못했습니다.'
                         });
+                    }
+                    break;
+                }
+                case 'setGeminiModel': {
+                    try {
+                        const modelName = typeof data.model === 'string' ? data.model : '';
+                        if (!modelName) {
+                            throw new Error('Invalid model name');
+                        }
+                        const stateManager = StateManager.getInstance(this.context);
+                        
+                        // Gemini 모델인 경우 엔진을 gemini로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('gemini');
+                        await stateManager.saveCurrentAiModel('gemini');
+                        await stateManager.saveGeminiModel(modelName);
+                        
+                        // GeminiApi 인스턴스 업데이트
+                        if (this.geminiApi) {
+                            this.geminiApi.updateModelName(modelName);
+                        }
+                        
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged', // 기존 UI 호환성을 위해 동일한 명령 사용 가능 또는 새 명령 정의
+                            model: modelName
+                        });
+                    } catch (e) {
+                        console.warn('[ChatViewProvider] setGeminiModel failed:', e);
                     }
                     break;
                 }
@@ -149,8 +199,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     try {
                         console.log('[ChatViewProvider] 오류 분석 요청');
                         // 🆕 ErrorManager를 사용하여 최근 오류 분석
-                        const { ErrorManager } = await import('../../core/error/ErrorManager');
-                        const { ErrorSource } = await import('../../core/error/types');
+                        const { ErrorManager } = await import('../../core/managers/error/ErrorManager');
+                        const { ErrorSource } = await import('../../core/managers/error/types');
                         const errorManager = ErrorManager.getInstance();
                         const history = errorManager.getHistory();
                         const recentErrors = history.getAll()
@@ -162,7 +212,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             this.notificationService.showInfoMessage('분석할 오류가 없습니다.');
                             webviewView.webview.postMessage({
                                 command: 'receiveMessage',
-                                sender: 'AIDEV-IDE',
+                                sender: 'CODEPILOT',
                                 text: '최근 터미널 오류가 없습니다.'
                             });
                             break;
@@ -284,7 +334,6 @@ ${JSON.stringify(errorContext, null, 2)}
                         panelViewColumn = vscode.window.activeTextEditor.viewColumn;
                     }
                     if (data.panel === 'settings') this.openSettingsPanel(panelViewColumn);
-                    else if (data.panel === 'license') this.openLicensePanel(panelViewColumn);
                     break;
                 case 'webviewLoaded':
                     console.log('[ChatViewProvider] Chat webview loaded.');
@@ -505,17 +554,17 @@ ${JSON.stringify(errorContext, null, 2)}
 
             if (userOS === 'windows') {
                 shellPath = 'powershell.exe';
-                terminalName = 'AIDEV-IDE PowerShell Commands';
+                terminalName = 'CODEPILOT PowerShell Commands';
             } else if (userOS === 'macos') {
                 shellPath = '/bin/bash';
-                terminalName = 'AIDEV-IDE Bash Commands';
+                terminalName = 'CODEPILOT Bash Commands';
             } else if (userOS === 'linux') {
                 shellPath = '/bin/bash';
-                terminalName = 'AIDEV-IDE Bash Commands';
+                terminalName = 'CODEPILOT Bash Commands';
             } else {
                 const osAdapter = ExecutionManager.getInstance().getOSAdapter();
                 shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
-                terminalName = osAdapter.osType === 'win32' ? 'AIDEV-IDE PowerShell Commands' : 'AIDEV-IDE Bash Commands';
+                terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Bash Commands';
             }
 
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.

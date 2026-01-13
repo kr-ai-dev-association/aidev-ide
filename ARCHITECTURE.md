@@ -17,6 +17,7 @@ src/
 │   │   ├── ActionRegistry.ts         # 액션 등록/관리
 │   │   ├── ActionValidator.ts        # 액션 검증
 │   │   ├── ActionMapper.ts           # LLM 요청 → 액션 매핑
+│   │   ├── IntentDetector.ts         # 의도 분석 (v6.1.0: 현재 활성 모델을 사용하여 의도 파악 수행)
 │   │   ├── types.ts                  # 액션 타입 정의
 │   │   ├── index.ts
 │   │   └── file/                     # 파일 변경 추적
@@ -25,7 +26,7 @@ src/
 │   │       └── index.ts
 │   │
 │   ├── execution/                   # 2. Execution Manager
-│   │   ├── ExecutionManager.ts       # 메인 실행 매니저
+│   │   ├── ExecutionManager.ts       # 메인 실행 매니저 (v5.2.0: 소프트 타임아웃 및 백그라운드 관리)
 │   │   ├── ProcessManager.ts         # 프로세스(PID) 관리
 │   │   ├── StreamManager.ts          # stdout/stderr 스트림 관리
 │   │   ├── ErrorDetector.ts          # 에러/포트 충돌 감지
@@ -46,8 +47,8 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── task/                        # 4. Task Manager
-│   │   ├── TaskManager.ts           # 작업 큐 관리
-│   │   ├── TaskQueue.ts             # 작업 큐 구현
+│   │   ├── TaskManager.ts           # 작업 큐 관리 (v5.2.1: 페이즈 상태 동기화 및 실시간 UI 업데이트)
+│   │   ├── TaskQueue.ts             # 작업 큐 데이터 구조
 │   │   ├── TaskScheduler.ts         # 우선순위 스케줄링
 │   │   ├── TaskRetry.ts             # 재시도 로직
 │   │   ├── PlanManager.ts           # 플랜 생성 및 파싱
@@ -56,7 +57,10 @@ src/
 │   │
 │   ├── project/                     # 5. Project Manager
 │   │   ├── ProjectManager.ts        # 프로젝트 구조 관리
-│   │   ├── ProjectDetector.ts       # 프로젝트 타입 감지
+│   │   ├── ProjectDetector.ts       # 프로젝트 타입 감지 (v6.8.0: TypeScript 검증 순서 최적화 - tsc --noEmit 먼저 실행)
+│   │   │                            # - getValidationCommand(): 규칙 기반 검증 명령어 반환, null 반환 시 LLM fallback 사용
+│   │   │                            # - 판단 기준: null은 규칙 기반으로 안전하게 결정 가능한 검증 명령이 없음을 의미
+│   │   │                            # - 하드코딩에 포함되지 않는 프로젝트 타입이나 특수한 경우를 LLM으로 처리
 │   │   ├── ProjectIndexer.ts        # 파일 인덱싱
 │   │   ├── ConfigParser.ts           # 설정 파일 파싱
 │   │   ├── types.ts
@@ -85,9 +89,9 @@ src/
 │   │   ├── prompts/                 # 프롬프트 컴포넌트 시스템
 │   │   │   ├── PromptComposer.ts    # 프롬프트 조합기 (OS/LLM/Framework/Task 조합)
 │   │   │   ├── base/                # 베이스 프롬프트 컴포넌트
-│   │   │   │   ├── agentRole.ts     # 에이전트 역할 정의
+│   │   │   │   ├── agentRole.ts     # 에이전트 역할 정의 (한글 응답 강제)
 │   │   │   │   ├── objective.ts     # 목표 정의
-│   │   │   │   ├── rules.ts         # 기본 규칙
+│   │   │   │   ├── rules.ts         # 기본 규칙 (v5.2.0: 파일 삭제 안전 규칙, 내부 독백 금지)
 │   │   │   │   ├── fileOperations.ts # 파일 작업 규칙
 │   │   │   │   ├── terminalCommands.ts # 터미널 명령 규칙
 │   │   │   │   └── codeVsScript.ts  # 코드 vs 스크립트 구별 규칙
@@ -117,11 +121,32 @@ src/
 │   │   └── index.ts
 │   │
 │   ├── conversation/                # 대화 오케스트레이션
-│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (오케스트레이션)
+│   │   ├── ConversationManager.ts   # 사용자 메시지 처리 및 응답 생성 (v6.3.0: 경량 FSM 통합, v6.4.0: REVIEW 최적화, v6.5.0: 실행 로직 개선, v6.6.0: LLM 호출 최적화 완료, v6.7.0: 자동 테스트 제어 및 Investigation 단계 개선, v6.8.0: 테스트 재시도 로직 개선 및 EXECUTION phase 도구 실행 보장, v6.9.0: Analysis 응답 패널 표시 문제 해결, v6.10.0: Execution-first 판단 로직 통일 및 FSM 일관성 보장, v7.0.0: 리팩토링 및 Analysis 답변 생성 로직 개선)
+│   │   │                            # - 단계별(조사/실행) 상태 레이블링 지원
+│   │   │                            # - 인터리브드(Interleaved) 출력 및 실시간 UI 업데이트
+│   │   │                            # - 스마트 너징(Nudging) 로직
+│   │   │                            # - 경량 FSM을 통한 상태 관리 및 전환 검증
+│   │   │                            # - v6.4.0: REVIEW 단계 LLM 호출 최적화 (2회 → 1회)
+│   │   │                            # - v6.4.0: 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황)
+│   │   │                            # - v6.5.0: INVESTIGATION에서 plan만 있을 때 EXECUTION 전환 방지
+│   │   │                            # - v6.5.0: EXECUTION에서 plan item에 tool call 없을 때 LLM 호출하여 생성
+│   │   │                            # - v6.6.0: DONE 단계 LLM 호출 완전 제거 확인, 테스트 후 REVIEW 전환 보장 강화
+│   │   │                            # - v6.6.0: 루프 종료 전 중복 테스트 실행 방지, 모든 경로에서 REVIEW 거쳐 요약 생성 보장
+│   │   │                            # - v6.7.0: 자동 테스트 실행 제어 (설정이 활성화된 경우에만 실행), INVESTIGATION에서 EXECUTION 전환 시 도구 함께 실행, 통일된 파일 리스트 형식 ([D] [F])
+│   │   │                            # - v6.8.0: EXECUTION phase에서 run_command 차단 문제 해결, 테스트 재시도 프롬프트에 중복 파일 생성 방지 안내 추가, 테스트 성공 후 REVIEW 전환 로직 개선
+│   │   │                            # - v6.9.0: investigation_done 후 생성된 analysis 응답이 패널에 표시되지 않던 문제 해결 (Assistant sender를 CODEPILOT으로 변경)
+│   │   │                            # - v6.10.0: execution-first 판단 로직을 공통 함수 `isExecutionFirstTask()`로 통일하여 모든 위치에서 동일한 기준 적용, FSM 일관성 보장
+│   │   │                            # - v7.0.0: ripgrep_search 결과 파싱 개선 (rawResults 추가), 함수명 추출 로직 개선 (사용자 쿼리 우선), 자동 조사 도구 중복 실행 방지, investigation_done 없이도 ripgrep_search 결과가 있으면 자동 답변 생성, 중복 출력 문제 해결, ripgrep_search 패턴 파싱 오류 처리, 요약 한글 강제
+│   │   ├── AgentStateManager.ts     # v6.3.0: 경량 FSM - 상태 관리, 전환 규칙, Output Contract
 │   │   ├── ConversationService.ts   # ConversationManager 진입점 서비스
 │   │   └── index.ts
 │   │
-│   ├── state/                       # 7. State/Session Manager
+│   ├── investigation/               # 7. Investigation Manager
+│   │   ├── InvestigationManager.ts  # v5.2.0: 조사 단계 강제 및 읽기 전용 도구 제한
+│   │   │                            # v6.4.0: 프롬프트 강화로 plan과 실행 도구 동시 사용 금지
+│   │   └── index.ts
+│   │
+│   ├── state/                       # 8. State/Session Manager
 │   │   ├── StateManager.ts          # 전역 상태 관리
 │   │   ├── SessionManager.ts        # 세션 관리
 │   │   ├── SettingsManager.ts       # 사용자 설정
@@ -129,7 +154,7 @@ src/
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
-│   ├── error/                       # 8. Error Manager
+│   ├── error/                       # 9. Error Manager
 │   │   ├── ErrorManager.ts          # 에러 관리
 │   │   ├── ErrorParser.ts           # 에러 파싱
 │   │   ├── StackTraceAnalyzer.ts    # 스택 트레이스 분석
@@ -139,15 +164,15 @@ src/
 │   │   ├── types.ts
 │   │   └── index.ts
 │   │
-│   ├── model/                       # 9. Model Manager
-│   │   ├── ModelManager.ts          # LLM 모델 관리
-│   │   ├── LLMService.ts            # LLM API 호출 서비스 (Gemini, Ollama)
+│   ├── model/                       # 10. LLM Manager (통합 LLM 관리)
+│   │   ├── LLMApiClient.ts          # LLM API 호출 클라이언트 (Gemini, Ollama 통합)
 │   │   ├── LLMManager.ts            # LLM 서버 통신 및 응답 포맷팅
-│   │   ├── types.ts
+│   │   ├── types.ts                 # 모델 관련 공통 타입
 │   │   ├── index.ts
-│   │   └── llm/                     # LLM 추상화 (통합됨)
+│   │   └── llm/                     # LLM 어댑터
 │   │       ├── ILLMAdapter.ts
-│   │       └── GptAdapter.ts
+│   │       ├── GptAdapter.ts
+│   │       └── GemmaAdapter.ts
 │   │
 │   │
 │   ├── base/                        # 공통 추상화 레이어
@@ -157,8 +182,81 @@ src/
 │   ├── utils/                       # Core 유틸리티
 │   │   ├── SafeSettingsHelper.ts    # 안전한 설정값 가져오기
 │   │   └── index.ts
+│   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
+│   │   ├── ToolParser.ts            # 툴 파싱 및 엄격한 계획(Plan) 추출 (v5.2.0)
+│   │   ├── ToolExecutor.ts          # 툴 통합 실행기
+│   │   ├── ToolSpecBuilder.ts       # 툴 명세 및 페이즈별 도구 제한 생성
+│   │   ├── file/                    # 파일/프로젝트 관련 툴
+│   │   │   ├── CreateFileToolHandler.ts
+│   │   │   ├── UpdateFileToolHandler.ts # v5.2.0: 강력한 매칭 도입
+│   │   │   │                          # - Fuzzy, Block Anchor, Structural 매칭
+│   │   │   ├── RemoveFileToolHandler.ts # v5.2.0: 삭제 안전 규칙 적용
+│   │   │   ├── ReadFileToolHandler.ts
+│   │   │   ├── ListFilesToolHandler.ts  # v5.2.0: 지능형 경로 필터링 추가
+│   │   │   ├── SearchFilesToolHandler.ts
+│   │   │   └── RipgrepSearchToolHandler.ts # v6.2.0: 고성능 키워드 검색 및 결과 포맷 도입, v7.0.0: 원본 SearchResult[] 배열을 rawResults로 함께 반환하여 파싱 개선
+│   │   ├── terminal/                # 터미널/명령 실행 툴
+│   │   │   └── RunCommandToolHandler.ts # v5.2.0: 소프트 타임아웃 지원
+│   │   └── code/                    # 코드 분석/리팩토링 툴
 │   │
-│   └── index.ts                     # 모든 매니저 및 추상화 export
+│   └── webview/                     # WebviewBridge 등 UI 브리지
+│       └── WebviewBridge.ts         # v5.2.0: 중앙 집중식 UI 상태 및 진행 메시지 관리
+│
+└── index.ts                     # 모든 매니저 및 추상화 export
+```
+
+## 🎭 매니저별 상세 책임 (v5.2.0 업데이트)
+
+### 7️⃣ Investigation Manager (v5.2.0 신규, v6.3.0 FSM 통합, v6.4.0 프롬프트 강화)
+**역할**: AI가 코드를 수정하기 전 프로젝트 상태를 분석하는 '조사' 단계를 관리합니다.
+
+**책임**:
+- **읽기 전용 도구 제한**: 조사 단계에서 `read_file`, `list_files`, `search_files`, `ripgrep_search` 외의 도구 호출 차단.
+- **단계 전환 관리**: 반드시 유효한 XML `<plan>`이 수립되어야만 '실행' 단계로의 전환 허용.
+- **조사 전용 지침 제공**: "Sherlock Holmes for Code" 역할을 LLM에게 부여하여 팩트 기반 분석 유도.
+- **v6.3.0**: `AgentStateManager`와 통합되어 상태 전환 검증 및 Output Contract 강제.
+- **v6.4.0**: 프롬프트 강화로 `<plan>` 태그와 실행 도구를 같은 응답에 포함하는 것을 엄격히 금지. 조사 단계에서는 오직 읽기 전용 도구만 사용하고 계획만 제출하도록 명확히 지시.
+
+### 🔟 Agent State Manager (v6.3.0 신규)
+**역할**: 에이전트의 상태 관리 및 전환 규칙을 중앙화하여 관리하는 경량 FSM입니다.
+
+**책임**:
+- **상태 관리**: `INVESTIGATION`, `EXECUTION` 상태 추적 및 현재 상태 반환.
+- **도구 허용/금지 관리**: 각 상태별로 허용되는 도구 목록을 정의하고 검증.
+- **상태 전환 검증**: 유효한 전환만 허용하며, 전환 전 조건(plan 존재, 조사 이력 등)을 검사.
+- **Output Contract 강제**: 각 상태에서 허용되는 출력 형식(plan 태그, 도구 호출, 텍스트만)을 검증.
+- **조사 이력 추적**: INVESTIGATION 단계에서 조사 도구 사용 이력을 추적하여 Blind Planning 방지.
+
+**구현 파일**:
+- `AgentStateManager.ts` - 경량 FSM 구현
+
+**상태 전환 규칙**:
+- `INVESTIGATION` → `EXECUTION`: plan 존재 + (도구 호출 또는 조사 이력) 필요 (v6.5.0: 전환 조건 강화, v6.6.0: 완전 적용)
+- `EXECUTION` → `REVIEW`: 모든 plan item 완료 + 자동 테스트 실행 후
+- `REVIEW` → `DONE`: 요약 생성 완료 후
+- `DONE`: 최종 상태, LLM 호출 없음 (v6.6.0: 완전 제거 확인 및 강화)
+
+**Output Contract**:
+- `INVESTIGATION`: plan 허용, 조사 도구만 허용, 텍스트 허용
+- `EXECUTION`: plan 금지, 모든 도구 허용, 텍스트 허용
+
+### 🔟 Tool Parser (v5.2.0 개선)
+**역할**: LLM 응답에서 XML 도구 호출 및 계획 정보를 정밀하게 추출합니다.
+
+**책임**:
+- **엄격한 계획 파싱**: `<plan><item>...` 구조를 강제하며, 일반 텍스트 리스트는 무시합니다.
+- **인터리브드 파싱**: 텍스트와 XML이 섞인 응답에서 순서를 유지하며 요소를 분리합니다.
+
+### 📱 Webview Bridge (v5.2.1 개선, v6.4.0 UI 개선)
+**역할**: 확장 기능과 채팅 UI 간의 실시간 통신 및 상태 표시를 담당합니다.
+
+**책임**:
+- **조건부 스티키 메시지**: 진행 상태 메시지가 스크롤 시 상단에 고정되도록 제어.
+- **타자기 애니메이션**: 현재 에이전트의 페이즈와 진행 단계를 애니메이션으로 시각화.
+- **작업 큐(Plan) 실시간 동기화**: `TaskQueue` 팝업 UI와 연동하여 작업 진행 상태를 실시간 업데이트.
+- **도구 결과 렌더링**: 실행된 코드나 터미널 출력을 채팅 패널에 통합 표시.
+- **v6.4.0**: 작업 계획 팝업 UI 개선 (제목/상세 분리 표시), 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황).│
+└── index.ts                     # 모든 매니저 및 추상화 export
 │
 ├── services/                        # 보조 서비스 (도메인별 분류)
 │   ├── index.ts                     # 배럴 파일 (모든 서비스 export)
@@ -178,6 +276,8 @@ src/
 │       └── NotificationService.ts
 │
 ├── webview/                         # UI 레이어
+│   ├── chat.html                    # 메인 채팅 UI (v5.2.1: React 기반 TaskQueue 팝업 도입)
+│   ├── chat.js                      # UI 상호작용 및 타자기 애니메이션 구현
 │   ├── providers/                   # Webview Provider
 │   │   ├── index.ts                 # 배럴 파일
 │   │   ├── ChatViewProvider.ts      # CODE 탭 Provider
@@ -185,9 +285,8 @@ src/
 │   │   └── SettingsPanelProvider.ts  # 설정 패널 Provider (re-export)
 │   └── services/                    # 웹뷰 보조 서비스
 │       ├── index.ts                 # 배럴 파일
-│       ├── SupportedModelService.ts # 지원 모델 파일 로더
 │       └── LocaleService.ts        # 언어(locale) 파일 로더
-│   # UI note: Chat webview message bubbles are now text-only and stretch full width (background/border removed) for better readability.
+│   # UI note: v5.2.1: TaskQueue UI re-introduced as a dynamic floating popup with React.
 │
 ├── utils/                           # 유틸리티
 │   ├── index.ts                     # 배럴 파일
@@ -195,7 +294,8 @@ src/
 │   ├── tokenUtils.ts                # 토큰 관련 유틸
 │   ├── debugLogger.ts               # 디버그 로거
 │   ├── cryptoUtils.ts               # 암호화 유틸
-│   └── fileUtils.ts                 # 파일 유틸
+│   ├── fileUtils.ts                 # 파일 유틸
+│   └── string.ts                    # 문자열 유틸 (v5.1.2: removeCDataSections 추가)
 │
 └── extension.ts                     # 진입점
 ```
@@ -227,6 +327,7 @@ class ActionManager {
 **책임**:
 - LLM 응답 파싱 및 액션 추출
 - 액션 타입 결정 (CODE_GENERATION, FILE_OPERATION, TERMINMINAL_COMMAND 등)
+- **의도 분석 및 페이즈 결정** (v5.2.2): 키워드 기반 매칭의 한계를 극복하기 위해 LLM 기반의 동적 의도 판단 및 자율적 페이즈 전환 로직 적용
 - 액션 파라미터 검증
 - 권한 체크
 - 컨텍스트 주입
@@ -447,11 +548,33 @@ class ContextManager {
 - `PromptBuilder.ts` - 프롬프트 생성 (deprecated, PromptComposer 사용 권장)
 - `prompts/PromptComposer.ts` - 프롬프트 조합기
 - `types/contextHistory.ts` - 컨텍스트 히스토리 타입 정의
-- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)
+- `prompts/base/` - 베이스 프롬프트 컴포넌트 (agentRole, objective, rules, fileOperations, terminalCommands, codeVsScript, codeGeneration, errorCorrection, outputFormat)  
+  - XML-only로 단순화: fileOperations에서 마크다운 지시어 제거, outputFormat을 툴 실행 결과 요약 중심으로 축소, CodeWorkPrompt는 XML 툴 콜만 사용하도록 정리
 - `prompts/os/` - OS별 프롬프트 (Windows, macOS, Linux)
 - `prompts/llm/` - LLM별 프롬프트 (Gemini, GPT-OSS, DeepSeek, Gemma, CodeLlama)
 - `prompts/framework/` - 프레임워크별 프롬프트 (Vite, Spring Boot, Node.js TypeScript, Express)
 - `prompts/task/` - 작업 타입별 프롬프트 (code_work, execution_work, summarize)
+
+**read_file 결과 표시 개선** (v5.1.1):
+- Tree-sitter를 사용하여 함수/클래스 위치를 정확하게 검색
+- 사용자 질의에서 함수명을 추출하여 매칭되는 정의의 라인 번호 사용
+- 전체 파일 대신 특정 라인 주변(위아래 5줄)만 표시하여 가독성 향상
+- follow-up tool call의 `read_file` 결과는 중복 방지를 위해 표시하지 않음
+
+**LLM 자율 판단 중심 아키텍처** (v5.1.2):
+- **시스템 자동 follow-up 제거**: `ConversationManager`에서 자동으로 follow-up을 생성하지 않음
+  - 기존: `read_file`만 실행되면 자동으로 follow-up 생성하여 파일 수정 유도
+  - 변경: LLM이 스스로 판단하여 필요한 tool call을 생성하도록 함 
+- **에러 처리 개선**: `UpdateFileToolHandler`에서 실패 시 에러 메시지에 최신 파일 내용 포함
+  - LLM이 다음 응답에서 스스로 판단하여 올바른 SEARCH/REPLACE 패턴으로 재시도
+  - 시스템이 강제로 재시도하지 않고, LLM의 자율 판단에 맡김
+- **프롬프트 개선**: 강한 지시("반드시", "같은 응답에서") 제거, 가이드라인 중심으로 변경
+  - `ToolSpecBuilder`에서 예시 중심의 가이드라인 제공
+  - 한글로 번역하여 LLM 이해도 향상
+- **update_file 매칭 전략 강화**:
+  - Line-trimmed 매칭: 공백/들여쓰기 차이로 인한 실패 감소
+  - Block anchor 매칭: 3줄 이상 블록에서 첫/마지막 줄을 앵커로 사용
+  - 실패 시 명확한 에러 메시지와 최신 파일 내용 제공
 
 **프롬프트 시스템 아키텍처**:
 - **모듈화된 컴포넌트**: 프롬프트를 OS, LLM, 프레임워크, 작업 타입별로 분리하여 재사용 가능한 컴포넌트로 구성
@@ -564,54 +687,42 @@ class AutoFixService {
 
 ---
 
-### 9️⃣ Model Manager
-**역할**: LLM 모델 선택 및 관리
+### 9️⃣ Model Manager (통합 LLM 관리)
+**역할**: LLM 서버 통신 및 응답 포맷팅 관리
 
 ```typescript
-class ModelManager {
-  listAvailableModels(): Model[]
-  selectModel(modelId: string): void
-  getCurrentModel(): Model | undefined
-  async validateApiKey(provider: ModelProvider, key: string): Promise<boolean>
-  setApiKey(provider: ModelProvider, key: ApiKeyInfo): void
-  getLLMAdapter(): ILLMAdapter  // LLM 어댑터 접근
-}
-
-class LLMService {
-  async sendMessage(prompt: string, options?: LLMRequestOptions): Promise<string>
+class LLMApiClient {
+  async sendMessage(message: string, options?: LLMRequestOptions): Promise<string>
   async sendMessageWithSystemPrompt(systemPrompt: string, userParts: LLMMessagePart[], options?: LLMRequestOptions): Promise<string>
   setCurrentModel(modelType: AiModelType): void
   getCurrentModel(): AiModelType
   cancelCurrentCall(): void
+  async getCurrentModelName(): Promise<string>
 }
 
 class LLMManager {
-  async sendMessage(prompt: string, options?: LLMRequestOptions): Promise<LLMResponse>
-  async sendMessageWithSystemPrompt(systemPrompt: string, userParts: LLMMessagePart[], options?: LLMRequestOptions): Promise<LLMResponse>
-  formatResponse(response: string): string  // 응답 포맷팅
-  formatErrorForChat(evt: ErrorEvent): string  // 에러 포맷팅
+  async sendMessage(prompt: string, options?: LLMRequestOptions): Promise<string>
+  async sendMessageWithSystemPrompt(systemPrompt: string, userParts: LLMMessagePart[], options?: LLMRequestOptions): Promise<string>
+  formatResponse(response: string, options?: any): string
   extractResponseText(llmResponse: string): string
-  removeBashCommands(response: string): string
-  removeFileDirectives(response: string): string
-  summarizeAiResponse(response: string): string
+  formatErrorForChat(evt: any): string
+  createResponse(text: string, raw?: string): LLMResponse
 }
 ```
 
 **책임**:
-- LLM 모델 목록 관리
-- 모델 선택/전환
-- API 키 관리 (Gemini, GPT, Ollama)
-- 모델별 설정 (temperature, max_tokens)
-- 모델 사용량 추적
-- 기능별 모델 추천
-- LLM 서버 통신 (로컬/원격)
-- 응답 포맷팅 및 정제
-- 프롬프트 생성 (PromptComposer 통합)
+- LLM 서버 통신 (로컬 Ollama / 원격 Gemini)
+- API 키 관리 및 동적 모델 로드 (SettingsManager 통합)
+- 오프라인 상황 자동 폴백 (Gemini -> Ollama)
+- 응답 데이터 정제 및 텍스트 추출
+- 채팅용 에러 메시지 포맷팅
+- 코드 블록 및 툴 지시어 필터링
 
 **구현 파일**:
-- `ModelManager.ts` - 모델 관리
-- `LLMService.ts` - LLM API 호출 서비스 (Gemini, Ollama 래핑)
-- `LLMManager.ts` - LLM 서버 통신 및 응답 포맷팅 통합
+- `LLMApiClient.ts` - LLM API 통합 클라이언트
+- `LLMManager.ts` - 통신 처리 및 응답 포맷팅
+- `types.ts` - 모델 관련 공통 타입
+- `llm/` - 개별 모델 어댑터 (ILLMAdapter, GptAdapter, GemmaAdapter)
 
 ---
 
@@ -716,25 +827,88 @@ class FileChangeTracker {
 
 ## 🔄 통신 플로우
 
-### 기본 플로우
+### 기본 플로우 (v6.3.0: FSM 통합)
 ```
 사용자 입력
   ↓
+ConversationService.handleUserMessage()
+  ↓
+ConversationManager.handleUserMessageAndRespond()
+  ↓
+IntentDetector (의도 분석 - LLM 기반)
+  ↓
+AgentStateManager 초기화 (INVESTIGATION 또는 EXECUTION)
+  ↓
+[INVESTIGATION Phase]
+  ↓
+InvestigationManager (조사 프롬프트 생성)
+  ↓
 Context Manager (컨텍스트 수집)
   ↓
-Model Manager (LLM 호출)
+LLM Manager (LLM 호출)
   ↓
-Action Manager (액션 매핑 & 검증)
+ToolParser (도구 호출 파싱)
   ↓
-Task Manager (작업 큐잉)
+AgentStateManager.validateOutput() (Output Contract 검증)
   ↓
-Execution Manager (실제 실행)
+AgentStateManager.isToolAllowed() (도구 허용 여부 검증)
+  ↓
+ToolExecutor (도구 실행 - read_file, list_files 등)
+  ↓
+[Plan 생성 시]
+  ↓
+AgentStateManager.transitionTo(EXECUTION) (상태 전환 검증)
+  ↓
+[EXECUTION Phase]
+  ↓
+TaskManager (Plan Item 관리)
+  ↓
+ToolExecutor (도구 실행 - create_file, update_file 등)
+  ↓
+Execution Manager (명령 실행)
   ↓
 Terminal Manager (터미널 세션)
   ↓
 Error Manager (에러 감지)
   ↓
-State Manager (상태 저장)
+WebviewBridge (UI 업데이트)
+```
+
+### 상태 전환 플로우 (v6.3.0, v6.5.0 개선)
+```
+INVESTIGATION Phase
+  ├─ 조사 도구 사용 (read_file, list_files, ripgrep_search)
+  ├─ 조사 이력 추적 (hasInvestigationHistory = true)
+  ├─ Plan 생성 (<plan> 태그)
+  ├─ AgentStateManager.transitionTo(EXECUTION) 호출
+  │   ├─ 전환 조건 검증:
+  │   │   - hasPlan: true
+  │   │   - toolCallsInTurn.length > 0 OR hasInvestigationHistory: true
+  │   └─ 조건 충족 시 전환 성공, 미충족 시 INVESTIGATION 유지 (v6.5.0)
+  └─ EXECUTION Phase로 전환 (조건 충족 시)
+
+EXECUTION Phase
+  ├─ Plan Item 순차 실행
+  ├─ 도구 호출 (create_file, update_file, remove_file, run_command)
+  │   ├─ plan 생성 시 tool call이 있으면 즉시 실행
+  │   └─ tool call이 없으면 LLM 호출하여 생성 (v6.5.0, v6.6.0: 완전 적용)
+  ├─ AgentStateManager.isToolAllowed() 검증 (모든 도구 허용)
+  ├─ Plan Item 완료 처리
+  ├─ 모든 Plan Item 완료 시 자동 테스트 실행
+  │  ├─ Smoke Test: 필수 파일 존재 확인
+  │  ├─ Lint Check: getValidationCommand()로 검증 명령어 결정
+  │  │  ├─ null 반환 시: LLM에게 질의 (fallback)
+  │  │  └─ 명령어 반환 시: 규칙 기반 검증 실행
+  │  └─ 테스트 실패 시 자동 수정 및 재시도 (설정 활성화 시)
+  └─ 테스트 완료 후 REVIEW Phase로 전환 (v6.5.0, v6.6.0: 모든 경로 보장)
+
+REVIEW Phase
+  ├─ 파일 변경 검증 (실제 디스크 상태 확인)
+  ├─ LLM 호출하여 요약 생성 (1회만, v6.4.0, v6.6.0: 최적화 완료)
+  └─ DONE Phase로 전환
+
+DONE Phase
+  └─ 최종 상태, LLM 호출 없음 (v6.6.0: 완전 제거 확인 및 강화)
 ```
 
 ### 에러 복구 플로우
@@ -945,9 +1119,8 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
   - 모든 import 경로 수정 완료 (14개 파일)
   - `src/ai/` 디렉토리 비어있음
 - ✅ 웹뷰 보조 서비스 분리
-  - `webview/services/SupportedModelService.ts` (지원 모델 파일 로더)
   - `webview/services/LocaleService.ts` (로케일 파일 로더)
-  - `panelManager.ts`에서 모델/언어 파일 로딩 로직 제거, 서비스 호출로 단순화
+  - `panelManager.ts`에서 언어 파일 로딩 로직 제거, 서비스 호출로 단순화
 - ✅ `src/webview` 디렉토리 리팩토링 완료:
   - `chatViewProvider.ts` → `webview/providers/ChatViewProvider.ts`
   - `askViewProvider.ts` → `webview/providers/AskViewProvider.ts`
