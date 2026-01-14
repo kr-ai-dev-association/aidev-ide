@@ -6,6 +6,11 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.2.0 (파일 Diff 표시 및 Formatter 통합 개선)
+- **파일 Diff 표시**: 추가 및 삭제된 라인에 대한 시각적 표시가 개선된 코드 블록의 파일 diff 표시 기능 향상. Diff 블록의 헤더에 라인 수 변경 사항이 표시됩니다.
+- **Formatter 인식 Decoration 관리**: Formatter 실행 중 및 실행 후 decoration 처리를 개선했습니다. 코드 포맷팅 후 decoration이 올바르게 보존되고 재적용되어, formatter가 파일을 수정할 때 decoration 손실을 방지합니다.
+- **문서 변경 감지**: Formatter로 인한 변경을 올바르게 처리하도록 문서 변경 감지를 개선했습니다. Formatter 완료 후 첫 번째 문서 변경은 자동으로 무시되어 잘못된 reconciliation을 방지합니다.
+
 ## v8.1.0 (Diff UI/UX 개선 및 코드 블록 향상)
 - **Accept/Reject All 버튼**: diff를 표시하는 코드 블록 아래에 "Accept"와 "Reject" 버튼을 추가하여 파일의 모든 변경사항을 한 번에 승인하거나 거부할 수 있습니다. 버튼은 클릭 후 자동으로 제거됩니다.
 - **코드 블록 구문 강조**: Highlight.js를 사용하여 VS Code 다크 테마 색상으로 코드 블록에 구문 강조를 구현했습니다. 다양한 언어 별칭을 지원하는 포괄적인 언어 매핑을 추가했습니다.

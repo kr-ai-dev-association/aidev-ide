@@ -6,9 +6,25 @@ import { SettingsManager, TerminalManager, ConversationService, TaskManager, Exe
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
 
+/**
+ * Diff 가상 문서 프로바이더
+ * codepilot-diff: 스킴으로 등록하여 before 내용을 제공
+ */
+class DiffDocumentProvider implements vscode.TextDocumentContentProvider {
+    constructor(private diffManager: InlineDiffManager) {}
+
+    provideTextDocumentContent(uri: vscode.Uri): string {
+        // URI에서 실제 파일 경로 추출 (codepilot-diff:/path/to/file.ts.before)
+        const filePath = uri.path.replace(/\.before$/, '');
+        const beforeContent = this.diffManager.getCheckpointBeforeContent(filePath);
+        return beforeContent || '';
+    }
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'codepilot.chatView';
     private _view?: vscode.WebviewView;
+    private diffDocumentProvider?: DiffDocumentProvider;
 
     constructor(
         private readonly extensionUri: vscode.Uri,
@@ -598,6 +614,61 @@ ${JSON.stringify(errorContext, null, 2)}
                         }
                     } catch (error: any) {
                         this.notificationService.showErrorMessage(`파일을 열 수 없습니다: ${error.message || error}`);
+                    }
+                    break;
+                case 'openDiff':
+                    try {
+                        const filePath = data.filePath;
+                        if (!filePath) {
+                            break;
+                        }
+
+                        // 워크스페이스 루트 확인
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                        if (!workspaceRoot) {
+                            break;
+                        }
+
+                        // 상대 경로를 절대 경로로 변환
+                        const absolutePath = path.isAbsolute(filePath)
+                            ? filePath
+                            : path.join(workspaceRoot, filePath);
+
+                        const fileUri = vscode.Uri.file(absolutePath);
+
+                        // InlineDiffManager에서 beforeContent 가져오기
+                        const diffManager = InlineDiffManager.getInstance();
+                        const beforeContent = diffManager.getCheckpointBeforeContent(absolutePath);
+
+                        if (!beforeContent) {
+                            this.notificationService.showErrorMessage('Diff를 표시할 이전 버전이 없습니다.');
+                            break;
+                        }
+
+                        // VSCode diff 에디터 제목
+                        const title = `${path.basename(absolutePath)} (Before ↔ After)`;
+
+                        // Before 내용을 가상 문서로 생성
+                        const beforeUri = vscode.Uri.parse(`codepilot-diff:${absolutePath}.before`);
+
+                        // 가상 문서 프로바이더 등록 (한번만)
+                        if (!this.diffDocumentProvider) {
+                            this.diffDocumentProvider = new DiffDocumentProvider(diffManager);
+                            this.context.subscriptions.push(
+                                vscode.workspace.registerTextDocumentContentProvider('codepilot-diff', this.diffDocumentProvider)
+                            );
+                        }
+
+                        // Diff 에디터 열기
+                        await vscode.commands.executeCommand(
+                            'vscode.diff',
+                            beforeUri,
+                            fileUri,
+                            title
+                        );
+
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`Diff를 열 수 없습니다: ${error.message || error}`);
                     }
                     break;
             }

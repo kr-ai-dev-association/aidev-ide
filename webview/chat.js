@@ -1705,6 +1705,56 @@ function displayCodePilotMessage(markdownText) {
                 lineCountLabel.appendChild(addedSpan);
             }
 
+            // ✅ 파일 diff 아이콘 추가 (filePath가 있을 때만)
+            if (filePath) {
+                const diffIcon = document.createElement("a");
+                diffIcon.classList.add("diff-file-icon");
+                diffIcon.innerHTML = "⇄"; // diff 아이콘
+                diffIcon.title = `Diff 보기: ${filePath}`;
+
+                const encodedPath = encodeURIComponent(filePath);
+                diffIcon.href = `codepilot://diff?path=${encodedPath}`;
+
+                diffIcon.style.cssText = `
+                    cursor: pointer;
+                    margin-left: 4px;
+                    opacity: 0.7;
+                    transition: opacity 0.2s;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    vertical-align: middle;
+                    background: none;
+                    border: 1px solid var(--vscode-panel-border);
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    color: var(--vscode-foreground);
+                    font-size: 12px;
+                    position: relative;
+                    text-decoration: none;
+                `;
+
+                diffIcon.addEventListener(
+                    "mouseenter",
+                    () => {
+                        diffIcon.style.opacity = "1";
+                        diffIcon.style.backgroundColor = "var(--vscode-focusBorder)";
+                    },
+                    { passive: true },
+                );
+
+                diffIcon.addEventListener(
+                    "mouseleave",
+                    () => {
+                        diffIcon.style.opacity = "0.7";
+                        diffIcon.style.backgroundColor = "transparent";
+                    },
+                    { passive: true },
+                );
+
+                lineCountLabel.appendChild(diffIcon);
+            }
+
             // ✅ 파일 열기 아이콘 추가 (filePath가 있을 때만)
             // 🔥 anchor 태그 방식으로 변경 - Webview 컨텍스트 문제 해결
             if (filePath) {
@@ -1719,7 +1769,7 @@ function displayCodePilotMessage(markdownText) {
 
                 openFileIcon.style.cssText = `
                     cursor: pointer;
-                    margin-left: 8px;
+                    margin-left: 4px;
                     opacity: 0.7;
                     transition: opacity 0.2s;
                     display: inline-flex;
@@ -1772,6 +1822,55 @@ function displayCodePilotMessage(markdownText) {
             // ✅ 라인 수 정보가 없어도 filePath가 있으면 아이콘만 표시
             console.log(
             );
+
+            // ✅ Diff 아이콘 추가
+            const diffIcon = document.createElement("a");
+            diffIcon.classList.add("diff-file-icon");
+            diffIcon.innerHTML = "⇄";
+            diffIcon.title = `Diff 보기: ${filePath}`;
+
+            const encodedPathDiff = encodeURIComponent(filePath);
+            diffIcon.href = `codepilot://diff?path=${encodedPathDiff}`;
+
+            diffIcon.style.cssText = `
+                cursor: pointer;
+                margin-left: 8px;
+                opacity: 0.7;
+                transition: opacity 0.2s;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                vertical-align: middle;
+                background: none;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 3px;
+                padding: 2px 6px;
+                color: var(--vscode-foreground);
+                font-size: 12px;
+                position: relative;
+                text-decoration: none;
+            `;
+
+            diffIcon.addEventListener(
+                "mouseenter",
+                () => {
+                    diffIcon.style.opacity = "1";
+                    diffIcon.style.backgroundColor = "var(--vscode-focusBorder)";
+                },
+                { passive: true },
+            );
+
+            diffIcon.addEventListener(
+                "mouseleave",
+                () => {
+                    diffIcon.style.opacity = "0.7";
+                    diffIcon.style.backgroundColor = "transparent";
+                },
+                { passive: true },
+            );
+
+            codeHeader.appendChild(diffIcon);
+
             // 🔥 anchor 태그 방식으로 변경 - Webview 컨텍스트 문제 해결
             const openFileIcon = document.createElement("a");
             openFileIcon.classList.add("open-file-icon");
@@ -2112,6 +2211,35 @@ if (chatMessages) {
                 }
             } catch (e) {
                 console.warn("Failed to parse codepilot link:", href, e);
+            }
+        } else if (
+            href.startsWith("codepilot://diff") ||
+            href.startsWith("https://codepilot.invalid/diff")
+        ) {
+            event.preventDefault();
+
+            try {
+                const url = new URL(href);
+                const query = url.search
+                    ? url.search.slice(1)
+                    : href.split("?")[1] || "";
+                const params = new URLSearchParams(query);
+                const p = params.get("path");
+                if (p) {
+                    const filePath = decodeURIComponent(p);
+
+                    // ✅ openDiff 명령 사용 (ChatViewProvider에서 처리)
+                    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+                        window.vscode.postMessage({
+                            command: "openDiff",
+                            filePath: filePath,
+                            timestamp: Date.now(),
+                        });
+                    } else {
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to parse codepilot diff link:", href, e);
             }
         } else if (
             href.startsWith("codepilot://acceptAll") ||

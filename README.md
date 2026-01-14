@@ -6,6 +6,11 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.2.0 (File Diff Display & Formatter Integration Improvements)
+- **File Diff Display**: Enhanced file diff display in code blocks with improved visual indicators for added and removed lines. Diff blocks now show line count changes in the header.
+- **Formatter-Aware Decoration Management**: Improved decoration handling during and after formatter execution. Decorations are now properly preserved and re-applied after code formatting, preventing decoration loss when formatters modify files.
+- **Document Change Detection**: Enhanced document change detection to properly handle formatter-triggered changes. First document change after formatter completion is automatically ignored to prevent false reconciliation.
+
 ## v8.1.0 (Diff UI/UX Improvements & Code Block Enhancements)
 - **Accept/Reject All Buttons**: Added "Accept" and "Reject" buttons below code blocks that display diffs, allowing users to accept or reject all changes for a file at once. Buttons are automatically removed after being clicked.
 - **Code Block Syntax Highlighting**: Implemented syntax highlighting for code blocks using Highlight.js with VS Code dark theme colors. Added comprehensive language mapping to support various language aliases.
