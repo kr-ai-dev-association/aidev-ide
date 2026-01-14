@@ -9,6 +9,9 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
         /* (기존 스타일 유지) */
         body {
@@ -598,14 +601,9 @@
             border: none;
             border-radius: 3px;
             cursor: pointer;
-            opacity: 0;
-            transition: opacity 0.2s ease-in-out;
-            z-index: 2;
-        }
-
-        .codepilot-message-container:hover .copy-code-button,
-        .message-bubble:hover .copy-code-button {
             opacity: 1;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 2;
         }
 
         .copy-code-button:hover {
@@ -632,14 +630,9 @@
             border: none;
             border-radius: 3px;
             cursor: pointer;
-            opacity: 0;
-            transition: opacity 0.2s ease-in-out;
-            z-index: 2;
-        }
-
-        .codepilot-message-container:hover .run-bash-button,
-        .message-bubble:hover .run-bash-button {
             opacity: 1;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 2;
         }
 
         .run-bash-button:hover {
@@ -655,6 +648,63 @@
             display: flex;
             justify-content: flex-end;
             gap: 5px;
+        }
+
+        .accept-all-button,
+        .reject-all-button {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            padding: 4px 12px;
+            font-size: 11px;
+            line-height: 1;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            opacity: 1;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 2;
+            font-weight: 500;
+        }
+
+        .reject-all-button {
+            background-color: #c62828;
+            /* 더 어두운 빨간색 */
+            color: white;
+            border: none;
+        }
+
+        .reject-all-button:hover {
+            background-color: var(--vscode-button-secondary-background);
+            /* 기본색으로 */
+            color: var(--vscode-button-secondary-foreground);
+        }
+
+        .reject-all-button:active {
+            background-color: #8b0000;
+            /* 가장 어두운 빨간색 */
+            color: white;
+        }
+
+        .accept-all-button {
+            background-color: #2e7d32;
+            /* 더 어두운 초록색 */
+            color: white;
+            border: none;
+        }
+
+        .accept-all-button:hover {
+            background-color: var(--vscode-button-secondary-background);
+            /* 기본색으로 */
+            color: var(--vscode-button-secondary-foreground);
+        }
+
+        .accept-all-button:active {
+            background-color: #1b5e20;
+            /* 가장 어두운 초록색 */
+            color: white;
         }
 
         .message-bubble p {
@@ -887,6 +937,86 @@
             font-family: inherit;
             font-size: inherit;
             color: var(--vscode-editor-foreground);
+        }
+
+        /* Highlight.js 스타일 오버라이드 - VS Code 테마와 조화 */
+        .code-container code.hljs {
+            background: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+            padding: 0;
+        }
+
+        /* Highlight.js 구문 강조 색상 조정 */
+        .code-container .hljs-keyword,
+        .code-container .hljs-selector-tag,
+        .code-container .hljs-literal,
+        .code-container .hljs-section,
+        .code-container .hljs-link {
+            color: #569cd6;
+            /* VS Code 키워드 색상 (파란색) */
+        }
+
+        .code-container .hljs-function,
+        .code-container .hljs-title,
+        .code-container .hljs-params {
+            color: #dcdcaa;
+            /* VS Code 함수 색상 (노란색) */
+        }
+
+        .code-container .hljs-string,
+        .code-container .hljs-attr {
+            color: #ce9178;
+            /* VS Code 문자열 색상 (주황색) */
+        }
+
+        .code-container .hljs-comment,
+        .code-container .hljs-quote {
+            color: #6a9955;
+            /* VS Code 주석 색상 (초록색) */
+            font-style: italic;
+        }
+
+        .code-container .hljs-number,
+        .code-container .hljs-built_in,
+        .code-container .hljs-builtin-name {
+            color: #b5cea8;
+            /* VS Code 숫자 색상 (연두색) */
+        }
+
+        .code-container .hljs-variable,
+        .code-container .hljs-template-variable {
+            color: #9cdcfe;
+            /* VS Code 변수 색상 (하늘색) */
+        }
+
+        .code-container .hljs-type,
+        .code-container .hljs-class {
+            color: #4ec9b0;
+            /* VS Code 타입 색상 (청록색) */
+        }
+
+        .code-container .hljs-tag,
+        .code-container .hljs-name,
+        .code-container .hljs-attribute {
+            color: #569cd6;
+            /* VS Code 태그 색상 */
+        }
+
+        .code-container .hljs-meta,
+        .code-container .hljs-meta-keyword {
+            color: #808080;
+            /* VS Code 메타 색상 (회색) */
+        }
+
+        .code-container .hljs-regexp,
+        .code-container .hljs-deletion {
+            color: #f48771;
+            /* VS Code 정규식 색상 (빨간색) */
+        }
+
+        .code-container .hljs-addition {
+            color: #73c991;
+            /* VS Code 추가 색상 (초록색) */
         }
 
         /* 스크롤바 스타일링 */
@@ -1585,17 +1715,11 @@
         <!-- Approval Buttons (초기에는 숨김) -->
         <div id="approval-buttons-container" style="display: none;">
             <span style="margin-right: 8px; font-weight: 600;">파일 변경사항:</span>
-            <button 
-                class="approval-button approve-button" 
-                id="approve-all-btn" 
-                title="모든 변경사항 승인"
+            <button class="approval-button approve-button" id="approve-all-btn" title="모든 변경사항 승인"
                 onclick="approveAllChanges()">
                 ✓ 승인
             </button>
-            <button 
-                class="approval-button reject-button" 
-                id="reject-all-btn" 
-                title="모든 변경사항 되돌리기"
+            <button class="approval-button reject-button" id="reject-all-btn" title="모든 변경사항 되돌리기"
                 onclick="rejectAllChanges()">
                 ↶ 되돌리기
             </button>

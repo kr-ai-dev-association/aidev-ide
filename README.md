@@ -6,13 +6,16 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
-## v8.0.0 (Security & Code Quality Improvements)
-- **CryptoUtils Enhancement**: Improved encryption/decryption utilities with better error handling and type safety
-  - Enhanced `CryptoUtils` class with proper TypeScript typing
-  - Better error messages for encryption/decryption failures
-  - Improved validation for encrypted text format checking
-  - Secure license serial encryption using AES-256-CBC with SHA-256 key hashing
-- **Code Quality**: General code improvements and refactoring for better maintainability
+## v8.1.0 (Diff UI/UX Improvements & Code Block Enhancements)
+- **Accept/Reject All Buttons**: Added "Accept" and "Reject" buttons below code blocks that display diffs, allowing users to accept or reject all changes for a file at once. Buttons are automatically removed after being clicked.
+- **Code Block Syntax Highlighting**: Implemented syntax highlighting for code blocks using Highlight.js with VS Code dark theme colors. Added comprehensive language mapping to support various language aliases.
+- **Button Visibility Improvements**: Copy and Run buttons for Bash/PowerShell/Cmd blocks are now always visible (not just on hover). Copy button removed from general code blocks, kept only for Bash blocks.
+- **New File Decoration Timing Fix**: Fixed decoration application timing issues for newly created files. Decorations now apply correctly even when files are created and immediately formatted.
+- **Formatter Integration**: Improved decoration re-application after formatter execution. Decorations are now properly restored after code formatting completes.
+- **File Path Resolution**: Fixed file path matching issues in Accept/Reject All functionality by normalizing relative paths to absolute paths.
+
+## v8.0.0 (CryptoUtils Enhancements)
+- **CryptoUtils Security Improvements**: Enhanced security, code quality, type safety, and error handling in `cryptoUtils.ts`. Added license serial encryption functionality.
 
 ## v7.0.1 (Probability-Based Decision Logic Consistency Improvements)
 - **Centralized Threshold Management**: All probability-based decision thresholds (confidence, thresholds, percentages) are now centralized in `AgentConfig.ts` for better maintainability and consistency.

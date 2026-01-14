@@ -13,6 +13,7 @@
 
 import * as vscode from 'vscode';
 import * as diff from 'diff';
+import * as path from 'path';
 
 /**
  * InlineChange: 변경 단위 모델
@@ -73,6 +74,7 @@ export class InlineDiffManager {
     private checkpoints: Map<string, AICheckpoint> = new Map(); // filePath -> checkpoint (파일당 활성 체크포인트 1개)
     private documentVersions: Map<string, number> = new Map(); // filePath -> document version (range drift 방지)
     private formatterRunning: Set<string> = new Set(); // filePath -> formatter 실행 중 플래그 (diff 보호용)
+    private formatterJustFinished: Set<string> = new Set(); // filePath -> formatter 방금 종료됨 플래그 (다음 document 변경 1회만 무시)
     private lastAppliedChanges: Map<string, InlineChange[]> = new Map(); // filePath -> 마지막으로 적용된 changes (ToolExecutionCoordinator용 캐시)
     private addedDecoration: vscode.TextEditorDecorationType;
     private deletedDecoration: vscode.TextEditorDecorationType;
@@ -201,6 +203,27 @@ export class InlineDiffManager {
         }
 
         return false;
+    }
+
+    /**
+     * 파일 경로를 절대 경로로 변환
+     * 상대 경로인 경우 workspace root를 기준으로 절대 경로로 변환
+     */
+    private resolveFilePath(filePath: string): string {
+        // 이미 절대 경로인 경우 그대로 반환
+        if (path.isAbsolute(filePath)) {
+            return filePath;
+        }
+
+        // workspace root 찾기
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            // 첫 번째 workspace folder를 기준으로 절대 경로 생성
+            return path.resolve(workspaceFolders[0].uri.fsPath, filePath);
+        }
+
+        // workspace가 없으면 현재 작업 디렉토리 사용
+        return path.resolve(filePath);
     }
 
     /**
@@ -384,6 +407,28 @@ export class InlineDiffManager {
             if (e.contentChanges.length === 0) return;
 
             const filePath = e.document.uri.fsPath;
+
+            // ✅ formatter 방금 종료: 이번 변경은 formatter에 의한 것 (무시하고 플래그 제거)
+            if (this.formatterJustFinished.has(filePath)) {
+                this.formatterJustFinished.delete(filePath);
+                this.documentVersions.set(filePath, e.document.version);
+                console.log(`[InlineDiffManager] Ignored first change after formatter for ${filePath}, version updated to ${e.document.version}`);
+
+                // decoration 재적용
+                const changes = this.pendingChanges.get(filePath);
+                if (changes && changes.length > 0) {
+                    const editor = vscode.window.visibleTextEditors.find(ed => ed.document === e.document);
+                    if (editor) {
+                        this.applyDecorationsToEditor(editor, changes);
+
+                        // CodeLens 새로고침
+                        const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
+                        DiffCodeLensProvider.getInstance().refresh();
+                    }
+                }
+                return;
+            }
+
             const changes = this.pendingChanges.get(filePath);
 
             if (!changes || changes.length === 0) {
@@ -706,15 +751,13 @@ export class InlineDiffManager {
      * Formatter 실행 종료 (diff 보호 해제)
      */
     public markFormatterFinished(filePath: string): void {
+        // ✅ formatter 실행 중 플래그 제거
         this.formatterRunning.delete(filePath);
-        // Formatter 실행 후 document version 업데이트 (외부 변경으로 인식하지 않도록)
-        const editor = vscode.window.visibleTextEditors.find(
-            e => e.document.uri.fsPath === filePath
-        );
-        if (editor) {
-            this.documentVersions.set(filePath, editor.document.version);
-            console.log(`[InlineDiffManager] Marked formatter as finished for ${filePath}, updated document version to ${editor.document.version}`);
-        }
+
+        // ✅ formatter 방금 종료됨 플래그 설정 (다음 document 변경 1회만 무시)
+        this.formatterJustFinished.add(filePath);
+
+        console.log(`[InlineDiffManager] Marked formatter as finished for ${filePath}, will ignore next document change`);
     }
 
     public getCheckpointBeforeContent(filePath: string): string | undefined {
@@ -1047,24 +1090,8 @@ export class InlineDiffManager {
         console.log(`[InlineDiffManager] Applied AI changes to ${filePath}: ${finalNewChanges.length} new changes (${newChanges.length - finalNewChanges.length} duplicates skipped), ${allChanges.length} total changes (${existingPendingChanges.length} existing pending, ${existingProcessedChanges.length} processed)`);
 
         // ✅ STEP 5: Decoration 적용
-        setTimeout(() => {
-            // 현재 visible editors에서 해당 파일 찾기
-            const currentEditor = vscode.window.visibleTextEditors.find(
-                e => e.document.uri.fsPath === filePath
-            );
-            if (currentEditor) {
-                this.applyDecorationsToEditor(currentEditor, allChanges);
-
-                // CodeLens 새로고침 (Accept/Reject 버튼 표시)
-                const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
-                DiffCodeLensProvider.getInstance().refresh();
-            } else {
-                // ✅ Editor가 없어도 상태는 유지 (decoration은 editor가 열릴 때 자동 적용됨)
-                // CodeLens는 editor 없이도 작동할 수 있으므로 새로고침
-                const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
-                DiffCodeLensProvider.getInstance().refresh();
-            }
-        }, 200);
+        // 새 파일인 경우 document가 완전히 로드될 때까지 대기
+        await this.applyDecorationsWithRetry(filePath, allChanges, afterContent, isNewFile);
     }
 
     /**
@@ -1306,11 +1333,13 @@ export class InlineDiffManager {
             return;
         }
 
+        // ✅ 기존 decoration 먼저 제거 (중복 적용 방지)
+        this.clearAllDecorationsForEditor(editor);
+
         // ✅ 상태 기반 필터링: pending만 decoration 적용 (dirty는 제외)
         const pendingChanges = changes.filter(c => c.status === 'pending');
 
         if (pendingChanges.length === 0) {
-            this.clearAllDecorationsForEditor(editor);
             return;
         }
 
@@ -1426,6 +1455,58 @@ export class InlineDiffManager {
         } else {
             console.log(`[InlineDiffManager] Applied decorations for ${filePath}: ${addedRanges.length} added, ${deletedDecorations.length} deleted (before) (total changes: ${changes.length}, pending: ${pendingChanges.length}, editor lines: ${editor.document.lineCount})`);
         }
+    }
+
+    /**
+     * Decoration 적용 (재시도 로직 포함)
+     * 새 파일 생성 시 document가 완전히 로드될 때까지 대기
+     */
+    private async applyDecorationsWithRetry(
+        filePath: string,
+        allChanges: InlineChange[],
+        expectedContent: string,
+        isNewFile: boolean,
+        retryCount: number = 0
+    ): Promise<void> {
+        const maxRetries = isNewFile ? 10 : 3; // 새 파일은 더 많은 재시도
+        const retryDelay = isNewFile ? 200 : 100; // 새 파일은 더 긴 대기 시간
+
+        // 현재 visible editors에서 해당 파일 찾기
+        let currentEditor = vscode.window.visibleTextEditors.find(
+            e => e.document.uri.fsPath === filePath
+        );
+
+        if (!currentEditor) {
+            // Editor가 없어도 CodeLens는 새로고침
+            const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
+            DiffCodeLensProvider.getInstance().refresh();
+            return;
+        }
+
+        // ✅ document 내용 확인 (새 파일인 경우 특히 중요)
+        const currentContent = currentEditor.document.getText();
+        const contentMatches = currentContent === expectedContent ||
+            (isNewFile && currentContent.trim() === expectedContent.trim());
+
+        if (!contentMatches && retryCount < maxRetries) {
+            console.log(`[InlineDiffManager] Document content mismatch (attempt ${retryCount + 1}/${maxRetries}), retrying...`);
+            console.log(`[InlineDiffManager] Expected length: ${expectedContent.length}, Current length: ${currentContent.length}`);
+
+            // 재시도
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            return this.applyDecorationsWithRetry(filePath, allChanges, expectedContent, isNewFile, retryCount + 1);
+        }
+
+        if (!contentMatches) {
+            console.warn(`[InlineDiffManager] Document content still doesn't match after ${maxRetries} retries, applying decorations anyway`);
+        }
+
+        // ✅ Decoration 적용 (applyDecorationsToEditor 내부에서 기존 decoration 제거됨)
+        this.applyDecorationsToEditor(currentEditor, allChanges);
+
+        // CodeLens 새로고침 (Accept/Reject 버튼 표시)
+        const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
+        DiffCodeLensProvider.getInstance().refresh();
     }
 
     /**
@@ -1763,41 +1844,63 @@ export class InlineDiffManager {
      * 모든 변경사항 승인
      */
     public async acceptAllChanges(filePath: string): Promise<void> {
-        const changes = this.pendingChanges.get(filePath);
-        if (!changes) return;
+        console.log(`[InlineDiffManager] acceptAllChanges called for: ${filePath}`);
 
-        // 모든 에디터 찾기
-        const editors = vscode.window.visibleTextEditors.filter(
-            e => e.document.uri.fsPath === filePath
+        // ✅ 상대 경로를 절대 경로로 변환
+        const absolutePath = this.resolveFilePath(filePath);
+        console.log(`[InlineDiffManager] Resolved path: ${absolutePath} (original: ${filePath})`);
+
+        // ✅ pendingChanges의 모든 키 확인 (디버깅용)
+        const pendingKeys = Array.from(this.pendingChanges.keys());
+        console.log(`[InlineDiffManager] Pending changes keys:`, pendingKeys);
+
+        const changes = this.pendingChanges.get(absolutePath);
+        if (!changes) {
+            console.warn(`[InlineDiffManager] No pending changes found for: ${absolutePath}`);
+            // ✅ 상대 경로로도 시도
+            const relativeChanges = this.pendingChanges.get(filePath);
+            if (relativeChanges) {
+                console.log(`[InlineDiffManager] Found changes with relative path, using that instead`);
+                return this.acceptAllChanges(absolutePath); // 재귀 호출로 절대 경로 사용
+            }
+            return;
+        }
+        console.log(`[InlineDiffManager] Found ${changes.length} pending changes for: ${absolutePath}`);
+
+        // 파일이 열려있지 않으면 먼저 열기
+        let editors = vscode.window.visibleTextEditors.filter(
+            e => e.document.uri.fsPath === absolutePath
         );
 
         if (editors.length === 0) {
-            return;
+            console.log(`[InlineDiffManager] File not open, opening: ${absolutePath}`);
+            try {
+                const uri = vscode.Uri.file(absolutePath);
+                const document = await vscode.workspace.openTextDocument(uri);
+                const editor = await vscode.window.showTextDocument(document, {
+                    preserveFocus: false,
+                    preview: false,
+                });
+                editors = [editor];
+                // 에디터가 열릴 때까지 대기
+                await new Promise(resolve => setTimeout(resolve, 100));
+                console.log(`[InlineDiffManager] File opened successfully: ${absolutePath}`);
+            } catch (error) {
+                console.error(`[InlineDiffManager] Failed to open file ${absolutePath}:`, error);
+                return;
+            }
+        } else {
+            console.log(`[InlineDiffManager] File already open: ${absolutePath}`);
         }
 
-        // 모든 change 상태 업데이트
-        changes.forEach(change => {
-            change.status = 'accepted';
-        });
-
-        // 🔥 Accept: 문서에는 이미 newContent가 있으므로, decoration만 제거하면 됨
-        // ✅ Accept는 의미적 커밋이지만, 파일 저장은 showInlineDiff()에서 담당
-        // (파일을 수정한 곳에서만 저장해야 "파일 내용이 최신입니다" 오류 방지)
-        // 모든 에디터에서 decoration 제거
-        for (const editor of editors) {
-            this.clearAllDecorationsForEditor(editor);
+        // 각 change를 개별적으로 accept (codelens 클릭과 동일한 방식)
+        const pendingChanges = changes.filter(c => c.status === 'pending');
+        console.log(`[InlineDiffManager] Accepting ${pendingChanges.length} pending changes`);
+        for (const change of pendingChanges) {
+            console.log(`[InlineDiffManager] Accepting change ${change.id} (type: ${change.type})`);
+            await this.acceptChange(absolutePath, change.id);
         }
-
-        // 체크포인트 상태 업데이트
-        const checkpoint = this.checkpoints.get(filePath);
-        if (checkpoint) {
-            checkpoint.status = 'accepted';
-        }
-
-        // 변경사항 목록에서 제거
-        this.pendingChanges.delete(filePath);
-        this.originalContents.delete(filePath);
-        this.lastAppliedChanges.delete(filePath); // ✅ 캐시도 정리
+        console.log(`[InlineDiffManager] acceptAllChanges completed for: ${absolutePath}`);
     }
 
     /**
@@ -1806,68 +1909,68 @@ export class InlineDiffManager {
      * ⚠️ VS Code Undo 스택과 분리: WorkspaceEdit 사용
      */
     public async rejectAllChanges(filePath: string): Promise<void> {
-        const changes = this.pendingChanges.get(filePath);
-        if (!changes) return;
+        console.log(`[InlineDiffManager] rejectAllChanges called for: ${filePath}`);
 
-        // 현재 visible editors에서 해당 파일 찾기
-        const editors = vscode.window.visibleTextEditors.filter(
-            e => e.document.uri.fsPath === filePath
+        // ✅ 상대 경로를 절대 경로로 변환
+        const absolutePath = this.resolveFilePath(filePath);
+        console.log(`[InlineDiffManager] Resolved path: ${absolutePath} (original: ${filePath})`);
+
+        // ✅ pendingChanges의 모든 키 확인 (디버깅용)
+        const pendingKeys = Array.from(this.pendingChanges.keys());
+        console.log(`[InlineDiffManager] Pending changes keys:`, pendingKeys);
+
+        const changes = this.pendingChanges.get(absolutePath);
+        if (!changes) {
+            console.warn(`[InlineDiffManager] No pending changes found for: ${absolutePath}`);
+            // ✅ 상대 경로로도 시도
+            const relativeChanges = this.pendingChanges.get(filePath);
+            if (relativeChanges) {
+                console.log(`[InlineDiffManager] Found changes with relative path, using that instead`);
+                return this.rejectAllChanges(absolutePath); // 재귀 호출로 절대 경로 사용
+            }
+            return;
+        }
+        console.log(`[InlineDiffManager] Found ${changes.length} pending changes for: ${absolutePath}`);
+
+        // 파일이 열려있지 않으면 먼저 열기
+        let editors = vscode.window.visibleTextEditors.filter(
+            e => e.document.uri.fsPath === absolutePath
         );
 
         if (editors.length === 0) {
-            return;
-        }
-
-        const editor = editors[0]; // 첫 번째 에디터 사용
-        const checkpoint = this.checkpoints.get(filePath);
-
-        // 🔥 체크포인트의 beforeContent로 정확히 복원
-        // ⚠️ VS Code Undo 스택과 분리: WorkspaceEdit 사용
-        const beforeContent = checkpoint?.beforeContent ?? this.originalContents.get(filePath);
-
-        if (beforeContent !== undefined) {
-            const edit = new vscode.WorkspaceEdit();
-            const currentText = editor.document.getText();
-            const fullRange = new vscode.Range(
-                new vscode.Position(0, 0),
-                editor.document.positionAt(currentText.length)
-            );
-            edit.replace(editor.document.uri, fullRange, beforeContent);
-            await vscode.workspace.applyEdit(edit);
-
-            // 새 파일의 경우 (beforeContent가 빈 문자열) 파일 삭제
-            if (beforeContent === '') {
-                setTimeout(async () => {
-                    try {
-                        const fs = require('fs').promises;
-                        await fs.unlink(filePath);
-                        console.log(`[InlineDiffManager] Deleted new file: ${filePath}`);
-                    } catch (error) {
-                        console.error(`[InlineDiffManager] Failed to delete file: ${filePath}`, error);
-                    }
-                }, 100);
+            console.log(`[InlineDiffManager] File not open, opening: ${absolutePath}`);
+            try {
+                const uri = vscode.Uri.file(absolutePath);
+                const document = await vscode.workspace.openTextDocument(uri);
+                const editor = await vscode.window.showTextDocument(document, {
+                    preserveFocus: false,
+                    preview: false,
+                });
+                editors = [editor];
+                // 에디터가 열릴 때까지 대기
+                await new Promise(resolve => setTimeout(resolve, 100));
+                console.log(`[InlineDiffManager] File opened successfully: ${absolutePath}`);
+            } catch (error) {
+                console.error(`[InlineDiffManager] Failed to open file ${absolutePath}:`, error);
+                return;
             }
+        } else {
+            console.log(`[InlineDiffManager] File already open: ${absolutePath}`);
         }
 
-        // 모든 change 상태 업데이트
-        changes.forEach(change => {
-            change.status = 'rejected';
-        });
-
-        // 체크포인트 상태 업데이트
-        if (checkpoint) {
-            checkpoint.status = 'rejected';
-        }
-
-        // 모든 에디터에서 decoration 제거
-        for (const e of editors) {
-            this.clearAllDecorationsForEditor(e);
+        // 각 change를 개별적으로 reject (codelens 클릭과 동일한 방식)
+        const pendingChanges = changes.filter(c => c.status === 'pending');
+        console.log(`[InlineDiffManager] Rejecting ${pendingChanges.length} pending changes`);
+        for (const change of pendingChanges) {
+            console.log(`[InlineDiffManager] Rejecting change ${change.id} (type: ${change.type})`);
+            await this.rejectChange(absolutePath, change.id);
         }
 
         // 변경사항 목록에서 제거
-        this.pendingChanges.delete(filePath);
-        this.originalContents.delete(filePath);
-        this.lastAppliedChanges.delete(filePath); // ✅ 캐시도 정리
+        this.pendingChanges.delete(absolutePath);
+        this.originalContents.delete(absolutePath);
+        this.lastAppliedChanges.delete(absolutePath); // ✅ 캐시도 정리
+        console.log(`[InlineDiffManager] rejectAllChanges completed for: ${absolutePath}`);
     }
 
     /**

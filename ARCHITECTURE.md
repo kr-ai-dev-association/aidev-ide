@@ -1163,7 +1163,6 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
 
 ## 📅 완료 일자
 
-**2025년 1월** - v8.0.0: CryptoUtils 보안 및 코드 품질 개선 완료
 **2024년 12월** - 모든 매니저 구현 및 통합 완료, 추상화 레이어 통합 완료
 **2024년 12월** - LLMManager 생성 및 남은 기능 분산 완료
 **2024년 12월** - llmService.ts 완전 정리 완료 (orphaned 코드 제거, ProjectManager 통합, 모든 linter 에러 해결)

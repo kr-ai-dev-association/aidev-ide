@@ -6,6 +6,17 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.1.0 (Diff UI/UX 개선 및 코드 블록 향상)
+- **Accept/Reject All 버튼**: diff를 표시하는 코드 블록 아래에 "Accept"와 "Reject" 버튼을 추가하여 파일의 모든 변경사항을 한 번에 승인하거나 거부할 수 있습니다. 버튼은 클릭 후 자동으로 제거됩니다.
+- **코드 블록 구문 강조**: Highlight.js를 사용하여 VS Code 다크 테마 색상으로 코드 블록에 구문 강조를 구현했습니다. 다양한 언어 별칭을 지원하는 포괄적인 언어 매핑을 추가했습니다.
+- **버튼 가시성 개선**: Bash/PowerShell/Cmd 블록의 Copy 및 Run 버튼이 이제 항상 표시됩니다 (호버 시에만 표시되지 않음). 일반 코드 블록에서는 Copy 버튼을 제거하고 Bash 블록에만 유지했습니다.
+- **새 파일 Decoration 타이밍 수정**: 새로 생성된 파일의 decoration 적용 타이밍 문제를 해결했습니다. 파일이 생성되고 즉시 포맷팅되어도 decoration이 올바르게 적용됩니다.
+- **Formatter 통합**: 코드 포맷팅 완료 후 decoration 재적용을 개선했습니다. 포맷팅이 완료된 후 decoration이 올바르게 복원됩니다.
+- **파일 경로 해석**: 상대 경로를 절대 경로로 정규화하여 Accept/Reject All 기능의 파일 경로 매칭 문제를 해결했습니다.
+
+## v8.0.0 (CryptoUtils 향상)
+- **CryptoUtils 보안 개선**: `cryptoUtils.ts`의 보안, 코드 품질, 타입 안전성, 오류 처리를 향상시켰습니다. 라이선스 시리얼 암호화 기능을 추가했습니다.
+
 ## v7.0.1 (확률 기반 판단 로직 일관성 개선)
 - **임계값 중앙화 관리**: 모든 확률 기반 판단 임계값(confidence, threshold, percentage)을 `AgentConfig.ts`에 중앙화하여 유지보수성과 일관성을 크게 향상시켰습니다.
 - **일관된 Confidence 값**: 같은 용도에 대해 통일된 confidence 값 적용:

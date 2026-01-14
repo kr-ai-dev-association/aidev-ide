@@ -391,6 +391,46 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 }
+                case 'acceptAllChangesForFile': {
+                    console.log('[ChatViewProvider] Received acceptAllChangesForFile command');
+                    try {
+                        const filePath = data.filePath;
+                        console.log('[ChatViewProvider] File path:', filePath);
+                        if (!filePath) {
+                            console.warn('[ChatViewProvider] No file path provided');
+                            break;
+                        }
+                        console.log('[ChatViewProvider] Importing InlineDiffManager...');
+                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        console.log('[ChatViewProvider] Calling acceptAllChanges for:', filePath);
+                        await inlineDiffManager.acceptAllChanges(filePath);
+                        console.log('[ChatViewProvider] acceptAllChanges completed for:', filePath);
+                    } catch (e) {
+                        console.error('[ChatViewProvider] acceptAllChangesForFile failed:', e);
+                    }
+                    break;
+                }
+                case 'rejectAllChangesForFile': {
+                    console.log('[ChatViewProvider] Received rejectAllChangesForFile command');
+                    try {
+                        const filePath = data.filePath;
+                        console.log('[ChatViewProvider] File path:', filePath);
+                        if (!filePath) {
+                            console.warn('[ChatViewProvider] No file path provided');
+                            break;
+                        }
+                        console.log('[ChatViewProvider] Importing InlineDiffManager...');
+                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        console.log('[ChatViewProvider] Calling rejectAllChanges for:', filePath);
+                        await inlineDiffManager.rejectAllChanges(filePath);
+                        console.log('[ChatViewProvider] rejectAllChanges completed for:', filePath);
+                    } catch (e) {
+                        console.error('[ChatViewProvider] rejectAllChangesForFile failed:', e);
+                    }
+                    break;
+                }
                 case 'cancelAutoCorrection':
                     console.log('[Extension Host] Received cancelAutoCorrection command.');
                     webviewView.webview.postMessage({

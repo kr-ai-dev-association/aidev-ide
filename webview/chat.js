@@ -391,18 +391,111 @@ function doSendUserMessage(payload) {
     });
 }
 
+// 언어명 정규화 함수 (일반적인 별칭을 표준 언어명으로 변환)
+function normalizeLanguage(lang) {
+    if (!lang) return null;
+
+    const langMap = {
+        'js': 'javascript',
+        'jsx': 'javascript',
+        'ts': 'typescript',
+        'tsx': 'typescript',
+        'py': 'python',
+        'rb': 'ruby',
+        'sh': 'bash',
+        'yml': 'yaml',
+        'md': 'markdown',
+        'json': 'json',
+        'html': 'html',
+        'css': 'css',
+        'scss': 'scss',
+        'sass': 'sass',
+        'less': 'less',
+        'java': 'java',
+        'c': 'c',
+        'cpp': 'cpp',
+        'cxx': 'cpp',
+        'cc': 'cpp',
+        'cs': 'csharp',
+        'php': 'php',
+        'go': 'go',
+        'rs': 'rust',
+        'swift': 'swift',
+        'kt': 'kotlin',
+        'scala': 'scala',
+        'clj': 'clojure',
+        'hs': 'haskell',
+        'ml': 'ocaml',
+        'fs': 'fsharp',
+        'sql': 'sql',
+        'xml': 'xml',
+        'dockerfile': 'dockerfile',
+        'makefile': 'makefile',
+        'ini': 'ini',
+        'toml': 'toml',
+        'diff': 'diff',
+        'patch': 'diff',
+        'vue': 'vue',
+        'svelte': 'svelte',
+        'dart': 'dart',
+        'r': 'r',
+        'lua': 'lua',
+        'perl': 'perl',
+        'elixir': 'elixir',
+        'erlang': 'erlang',
+        'julia': 'julia',
+        'matlab': 'matlab',
+        'powershell': 'powershell',
+        'ps1': 'powershell',
+        'pwsh': 'powershell',
+        'vb': 'vbnet',
+        'vba': 'vba',
+        'graphql': 'graphql',
+        'protobuf': 'protobuf',
+        'proto': 'protobuf',
+        'thrift': 'thrift',
+        'solidity': 'solidity',
+        'sol': 'solidity',
+        'terraform': 'terraform',
+        'tf': 'terraform',
+    };
+
+    const lowerLang = lang.toLowerCase();
+    return langMap[lowerLang] || lowerLang;
+}
+
+// 동적 코드 하이라이팅 함수
+function highlightCodeBlock(codeElement, language) {
+    if (!window.hljs) {
+        // highlight.js가 로드되지 않았으면 일반 텍스트로 표시
+        return;
+    }
+
+    const normalizedLang = normalizeLanguage(language);
+
+    if (normalizedLang && window.hljs.getLanguage(normalizedLang)) {
+        // 언어를 인식한 경우
+        codeElement.className = `language-${normalizedLang}`;
+        try {
+            window.hljs.highlightElement(codeElement);
+        } catch (err) {
+            console.warn('Syntax highlighting failed:', err);
+        }
+    } else {
+        // 언어를 모르면 자동 감지
+        codeElement.className = '';
+        try {
+            window.hljs.highlightElement(codeElement);
+        } catch (err) {
+            console.warn('Auto-detection highlighting failed:', err);
+        }
+    }
+}
+
 const md = markdownit({
     html: false,
     linkify: true,
     typographer: true,
-    // highlight: function (str, lang) { // Syntax highlighting (선택 사항, 필요 시 highlight.js 등 추가)
-    //    if (lang && window.hljs && hljs.getLanguage(lang)) {
-    //        try {
-    //            return hljs.highlight(str, { language: lang }).value;
-    //        } catch (__) {}
-    //    }
-    //    return '';
-    // }
 });
 
 // Container 플러그인 추가 (callout 지원)
@@ -1736,8 +1829,12 @@ function displayCodePilotMessage(markdownText) {
         const codeContainer = document.createElement("div");
         codeContainer.classList.add("code-container");
 
-        // 전체 코드 요소 (항상 표시)
+        // 코드 내용을 먼저 설정 (highlightElement가 textContent를 읽음)
         codeElement.textContent = cleanCodeContent;
+
+        // 동적 구문 강조 적용
+        highlightCodeBlock(codeElement, lang ? lang.trim() : null);
+
         preElement.appendChild(codeElement);
         codeContainer.appendChild(preElement);
 
@@ -2015,6 +2112,104 @@ if (chatMessages) {
                 }
             } catch (e) {
                 console.warn("Failed to parse codepilot link:", href, e);
+            }
+        } else if (
+            href.startsWith("codepilot://acceptAll") ||
+            href.startsWith("https://codepilot.invalid/acceptAll")
+        ) {
+            event.preventDefault();
+            console.log('[chat.js] Accept All button clicked');
+
+            try {
+                const url = new URL(href);
+                const query = url.search
+                    ? url.search.slice(1)
+                    : href.split("?")[1] || "";
+                const params = new URLSearchParams(query);
+                const p = params.get("path");
+                if (p) {
+                    const filePath = decodeURIComponent(p);
+                    console.log('[chat.js] Accept All for file:', filePath);
+
+                    // ✅ 버튼 컨테이너 찾아서 제거 (Accept/Reject 버튼 모두 제거)
+                    const buttonContainer = target.closest('.bash-button-container');
+                    if (buttonContainer) {
+                        // Accept와 Reject 버튼 모두 제거
+                        const acceptButton = buttonContainer.querySelector('.accept-all-button');
+                        const rejectButton = buttonContainer.querySelector('.reject-all-button');
+                        if (acceptButton) acceptButton.remove();
+                        if (rejectButton) rejectButton.remove();
+
+                        // 버튼이 모두 제거되었으면 컨테이너도 제거
+                        if (buttonContainer.children.length === 0) {
+                            buttonContainer.remove();
+                        }
+                        console.log('[chat.js] Accept/Reject buttons removed');
+                    }
+
+                    // ✅ acceptAllChangesForFile 명령 사용
+                    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+                        window.vscode.postMessage({
+                            command: "acceptAllChangesForFile",
+                            filePath: filePath,
+                            timestamp: Date.now(),
+                        });
+                        console.log('[chat.js] Accept All message sent');
+                    } else {
+                        console.warn('[chat.js] VS Code API not available');
+                    }
+                }
+            } catch (e) {
+                console.error("[chat.js] Failed to parse acceptAll link:", href, e);
+            }
+        } else if (
+            href.startsWith("codepilot://rejectAll") ||
+            href.startsWith("https://codepilot.invalid/rejectAll")
+        ) {
+            event.preventDefault();
+            console.log('[chat.js] Reject All button clicked');
+
+            try {
+                const url = new URL(href);
+                const query = url.search
+                    ? url.search.slice(1)
+                    : href.split("?")[1] || "";
+                const params = new URLSearchParams(query);
+                const p = params.get("path");
+                if (p) {
+                    const filePath = decodeURIComponent(p);
+                    console.log('[chat.js] Reject All for file:', filePath);
+
+                    // ✅ 버튼 컨테이너 찾아서 제거 (Accept/Reject 버튼 모두 제거)
+                    const buttonContainer = target.closest('.bash-button-container');
+                    if (buttonContainer) {
+                        // Accept와 Reject 버튼 모두 제거
+                        const acceptButton = buttonContainer.querySelector('.accept-all-button');
+                        const rejectButton = buttonContainer.querySelector('.reject-all-button');
+                        if (acceptButton) acceptButton.remove();
+                        if (rejectButton) rejectButton.remove();
+
+                        // 버튼이 모두 제거되었으면 컨테이너도 제거
+                        if (buttonContainer.children.length === 0) {
+                            buttonContainer.remove();
+                        }
+                        console.log('[chat.js] Accept/Reject buttons removed');
+                    }
+
+                    // ✅ rejectAllChangesForFile 명령 사용
+                    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+                        window.vscode.postMessage({
+                            command: "rejectAllChangesForFile",
+                            filePath: filePath,
+                            timestamp: Date.now(),
+                        });
+                        console.log('[chat.js] Reject All message sent');
+                    } else {
+                        console.warn('[chat.js] VS Code API not available');
+                    }
+                }
+            } catch (e) {
+                console.error("[chat.js] Failed to parse rejectAll link:", href, e);
             }
         }
     });

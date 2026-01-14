@@ -1638,13 +1638,81 @@ function attachCopyButtonListener(button, codeElement) {
 }
 
 // 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
+// Accept all 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+function createAcceptAllButton(filePath) {
+  const button = document.createElement('a');
+  button.classList.add('accept-all-button');
+  button.textContent = 'Accept';
+  button.title = `Accept all changes for ${filePath}`;
+
+  // ✅ codepilot://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+  const encodedPath = encodeURIComponent(filePath);
+  button.href = `codepilot://acceptAll?path=${encodedPath}`;
+  button.style.cssText = `
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color 0.2s ease-in-out;
+        z-index: 2;
+        font-weight: 500;
+        background-color: #2e7d32;
+        color: white;
+        text-decoration: none;
+    `;
+  return button;
+}
+
+// Reject all 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+function createRejectAllButton(filePath) {
+  const button = document.createElement('a');
+  button.classList.add('reject-all-button');
+  button.textContent = 'Reject';
+  button.title = `Reject all changes for ${filePath}`;
+
+  // ✅ codepilot://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+  const encodedPath = encodeURIComponent(filePath);
+  button.href = `codepilot://rejectAll?path=${encodedPath}`;
+  button.style.cssText = `
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color 0.2s ease-in-out;
+        z-index: 2;
+        font-weight: 500;
+        background-color: #c62828;
+        color: white;
+        text-decoration: none;
+    `;
+  return button;
+}
 function addCopyButtonsToCodeBlocks(bubbleElement) {
-  // <-- export 키워드 유지
+  // <-- export 키워드 유지 (함수명은 유지하되 기능 변경)
   if (!bubbleElement) return;
 
-  // 새로운 코드 블록 컨테이너 구조에서 복사 버튼과 run 버튼 추가
+  // 새로운 코드 블록 컨테이너 구조에서 버튼 추가
   const codeBlockContainers = bubbleElement.querySelectorAll('.code-block-container');
   codeBlockContainers.forEach(container => {
+    // 파일 경로 확인
+    const filePath = container.getAttribute('data-file-path');
+
     // 코드 컨테이너 내부의 code 요소를 찾습니다
     const codeElement = container.querySelector('code');
     if (codeElement) {
@@ -1659,27 +1727,39 @@ function addCopyButtonsToCodeBlocks(bubbleElement) {
       const buttonContainer = document.createElement('div');
       buttonContainer.classList.add('bash-button-container');
 
-      // 복사 버튼 생성
-      const copyButton = createCopyButton();
-      buttonContainer.appendChild(copyButton);
+      // 파일 경로가 있는 경우: Accept/Reject 버튼 추가
+      if (filePath) {
+        // Reject 버튼 생성 (먼저)
+        const rejectButton = createRejectAllButton(filePath);
+        buttonContainer.appendChild(rejectButton);
 
-      // 지원 언어(bash/powershell/cmd)인 경우 run 버튼도 추가
-      if (isBash || isPwsh || isCmd) {
-        const runButton = createRunButton();
-        buttonContainer.appendChild(runButton);
-        const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
-        attachRunButtonListener(runButton, codeElement, lang);
+        // Accept 버튼 생성 (나중)
+        const acceptButton = createAcceptAllButton(filePath);
+        buttonContainer.appendChild(acceptButton);
+      } else {
+        // 파일 경로가 없는 경우: Bash/PowerShell/Cmd 블록에만 Copy와 Run 버튼 추가
+        if (isBash || isPwsh || isCmd) {
+          // Copy 버튼 추가
+          const copyButton = createCopyButton();
+          buttonContainer.appendChild(copyButton);
+          attachCopyButtonListener(copyButton, codeElement);
+
+          // Run 버튼 추가
+          const runButton = createRunButton();
+          buttonContainer.appendChild(runButton);
+          const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
+          attachRunButtonListener(runButton, codeElement, lang);
+        }
       }
 
-      // 버튼 컨테이너를 코드 블록 컨테이너 바로 뒤에 삽입
-      container.insertAdjacentElement('afterend', buttonContainer);
-
-      // 복사 버튼에 클릭 이벤트 리스너 등록
-      attachCopyButtonListener(copyButton, codeElement);
+      // 버튼이 있는 경우에만 컨테이너 삽입
+      if (buttonContainer.children.length > 0) {
+        container.insertAdjacentElement('afterend', buttonContainer);
+      }
     }
   });
 
-  // 기존 구조의 pre 요소들도 처리 (하지만 중복 방지를 위해 이미 처리된 컨테이너는 제외)
+  // 기존 구조의 pre 요소들도 처리 (bash 블록에만 Copy 버튼 추가)
   const preElements = bubbleElement.querySelectorAll('pre:not(.code-block-container pre)');
   preElements.forEach(preElement => {
     // 이미 코드 블록 컨테이너의 자식인 경우 건너뛰기
@@ -1690,18 +1770,32 @@ function addCopyButtonsToCodeBlocks(bubbleElement) {
     // <pre> 태그 안에 <code> 태그가 있는지 확인
     const codeElement = preElement.querySelector('code');
     if (codeElement) {
-      // 복사 버튼 생성
-      const copyButton = createCopyButton();
+      // 언어 확인 (bash/powershell/cmd인 경우에만 버튼 추가)
+      const codeClass = codeElement.className || '';
+      const isBash = codeClass.includes('language-bash') || codeClass.includes('language-sh') || codeClass.includes('language-shell');
+      const isPwsh = codeClass.includes('language-powershell') || codeClass.includes('language-pwsh') || codeClass.includes('language-ps1');
+      const isCmd = codeClass.includes('language-cmd') || codeClass.includes('language-batch') || codeClass.includes('language-bat');
+      if (isBash || isPwsh || isCmd) {
+        // 버튼 컨테이너 생성
+        const buttonContainer = document.createElement('div');
+        buttonContainer.classList.add('bash-button-container');
 
-      // 버튼을 <pre> 요소 바로 뒤(형제)로 삽입합니다.
-      preElement.insertAdjacentElement('afterend', copyButton);
+        // Copy 버튼 추가
+        const copyButton = createCopyButton();
+        buttonContainer.appendChild(copyButton);
+        attachCopyButtonListener(copyButton, codeElement);
 
-      // 새로 생성된 버튼에 클릭 이벤트 리스너 등록
-      attachCopyButtonListener(copyButton, codeElement);
+        // Run 버튼 추가
+        const runButton = createRunButton();
+        buttonContainer.appendChild(runButton);
+        const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
+        attachRunButtonListener(runButton, codeElement, lang);
+
+        // 버튼 컨테이너를 <pre> 요소 바로 뒤에 삽입
+        preElement.insertAdjacentElement('afterend', buttonContainer);
+      }
     }
   });
-
-  // console.log(`[codeCopy.js] Added copy buttons to ${codeBlockContainers.length} code block containers and ${preElements.length} legacy pre elements.`);
 }
 
 // TODO: 필요하다면 이 파일에서 VS Code API와 통신하는 함수 추가 (예: 알림 표시 요청)
@@ -11921,18 +12015,107 @@ function doSendUserMessage(payload) {
     mode
   });
 }
+
+// 언어명 정규화 함수 (일반적인 별칭을 표준 언어명으로 변환)
+function normalizeLanguage(lang) {
+  if (!lang) return null;
+  const langMap = {
+    'js': 'javascript',
+    'jsx': 'javascript',
+    'ts': 'typescript',
+    'tsx': 'typescript',
+    'py': 'python',
+    'rb': 'ruby',
+    'sh': 'bash',
+    'yml': 'yaml',
+    'md': 'markdown',
+    'json': 'json',
+    'html': 'html',
+    'css': 'css',
+    'scss': 'scss',
+    'sass': 'sass',
+    'less': 'less',
+    'java': 'java',
+    'c': 'c',
+    'cpp': 'cpp',
+    'cxx': 'cpp',
+    'cc': 'cpp',
+    'cs': 'csharp',
+    'php': 'php',
+    'go': 'go',
+    'rs': 'rust',
+    'swift': 'swift',
+    'kt': 'kotlin',
+    'scala': 'scala',
+    'clj': 'clojure',
+    'hs': 'haskell',
+    'ml': 'ocaml',
+    'fs': 'fsharp',
+    'sql': 'sql',
+    'xml': 'xml',
+    'dockerfile': 'dockerfile',
+    'makefile': 'makefile',
+    'ini': 'ini',
+    'toml': 'toml',
+    'diff': 'diff',
+    'patch': 'diff',
+    'vue': 'vue',
+    'svelte': 'svelte',
+    'dart': 'dart',
+    'r': 'r',
+    'lua': 'lua',
+    'perl': 'perl',
+    'elixir': 'elixir',
+    'erlang': 'erlang',
+    'julia': 'julia',
+    'matlab': 'matlab',
+    'powershell': 'powershell',
+    'ps1': 'powershell',
+    'pwsh': 'powershell',
+    'vb': 'vbnet',
+    'vba': 'vba',
+    'graphql': 'graphql',
+    'protobuf': 'protobuf',
+    'proto': 'protobuf',
+    'thrift': 'thrift',
+    'solidity': 'solidity',
+    'sol': 'solidity',
+    'terraform': 'terraform',
+    'tf': 'terraform'
+  };
+  const lowerLang = lang.toLowerCase();
+  return langMap[lowerLang] || lowerLang;
+}
+
+// 동적 코드 하이라이팅 함수
+function highlightCodeBlock(codeElement, language) {
+  if (!window.hljs) {
+    // highlight.js가 로드되지 않았으면 일반 텍스트로 표시
+    return;
+  }
+  const normalizedLang = normalizeLanguage(language);
+  if (normalizedLang && window.hljs.getLanguage(normalizedLang)) {
+    // 언어를 인식한 경우
+    codeElement.className = `language-${normalizedLang}`;
+    try {
+      window.hljs.highlightElement(codeElement);
+    } catch (err) {
+      console.warn('Syntax highlighting failed:', err);
+    }
+  } else {
+    // 언어를 모르면 자동 감지
+    codeElement.className = '';
+    try {
+      window.hljs.highlightElement(codeElement);
+    } catch (err) {
+      console.warn('Auto-detection highlighting failed:', err);
+    }
+  }
+}
 const md = (0,markdown_it__WEBPACK_IMPORTED_MODULE_2__["default"])({
   html: false,
   linkify: true,
   typographer: true
-  // highlight: function (str, lang) { // Syntax highlighting (선택 사항, 필요 시 highlight.js 등 추가)
-  //    if (lang && window.hljs && hljs.getLanguage(lang)) {
-  //        try {
-  //            return hljs.highlight(str, { language: lang }).value;
-  //        } catch (__) {}
-  //    }
-  //    return '';
-  // }
 });
 
 // Container 플러그인 추가 (callout 지원)
@@ -13123,8 +13306,11 @@ function displayCodePilotMessage(markdownText) {
     const codeContainer = document.createElement("div");
     codeContainer.classList.add("code-container");
 
-    // 전체 코드 요소 (항상 표시)
+    // 코드 내용을 먼저 설정 (highlightElement가 textContent를 읽음)
     codeElement.textContent = cleanCodeContent;
+
+    // 동적 구문 강조 적용
+    highlightCodeBlock(codeElement, lang ? lang.trim() : null);
     preElement.appendChild(codeElement);
     codeContainer.appendChild(preElement);
 
@@ -13390,6 +13576,92 @@ if (chatMessages) {
         }
       } catch (e) {
         console.warn("Failed to parse codepilot link:", href, e);
+      }
+    } else if (href.startsWith("codepilot://acceptAll") || href.startsWith("https://codepilot.invalid/acceptAll")) {
+      event.preventDefault();
+      console.log('[chat.js] Accept All button clicked');
+      try {
+        const url = new URL(href);
+        const query = url.search ? url.search.slice(1) : href.split("?")[1] || "";
+        const params = new URLSearchParams(query);
+        const p = params.get("path");
+        if (p) {
+          const filePath = decodeURIComponent(p);
+          console.log('[chat.js] Accept All for file:', filePath);
+
+          // ✅ 버튼 컨테이너 찾아서 제거 (Accept/Reject 버튼 모두 제거)
+          const buttonContainer = target.closest('.bash-button-container');
+          if (buttonContainer) {
+            // Accept와 Reject 버튼 모두 제거
+            const acceptButton = buttonContainer.querySelector('.accept-all-button');
+            const rejectButton = buttonContainer.querySelector('.reject-all-button');
+            if (acceptButton) acceptButton.remove();
+            if (rejectButton) rejectButton.remove();
+
+            // 버튼이 모두 제거되었으면 컨테이너도 제거
+            if (buttonContainer.children.length === 0) {
+              buttonContainer.remove();
+            }
+            console.log('[chat.js] Accept/Reject buttons removed');
+          }
+
+          // ✅ acceptAllChangesForFile 명령 사용
+          if (window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({
+              command: "acceptAllChangesForFile",
+              filePath: filePath,
+              timestamp: Date.now()
+            });
+            console.log('[chat.js] Accept All message sent');
+          } else {
+            console.warn('[chat.js] VS Code API not available');
+          }
+        }
+      } catch (e) {
+        console.error("[chat.js] Failed to parse acceptAll link:", href, e);
+      }
+    } else if (href.startsWith("codepilot://rejectAll") || href.startsWith("https://codepilot.invalid/rejectAll")) {
+      event.preventDefault();
+      console.log('[chat.js] Reject All button clicked');
+      try {
+        const url = new URL(href);
+        const query = url.search ? url.search.slice(1) : href.split("?")[1] || "";
+        const params = new URLSearchParams(query);
+        const p = params.get("path");
+        if (p) {
+          const filePath = decodeURIComponent(p);
+          console.log('[chat.js] Reject All for file:', filePath);
+
+          // ✅ 버튼 컨테이너 찾아서 제거 (Accept/Reject 버튼 모두 제거)
+          const buttonContainer = target.closest('.bash-button-container');
+          if (buttonContainer) {
+            // Accept와 Reject 버튼 모두 제거
+            const acceptButton = buttonContainer.querySelector('.accept-all-button');
+            const rejectButton = buttonContainer.querySelector('.reject-all-button');
+            if (acceptButton) acceptButton.remove();
+            if (rejectButton) rejectButton.remove();
+
+            // 버튼이 모두 제거되었으면 컨테이너도 제거
+            if (buttonContainer.children.length === 0) {
+              buttonContainer.remove();
+            }
+            console.log('[chat.js] Accept/Reject buttons removed');
+          }
+
+          // ✅ rejectAllChangesForFile 명령 사용
+          if (window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({
+              command: "rejectAllChangesForFile",
+              filePath: filePath,
+              timestamp: Date.now()
+            });
+            console.log('[chat.js] Reject All message sent');
+          } else {
+            console.warn('[chat.js] VS Code API not available');
+          }
+        }
+      } catch (e) {
+        console.error("[chat.js] Failed to parse rejectAll link:", href, e);
       }
     }
   });

@@ -265,13 +265,86 @@ function attachCopyButtonListener(button, codeElement) {
 }
 
 // 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
-export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워드 유지
+// Accept all 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+function createAcceptAllButton(filePath) {
+    const button = document.createElement('a');
+    button.classList.add('accept-all-button');
+    button.textContent = 'Accept';
+    button.title = `Accept all changes for ${filePath}`;
+    
+    // ✅ codepilot://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+    const encodedPath = encodeURIComponent(filePath);
+    button.href = `codepilot://acceptAll?path=${encodedPath}`;
+    
+    button.style.cssText = `
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color 0.2s ease-in-out;
+        z-index: 2;
+        font-weight: 500;
+        background-color: #2e7d32;
+        color: white;
+        text-decoration: none;
+    `;
+    
+    return button;
+}
+
+// Reject all 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+function createRejectAllButton(filePath) {
+    const button = document.createElement('a');
+    button.classList.add('reject-all-button');
+    button.textContent = 'Reject';
+    button.title = `Reject all changes for ${filePath}`;
+    
+    // ✅ codepilot://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+    const encodedPath = encodeURIComponent(filePath);
+    button.href = `codepilot://rejectAll?path=${encodedPath}`;
+    
+    button.style.cssText = `
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color 0.2s ease-in-out;
+        z-index: 2;
+        font-weight: 500;
+        background-color: #c62828;
+        color: white;
+        text-decoration: none;
+    `;
+    
+    return button;
+}
+
+export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워드 유지 (함수명은 유지하되 기능 변경)
     if (!bubbleElement) return;
 
-    // 새로운 코드 블록 컨테이너 구조에서 복사 버튼과 run 버튼 추가
+    // 새로운 코드 블록 컨테이너 구조에서 버튼 추가
     const codeBlockContainers = bubbleElement.querySelectorAll('.code-block-container');
 
     codeBlockContainers.forEach(container => {
+        // 파일 경로 확인
+        const filePath = container.getAttribute('data-file-path');
+        
         // 코드 컨테이너 내부의 code 요소를 찾습니다
         const codeElement = container.querySelector('code');
 
@@ -287,27 +360,39 @@ export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워
             const buttonContainer = document.createElement('div');
             buttonContainer.classList.add('bash-button-container');
 
-            // 복사 버튼 생성
-            const copyButton = createCopyButton();
-            buttonContainer.appendChild(copyButton);
+            // 파일 경로가 있는 경우: Accept/Reject 버튼 추가
+            if (filePath) {
+                // Reject 버튼 생성 (먼저)
+                const rejectButton = createRejectAllButton(filePath);
+                buttonContainer.appendChild(rejectButton);
 
-            // 지원 언어(bash/powershell/cmd)인 경우 run 버튼도 추가
-            if (isBash || isPwsh || isCmd) {
-                const runButton = createRunButton();
-                buttonContainer.appendChild(runButton);
-                const lang = isBash ? 'bash' : (isPwsh ? 'powershell' : 'cmd');
-                attachRunButtonListener(runButton, codeElement, lang);
+                // Accept 버튼 생성 (나중)
+                const acceptButton = createAcceptAllButton(filePath);
+                buttonContainer.appendChild(acceptButton);
+            } else {
+                // 파일 경로가 없는 경우: Bash/PowerShell/Cmd 블록에만 Copy와 Run 버튼 추가
+                if (isBash || isPwsh || isCmd) {
+                    // Copy 버튼 추가
+                    const copyButton = createCopyButton();
+                    buttonContainer.appendChild(copyButton);
+                    attachCopyButtonListener(copyButton, codeElement);
+
+                    // Run 버튼 추가
+                    const runButton = createRunButton();
+                    buttonContainer.appendChild(runButton);
+                    const lang = isBash ? 'bash' : (isPwsh ? 'powershell' : 'cmd');
+                    attachRunButtonListener(runButton, codeElement, lang);
+                }
             }
 
-            // 버튼 컨테이너를 코드 블록 컨테이너 바로 뒤에 삽입
-            container.insertAdjacentElement('afterend', buttonContainer);
-
-            // 복사 버튼에 클릭 이벤트 리스너 등록
-            attachCopyButtonListener(copyButton, codeElement);
+            // 버튼이 있는 경우에만 컨테이너 삽입
+            if (buttonContainer.children.length > 0) {
+                container.insertAdjacentElement('afterend', buttonContainer);
+            }
         }
     });
 
-    // 기존 구조의 pre 요소들도 처리 (하지만 중복 방지를 위해 이미 처리된 컨테이너는 제외)
+    // 기존 구조의 pre 요소들도 처리 (bash 블록에만 Copy 버튼 추가)
     const preElements = bubbleElement.querySelectorAll('pre:not(.code-block-container pre)');
 
     preElements.forEach(preElement => {
@@ -319,18 +404,33 @@ export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워
         // <pre> 태그 안에 <code> 태그가 있는지 확인
         const codeElement = preElement.querySelector('code');
         if (codeElement) {
-            // 복사 버튼 생성
-            const copyButton = createCopyButton();
+            // 언어 확인 (bash/powershell/cmd인 경우에만 버튼 추가)
+            const codeClass = codeElement.className || '';
+            const isBash = codeClass.includes('language-bash') || codeClass.includes('language-sh') || codeClass.includes('language-shell');
+            const isPwsh = codeClass.includes('language-powershell') || codeClass.includes('language-pwsh') || codeClass.includes('language-ps1');
+            const isCmd = codeClass.includes('language-cmd') || codeClass.includes('language-batch') || codeClass.includes('language-bat');
 
-            // 버튼을 <pre> 요소 바로 뒤(형제)로 삽입합니다.
-            preElement.insertAdjacentElement('afterend', copyButton);
+            if (isBash || isPwsh || isCmd) {
+                // 버튼 컨테이너 생성
+                const buttonContainer = document.createElement('div');
+                buttonContainer.classList.add('bash-button-container');
 
-            // 새로 생성된 버튼에 클릭 이벤트 리스너 등록
-            attachCopyButtonListener(copyButton, codeElement);
+                // Copy 버튼 추가
+                const copyButton = createCopyButton();
+                buttonContainer.appendChild(copyButton);
+                attachCopyButtonListener(copyButton, codeElement);
+
+                // Run 버튼 추가
+                const runButton = createRunButton();
+                buttonContainer.appendChild(runButton);
+                const lang = isBash ? 'bash' : (isPwsh ? 'powershell' : 'cmd');
+                attachRunButtonListener(runButton, codeElement, lang);
+
+                // 버튼 컨테이너를 <pre> 요소 바로 뒤에 삽입
+                preElement.insertAdjacentElement('afterend', buttonContainer);
+            }
         }
     });
-
-    // console.log(`[codeCopy.js] Added copy buttons to ${codeBlockContainers.length} code block containers and ${preElements.length} legacy pre elements.`);
 }
 
 
