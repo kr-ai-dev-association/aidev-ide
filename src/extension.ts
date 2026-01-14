@@ -30,6 +30,10 @@ import { ContextHistoryManager } from './core/managers/context/ContextHistoryMan
 import { FileChangeTracker } from './core/managers/action/file/FileChangeTracker';
 import { FileContextTracker } from './core/managers/context/file/FileContextTracker';
 import { ToolRegistry } from './core/tools/ToolRegistry';
+import { DiffContentProvider, DIFF_VIEW_URI_SCHEME } from './core/managers/diff/DiffContentProvider';
+import { DiffManager } from './core/managers/diff/DiffManager';
+import { DiffCodeLensProvider } from './core/managers/diff/DiffCodeLensProvider';
+import { InlineDiffManager } from './core/managers/diff/InlineDiffManager';
 import {
     CreateFileToolHandler,
     UpdateFileToolHandler,
@@ -140,7 +144,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (isGeminiSelected) {
         if (!initialApiKey || initialApiKey.trim() === '') {
             console.warn('[Extension] Gemini selected but API key is empty');
-            notificationService.showWarningMessage('aidev-ide: Gemini API Key is not set. Please set it in the Settings.');
+            notificationService.showWarningMessage('codepilot: Gemini API Key is not set. Please set it in the Settings.');
             geminiApi = new GeminiApi();
         } else {
             geminiApi = new GeminiApi(initialApiKey);
@@ -318,6 +322,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Manager 간 연결 설정
     contextManager.setErrorManager(errorManager);
+    
+    // LLM Manager를 ContextManager에 설정 (내용 기반 relevance scoring용)
+    // llmManager는 아래에서 초기화되므로 나중에 설정
 
     // Manager System initialized successfully
 
@@ -360,6 +367,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
     const contextHistoryManager = ContextHistoryManager.getInstance(context);
     conversationManager.setContextHistoryManager(contextHistoryManager);
+    
+    // LLM Manager를 ContextManager에 설정 (내용 기반 relevance scoring용)
+    contextManager.setLLMManager(llmManager);
 
     // FileChangeTracker / FileContextTracker 초기화 및 ActionManager에 설정
     const fileChangeTracker = FileChangeTracker.getInstance(context);
@@ -367,6 +377,94 @@ export async function activate(context: vscode.ExtensionContext) {
     const actionManager = ActionManager.getInstance();
     actionManager.setFileChangeTracker(fileChangeTracker);
     actionManager.setFileContextTracker(fileContextTracker);
+
+    // Diff Content Provider 등록 (커스텀 URI 스킴 처리)
+    const diffContentProvider = DiffContentProvider.getInstance();
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(
+            DIFF_VIEW_URI_SCHEME,
+            diffContentProvider
+        )
+    );
+    console.log('[Extension] Diff Content Provider registered');
+
+    // 커서 IDE 방식: 인라인 Diff CodeLens Provider 등록
+    const diffCodeLensProvider = DiffCodeLensProvider.getInstance();
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { scheme: 'file' },
+            diffCodeLensProvider
+        )
+    );
+    console.log('[Extension] Diff CodeLens Provider registered');
+
+    // 커서 IDE 방식: 인라인 Diff 명령어 등록
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codepilot.acceptChange', async (filePath: string, changeId: string) => {
+            const inlineDiffManager = InlineDiffManager.getInstance();
+            await inlineDiffManager.acceptChange(filePath, changeId);
+            diffCodeLensProvider.refresh();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codepilot.rejectChange', async (filePath: string, changeId: string) => {
+            const inlineDiffManager = InlineDiffManager.getInstance();
+            await inlineDiffManager.rejectChange(filePath, changeId);
+            diffCodeLensProvider.refresh();
+        })
+    );
+
+    // 커서 IDE 방식: 키보드 단축키 (Cmd+Enter: 모든 변경사항 수락, Cmd+Backspace: 모든 변경사항 거부)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codepilot.acceptAllChanges', async () => {
+            const inlineDiffManager = InlineDiffManager.getInstance();
+            const pendingFiles = inlineDiffManager.getAllPendingFiles();
+            
+            for (const filePath of pendingFiles) {
+                await inlineDiffManager.acceptAllChanges(filePath);
+            }
+            diffCodeLensProvider.refresh();
+            vscode.window.showInformationMessage(`모든 변경사항이 승인되었습니다. (${pendingFiles.length}개 파일)`);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codepilot.rejectAllChanges', async () => {
+            const inlineDiffManager = InlineDiffManager.getInstance();
+            const pendingFiles = inlineDiffManager.getAllPendingFiles();
+            
+            for (const filePath of pendingFiles) {
+                await inlineDiffManager.rejectAllChanges(filePath);
+            }
+            diffCodeLensProvider.refresh();
+            vscode.window.showInformationMessage(`모든 변경사항이 거부되었습니다. (${pendingFiles.length}개 파일)`);
+        })
+    );
+
+    // Diff 명령어 등록
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codepilot.showDiff', async () => {
+            const diffManager = DiffManager.getInstance();
+            await diffManager.showWorkingDirectoryChanges();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codepilot.showDiffForFile', async (filePath?: string) => {
+            const diffManager = DiffManager.getInstance();
+            if (!filePath) {
+                const activeEditor = vscode.window.activeTextEditor;
+                if (activeEditor) {
+                    filePath = activeEditor.document.uri.fsPath;
+                } else {
+                    vscode.window.showWarningMessage('No file selected. Please open a file first.');
+                    return;
+                }
+            }
+            await diffManager.showFileDiff(filePath);
+        })
+    );
     
     // Tool 핸들러 등록
     const toolRegistry = ToolRegistry.getInstance();
@@ -429,15 +527,31 @@ export async function activate(context: vscode.ExtensionContext) {
             webviewOptions: { retainContextWhenHidden: true }
         })
     );
+    
+    // 웹뷰 자동 열기 (약간의 지연 후)
+    setTimeout(async () => {
+        try {
+            await vscode.commands.executeCommand('workbench.view.extension.codepilot');
+            // 뷰가 열릴 때까지 약간 대기
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+        } catch (error: any) {
+            // 사용자가 수동으로 열 수도 있으므로 에러는 무시
+        }
+    }, 1000);
 
     // Command 등록
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openChatView', () => {
-        vscode.commands.executeCommand('workbench.view.extension.aidevIdeCode');
-        vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`); // CODE 탭으로 포커스
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.openChatView', async () => {
+        try {
+            await vscode.commands.executeCommand('workbench.view.extension.codepilot');
+            await vscode.commands.executeCommand(`${ChatViewProvider.viewType}.focus`);
+        } catch (error: any) {
+            console.error('[Extension] Error opening chat view:', error);
+        }
     }));
     // Registering commands
 
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.openSettingsPanel', () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.openSettingsPanel', () => {
         // openSettingsPanel command called
         if (!openSettingsPanel) {
             console.error('[Extension] ERROR: openSettingsPanel is undefined when command is called!');
@@ -446,20 +560,20 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined);
     }));
-    // Command registered: aidevIdeCode.openSettingsPanel
+    // Command registered: codepilot.openSettingsPanel
 
     // 언어 변경 브로드캐스트 명령어 등록
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.broadcastLanguageChange', (language: string) => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.broadcastLanguageChange', (language: string) => {
         // 모든 활성 webview에 언어 변경 메시지 브로드캐스트
         vscode.window.terminals.forEach(terminal => {
-            if (terminal.name.includes('aidev-ide')) {
+            if (terminal.name.includes('codepilot')) {
                 terminal.sendText(`echo "Language changed to: ${language}"`);
             }
         });
 
         // 모든 활성 webview 패널에 언어 변경 메시지 전송
         vscode.window.terminals.forEach(terminal => {
-            if (terminal.name.includes('aidev-ide')) {
+            if (terminal.name.includes('codepilot')) {
                 terminal.sendText(`echo "Language changed to: ${language}"`);
             }
         });
@@ -469,24 +583,24 @@ export async function activate(context: vscode.ExtensionContext) {
     const stopErrorCorrectionButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     stopErrorCorrectionButton.text = "$(stop-circle)";
     stopErrorCorrectionButton.tooltip = "자동 오류 수정 중단";
-    stopErrorCorrectionButton.command = 'aidevIdeCode.stopErrorCorrection';
+    stopErrorCorrectionButton.command = 'codepilot.stopErrorCorrection';
     stopErrorCorrectionButton.show();
     context.subscriptions.push(stopErrorCorrectionButton);
 
     // 자동 오류 수정 중단 명령어 등록
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.stopErrorCorrection', () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.stopErrorCorrection', () => {
         vscode.window.showInformationMessage('자동 오류 수정 중단 기능은 AutoFixService로 이동되었습니다.');
     }));
 
     // 설정 변경 시 TerminalManager에 반영
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (event) => {
-        if (event.affectsConfiguration('aidevIde.outputLogEnabled')) {
+        if (event.affectsConfiguration('codepilot.outputLogEnabled')) {
             const outputLogEnabled = await settingsManager.isOutputLogEnabled();
         }
-        if (event.affectsConfiguration('aidevIde.errorRetryCount')) {
+        if (event.affectsConfiguration('codepilot.errorRetryCount')) {
             const errorRetryCount = await settingsManager.getErrorRetryCount();
         }
-        if (event.affectsConfiguration('aidevIde.autoCorrectionEnabled')) {
+        if (event.affectsConfiguration('codepilot.autoCorrectionEnabled')) {
             const enabled = await stateManager.getAutoCorrectionEnabled();
             // onDidChangeConfiguration: autoCorrectionEnabled
         }
@@ -494,7 +608,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }));
 
     // ollama-blocker 관리 명령어들
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.startOllamaBlocker', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.startOllamaBlocker', async () => {
         const result = await ollamaBlockerService.start();
         if (result.success) {
             vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
@@ -503,7 +617,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.stopOllamaBlocker', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.stopOllamaBlocker', async () => {
         const result = await ollamaBlockerService.stop();
         if (result.success) {
             vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
@@ -512,12 +626,12 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.ollamaBlockerStatus', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.ollamaBlockerStatus', async () => {
         const status = await ollamaBlockerService.getStatus();
         vscode.window.showInformationMessage(`ollama-blocker Status: ${status.message}`);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.killOllamaProcesses', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.killOllamaProcesses', async () => {
         const result = await ollamaBlockerService.killOllamaProcesses();
         if (result.success) {
             vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
@@ -527,7 +641,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }));
 
     // 디버그용 ollama-blocker 테스트 명령어
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testOllamaBlocker', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.testOllamaBlocker', async () => {
         try {
             const isInstalled = await ollamaBlockerService.isInstalled();
             vscode.window.showInformationMessage(`ollama-blocker 설치 상태: ${isInstalled ? '설치됨' : '설치되지 않음'}`);
@@ -542,7 +656,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }));
 
     // Firebase 연결 테스트 명령어
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testFirebaseConnection', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.testFirebaseConnection', async () => {
         try {
             const result = await licenseService.testFirebaseConnection();
             if (result.success) {
@@ -556,7 +670,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }));
 
     // 터미널 모니터링 테스트 명령어
-    context.subscriptions.push(vscode.commands.registerCommand('aidevIdeCode.testTerminalMonitoring', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.testTerminalMonitoring', async () => {
         try {
             const { ErrorManager } = await import('./core/managers/error/ErrorManager');
             const errorManager = ErrorManager.getInstance();

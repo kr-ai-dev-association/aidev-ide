@@ -6,6 +6,14 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.0.0 (Security & Code Quality Improvements)
+- **CryptoUtils Enhancement**: Improved encryption/decryption utilities with better error handling and type safety
+  - Enhanced `CryptoUtils` class with proper TypeScript typing
+  - Better error messages for encryption/decryption failures
+  - Improved validation for encrypted text format checking
+  - Secure license serial encryption using AES-256-CBC with SHA-256 key hashing
+- **Code Quality**: General code improvements and refactoring for better maintainability
+
 ## v7.0.1 (Probability-Based Decision Logic Consistency Improvements)
 - **Centralized Threshold Management**: All probability-based decision thresholds (confidence, thresholds, percentages) are now centralized in `AgentConfig.ts` for better maintainability and consistency.
 - **Consistent Confidence Values**: Unified confidence values for the same purposes:

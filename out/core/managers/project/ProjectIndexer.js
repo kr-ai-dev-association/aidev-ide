@@ -1,0 +1,379 @@
+"use strict";
+/**
+ * Project Indexer
+ * 파일 인덱싱을 담당하는 클래스
+ */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ProjectIndexer = void 0;
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const crypto = __importStar(require("crypto"));
+const glob_1 = require("glob");
+const TreeSitterAdapter_1 = require("./codeParser/TreeSitterAdapter");
+class ProjectIndexer {
+    index = {
+        files: new Map(),
+        lastIndexedAt: 0,
+        totalFiles: 0
+    };
+    codeParserAdapter;
+    // 라이브러리 디렉토리 경로 목록
+    EXCLUDED_LIBRARY_PATHS = [
+        'node_modules', '.npm', 'npm-cache',
+        '.m2', 'target', 'build', '.gradle', 'gradle',
+        '__pycache__', '.pytest_cache', 'venv', 'env', '.venv', '.env', 'site-packages', '.pip',
+        'bin', 'obj', 'packages', '.nuget',
+        'vendor', 'pkg',
+        'Cargo.lock',
+        'composer', '.bundle', 'bundle',
+        'dist', 'out', '.build', 'coverage', '.coverage', 'logs', '.logs', 'tmp', '.tmp', 'temp', '.temp', 'cache', '.cache',
+        '.vscode', '.idea', '.eclipse', '.settings', '.project', '.classpath',
+        '.git', '.svn', '.hg', '.bzr',
+        '.DS_Store', 'Thumbs.db', '.Spotlight-V100', '.Trashes', '.fseventsd', '.TemporaryItems'
+    ];
+    constructor() {
+        this.codeParserAdapter = new TreeSitterAdapter_1.TreeSitterAdapter();
+    }
+    /**
+     * 프로젝트를 인덱싱합니다
+     */
+    async indexProject(projectRoot, options) {
+        console.log(`[ProjectIndexer] Indexing project: ${projectRoot}`);
+        this.index.files.clear();
+        this.index.totalFiles = 0;
+        const includePatterns = options?.includePatterns || ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.py', '**/*.java'];
+        const excludePatterns = options?.excludePatterns || [
+            '**/node_modules/**',
+            '**/dist/**',
+            '**/build/**',
+            '**/target/**',
+            '**/.git/**'
+        ];
+        await this.indexDirectory(projectRoot, projectRoot, includePatterns, excludePatterns, options?.maxFileSize);
+        this.index.lastIndexedAt = Date.now();
+        this.index.totalFiles = this.index.files.size;
+        console.log(`[ProjectIndexer] Indexed ${this.index.totalFiles} files`);
+        return this.index;
+    }
+    /**
+     * 디렉토리를 재귀적으로 인덱싱합니다
+     */
+    async indexDirectory(dir, projectRoot, includePatterns, excludePatterns, maxFileSize) {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                // 제외 패턴 확인
+                const relativePath = path.relative(projectRoot, fullPath);
+                if (this.matchesPattern(relativePath, excludePatterns)) {
+                    continue;
+                }
+                if (entry.isDirectory()) {
+                    await this.indexDirectory(fullPath, projectRoot, includePatterns, excludePatterns, maxFileSize);
+                }
+                else if (entry.isFile()) {
+                    // 포함 패턴 확인
+                    if (this.matchesPattern(relativePath, includePatterns)) {
+                        await this.indexFile(fullPath, projectRoot, maxFileSize);
+                    }
+                }
+            }
+        }
+        catch (error) {
+            console.warn(`[ProjectIndexer] Failed to index directory ${dir}:`, error);
+        }
+    }
+    /**
+     * 파일을 인덱싱합니다
+     */
+    async indexFile(filePath, projectRoot, maxFileSize) {
+        try {
+            const stats = fs.statSync(filePath);
+            // 파일 크기 확인
+            if (maxFileSize && stats.size > maxFileSize) {
+                return;
+            }
+            const content = fs.readFileSync(filePath, 'utf8');
+            const language = this.detectLanguage(filePath);
+            const checksum = this.calculateChecksum(content);
+            // Tree-sitter를 사용하여 정의 추출 (있는 경우)
+            const definitions = await this.extractDefinitions(filePath, content, language);
+            const imports = this.extractImports(content, language);
+            const exports = this.extractExports(content, language);
+            const indexedFile = {
+                path: filePath,
+                language,
+                size: stats.size,
+                modifiedAt: stats.mtimeMs,
+                checksum,
+                definitions,
+                imports,
+                exports
+            };
+            this.index.files.set(filePath, indexedFile);
+        }
+        catch (error) {
+            console.warn(`[ProjectIndexer] Failed to index file ${filePath}:`, error);
+        }
+    }
+    /**
+     * 정의를 추출합니다 (Tree-sitter 사용)
+     */
+    async extractDefinitions(filePath, content, language) {
+        try {
+            const fileSummary = await this.codeParserAdapter.parseFile(filePath);
+            // FileDefinitions를 Definition[]로 변환
+            if (fileSummary && fileSummary.definitions) {
+                return fileSummary.definitions.map(def => ({
+                    name: def.name,
+                    type: def.type,
+                    line: def.line || 0,
+                    column: def.column || 0,
+                    signature: def.signature || ''
+                }));
+            }
+        }
+        catch (error) {
+            console.warn(`[ProjectIndexer] Failed to extract definitions:`, error);
+        }
+        return [];
+    }
+    /**
+     * Import 문을 추출합니다
+     */
+    extractImports(content, language) {
+        const imports = [];
+        if (language === 'typescript' || language === 'javascript') {
+            const importPatterns = [
+                /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g,
+                /import\s+['"]([^'"]+)['"]/g,
+                /require\(['"]([^'"]+)['"]\)/g
+            ];
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                for (const pattern of importPatterns) {
+                    let match;
+                    while ((match = pattern.exec(lines[i])) !== null) {
+                        imports.push({
+                            source: match[1],
+                            imported: [],
+                            line: i
+                        });
+                    }
+                }
+            }
+        }
+        else if (language === 'python') {
+            const importPattern = /^(?:from\s+(\S+)\s+)?import\s+(.+)/gm;
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                const match = importPattern.exec(lines[i]);
+                if (match) {
+                    imports.push({
+                        source: match[1] || match[2],
+                        imported: [],
+                        line: i
+                    });
+                }
+            }
+        }
+        return imports;
+    }
+    /**
+     * Export 문을 추출합니다
+     */
+    extractExports(content, language) {
+        const exports = [];
+        if (language === 'typescript' || language === 'javascript') {
+            const exportPatterns = [
+                /export\s+(?:default\s+)?(?:const|let|var|function|class|interface|type)\s+(\w+)/g,
+                /export\s+default\s+/g
+            ];
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                for (const pattern of exportPatterns) {
+                    let match;
+                    while ((match = pattern.exec(lines[i])) !== null) {
+                        exports.push({
+                            name: match[1] || 'default',
+                            type: match[0].includes('default') ? 'default' : 'named',
+                            line: i
+                        });
+                    }
+                }
+            }
+        }
+        return exports;
+    }
+    /**
+     * 언어를 감지합니다
+     */
+    detectLanguage(filePath) {
+        const ext = path.extname(filePath).toLowerCase().substring(1);
+        const languageMap = {
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'js': 'javascript',
+            'jsx': 'javascript',
+            'py': 'python',
+            'java': 'java',
+            'go': 'go',
+            'rs': 'rust'
+        };
+        return languageMap[ext] || ext || 'text';
+    }
+    /**
+     * 체크섬을 계산합니다
+     */
+    calculateChecksum(content) {
+        return crypto.createHash('md5').update(content).digest('hex');
+    }
+    /**
+     * 패턴 매칭 확인
+     */
+    matchesPattern(filePath, patterns) {
+        for (const pattern of patterns) {
+            // 간단한 glob 패턴 매칭
+            const regex = new RegExp('^' + pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*').replace(/\//g, '\\/') + '$');
+            if (regex.test(filePath)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * 인덱스를 가져옵니다
+     */
+    getIndex() {
+        return this.index;
+    }
+    /**
+     * 파일을 찾습니다
+     */
+    findFile(filePath) {
+        return this.index.files.get(filePath);
+    }
+    /**
+     * 인덱스를 초기화합니다
+     */
+    clearIndex() {
+        this.index.files.clear();
+        this.index.lastIndexedAt = 0;
+        this.index.totalFiles = 0;
+        console.log('[ProjectIndexer] Index cleared');
+    }
+    /**
+     * 프로젝트의 모든 파일 리스트를 수집합니다 (라이브러리 파일 제외)
+     * @param projectRoot 프로젝트 루트 경로
+     * @param abortSignal 취소 신호
+     * @returns 파일 경로 리스트
+     */
+    async getAllProjectFiles(projectRoot, abortSignal) {
+        const allFiles = [];
+        try {
+            // 모든 파일 타입을 검색 (라이브러리 디렉토리 제외)
+            const searchPatterns = [
+                '**/*.ts', '**/*.js', '**/*.tsx', '**/*.jsx', '**/*.py', '**/*.java', '**/*.cpp', '**/*.c',
+                '**/*.cs', '**/*.php', '**/*.rb', '**/*.go', '**/*.rs', '**/*.swift', '**/*.kt', '**/*.scala',
+                '**/*.html', '**/*.css', '**/*.scss', '**/*.sass', '**/*.json', '**/*.xml', '**/*.yaml', '**/*.yml',
+                '**/*.md', '**/*.txt', '**/*.sql', '**/*.sh', '**/*.bat', '**/*.gradle', '**/*.kts',
+                '**/*.properties', '**/*.conf', '**/*.config', '**/*.ini', '**/*.toml'
+            ];
+            for (const pattern of searchPatterns) {
+                if (abortSignal.aborted)
+                    break;
+                try {
+                    const files = await (0, glob_1.glob)(pattern, { cwd: projectRoot, nodir: true });
+                    const fullPaths = files.map((file) => path.join(projectRoot, file));
+                    for (const filePath of fullPaths) {
+                        if (abortSignal.aborted)
+                            break;
+                        try {
+                            // 라이브러리 디렉토리 파일 제외
+                            if (this.isLibraryPath(filePath, projectRoot)) {
+                                continue;
+                            }
+                            // 중복 제거
+                            if (!allFiles.includes(filePath)) {
+                                allFiles.push(filePath);
+                            }
+                        }
+                        catch (error) {
+                            console.warn(`[ProjectIndexer] 파일 처리 중 오류: ${filePath}`, error);
+                        }
+                    }
+                }
+                catch (error) {
+                    console.warn(`[ProjectIndexer] 패턴 검색 중 오류: ${pattern}`, error);
+                }
+            }
+        }
+        catch (error) {
+            console.error('[ProjectIndexer] 전체 파일 수집 중 오류:', error);
+        }
+        console.log(`[ProjectIndexer] 총 ${allFiles.length}개 파일 수집 완료`);
+        return allFiles;
+    }
+    /**
+     * 라이브러리 경로인지 확인합니다
+     * @param filePath 파일 경로
+     * @param projectRoot 프로젝트 루트 경로
+     * @returns 라이브러리 경로인지 여부
+     */
+    isLibraryPath(filePath, projectRoot) {
+        const relativePath = path.relative(projectRoot, filePath);
+        const pathParts = relativePath.split(path.sep);
+        // 경로의 각 부분을 확인하여 라이브러리 디렉토리인지 검사
+        for (const part of pathParts) {
+            if (this.EXCLUDED_LIBRARY_PATHS.includes(part.toLowerCase())) {
+                return true;
+            }
+        }
+        // 경로 자체에 라이브러리 디렉토리가 포함되어 있는지 확인
+        const normalizedPath = relativePath.toLowerCase().replace(/\\/g, '/');
+        for (const excludedPath of this.EXCLUDED_LIBRARY_PATHS) {
+            if (normalizedPath.includes(`/${excludedPath}/`) ||
+                normalizedPath.startsWith(`${excludedPath}/`) ||
+                normalizedPath.endsWith(`/${excludedPath}`) ||
+                normalizedPath === excludedPath) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+exports.ProjectIndexer = ProjectIndexer;
+//# sourceMappingURL=ProjectIndexer.js.map

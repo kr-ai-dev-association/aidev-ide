@@ -66,8 +66,19 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
         let secondaryScriptUri = '';
 
         if (htmlFileName === 'chat') {
-            mainScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'chat.js')).toString();
-            secondaryScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'codeCopy.js')).toString();
+            const chatScriptPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'chat.js');
+            const codeCopyScriptPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'codeCopy.js');
+            
+            // 파일 존재 여부 확인
+            if (!fs.existsSync(chatScriptPath.fsPath)) {
+                console.error(`[HTML Loader] Chat script file not found: ${chatScriptPath.fsPath}`);
+            }
+            if (!fs.existsSync(codeCopyScriptPath.fsPath)) {
+                console.error(`[HTML Loader] CodeCopy script file not found: ${codeCopyScriptPath.fsPath}`);
+            }
+            
+            mainScriptUri = webview.asWebviewUri(chatScriptPath).toString();
+            secondaryScriptUri = webview.asWebviewUri(codeCopyScriptPath).toString();
             htmlContent = htmlContent.replace('{{codeCopyScriptUri}}', secondaryScriptUri);
 
             // 아이콘 리소스 (chat 전용)
@@ -97,7 +108,10 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
 
     } catch (error: any) {
         console.error(`[HTML Loader] Error for ${htmlFileName}.html:`, error);
-        return `<h1>Error loading ${htmlFileName} view</h1><p>${error.message || 'File not found.'}</p>`;
+        console.error(`[HTML Loader] Extension URI: ${extensionUri.fsPath}`);
+        console.error(`[HTML Loader] HTML file path: ${htmlFilePathOnDisk.fsPath}`);
+        console.error(`[HTML Loader] Error details:`, error.stack || error);
+        return `<h1>Error loading ${htmlFileName} view</h1><p>${error.message || 'File not found.'}</p><p>Path: ${htmlFilePathOnDisk.fsPath}</p>`;
     }
     return htmlContent;
 }
@@ -115,7 +129,7 @@ export function createAndSetupWebviewPanel(
     onDidReceiveMessage?: (data: any, panel: vscode.WebviewPanel) => void | Promise<void>
 ): vscode.WebviewPanel {
     const panel = vscode.window.createWebviewPanel(
-        `aidev-ide.${panelTypeSuffix.toLowerCase()}`, panelTitle, viewColumn,
+        `codepilot.${panelTypeSuffix.toLowerCase()}`, panelTitle, viewColumn,
         {
             enableScripts: true, retainContextWhenHidden: true,
             localResourceRoots: [

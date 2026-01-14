@@ -1,12 +1,12 @@
 /**
  * Tool Manager 타입 정의
- * aidev-ide의 툴 콜링 시스템을 위한 타입들
+ * codepilot의 툴 콜링 시스템을 위한 타입들
  */
 
 /**
  * 툴 이름 상수
  * 
- * aidev-ide의 기존 ActionType과 매핑:
+ * codepilot의 기존 ActionType과 매핑:
  * - CREATE_FILE → CODE_GENERATION (파일 생성)
  * - UPDATE_FILE → FILE_OPERATION UPDATE (파일 수정)
  * - REMOVE_FILE → FILE_OPERATION DELETE (파일 삭제)

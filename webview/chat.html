@@ -61,6 +61,47 @@
             filter: var(--vscode-icon-foreground-filter);
         }
 
+        /* Approval Buttons */
+        #approval-buttons-container {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            margin-right: 10px;
+            background-color: var(--vscode-editor-background);
+            border: 2px solid var(--vscode-focusBorder);
+            border-radius: 6px;
+        }
+
+        .approval-button {
+            padding: 6px 12px;
+            border: 1px solid;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .approve-button {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border-color: var(--vscode-button-border);
+        }
+
+        .approve-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .reject-button {
+            background-color: transparent;
+            color: var(--vscode-errorForeground);
+            border-color: var(--vscode-errorForeground);
+        }
+
+        .reject-button:hover {
+            background-color: var(--vscode-inputValidation-errorBackground);
+        }
+
         /* 메인 컨테이너 - 채팅 영역과 입력 영역을 포함 */
         .main-container {
             display: flex;
@@ -596,7 +637,7 @@
             z-index: 2;
         }
 
-        .aidev-ide-message-container:hover .run-bash-button,
+        .codepilot-message-container:hover .run-bash-button,
         .message-bubble:hover .run-bash-button {
             opacity: 1;
         }
@@ -1541,6 +1582,24 @@
     </div>
 
     <div class="chat-header-icons">
+        <!-- Approval Buttons (초기에는 숨김) -->
+        <div id="approval-buttons-container" style="display: none;">
+            <span style="margin-right: 8px; font-weight: 600;">파일 변경사항:</span>
+            <button 
+                class="approval-button approve-button" 
+                id="approve-all-btn" 
+                title="모든 변경사항 승인"
+                onclick="approveAllChanges()">
+                ✓ 승인
+            </button>
+            <button 
+                class="approval-button reject-button" 
+                id="reject-all-btn" 
+                title="모든 변경사항 되돌리기"
+                onclick="rejectAllChanges()">
+                ↶ 되돌리기
+            </button>
+        </div>
         <label id="language-label" for="language-select" style="margin-right:6px;">Language</label>
         <select id="language-select">
             <option value="ko">한국어</option>

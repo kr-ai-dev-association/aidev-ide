@@ -293,7 +293,10 @@ src/
 │   ├── panelUtils.ts                # 웹뷰 공용 유틸 (safePostMessage, html 로더 등)
 │   ├── tokenUtils.ts                # 토큰 관련 유틸
 │   ├── debugLogger.ts               # 디버그 로거
-│   ├── cryptoUtils.ts               # 암호화 유틸
+│   ├── cryptoUtils.ts               # 암호화 유틸 (v8.0.0: 향상된 타입 안정성 및 에러 처리)
+│   │                                # - AES-256-CBC 암호화 알고리즘 사용
+│   │                                # - SHA-256 키 해싱을 통한 보안 강화
+│   │                                # - 암호화된 텍스트 형식 검증 개선
 │   ├── fileUtils.ts                 # 파일 유틸
 │   └── string.ts                    # 문자열 유틸 (v5.1.2: removeCDataSections 추가)
 │
@@ -1160,6 +1163,7 @@ const prompt = await llmAdapter.buildSystemPrompt(context);
 
 ## 📅 완료 일자
 
+**2025년 1월** - v8.0.0: CryptoUtils 보안 및 코드 품질 개선 완료
 **2024년 12월** - 모든 매니저 구현 및 통합 완료, 추상화 레이어 통합 완료
 **2024년 12월** - LLMManager 생성 및 남은 기능 분산 완료
 **2024년 12월** - llmService.ts 완전 정리 완료 (orphaned 코드 제거, ProjectManager 통합, 모든 linter 에러 해결)

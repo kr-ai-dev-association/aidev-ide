@@ -89,7 +89,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.RIPGREP_SEARCH)) {
             specs.push({
                 name: Tool.RIPGREP_SEARCH,
-                description: 'ripgrep(rg)을 사용하여 파일 내용을 검색합니다. 대규모 프로젝트에서 매우 빠릅니다.',
+                description: 'ripgrep(rg)을 사용하여 파일 내용을 검색합니다. 대규모 프로젝트에서 매우 빠릅니다. **권장 플로우**: 여러 파일에서 동일한 텍스트를 찾아 수정해야 할 때는 1) ripgrep_search로 패턴 검색, 2) read_file로 각 파일 내용 확인, 3) update_file로 SEARCH/REPLACE 블록 사용하여 수정. find + sed -i 같은 쉘 명령어는 절대 사용하지 마세요.',
                 parameters: [
                     { name: 'pattern', required: true, description: '검색할 정규식 또는 키워드', type: 'string' },
                     { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
@@ -105,9 +105,9 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.RUN_COMMAND)) {
             specs.push({
                 name: Tool.RUN_COMMAND,
-                description: '프로젝트 디렉토리에서 터미널 명령을 실행합니다.',
+                description: '프로젝트 디렉토리에서 터미널 명령을 실행합니다. **⚠️ 중요: 파일 일괄 수정(find + sed 등)은 절대 사용하지 마세요. 대신 ripgrep_search → read_file → update_file 플로우를 사용하세요.**',
                 parameters: [
-                    { name: 'command', required: true, description: '실행할 명령어', type: 'string' },
+                    { name: 'command', required: true, description: '실행할 명령어. **절대 금지: find + sed -i, perl -i, xargs sed 등 파일 일괄 수정 명령어**', type: 'string' },
                     { name: 'timeout', required: false, description: '명령어 타임아웃 (초)', type: 'string' }
                 ]
             });

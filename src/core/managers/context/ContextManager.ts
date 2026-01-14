@@ -80,6 +80,16 @@ export class ContextManager {
     }
 
     /**
+     * LLM Manager를 설정합니다 (내용 기반 relevance scoring용)
+     */
+    public setLLMManager(llmManager: any): void {
+        if (this.relevantFilesService) {
+            this.relevantFilesService.setLLMManager(llmManager);
+            console.log('[ContextManager] LLM Manager set for RelevantFilesFinder');
+        }
+    }
+
+    /**
      * 관련 파일 컨텍스트를 가져옵니다
      */
     public async getRelevantFilesContext(

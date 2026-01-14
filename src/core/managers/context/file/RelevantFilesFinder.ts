@@ -8,6 +8,8 @@ import { glob } from 'glob';
 import { ProjectManager } from '../../project/ProjectManager';
 import { KeywordSelector } from '../KeywordSelector';
 import { estimateTokens } from '../../../../utils';
+import { LLMManager } from '../../model/LLMManager';
+import { FileSearcher } from './FileSearcher';
 
 export interface RelevantFilesResult {
     fileContentsContext: string;
@@ -19,10 +21,17 @@ export interface RelevantFilesResult {
 export class RelevantFilesFinder {
     private projectManager: ProjectManager;
     private keywordService?: KeywordSelector;
+    private llmManager?: LLMManager;
+    private fileSearcher: FileSearcher;
     private readonly MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
+    private readonly MAX_LLM_SCORING_FILES = 30; // LLM scoring을 수행할 최대 파일 수
+    private readonly MIN_RELEVANCE_SCORE = 30; // 최소 relevance score (0-100)
+    private readonly LLM_BATCH_SIZE = 8; // 한 번에 LLM에 전달할 파일 수
+    private readonly MAX_FILE_PREVIEW_LENGTH = 2000; // 파일 미리보기 최대 길이
 
     constructor(projectManager: ProjectManager) {
         this.projectManager = projectManager;
+        this.fileSearcher = FileSearcher.getInstance();
     }
 
     /**
@@ -30,6 +39,13 @@ export class RelevantFilesFinder {
      */
     public setKeywordService(keywordService: KeywordSelector): void {
         this.keywordService = keywordService;
+    }
+
+    /**
+     * LLM Manager를 설정합니다 (내용 기반 relevance scoring용)
+     */
+    public setLLMManager(llmManager: LLMManager): void {
+        this.llmManager = llmManager;
     }
 
     /**
@@ -103,11 +119,51 @@ export class RelevantFilesFinder {
             // 대화 히스토리에서 키워드 확장
             const expandedKeywords = this.expandKeywordsWithHistory(keywords, conversationHistory);
 
-            // 관련 파일 찾기
-            const relevantFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
+            // ✅ STEP 1: Ripgrep 기반 키워드 검색으로 사전 필터링
+            const ripgrepFilteredFiles = await this.findRelevantFilesWithRipgrep(
+                projectRoot,
+                expandedKeywords,
+                userQuery,
+                abortSignal
+            );
+            console.log(`[RelevantFilesFinder] Ripgrep 필터링 완료: ${ripgrepFilteredFiles.length}개 파일`);
 
-            // 토큰 제한 기반 파일 선택
-            const selectedFiles = this.selectFilesBasedOnTokenLimit(relevantFiles, userQuery, projectRoot);
+            // ✅ STEP 2: 키워드 기반 파일 탐색 (fallback)
+            const keywordBasedFiles = await this.findRelevantFiles(projectRoot, expandedKeywords, abortSignal);
+
+            // 두 결과 병합 (중복 제거)
+            const allCandidateFiles = Array.from(new Set([...ripgrepFilteredFiles, ...keywordBasedFiles]));
+            console.log(`[RelevantFilesFinder] 전체 후보 파일: ${allCandidateFiles.length}개`);
+
+            // ✅ STEP 3: 키워드 기반 점수로 사전 스크리닝
+            const preScoredFiles = this.preScoreFilesWithKeywords(allCandidateFiles, userQuery, projectRoot, expandedKeywords);
+            const topPreScoredFiles = preScoredFiles
+                .sort((a, b) => b.score - a.score)
+                .slice(0, this.MAX_LLM_SCORING_FILES)
+                .map(item => item.filePath);
+            console.log(`[RelevantFilesFinder] 사전 스크리닝 완료: ${topPreScoredFiles.length}개 파일 (LLM scoring 대상)`);
+
+            // ✅ STEP 4: 배치 LLM 기반 내용 relevance scoring
+            let selectedFiles: string[];
+            if (this.llmManager && topPreScoredFiles.length > 0) {
+                try {
+                    console.log(`[RelevantFilesFinder] 배치 LLM scoring 시작: ${topPreScoredFiles.length}개 파일`);
+                    selectedFiles = await this.selectFilesWithBatchLLMScoring(
+                        topPreScoredFiles,
+                        userQuery,
+                        projectRoot,
+                        abortSignal
+                    );
+                    console.log(`[RelevantFilesFinder] 배치 LLM scoring 완료: ${selectedFiles.length}개 파일 선택`);
+                } catch (error) {
+                    console.warn('[RelevantFilesFinder] 배치 LLM scoring 실패, 사전 점수 기반 선택으로 fallback:', error);
+                    // Fallback: 사전 점수 기반 선택
+                    selectedFiles = topPreScoredFiles.slice(0, 20);
+                }
+            } else {
+                // LLM Manager가 없으면 사전 점수 기반 선택
+                selectedFiles = topPreScoredFiles.slice(0, 20);
+            }
 
             // 2. 키워드 기반으로 찾은 파일 내용 수집 (명시적 파일 제외)
             for (const filePath of selectedFiles) {
@@ -179,7 +235,6 @@ export class RelevantFilesFinder {
         // 영어 단어들 추출
         const englishWords = cleanQuery.split(' ')
             .filter(word => word.length > 1)
-            .filter(word => !this.isStopWord(word))
             .filter(word => !/^[가-힣]+$/.test(word));
 
         // 개발 관련 키워드 추가
@@ -198,8 +253,7 @@ export class RelevantFilesFinder {
     private extractKoreanStems(text: string): string[] {
         const koreanWords = text.split(' ')
             .filter(word => /^[가-힣]+$/.test(word))
-            .filter(word => word.length > 1)
-            .filter(word => !this.isKoreanStopWord(word));
+            .filter(word => word.length > 1);
 
         return koreanWords.map(word => this.extractKoreanStem(word));
     }
@@ -215,21 +269,6 @@ export class RelevantFilesFinder {
         return word;
     }
 
-    /**
-     * 한국어 불용어 확인
-     */
-    private isKoreanStopWord(word: string): boolean {
-        const stopWords = ['이', '가', '을', '를', '의', '에', '에서', '로', '으로', '와', '과', '도', '만', '은', '는', '이다', '다', '하다', '되다', '있다', '없다'];
-        return stopWords.includes(word);
-    }
-
-    /**
-     * 영어 불용어 확인
-     */
-    private isStopWord(word: string): boolean {
-        const stopWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where', 'when', 'why', 'how'];
-        return stopWords.includes(word.toLowerCase());
-    }
 
     /**
      * 개발 관련 키워드를 추출합니다
@@ -586,6 +625,344 @@ export class RelevantFilesFinder {
                 confidence: 0.3
             };
         }
+    }
+
+    /**
+     * Ripgrep 기반 키워드 검색으로 관련 파일 찾기
+     * ✅ 핵심: 실제 파일 내용에서 키워드 검색 → 정확도 향상, 호출 횟수 감소
+     */
+    private async findRelevantFilesWithRipgrep(
+        projectRoot: string,
+        keywords: string[],
+        userQuery: string,
+        abortSignal?: AbortSignal
+    ): Promise<string[]> {
+        if (keywords.length === 0) {
+            return [];
+        }
+
+        const foundFiles = new Set<string>();
+        const topKeywords = keywords.slice(0, 5); // 상위 5개 키워드만 사용
+
+        for (const keyword of topKeywords) {
+            if (abortSignal?.aborted) break;
+
+            try {
+                // Ripgrep으로 키워드 검색
+                const results = await this.fileSearcher.searchFiles(
+                    keyword,
+                    projectRoot,
+                    {
+                        maxResults: 50, // 키워드당 최대 50개 파일
+                        contextLines: 0, // context 불필요
+                        caseSensitive: false
+                    }
+                );
+
+                // 검색 결과에서 파일 경로 추출
+                for (const result of results) {
+                    if (abortSignal?.aborted) break;
+                    const filePath = path.isAbsolute(result.file)
+                        ? result.file
+                        : path.join(projectRoot, result.file);
+                    foundFiles.add(filePath);
+                }
+            } catch (error) {
+                console.warn(`[RelevantFilesFinder] Ripgrep 검색 실패 (키워드: ${keyword}):`, error);
+            }
+        }
+
+        return Array.from(foundFiles);
+    }
+
+    /**
+     * 키워드 기반 사전 점수 계산 (LLM 호출 전 스크리닝)
+     * ✅ 핵심: 키워드 매칭 빈도, 파일명/경로 매칭 등으로 점수 계산
+     */
+    private preScoreFilesWithKeywords(
+        files: string[],
+        userQuery: string,
+        projectRoot: string,
+        keywords: string[]
+    ): Array<{ filePath: string; score: number }> {
+        const scoredFiles: Array<{ filePath: string; score: number }> = [];
+
+        for (const filePath of files) {
+            let score = 0;
+            const fileName = path.basename(filePath).toLowerCase();
+            const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+            const queryLower = userQuery.toLowerCase();
+
+            // 1. 파일명 매칭 (높은 가중치)
+            for (const keyword of keywords) {
+                if (fileName.includes(keyword.toLowerCase())) {
+                    score += 20;
+                }
+                if (relativePath.includes(keyword.toLowerCase())) {
+                    score += 15;
+                }
+            }
+
+            // 2. 중요 파일 (설정 파일 등)
+            if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'pom.xml' || fileName === 'build.gradle') {
+                score += 25;
+            }
+
+            // 3. 소스 파일 우선순위
+            if (fileName.endsWith('.ts') || fileName.endsWith('.js') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx') || fileName.endsWith('.java')) {
+                score += 10;
+            }
+
+            // 4. 경로 우선순위
+            if (relativePath.includes('src/main') || relativePath.includes('src/')) {
+                score += 8;
+            }
+
+            scoredFiles.push({ filePath, score });
+        }
+
+        return scoredFiles;
+    }
+
+    /**
+     * 배치 LLM 기반 내용 relevance scoring으로 파일 선택
+     * 
+     * ✅ 핵심 개선:
+     * - 여러 파일을 한 번에 LLM에 전달 (배치 처리)
+     * - LLM 호출 횟수 대폭 감소 (30회 → 4회)
+     * - 파일 내용 요약 옵션
+     * - False positive/negative 감소
+     */
+    private async selectFilesWithBatchLLMScoring(
+        candidateFiles: string[],
+        userQuery: string,
+        projectRoot: string,
+        abortSignal?: AbortSignal
+    ): Promise<string[]> {
+        if (!this.llmManager) {
+            throw new Error('LLMManager is not set');
+        }
+
+        const filesToScore = candidateFiles.slice(0, this.MAX_LLM_SCORING_FILES);
+        console.log(`[RelevantFilesFinder] 배치 LLM scoring 대상: ${filesToScore.length}개 파일`);
+
+        const fileScores: Array<{ filePath: string; score: number; reasoning?: string }> = [];
+        const fs = await import('fs/promises');
+
+        // ✅ 배치 처리: 파일을 LLM_BATCH_SIZE씩 묶어서 처리
+        for (let i = 0; i < filesToScore.length; i += this.LLM_BATCH_SIZE) {
+            if (abortSignal?.aborted) break;
+
+            const batch = filesToScore.slice(i, i + this.LLM_BATCH_SIZE);
+            console.log(`[RelevantFilesFinder] 배치 ${Math.floor(i / this.LLM_BATCH_SIZE) + 1} 처리 중: ${batch.length}개 파일`);
+
+            try {
+                // 배치 내 파일 내용 읽기
+                const fileContents: Array<{ filePath: string; relativePath: string; content: string }> = [];
+                for (const filePath of batch) {
+                    try {
+                        const content = await fs.readFile(filePath, 'utf8');
+                        const relativePath = path.relative(projectRoot, filePath);
+
+                        // 파일 내용 요약 (큰 파일 처리)
+                        const contentPreview = content.length > this.MAX_FILE_PREVIEW_LENGTH
+                            ? content.substring(0, this.MAX_FILE_PREVIEW_LENGTH) + '\n... (파일이 너무 커서 일부만 표시)'
+                            : content;
+
+                        fileContents.push({
+                            filePath,
+                            relativePath,
+                            content: contentPreview
+                        });
+                    } catch (error) {
+                        console.warn(`[RelevantFilesFinder] 파일 읽기 실패: ${filePath}`, error);
+                    }
+                }
+
+                if (fileContents.length === 0) continue;
+
+                // ✅ 배치 LLM 호출: 여러 파일을 한 번에 평가
+                const batchPrompt = this.buildBatchScoringPrompt(userQuery, fileContents);
+                const response = await this.llmManager.sendMessage(batchPrompt, {
+                    signal: abortSignal
+                });
+
+                // 배치 결과 파싱
+                const batchScores = this.parseBatchRelevanceScores(response, fileContents);
+
+                // 결과 병합
+                for (const fileContent of fileContents) {
+                    const scoreResult = batchScores.find(s => s.filePath === fileContent.filePath);
+                    if (scoreResult) {
+                        fileScores.push({
+                            filePath: fileContent.filePath,
+                            score: scoreResult.score,
+                            reasoning: scoreResult.reasoning
+                        });
+                        console.log(`[RelevantFilesFinder] ${fileContent.relativePath}: score=${scoreResult.score} (${scoreResult.reasoning || 'N/A'})`);
+                    } else {
+                        // 파싱 실패 시 fallback 점수
+                        const fallbackScore = this.calculateFallbackScore(fileContent.filePath, userQuery, projectRoot);
+                        fileScores.push({ filePath: fileContent.filePath, score: fallbackScore });
+                    }
+                }
+            } catch (error) {
+                console.warn(`[RelevantFilesFinder] 배치 LLM scoring 실패 (배치 ${Math.floor(i / this.LLM_BATCH_SIZE) + 1}):`, error);
+                // 에러 시 fallback 점수 부여
+                for (const filePath of batch) {
+                    const fallbackScore = this.calculateFallbackScore(filePath, userQuery, projectRoot);
+                    fileScores.push({ filePath, score: fallbackScore });
+                }
+            }
+        }
+
+        // Score 기반으로 정렬하고 최소 점수 이상만 선택
+        const selectedFiles = fileScores
+            .filter(item => item.score >= this.MIN_RELEVANCE_SCORE)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 20) // 상위 20개만 선택
+            .map(item => item.filePath);
+
+        console.log(`[RelevantFilesFinder] 배치 LLM scoring 결과: ${selectedFiles.length}개 파일 선택 (최소 점수: ${this.MIN_RELEVANCE_SCORE})`);
+        return selectedFiles;
+    }
+
+    /**
+     * 배치 scoring용 프롬프트 생성
+     */
+    private buildBatchScoringPrompt(
+        userQuery: string,
+        fileContents: Array<{ filePath: string; relativePath: string; content: string }>
+    ): string {
+        const filesSection = fileContents.map((file, index) => {
+            return `**파일 ${index + 1}: ${file.relativePath}**
+\`\`\`
+${file.content}
+\`\`\``;
+        }).join('\n\n');
+
+        return `다음 사용자 요청과 여러 파일들의 내용 관련성을 평가하세요.
+
+**사용자 요청:**
+${userQuery}
+
+**파일 목록:**
+${filesSection}
+
+**평가 기준:**
+- 0-30: 관련성 낮음 (거의 관련 없음)
+- 31-60: 관련성 보통 (일부 관련 있음)
+- 61-80: 관련성 높음 (명확히 관련 있음)
+- 81-100: 관련성 매우 높음 (직접적으로 관련 있음)
+
+**출력 형식 (JSON 배열):**
+[
+  {
+    "file": "파일 경로 (relativePath)",
+    "score": 75,
+    "reasoning": "이 파일이 사용자 요청과 관련된 이유를 간단히 설명"
+  },
+  ...
+]
+
+각 파일마다 score(정수)와 reasoning(한 문장)을 반환하세요.`;
+    }
+
+    /**
+     * 배치 LLM 응답에서 relevance scores 파싱
+     */
+    private parseBatchRelevanceScores(
+        response: string,
+        fileContents: Array<{ filePath: string; relativePath: string; content: string }>
+    ): Array<{ filePath: string; score: number; reasoning?: string }> {
+        const scores: Array<{ filePath: string; score: number; reasoning?: string }> = [];
+
+        try {
+            // JSON 배열 추출 시도
+            const jsonMatch = response.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(parsed)) {
+                    for (const item of parsed) {
+                        if (item.file && typeof item.score === 'number') {
+                            // relativePath로 filePath 찾기
+                            const fileContent = fileContents.find(f => f.relativePath === item.file);
+                            if (fileContent && item.score >= 0 && item.score <= 100) {
+                                scores.push({
+                                    filePath: fileContent.filePath,
+                                    score: Math.round(item.score),
+                                    reasoning: item.reasoning
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('[RelevantFilesFinder] 배치 relevance score 파싱 실패:', error);
+        }
+
+        return scores;
+    }
+
+    /**
+     * LLM 응답에서 relevance score 파싱
+     */
+    private parseRelevanceScore(response: string): { score: number; reasoning?: string } | null {
+        try {
+            // JSON 추출 시도
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (typeof parsed.score === 'number' && parsed.score >= 0 && parsed.score <= 100) {
+                    return {
+                        score: Math.round(parsed.score),
+                        reasoning: parsed.reasoning
+                    };
+                }
+            }
+
+            // 숫자만 추출 시도
+            const scoreMatch = response.match(/\b(\d{1,3})\b/);
+            if (scoreMatch) {
+                const score = parseInt(scoreMatch[1], 10);
+                if (score >= 0 && score <= 100) {
+                    return { score };
+                }
+            }
+
+            return null;
+        } catch (error) {
+            console.warn('[RelevantFilesFinder] Relevance score 파싱 실패:', error);
+            return null;
+        }
+    }
+
+    /**
+     * LLM scoring 실패 시 fallback 점수 계산 (키워드 기반)
+     */
+    private calculateFallbackScore(filePath: string, userQuery: string, projectRoot: string): number {
+        let score = 0;
+        const fileName = path.basename(filePath).toLowerCase();
+        const relativePath = path.relative(projectRoot, filePath).toLowerCase();
+        const queryLower = userQuery.toLowerCase();
+
+        // 파일명/경로 매칭
+        if (queryLower.includes(fileName.split('.')[0])) {
+            score += 30;
+        }
+
+        // 중요 파일
+        if (fileName === 'package.json' || fileName === 'tsconfig.json' || fileName === 'pom.xml') {
+            score += 20;
+        }
+
+        // 경로 매칭
+        if (relativePath.includes('src/main') || relativePath.includes('src/')) {
+            score += 10;
+        }
+
+        return Math.min(score, 60); // 최대 60점 (LLM scoring 실패 시 보수적 점수)
     }
 }
 

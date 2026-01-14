@@ -163,10 +163,10 @@ export class SettingsManager extends BaseManager {
      */
     private registerVSCodeSettingsWatcher(): void {
         vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration('aidevIde')) {
+            if (event.affectsConfiguration('codepilot')) {
                 // 설정 변경 시 캐시 무효화
                 ConfigurationService.invalidateCache();
-                // 모든 aidevIde 설정이 변경되었음을 알림
+                // 모든 codepilot 설정이 변경되었음을 알림
                 console.log('[SettingsManager] Configuration changed');
             }
         });
@@ -363,7 +363,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoTestRetryEnabled(): Promise<boolean> {
         // 워크스페이스 설정을 명시적으로 읽기
-        const config = vscode.workspace.getConfiguration('aidevIde');
+        const config = vscode.workspace.getConfiguration('codepilot');
         const workspaceValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceValue;
         const workspaceFolderValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceFolderValue;
         const value = workspaceFolderValue ?? workspaceValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
@@ -384,7 +384,7 @@ export class SettingsManager extends BaseManager {
      */
     public async getTestRetryCount(): Promise<number> {
         // 워크스페이스 설정을 명시적으로 읽기
-        const config = vscode.workspace.getConfiguration('aidevIde');
+        const config = vscode.workspace.getConfiguration('codepilot');
         const workspaceValue = config.inspect<number>('testRetryCount')?.workspaceValue;
         const workspaceFolderValue = config.inspect<number>('testRetryCount')?.workspaceFolderValue;
         const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 3;

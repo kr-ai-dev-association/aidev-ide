@@ -23,9 +23,9 @@ export interface LanguageParser {
  */
 async function loadLanguage(langName: string): Promise<Parser.Language> {
     // VS Code extension path 가져오기
-    const extension = vscode.extensions.getExtension('banya.aidevIde');
+    const extension = vscode.extensions.getExtension('banya.codepilot');
     if (!extension) {
-        throw new Error('aidev-ide extension not found');
+        throw new Error('codepilot extension not found');
     }
     
     // WASM 파일은 webpack으로 dist/tree-sitter에 복사됨

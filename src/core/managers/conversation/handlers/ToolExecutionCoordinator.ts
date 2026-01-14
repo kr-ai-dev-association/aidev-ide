@@ -4,9 +4,11 @@
  */
 
 import * as vscode from 'vscode';
+import * as pathModule from 'path';
 import { Tool } from '../../../tools/types';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
 import { TaskManager } from '../../task/TaskManager';
+import { InlineDiffManager } from '../../diff/InlineDiffManager';
 
 export class ToolExecutionCoordinator {
     /**
@@ -139,12 +141,100 @@ export class ToolExecutionCoordinator {
                     const content = toolName === Tool.CREATE_FILE ? (params.content || '') : (res.fileContent || '');
                     const ext = path.split('.').pop() || '';
 
+                    // ✅ 추가/삭제 라인 수 계산
+                    let addedLines = 0;
+                    let deletedLines = 0;
+
+                    if (toolName === Tool.CREATE_FILE) {
+                        // 새 파일: 전체 라인 수가 추가된 라인
+                        if (content) {
+                            addedLines = content.split('\n').length;
+                        }
+                    } else if (toolName === Tool.UPDATE_FILE) {
+                        // ✅ 수정 파일: InlineDiffManager에서 이미 계산한 changes 사용
+                        // ✅ 핵심: showInlineDiff에서 이미 올바른 시점(apply 전)에 계산한 결과를 재사용
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+
+                        // ✅ 핵심: path를 절대 경로로 변환 (workspace root 기준)
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                        const absolutePath = pathModule.isAbsolute(path)
+                            ? path
+                            : workspaceRoot
+                                ? pathModule.join(workspaceRoot, path)
+                                : path;
+
+                        // ✅ showInlineDiff에서 이미 계산한 changes 가져오기 (올바른 시점의 결과)
+                        const changes = inlineDiffManager.getLastAppliedChanges(absolutePath);
+
+                        if (changes && changes.length > 0) {
+                            console.log(`[ToolExecutionCoordinator] Using ${changes.length} cached changes from InlineDiffManager for ${path}`);
+
+                            for (const change of changes) {
+                                if (change.type === 'add') {
+                                    // 추가는 range 기반
+                                    const affectedLines = Math.max(
+                                        1,
+                                        change.range.end.line - change.range.start.line + 1
+                                    );
+                                    addedLines += affectedLines;
+                                } else if (change.type === 'delete') {
+                                    // 삭제는 oldText 기준으로 정확히 계산 (range가 0인 경우 방지)
+                                    const lines = change.oldText.split('\n');
+                                    const deleted = lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+                                    deletedLines += Math.max(1, deleted);
+                                } else if (change.type === 'modify') {
+                                    // ✅ 수정은 oldText와 newText의 실제 라인 수를 각각 계산
+                                    // oldText의 라인 수 (삭제된 라인)
+                                    const oldTextLines = change.oldText.split('\n');
+                                    const oldLineCount = oldTextLines[oldTextLines.length - 1] === ''
+                                        ? Math.max(1, oldTextLines.length - 1)
+                                        : Math.max(1, oldTextLines.length);
+
+                                    // newText의 라인 수 (추가된 라인)
+                                    const newTextLines = change.newText.split('\n');
+                                    const newLineCount = newTextLines[newTextLines.length - 1] === ''
+                                        ? Math.max(1, newTextLines.length - 1)
+                                        : Math.max(1, newTextLines.length);
+
+                                    deletedLines += oldLineCount;
+                                    addedLines += newLineCount;
+
+                                    console.log(`[ToolExecutionCoordinator] Modify change: oldText=${oldLineCount} lines, newText=${newLineCount} lines`);
+                                }
+                            }
+
+                            console.log(`[ToolExecutionCoordinator] Line count calculated: deleted=${deletedLines}, added=${addedLines}`);
+                        } else {
+                            // ✅ changes가 없으면 경고만 하고 계속 진행 (라인 수 정보 없이 표시)
+                            console.warn(`[ToolExecutionCoordinator] No changes found for ${path}, skipping line count calculation. This may happen if showInlineDiff hasn't been called yet or file was just created.`);
+                            // 경고만 하고 계속 진행 (라인 수 정보 없이 코드 블록 표시)
+                        }
+                    }
+
                     // 1. 헤더 전송 (테두리와 색상이 있는 시스템 스타일)
                     WebviewBridge.receiveMessage(webview, 'System', `${icon} [${action}] ${path}`);
 
                     // 2. 코드 내용 전송 (복사 버튼이 있는 마크다운 스타일)
+                    // ✅ 라인 수 정보를 언어 라벨에 포함
                     if (content) {
-                        const codeMarkdown = `\`\`\`${ext}\n${content}\n\`\`\``;
+                        let langLabel = ext;
+                        if (deletedLines > 0 || addedLines > 0) {
+                            const parts: string[] = [];
+                            // ✅ 순서 고정: 삭제 먼저, 추가 나중 (modify 타입 지원)
+                            if (deletedLines > 0) {
+                                parts.push(`-${deletedLines} lines`);
+                            }
+                            if (addedLines > 0) {
+                                parts.push(`+${addedLines} lines`);
+                            }
+                            langLabel = `${ext} ${parts.join(' ')}`;
+                            console.log(`[ToolExecutionCoordinator] Line count info: ${langLabel} (deleted: ${deletedLines}, added: ${addedLines})`);
+                            console.log(`[ToolExecutionCoordinator] RAW langLabel string: "${langLabel}"`);
+                        }
+                        // ✅ 파일 경로 정보를 langLabel에 포함 (파일 열기 아이콘용)
+                        const langLabelWithPath = path ? `${langLabel} [file:${path}]` : langLabel;
+                        const codeMarkdown = `\`\`\`${langLabelWithPath}\n${content}\n\`\`\``;
+                        console.log(`[ToolExecutionCoordinator] Code markdown with file path: langLabel="${langLabelWithPath}"`);
                         WebviewBridge.receiveMessage(webview, 'CODEPILOT', codeMarkdown);
                     }
                     return;

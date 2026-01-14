@@ -558,9 +558,9 @@ export class TerminalManager {
     /**
      * CODEPILOT 터미널을 가져오거나 생성합니다 (terminal/terminalManager.ts 호환)
      */
-    public static getAidevIdeTerminal(projectRoot?: string, alwaysNew: boolean = true): vscode.Terminal {
+    public static getCodepilotTerminal(projectRoot?: string, alwaysNew: boolean = true): vscode.Terminal {
         if (alwaysNew) {
-            const name = `aidev-ide Terminal ${++TerminalManager.terminalSeq}`;
+            const name = `codepilot Terminal ${++TerminalManager.terminalSeq}`;
             console.log(`[TerminalManager] 새로운 터미널 생성: ${name}`);
             const terminalOptions: vscode.TerminalOptions = { name };
             if (projectRoot) {
@@ -578,7 +578,7 @@ export class TerminalManager {
         }
 
         // 기존 동작 (재사용) 경로
-        const existing = vscode.window.terminals.filter(t => t.name === 'aidev-ide Terminal');
+        const existing = vscode.window.terminals.filter(t => t.name === 'codepilot Terminal');
         if (existing.length > 0) {
             console.log(`[TerminalManager] 기존 터미널 재사용: ${existing.length}개 발견, 첫 번째 터미널 사용`);
             TerminalManager.codePilotTerminal = existing[0];
@@ -592,8 +592,8 @@ export class TerminalManager {
         }
 
         if (!TerminalManager.codePilotTerminal || TerminalManager.codePilotTerminal.exitStatus !== undefined) {
-            console.log(`[TerminalManager] 새로운 터미널 생성: aidev-ide Terminal`);
-            const terminalOptions: vscode.TerminalOptions = { name: 'aidev-ide Terminal' };
+            console.log(`[TerminalManager] 새로운 터미널 생성: codepilot Terminal`);
+            const terminalOptions: vscode.TerminalOptions = { name: 'codepilot Terminal' };
 
             if (projectRoot) {
                 terminalOptions.cwd = projectRoot;
@@ -603,7 +603,7 @@ export class TerminalManager {
             TerminalManager.codePilotTerminal = vscode.window.createTerminal(terminalOptions);
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === TerminalManager.codePilotTerminal) {
-                    console.log(`[TerminalManager] 터미널 종료 감지: aidev-ide Terminal`);
+                    console.log(`[TerminalManager] 터미널 종료 감지: codepilot Terminal`);
                     TerminalManager.codePilotTerminal = undefined;
                     disposable.dispose();
                 }
@@ -698,7 +698,7 @@ export class TerminalManager {
      * 단일 bash 명령어를 실행합니다 (terminal/terminalManager.ts 호환)
      */
     public static executeBashCommand(command: string, projectRoot?: string): void {
-        const terminal = TerminalManager.getAidevIdeTerminal(projectRoot, true);
+        const terminal = TerminalManager.getCodepilotTerminal(projectRoot, true);
         if (projectRoot) {
             terminal.sendText(`cd "${projectRoot}"`);
         }
@@ -767,7 +767,7 @@ export class TerminalManager {
         this.pendingCommands = [];
         this.currentCommandIndex = 0;
         this.isWaitingForInput = false;
-        vscode.window.showInformationMessage('aidev-ide: 명령어 시퀀스가 중단되었습니다.');
+        vscode.window.showInformationMessage('codepilot: 명령어 시퀀스가 중단되었습니다.');
     }
 
     /**
@@ -947,14 +947,14 @@ export class TerminalManager {
                 const effectiveCwd = await this.getEffectiveCwd();
                 const cwd = effectiveCwd || projectRoot;
 
-                // 1. VS Code 터미널에서 실행 중인 aidev-ide 터미널 찾아서 종료
+                // 1. VS Code 터미널에서 실행 중인 codepilot 터미널 찾아서 종료
                 try {
                     const aidevTerminals = vscode.window.terminals.filter(t =>
-                        t.name.startsWith('aidev-ide Terminal') && t.exitStatus === undefined
+                        t.name.startsWith('codepilot Terminal') && t.exitStatus === undefined
                     );
                     for (const terminal of aidevTerminals) {
                         try {
-                            console.log(`[TerminalManager] 기존 aidev-ide 터미널 종료 시도: ${terminal.name}`);
+                            console.log(`[TerminalManager] 기존 codepilot 터미널 종료 시도: ${terminal.name}`);
                             terminal.sendText('\x03'); // Ctrl+C
                             await new Promise(resolve => setTimeout(resolve, 300));
                             terminal.dispose();
@@ -1045,7 +1045,7 @@ export class TerminalManager {
                 '실행', '취소'
             );
             if (answer !== '실행') {
-                vscode.window.showInformationMessage('aidev-ide: 위험 명령어 실행이 취소되었습니다.');
+                vscode.window.showInformationMessage('codepilot: 위험 명령어 실행이 취소되었습니다.');
                 return false;
             }
         }
@@ -1095,7 +1095,7 @@ export class TerminalManager {
             channel.appendLine(`Command: ${cleanCommand}`);
             channel.appendLine(`Working Directory: ${cwd || '(not set)'}`);
 
-            const terminal = TerminalManager.getAidevIdeTerminal(projectRoot, true);
+            const terminal = TerminalManager.getCodepilotTerminal(projectRoot, true);
             if (!terminal.state.isInteractedWith) {
                 terminal.show();
             }
@@ -1109,11 +1109,11 @@ export class TerminalManager {
                     }, 2000);
                 }
                 vscode.window.showInformationMessage(
-                    `aidev-ide: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`,
+                    `codepilot: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`,
                     { modal: false }
                 );
             } else {
-                vscode.window.showInformationMessage(`aidev-ide: Bash 명령어 실행됨 - ${command}`);
+                vscode.window.showInformationMessage(`codepilot: Bash 명령어 실행됨 - ${command}`);
             }
 
             channel.appendLine(`----- Command Sent to VS Code Terminal -----`);
@@ -1161,7 +1161,7 @@ export class TerminalManager {
                 channel.appendLine(`[DEBUG] Command normalized: && removed or path normalized`);
             }
 
-            const terminal = TerminalManager.getAidevIdeTerminal(projectRoot, true);
+            const terminal = TerminalManager.getCodepilotTerminal(projectRoot, true);
 
             if (cwd) {
                 terminal.sendText(`cd "${cwd}"`);
@@ -1240,7 +1240,7 @@ export class TerminalManager {
                         }
 
                         if (!retrySuccess) {
-                            vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 실패 (${cleanCommand})`);
+                            vscode.window.showErrorMessage(`codepilot: Long-running 명령 실패 (${cleanCommand})`);
                         }
                     } else {
                         channel.appendLine(`----- Long-running Command Completed -----`);
@@ -1283,7 +1283,7 @@ export class TerminalManager {
                     }
 
                     if (!retrySuccess) {
-                        vscode.window.showErrorMessage(`aidev-ide: Long-running 명령 오류 (${cleanCommand})`);
+                        vscode.window.showErrorMessage(`codepilot: Long-running 명령 오류 (${cleanCommand})`);
                     }
                 });
                 channel.appendLine(`----- Long-running Command Started -----`);
@@ -1345,7 +1345,7 @@ export class TerminalManager {
                 }
 
                 if (!retrySuccess) {
-                    vscode.window.showErrorMessage(`aidev-ide: 명령 실패 (${cleanCommand})`);
+                    vscode.window.showErrorMessage(`codepilot: 명령 실패 (${cleanCommand})`);
                     return false;
                 }
 
@@ -1406,7 +1406,7 @@ export class TerminalManager {
             if (result.code !== 0 || isErrorLike(result.stderr)) {
                 channel.appendLine(`----- Exit code: ${result.code} -----`);
                 channel.show(true);
-                vscode.window.showErrorMessage(`aidev-ide: 명력 실패 (${cleanCommand})`);
+                vscode.window.showErrorMessage(`codepilot: 명력 실패 (${cleanCommand})`);
                 return false;
             }
             console.log(`[TerminalManager] Executed locally (fallback): ${cleanCommand}`);
@@ -2415,7 +2415,7 @@ JSON 형식으로 응답해주세요:
 - 중요한 작업 전에는 백업을 권장합니다
 
 ---
-*이 보고서는 aidev-ide의 자동 오류 수정 시스템에 의해 생성되었습니다.*`;
+*이 보고서는 codepilot의 자동 오류 수정 시스템에 의해 생성되었습니다.*`;
 
             this.currentWebview.postMessage({
                 command: 'showErrorCorrectionSummary',

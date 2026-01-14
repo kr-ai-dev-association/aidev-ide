@@ -4,9 +4,10 @@ import { getHtmlContentWithUris } from '../../utils';
 import { PromptType, NotificationService, LicenseService, GitRepositoryService, GeminiApi } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
+import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'aidevIde.chatView';
+    public static readonly viewType = 'codepilot.chatView';
     private _view?: vscode.WebviewView;
 
     constructor(
@@ -25,19 +26,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
-        this._view = webviewView;
-        try { webviewView.title = 'Codepilot'; } catch { }
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                this.extensionUri,
-                vscode.Uri.joinPath(this.extensionUri, 'webview'),
-                vscode.Uri.joinPath(this.extensionUri, 'media'),
-                vscode.Uri.joinPath(this.extensionUri, 'dist'),
-                vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
-            ]
-        };
-        webviewView.webview.html = getHtmlContentWithUris(this.extensionUri, 'chat', webviewView.webview);
+        console.log('[ChatViewProvider] resolveWebviewView called');
+        try {
+            this._view = webviewView;
+            try { webviewView.title = 'Codepilot'; } catch (e) {
+                console.warn('[ChatViewProvider] Failed to set title:', e);
+            }
+
+            console.log('[ChatViewProvider] Setting webview options...');
+            webviewView.webview.options = {
+                enableScripts: true,
+                localResourceRoots: [
+                    this.extensionUri,
+                    vscode.Uri.joinPath(this.extensionUri, 'webview'),
+                    vscode.Uri.joinPath(this.extensionUri, 'media'),
+                    vscode.Uri.joinPath(this.extensionUri, 'dist'),
+                    vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
+                ]
+            };
+
+            console.log('[ChatViewProvider] Loading HTML content...');
+            const htmlContent = getHtmlContentWithUris(this.extensionUri, 'chat', webviewView.webview);
+            if (htmlContent && !htmlContent.includes('Error loading')) {
+                webviewView.webview.html = htmlContent;
+                console.log('[ChatViewProvider] HTML content loaded successfully');
+            } else {
+                console.error('[ChatViewProvider] Failed to load HTML content:', htmlContent);
+                webviewView.webview.html = `<html><body><h1>Error loading chat view</h1><p>${htmlContent || 'Unknown error'}</p></body></html>`;
+            }
+        } catch (error) {
+            console.error('[ChatViewProvider] Error in resolveWebviewView:', error);
+            webviewView.webview.html = `<html><body><h1>Error initializing chat view</h1><p>${error instanceof Error ? error.message : String(error)}</p></body></html>`;
+        }
 
         // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
         // LLMApiClient는 ConversationManager에서 관리되므로 여기서는 웹뷰만 설정
@@ -48,15 +68,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // TaskManager를 초기화하여 실행 경로에서도 작업 큐가 생성되도록 함
         try {
             const taskManager = TaskManager.getInstance(this.context);
-            console.log('[ChatViewProvider] TaskManager 초기화 완료');
         } catch (e) {
-            console.warn('[ChatViewProvider] TaskManager 초기화 실패:', e);
         }
 
         // Git 리포지토리 정보 표시
         // this.showGitRepositoryInfo(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
+
+            // ✅ __BOOT_PING__ 테스트 메시지 확인
+            if (data.command === '__BOOT_PING__') {
+                return;
+            }
+
+
+            // ✅ 테스트 메시지 처리
+            if (data.command === '__PING__') {
+                return;
+            }
+
             switch (data.command) {
                 case 'priorityErrorPrompt': {
                     try {
@@ -72,7 +102,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             });
                         }
                     } catch (e) {
-                        console.warn('[ChatViewProvider] priorityErrorPrompt failed:', e);
                     }
                     break;
                 }
@@ -107,7 +136,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             current: currentModel
                         });
                     } catch (e) {
-                        console.warn('[ChatViewProvider] getOllamaModels failed:', e);
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models: [],
@@ -123,12 +151,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             throw new Error('Invalid model name');
                         }
                         const stateManager = StateManager.getInstance(this.context);
-                        
+
                         // Ollama 모델인 경우 엔진을 ollama로 설정하고 모델명 저장
                         await stateManager.saveAiModel('ollama');
                         await stateManager.saveCurrentAiModel('ollama');
                         await stateManager.saveOllamaModel(modelName);
-                        
+
                         // 원격 서버를 사용하는 경우에도 모델명이 적용되도록 저장
                         const serverType = await stateManager.getOllamaServerType();
                         if (serverType === 'remote') {
@@ -139,13 +167,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         if (this.ollamaApi) {
                             this.ollamaApi.setModel(modelName);
                         }
-                        
+
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
                             model: modelName
                         });
                     } catch (e) {
-                        console.warn('[ChatViewProvider] setOllamaModel failed:', e);
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
                             model: '',
@@ -161,23 +188,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             throw new Error('Invalid model name');
                         }
                         const stateManager = StateManager.getInstance(this.context);
-                        
+
                         // Gemini 모델인 경우 엔진을 gemini로 설정하고 모델명 저장
                         await stateManager.saveAiModel('gemini');
                         await stateManager.saveCurrentAiModel('gemini');
                         await stateManager.saveGeminiModel(modelName);
-                        
+
                         // GeminiApi 인스턴스 업데이트
                         if (this.geminiApi) {
                             this.geminiApi.updateModelName(modelName);
                         }
-                        
+
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged', // 기존 UI 호환성을 위해 동일한 명령 사용 가능 또는 새 명령 정의
                             model: modelName
                         });
                     } catch (e) {
-                        console.warn('[ChatViewProvider] setGeminiModel failed:', e);
                     }
                     break;
                 }
@@ -190,14 +216,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
                         }
                     } catch (e) {
-                        console.warn('[ChatViewProvider] openFileInEditor failed:', e);
                         this.notificationService.showErrorMessage('파일을 열 수 없습니다.');
                     }
                     break;
                 }
                 case 'analyzeErrors': {
                     try {
-                        console.log('[ChatViewProvider] 오류 분석 요청');
                         // 🆕 ErrorManager를 사용하여 최근 오류 분석
                         const { ErrorManager } = await import('../../core/managers/error/ErrorManager');
                         const { ErrorSource } = await import('../../core/managers/error/types');
@@ -270,7 +294,6 @@ ${JSON.stringify(errorContext, null, 2)}
 
                         this.notificationService.showInfoMessage('오류 분석을 시작했습니다.');
                     } catch (e) {
-                        console.warn('[ChatViewProvider] analyzeErrors failed:', e);
                         this.notificationService.showErrorMessage('오류 분석 중 문제가 발생했습니다.');
                     }
                     break;
@@ -295,7 +318,7 @@ ${JSON.stringify(errorContext, null, 2)}
 
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: licenseNotSetMessage
                         });
                         return;
@@ -307,7 +330,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     if (!verificationResult.success) {
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: `시리얼 번호 검증 실패: ${verificationResult.message}`
                         });
                         return;
@@ -336,7 +359,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     if (data.panel === 'settings') this.openSettingsPanel(panelViewColumn);
                     break;
                 case 'webviewLoaded':
-                    console.log('[ChatViewProvider] Chat webview loaded.');
                     break;
                 case 'cancelGeminiCall':
                     console.log('[Extension Host] Received cancelGeminiCall command.');
@@ -347,6 +369,28 @@ ${JSON.stringify(errorContext, null, 2)}
                     webviewView.webview.postMessage({ command: 'resetProcessingState' });
                     this.notificationService.showInfoMessage('전송을 취소하였습니다.');
                     break;
+                case 'approveAllChanges': {
+                    try {
+                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        await inlineDiffManager.acceptAllChangesForAllFiles();
+                        this.notificationService.showInfoMessage('모든 변경사항이 승인되었습니다.');
+                    } catch (e) {
+                        this.notificationService.showErrorMessage('변경사항 승인에 실패했습니다.');
+                    }
+                    break;
+                }
+                case 'rejectAllChanges': {
+                    try {
+                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        await inlineDiffManager.rejectAllChangesForAllFiles();
+                        this.notificationService.showInfoMessage('모든 변경사항이 거부되었습니다.');
+                    } catch (e) {
+                        this.notificationService.showErrorMessage('변경사항 거부에 실패했습니다.');
+                    }
+                    break;
+                }
                 case 'cancelAutoCorrection':
                     console.log('[Extension Host] Received cancelAutoCorrection command.');
                     webviewView.webview.postMessage({
@@ -382,7 +426,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         await ConversationService.clearHistory(PromptType.CODE_GENERATION, this.context);
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: '대화기록이 삭제되었습니다.'
                         });
                         // React 컴포넌트에도 메시지 초기화 신호 전송
@@ -390,10 +434,9 @@ ${JSON.stringify(errorContext, null, 2)}
                             command: 'clearHistory'
                         });
                     } catch (error) {
-                        console.error('[ChatViewProvider] Failed to clear history:', error);
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
-                            sender: 'AIDEV-IDE',
+                            sender: 'CODEPILOT',
                             text: '대화기록 삭제에 실패했습니다.'
                         });
                     }
@@ -405,7 +448,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 case 'projectTypeSelected': // 사용자가 프로젝트 타입을 선택한 경우
-                    console.log('[ChatViewProvider] 프로젝트 타입 선택됨:', data.projectType);
                     try {
                         // 선택된 프로젝트 타입을 저장하고 현재 요청을 다시 처리
                         // 이는 임시로 전역 변수나 storage에 저장하고 재요청하는 방식으로 구현 가능
@@ -413,7 +455,6 @@ ${JSON.stringify(errorContext, null, 2)}
                         this.notificationService.showInfoMessage(`프로젝트 타입이 선택되었습니다: ${data.projectType}`);
                         // TODO: 선택된 프로젝트 타입을 사용하여 요청 재처리
                     } catch (error) {
-                        console.error('[ChatViewProvider] 프로젝트 타입 선택 처리 실패:', error);
                     }
                     break;
                 case 'getLanguage':
@@ -426,7 +467,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 case 'languageChanged':
-                    console.log('[ChatViewProvider] Language changed to:', data.language);
                     // 언어 변경 시 언어 데이터를 다시 요청
                     try {
                         const language = data.language;
@@ -462,10 +502,67 @@ ${JSON.stringify(errorContext, null, 2)}
                         }
                     }
                     break;
+                case 'openFile':
+                    try {
+                        const filePath = data.filePath;
+                        if (!filePath) {
+                            break;
+                        }
+
+                        // 워크스페이스 루트 확인
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                        if (!workspaceRoot) {
+                            break;
+                        }
+
+                        // 상대 경로를 절대 경로로 변환
+                        const absolutePath = path.isAbsolute(filePath)
+                            ? filePath
+                            : path.join(workspaceRoot, filePath);
+
+                        const fileUri = vscode.Uri.file(absolutePath);
+
+                        // 파일 열기
+                        const document = await vscode.workspace.openTextDocument(fileUri);
+
+                        // ✅ 파일을 열고 포커스를 이동시킴
+                        const editor = await vscode.window.showTextDocument(document, {
+                            preview: false,
+                            preserveFocus: false,
+                            viewColumn: vscode.ViewColumn.Active
+                        });
+
+                        // ✅ 수정된 위치로 이동 (있으면)
+                        if (editor) {
+                            const diffManager = InlineDiffManager.getInstance();
+                            const firstModifiedLine = diffManager.getFirstModifiedLine(absolutePath);
+
+                            if (firstModifiedLine !== null && firstModifiedLine >= 0) {
+                                // 수정된 첫 번째 라인으로 이동
+                                const targetLine = Math.min(firstModifiedLine, document.lineCount - 1);
+                                const position = new vscode.Position(targetLine, 0);
+                                editor.selection = new vscode.Selection(position, position);
+                                editor.revealRange(
+                                    new vscode.Range(position, position),
+                                    vscode.TextEditorRevealType.InCenter
+                                );
+                            } else {
+                                // 수정된 위치가 없으면 첫 번째 줄로 이동
+                                const firstLine = new vscode.Position(0, 0);
+                                editor.selection = new vscode.Selection(firstLine, firstLine);
+                                editor.revealRange(
+                                    new vscode.Range(firstLine, firstLine),
+                                    vscode.TextEditorRevealType.InCenter
+                                );
+                            }
+                        }
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`파일을 열 수 없습니다: ${error.message || error}`);
+                    }
+                    break;
             }
         });
         webviewView.onDidDispose(() => {
-            console.log('[ChatViewProvider] Chat view disposed');
             this._view = undefined;
             // webview는 직접 관리하므로 별도 설정 불필요
         }, null, this.context.subscriptions);
@@ -530,10 +627,8 @@ ${JSON.stringify(errorContext, null, 2)}
 
     private async executeBashCommands(commands: string[]): Promise<void> {
         try {
-            console.log('[ChatViewProvider] executeBashCommands called with:', commands);
 
             if (!commands || commands.length === 0) {
-                console.log('[ChatViewProvider] No commands to execute');
                 return;
             }
 
@@ -546,7 +641,6 @@ ${JSON.stringify(errorContext, null, 2)}
             // OS 정보 가져오기
             const platform = require('os').platform();
             const userOS = platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : platform === 'linux' ? 'linux' : 'unknown';
-            console.log('[ChatViewProvider] Detected user OS:', userOS);
 
             // OS별 적절한 셸 선택
             let shellPath: string;
@@ -570,12 +664,9 @@ ${JSON.stringify(errorContext, null, 2)}
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
             const terminalCwd = await this.configurationService.getProjectRoot();
             if (terminalCwd) {
-                console.log('[ChatViewProvider] Using workspace root for terminal:', terminalCwd);
             } else {
-                console.warn('[ChatViewProvider] 워크스페이스가 열려있지 않습니다.');
             }
 
-            console.log('[ChatViewProvider] Creating new terminal with shell:', shellPath, 'cwd:', terminalCwd);
             const terminal = vscode.window.createTerminal({ name: terminalName, shellPath, cwd: terminalCwd });
             terminal.show();
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -591,14 +682,12 @@ ${JSON.stringify(errorContext, null, 2)}
                 terminal.sendText(heredoc);
             }
 
-            console.log(`[ChatViewProvider] Submitted script as single block (${commands.length} logical lines)`);
 
             setTimeout(() => {
                 this._view?.webview.postMessage({ command: 'hideRunExecution' });
             }, 2000);
 
         } catch (error) {
-            console.error('[ChatViewProvider] Error executing commands:', error);
             this._view?.webview.postMessage({ command: 'hideRunExecution' });
             this.notificationService.showErrorMessage('명령어 실행 중 오류가 발생했습니다.');
         }
@@ -632,7 +721,6 @@ ${JSON.stringify(errorContext, null, 2)}
     //                 });
     //             }
     //         } catch (error) {
-    //             console.error('[ChatViewProvider] Git 리포지토리 정보 표시 실패:', error);
     //         }
     //     }
 }

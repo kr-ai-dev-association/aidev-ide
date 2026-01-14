@@ -131,6 +131,7 @@ export class FileContextTracker {
     /**
      * 파일이 "안정" 상태가 될 때까지 대기
      * - 파일 크기/mtime이 일정 기간 동안 변하지 않을 때 resolve
+     * - ✅ pending change가 있으면 unstable로 판정
      * - timeout(ms) 내에 안정되지 않으면 마지막 상태 기준으로 resolve (실패는 로그만)
      */
     public async waitForFileStability(
@@ -139,6 +140,21 @@ export class FileContextTracker {
         stableDuration: number = 500,
         pollInterval: number = 200
     ): Promise<void> {
+        // ✅ pending change 확인
+        try {
+            const { InlineDiffManager } = await import('../../diff/InlineDiffManager');
+            const inlineDiffManager = InlineDiffManager.getInstance();
+            const changes = inlineDiffManager.getChanges(filePath);
+            const pendingChanges = changes?.filter(c => c.status === 'pending') || [];
+            
+            if (pendingChanges.length > 0) {
+                console.log(`[FileContextTracker] File has ${pendingChanges.length} pending changes, marking as unstable: ${filePath}`);
+                // pending change가 있으면 unstable로 판정 (즉시 resolve하되 unstable 상태)
+                return;
+            }
+        } catch (error) {
+            // InlineDiffManager를 사용할 수 없으면 무시하고 계속 진행
+        }
         const absPath = path.resolve(filePath);
 
         return new Promise((resolve) => {

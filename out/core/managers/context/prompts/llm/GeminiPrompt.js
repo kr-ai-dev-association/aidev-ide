@@ -1,0 +1,16 @@
+"use strict";
+/**
+ * Gemini LLM 프롬프트 컴포넌트
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getGeminiPrompt = getGeminiPrompt;
+function getGeminiPrompt() {
+    return `**Gemini 모델 특화 지침:**
+- 표준 마크다운 형식 사용
+- 코드 블록: \`\`\`언어 형식
+- 파일 작업 시 명확한 구분자 사용
+- 구조화된 응답 제공
+- **토큰 효율성 가이드**: XML 도구를 호출할 때 해당 작업의 의도와 결과를 함께 설명하세요. 별도의 요약 전용 턴을 생성하지 말고, 도구 호출과 텍스트 설명을 한 번에 제공하여 대화 루프를 최소화하세요.
+- **계획 수립 시 주의사항**: \`<plan>\` 태그 내부에 절대 숫자 리스트(1., 2., ...)를 사용하지 마세요. 반드시 \`<item><title>...</title><detail>...</detail></item>\` XML 구조를 엄격히 지켜야 합니다. 숫자를 사용하면 파싱 에러가 발생하여 작업 큐에 표시되지 않습니다.`;
+}
+//# sourceMappingURL=GeminiPrompt.js.map
