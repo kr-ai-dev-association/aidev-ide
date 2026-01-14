@@ -13211,7 +13211,7 @@ function displayCodePilotMessage(markdownText) {
         diffIcon.href = `codepilot://diff?path=${encodedPath}`;
         diffIcon.style.cssText = `
                     cursor: pointer;
-                    margin-left: 8px;
+                    margin-left: 4px;
                     opacity: 0.7;
                     transition: opacity 0.2s;
                     display: inline-flex;
@@ -13255,7 +13255,7 @@ function displayCodePilotMessage(markdownText) {
         openFileIcon.href = `codepilot://open?path=${encodedPath}`;
         openFileIcon.style.cssText = `
                     cursor: pointer;
-                    margin-left: 8px;
+                    margin-left: 4px;
                     opacity: 0.7;
                     transition: opacity 0.2s;
                     display: inline-flex;
