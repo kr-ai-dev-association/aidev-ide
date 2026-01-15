@@ -359,26 +359,6 @@ export class SessionManager {
     }
 
     /**
-     * 캐시된 파일 내용 가져오기
-     */
-    public async getCachedFile(filePath: string): Promise<string | null> {
-        if (!this.contextCache) {
-            return null;
-        }
-        return await this.contextCache.getFile(filePath);
-    }
-
-    /**
-     * 파일을 캐시에 추가
-     */
-    public async cacheFile(filePath: string): Promise<void> {
-        if (!this.contextCache) {
-            return;
-        }
-        await this.contextCache.cacheFile(filePath);
-    }
-
-    /**
      * 프로젝트 컨텍스트 캐시 무효화
      */
     public invalidateProjectCache(projectPath: string): void {

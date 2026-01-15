@@ -313,6 +313,23 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             await projManager.initialize(workspacePath);
             // Project Manager initialized
+
+            // 워크스페이스가 열릴 때 자동으로 세션 생성 및 캐시 미리 로드
+            const existingSession = sessionManager.findSessionByProject(workspacePath);
+            if (!existingSession) {
+                // 새 세션 생성
+                const newSession = sessionManager.createSession(workspacePath);
+                console.log(`[Extension] Auto-created session for workspace: ${workspacePath}`);
+            } else {
+                // 기존 세션을 현재 세션으로 설정
+                sessionManager.setCurrentSession(existingSession.id);
+                console.log(`[Extension] Restored existing session: ${existingSession.id}`);
+            }
+
+            // 프로젝트 컨텍스트 캐시 미리 로드 (비동기, 백그라운드)
+            sessionManager.preloadProjectContext(workspacePath).catch(err => {
+                console.warn('[Extension] Failed to preload project context:', err);
+            });
         } catch (error) {
             console.error('[Extension] Failed to initialize Project Manager:', error);
         }
@@ -334,7 +351,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Manager 간 연결 설정
     contextManager.setErrorManager(errorManager);
-    
+
     // LLM Manager를 ContextManager에 설정 (내용 기반 relevance scoring용)
     // llmManager는 아래에서 초기화되므로 나중에 설정
 
@@ -375,11 +392,11 @@ export async function activate(context: vscode.ExtensionContext) {
     conversationManager.setIntentDetector(intentDetector);
     conversationManager.setExternalApiService(externalApiService);
     conversationManager.configurePlanManager(llmApiClient, currentAiModel);
-    
+
     // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
     const contextHistoryManager = ContextHistoryManager.getInstance(context);
     conversationManager.setContextHistoryManager(contextHistoryManager);
-    
+
     // LLM Manager를 ContextManager에 설정 (내용 기반 relevance scoring용)
     contextManager.setLLMManager(llmManager);
 
@@ -432,7 +449,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('codepilot.acceptAllChanges', async () => {
             const inlineDiffManager = InlineDiffManager.getInstance();
             const pendingFiles = inlineDiffManager.getAllPendingFiles();
-            
+
             for (const filePath of pendingFiles) {
                 await inlineDiffManager.acceptAllChanges(filePath);
             }
@@ -445,7 +462,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('codepilot.rejectAllChanges', async () => {
             const inlineDiffManager = InlineDiffManager.getInstance();
             const pendingFiles = inlineDiffManager.getAllPendingFiles();
-            
+
             for (const filePath of pendingFiles) {
                 await inlineDiffManager.rejectAllChanges(filePath);
             }
@@ -477,7 +494,7 @@ export async function activate(context: vscode.ExtensionContext) {
             await diffManager.showFileDiff(filePath);
         })
     );
-    
+
     // Tool 핸들러 등록
     const toolRegistry = ToolRegistry.getInstance();
     toolRegistry.register(new CreateFileToolHandler());
@@ -540,7 +557,7 @@ export async function activate(context: vscode.ExtensionContext) {
             webviewOptions: { retainContextWhenHidden: true }
         })
     );
-    
+
     // 웹뷰 자동 열기 (약간의 지연 후)
     setTimeout(async () => {
         try {
@@ -703,7 +720,7 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
             const stats = sessionManager.getCacheStats();
-            
+
             if (!stats) {
                 vscode.window.showWarningMessage('캐시 통계를 가져올 수 없습니다.');
                 return;
