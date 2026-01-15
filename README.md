@@ -6,6 +6,25 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.7.3 (Retry Count Default Update & UI Improvements)
+- **Default Retry Count Increase**: Increased default retry counts for better error recovery.
+  - Error auto-correction default retry count: 3 → 5
+  - Auto test retry default count: 3 → 5
+- **UI Terminology Update**: Changed "Auto Test Retry on Failure" to "Auto Code Validation" for clearer semantics
+- **Pending Changes Synchronization**: Improved synchronization between chat panel and dropdown.
+  - Clicking Keep/Undo in chat panel now removes all buttons for the same file across all code blocks
+  - Pending changes dropdown automatically updates when changes are accepted/rejected from chat panel
+
+## v8.7.2 (Prompt Rules Conflict Resolution)
+- **Prompt Rules Priority Clarification**: Resolved prompt rule conflicts that caused LLM confusion and inaction.
+  - Added clear priority order: 1) Information gathering first, 2) Complex tasks need planning, 3) Action priority, 4) Execution-focused
+  - Updated `getBaseRules()` with prioritized rule structure and practical examples
+  - Added "When in doubt, read files and execute" guideline to prevent analysis paralysis
+  - Enhanced `getNoInternalMonologueRules()` with exception clause for unclear situations
+  - Improved `getCodeWorkPrompt()` and `getExecutionWorkPrompt()` with task mode decision guidelines
+  - Fixed issue where LLM would output internal reasoning ("We need to...", "According to...") without taking action
+  - Added explicit examples showing correct workflow (read → execute) vs incorrect workflow (internal monologue only)
+
 ## v8.7.1 (Pending Changes UI Improvements)
 - **Pending Changes Dropdown UI Enhancements**: Improved the pending changes dropdown interface with better usability.
   - File path display: Shows full relative path (e.g., `src/app.ts`) instead of just filename

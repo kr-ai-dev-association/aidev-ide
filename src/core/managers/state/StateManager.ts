@@ -516,7 +516,7 @@ export class StateManager {
     }
 
     public async getErrorRetryCount(): Promise<number> {
-        return this.context.workspaceState.get<number>(this.ERROR_RETRY_COUNT_KEY) ?? 3;
+        return this.context.workspaceState.get<number>(this.ERROR_RETRY_COUNT_KEY) ?? 5;
     }
 
     // Auto correction enabled

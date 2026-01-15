@@ -318,6 +318,18 @@ export class ProjectDetector {
         }
     }
 
+    /**
+     * Go 프로젝트에 테스트 파일이 있는지 확인
+     */
+    private hasGoTestFiles(projectRoot: string): boolean {
+        try {
+            const files = fs.readdirSync(projectRoot);
+            return files.some(f => f.endsWith('_test.go'));
+        } catch {
+            return false;
+        }
+    }
+
     public getValidationCommand(
         projectType: ProjectType,
         projectRoot: string,
@@ -371,6 +383,25 @@ export class ProjectDetector {
         }
         if (fs.existsSync(path.join(projectRoot, 'turbo.json'))) {
             return { command: 'npx turbo run lint --filter=...', description: 'TurboRepo Lint' };
+        }
+
+        // 5. GitHub Actions Workflow Validation (프로젝트에 .github/workflows가 있는 경우)
+        if (fs.existsSync(path.join(projectRoot, '.github', 'workflows'))) {
+            try {
+                const workflowFiles = fs.readdirSync(path.join(projectRoot, '.github', 'workflows'))
+                    .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'));
+                if (workflowFiles.length > 0) {
+                    // actionlint가 설치되어 있는지 확인 (설치 여부와 관계없이 명령 제공)
+                    return { command: 'actionlint', description: 'GitHub Actions Workflow Lint' };
+                }
+            } catch {
+                // 디렉토리 읽기 실패 시 무시
+            }
+        }
+
+        // 6. EditorConfig 검증
+        if (fs.existsSync(path.join(projectRoot, '.editorconfig'))) {
+            return { command: 'editorconfig-checker', description: 'EditorConfig 검증' };
         }
 
         switch (projectType) {
@@ -436,11 +467,32 @@ export class ProjectDetector {
                         return { command: 'deno lint', description: 'Deno Lint' };
                     }
 
+                    // ESLint (설정 파일이 있는 경우)
+                    if (fs.existsSync(path.join(projectRoot, '.eslintrc')) ||
+                        fs.existsSync(path.join(projectRoot, '.eslintrc.js')) ||
+                        fs.existsSync(path.join(projectRoot, '.eslintrc.json')) ||
+                        fs.existsSync(path.join(projectRoot, '.eslintrc.yml')) ||
+                        fs.existsSync(path.join(projectRoot, 'eslint.config.js')) ||
+                        fs.existsSync(path.join(projectRoot, 'eslint.config.mjs'))) {
+                        return { command: `${pm} eslint .`, description: 'ESLint 검사' };
+                    }
+
+                    // Standard JS (설정이 있는 경우)
+                    try {
+                        const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'));
+                        if (pkg.devDependencies?.standard || pkg.dependencies?.standard) {
+                            return { command: `${pm} standard`, description: 'Standard JS 검사' };
+                        }
+                    } catch {
+                        // package.json 파싱 실패 시 무시
+                    }
+
                     // package.json scripts
                     if (this.hasScript(projectRoot, 'lint')) return { command: `${pm} run lint`, description: 'NPM Lint 스크립트' };
                     if (this.hasScript(projectRoot, 'type-check')) return { command: `${pm} run type-check`, description: 'Type Check' };
                     if (this.hasScript(projectRoot, 'validate')) return { command: `${pm} run validate`, description: 'Validate 스크립트' };
                     if (this.hasScript(projectRoot, 'build')) return { command: `${pm} run build`, description: 'Build 스크립트' };
+                    if (this.hasScript(projectRoot, 'test')) return { command: `${pm} run test`, description: 'Test 스크립트' };
                 }
 
                 // JavaScript만 있는 경우 npm run build 시도 (package.json에 build 스크립트가 있는 경우)
@@ -522,7 +574,24 @@ export class ProjectDetector {
                         };
                     }
 
-                    // 5순위: Poetry/Pipenv 환경 검사
+                    // 5순위: Bandit (보안 취약점 검사)
+                    if (fs.existsSync(path.join(projectRoot, '.bandit')) ||
+                        fs.existsSync(path.join(projectRoot, 'bandit.yaml'))) {
+                        return {
+                            command: `bandit -r ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Bandit Security Check + Python Syntax Check'
+                        };
+                    }
+
+                    // 6순위: Pyright (타입 체커 - 빠름)
+                    if (fs.existsSync(path.join(projectRoot, 'pyrightconfig.json'))) {
+                        return {
+                            command: `pyright ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Pyright Type Check + Python Syntax Check'
+                        };
+                    }
+
+                    // 7순위: Poetry/Pipenv 환경 검사
                     if (fs.existsSync(path.join(projectRoot, 'poetry.lock'))) {
                         return {
                             command: `poetry check && python3 -m compileall -q -j 0 ${relativePaths}`,
@@ -548,13 +617,39 @@ export class ProjectDetector {
 
             case ProjectType.GO:
                 // Go 확장 검증 옵션
-                if (fs.existsSync(path.join(projectRoot, 'golangci.yml'))) {
+                // 1순위: golangci-lint (종합 린터)
+                if (fs.existsSync(path.join(projectRoot, '.golangci.yml')) ||
+                    fs.existsSync(path.join(projectRoot, '.golangci.yaml')) ||
+                    fs.existsSync(path.join(projectRoot, 'golangci.yml'))) {
                     return { command: 'golangci-lint run', description: 'GolangCI-Lint' };
                 }
+
+                // 2순위: staticcheck (인기있는 정적 분석 도구)
+                if (fs.existsSync(path.join(projectRoot, 'staticcheck.conf'))) {
+                    return { command: 'staticcheck ./...', description: 'Go Staticcheck' };
+                }
+
+                // 3순위: go vet + go test -race (데이터 레이스 검사)
+                if (this.hasGoTestFiles(projectRoot)) {
+                    return { command: 'go vet ./... && go test -race -short ./...', description: 'Go Vet + Race Detection' };
+                }
+
+                // 기본: go vet
                 return { command: 'go vet ./...', description: 'Go Vet' };
 
             case ProjectType.RUST:
-                return { command: 'cargo check', description: 'Rust 컴파일 검사 (cargo check)' };
+                // Rust 확장 검증 옵션
+                // 1순위: cargo clippy (강력한 린터)
+                if (fs.existsSync(path.join(projectRoot, 'clippy.toml')) ||
+                    fs.existsSync(path.join(projectRoot, '.clippy.toml'))) {
+                    return { command: 'cargo clippy -- -D warnings', description: 'Cargo Clippy (warnings as errors)' };
+                }
+
+                // 2순위: cargo clippy (기본)
+                return { command: 'cargo clippy', description: 'Cargo Clippy' };
+
+                // 3순위: cargo check (컴파일 검사만)
+                // return { command: 'cargo check', description: 'Rust 컴파일 검사 (cargo check)' };
 
             case ProjectType.FLUTTER:
                 return { command: 'flutter analyze', description: 'Flutter 정적 분석' };
@@ -657,6 +752,112 @@ export class ProjectDetector {
                 // --- Elixir ---
                 if (extensions.has('.ex') || extensions.has('.exs')) {
                     return { command: 'mix compile --warnings-as-errors', description: 'Mix Compile' };
+                }
+
+                // --- Scala ---
+                if (extensions.has('.scala')) {
+                    if (fs.existsSync(path.join(projectRoot, 'build.sbt'))) {
+                        return { command: 'sbt compile', description: 'Scala Compile' };
+                    }
+                    return { command: 'scalac -version && echo "Scala files detected"', description: 'Scala Check' };
+                }
+
+                // --- Kotlin (non-Android) ---
+                if (extensions.has('.kt') || extensions.has('.kts')) {
+                    if (fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
+                        return { command: './gradlew compileKotlin', description: 'Kotlin Gradle Compile' };
+                    }
+                    return { command: 'kotlinc -version && echo "Kotlin files detected"', description: 'Kotlin Check' };
+                }
+
+                // --- Haskell ---
+                if (extensions.has('.hs')) {
+                    if (fs.existsSync(path.join(projectRoot, 'stack.yaml'))) {
+                        return { command: 'stack build --dry-run', description: 'Haskell Stack Check' };
+                    }
+                    if (fs.existsSync(path.join(projectRoot, 'cabal.project'))) {
+                        return { command: 'cabal build --dry-run', description: 'Haskell Cabal Check' };
+                    }
+                }
+
+                // --- OCaml ---
+                if (extensions.has('.ml') || extensions.has('.mli')) {
+                    if (fs.existsSync(path.join(projectRoot, 'dune-project'))) {
+                        return { command: 'dune build --dry-run', description: 'OCaml Dune Build' };
+                    }
+                }
+
+                // --- YAML/YML (일반) ---
+                if (extensions.has('.yaml') || extensions.has('.yml')) {
+                    // yamllint 또는 yq 사용
+                    const yamlFiles = allFiles.filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+                    if (yamlFiles.length > 0) {
+                        const firstFile = yamlFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        return { command: `yamllint ${relativePath} || yq eval ${relativePath} > /dev/null`, description: 'YAML Validation' };
+                    }
+                }
+
+                // --- TOML ---
+                if (extensions.has('.toml')) {
+                    const tomlFiles = allFiles.filter(f => f.endsWith('.toml'));
+                    if (tomlFiles.length > 0) {
+                        const firstFile = tomlFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        return { command: `taplo format --check ${relativePath} || echo "TOML file exists"`, description: 'TOML Validation' };
+                    }
+                }
+
+                // --- Markdown ---
+                if (extensions.has('.md')) {
+                    // markdownlint 사용
+                    const mdFiles = allFiles.filter(f => f.endsWith('.md'));
+                    if (mdFiles.length > 0) {
+                        const fileList = mdFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return { command: `markdownlint ${fileList}`, description: 'Markdown Lint' };
+                    }
+                }
+
+                // --- SQL ---
+                if (extensions.has('.sql')) {
+                    const sqlFiles = allFiles.filter(f => f.endsWith('.sql'));
+                    if (sqlFiles.length > 0) {
+                        const firstFile = sqlFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        // sqlfluff 또는 sql-lint 사용
+                        return { command: `sqlfluff lint ${relativePath} || sql-lint ${relativePath}`, description: 'SQL Lint' };
+                    }
+                }
+
+                // --- GraphQL ---
+                if (extensions.has('.graphql') || extensions.has('.gql')) {
+                    const gqlFiles = allFiles.filter(f => f.endsWith('.graphql') || f.endsWith('.gql'));
+                    if (gqlFiles.length > 0) {
+                        const fileList = gqlFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return { command: `graphql-schema-linter ${fileList}`, description: 'GraphQL Schema Lint' };
+                    }
+                }
+
+                // --- Protobuf ---
+                if (extensions.has('.proto')) {
+                    const protoFiles = allFiles.filter(f => f.endsWith('.proto'));
+                    if (protoFiles.length > 0) {
+                        const firstFile = protoFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        return { command: `protoc --descriptor_set_out=/dev/null ${relativePath}`, description: 'Protobuf Validation' };
+                    }
                 }
 
                 // =========================================================

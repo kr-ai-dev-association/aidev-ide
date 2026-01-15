@@ -13766,21 +13766,9 @@ if (chatMessages) {
           const filePath = decodeURIComponent(p);
           console.log('[chat.js] Accept All for file:', filePath);
 
-          // ✅ 버튼 컨테이너 찾아서 제거 (Accept/Reject 버튼 모두 제거)
-          const buttonContainer = target.closest('.bash-button-container');
-          if (buttonContainer) {
-            // Accept와 Reject 버튼 모두 제거
-            const acceptButton = buttonContainer.querySelector('.accept-all-button');
-            const rejectButton = buttonContainer.querySelector('.reject-all-button');
-            if (acceptButton) acceptButton.remove();
-            if (rejectButton) rejectButton.remove();
-
-            // 버튼이 모두 제거되었으면 컨테이너도 제거
-            if (buttonContainer.children.length === 0) {
-              buttonContainer.remove();
-            }
-            console.log('[chat.js] Accept/Reject buttons removed');
-          }
+          // ✅ 같은 파일의 모든 Keep/Undo 버튼 제거
+          removeChatPanelButtonsForFile(filePath);
+          console.log('[chat.js] All Keep/Undo buttons removed for file:', filePath);
 
           // ✅ acceptAllChangesForFile 명령 사용
           if (window.vscode && typeof window.vscode.postMessage === 'function') {
@@ -13809,21 +13797,9 @@ if (chatMessages) {
           const filePath = decodeURIComponent(p);
           console.log('[chat.js] Reject All for file:', filePath);
 
-          // ✅ 버튼 컨테이너 찾아서 제거 (Accept/Reject 버튼 모두 제거)
-          const buttonContainer = target.closest('.bash-button-container');
-          if (buttonContainer) {
-            // Accept와 Reject 버튼 모두 제거
-            const acceptButton = buttonContainer.querySelector('.accept-all-button');
-            const rejectButton = buttonContainer.querySelector('.reject-all-button');
-            if (acceptButton) acceptButton.remove();
-            if (rejectButton) rejectButton.remove();
-
-            // 버튼이 모두 제거되었으면 컨테이너도 제거
-            if (buttonContainer.children.length === 0) {
-              buttonContainer.remove();
-            }
-            console.log('[chat.js] Accept/Reject buttons removed');
-          }
+          // ✅ 같은 파일의 모든 Keep/Undo 버튼 제거
+          removeChatPanelButtonsForFile(filePath);
+          console.log('[chat.js] All Keep/Undo buttons removed for file:', filePath);
 
           // ✅ rejectAllChangesForFile 명령 사용
           if (window.vscode && typeof window.vscode.postMessage === 'function') {
@@ -13839,6 +13815,45 @@ if (chatMessages) {
         }
       } catch (e) {
         console.error("[chat.js] Failed to parse rejectAll link:", href, e);
+      }
+    }
+  });
+}
+
+/**
+ * 채팅 패널에서 특정 파일의 모든 Keep/Undo 버튼 제거
+ * @param {string} filePath - 파일 경로
+ */
+function removeChatPanelButtonsForFile(filePath) {
+  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+
+  // data-file-path 속성으로 코드 블록 찾기
+  const codeBlocks = document.querySelectorAll('.code-block-container');
+  codeBlocks.forEach(block => {
+    const dataFilePath = block.getAttribute('data-file-path');
+
+    // 파일 경로가 일치하는지 확인 (절대/상대 경로 모두 처리)
+    const isMatch = dataFilePath && (dataFilePath === filePath || dataFilePath.endsWith(fileName) || filePath.endsWith(dataFilePath) || dataFilePath.includes(fileName));
+    if (isMatch) {
+      // 해당 코드 블록 다음의 버튼 컨테이너 찾기
+      let nextElement = block.nextElementSibling;
+      while (nextElement) {
+        if (nextElement.classList.contains('bash-button-container')) {
+          const acceptBtn = nextElement.querySelector('.accept-all-button');
+          const rejectBtn = nextElement.querySelector('.reject-all-button');
+          if (acceptBtn) acceptBtn.remove();
+          if (rejectBtn) rejectBtn.remove();
+          // 버튼 컨테이너가 비어있으면 제거
+          if (nextElement.children.length === 0) {
+            nextElement.remove();
+          }
+          break;
+        }
+        // 다른 코드 블록이 나오면 중단
+        if (nextElement.classList.contains('code-block-container')) {
+          break;
+        }
+        nextElement = nextElement.nextElementSibling;
       }
     }
   });

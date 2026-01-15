@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "8.7.1",
+  "version": "8.7.3",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -253,10 +253,10 @@
         },
         "codepilot.errorRetryCount": {
           "type": "number",
-          "default": 3,
+          "default": 5,
           "minimum": 1,
           "maximum": 10,
-          "description": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 3 times)",
+          "description": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 5 times)",
           "scope": "resource"
         },
         "codepilot.autoCorrectionEnabled": {
@@ -273,10 +273,10 @@
         },
         "codepilot.testRetryCount": {
           "type": "number",
-          "default": 3,
+          "default": 5,
           "minimum": 1,
           "maximum": 10,
-          "description": "Set the maximum number of automatic test retry attempts when automated tests fail. (1-10 times, default: 3 times)",
+          "description": "Set the maximum number of automatic test retry attempts when automated tests fail. (1-10 times, default: 5 times)",
           "scope": "resource"
         },
         "codepilot.autoExecuteCommands": {

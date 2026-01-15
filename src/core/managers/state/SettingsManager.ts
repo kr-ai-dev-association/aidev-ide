@@ -298,7 +298,7 @@ export class SettingsManager extends BaseManager {
      * 자동 오류 수정 횟수를 가져옵니다
      */
     public async getErrorRetryCount(): Promise<number> {
-        const count = ConfigurationService.get<number>('errorRetryCount') ?? 3;
+        const count = ConfigurationService.get<number>('errorRetryCount') ?? 5;
         return Math.max(1, Math.min(10, count));
     }
 
@@ -402,7 +402,7 @@ export class SettingsManager extends BaseManager {
         const config = vscode.workspace.getConfiguration('codepilot');
         const workspaceValue = config.inspect<number>('testRetryCount')?.workspaceValue;
         const workspaceFolderValue = config.inspect<number>('testRetryCount')?.workspaceFolderValue;
-        const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 3;
+        const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 5;
         const validCount = Math.max(1, Math.min(10, count));
         console.log(`[SettingsManager] Get testRetryCount: ${validCount} (workspaceFolder: ${workspaceFolderValue}, workspace: ${workspaceValue})`);
         return validCount;

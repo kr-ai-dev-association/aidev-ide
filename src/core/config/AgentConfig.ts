@@ -6,7 +6,7 @@
 export class AgentConfig {
     // 루프 및 재시도 설정
     static readonly MAX_TURNS = 15;
-    static readonly MAX_TEST_FIX_ATTEMPTS = 3; // 기본값 (실제로는 SettingsManager에서 가져옴)
+    static readonly MAX_TEST_FIX_ATTEMPTS = 5; // 기본값 (실제로는 SettingsManager에서 가져옴)
 
     // 파일 관련 설정
     static readonly MAX_PROJECT_INVENTORY_FILES = 200;

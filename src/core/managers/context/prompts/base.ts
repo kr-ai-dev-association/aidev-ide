@@ -35,7 +35,8 @@ export function getNoInternalMonologueRules(): string {
 - "But the meta states...", "However earlier instruction says...", "The rule says..." 같은 규칙 해석 텍스트 금지
 - 시스템 규칙을 설명하거나 논의하지 마세요. 규칙을 따르기만 하면 됩니다
 - "I need to...", "Let's see..."와 같은 영어 생각 과정을 최종 답변에 노출하지 마세요
-- 생각은 오직 시스템이 제공하는 'thinking' 필드나 <think> 태그 내부에서만 수행하세요`;
+- 생각은 오직 시스템이 제공하는 'thinking' 필드나 <think> 태그 내부에서만 수행하세요
+- **예외: 규칙이 불명확할 때는 합리적으로 판단하고 즉시 행동하세요**`;
 }
 
 export function getPlanFormatRules(): string {
@@ -137,18 +138,44 @@ export function getBaseRules(): string {
 
   return `${noThinkingLeakage}
 
-**글로벌 핵심 규칙**
-- **실행 중심**: 작업 중에는 최소 하나 이상의 XML 도구 호출을 포함하세요. 설명만 하지 마세요.
+**글로벌 핵심 규칙 (우선순위 순)**
+
+1. **정보 부족 시 조사 우선**:
+   - 파일 구조나 내용을 모르면 먼저 <read_file>, <list_files> 사용
+   - 조사 후 즉시 작업 실행 가능 (같은 응답에서 조사 + 실행 가능)
+   - 예: <read_file>로 파일 확인 → 바로 <create_file> 또는 <update_file> 실행
+
+2. **복잡한 작업은 계획 수립**:
+   - 3단계 이상 작업: <plan> 태그로 계획 먼저
+   - 단순 작업 (1-2단계): 바로 실행
+
+3. **행동 우선**:
+   - "해야 한다", "조사하겠다" 같은 설명만 하지 말 것
+   - 즉시 XML 도구 호출 (<read_file>, <create_file>, <update_file> 등)
+   - 규칙 충돌로 멈추지 마세요. 의심스러우면 파일을 읽고 실행하세요.
+
+4. **실행 중심**:
+   - 작업 중에는 최소 하나 이상의 XML 도구 호출을 포함하세요
+   - 설명만 하지 마세요
+
+**기타 규칙:**
 - **실패 원인 분석**: 동일 파라미터 재시도 전 실패 원인을 분석하세요.
 - **완료 요약**: 작업 완료 후 결과를 한국어로 요약하세요.
-- **도구 호출 누락 금지**: 조사 필요 시 즉시 <list_files>/<read_file>, 계획 필요 시 <plan>을 출력하세요.
 - **도구 호출 규칙**: 필요한 파일은 한 번에 읽고, 이미 읽은 파일은 재읽지 마세요.
 - **도구 묶음 제한**: Read-only 묶음/Write-only 묶음만 허용, Read A + Update A 금지.
 - **현실 확인**: \`update_file\` 전 최신 내용을 \`read_file\`로 확인하세요.
 - **가정 금지**: 구조/파일을 추측하지 말고 확인 후 작업하세요.
 - **코드 보존**: 기존 스타일/주석 유지, 변경 범위 최소화.
 - **일괄 수정 금지**: \`sed -i\` 등 대신 \`ripgrep_search\` → \`read_file\` → \`update_file\`.
-- **보안 최우선**: 파괴적/위험 명령·코드는 거부하세요.`;
+- **보안 최우선**: 파괴적/위험 명령·코드는 거부하세요.
+
+**예시 (SQL 파일 생성):**
+✅ 올바른 흐름:
+<read_file><path>backend/src/index.ts</path></read_file>
+<create_file><path>backend/schema.sql</path><content>CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));</content></create_file>
+
+❌ 잘못된 흐름:
+"We need to read the file first. According to the rule..." (아무 행동 없음)`;
 }
 
 
