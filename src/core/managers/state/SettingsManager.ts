@@ -374,7 +374,7 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
-     * 자동 테스트 실패 시 재시도 On/Off 상태를 가져옵니다
+     * 자동 코드 검증 On/Off 상태를 가져옵니다
      */
     public async isAutoTestRetryEnabled(): Promise<boolean> {
         // 워크스페이스 설정을 명시적으로 읽기
@@ -387,7 +387,7 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
-     * 자동 테스트 실패 시 재시도 On/Off 상태를 저장합니다
+     * 자동 코드 검증 On/Off 상태를 저장합니다
      */
     public async updateAutoTestRetryEnabled(enabled: boolean): Promise<void> {
         console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Workspace)`);

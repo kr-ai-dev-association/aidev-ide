@@ -413,6 +413,31 @@ ${JSON.stringify(errorContext, null, 2)}
                     webviewView.webview.postMessage({ command: 'resetProcessingState' });
                     this.notificationService.showInfoMessage('전송을 취소하였습니다.');
                     break;
+                case 'executeSlashCommand': {
+                    const action = data.action;
+                    console.log(`[ChatViewProvider] Executing slash command: ${action}`);
+                    try {
+                        switch (action) {
+                            case 'viewCacheStats':
+                                await vscode.commands.executeCommand('codepilot.viewCacheStats');
+                                break;
+                            case 'clearCache':
+                                await vscode.commands.executeCommand('codepilot.clearCache');
+                                break;
+                            case 'listSavedSessions':
+                                await vscode.commands.executeCommand('codepilot.listSavedSessions');
+                                break;
+                            case 'restoreSavedSession':
+                                await vscode.commands.executeCommand('codepilot.restoreSavedSession');
+                                break;
+                            default:
+                                console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
+                        }
+                    } catch (error) {
+                        console.error(`[ChatViewProvider] Slash command execution failed:`, error);
+                    }
+                    break;
+                }
                 case 'approveAllChanges': {
                     try {
                         const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');

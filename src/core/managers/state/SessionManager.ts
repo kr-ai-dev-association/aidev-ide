@@ -10,16 +10,21 @@ import {
     ConversationEntry,
     ExtensionMode
 } from './types';
+import { ProjectContextCache } from '../context/ProjectContextCache';
 
 export class SessionManager {
     private static instance: SessionManager;
     private context: vscode.ExtensionContext;
     private sessions: Map<string, Session> = new Map();
     private currentSessionId?: string;
+    private contextCache?: ProjectContextCache;
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.loadSessions();
+
+        // 프로젝트 컨텍스트 캐시 초기화
+        this.contextCache = ProjectContextCache.getInstance(context);
     }
 
     public static getInstance(context?: vscode.ExtensionContext): SessionManager {
@@ -339,6 +344,74 @@ export class SessionManager {
      */
     private generateSessionId(): string {
         return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    // ===== 프로젝트 컨텍스트 캐시 관련 메서드 =====
+
+    /**
+     * 프로젝트의 우선순위 파일들을 미리 캐싱합니다
+     */
+    public async preloadProjectContext(projectPath: string): Promise<void> {
+        if (!this.contextCache) {
+            return;
+        }
+        await this.contextCache.preloadPriorityFiles(projectPath);
+    }
+
+    /**
+     * 캐시된 파일 내용 가져오기
+     */
+    public async getCachedFile(filePath: string): Promise<string | null> {
+        if (!this.contextCache) {
+            return null;
+        }
+        return await this.contextCache.getFile(filePath);
+    }
+
+    /**
+     * 파일을 캐시에 추가
+     */
+    public async cacheFile(filePath: string): Promise<void> {
+        if (!this.contextCache) {
+            return;
+        }
+        await this.contextCache.cacheFile(filePath);
+    }
+
+    /**
+     * 프로젝트 컨텍스트 캐시 무효화
+     */
+    public invalidateProjectCache(projectPath: string): void {
+        if (!this.contextCache) {
+            return;
+        }
+        this.contextCache.invalidateProject(projectPath);
+    }
+
+    /**
+     * 캐시 통계 가져오기
+     */
+    public getCacheStats(): {
+        totalEntries: number;
+        totalSize: number;
+        hitCount: number;
+        missCount: number;
+        hitRate: number;
+    } | null {
+        if (!this.contextCache) {
+            return null;
+        }
+        return this.contextCache.getStats();
+    }
+
+    /**
+     * 전체 캐시 초기화
+     */
+    public clearAllCache(): void {
+        if (!this.contextCache) {
+            return;
+        }
+        this.contextCache.clearAll();
     }
 }
 

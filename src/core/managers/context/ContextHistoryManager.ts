@@ -405,5 +405,185 @@ export class ContextHistoryManager {
     private generateId(): string {
         return `ctx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
+
+    // ===== 대화 히스토리 영구 저장 개선 =====
+
+    /**
+     * 대화 히스토리를 파일로 내보내기
+     */
+    public async exportHistoryToFile(filePath: string): Promise<void> {
+        try {
+            const historyData = {
+                apiConversationHistory: this.apiConversationHistory,
+                uiMessages: this.uiMessages,
+                updates: Array.from(this.updates.entries()),
+                checkpoints: Array.from(this.checkpoints.entries()),
+                summaries: Array.from(this.summaries.entries()),
+                conversationHistoryDeletedRange: this.conversationHistoryDeletedRange,
+                exportedAt: Date.now(),
+                version: '1.0.0'
+            };
+
+            const fs = await import('fs/promises');
+            await fs.writeFile(filePath, JSON.stringify(historyData, null, 2), 'utf-8');
+
+            console.log(`[ContextHistoryManager] Exported history to: ${filePath}`);
+        } catch (error) {
+            console.error('[ContextHistoryManager] Failed to export history:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 파일에서 대화 히스토리 가져오기
+     */
+    public async importHistoryFromFile(filePath: string): Promise<void> {
+        try {
+            const fs = await import('fs/promises');
+            const data = await fs.readFile(filePath, 'utf-8');
+            const historyData = JSON.parse(data);
+
+            // 버전 체크 (향후 호환성)
+            if (historyData.version !== '1.0.0') {
+                console.warn('[ContextHistoryManager] History version mismatch, attempting migration');
+            }
+
+            // 데이터 복원
+            this.apiConversationHistory = historyData.apiConversationHistory || [];
+            this.uiMessages = historyData.uiMessages || [];
+            this.updates = new Map(historyData.updates || []);
+            this.checkpoints = new Map(historyData.checkpoints || []);
+            this.summaries = new Map(historyData.summaries || []);
+            this.conversationHistoryDeletedRange = historyData.conversationHistoryDeletedRange;
+
+            this.saveHistory();
+
+            console.log(`[ContextHistoryManager] Imported history from: ${filePath}`);
+        } catch (error) {
+            console.error('[ContextHistoryManager] Failed to import history:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 대화 히스토리 백업 생성
+     */
+    public async createBackup(): Promise<string> {
+        try {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupId = `backup_${timestamp}`;
+
+            const backupData = {
+                id: backupId,
+                apiConversationHistory: this.apiConversationHistory,
+                uiMessages: this.uiMessages,
+                updates: Array.from(this.updates.entries()),
+                checkpoints: Array.from(this.checkpoints.entries()),
+                summaries: Array.from(this.summaries.entries()),
+                conversationHistoryDeletedRange: this.conversationHistoryDeletedRange,
+                createdAt: Date.now()
+            };
+
+            await this.context.globalState.update(`contextHistory.backup.${backupId}`, backupData);
+
+            console.log(`[ContextHistoryManager] Created backup: ${backupId}`);
+            return backupId;
+        } catch (error) {
+            console.error('[ContextHistoryManager] Failed to create backup:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 백업에서 복원
+     */
+    public async restoreFromBackup(backupId: string): Promise<void> {
+        try {
+            const backupData = this.context.globalState.get<any>(`contextHistory.backup.${backupId}`);
+
+            if (!backupData) {
+                throw new Error(`Backup not found: ${backupId}`);
+            }
+
+            // 데이터 복원
+            this.apiConversationHistory = backupData.apiConversationHistory || [];
+            this.uiMessages = backupData.uiMessages || [];
+            this.updates = new Map(backupData.updates || []);
+            this.checkpoints = new Map(backupData.checkpoints || []);
+            this.summaries = new Map(backupData.summaries || []);
+            this.conversationHistoryDeletedRange = backupData.conversationHistoryDeletedRange;
+
+            this.saveHistory();
+
+            console.log(`[ContextHistoryManager] Restored from backup: ${backupId}`);
+        } catch (error) {
+            console.error('[ContextHistoryManager] Failed to restore from backup:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 모든 백업 목록 가져오기
+     */
+    public async listBackups(): Promise<Array<{ id: string; createdAt: number }>> {
+        try {
+            const keys = this.context.globalState.keys();
+            const backups: Array<{ id: string; createdAt: number }> = [];
+
+            for (const key of keys) {
+                if (key.startsWith('contextHistory.backup.')) {
+                    const backupData = this.context.globalState.get<any>(key);
+                    if (backupData) {
+                        backups.push({
+                            id: backupData.id,
+                            createdAt: backupData.createdAt
+                        });
+                    }
+                }
+            }
+
+            // 최신 순으로 정렬
+            backups.sort((a, b) => b.createdAt - a.createdAt);
+
+            return backups;
+        } catch (error) {
+            console.error('[ContextHistoryManager] Failed to list backups:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 백업 삭제
+     */
+    public async deleteBackup(backupId: string): Promise<void> {
+        try {
+            await this.context.globalState.update(`contextHistory.backup.${backupId}`, undefined);
+            console.log(`[ContextHistoryManager] Deleted backup: ${backupId}`);
+        } catch (error) {
+            console.error('[ContextHistoryManager] Failed to delete backup:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 대화 히스토리 통계 가져오기
+     */
+    public getHistoryStats(): {
+        totalApiMessages: number;
+        totalUiMessages: number;
+        totalUpdates: number;
+        totalCheckpoints: number;
+        totalSummaries: number;
+        deletedRange?: [number, number];
+    } {
+        return {
+            totalApiMessages: this.apiConversationHistory.length,
+            totalUiMessages: this.uiMessages.length,
+            totalUpdates: Array.from(this.updates.values()).reduce((sum, arr) => sum + arr.length, 0),
+            totalCheckpoints: this.checkpoints.size,
+            totalSummaries: this.summaries.size,
+            deletedRange: this.conversationHistoryDeletedRange
+        };
+    }
 }
 

@@ -698,6 +698,120 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
+    // 캐시 통계 보기 명령어 (QuickPick)
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.viewCacheStats', async () => {
+        try {
+            const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
+            const stats = sessionManager.getCacheStats();
+            
+            if (!stats) {
+                vscode.window.showWarningMessage('캐시 통계를 가져올 수 없습니다.');
+                return;
+            }
+
+            const items = [
+                `총 캐시 엔트리: ${stats.totalEntries}개`,
+                `총 캐시 크기: ${(stats.totalSize / 1024 / 1024).toFixed(2)} MB`,
+                `캐시 히트: ${stats.hitCount}회`,
+                `캐시 미스: ${stats.missCount}회`,
+                `캐시 히트율: ${(stats.hitRate * 100).toFixed(1)}%`
+            ];
+
+            const selected = await vscode.window.showQuickPick(items, {
+                title: '캐시 통계',
+                placeHolder: '캐시 통계 정보'
+            });
+
+        } catch (error) {
+            vscode.window.showErrorMessage(`캐시 통계 조회 실패: ${error}`);
+        }
+    }));
+
+    // 캐시 초기화 명령어 (QuickPick 확인)
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.clearCache', async () => {
+        try {
+            const confirm = await vscode.window.showQuickPick(['예', '아니오'], {
+                title: '캐시 초기화',
+                placeHolder: '모든 컨텍스트 캐시를 초기화하시겠습니까?'
+            });
+
+            if (confirm === '예') {
+                const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
+                sessionManager.clearAllCache();
+                vscode.window.showInformationMessage('모든 캐시가 초기화되었습니다.');
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`캐시 초기화 실패: ${error}`);
+        }
+    }));
+
+    // 저장된 세션 목록 보기 명령어 (QuickPick)
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.listSavedSessions', async () => {
+        try {
+            const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
+            const sessions = sessionManager.getAllSessions();
+
+            if (sessions.length === 0) {
+                vscode.window.showInformationMessage('저장된 세션이 없습니다.');
+                return;
+            }
+
+            const items = sessions.map(session => ({
+                label: `$(folder) ${session.projectPath.split('/').pop() || session.projectPath}`,
+                description: `메시지: ${session.conversationHistory.length}개`,
+                detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
+                sessionId: session.id
+            }));
+
+            const selected = await vscode.window.showQuickPick(items, {
+                title: '저장된 세션 목록',
+                placeHolder: '세션을 선택하세요'
+            });
+
+            if (selected) {
+                vscode.window.showInformationMessage(`선택된 세션: ${selected.label}`);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`세션 목록 조회 실패: ${error}`);
+        }
+    }));
+
+    // 저장된 세션 복원 명령어 (QuickPick)
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.restoreSavedSession', async () => {
+        try {
+            const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
+            const sessions = sessionManager.getAllSessions();
+
+            if (sessions.length === 0) {
+                vscode.window.showInformationMessage('복원할 세션이 없습니다.');
+                return;
+            }
+
+            const items = sessions.map(session => ({
+                label: `$(history) ${session.projectPath.split('/').pop() || session.projectPath}`,
+                description: `메시지: ${session.conversationHistory.length}개`,
+                detail: `생성: ${new Date(session.createdAt).toLocaleString()}`,
+                sessionId: session.id
+            }));
+
+            const selected = await vscode.window.showQuickPick(items, {
+                title: '세션 복원',
+                placeHolder: '복원할 세션을 선택하세요'
+            });
+
+            if (selected) {
+                const success = sessionManager.setCurrentSession(selected.sessionId);
+                if (success) {
+                    vscode.window.showInformationMessage(`세션이 복원되었습니다: ${selected.label}`);
+                } else {
+                    vscode.window.showErrorMessage('세션 복원에 실패했습니다.');
+                }
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`세션 복원 실패: ${error}`);
+        }
+    }));
+
     // 워크스페이스 변경 시 Git 리포지토리 정보 업데이트
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
         try {

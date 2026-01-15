@@ -6,6 +6,30 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.7.4 (Project Context Caching & Slash Commands)
+- **Project Context Caching**: Significantly improved performance by caching frequently accessed files and project structures.
+  - Automatic caching of priority files (package.json, tsconfig.json, pyproject.toml, etc.)
+  - Automatic file change detection and cache invalidation
+  - Memory-efficient management with LRU cache policy
+  - TTL (Time To Live) based automatic expiration (5 minutes default)
+  - Maximum cache size limit (10MB default)
+  - Disk persistence for cache retention after restart
+  - Project structure caching (file tree, config file list)
+  - Cache hit rate and statistics viewing
+- **Slash Commands in Chat Panel**: Added slash command support in chat input.
+  - Type `/` in chat input to see available commands
+  - `/cache` - View cache statistics
+  - `/clear-cache` - Clear context cache
+  - `/sessions` - List saved sessions
+  - `/restore` - Restore saved session
+  - Keyboard navigation support (Arrow Up/Down, Enter, Escape)
+- **New Commands Added**:
+  - `Codepilot: View Cache Statistics` - View cache statistics with QuickPick UI
+  - `Codepilot: Clear Context Cache` - Clear context cache with confirmation prompt
+  - `Codepilot: List Saved Sessions` - View all saved sessions
+  - `Codepilot: Restore Saved Session` - Restore a previously saved session
+- **SessionManager Enhancement**: Integrated project context caching for improved performance
+
 ## v8.7.3 (Retry Count Default Update & UI Improvements)
 - **Default Retry Count Increase**: Increased default retry counts for better error recovery.
   - Error auto-correction default retry count: 3 → 5

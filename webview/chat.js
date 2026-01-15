@@ -515,11 +515,145 @@ md.use(markdownitContainer, "text", {
     },
 });
 
+// 슬래시 명령어 목록
+const slashCommands = [
+    { command: '/cache', label: '캐시 통계 보기', description: '프로젝트 컨텍스트 캐시 통계 표시', action: 'viewCacheStats' },
+    { command: '/clear-cache', label: '캐시 초기화', description: '모든 컨텍스트 캐시 삭제', action: 'clearCache' },
+    { command: '/sessions', label: '저장된 세션 목록', description: '저장된 대화 세션 목록 보기', action: 'listSavedSessions' },
+    { command: '/restore', label: '세션 복원', description: '저장된 세션 복원하기', action: 'restoreSavedSession' }
+];
+
+let slashMenuVisible = false;
+let slashMenuSelectedIndex = 0;
+
+// 슬래시 메뉴 생성
+function createSlashMenu() {
+    let menu = document.getElementById('slash-command-menu');
+    if (!menu) {
+        menu = document.createElement('div');
+        menu.id = 'slash-command-menu';
+        menu.className = 'slash-command-menu';
+        menu.style.cssText = `
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            margin-bottom: 4px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-height: 200px;
+            overflow-y: auto;
+        `;
+        const inputWrapper = document.querySelector('.input-row');
+        if (inputWrapper) {
+            inputWrapper.style.position = 'relative';
+            inputWrapper.appendChild(menu);
+        }
+    }
+    return menu;
+}
+
+// 슬래시 메뉴 렌더링
+function renderSlashMenu(filter = '') {
+    const menu = createSlashMenu();
+    const filteredCommands = slashCommands.filter(cmd =>
+        cmd.command.toLowerCase().includes(filter.toLowerCase()) ||
+        cmd.label.toLowerCase().includes(filter.toLowerCase())
+    );
+
+    if (filteredCommands.length === 0) {
+        hideSlashMenu();
+        return;
+    }
+
+    menu.innerHTML = filteredCommands.map((cmd, index) => `
+        <div class="slash-command-item ${index === slashMenuSelectedIndex ? 'selected' : ''}" 
+             data-index="${index}" data-action="${cmd.action}"
+             style="padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? 'background: rgba(128,128,128,0.2);' : ''}">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 500;">${cmd.label}</span>
+                <span style="color: var(--vscode-descriptionForeground); font-size: 11px;">${cmd.command}</span>
+            </div>
+            <div style="font-size: 11px; color: var(--vscode-descriptionForeground);">${cmd.description}</div>
+        </div>
+    `).join('');
+
+    menu.querySelectorAll('.slash-command-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const action = item.getAttribute('data-action');
+            executeSlashCommand(action);
+        });
+        item.addEventListener('mouseenter', () => {
+            slashMenuSelectedIndex = parseInt(item.getAttribute('data-index'));
+            renderSlashMenu(filter);
+        });
+    });
+
+    menu.style.display = 'block';
+    slashMenuVisible = true;
+}
+
+// 슬래시 메뉴 숨기기
+function hideSlashMenu() {
+    const menu = document.getElementById('slash-command-menu');
+    if (menu) {
+        menu.style.display = 'none';
+    }
+    slashMenuVisible = false;
+    slashMenuSelectedIndex = 0;
+}
+
+// 슬래시 명령 실행
+function executeSlashCommand(action) {
+    hideSlashMenu();
+    if (chatInput) {
+        chatInput.value = '';
+        autoResizeTextarea();
+    }
+
+    if (vscode) {
+        vscode.postMessage({ command: 'executeSlashCommand', action: action });
+    }
+}
+
 // 메시지 전송 로직 (기존 코드 유지 - 절대 수정 금지 영역)
 if (sendButton && chatInput) {
     sendButton.addEventListener("click", handleSendMessage);
 
     chatInput.addEventListener("keydown", function (e) {
+        // 슬래시 메뉴가 열려있을 때 키보드 네비게이션
+        if (slashMenuVisible) {
+            const filteredCommands = slashCommands.filter(cmd =>
+                cmd.command.toLowerCase().includes(chatInput.value.toLowerCase())
+            );
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                slashMenuSelectedIndex = Math.min(slashMenuSelectedIndex + 1, filteredCommands.length - 1);
+                renderSlashMenu(chatInput.value.slice(1));
+                return;
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                slashMenuSelectedIndex = Math.max(slashMenuSelectedIndex - 1, 0);
+                renderSlashMenu(chatInput.value.slice(1));
+                return;
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (filteredCommands[slashMenuSelectedIndex]) {
+                    executeSlashCommand(filteredCommands[slashMenuSelectedIndex].action);
+                }
+                return;
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                hideSlashMenu();
+                return;
+            }
+        }
+
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             setTimeout(() => {
@@ -528,8 +662,28 @@ if (sendButton && chatInput) {
         }
     });
 
-    chatInput.addEventListener("input", autoResizeTextarea);
+    chatInput.addEventListener("input", function (e) {
+        autoResizeTextarea();
+
+        const value = chatInput.value;
+        // / 로 시작하면 슬래시 메뉴 표시
+        if (value.startsWith('/')) {
+            const filter = value.slice(1);
+            slashMenuSelectedIndex = 0;
+            renderSlashMenu(filter);
+        } else {
+            hideSlashMenu();
+        }
+    });
+
     chatInput.addEventListener("paste", handlePaste); // 붙여넣기 이벤트 리스너 추가
+
+    // 포커스 아웃 시 슬래시 메뉴 숨기기 (약간의 딜레이)
+    chatInput.addEventListener("blur", function () {
+        setTimeout(() => {
+            hideSlashMenu();
+        }, 200);
+    });
 }
 
 // Clear History 버튼 클릭 이벤트 리스너
@@ -2394,12 +2548,12 @@ if (chatMessages) {
  */
 function removeChatPanelButtonsForFile(filePath) {
     const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
-    
+
     // data-file-path 속성으로 코드 블록 찾기
     const codeBlocks = document.querySelectorAll('.code-block-container');
     codeBlocks.forEach(block => {
         const dataFilePath = block.getAttribute('data-file-path');
-        
+
         // 파일 경로가 일치하는지 확인 (절대/상대 경로 모두 처리)
         const isMatch = dataFilePath && (
             dataFilePath === filePath ||
@@ -2407,7 +2561,7 @@ function removeChatPanelButtonsForFile(filePath) {
             filePath.endsWith(dataFilePath) ||
             dataFilePath.includes(fileName)
         );
-        
+
         if (isMatch) {
             // 해당 코드 블록 다음의 버튼 컨테이너 찾기
             let nextElement = block.nextElementSibling;
