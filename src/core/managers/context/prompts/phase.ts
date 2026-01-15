@@ -7,12 +7,12 @@ import { getNoInternalMonologueRules, getPlanFormatRules, getMultiFileReadRules,
 
 // ==================== Investigation Phase ====================
 export function getInvestigationPrompt(userQuery: string): string {
-    const noMonologueRules = getNoInternalMonologueRules();
-    const planFormatRules = getPlanFormatRules();
-    const multiFileRules = getMultiFileReadRules();
-    const noDuplicateRules = getNoDuplicateReadRules();
-    const noThinkingLeakage = getNoThinkingLeakageRules();
-    return `
+  const noMonologueRules = getNoInternalMonologueRules();
+  const planFormatRules = getPlanFormatRules();
+  const multiFileRules = getMultiFileReadRules();
+  const noDuplicateRules = getNoDuplicateReadRules();
+  const noThinkingLeakage = getNoThinkingLeakageRules();
+  return `
 ## 역할: 조사 관리자 (코드의 셜록 홈즈)
 
 ## 미션
@@ -146,22 +146,22 @@ ${noThinkingLeakage}
 
 // ==================== Execution Phase ====================
 export function getExecutionPhasePrompt(): string {
-    const noMonologueRules = getNoInternalMonologueRules();
-    const noThinkingLeakage = getNoThinkingLeakageRules();
-    return `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
-        `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
-        `${noThinkingLeakage}\n\n` +
-        `**절대 금지 사항:**\n` +
-        `- ❌ 사고, 추론, 설명 출력 금지\n` +
-        `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
-        `- ❌ 파일 탐색 금지 (조사는 이미 완료되었습니다)\n` +
-        `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
-        `- ${noMonologueRules.split('\n').slice(1).join('\n- ')}\n\n` +
-        `**필수 출력 형식:**\n` +
-        `- ✅ 실행 가능한 XML 도구 호출만 출력 (<create_file>, <update_file>, <run_command> 등)\n` +
-        `- ✅ 도구 호출 전후에 텍스트 출력 금지\n` +
-        `- ✅ 도구 호출이 필요 없으면 아무것도 출력하지 않음 (빈 응답)\n\n` +
-        `**⚠️ 중요:** 모든 자연어 텍스트(사고, 설명, 추론)는 무시됩니다.\n` +
-        `오직 XML 도구 호출만 실행됩니다. 이미 필요한 모든 정보를 가지고 있습니다.\n` +
-        `설명 없이 즉시 실행을 시작하세요.\n`;
+  const noMonologueRules = getNoInternalMonologueRules();
+  const noThinkingLeakage = getNoThinkingLeakageRules();
+  return `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
+    `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
+    `${noThinkingLeakage}\n\n` +
+    `**절대 금지 사항:**\n` +
+    `- ❌ 사고, 추론, 설명 출력 금지\n` +
+    `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
+    `- ❌ 파일 탐색 금지 (조사는 이미 완료되었습니다)\n` +
+    `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
+    `- ${noMonologueRules.split('\n').slice(1).join('\n- ')}\n\n` +
+    `**필수 출력 형식:**\n` +
+    `- ✅ 실행 가능한 XML 도구 호출만 출력 (<create_file>, <update_file>, <run_command> 등)\n` +
+    `- ✅ 도구 호출 전후에 텍스트 출력 금지\n` +
+    `- ✅ 도구 호출이 필요 없으면 아무것도 출력하지 않음 (빈 응답)\n\n` +
+    `**⚠️ 중요:** 모든 자연어 텍스트(사고, 설명, 추론)는 무시됩니다.\n` +
+    `오직 XML 도구 호출만 실행됩니다. 이미 필요한 모든 정보를 가지고 있습니다.\n` +
+    `설명 없이 즉시 실행을 시작하세요.\n`;
 }

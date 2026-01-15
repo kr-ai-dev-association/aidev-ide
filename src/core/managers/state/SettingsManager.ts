@@ -345,6 +345,21 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
+     * 스트리밍 On/Off 상태를 읽습니다
+     */
+    public async isStreamingEnabled(): Promise<boolean> {
+        return ConfigurationService.get<boolean>('streamingEnabled', false) ?? false;
+    }
+
+    /**
+     * 스트리밍 On/Off 상태를 저장합니다
+     */
+    public async updateStreamingEnabled(enabled: boolean): Promise<void> {
+        console.log(`[SettingsManager] Update streamingEnabled -> ${enabled} (Workspace)`);
+        await ConfigurationService.updateConfig('streamingEnabled', enabled, vscode.ConfigurationTarget.Workspace);
+    }
+
+    /**
      * 디버그 모드 On/Off 상태를 가져옵니다
      */
     public async isDebugEnabled(): Promise<boolean> {

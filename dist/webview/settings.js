@@ -36,6 +36,26 @@ const autoCorrectionToggle = document.getElementById('auto-correction-toggle');
 const autoCorrectionStatus = document.getElementById('auto-correction-status');
 const autoExecuteToggle = document.getElementById('auto-execute-toggle');
 const autoExecuteStatus = document.getElementById('auto-execute-status');
+const streamingToggle = document.getElementById('streaming-toggle');
+const streamingStatus = document.getElementById('streaming-status');
+
+// 스트리밍 토글
+if (streamingToggle) {
+  streamingToggle.addEventListener('change', () => {
+    const enabled = streamingToggle.checked;
+    if (streamingStatus) {
+      streamingStatus.textContent = enabled ? '스트리밍 응답: 켜짐' : '스트리밍 응답: 꺼짐';
+      streamingStatus.className = enabled ? 'info-message success-message' : 'info-message';
+    }
+    if (vscode) {
+      vscode.postMessage({
+        command: 'setStreamingEnabled',
+        enabled
+      });
+    }
+  });
+}
+
 // 자동 테스트 재시도 토글
 if (autoTestRetryToggle) {
   autoTestRetryToggle.addEventListener('change', () => {
@@ -1591,6 +1611,12 @@ window.addEventListener('message', event => {
         const statusText = message.autoExecuteCommandsEnabled ? autoExecuteOnText : autoExecuteOffText;
         showStatus(autoExecuteStatus, statusText, 'success');
         autoExecuteStatus.textContent = statusText;
+      }
+      if (typeof message.streamingEnabled === 'boolean' && streamingToggle) {
+        streamingToggle.checked = message.streamingEnabled;
+        const statusText = message.streamingEnabled ? '스트리밍 응답: 켜짐' : '스트리밍 응답: 꺼짐';
+        streamingStatus.textContent = statusText;
+        streamingStatus.className = message.streamingEnabled ? 'info-message success-message' : 'info-message';
       }
       if (typeof message.autoCorrectionEnabled === 'boolean' && autoCorrectionToggle) {
         autoCorrectionToggle.checked = message.autoCorrectionEnabled;

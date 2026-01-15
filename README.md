@@ -6,6 +6,13 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.5.1 (Prompt System Cleanup)
+- **Prompt System Cleanup**: Cleaned up duplicate and unused prompt rules to improve maintainability.
+  - Removed unused `getXmlToolRules()` function from base prompts
+  - Removed duplicate XML/markdown rules from task-specific prompts (already covered in base rules)
+  - Simplified and consolidated global rules in base.ts for better clarity
+  - Streamlined prompt structure while preserving all essential functionality
+
 ## v8.5.0 (Development Rules Auto-Loading)
 - **Development Rules Auto-Loading**: Added automatic loading of development rules from `.agent/rules` directory. The system now automatically reads markdown files (stable-version.md, coding-style.md, project-architecture.md, dependency-policy.md, db-policy.md) from the `.agent/rules` directory and includes them as mandatory rules in the system prompt. Only existing files are loaded, so partial rule sets are supported.
 

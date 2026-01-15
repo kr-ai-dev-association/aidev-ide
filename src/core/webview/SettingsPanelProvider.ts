@@ -99,6 +99,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoUpdateEnabled();
             const autoExecuteCommandsEnabled =
               await settingsManager.isAutoExecuteCommandsEnabled();
+            const streamingEnabled =
+              await settingsManager.isStreamingEnabled();
 
             // duplicate removed
             const messageToSend = {
@@ -125,6 +127,7 @@ export function openSettingsPanel(
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
+              streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
             };
             // console.log('Sending currentApiKeys message:', messageToSend);
             safePostMessage(panel, messageToSend);
@@ -970,6 +973,41 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               "Invalid Auto Execute Commands setting provided.",
+            );
+          }
+          break;
+        case "setStreamingEnabled": // 스트리밍 설정 저장 케이스 추가
+          const streamingEnabledToSet = data.enabled;
+          if (typeof streamingEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateStreamingEnabled(
+                streamingEnabledToSet,
+              );
+              safePostMessage(panel, {
+                command: "streamingEnabledSet",
+              });
+              console.log(
+                `[PanelManager] Streaming 설정 저장됨: ${streamingEnabledToSet}`,
+              );
+              notificationService.showInfoMessage(
+                `CODEPILOT: Streaming ${streamingEnabledToSet ? 'enabled' : 'disabled'}.`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "streamingEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Streaming: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "streamingEnabledSetError",
+              error: "Invalid Streaming setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Streaming setting provided.",
             );
           }
           break;
