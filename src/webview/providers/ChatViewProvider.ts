@@ -743,12 +743,6 @@ ${JSON.stringify(errorContext, null, 2)}
                 return;
             }
 
-            // 실행 상태 표시
-            this._view?.webview.postMessage({
-                command: 'showRunExecution',
-                status: 'Executing commands...'
-            });
-
             // OS 정보 가져오기
             const platform = require('os').platform();
             const userOS = platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : platform === 'linux' ? 'linux' : 'unknown';
@@ -782,15 +776,11 @@ ${JSON.stringify(errorContext, null, 2)}
             terminal.show();
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // 스크립트를 단일 세션으로 실행: bash는 heredoc, PowerShell은 here-string 사용
-            if (userOS === 'windows') {
-                const script = commands.join('\n');
-                const ps = `$script = @'\n${script}\n'@; powershell -NoLogo -NoProfile -NonInteractive -Command $script`;
-                terminal.sendText(ps);
-            } else {
-                const script = commands.join('\n');
-                const heredoc = `bash <<'AIDEV_EOF'\nset -e\n${script}\nAIDEV_EOF`;
-                terminal.sendText(heredoc);
+            // 터미널에 명령어를 직접 전송 (heredoc/here-string 없이)
+            for (const command of commands) {
+                if (command.trim()) {
+                    terminal.sendText(command.trim());
+                }
             }
 
 
