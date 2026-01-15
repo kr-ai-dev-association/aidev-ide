@@ -6,6 +6,19 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.6.0 (Automatic Context Compaction)
+- **Automatic Context Compaction**: Added automatic context compaction feature to manage long conversations. When conversation context exceeds 80% of the model's token limit, the system automatically:
+  - Summarizes older messages using LLM
+  - Keeps recent 12 messages in original form
+  - Creates a compact [Previous Conversation Summary] + [Recent Messages] structure
+  - Falls back to sliding window if LLM summarization fails
+- **ConversationCompactor**: New class (`ConversationCompactor.ts`) implementing hybrid summarization strategy:
+  - Token threshold monitoring (configurable, default 80%)
+  - LLM-based intelligent summarization for old messages
+  - Sliding window fallback for reliability
+  - Compaction statistics tracking
+- **UI Notification**: Users are notified when context compaction occurs with token savings information
+
 ## v8.5.1 (Prompt System Cleanup)
 - **Prompt System Cleanup**: Cleaned up duplicate and unused prompt rules to improve maintainability.
   - Removed unused `getXmlToolRules()` function from base prompts

@@ -1,0 +1,385 @@
+/**
+ * ConversationCompactor - 대화 컨텍스트 자동 압축/요약 관리
+ * 
+ * 코드 어시스턴트에서 널리 사용되는 하이브리드 방식 구현:
+ * - 토큰 임계값 초과 시 자동 트리거
+ * - 오래된 대화를 LLM으로 요약
+ * - 최근 대화는 원본 유지
+ * - 시스템 프롬프트 + 요약 + 최근 대화 구조
+ */
+
+import { LLMManager } from '../model/LLMManager';
+import { estimateTokens } from '../../../utils';
+import { getSummarizationPrompt } from '../context/prompts/task';
+import { SummarizationOptions } from '../context/types/contextHistory';
+import { AgentConfig } from '../../config/AgentConfig';
+
+export interface ConversationMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp?: number;
+}
+
+export interface CompactionResult {
+    compacted: boolean;
+    originalTokens: number;
+    compactedTokens: number;
+    summary?: string;
+    recentMessages: any[];
+    savedTokens: number;
+}
+
+export interface CompactorConfig {
+    /** 압축 트리거 토큰 임계값 (기본: 최대 토큰의 80%) */
+    tokenThreshold: number;
+    /** 원본 유지할 최근 메시지 수 (기본: 6) */
+    keepRecentCount: number;
+    /** 요약 시 포함할 옵션 */
+    summarizationOptions: SummarizationOptions;
+    /** 압축 활성화 여부 */
+    enabled: boolean;
+}
+
+const DEFAULT_CONFIG: CompactorConfig = {
+    tokenThreshold: 0.8, // 80% of max tokens
+    keepRecentCount: 12,
+    summarizationOptions: {
+        includeTechnicalDetails: true,
+        includeCodeSnippets: true,
+        includeFileChanges: true,
+        maxSummaryLength: 4000
+    },
+    enabled: true
+};
+
+export class ConversationCompactor {
+    private static instance: ConversationCompactor;
+    private llmManager: LLMManager;
+    private config: CompactorConfig;
+    private lastSummary: string | null = null;
+    private compactionHistory: Array<{
+        timestamp: number;
+        originalTokens: number;
+        compactedTokens: number;
+    }> = [];
+
+    private constructor(llmManager: LLMManager, config?: Partial<CompactorConfig>) {
+        this.llmManager = llmManager;
+        this.config = { ...DEFAULT_CONFIG, ...config };
+    }
+
+    public static getInstance(llmManager?: LLMManager, config?: Partial<CompactorConfig>): ConversationCompactor {
+        if (!ConversationCompactor.instance && llmManager) {
+            ConversationCompactor.instance = new ConversationCompactor(llmManager, config);
+        }
+        return ConversationCompactor.instance!;
+    }
+
+    /**
+     * 현재 대화가 압축이 필요한지 확인
+     */
+    public needsCompaction(
+        userParts: any[],
+        systemPrompt: string,
+        maxTokens: number
+    ): boolean {
+        if (!this.config.enabled) {
+            return false;
+        }
+
+        const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
+        const threshold = maxTokens * this.config.tokenThreshold;
+        
+        console.log(`[ConversationCompactor] Token check: ${totalTokens}/${maxTokens} (threshold: ${threshold})`);
+        
+        return totalTokens > threshold;
+    }
+
+    /**
+     * 대화 컨텍스트 압축 수행
+     * 
+     * 전략:
+     * 1. 최근 N개 메시지는 원본 유지
+     * 2. 나머지 오래된 메시지는 LLM으로 요약
+     * 3. [요약] + [최근 메시지] 구조로 재구성
+     */
+    public async compact(
+        userParts: any[],
+        systemPrompt: string,
+        maxTokens: number,
+        abortSignal?: AbortSignal
+    ): Promise<CompactionResult> {
+        const originalTokens = this.calculateTotalTokens(userParts, systemPrompt);
+        
+        // 압축이 필요없으면 원본 반환
+        if (!this.needsCompaction(userParts, systemPrompt, maxTokens)) {
+            return {
+                compacted: false,
+                originalTokens,
+                compactedTokens: originalTokens,
+                recentMessages: userParts,
+                savedTokens: 0
+            };
+        }
+
+        console.log(`[ConversationCompactor] Starting compaction. Original tokens: ${originalTokens}`);
+
+        // 최근 메시지와 요약 대상 분리
+        const keepCount = Math.min(this.config.keepRecentCount, userParts.length);
+        const recentMessages = userParts.slice(-keepCount);
+        const messagesToSummarize = userParts.slice(0, -keepCount);
+
+        // 요약할 메시지가 없으면 원본 반환
+        if (messagesToSummarize.length === 0) {
+            console.log('[ConversationCompactor] No messages to summarize, skipping compaction');
+            return {
+                compacted: false,
+                originalTokens,
+                compactedTokens: originalTokens,
+                recentMessages: userParts,
+                savedTokens: 0
+            };
+        }
+
+        try {
+            // LLM을 사용해 오래된 대화 요약
+            const summary = await this.generateSummary(messagesToSummarize, abortSignal);
+            this.lastSummary = summary;
+
+            // 요약을 새 userParts의 첫 번째 메시지로 추가
+            const compactedParts = [
+                {
+                    text: `[이전 대화 요약]\n${summary}\n\n[이전 대화 요약 끝 - 아래는 최근 대화입니다]`
+                },
+                ...recentMessages
+            ];
+
+            const compactedTokens = this.calculateTotalTokens(compactedParts, systemPrompt);
+            const savedTokens = originalTokens - compactedTokens;
+
+            // 압축 히스토리 기록
+            this.compactionHistory.push({
+                timestamp: Date.now(),
+                originalTokens,
+                compactedTokens
+            });
+
+            console.log(`[ConversationCompactor] Compaction complete. Saved ${savedTokens} tokens (${originalTokens} -> ${compactedTokens})`);
+
+            return {
+                compacted: true,
+                originalTokens,
+                compactedTokens,
+                summary,
+                recentMessages: compactedParts,
+                savedTokens
+            };
+        } catch (error) {
+            console.error('[ConversationCompactor] Compaction failed, using fallback strategy:', error);
+            
+            // 폴백: LLM 요약 실패 시 단순 슬라이딩 윈도우 적용
+            return this.fallbackCompaction(userParts, systemPrompt, originalTokens);
+        }
+    }
+
+    /**
+     * LLM을 사용해 대화 요약 생성
+     */
+    private async generateSummary(
+        messagesToSummarize: any[],
+        abortSignal?: AbortSignal
+    ): Promise<string> {
+        // 메시지들을 문자열로 변환
+        const conversationText = messagesToSummarize
+            .map((part, index) => {
+                const role = index % 2 === 0 ? 'User' : 'Assistant';
+                return `[${role}]: ${part.text || JSON.stringify(part)}`;
+            })
+            .join('\n\n');
+
+        // 요약 프롬프트 생성
+        const summarizationPrompt = this.getCompactSummarizationPrompt();
+        
+        const userParts = [
+            {
+                text: `다음 대화를 요약해주세요:\n\n${conversationText}`
+            }
+        ];
+
+        const response = await this.llmManager.sendMessageWithSystemPrompt(
+            summarizationPrompt,
+            userParts,
+            { signal: abortSignal }
+        );
+
+        return this.extractSummaryFromResponse(response);
+    }
+
+    /**
+     * 압축용 간소화된 요약 프롬프트
+     */
+    private getCompactSummarizationPrompt(): string {
+        return `당신은 대화 요약 전문가입니다. 코드 어시스턴트의 대화를 간결하게 요약해주세요.
+
+## 요약 형식:
+
+### 사용자 요청
+- 사용자가 요청한 주요 작업들
+
+### 완료된 작업
+- 완료된 파일 생성/수정 목록
+- 실행된 명령어
+
+### 핵심 컨텍스트
+- 다음 작업에 필요한 중요 정보
+- 프로젝트 구조, 기술 스택, 설정 등
+
+### 대기 중인 작업
+- 아직 완료되지 않은 작업
+
+## 지침:
+1. 핵심 정보만 포함하세요 (토큰 절약이 목적)
+2. 코드는 포함하지 마세요 (파일명만 기록)
+3. 한국어로 작성하세요
+4. 다음 작업에 필수적인 컨텍스트만 유지하세요`;
+    }
+
+    /**
+     * LLM 응답에서 요약 텍스트 추출
+     */
+    private extractSummaryFromResponse(response: string): string {
+        // JSON 형태로 래핑된 경우 파싱 시도
+        try {
+            if (response.startsWith('{')) {
+                const parsed = JSON.parse(response);
+                return parsed.response || parsed.content || parsed.summary || response;
+            }
+        } catch (e) {
+            // JSON 파싱 실패 시 원본 사용
+        }
+
+        // thinking 태그 제거
+        let cleaned = response.replace(/<think>[\s\S]*?<\/think>/g, '');
+        cleaned = cleaned.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+        
+        return cleaned.trim();
+    }
+
+    /**
+     * 폴백 압축 전략: 단순 슬라이딩 윈도우
+     */
+    private fallbackCompaction(
+        userParts: any[],
+        systemPrompt: string,
+        originalTokens: number
+    ): CompactionResult {
+        console.log('[ConversationCompactor] Using fallback sliding window strategy');
+
+        // 더 공격적으로 최근 메시지만 유지
+        const keepCount = Math.max(4, Math.floor(userParts.length * 0.3));
+        const recentMessages = userParts.slice(-keepCount);
+
+        // 삭제된 메시지 수 표시
+        const droppedCount = userParts.length - keepCount;
+        const compactedParts = [
+            {
+                text: `[시스템] 컨텍스트 최적화: 이전 ${droppedCount}개 메시지가 생략되었습니다. 필요한 정보가 있으면 다시 요청해주세요.`
+            },
+            ...recentMessages
+        ];
+
+        const compactedTokens = this.calculateTotalTokens(compactedParts, systemPrompt);
+
+        return {
+            compacted: true,
+            originalTokens,
+            compactedTokens,
+            recentMessages: compactedParts,
+            savedTokens: originalTokens - compactedTokens
+        };
+    }
+
+    /**
+     * 토큰 수 계산
+     */
+    private calculateTotalTokens(userParts: any[], systemPrompt: string): number {
+        let totalTokens = estimateTokens(systemPrompt);
+        
+        for (const part of userParts) {
+            if (part.text) {
+                totalTokens += estimateTokens(part.text);
+            } else if (typeof part === 'string') {
+                totalTokens += estimateTokens(part);
+            }
+        }
+        
+        return totalTokens;
+    }
+
+    /**
+     * 설정 업데이트
+     */
+    public updateConfig(config: Partial<CompactorConfig>): void {
+        this.config = { ...this.config, ...config };
+        console.log('[ConversationCompactor] Config updated:', this.config);
+    }
+
+    /**
+     * 압축 활성화/비활성화
+     */
+    public setEnabled(enabled: boolean): void {
+        this.config.enabled = enabled;
+        console.log(`[ConversationCompactor] Compaction ${enabled ? 'enabled' : 'disabled'}`);
+    }
+
+    /**
+     * 마지막 요약 조회
+     */
+    public getLastSummary(): string | null {
+        return this.lastSummary;
+    }
+
+    /**
+     * 압축 히스토리 조회
+     */
+    public getCompactionHistory(): typeof this.compactionHistory {
+        return [...this.compactionHistory];
+    }
+
+    /**
+     * 압축 통계 조회
+     */
+    public getStats(): {
+        totalCompactions: number;
+        totalSavedTokens: number;
+        averageSavings: number;
+    } {
+        if (this.compactionHistory.length === 0) {
+            return {
+                totalCompactions: 0,
+                totalSavedTokens: 0,
+                averageSavings: 0
+            };
+        }
+
+        const totalSaved = this.compactionHistory.reduce(
+            (sum, h) => sum + (h.originalTokens - h.compactedTokens),
+            0
+        );
+
+        return {
+            totalCompactions: this.compactionHistory.length,
+            totalSavedTokens: totalSaved,
+            averageSavings: totalSaved / this.compactionHistory.length
+        };
+    }
+
+    /**
+     * 상태 초기화
+     */
+    public reset(): void {
+        this.lastSummary = null;
+        this.compactionHistory = [];
+        console.log('[ConversationCompactor] State reset');
+    }
+}
