@@ -1,6 +1,6 @@
 /**
  * Prompt Composer
- * OS별, LLM별, 프레임워크별 프롬프트 컴포넌트를 조합하여 최종 프롬프트 생성
+ * OS별, LLM별 프롬프트 컴포넌트를 조합하여 최종 프롬프트 생성
  */
 
 import { AiModelType } from '../../../../services';
@@ -9,16 +9,13 @@ import { ProjectManager } from '../../project/ProjectManager';
 import * as base from './base';
 import * as os from './os';
 import * as llm from './llm';
-import * as framework from './framework';
 import { getCodeWorkPrompt, getExecutionWorkPrompt } from './task';
-import { FrameworkPromptBuilder } from './framework/FrameworkPromptBuilder';
 import { Tool } from '../../../tools/types';
 
 export interface PromptComposerOptions {
     userOS: string;
     modelType: AiModelType;
     taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
-    frameworkName?: string; // 'vite', 'spring-boot', 'node-typescript', 'express' 등 (옵션, 자동 감지 가능)
     projectType?: string; // 프로젝트 타입 정보
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
     allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
@@ -29,7 +26,7 @@ export class PromptComposer {
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, frameworkName, projectType, codebaseContext, allowedTools } = options;
+        const { userOS, modelType, taskType, projectType, codebaseContext, allowedTools } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -58,9 +55,6 @@ export class PromptComposer {
         // 작업 타입별 프롬프트
         const taskPrompt = taskType ? this.getTaskPrompt(taskType) : '';
 
-        // 프레임워크별 프롬프트 (이름 기반)
-        const frameworkPrompt = frameworkName ? this.getFrameworkPrompt(frameworkName) : '';
-
         // 터미널 명령 규칙 (execution_work일 때만 포함)
         const terminalCommandRules = taskType === 'execution_work' ? base.getTerminalCommandRules() : '';
 
@@ -76,7 +70,6 @@ ${codebaseContext}` : '';
             basePrompt,
             terminalCommandRules,
             taskPrompt,
-            frameworkPrompt,
             codebaseSection,
             llmPrompt,
             osPrompt
@@ -130,38 +123,6 @@ ${codebaseContext}` : '';
             default:
                 return '';
         }
-    }
-
-
-    /**
-     * 프레임워크별 프롬프트 가져오기 (frameworkName 문자열 기반)
-     */
-    private static getFrameworkPrompt(frameworkName: string): string {
-        const frameworkLower = frameworkName.toLowerCase();
-
-        // React + TypeScript + Vite 감지
-        if (frameworkLower.includes('vite')) {
-            // Vite는 대부분 React/TypeScript 조합으로 사용된다고 가정하고 ViteTypePrompt 사용
-            return framework.getViteTypePrompt();
-        }
-
-        // Spring Boot 감지
-        if (frameworkLower.includes('spring') || frameworkLower.includes('spring-boot')) {
-            return framework.getSpringBootPrompt();
-        }
-
-        // Express 감지
-        if (frameworkLower.includes('express')) {
-            return framework.getExpressPrompt();
-        }
-
-        // Node.js TypeScript 감지
-        if (frameworkLower.includes('typescript') || frameworkLower.includes('node')) {
-            console.log('[PromptComposer] Node.js TypeScript 프레임워크 감지, getNodeTypeScriptPrompt 호출');
-            return framework.getNodeTypeScriptPrompt();
-        }
-
-        return '';
     }
 }
 

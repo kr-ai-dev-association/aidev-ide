@@ -6,6 +6,9 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.4.0 (Framework-Specific Prompts Removal)
+- **Framework-Specific Prompts Removal**: Removed all framework-specific prompt files to simplify the prompt system. The system now relies on LLM to dynamically detect and handle framework-specific requirements by reading project files (package.json, pom.xml, etc.) instead of using hardcoded framework prompts.
+
 ## v8.2.0 (File Diff Display & Formatter Integration Improvements)
 - **File Diff Display**: Enhanced file diff display in code blocks with improved visual indicators for added and removed lines. Diff blocks now show line count changes in the header.
 - **Formatter-Aware Decoration Management**: Improved decoration handling during and after formatter execution. Decorations are now properly preserved and re-applied after code formatting, preventing decoration loss when formatters modify files.

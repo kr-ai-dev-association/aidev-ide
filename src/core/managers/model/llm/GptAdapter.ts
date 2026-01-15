@@ -21,7 +21,6 @@ import {
     buildShellSpecificPrompt,
     getDefaultOutputFormat,
 } from '../../context/prompts/base';
-import { FrameworkPromptBuilder } from '../../context/prompts/framework/FrameworkPromptBuilder';
 
 /**
  * GPT LLM 어댑터
@@ -57,14 +56,7 @@ export class GptAdapter implements ILLMAdapter {
             parts.push(PromptComposer.getOSPrompt(context.osName));
             parts.push(getCodeGenerationGuide());
             // GPT 특화 프롬프트는 PromptComposer에서 이미 포함됨
-            if (context.projectType) {
-                parts.push(
-                    FrameworkPromptBuilder.buildProjectContextPrompt(
-                        context.projectType,
-                        context.framework,
-                    ),
-                );
-            }
+            // 프레임워크별 프롬프트는 제거됨 - LLM이 프로젝트 파일을 읽고 판단
             return parts.join('\n\n');
         }
     }

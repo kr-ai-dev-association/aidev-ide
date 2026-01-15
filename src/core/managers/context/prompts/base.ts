@@ -179,6 +179,19 @@ export function getFileOperationsRules(): string {
 - TOOLS 섹션에 정의된 XML 형식으로만 파일 작업을 지시하세요.
 - 예시: \`<create_file><path>src/App.tsx</path><content>...</content></create_file>\`
 
+**프레임워크 인식 규칙 (중요)**
+- 작업 전 프로젝트 설정 파일을 먼저 확인하세요:
+  * Node.js/TypeScript: package.json, tsconfig.json
+  * Java/Spring: pom.xml, build.gradle
+  * Python: requirements.txt, pyproject.toml
+  * .NET: *.csproj, appsettings.json
+  * Go: go.mod, go.sum
+  * Rust: Cargo.toml, Cargo.lock
+- 설정 파일에 명시된 버전과 의존성을 기준으로 작업하세요
+- 존재하지 않는 파일이나 패키지를 import하지 마세요
+- 패키지 버전은 항상 실제 존재하는 버전을 사용하세요 ("latest", "*", "x" 사용 금지)
+- 파일이나 패키지 존재를 "가정"하지 마세요. 반드시 확인 후 작업하세요
+
 **JSON 파일 주의**
 - package.json, tsconfig.json, .eslintrc.json 등 JSON 파일에는 주석을 절대 포함하지 마세요. JSON 표준은 주석을 허용하지 않습니다.
 
