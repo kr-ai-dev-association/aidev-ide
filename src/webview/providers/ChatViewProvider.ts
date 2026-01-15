@@ -34,7 +34,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly notificationService: NotificationService,
         private readonly gitRepositoryService: GitRepositoryService,
         private readonly geminiApi: GeminiApi,
-        private readonly ollamaApi: any
+        private readonly ollamaApi: any,
+        private readonly banyaApi: any
     ) { }
 
     public resolveWebviewView(
@@ -217,6 +218,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged', // 기존 UI 호환성을 위해 동일한 명령 사용 가능 또는 새 명령 정의
+                            model: modelName
+                        });
+                    } catch (e) {
+                    }
+                    break;
+                }
+                case 'setBanyaModel': {
+                    try {
+                        const modelName = typeof data.model === 'string' ? data.model : '';
+                        if (!modelName) {
+                            throw new Error('Invalid model name');
+                        }
+                        const stateManager = StateManager.getInstance(this.context);
+                        const config = vscode.workspace.getConfiguration('codepilot');
+
+                        // Banya 모델인 경우 엔진을 banya로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('banya');
+                        await stateManager.saveCurrentAiModel('banya');
+                        await config.update('banyaModel', modelName, vscode.ConfigurationTarget.Global);
+
+                        // BanyaApi 인스턴스 업데이트
+                        if (this.banyaApi) {
+                            this.banyaApi.setModel(modelName);
+                        }
+
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged',
                             model: modelName
                         });
                     } catch (e) {
@@ -824,4 +852,12 @@ ${JSON.stringify(errorContext, null, 2)}
     //         } catch (error) {
     //         }
     //     }
+
+    /**
+     * 외부에서 채팅 패널에 메시지를 보낼 수 있는 public 메서드
+     */
+    public postMessageToWebview(message: any): void {
+        console.log('[ChatViewProvider] Sending message to webview:', message);
+        this._view?.webview.postMessage(message);
+    }
 }

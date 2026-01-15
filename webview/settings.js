@@ -5,6 +5,9 @@ if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefin
 }
 const vscode = window.vscode || null;
 
+// 설정 로드 중 플래그 (자동 저장 방지용)
+let isLoadingSettings = false;
+
 // DOM 요소 참조
 
 const autoUpdateToggle = document.getElementById('auto-update-toggle');
@@ -84,6 +87,13 @@ const geminiApiKeyStatus = document.getElementById('gemini-api-key-status');
 const geminiModelSelect = document.getElementById('gemini-model-select');
 const saveGeminiModelButton = document.getElementById('save-gemini-model-button');
 
+// Banya API 키 관련 요소들
+const banyaApiKeyInput = document.getElementById('banya-api-key-input');
+const saveBanyaApiKeyButton = document.getElementById('save-banya-api-key-button');
+const banyaApiKeyStatus = document.getElementById('banya-api-key-status');
+const banyaModelSelect = document.getElementById('banya-model-select');
+const saveBanyaModelButton = document.getElementById('save-banya-model-button');
+
 // Ollama 설정 그룹
 const ollamaSettingsGroup = document.getElementById('ollama-settings-group');
 
@@ -137,6 +147,7 @@ const aiModelStatus = document.getElementById('ai-model-status');
 const sourcePathStatus = document.getElementById('source-path-status');
 const sourcePathsList = document.getElementById('source-paths-list');
 const geminiSettingsSection = document.getElementById('gemini-settings-section');
+const banyaSettingsSection = document.getElementById('banya-settings-section');
 const localOllamaSettingsSection = document.getElementById('local-ollama-settings-section');
 const remoteOllamaSettingsSection = document.getElementById('remote-ollama-settings-section');
 
@@ -150,7 +161,9 @@ function updateSaveButtonsState() {
     // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
     const licenseRequiredButtons = [
         saveGeminiApiKeyButton,
-        saveGeminiModelButton
+        saveGeminiModelButton,
+        saveBanyaApiKeyButton,
+        saveBanyaModelButton
     ];
 
     // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
@@ -433,7 +446,7 @@ function applyLanguage() {
             if (languageData['settingsSavedImmediately']) {
                 msg.textContent = languageData['settingsSavedImmediately'];
             }
-        } else if (text && (text.includes('CODEPILOT의 AI 기능을 사용하기 위한 Gemini API 키를 설정합니다') ||
+        } else if (text && (text.includes('CODEPILOT의 AI 기능을 사용하기 위한 모델 설정합니다') ||
             text.includes('Set the Gemini API key to use CODEPILOT\'s AI features') ||
             text.includes('Establece la clave API de Gemini para usar las funciones de IA de ACODEPILOT') ||
             text.includes('Définissez la clé API Gemini pour utiliser les fonctionnalités IA de CODEPILOT') ||
@@ -653,6 +666,12 @@ function applyLanguage() {
         const ollamaOption = aiModelSelect.querySelector('option[value="ollama"]');
         if (ollamaOption) {
             ollamaOption.textContent = languageData['ollamaOption'];
+        }
+    }
+    if (aiModelSelect && languageData['banyaOption']) {
+        const banyaOption = aiModelSelect.querySelector('option[value="banya"]');
+        if (banyaOption) {
+            banyaOption.textContent = languageData['banyaOption'];
         }
     }
 
@@ -1210,10 +1229,26 @@ if (aiModelSelect) {
         if (selectedModel === 'gemini') {
             geminiSettingsSection.style.display = 'block';
             geminiSettingsSection.classList.remove('disabled');
+            if (banyaSettingsSection) {
+                banyaSettingsSection.style.display = 'none';
+                banyaSettingsSection.classList.add('disabled');
+            }
+            if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'none';
+        } else if (selectedModel === 'banya') {
+            if (banyaSettingsSection) {
+                banyaSettingsSection.style.display = 'block';
+                banyaSettingsSection.classList.remove('disabled');
+            }
+            geminiSettingsSection.style.display = 'none';
+            geminiSettingsSection.classList.add('disabled');
             if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'none';
         } else if (selectedModel === 'ollama') {
             geminiSettingsSection.style.display = 'none';
             geminiSettingsSection.classList.add('disabled');
+            if (banyaSettingsSection) {
+                banyaSettingsSection.style.display = 'none';
+                banyaSettingsSection.classList.add('disabled');
+            }
             if (ollamaSettingsGroup) ollamaSettingsGroup.style.display = 'block';
 
             // Ollama 선택 시 서버 타입에 따라 활성 섹션 결정
@@ -1233,15 +1268,17 @@ if (aiModelSelect) {
             try { loadOllamaModels(); } catch (e) { console.warn('loadOllamaModels failed:', e); }
         }
 
-        // 선택 변경 시에도 즉시 저장(자동 저장)
-        try {
-            if (aiModelStatus) {
-                aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
-                aiModelStatus.className = 'info-message';
+        // 선택 변경 시에도 즉시 저장(자동 저장) - 단, 설정 로드 중이 아닐 때만
+        if (!isLoadingSettings) {
+            try {
+                if (aiModelStatus) {
+                    aiModelStatus.textContent = 'AI 모델 자동 저장 중...';
+                    aiModelStatus.className = 'info-message';
+                }
+                vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
+            } catch (e) {
+                console.warn('Failed to autosave AI model:', e);
             }
-            vscode.postMessage({ command: 'saveAiModel', model: selectedModel });
-        } catch (e) {
-            console.warn('Failed to autosave AI model:', e);
         }
     });
 }
@@ -1271,6 +1308,48 @@ if (saveGeminiModelButton) {
             geminiApiKeyStatus.className = 'info-message';
         }
         vscode.postMessage({ command: 'saveGeminiModel', model: selectedGeminiModel });
+    });
+}
+
+// Banya API 키 저장 이벤트 리스너
+if (saveBanyaApiKeyButton) {
+    saveBanyaApiKeyButton.addEventListener('click', () => {
+        const apiKey = banyaApiKeyInput.value.trim();
+        if (apiKey) {
+            vscode.postMessage({ command: 'saveBanyaApiKey', apiKey: apiKey });
+            const savingText = languageData['apiKeysLoading'] || 'Banya API 키 저장 중...';
+            showStatus(banyaApiKeyStatus, savingText, 'info');
+        } else {
+            const pleaseEnterText = languageData['pleaseEnterApiKey'] || 'API 키를 입력해주세요.';
+            showStatus(banyaApiKeyStatus, pleaseEnterText, 'error');
+        }
+    });
+}
+
+// Banya 모델 선택 이벤트 리스너
+if (banyaModelSelect) {
+    banyaModelSelect.addEventListener('change', () => {
+        const selectedBanyaModel = banyaModelSelect.value;
+        try {
+            if (banyaApiKeyStatus) {
+                banyaApiKeyStatus.textContent = 'Banya 모델 자동 저장 중...';
+                banyaApiKeyStatus.className = 'info-message';
+            }
+            vscode.postMessage({ command: 'saveBanyaModel', model: selectedBanyaModel });
+        } catch (e) {
+            console.warn('Failed to autosave Banya model:', e);
+        }
+    });
+}
+
+if (saveBanyaModelButton) {
+    saveBanyaModelButton.addEventListener('click', () => {
+        const selectedBanyaModel = banyaModelSelect.value;
+        if (banyaApiKeyStatus) {
+            banyaApiKeyStatus.textContent = 'Banya 모델 저장 중...';
+            banyaApiKeyStatus.className = 'info-message';
+        }
+        vscode.postMessage({ command: 'saveBanyaModel', model: selectedBanyaModel });
     });
 }
 
@@ -1325,6 +1404,35 @@ window.addEventListener('message', event => {
             }
             break;
         }
+        case 'banyaApiKeySaved': {
+            if (banyaApiKeyStatus) {
+                banyaApiKeyStatus.textContent = 'Banya API 키가 저장되었습니다.';
+                banyaApiKeyStatus.className = 'success-message';
+            }
+            if (banyaApiKeyInput) banyaApiKeyInput.value = '';
+            break;
+        }
+        case 'banyaApiKeySaveError': {
+            if (banyaApiKeyStatus) {
+                banyaApiKeyStatus.textContent = `Banya API 키 저장 실패: ${message.error}`;
+                banyaApiKeyStatus.className = 'error-message';
+            }
+            break;
+        }
+        case 'banyaModelSaved': {
+            if (banyaApiKeyStatus) {
+                banyaApiKeyStatus.textContent = 'Banya 모델이 저장되었습니다.';
+                banyaApiKeyStatus.className = 'success-message';
+            }
+            break;
+        }
+        case 'banyaModelSaveError': {
+            if (banyaApiKeyStatus) {
+                banyaApiKeyStatus.textContent = `Banya 모델 저장 실패: ${message.error}`;
+                banyaApiKeyStatus.className = 'error-message';
+            }
+            break;
+        }
         case 'ollamaModels': {
             // console.log('[Settings] Received ollamaModels message:', message);
             const sel = document.getElementById('ollama-model-select');
@@ -1376,12 +1484,13 @@ window.addEventListener('message', event => {
                 }
             }
 
-            // 다운로드된 모델 목록을 받았을 때 버튼 상태 업데이트
-            updateDownloadButtonStates(message.models || []);
             break;
         }
         case 'currentSettings':
             // console.log('[Settings] Received currentSettings message:', message);
+
+            // 설정 로드 시작 - 자동 저장 방지
+            isLoadingSettings = true;
 
             // AI 모델 엔진 설정 처리
             if (message.aiModel && aiModelSelect) {
@@ -1393,6 +1502,11 @@ window.addEventListener('message', event => {
             // Gemini 모델 설정 처리
             if (message.geminiModel && geminiModelSelect) {
                 geminiModelSelect.value = message.geminiModel;
+            }
+
+            // Banya 모델 설정 처리
+            if (message.banyaModel && banyaModelSelect) {
+                banyaModelSelect.value = message.banyaModel;
             }
 
             // 언어 설정 처리
@@ -1621,6 +1735,9 @@ window.addEventListener('message', event => {
                     : (languageData['ollamaModelNotSet'] || '원격 서버 모델이 설정되지 않았습니다.');
                 if (remoteOllamaModelStatus) showStatus(remoteOllamaModelStatus, txt, message.remoteOllamaModel ? 'success' : 'info');
             }
+
+            // 설정 로드 완료 - 자동 저장 다시 활성화
+            isLoadingSettings = false;
             break;
         case 'aiModelSaved':
             if (aiModelStatus) {
@@ -1744,6 +1861,15 @@ window.addEventListener('message', event => {
                     (languageData['geminiApiKeySet'] || 'Gemini API 키가 설정되어 있습니다.') :
                     (languageData['geminiApiKeyNotSet'] || 'Gemini API 키가 설정되지 않았습니다.');
                 showStatus(geminiApiKeyStatus, geminiApiKeySetText, message.geminiApiKey ? 'success' : 'info');
+            }
+
+            // Banya API 키 로드
+            if (banyaApiKeyInput && typeof message.banyaApiKey === 'string') {
+                banyaApiKeyInput.value = message.banyaApiKey;
+                const banyaApiKeySetText = message.banyaApiKey ?
+                    'Banya API 키가 설정되어 있습니다.' :
+                    'Banya API 키가 설정되지 않았습니다.';
+                showStatus(banyaApiKeyStatus, banyaApiKeySetText, message.banyaApiKey ? 'success' : 'info');
             }
             // 로컬 Ollama API URL 상태 로드 (기본값 폴백)
             if (localOllamaApiUrlInput && typeof message.localOllamaApiUrl === 'string') {
@@ -2201,153 +2327,6 @@ if (localOllamaApiUrlInput) {
     });
 }
 
-// Ollama 모델 다운로드 기능 제거
-let supportedModels = [];
-
-// 모델 리스트 렌더링 (비어있음)
-function renderModelList() {
-    const modelListContainer = document.getElementById('ollama-model-list');
-    if (!modelListContainer) return;
-    modelListContainer.innerHTML = '<p class="info-message">추천 모델 리스트가 삭제되었습니다. 이미 설치된 모델을 선택하여 사용하세요.</p>';
-}
-
-// 현재 다운로드된 모델 확인
-function checkDownloadedModels() {
-    if (!vscode) return;
-
-    // Ollama 모델 목록 요청
-    vscode.postMessage({ command: 'getOllamaModels' });
-}
-
-// 다운로드 버튼 상태 업데이트
-function updateDownloadButtonStates(downloadedModels) {
-    const modelListContainer = document.getElementById('ollama-model-list');
-    if (!modelListContainer) return;
-
-    // 각 모델 아이템의 버튼 상태 업데이트
-    const modelItems = modelListContainer.querySelectorAll('.model-item');
-    modelItems.forEach(item => {
-        const modelName = item.getAttribute('data-model');
-        const button = item.querySelector('.model-download-button');
-
-        if (button && modelName) {
-            // 다운로드된 모델인지 확인
-            const isDownloaded = downloadedModels.includes(modelName);
-
-            if (isDownloaded) {
-                button.textContent = '다운로드 완료';
-                button.disabled = true;
-                button.style.backgroundColor = '#4CAF50'; // 녹색
-                button.style.color = 'white';
-            } else {
-                button.textContent = '다운로드';
-                button.disabled = false;
-                button.style.backgroundColor = ''; // 기본 색상
-                button.style.color = '';
-            }
-        }
-    });
-}
-
-// 모델 다운로드
-async function downloadModel(modelName, buttonElement) {
-    if (!vscode) return;
-
-    // 버튼 비활성화
-    buttonElement.disabled = true;
-    buttonElement.textContent = '다운로드 중...';
-
-    try {
-        // 확장 프로그램에 다운로드 요청 전송
-        vscode.postMessage({
-            command: 'downloadOllamaModel',
-            modelName: modelName
-        });
-    } catch (error) {
-        console.error('Failed to download model:', error);
-        buttonElement.disabled = false;
-        buttonElement.textContent = '다운로드';
-    }
-}
-
-// 모델 다운로드 진행 상황 처리
-window.addEventListener('message', (event) => {
-    const message = event.data;
-
-    switch (message.command) {
-        case 'supportedModels':
-            // console.log('[Settings] Received supportedModels:', message.models);
-            supportedModels = message.models || [];
-            // console.log('[Settings] Set supportedModels to:', supportedModels);
-            renderModelList();
-            break;
-        case 'supportedModelsError':
-            console.error('[Settings] Failed to load supported models:', message.error);
-            const modelListContainer = document.getElementById('ollama-model-list');
-            if (modelListContainer) {
-                modelListContainer.innerHTML = '<p class="info-message">모델 목록을 불러올 수 없습니다.</p>';
-            }
-            break;
-        case 'modelDownloadStarted':
-            updateModelDownloadStatus(message.modelName, '다운로드 시작...', true);
-            break;
-        case 'modelDownloadProgress':
-            updateModelDownloadStatus(message.modelName, `다운로드 중... ${message.progress}%`, true);
-            break;
-        case 'modelDownloadCompleted':
-            updateModelDownloadStatus(message.modelName, '다운로드 완료', false);
-            // 모델 목록 새로고침
-            loadOllamaModels();
-            // 다운로드된 모델을 Ollama 모델 드롭다운에 즉시 반영
-            setTimeout(() => {
-                if (ollamaModelSelect && message.modelName) {
-                    // 현재 선택된 값 저장
-                    const currentValue = ollamaModelSelect.value;
-
-                    // 새 모델이 목록에 있는지 확인하고 없으면 추가
-                    const existingOption = Array.from(ollamaModelSelect.options).find(option => option.value === message.modelName);
-                    if (!existingOption) {
-                        const newOption = document.createElement('option');
-                        newOption.value = message.modelName;
-                        newOption.textContent = message.modelName;
-                        ollamaModelSelect.appendChild(newOption);
-                    }
-
-                    // 다운로드된 모델을 자동으로 선택
-                    ollamaModelSelect.value = message.modelName;
-
-                    // 모델 선택 이벤트 트리거
-                    ollamaModelSelect.dispatchEvent(new Event('change'));
-
-                    // 상태 메시지 업데이트
-                    const modelDownloadedText = `새 모델 '${message.modelName}'이 다운로드되어 선택되었습니다.`;
-                    showStatus(ollamaModelStatus, modelDownloadedText, 'success');
-                }
-            }, 500); // 모델 목록이 업데이트될 시간을 고려하여 지연
-            break;
-        case 'modelDownloadError':
-            updateModelDownloadStatus(message.modelName, `다운로드 실패: ${message.error}`, false);
-            break;
-        case 'refreshOllamaModels':
-            loadOllamaModels();
-            break;
-    }
-});
-
-// 모델 다운로드 상태 업데이트
-function updateModelDownloadStatus(modelName, status, isDownloading) {
-    const modelListContainer = document.getElementById('ollama-model-list');
-    if (!modelListContainer) return;
-
-    const modelItem = modelListContainer.querySelector(`[data-model="${modelName}"]`);
-    if (modelItem) {
-        const button = modelItem.querySelector('.model-download-button');
-        if (button) {
-            button.textContent = status;
-            button.disabled = isDownloading;
-        }
-    }
-}
 
 // 페이지 로드 시 초기 설정 로드
 document.addEventListener('DOMContentLoaded', () => {
@@ -2371,10 +2350,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 6. Ollama 모델 로드
     vscode.postMessage({ command: 'loadOllamaModel' });
 
-    // 7. 지원되는 모델 목록 로드 제거
-    // loadSupportedModels();
-
-    // 8. 라이센스 입력 필드 초기 상태 설정
+    // 7. 라이센스 입력 필드 초기 상태 설정
     if (banyaLicenseSerialInput) {
         banyaLicenseSerialInput.readOnly = false;
     }

@@ -116,6 +116,7 @@
   "aiModelSelectLabel": "KI-Modell-Auswahl",
   "geminiOption": "Gemini 2.5 Pro Flash",
   "ollamaOption": "Ollama",
+  "banyaOption": "Banya",
   "aiModelSaved": "KI-Modell erfolgreich gespeichert.",
   "aiModelSaveError": "Fehler beim Speichern des KI-Modells:",
   "languageChanged": "Sprache geändert zu",

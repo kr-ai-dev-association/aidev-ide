@@ -676,6 +676,7 @@
             <select id="ai-model-select">
                 <option value="ollama">Ollama (Local/Remote)</option>
                 <option value="gemini">Google Gemini</option>
+                <option value="banya">Banya</option>
             </select>
         </div>
         <p id="ai-model-status" class="info-message"></p>
@@ -701,6 +702,27 @@
                 <button id="save-gemini-api-key-button">API 키 저장</button>
             </div>
             <p id="gemini-api-key-status" class="info-message"></p>
+        </div>
+
+        <!-- Banya API 키 설정 -->
+        <div class="api-key-section" id="banya-settings-section">
+            <h3 id="banya-api-key-label">Banya 설정</h3>
+            <p class="info-message">Banya API를 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
+
+            <!-- Banya 모델 선택 추가 -->
+            <div class="api-key-input-group" style="margin-bottom: 15px;">
+                <select id="banya-model-select">
+                    <option value="Banya-Solar:100b" selected>Banya-Solar:100b</option>
+                </select>
+                <button id="save-banya-model-button">모델 저장</button>
+            </div>
+
+            <p class="info-message"><strong>등록 방법:</strong> Banya API 키를 입력하세요.</p>
+            <div class="api-key-input-group">
+                <input type="password" id="banya-api-key-input" placeholder="Banya API 키를 입력하세요...">
+                <button id="save-banya-api-key-button">API 키 저장</button>
+            </div>
+            <p id="banya-api-key-status" class="info-message"></p>
         </div>
 
         <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
@@ -799,20 +821,6 @@
                 <p id="remote-ollama-endpoint-status" class="info-message"></p>
             </div>
 
-            <!-- Ollama 모델 다운로드 섹션 -->
-            <div class="api-key-section" id="ollama-model-download-section">
-                <h3 id="ollama-model-download-label">Ollama 모델 다운로드</h3>
-                <p class="info-message">로컬 Ollama에 사용할 수 있는 다양한 LLM 모델을 다운로드할 수 있습니다.</p>
-                <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에
-                    추가됩니다.
-                </p>
-
-                <div id="ollama-model-list" class="model-list-container">
-                    <!-- 모델 리스트가 여기에 동적으로 로드됩니다 -->
-                </div>
-
-                <p id="ollama-model-download-status" class="info-message"></p>
-            </div>
         </div>
     </div>
 

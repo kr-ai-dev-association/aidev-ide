@@ -12316,6 +12316,8 @@ function setModelLabel(name, modelType) {
   if (modelSelectorButton) {
     if (modelType === "gemini") {
       modelSelectorButton.setAttribute("data-model-type", "gemini");
+    } else if (modelType === "banya") {
+      modelSelectorButton.setAttribute("data-model-type", "banya");
     } else {
       modelSelectorButton.setAttribute("data-model-type", "ollama");
     }
@@ -12329,6 +12331,12 @@ function populateModelDropdown(models, current) {
   }, {
     name: "gemini-3-flash-preview",
     displayName: "Gemini 3.0 Flash"
+  }];
+
+  // Banya 모델 정의
+  const banyaModels = [{
+    name: "Banya-Solar:100b",
+    displayName: "Banya Solar 100B"
   }];
 
   // models: [{name, displayName}] 또는 ["name", ...]
@@ -12377,7 +12385,43 @@ function populateModelDropdown(models, current) {
     modelDropdown.appendChild(item);
   });
 
-  // 구분선 (모델이 있을 경우에만)
+  // Gemini와 Banya 사이 구분선
+  if (banyaModels.length > 0) {
+    const divider = document.createElement("div");
+    divider.style.height = "1px";
+    divider.style.backgroundColor = "var(--vscode-panel-border)";
+    divider.style.margin = "4px 0";
+    modelDropdown.appendChild(divider);
+  }
+
+  // Banya 모델 추가
+  banyaModels.forEach(m => {
+    const item = document.createElement("div");
+    item.className = "dropdown-option";
+    if (m.name === currentOllamaModel) {
+      item.classList.add("selected");
+    }
+    item.dataset.model = m.name;
+    item.textContent = m.displayName;
+    item.style.padding = "6px 10px";
+    item.style.cursor = "pointer";
+    item.style.borderLeft = "3px solid #000000"; // Banya 색상 포인트 (검은색)
+    item.addEventListener("click", () => {
+      currentOllamaModel = m.name;
+      setModelLabel(m.displayName, "banya");
+      if (modelDropdown) {
+        modelDropdown.classList.add("hidden");
+        modelDropdown.style.display = "none";
+      }
+      vscode.postMessage({
+        command: "setBanyaModel",
+        model: m.name
+      });
+    });
+    modelDropdown.appendChild(item);
+  });
+
+  // 구분선 (Ollama 모델이 있을 경우에만)
   if (availableOllamaModels.length > 0) {
     const divider = document.createElement("div");
     divider.style.height = "1px";
@@ -12415,10 +12459,15 @@ function populateModelDropdown(models, current) {
   });
 
   // 현재 선택된 모델 라벨 업데이트
-  const allModels = [...geminiModels, ...availableOllamaModels];
+  const allModels = [...geminiModels, ...banyaModels, ...availableOllamaModels];
   const currentModel = allModels.find(m => m.name === currentOllamaModel);
   const currentDisplay = currentModel?.displayName || currentOllamaModel || "Model";
-  const modelType = geminiModels.some(m => m.name === currentOllamaModel) ? "gemini" : "ollama";
+  let modelType = "ollama";
+  if (geminiModels.some(m => m.name === currentOllamaModel)) {
+    modelType = "gemini";
+  } else if (banyaModels.some(m => m.name === currentOllamaModel)) {
+    modelType = "banya";
+  }
   setModelLabel(currentDisplay, modelType);
   if (!allModels.length) {
     const empty = document.createElement("div");
@@ -12604,20 +12653,45 @@ window.addEventListener("message", event => {
       populateModelDropdown(message.models || [], message.current || "");
       break;
     case "ollamaModelChanged":
+      console.log('[chat] ollamaModelChanged received:', message.model);
       if (message.model) {
-        const geminiModels = [{
+        const _geminiModels = [{
           name: "gemini-3-pro-preview",
           displayName: "Gemini 3.0 Pro"
         }, {
           name: "gemini-3-flash-preview",
           displayName: "Gemini 3.0 Flash"
         }];
-        const allModels = [...geminiModels, ...availableOllamaModels];
-        const currentModel = allModels.find(m => m.name === message.model);
+        const _banyaModels = [{
+          name: "Banya-Solar:100b",
+          displayName: "Banya Solar 100B"
+        }];
+        const _allModels = [..._geminiModels, ..._banyaModels, ...availableOllamaModels];
+        const currentModel = _allModels.find(m => m.name === message.model);
         const display = currentModel?.displayName || message.model;
         currentOllamaModel = message.model;
-        const modelType = geminiModels.some(m => m.name === message.model) ? "gemini" : "ollama";
+        let modelType = "ollama";
+        if (_geminiModels.some(m => m.name === message.model)) {
+          modelType = "gemini";
+        } else if (_banyaModels.some(m => m.name === message.model)) {
+          modelType = "banya";
+        }
+        console.log('[chat] Setting model label:', display, modelType);
         setModelLabel(display, modelType);
+
+        // 드롭다운의 selected 클래스 업데이트
+        if (modelDropdown) {
+          const allItems = modelDropdown.querySelectorAll('.dropdown-option');
+          console.log('[chat] Updating dropdown items, total:', allItems.length);
+          allItems.forEach(item => {
+            if (item.dataset.model === message.model) {
+              console.log('[chat] Marking item as selected:', item.dataset.model);
+              item.classList.add('selected');
+            } else {
+              item.classList.remove('selected');
+            }
+          });
+        }
       }
       if (message.error) {
         console.warn("[chat] ollamaModelChanged error:", message.error);

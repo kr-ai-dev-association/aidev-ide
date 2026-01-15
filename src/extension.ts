@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { GeminiApi, NotificationService, OllamaApi, LicenseService, OllamaBlockerService, GitRepositoryService } from './services';
+import { GeminiApi, BanyaApi, NotificationService, OllamaApi, LicenseService, OllamaBlockerService, GitRepositoryService } from './services';
 import { AiModelType } from './services/types';
 import { ChatViewProvider } from './webview/providers';
 import { openSettingsPanel } from './core/webview/SettingsPanelProvider';
@@ -49,6 +49,7 @@ import { RunCommandToolHandler } from './core/tools/terminal';
 // 전역 변수
 let geminiApi: GeminiApi;
 let ollamaApi: OllamaApi;
+let banyaApi: BanyaApi;
 let notificationService: NotificationService;
 let licenseService: LicenseService;
 let ollamaBlockerService: OllamaBlockerService;
@@ -187,6 +188,17 @@ export async function activate(context: vscode.ExtensionContext) {
         console.warn('[Extension] Failed to load Ollama settings at startup:', e);
     }
 
+    // Banya API 초기화
+    const config = vscode.workspace.getConfiguration('codepilot');
+    const initialBanyaApiUrl = config.get<string>('banyaApiUrl') || 'http://210.109.53.87:8083/v1/chat/completions';
+    const initialBanyaApiKey = await context.secrets.get('codepilot.banyaApiKey') || '';
+    banyaApi = new BanyaApi(initialBanyaApiUrl, initialBanyaApiKey, context);
+    try {
+        await banyaApi.loadSettingsFromStorage();
+    } catch (e) {
+        console.warn('[Extension] Failed to load Banya settings at startup:', e);
+    }
+
     // 사용자 OS 정보를 PromptBuilder에 설정
     const userOS = require('os').platform() === 'darwin' ? 'macOS' :
         require('os').platform() === 'win32' ? 'Windows' :
@@ -247,7 +259,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             const raw = await errorManager.sendMessageForErrorCorrection(
                 prompt,
-                new LLMApiClient(geminiApi, ollamaApi, (currentAiModel as AiModelType) || defaultModelForError),
+                new LLMApiClient(geminiApi, ollamaApi, banyaApi, (currentAiModel as AiModelType) || defaultModelForError),
                 undefined
             );
             if (!raw) {
@@ -350,9 +362,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ConversationManager 초기화 및 설정
 
-    const conversationManager = ConversationManager.getInstance(userOS, geminiApi, ollamaApi);
-    const llmApiClient = new LLMApiClient(geminiApi, ollamaApi, currentAiModel as any);
-    const llmManager = LLMManager.getInstance(geminiApi, ollamaApi, currentAiModel as any);
+    const conversationManager = ConversationManager.getInstance(userOS, geminiApi, ollamaApi, banyaApi);
+    const llmApiClient = new LLMApiClient(geminiApi, ollamaApi, banyaApi, currentAiModel as any);
+    const llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi, currentAiModel as any);
     // promptBuilder는 이미 위에서 선언됨
     const intentDetector = new IntentDetector(llmManager);
     const externalApiService = new ExternalApiService(context);
@@ -514,12 +526,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const chatViewProvider = new ChatViewProvider(
         context.extensionUri,
         context,
-        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, undefined),
+        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, undefined, chatViewProvider),
         settingsManager,
         notificationService,
         gitRepositoryService,
         geminiApi,
-        ollamaApi
+        ollamaApi,
+        banyaApi
     );
 
     context.subscriptions.push(
@@ -558,7 +571,7 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage('Settings panel could not be opened. Please reload the extension.');
             return;
         }
-        openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined);
+        openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined, chatViewProvider);
     }));
     // Command registered: codepilot.openSettingsPanel
 

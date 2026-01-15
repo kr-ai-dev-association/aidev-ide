@@ -4,7 +4,7 @@
  * 요청 보내기 / 응답 받기 / 응답 포맷팅
  */
 
-import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
+import { GeminiApi, OllamaApi, BanyaApi, AiModelType } from '../../../services';
 
 export interface LLMMessagePart {
     text?: string;
@@ -33,16 +33,19 @@ export class LLMManager {
     private static instance: LLMManager;
     private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
+    private banyaApi: BanyaApi;
     private currentModelType: AiModelType;
     private currentCallController: AbortController | null = null;
 
     private constructor(
         geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
+        banyaApi: BanyaApi,
         initialModelType: AiModelType = AiModelType.GEMINI
     ) {
         this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
+        this.banyaApi = banyaApi;
         this.currentModelType = initialModelType;
         console.log('[LLMManager] Initialized');
     }
@@ -50,13 +53,14 @@ export class LLMManager {
     public static getInstance(
         geminiApi?: GeminiApi,
         ollamaApi?: OllamaApi,
+        banyaApi?: BanyaApi,
         initialModelType?: AiModelType
     ): LLMManager {
         if (!LLMManager.instance) {
-            if (!geminiApi || !ollamaApi) {
-                throw new Error('LLMManager requires GeminiApi and OllamaApi instances');
+            if (!geminiApi || !ollamaApi || !banyaApi) {
+                throw new Error('LLMManager requires GeminiApi, OllamaApi, and BanyaApi instances');
             }
-            LLMManager.instance = new LLMManager(geminiApi, ollamaApi, initialModelType);
+            LLMManager.instance = new LLMManager(geminiApi, ollamaApi, banyaApi, initialModelType);
         }
         return LLMManager.instance;
     }
@@ -83,6 +87,8 @@ export class LLMManager {
         try {
             if (this.currentModelType === AiModelType.GEMINI) {
                 return this.geminiApi.getModelName();
+            } else if (this.currentModelType === AiModelType.BANYA) {
+                return this.banyaApi.getModel?.() || this.banyaApi.getCurrentModelName?.() || 'Banya Model';
             } else if (this.ollamaApi) {
                 return this.ollamaApi.getModel?.() || this.ollamaApi.getCurrentModelName?.() || 'Ollama Model';
             }
@@ -116,6 +122,11 @@ export class LLMManager {
 
             if (this.currentModelType === AiModelType.GEMINI) {
                 response = await this.geminiApi.sendMessage(prompt, undefined, { signal });
+            } else if (this.currentModelType === AiModelType.BANYA) {
+                try {
+                    await this.banyaApi.loadSettingsFromStorage();
+                } catch { }
+                response = await this.banyaApi.sendMessage(prompt, { signal });
             } else {
                 try {
                     await this.ollamaApi.loadSettingsFromStorage();
@@ -180,6 +191,15 @@ export class LLMManager {
                     const ollamaParts = userParts.map(part => ({ text: part.text || '' }));
                     response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, ollamaParts, { signal });
                 }
+            } else if (this.currentModelType === AiModelType.BANYA) {
+                try {
+                    await this.banyaApi.loadSettingsFromStorage();
+                } catch { }
+
+                // Banya API 형식으로 변환
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+
+                response = await this.banyaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
             } else {
                 try {
                     await this.ollamaApi.loadSettingsFromStorage();
@@ -329,6 +349,13 @@ export class LLMManager {
      */
     public getOllamaApi(): OllamaApi {
         return this.ollamaApi;
+    }
+
+    /**
+     * BanyaApi 인스턴스를 가져옵니다
+     */
+    public getBanyaApi(): BanyaApi {
+        return this.banyaApi;
     }
 
     /**

@@ -121,6 +121,7 @@
   "aiModelSelectLabel": "AI Model Selection",
   "geminiOption": "Google Gemini",
   "ollamaOption": "Ollama",
+  "banyaOption": "Banya",
   "aiModelSaved": "AI model saved successfully.",
   "aiModelSaveError": "Failed to save AI model:",
   "languageChanged": "Language changed to",

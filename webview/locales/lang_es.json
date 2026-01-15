@@ -116,6 +116,7 @@
   "aiModelSelectLabel": "Selección de Modelo IA",
   "geminiOption": "Gemini 2.5 Pro Flash",
   "ollamaOption": "Ollama",
+  "banyaOption": "Banya",
   "aiModelSaved": "Modelo IA guardado correctamente.",
   "aiModelSaveError": "Error al guardar modelo IA:",
   "languageChanged": "Idioma cambiado a",

@@ -1,5 +1,6 @@
 export * from './external/ExternalApiService';
 export * from './llm/GeminiApi';
+export * from './llm/BanyaApi';
 export * from './git/GitBranchAnalysisService';
 export * from './git/GitRepositoryService';
 export * from './license/LicenseService';

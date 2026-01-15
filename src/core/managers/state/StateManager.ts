@@ -259,6 +259,7 @@ export class StateManager {
     private readonly API_KEY_SECRET_KEY = 'codepilot.geminiApiKey';
     private readonly CURRENT_AI_MODEL_SECRET_KEY = 'codepilot.currentAiModel';
     private readonly BANYA_LICENSE_SERIAL_SECRET_KEY = 'codepilot.banyaLicenseSerial';
+    private readonly BANYA_API_KEY_SECRET_KEY = 'codepilot.banyaApiKey';
     private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'codepilot.ollamaServerType';
     private readonly OLLAMA_API_URL_SECRET_KEY = 'codepilot.ollamaApiUrl';
     private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.ollamaEndpoint';
@@ -451,6 +452,26 @@ export class StateManager {
 
     public async saveGeminiModel(model: string): Promise<void> {
         await this.saveSecret('codepilot.geminiModel', model);
+    }
+
+    public async getBanyaApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.BANYA_API_KEY_SECRET_KEY);
+    }
+
+    public async saveBanyaApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.BANYA_API_KEY_SECRET_KEY, apiKey);
+    }
+
+    public async deleteBanyaApiKey(): Promise<void> {
+        await this.deleteSecret(this.BANYA_API_KEY_SECRET_KEY);
+    }
+
+    public async getBanyaModel(): Promise<string> {
+        return (await this.getSecret('codepilot.banyaModel')) || 'Banya-Solar:100b';
+    }
+
+    public async saveBanyaModel(model: string): Promise<void> {
+        await this.saveSecret('codepilot.banyaModel', model);
     }
 
     // License verified flag

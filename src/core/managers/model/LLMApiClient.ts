@@ -1,10 +1,10 @@
 /**
  * LLM API Client
  * LLM API 호출을 담당하는 클라이언트
- * GeminiApi, OllamaApi를 래핑하여 통합 인터페이스 제공
+ * GeminiApi, OllamaApi, BanyaApi를 래핑하여 통합 인터페이스 제공
  */
 
-import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
+import { GeminiApi, OllamaApi, BanyaApi, AiModelType } from '../../../services';
 
 export interface LLMMessagePart {
     text?: string;
@@ -21,16 +21,19 @@ export interface LLMRequestOptions {
 export class LLMApiClient {
     private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
+    private banyaApi: BanyaApi;
     private currentModelType: AiModelType;
     private currentCallController: AbortController | null = null;
 
     constructor(
         geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
+        banyaApi: BanyaApi,
         initialModelType: AiModelType = AiModelType.OLLAMA
     ) {
         this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
+        this.banyaApi = banyaApi;
         this.currentModelType = initialModelType;
     }
 
@@ -71,6 +74,10 @@ export class LLMApiClient {
         try {
             if (this.currentModelType === AiModelType.GEMINI) {
                 return await this.geminiApi.sendMessage(message, undefined, { signal: abortSignal });
+            } else if (this.currentModelType === AiModelType.BANYA) {
+                // Banya API 호출
+                await this.banyaApi.loadSettingsFromStorage();
+                return await this.banyaApi.sendMessage(message, { signal: abortSignal });
             } else {
                 // 모델 설정 동기화 및 로드 (Ollama)
                 await this.ollamaApi.loadSettingsFromStorage();
@@ -114,6 +121,14 @@ export class LLMApiClient {
                 }
 
                 return response;
+            } else if (this.currentModelType === AiModelType.BANYA) {
+                // Banya API 호출
+                await this.banyaApi.loadSettingsFromStorage();
+                return await this.banyaApi.sendMessageWithSystemPrompt(
+                    systemPrompt,
+                    userParts as any,
+                    { signal: abortSignal }
+                );
             } else if (this.currentModelType === AiModelType.OLLAMA) {
                 // 모델 설정 로드 (Ollama)
                 await this.ollamaApi.loadSettingsFromStorage();
@@ -137,6 +152,9 @@ export class LLMApiClient {
     public async getCurrentModelName(): Promise<string> {
         if (this.currentModelType === AiModelType.GEMINI) {
             return this.geminiApi.getModelName();
+        } else if (this.currentModelType === AiModelType.BANYA) {
+            await this.banyaApi.loadSettingsFromStorage();
+            return this.banyaApi.getModel() || 'unknown';
         } else {
             await this.ollamaApi.loadSettingsFromStorage();
             return this.ollamaApi.getModel() || 'unknown';

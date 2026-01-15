@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "8.2.0",
+  "version": "8.3.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -163,12 +163,35 @@
           "scope": "resource",
           "markdownDescription": "AIDEV API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장되며, 확장이 이 키를 사용하여 Gemini API에 접근합니다. [여기](https://aistudio.google.com/app/apikey)에서 API 키를 얻을 수 있습니다."
         },
+        "codepilot.banyaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Banya API Key를 설정합니다. Secret Storage에 안전하게 저장됩니다.",
+          "scope": "resource",
+          "markdownDescription": "Banya API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장됩니다."
+        },
+        "codepilot.banyaApiUrl": {
+          "type": "string",
+          "default": "http://210.109.53.87:8083/v1/chat/completions",
+          "description": "Banya API 엔드포인트 URL을 설정합니다.",
+          "scope": "resource"
+        },
+        "codepilot.banyaModel": {
+          "type": "string",
+          "default": "Banya-Solar:100b",
+          "enum": [
+            "Banya-Solar:100b"
+          ],
+          "description": "사용할 Banya 모델을 선택합니다.",
+          "scope": "resource"
+        },
         "codepilot.aiModel": {
           "type": "string",
           "default": "ollama",
           "enum": [
             "gemini",
-            "ollama"
+            "ollama",
+            "banya"
           ],
           "description": "사용할 AI 모델 엔진을 선택합니다.",
           "scope": "resource"

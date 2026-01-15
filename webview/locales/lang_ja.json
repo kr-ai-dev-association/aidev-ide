@@ -116,6 +116,7 @@
   "aiModelSelectLabel": "AIモデル選択",
   "geminiOption": "Gemini 2.5 Pro Flash",
   "ollamaOption": "Ollama",
+  "banyaOption": "Banya",
   "aiModelSaved": "AIモデルが正常に保存されました。",
   "aiModelSaveError": "AIモデルの保存に失敗しました：",
   "languageChanged": "言語が",

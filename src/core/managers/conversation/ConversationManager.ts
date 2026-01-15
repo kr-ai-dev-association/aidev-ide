@@ -16,7 +16,7 @@ import { ProjectDetector } from '../project/ProjectDetector';
 import { ProjectType } from '../project/types';
 import { InvestigationManager } from '../investigation/InvestigationManager';
 import { SettingsManager } from '../state/SettingsManager';
-import { AiModelType, OllamaApi, GeminiApi } from '../../../services';
+import { AiModelType, OllamaApi, GeminiApi, BanyaApi } from '../../../services';
 import { AgentStateManager, AgentPhase } from './AgentStateManager';
 import { getSimpleSummaryPrompt } from '../context/prompts/task';
 import * as fs from 'fs/promises';
@@ -61,20 +61,20 @@ export class ConversationManager {
     private llmManager: LLMManager;
     private responseProcessor: ResponseProcessor;
 
-    private constructor(userOS: string, geminiApi: GeminiApi, ollamaApi: OllamaApi) {
+    private constructor(userOS: string, geminiApi: GeminiApi, ollamaApi: OllamaApi, banyaApi: BanyaApi) {
         this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA);
         this.contextManager = ContextManager.getInstance();
-        this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi);
+        this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi);
         this.responseProcessor = new ResponseProcessor(this.llmManager);
     }
 
-    public static getInstance(userOS: string = process.platform, geminiApi?: GeminiApi, ollamaApi?: OllamaApi): ConversationManager {
+    public static getInstance(userOS: string = process.platform, geminiApi?: GeminiApi, ollamaApi?: OllamaApi, banyaApi?: BanyaApi): ConversationManager {
         if (!ConversationManager.instance) {
-            if (!geminiApi || !ollamaApi) {
+            if (!geminiApi || !ollamaApi || !banyaApi) {
                 // 이 처리는 extension.ts에서 초기화된 후 호출됨을 보장해야 함
-                throw new Error('ConversationManager requires GeminiApi and OllamaApi for initial creation');
+                throw new Error('ConversationManager requires GeminiApi, OllamaApi, and BanyaApi for initial creation');
             }
-            ConversationManager.instance = new ConversationManager(userOS, geminiApi, ollamaApi);
+            ConversationManager.instance = new ConversationManager(userOS, geminiApi, ollamaApi, banyaApi);
         }
         return ConversationManager.instance;
     }

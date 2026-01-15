@@ -109,6 +109,8 @@ ${codebaseContext}` : '';
         switch (modelType) {
             case AiModelType.GEMINI:
                 return llm.getGeminiPrompt();
+            case AiModelType.BANYA:
+                return llm.getBanyaPrompt();
             case AiModelType.OLLAMA:
                 return llm.getGPTOSSPrompt(); // Ollama 기본 프롬프트로 GPT-OSS 스타일 사용
             default:

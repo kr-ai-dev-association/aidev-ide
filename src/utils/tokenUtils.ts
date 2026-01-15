@@ -13,6 +13,11 @@ export const MODEL_TOKEN_LIMITS = {
         maxInputTokens: 128000,  // 일반 Ollama 모델의 보수적 기본값
         maxOutputTokens: 128000,
         maxTotalTokens: 128000
+    },
+    [AiModelType.BANYA]: {
+        maxInputTokens: 128000,  // Banya Solar 모델의 입력 토큰 제한
+        maxOutputTokens: 128000, // Banya Solar 모델의 출력 토큰 제한
+        maxTotalTokens: 128000   // 총 토큰 제한
     }
 };
 
@@ -97,6 +102,8 @@ function getDefaultModelName(modelType: AiModelType): string {
             return 'Gemini 3.0 Pro';
         case AiModelType.OLLAMA:
             return 'Ollama Local Model';
+        case AiModelType.BANYA:
+            return 'Banya Solar 100B';
         default:
             return 'Unknown Model';
     }
