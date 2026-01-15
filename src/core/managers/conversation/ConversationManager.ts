@@ -100,11 +100,28 @@ export class ConversationManager {
      * 사용자의 메시지를 처리하고 응답을 생성하는 메인 엔트리 포인트
      */
     public async handleUserMessageAndRespond(options: ConversationOptions): Promise<void> {
-        const { userQuery, webviewToRespond } = options;
+        const { userQuery, webviewToRespond, extensionContext } = options;
 
         try {
             // 1. 초기화 및 준비
             this.prepareUI(webviewToRespond);
+
+            // 사용자 메시지를 세션에 저장
+            if (extensionContext) {
+                const { SessionManager } = await import('../state/SessionManager');
+                const sessionManager = SessionManager.getInstance(extensionContext);
+                const currentSession = sessionManager.getCurrentSession();
+
+                if (currentSession) {
+                    sessionManager.addConversationEntry(currentSession.id, {
+                        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        timestamp: Date.now(),
+                        type: 'user',
+                        content: userQuery,
+                        model: options.currentModelType
+                    });
+                }
+            }
 
             // 모델 설정 업데이트
             if (options.currentModelType) {
@@ -3049,6 +3066,23 @@ export class ConversationManager {
     private async handleGeneralAsk(systemPrompt: string, userParts: any[], options: ConversationOptions): Promise<void> {
         const response = await this.llmManager.sendMessageWithSystemPrompt(systemPrompt, userParts, { signal: options.abortSignal });
         WebviewBridge.receiveMessage(options.webviewToRespond, 'CODEPILOT', response);
+
+        // AI 응답을 세션에 저장
+        if (options.extensionContext && response) {
+            const { SessionManager } = await import('../state/SessionManager');
+            const sessionManager = SessionManager.getInstance(options.extensionContext);
+            const currentSession = sessionManager.getCurrentSession();
+
+            if (currentSession) {
+                sessionManager.addConversationEntry(currentSession.id, {
+                    id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    timestamp: Date.now(),
+                    type: 'assistant',
+                    content: response,
+                    model: options.currentModelType
+                });
+            }
+        }
     }
 
     /**

@@ -96,8 +96,9 @@ export class ConversationService {
 
         const { SessionManager } = await import('../state/SessionManager');
         const sessionManager = SessionManager.getInstance(extensionContext);
-        const tabType = promptType === PromptType.CODE_GENERATION ? 'code' : 'ask';
-        sessionManager.clearTabHistory(tabType);
+        
+        // 현재 세션의 대화 히스토리 초기화
+        sessionManager.clearConversationHistory();
     }
 }
 

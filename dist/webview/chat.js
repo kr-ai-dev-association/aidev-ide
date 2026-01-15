@@ -12138,22 +12138,22 @@ md.use(markdown_it_container__WEBPACK_IMPORTED_MODULE_3__["default"], "text", {
 // 슬래시 명령어 목록
 const slashCommands = [{
   command: '/cache',
-  label: '📊 캐시 통계 보기',
+  label: '캐시 통계 보기',
   description: '프로젝트 컨텍스트 캐시 통계 표시',
   action: 'viewCacheStats'
 }, {
   command: '/clear-cache',
-  label: '🗑️ 캐시 초기화',
+  label: '캐시 초기화',
   description: '모든 컨텍스트 캐시 삭제',
   action: 'clearCache'
 }, {
   command: '/sessions',
-  label: '📋 저장된 세션 목록',
+  label: '저장된 세션 목록',
   description: '저장된 대화 세션 목록 보기',
   action: 'listSavedSessions'
 }, {
   command: '/restore',
-  label: '🔄 세션 복원',
+  label: '세션 복원',
   description: '저장된 세션 복원하기',
   action: 'restoreSavedSession'
 }];
@@ -12211,7 +12211,8 @@ function renderSlashMenu(filter = '') {
         </div>
     `).join('');
   menu.querySelectorAll('.slash-command-item').forEach(item => {
-    item.addEventListener('click', e => {
+    item.addEventListener('mousedown', e => {
+      e.preventDefault(); // blur 이벤트 방지
       const action = item.getAttribute('data-action');
       executeSlashCommand(action);
     });
@@ -12303,7 +12304,7 @@ if (sendButton && chatInput) {
   chatInput.addEventListener("blur", function () {
     setTimeout(() => {
       hideSlashMenu();
-    }, 200);
+    }, 300);
   });
 }
 

@@ -162,74 +162,18 @@ export class SessionManager {
     }
 
     /**
-     * 탭별 대화 히스토리를 가져옵니다 (llmService 호환)
-     * @param tabType 'code' 또는 'ask'
-     * @param maxEntries 최대 엔트리 수 (기본값: 5)
-     * @returns 대화 히스토리 배열
+     * 대화 히스토리를 초기화합니다
      */
-    public getTabHistory(tabType: 'code' | 'ask', maxEntries: number = 5): Array<{ userQuery: string, aiResponse?: string, timestamp: number }> {
-        const historyKey = tabType === 'code' ? 'codeTabHistory' : 'askTabHistory';
-        const history = this.context.globalState.get<Array<{ userQuery: string, aiResponse?: string, timestamp: number }>>(historyKey, []);
-        
-        if (maxEntries && history.length > maxEntries) {
-            return history.slice(-maxEntries);
-        }
-        
-        return history;
-    }
-
-    /**
-     * 탭별 대화 히스토리에 엔트리를 추가합니다 (llmService 호환)
-     * @param tabType 'code' 또는 'ask'
-     * @param userQuery 사용자 쿼리
-     * @param aiResponse AI 응답 (선택)
-     */
-    public async addTabHistoryEntry(tabType: 'code' | 'ask', userQuery: string, aiResponse?: string): Promise<void> {
-        const historyKey = tabType === 'code' ? 'codeTabHistory' : 'askTabHistory';
-        const history = this.context.globalState.get<Array<{ userQuery: string, aiResponse?: string, timestamp: number }>>(historyKey, []);
-        
-        history.push({
-            userQuery,
-            aiResponse,
-            timestamp: Date.now()
-        });
-
-        // 최대 5개 대화만 유지
-        const trimmedHistory = history.length > 5 ? history.slice(-5) : history;
-        
-        await this.context.globalState.update(historyKey, trimmedHistory);
-    }
-
-    /**
-     * 탭별 대화 히스토리를 컨텍스트 문자열로 반환합니다 (llmService 호환)
-     * @param tabType 'code' 또는 'ask'
-     * @param maxEntries 최대 엔트리 수 (기본값: 5)
-     * @returns 히스토리 컨텍스트 문자열
-     */
-    public getTabHistoryContext(tabType: 'code' | 'ask', maxEntries: number = 5): string {
-        const history = this.getTabHistory(tabType, maxEntries);
-        
-        if (history.length === 0) {
-            return '';
+    public clearConversationHistory(sessionId?: string): void {
+        const session = this.getSession(sessionId);
+        if (!session) {
+            return;
         }
 
-        return '--- 최근 대화 내역 ---\n' +
-            history.map((conv, i) => {
-                let conversationText = `${i + 1}. 사용자: ${conv.userQuery}`;
-                if (conv.aiResponse) {
-                    conversationText += `\n   AI: ${conv.aiResponse}`;
-                }
-                return conversationText;
-            }).join('\n\n') + '\n\n';
-    }
-
-    /**
-     * 탭별 대화 히스토리를 초기화합니다
-     * @param tabType 'code' 또는 'ask'
-     */
-    public async clearTabHistory(tabType: 'code' | 'ask'): Promise<void> {
-        const historyKey = tabType === 'code' ? 'codeTabHistory' : 'askTabHistory';
-        await this.context.globalState.update(historyKey, []);
+        session.conversationHistory = [];
+        session.lastActiveAt = Date.now();
+        this.saveSessions();
+        console.log(`[SessionManager] Cleared conversation history for session: ${session.id}`);
     }
 
     /**

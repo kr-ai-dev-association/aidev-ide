@@ -6,6 +6,17 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.7.5 (Session History Management & Code Cleanup)
+- **Session Conversation History**: Now saves conversation history to sessions.
+  - User messages and AI responses are automatically saved to the current session
+  - Conversation history is stored with each session (up to 100 entries per session)
+  - Clear History button now clears the actual session conversation history
+- **Code Cleanup**: Removed unused TabHistory system.
+  - Removed legacy TabHistory methods (getTabHistory, addTabHistoryEntry, getTabHistoryContext, clearTabHistory)
+  - Simplified conversation history management
+  - ConversationCompactor handles context management (keeps recent 12 messages + summarizes older ones)
+- **Improved Session Restoration**: Sessions now include full conversation context when restored
+
 ## v8.7.4 (Project Context Caching & Slash Commands)
 - **Project Context Caching**: Significantly improved performance by caching frequently accessed files and project structures.
   - Automatic caching of priority files (package.json, tsconfig.json, pyproject.toml, etc.)

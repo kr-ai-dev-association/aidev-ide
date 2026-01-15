@@ -583,7 +583,8 @@ function renderSlashMenu(filter = '') {
     `).join('');
 
     menu.querySelectorAll('.slash-command-item').forEach(item => {
-        item.addEventListener('click', (e) => {
+        item.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // blur 이벤트 방지
             const action = item.getAttribute('data-action');
             executeSlashCommand(action);
         });
@@ -682,7 +683,7 @@ if (sendButton && chatInput) {
     chatInput.addEventListener("blur", function () {
         setTimeout(() => {
             hideSlashMenu();
-        }, 200);
+        }, 300);
     });
 }
 

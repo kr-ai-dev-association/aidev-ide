@@ -6,6 +6,17 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.7.5 (세션 히스토리 관리 및 코드 정리)
+- **세션 대화 히스토리**: 이제 대화 히스토리가 세션에 저장됩니다.
+  - 사용자 메시지와 AI 응답이 현재 세션에 자동으로 저장됨
+  - 대화 히스토리가 각 세션에 저장됨 (세션당 최대 100개 엔트리)
+  - Clear History 버튼이 실제 세션 대화 히스토리를 초기화함
+- **코드 정리**: 사용되지 않던 TabHistory 시스템 제거.
+  - 레거시 TabHistory 메서드 제거 (getTabHistory, addTabHistoryEntry, getTabHistoryContext, clearTabHistory)
+  - 대화 히스토리 관리 단순화
+  - ConversationCompactor가 컨텍스트 관리 담당 (최근 12개 메시지 유지 + 오래된 메시지 요약)
+- **세션 복원 개선**: 세션 복원 시 전체 대화 컨텍스트 포함
+
 ## v8.7.4 (프로젝트 컨텍스트 캐싱 및 슬래시 명령어)
 - **프로젝트 컨텍스트 캐싱**: 자주 참조하는 파일과 프로젝트 구조를 캐싱하여 성능을 대폭 향상시켰습니다.
   - 우선순위 파일 자동 캐싱 (package.json, tsconfig.json, pyproject.toml 등)
