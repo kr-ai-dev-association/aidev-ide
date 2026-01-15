@@ -6,6 +6,26 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.7.1 (Pending Changes UI 개선)
+- **Pending Changes 드롭다운 UI 개선**: 사용성을 향상시킨 pending changes 드롭다운 인터페이스 개선.
+  - 파일 경로 표시: 파일명 대신 전체 상대 경로 표시 (예: `src/app.ts`)
+  - 버튼 레이블: "Accept" → "Keep", "Reject" → "Undo"로 변경하여 액션 의미 명확화
+  - Undo 버튼 스타일: Undo 버튼 배경색 검은색 (#1e1e1e)으로 Keep 버튼과 구분
+  - 드롭다운 너비: 파일 경로 수용을 위해 320px에서 420px로 확장
+  - 아이콘 업데이트: 화살표 아이콘 `>` → `›`로 변경하여 시각적 일관성 향상
+  - 채팅 패널 버튼: 코드 블록 아래 Accept/Reject 버튼도 드롭다운과 동일한 스타일로 업데이트 (Keep/Undo, 동일한 색상)
+
+## v8.7.0 (Pending Changes 팝업)
+- **Pending Changes 팝업**: 아직 승인/거부되지 않은 파일 변경사항(diff)을 관리하는 팝업 UI를 추가했습니다.
+  - 인풋 패널에 새 버튼 추가 (모델 선택기 옆) - pending changes 개수 배지 표시
+  - 클릭하면 pending changes가 있는 모든 파일 목록 팝업 표시
+  - 각 파일별 표시: 파일명, 추가/삭제 라인 수
+  - 파일별 액션: View Diff, Accept, Reject
+  - 전체 액션: Accept All, Reject All
+  - 파일 변경 시 자동 업데이트
+- **InlineDiffManager 개선**: UI 연동을 위한 `getPendingChangesStats()`, `hasPendingChanges()` 메서드 추가
+- **실시간 업데이트**: 도구 실행 후 pending changes 팝업 자동 새로고침
+
 ## v8.6.0 (컨텍스트 자동 압축)
 - **컨텍스트 자동 압축**: 긴 대화를 관리하기 위한 자동 컨텍스트 압축 기능을 추가했습니다. 대화 컨텍스트가 모델의 토큰 제한의 80%를 초과하면 시스템이 자동으로:
   - LLM을 사용하여 오래된 메시지를 요약

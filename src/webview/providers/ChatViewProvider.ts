@@ -450,6 +450,13 @@ ${JSON.stringify(errorContext, null, 2)}
                         console.log('[ChatViewProvider] Calling acceptAllChanges for:', filePath);
                         await inlineDiffManager.acceptAllChanges(filePath);
                         console.log('[ChatViewProvider] acceptAllChanges completed for:', filePath);
+                        
+                        // ✅ Pending Changes 드롭다운 업데이트
+                        const stats = inlineDiffManager.getPendingChangesStats();
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: stats
+                        });
                     } catch (e) {
                         console.error('[ChatViewProvider] acceptAllChangesForFile failed:', e);
                     }
@@ -470,6 +477,13 @@ ${JSON.stringify(errorContext, null, 2)}
                         console.log('[ChatViewProvider] Calling rejectAllChanges for:', filePath);
                         await inlineDiffManager.rejectAllChanges(filePath);
                         console.log('[ChatViewProvider] rejectAllChanges completed for:', filePath);
+                        
+                        // ✅ Pending Changes 드롭다운 업데이트
+                        const stats = inlineDiffManager.getPendingChangesStats();
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: stats
+                        });
                     } catch (e) {
                         console.error('[ChatViewProvider] rejectAllChangesForFile failed:', e);
                     }
@@ -699,6 +713,139 @@ ${JSON.stringify(errorContext, null, 2)}
                         this.notificationService.showErrorMessage(`Diff를 열 수 없습니다: ${error.message || error}`);
                     }
                     break;
+
+                // Pending Changes 관련 명령들
+                case 'requestPendingChanges': {
+                    try {
+                        const diffManager = InlineDiffManager.getInstance();
+                        const stats = diffManager.getPendingChangesStats();
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: stats
+                        });
+                    } catch (error) {
+                        console.error('[ChatViewProvider] Failed to get pending changes:', error);
+                    }
+                    break;
+                }
+
+                case 'viewPendingDiff': {
+                    try {
+                        const filePath = data.filePath;
+                        if (!filePath) break;
+
+                        // 워크스페이스 루트 확인
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                        if (!workspaceRoot) break;
+
+                        const absolutePath = path.isAbsolute(filePath)
+                            ? filePath
+                            : path.join(workspaceRoot, filePath);
+
+                        const fileUri = vscode.Uri.file(absolutePath);
+                        const diffManager = InlineDiffManager.getInstance();
+                        const beforeContent = diffManager.getCheckpointBeforeContent(absolutePath);
+
+                        if (!beforeContent) {
+                            // beforeContent가 없으면 그냥 파일 열기
+                            await vscode.window.showTextDocument(fileUri);
+                            break;
+                        }
+
+                        const title = `${path.basename(absolutePath)} (Before ↔ After)`;
+                        const beforeUri = vscode.Uri.parse(`codepilot-diff:${absolutePath}.before`);
+
+                        if (!this.diffDocumentProvider) {
+                            this.diffDocumentProvider = new DiffDocumentProvider(diffManager);
+                            this.context.subscriptions.push(
+                                vscode.workspace.registerTextDocumentContentProvider('codepilot-diff', this.diffDocumentProvider)
+                            );
+                        }
+
+                        await vscode.commands.executeCommand('vscode.diff', beforeUri, fileUri, title);
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`Diff를 열 수 없습니다: ${error.message || error}`);
+                    }
+                    break;
+                }
+
+                case 'acceptPendingFile': {
+                    try {
+                        const filePath = data.filePath;
+                        if (!filePath) break;
+
+                        const diffManager = InlineDiffManager.getInstance();
+                        await diffManager.acceptAllChanges(filePath);
+
+                        // 업데이트된 pending changes 전송
+                        const stats = diffManager.getPendingChangesStats();
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: stats
+                        });
+
+                        this.notificationService.showInfoMessage(`${path.basename(filePath)} 변경사항이 승인되었습니다.`);
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`승인 실패: ${error.message || error}`);
+                    }
+                    break;
+                }
+
+                case 'rejectPendingFile': {
+                    try {
+                        const filePath = data.filePath;
+                        if (!filePath) break;
+
+                        const diffManager = InlineDiffManager.getInstance();
+                        await diffManager.rejectAllChanges(filePath);
+
+                        // 업데이트된 pending changes 전송
+                        const stats = diffManager.getPendingChangesStats();
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: stats
+                        });
+
+                        this.notificationService.showInfoMessage(`${path.basename(filePath)} 변경사항이 거부되었습니다.`);
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`거부 실패: ${error.message || error}`);
+                    }
+                    break;
+                }
+
+                case 'acceptAllPendingFiles': {
+                    try {
+                        const diffManager = InlineDiffManager.getInstance();
+                        await diffManager.acceptAllChangesForAllFiles();
+
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: []
+                        });
+
+                        this.notificationService.showInfoMessage('모든 변경사항이 승인되었습니다.');
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`전체 승인 실패: ${error.message || error}`);
+                    }
+                    break;
+                }
+
+                case 'rejectAllPendingFiles': {
+                    try {
+                        const diffManager = InlineDiffManager.getInstance();
+                        await diffManager.rejectAllChangesForAllFiles();
+
+                        webviewView.webview.postMessage({
+                            command: 'updatePendingChanges',
+                            files: []
+                        });
+
+                        this.notificationService.showInfoMessage('모든 변경사항이 거부되었습니다.');
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`전체 거부 실패: ${error.message || error}`);
+                    }
+                    break;
+                }
             }
         });
         webviewView.onDidDispose(() => {

@@ -315,5 +315,24 @@ export class ToolExecutionCoordinator {
                 WebviewBridge.receiveMessage(webview, 'System', `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`);
             }
         });
+
+        // ✅ 파일 변경 후 pending changes 상태를 webview에 전송
+        ToolExecutionCoordinator.sendPendingChangesUpdate(webview);
+    }
+
+    /**
+     * Pending changes 업데이트를 webview에 전송
+     */
+    public static sendPendingChangesUpdate(webview: vscode.Webview): void {
+        try {
+            const diffManager = InlineDiffManager.getInstance();
+            const stats = diffManager.getPendingChangesStats();
+            webview.postMessage({
+                command: 'updatePendingChanges',
+                files: stats
+            });
+        } catch (error) {
+            console.warn('[ToolExecutionCoordinator] Failed to send pending changes update:', error);
+        }
     }
 }

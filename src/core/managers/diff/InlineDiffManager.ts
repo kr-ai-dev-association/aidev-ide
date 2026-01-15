@@ -2122,6 +2122,69 @@ export class InlineDiffManager {
     }
 
     /**
+     * Pending changes 통계 가져오기 (UI 팝업용)
+     * 각 파일별로 추가/삭제 라인 수와 함께 반환
+     */
+    public getPendingChangesStats(): Array<{
+        filePath: string;
+        fileName: string;
+        addedLines: number;
+        deletedLines: number;
+        totalChanges: number;
+    }> {
+        const stats: Array<{
+            filePath: string;
+            fileName: string;
+            addedLines: number;
+            deletedLines: number;
+            totalChanges: number;
+        }> = [];
+
+        for (const [filePath, changes] of this.pendingChanges.entries()) {
+            const pendingChanges = changes.filter(c => c.status === 'pending');
+            if (pendingChanges.length === 0) continue;
+
+            let addedLines = 0;
+            let deletedLines = 0;
+
+            for (const change of pendingChanges) {
+                if (change.type === 'add') {
+                    addedLines += change.newText.split('\n').length;
+                } else if (change.type === 'delete') {
+                    deletedLines += change.oldText.split('\n').length;
+                } else if (change.type === 'modify') {
+                    const oldLines = change.oldText.split('\n').length;
+                    const newLines = change.newText.split('\n').length;
+                    addedLines += newLines;
+                    deletedLines += oldLines;
+                }
+            }
+
+            stats.push({
+                filePath,
+                fileName: path.basename(filePath),
+                addedLines,
+                deletedLines,
+                totalChanges: pendingChanges.length
+            });
+        }
+
+        return stats;
+    }
+
+    /**
+     * Pending changes가 있는지 확인
+     */
+    public hasPendingChanges(): boolean {
+        for (const [, changes] of this.pendingChanges.entries()) {
+            if (changes.some(c => c.status === 'pending')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 모든 파일의 모든 변경사항 승인
      */
     public async acceptAllChangesForAllFiles(): Promise<void> {

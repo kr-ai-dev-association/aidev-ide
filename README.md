@@ -6,6 +6,26 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.7.1 (Pending Changes UI Improvements)
+- **Pending Changes Dropdown UI Enhancements**: Improved the pending changes dropdown interface with better usability.
+  - File path display: Shows full relative path (e.g., `src/app.ts`) instead of just filename
+  - Button labels: Changed "Accept" → "Keep", "Reject" → "Undo" for clearer action semantics
+  - Undo button styling: Black background (#1e1e1e) for Undo button to distinguish from Keep button
+  - Dropdown width: Increased from 320px to 420px to accommodate file paths
+  - Icon update: Changed arrow icon from `>` to `›` for better visual consistency
+  - Chat panel buttons: Updated Accept/Reject buttons below code blocks to match dropdown styling (Keep/Undo with same colors)
+
+## v8.7.0 (Pending Changes Popup)
+- **Pending Changes Popup**: Added a popup UI to manage pending file changes (diffs) that haven't been accepted or rejected yet.
+  - New button in the input panel (next to model selector) shows pending changes count badge
+  - Click to open popup showing all files with pending changes
+  - Each file displays: filename, added/deleted line counts
+  - Per-file actions: View Diff, Accept, Reject
+  - Global actions: Accept All, Reject All
+  - Automatically updates when file changes occur
+- **InlineDiffManager Enhancements**: Added `getPendingChangesStats()` and `hasPendingChanges()` methods for UI integration
+- **Real-time Updates**: Pending changes popup automatically refreshes after tool execution
+
 ## v8.6.0 (Automatic Context Compaction)
 - **Automatic Context Compaction**: Added automatic context compaction feature to manage long conversations. When conversation context exceeds 80% of the model's token limit, the system automatically:
   - Summarizes older messages using LLM

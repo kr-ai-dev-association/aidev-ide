@@ -265,12 +265,12 @@ function attachCopyButtonListener(button, codeElement) {
 }
 
 // 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
-// Accept all 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+// Keep 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
 function createAcceptAllButton(filePath) {
     const button = document.createElement('a');
     button.classList.add('accept-all-button');
-    button.textContent = 'Accept';
-    button.title = `Accept all changes for ${filePath}`;
+    button.textContent = 'Keep';
+    button.title = `Keep all changes for ${filePath}`;
     
     // ✅ codepilot://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
     const encodedPath = encodeURIComponent(filePath);
@@ -292,7 +292,7 @@ function createAcceptAllButton(filePath) {
         transition: background-color 0.2s ease-in-out;
         z-index: 2;
         font-weight: 500;
-        background-color: #2e7d32;
+        background-color: #73c991;
         color: white;
         text-decoration: none;
     `;
@@ -300,12 +300,12 @@ function createAcceptAllButton(filePath) {
     return button;
 }
 
-// Reject all 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+// Undo 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
 function createRejectAllButton(filePath) {
     const button = document.createElement('a');
     button.classList.add('reject-all-button');
-    button.textContent = 'Reject';
-    button.title = `Reject all changes for ${filePath}`;
+    button.textContent = 'Undo';
+    button.title = `Undo all changes for ${filePath}`;
     
     // ✅ codepilot://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
     const encodedPath = encodeURIComponent(filePath);
@@ -327,7 +327,7 @@ function createRejectAllButton(filePath) {
         transition: background-color 0.2s ease-in-out;
         z-index: 2;
         font-weight: 500;
-        background-color: #c62828;
+        background-color: #1e1e1e;
         color: white;
         text-decoration: none;
     `;
