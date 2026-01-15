@@ -6,6 +6,9 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.5.0 (Development Rules Auto-Loading)
+- **Development Rules Auto-Loading**: Added automatic loading of development rules from `.agent/rules` directory. The system now automatically reads markdown files (stable-version.md, coding-style.md, project-architecture.md, dependency-policy.md, db-policy.md) from the `.agent/rules` directory and includes them as mandatory rules in the system prompt. Only existing files are loaded, so partial rule sets are supported.
+
 ## v8.4.0 (Framework-Specific Prompts Removal)
 - **Framework-Specific Prompts Removal**: Removed all framework-specific prompt files to simplify the prompt system. The system now relies on LLM to dynamically detect and handle framework-specific requirements by reading project files (package.json, pom.xml, etc.) instead of using hardcoded framework prompts.
 

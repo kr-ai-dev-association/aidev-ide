@@ -3,6 +3,9 @@
  * OS별, LLM별 프롬프트 컴포넌트를 조합하여 최종 프롬프트 생성
  */
 
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { AiModelType } from '../../../../services';
 import { OSAdapterFactory } from '../../execution/os/OSAdapterFactory';
 import { ProjectManager } from '../../project/ProjectManager';
@@ -22,6 +25,68 @@ export interface PromptComposerOptions {
 }
 
 export class PromptComposer {
+    /**
+     * .agent/rules 디렉토리의 개발 규칙 파일들을 읽어서 반환합니다.
+     */
+    private static loadAgentRules(): string {
+        try {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                return '';
+            }
+
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const agentRulesDir = path.join(workspaceRoot, '.agent', 'rules');
+
+            // 디렉토리 존재 여부 확인
+            if (!fs.existsSync(agentRulesDir)) {
+                return '';
+            }
+
+            const ruleFiles = [
+                { name: 'stable-version.md', title: '버전 관리 규칙' },
+                { name: 'coding-style.md', title: '코딩 스타일 규칙' },
+                { name: 'project-architecture.md', title: '프로젝트 아키텍처 규칙' },
+                { name: 'dependency-policy.md', title: '의존성 정책 규칙' },
+                { name: 'db-policy.md', title: '데이터베이스 정책 규칙' }
+            ];
+
+            const rules: string[] = [];
+
+            // 각 규칙 파일이 존재하는지 확인하고, 존재하는 파일만 읽어서 추가
+            // 파일이 일부만 있어도 문제없이 동작 (예: coding-style.md만 있어도 OK)
+            for (const ruleFile of ruleFiles) {
+                const filePath = path.join(agentRulesDir, ruleFile.name);
+                if (fs.existsSync(filePath)) {
+                    try {
+                        const content = fs.readFileSync(filePath, 'utf8').trim();
+                        // 파일이 존재하고 내용이 있을 때만 추가
+                        if (content) {
+                            rules.push(`**${ruleFile.title} (강제 규칙):**
+${content}`);
+                        }
+                    } catch (error) {
+                        console.warn(`[PromptComposer] Failed to read ${ruleFile.name}:`, error);
+                    }
+                }
+                // 파일이 존재하지 않으면 그냥 건너뜀 (에러 없음)
+            }
+
+            // 규칙이 하나도 없으면 빈 문자열 반환 (프롬프트에 포함하지 않음)
+            if (rules.length === 0) {
+                return '';
+            }
+
+            return `**⚠️ 개발 규칙 (반드시 준수해야 할 강제 규칙):**
+아래 규칙들은 프로젝트의 개발 규칙으로, 모든 작업에서 반드시 준수해야 합니다. 이 규칙들을 위반하는 코드나 작업은 절대 생성하지 마세요.
+
+${rules.join('\n\n---\n\n')}`;
+        } catch (error) {
+            console.warn('[PromptComposer] Failed to load agent rules:', error);
+            return '';
+        }
+    }
+
     /**
      * 최종 시스템 프롬프트를 생성합니다.
      */
@@ -64,10 +129,14 @@ export class PromptComposer {
 
 ${codebaseContext}` : '';
 
-        // 조합
+        // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
+        const agentRules = this.loadAgentRules();
+
+        // 조합 (개발 규칙을 basePrompt 바로 다음에 배치하여 강조)
         const parts = [
             osContextInfo,
             basePrompt,
+            agentRules, // 개발 규칙을 강력하게 포함
             terminalCommandRules,
             taskPrompt,
             codebaseSection,
