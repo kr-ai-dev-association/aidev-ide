@@ -302,7 +302,7 @@ export class ConversationCompactor {
     /**
      * 토큰 수 계산
      */
-    private calculateTotalTokens(userParts: any[], systemPrompt: string): number {
+    public calculateTotalTokens(userParts: any[], systemPrompt: string): number {
         let totalTokens = estimateTokens(systemPrompt);
         
         for (const part of userParts) {
@@ -381,5 +381,123 @@ export class ConversationCompactor {
         this.lastSummary = null;
         this.compactionHistory = [];
         console.log('[ConversationCompactor] State reset');
+    }
+
+    /**
+     * 텍스트로부터 직접 요약 생성 (SessionManager 통합용)
+     */
+    public async generateSummaryFromText(conversationText: string, abortSignal?: AbortSignal): Promise<string> {
+        const summarizationPrompt = this.getCompactSummarizationPrompt();
+        const userParts = [{ text: `다음 대화를 요약해주세요:\n\n${conversationText}` }];
+
+        const response = await this.llmManager.sendMessageWithSystemPrompt(
+            summarizationPrompt,
+            userParts,
+            { signal: abortSignal }
+        );
+
+        return this.extractSummaryFromResponse(response);
+    }
+
+    // ===== 세션 요약 (여러 대화 누적 시) =====
+
+    /**
+     * 세션 요약이 필요한지 확인
+     */
+    public needsSessionCompaction(totalTokensUsed: number, maxTokens: number): boolean {
+        if (!this.config.enabled) {
+            return false;
+        }
+
+        const threshold = maxTokens * this.config.tokenThreshold;
+        console.log(`[ConversationCompactor] Session token check: ${totalTokensUsed}/${maxTokens} (threshold: ${threshold})`);
+        
+        return totalTokensUsed > threshold;
+    }
+
+    /**
+     * 세션의 대화 히스토리를 요약
+     */
+    public async compactSessionHistory(
+        conversationHistory: Array<{ type: string; content: string; timestamp?: number }>,
+        maxTokens: number,
+        abortSignal?: AbortSignal
+    ): Promise<{
+        compacted: boolean;
+        summary: string;
+        keepEntries: Array<{ type: string; content: string; timestamp?: number }>;
+        savedTokens: number;
+    }> {
+        if (conversationHistory.length <= this.config.keepRecentCount) {
+            return {
+                compacted: false,
+                summary: '',
+                keepEntries: conversationHistory,
+                savedTokens: 0
+            };
+        }
+
+        // 원본 토큰 계산
+        let originalTokens = 0;
+        conversationHistory.forEach(entry => {
+            originalTokens += estimateTokens(entry.content || '');
+        });
+
+        // 요약할 메시지와 유지할 메시지 분리
+        const keepCount = Math.min(this.config.keepRecentCount, conversationHistory.length);
+        const keepEntries = conversationHistory.slice(-keepCount);
+        const entriesToSummarize = conversationHistory.slice(0, -keepCount);
+
+        if (entriesToSummarize.length === 0) {
+            return {
+                compacted: false,
+                summary: '',
+                keepEntries: conversationHistory,
+                savedTokens: 0
+            };
+        }
+
+        console.log(`[ConversationCompactor] Session compaction: summarizing ${entriesToSummarize.length} entries, keeping ${keepCount} recent`);
+
+        try {
+            // 요약 생성
+            const conversationText = entriesToSummarize
+                .map(entry => `[${entry.type === 'user' ? 'User' : 'Assistant'}]: ${entry.content}`)
+                .join('\n\n');
+
+            const summarizationPrompt = this.getCompactSummarizationPrompt();
+            const userParts = [{ text: `다음 대화를 요약해주세요:\n\n${conversationText}` }];
+
+            const response = await this.llmManager.sendMessageWithSystemPrompt(
+                summarizationPrompt,
+                userParts,
+                { signal: abortSignal }
+            );
+
+            const summary = this.extractSummaryFromResponse(response);
+            const summaryTokens = estimateTokens(summary);
+            let keepTokens = 0;
+            keepEntries.forEach(entry => {
+                keepTokens += estimateTokens(entry.content || '');
+            });
+
+            const savedTokens = originalTokens - summaryTokens - keepTokens;
+            console.log(`[ConversationCompactor] Session compacted. Saved ${savedTokens} tokens (${originalTokens} → ${summaryTokens + keepTokens})`);
+
+            return {
+                compacted: true,
+                summary,
+                keepEntries,
+                savedTokens
+            };
+        } catch (error) {
+            console.error('[ConversationCompactor] Session compaction failed:', error);
+            return {
+                compacted: false,
+                summary: '',
+                keepEntries: conversationHistory,
+                savedTokens: 0
+            };
+        }
     }
 }

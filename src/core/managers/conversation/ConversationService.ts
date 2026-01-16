@@ -97,8 +97,9 @@ export class ConversationService {
         const { SessionManager } = await import('../state/SessionManager');
         const sessionManager = SessionManager.getInstance(extensionContext);
         
-        // 현재 세션의 대화 히스토리 초기화
+        // 현재 세션의 대화 히스토리 및 토큰 사용량 초기화
         sessionManager.clearConversationHistory();
+        sessionManager.resetTokensUsed();
     }
 }
 

@@ -454,7 +454,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 await inlineDiffManager.acceptAllChanges(filePath);
             }
             diffCodeLensProvider.refresh();
-            vscode.window.showInformationMessage(`모든 변경사항이 승인되었습니다. (${pendingFiles.length}개 파일)`);
         })
     );
 
@@ -467,7 +466,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 await inlineDiffManager.rejectAllChanges(filePath);
             }
             diffCodeLensProvider.refresh();
-            vscode.window.showInformationMessage(`모든 변경사항이 거부되었습니다. (${pendingFiles.length}개 파일)`);
         })
     );
 
@@ -773,9 +771,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const items = sessions.map(session => ({
-                label: `$(folder) ${session.projectPath.split('/').pop() || session.projectPath}`,
-                description: `메시지: ${session.conversationHistory.length}개`,
+            const items = sessions.map((session: any) => ({
+                label: session.projectPath.split('/').pop() || session.projectPath,
+                description: `메시지 ${session.conversationHistory.length}개`,
                 detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
                 sessionId: session.id
             }));
@@ -785,9 +783,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 placeHolder: '세션을 선택하세요'
             });
 
-            if (selected) {
-                vscode.window.showInformationMessage(`선택된 세션: ${selected.label}`);
-            }
+            // 선택만 하고 알림 표시하지 않음
         } catch (error) {
             vscode.window.showErrorMessage(`세션 목록 조회 실패: ${error}`);
         }
@@ -804,9 +800,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const items = sessions.map(session => ({
-                label: `$(history) ${session.projectPath.split('/').pop() || session.projectPath}`,
-                description: `메시지: ${session.conversationHistory.length}개`,
+            const items = sessions.map((session: any) => ({
+                label: session.projectPath.split('/').pop() || session.projectPath,
+                description: `메시지 ${session.conversationHistory.length}개`,
                 detail: `생성: ${new Date(session.createdAt).toLocaleString()}`,
                 sessionId: session.id
             }));
@@ -816,10 +812,14 @@ export async function activate(context: vscode.ExtensionContext) {
                 placeHolder: '복원할 세션을 선택하세요'
             });
 
-            if (selected) {
-                const success = sessionManager.setCurrentSession(selected.sessionId);
+            if (selected && (selected as any).sessionId) {
+                const success = sessionManager.setCurrentSession((selected as any).sessionId);
                 if (success) {
-                    vscode.window.showInformationMessage(`세션이 복원되었습니다: ${selected.label}`);
+                    const session = sessionManager.getSession((selected as any).sessionId);
+                    if (session && chatViewProvider) {
+                        // 채팅 패널에 대화 히스토리 복원
+                        chatViewProvider.restoreConversationHistory(session.conversationHistory);
+                    }
                 } else {
                     vscode.window.showErrorMessage('세션 복원에 실패했습니다.');
                 }

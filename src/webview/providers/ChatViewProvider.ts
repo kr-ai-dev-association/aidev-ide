@@ -443,7 +443,6 @@ ${JSON.stringify(errorContext, null, 2)}
                         const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
                         const inlineDiffManager = InlineDiffManager.getInstance();
                         await inlineDiffManager.acceptAllChangesForAllFiles();
-                        this.notificationService.showInfoMessage('모든 변경사항이 승인되었습니다.');
                     } catch (e) {
                         this.notificationService.showErrorMessage('변경사항 승인에 실패했습니다.');
                     }
@@ -454,7 +453,6 @@ ${JSON.stringify(errorContext, null, 2)}
                         const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
                         const inlineDiffManager = InlineDiffManager.getInstance();
                         await inlineDiffManager.rejectAllChangesForAllFiles();
-                        this.notificationService.showInfoMessage('모든 변경사항이 거부되었습니다.');
                     } catch (e) {
                         this.notificationService.showErrorMessage('변경사항 거부에 실패했습니다.');
                     }
@@ -809,7 +807,8 @@ ${JSON.stringify(errorContext, null, 2)}
                             files: stats
                         });
 
-                        this.notificationService.showInfoMessage(`${path.basename(filePath)} 변경사항이 승인되었습니다.`);
+                        // 알림 메시지 제거됨
+                        // this.notificationService.showInfoMessage(`${path.basename(filePath)} 변경사항이 승인되었습니다.`);
                     } catch (error: any) {
                         this.notificationService.showErrorMessage(`승인 실패: ${error.message || error}`);
                     }
@@ -847,8 +846,6 @@ ${JSON.stringify(errorContext, null, 2)}
                             command: 'updatePendingChanges',
                             files: []
                         });
-
-                        this.notificationService.showInfoMessage('모든 변경사항이 승인되었습니다.');
                     } catch (error: any) {
                         this.notificationService.showErrorMessage(`전체 승인 실패: ${error.message || error}`);
                     }
@@ -864,8 +861,6 @@ ${JSON.stringify(errorContext, null, 2)}
                             command: 'updatePendingChanges',
                             files: []
                         });
-
-                        this.notificationService.showInfoMessage('모든 변경사항이 거부되었습니다.');
                     } catch (error: any) {
                         this.notificationService.showErrorMessage(`전체 거부 실패: ${error.message || error}`);
                     }
@@ -1024,6 +1019,39 @@ ${JSON.stringify(errorContext, null, 2)}
     //         } catch (error) {
     //         }
     //     }
+
+    /**
+     * 세션의 대화 히스토리를 복원
+     */
+    public restoreConversationHistory(conversationHistory: any[]): void {
+        if (!this._view) {
+            console.warn('[ChatViewProvider] Cannot restore conversation history: view not initialized');
+            return;
+        }
+
+        console.log(`[ChatViewProvider] Restoring ${conversationHistory.length} conversation entries`);
+
+        // 먼저 채팅 패널 초기화
+        this._view.webview.postMessage({
+            command: 'clearChat'
+        });
+
+        // 각 대화 항목을 순차적으로 표시
+        conversationHistory.forEach(entry => {
+            if (entry.type === 'user') {
+                this._view?.webview.postMessage({
+                    command: 'displayUserMessage',
+                    text: entry.content
+                });
+            } else if (entry.type === 'assistant') {
+                this._view?.webview.postMessage({
+                    command: 'receiveMessage',
+                    sender: 'CODEPILOT',
+                    text: entry.content
+                });
+            }
+        });
+    }
 
     /**
      * 외부에서 채팅 패널에 메시지를 보낼 수 있는 public 메서드

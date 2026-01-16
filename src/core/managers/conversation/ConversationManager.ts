@@ -33,6 +33,7 @@ import { getExecutionFirstRulePrompt, getErrorRetryPrompt, getSimpleErrorRetryPr
 import { getGeneralAnalysisPrompt } from '../context/prompts/analysis/generalAnalysis';
 import { ConversationCompactor } from './ConversationCompactor';
 import { MODEL_TOKEN_LIMITS } from '../../../utils/tokenUtils';
+import { estimateTokens } from '../../../utils';
 
 export interface ConversationOptions {
     userQuery: string;
@@ -106,20 +107,15 @@ export class ConversationManager {
             // 1. 초기화 및 준비
             this.prepareUI(webviewToRespond);
 
-            // 사용자 메시지를 세션에 저장
+            // 세션 히스토리 정리 체크 (LLM 요약 없이 오래된 항목 제거)
             if (extensionContext) {
                 const { SessionManager } = await import('../state/SessionManager');
                 const sessionManager = SessionManager.getInstance(extensionContext);
-                const currentSession = sessionManager.getCurrentSession();
 
-                if (currentSession) {
-                    sessionManager.addConversationEntry(currentSession.id, {
-                        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                        timestamp: Date.now(),
-                        type: 'user',
-                        content: userQuery,
-                        model: options.currentModelType
-                    });
+                // 50개 초과 시 최근 30개만 유지 (구조화된 메타데이터라 용량 적음)
+                if (sessionManager.needsSessionTrim(50)) {
+                    sessionManager.trimSessionHistory(30);
+                    console.log('[ConversationManager] Session history trimmed (no LLM cost)');
                 }
             }
 
@@ -147,12 +143,13 @@ export class ConversationManager {
             };
             const systemPrompt = this.promptBuilder.generateSystemPrompt(promptOptions);
 
-            const userParts = [{ text: userQuery }];
-
             // 5. 작업 타입에 따른 실행 분기
             if (options.promptType === PromptType.CODE_GENERATION) {
+                const userParts = [{ text: userQuery }];
                 await this.executeAgentLoop(systemPrompt, userParts, options, intent);
             } else {
+                // ASK 모드: 이전 대화 컨텍스트 포함
+                const userParts = await this.buildUserPartsWithHistory(userQuery, options);
                 await this.handleGeneralAsk(systemPrompt, userParts, options);
             }
 
@@ -161,6 +158,50 @@ export class ConversationManager {
         } finally {
             WebviewBridge.hideLoading(webviewToRespond);
         }
+    }
+
+    /**
+     * ASK 모드에서 이전 대화 컨텍스트를 포함한 userParts 생성
+     * 구조화된 메타데이터에서 컨텍스트 추출
+     */
+    private async buildUserPartsWithHistory(currentQuery: string, options: ConversationOptions): Promise<any[]> {
+        const userParts: any[] = [];
+        const MAX_HISTORY_ENTRIES = 10; // 최근 10개 대화까지만 포함
+
+        if (options.extensionContext) {
+            try {
+                const { SessionManager } = await import('../state/SessionManager');
+                const sessionManager = SessionManager.getInstance(options.extensionContext);
+                const currentSession = sessionManager.getCurrentSession();
+
+                if (currentSession && currentSession.conversationHistory.length > 0) {
+                    // 최근 대화 히스토리 (구조화된 메타데이터)
+                    const history = currentSession.conversationHistory.slice(-MAX_HISTORY_ENTRIES);
+
+                    // 이전 대화를 간결한 컨텍스트로 추가
+                    for (const entry of history) {
+                        // 구조화된 형식에서 컨텍스트 추출
+                        const actions = entry.actions && entry.actions.length > 0
+                            ? ` [Actions: ${entry.actions.map((a: any) => `${a.type}${a.file ? ':' + a.file : ''}`).join(', ')}]`
+                            : '';
+                        // assistantResponse가 있으면 사용, 없으면 파일 변경 정보 또는 '작업 완료'
+                        const response = entry.assistantResponse
+                            ? entry.assistantResponse.slice(0, 200)
+                            : (entry.filesCreated || entry.filesModified ? '파일 변경 완료' : '작업 완료');
+                        userParts.push({
+                            text: `[User]: ${entry.userRequest}${actions}\n[Assistant]: ${response}`
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('[ConversationManager] Failed to load conversation history:', error);
+            }
+        }
+
+        // 현재 질문 추가
+        userParts.push({ text: `[User]: ${currentQuery}` });
+
+        return userParts;
     }
 
     /**
@@ -211,7 +252,7 @@ export class ConversationManager {
     private async executeAgentLoop(systemPrompt: string, userParts: any[], options: ConversationOptions, intent: any): Promise<void> {
         // intent를 클로저에 저장하여 도구 차단 로직에서 사용 가능하도록 함
         const executionIntent = intent && (intent.category === 'execution' || intent.category === 'code');
-        const { webviewToRespond, abortSignal } = options;
+        const { webviewToRespond, abortSignal, userQuery } = options;
         const maxTurns = AgentConfig.MAX_TURNS;
         let turnCount = 0;
         let accumulatedUserParts = [...userParts];
@@ -219,6 +260,10 @@ export class ConversationManager {
         const maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount(); // 설정에서 최대 시도 횟수 가져오기
         const isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled(); // 자동 테스트 재시도 설정 확인
         let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
+
+        // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
+        const collectedActions: Array<{ type: string; file?: string; command?: string; result?: string }> = [];
+        let lastAssistantResponse = '';
 
         // 🔥 문제 1 해결: npm install 등 명령어 중복 실행 방지 (전역 추적)
         const recentlyExecutedCommands = new Set<string>(); // 최근 실행된 명령어 추적
@@ -398,6 +443,32 @@ export class ConversationManager {
                         );
                     }
                 }
+
+                // CODE 모드: 세션 누적 토큰 + 현재 루프 토큰
+                const currentLoopTokens = compactor.calculateTotalTokens(accumulatedUserParts, systemPrompt);
+                let totalTokens = currentLoopTokens;
+                let totalMessages = accumulatedUserParts.length;
+
+                if (options.extensionContext) {
+                    try {
+                        const { SessionManager } = await import('../state/SessionManager');
+                        const sessionManager = SessionManager.getInstance(options.extensionContext);
+                        const cumulativeStats = sessionManager.getCumulativeSessionStats();
+                        totalTokens += cumulativeStats.totalTokensUsed;
+                        totalMessages += cumulativeStats.messageCount;
+                    } catch (e) {
+                        // 세션 로드 실패 시 현재 루프 토큰만 사용
+                    }
+                }
+
+                WebviewBridge.updateContextInfo(webviewToRespond, {
+                    messageCount: totalMessages,
+                    tokenUsage: {
+                        current: totalTokens,
+                        max: maxTokens,
+                        percentage: (totalTokens / maxTokens) * 100
+                    }
+                });
             } catch (compactionError) {
                 console.warn('[ConversationManager] Context compaction failed:', compactionError);
                 // 압축 실패해도 계속 진행
@@ -437,6 +508,8 @@ export class ConversationManager {
 
                 // 요약 생성 (파일이 생성/수정된 경우)
                 // 단, LLM 호출은 1회만 수행 (generateVerifiedSummary 내부에서 파일 검증 후 요약 생성)
+                let finalResponse = '';
+
                 if (createdFiles.length > 0 || modifiedFiles.length > 0) {
                     // 실제 파일 목록을 확인하여 검증된 요약 생성 (LLM 호출 1회)
                     const verifiedSummary = await this.responseProcessor.generateVerifiedSummary(
@@ -452,18 +525,90 @@ export class ConversationManager {
                     // 요약이 생성되었으면 UI에 출력
                     if (verifiedSummary && verifiedSummary.trim()) {
                         // 명령어를 copy/run 가능한 형식으로 파싱
-                        const parsedSummary = this.parseCommandsInSummary(verifiedSummary);
-                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', parsedSummary);
+                        finalResponse = this.parseCommandsInSummary(verifiedSummary);
+                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', finalResponse);
                     } else {
                         // 요약 생성 실패 시 기본 메시지 출력
-                        const defaultSummary = `작업이 완료되었습니다.\n\n` +
+                        finalResponse = `작업이 완료되었습니다.\n\n` +
                             (createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}\n` : '') +
                             (modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}\n` : '');
-                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', defaultSummary);
+                        WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', finalResponse);
                     }
                 } else {
                     // 파일 변경이 없으면 기본 완료 메시지
-                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', '작업이 완료되었습니다.');
+                    finalResponse = '작업이 완료되었습니다.';
+                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', finalResponse);
+                }
+
+                // 📝 구조화된 메타데이터로 세션에 저장 (LLM 요약 비용 없음)
+                if (options.extensionContext) {
+                    try {
+                        const { SessionManager } = await import('../state/SessionManager');
+                        const sessionManager = SessionManager.getInstance(options.extensionContext);
+                        const currentSession = sessionManager.getCurrentSession();
+
+                        if (currentSession) {
+                            // 파일 변경 정보를 actions에 추가
+                            createdFiles.forEach(file => {
+                                if (!collectedActions.some(a => a.type === 'create' && a.file === file)) {
+                                    collectedActions.push({ type: 'create', file, result: 'success' });
+                                }
+                            });
+                            modifiedFiles.forEach(file => {
+                                if (!collectedActions.some(a => a.type === 'modify' && a.file === file)) {
+                                    collectedActions.push({ type: 'modify', file, result: 'success' });
+                                }
+                            });
+
+                            // 구조화된 대화 엔트리 저장 (CODE 모드)
+                            sessionManager.addConversationEntry(currentSession.id, {
+                                id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                timestamp: Date.now(),
+                                userRequest: userQuery || '',
+                                assistantResponse: finalResponse || '작업 완료',
+                                actions: collectedActions as any,
+                                filesCreated: createdFiles,
+                                filesModified: modifiedFiles,
+                                result: 'success',
+                                model: options.currentModelType
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('[ConversationManager] Failed to save CODE mode entry to session:', e);
+                    }
+                }
+
+                // CODE 모드 사용 토큰을 세션에 누적
+                if (options.extensionContext) {
+                    try {
+                        const { SessionManager } = await import('../state/SessionManager');
+                        const sessionManager = SessionManager.getInstance(options.extensionContext);
+                        const compactor = ConversationCompactor.getInstance(this.llmManager);
+                        const loopTokens = compactor.calculateTotalTokens(accumulatedUserParts, systemPrompt);
+                        sessionManager.addTokensUsed(loopTokens);
+                    } catch (e) {
+                        console.warn('[ConversationManager] Failed to add tokens to session:', e);
+                    }
+                }
+
+                // 세션 히스토리 자동 압축 (LLM 요약 포함)
+                if (options.extensionContext) {
+                    try {
+                        const { SessionManager } = await import('../state/SessionManager');
+                        const sessionManager = SessionManager.getInstance(options.extensionContext);
+                        const currentModelType = options.currentModelType || AiModelType.OLLAMA;
+                        const modelLimits = MODEL_TOKEN_LIMITS[currentModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
+                        const maxTokens = modelLimits?.maxInputTokens || 128000;
+
+                        // ConversationCompactor를 SessionManager에 주입 (lazy injection)
+                        const compactor = ConversationCompactor.getInstance(this.llmManager);
+                        sessionManager.setCompactor(compactor);
+
+                        // 토큰 임계값 확인 후 자동 압축
+                        await sessionManager.compactSessionIfNeeded(maxTokens);
+                    } catch (e) {
+                        console.warn('[ConversationManager] Failed to compact session history:', e);
+                    }
                 }
 
                 // REVIEW 완료 후 DONE으로 전환
@@ -3067,20 +3212,63 @@ export class ConversationManager {
         const response = await this.llmManager.sendMessageWithSystemPrompt(systemPrompt, userParts, { signal: options.abortSignal });
         WebviewBridge.receiveMessage(options.webviewToRespond, 'CODEPILOT', response);
 
-        // AI 응답을 세션에 저장
+        // 📝 구조화된 메타데이터로 세션에 저장 (ASK 모드)
         if (options.extensionContext && response) {
             const { SessionManager } = await import('../state/SessionManager');
             const sessionManager = SessionManager.getInstance(options.extensionContext);
             const currentSession = sessionManager.getCurrentSession();
 
             if (currentSession) {
+                // 원본 사용자 요청 추출 (userParts에서)
+                const userRequest = userParts
+                    .filter(p => p.text && p.text.startsWith('[User]:'))
+                    .map(p => p.text.replace('[User]: ', ''))
+                    .pop() || options.userQuery || '';
+
                 sessionManager.addConversationEntry(currentSession.id, {
-                    id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     timestamp: Date.now(),
-                    type: 'assistant',
-                    content: response,
+                    userRequest: userRequest,
+                    assistantResponse: response, // ASK 모드는 전체 응답 저장
+                    actions: [], // ASK 모드는 도구 사용 안 함
+                    result: 'success',
                     model: options.currentModelType
                 });
+            }
+
+            // ASK 모드 사용 토큰 계산 및 누적
+            let askTokens = estimateTokens(systemPrompt);
+            userParts.forEach(part => {
+                if (part.text) askTokens += estimateTokens(part.text);
+            });
+            if (response) askTokens += estimateTokens(response);
+            sessionManager.addTokensUsed(askTokens);
+
+            // 세션 누적 컨텍스트 정보 업데이트
+            const currentModelType = options.currentModelType || AiModelType.OLLAMA;
+            const modelLimits = MODEL_TOKEN_LIMITS[currentModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
+            const maxTokens = modelLimits?.maxInputTokens || 128000;
+
+            const cumulativeStats = sessionManager.getCumulativeSessionStats();
+            WebviewBridge.updateContextInfo(options.webviewToRespond, {
+                messageCount: cumulativeStats.messageCount,
+                tokenUsage: {
+                    current: cumulativeStats.totalTokensUsed,
+                    max: maxTokens,
+                    percentage: (cumulativeStats.totalTokensUsed / maxTokens) * 100
+                }
+            });
+
+            // 세션 히스토리 자동 압축 (LLM 요약 포함)
+            try {
+                // ConversationCompactor를 SessionManager에 주입 (lazy injection)
+                const compactor = ConversationCompactor.getInstance(this.llmManager);
+                sessionManager.setCompactor(compactor);
+
+                // 토큰 임계값 확인 후 자동 압축
+                await sessionManager.compactSessionIfNeeded(maxTokens);
+            } catch (e) {
+                console.warn('[ConversationManager] Failed to compact session history (ASK mode):', e);
             }
         }
     }

@@ -6,6 +6,63 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.7.7 (UI Improvements & Code Block Toggle Refactoring)
+- **Code Block Toggle Refactoring**: Refactored code block toggle functionality to use event delegation pattern.
+  - Changed from direct event listeners to `codepilot://toggle` scheme-based event delegation
+  - Each code block now has a unique ID for reliable toggle state management
+  - Improved click handling to prevent conflicts with file open and diff icons
+  - Toggle button and header use anchor tags with custom scheme for better event handling
+- **UI Simplification**: Removed borders and backgrounds from dropdown buttons and options for cleaner text-like appearance.
+  - Model selector and Code/ASK mode selector buttons now appear as plain text
+  - Removed all left-side color indicators from dropdown buttons and options
+  - File button already had no border/background, now consistent across all controls
+- **Token Usage Tooltip Enhancement**: Added context information to token usage tooltip.
+  - Tooltip now shows both token usage and context message count
+  - Format: "Token usage: X / Y\nContext: Z messages"
+  - Provides comprehensive context information at a glance
+- **Notification Cleanup**: Removed approval notification messages for cleaner user experience.
+  - File change approval no longer shows "Changes approved" notification
+  - Reduces notification noise during development workflow
+
+## v8.7.6 (Conversation History Management Architecture Improvements)
+- **Unified History System**: Consolidated 4 duplicate storage systems into a single SessionManager repository for clearer context management.
+  - `SessionManager.conversationHistory` as the single source of truth
+  - Stores both full conversation content and structured metadata
+  - Both ASK and CODE modes use the same storage
+- **ConversationEntry Type Extensions**: Stores both full responses and metadata.
+  - `assistantResponse`: Stores complete LLM response (for ASK mode context reuse)
+  - `filesCreated`, `filesModified`, `commandsExecuted`: Structured metadata
+  - `compactedSummaryId`: Reference to compressed summary
+  - `durationMs`: Execution time tracking
+- **Automatic Session Compaction**: Intelligent history compression using LLM summarization.
+  - Auto-compacts when token threshold exceeds 80%
+  - Summarizes old conversations with LLM and persistently stores in `compactedSummaries`
+  - Keeps recent 20 conversations in original form
+  - Falls back to simple trim on compression failure
+- **ASK Mode Context Improvements**: Provides context in summary + recent conversation structure.
+  - `getHistoryContext()` method combines compressed summaries with recent conversations
+  - Past conversation context is preserved as summaries, not lost
+  - Context management quality on par with Cursor/Copilot/Claude Code
+- **ConversationCompactor Integration**: Integrated SessionManager with ConversationCompactor.
+  - `generateSummaryFromText()` method for direct summary generation
+  - SessionManager handles compression timing and summary persistence
+  - Dual strategy: in-loop temporary compression + session persistent compression
+- **Performance Optimizations**: Removed unnecessary LLM calls and utilized caching.
+  - CODE mode can store only file change information (full response optional)
+  - Fast search and filtering with structured metadata
+  - Reduced token costs through compressed summary reuse
+
+## v8.7.6 (Context Visualization & Token Usage Display)
+- **Context Visualization**: Added real-time context information display in the input area.
+  - Shows current number of messages in context
+  - Displays token usage with visual indicators
+  - Color-coded token usage warnings (yellow at 70%, red at 90%)
+  - Updates automatically during conversation
+- **Token Usage Tracking**: Real-time token consumption monitoring.
+  - Shows current tokens / max tokens
+  - Percentage-based display for easy understanding
+  - Helps users manage context length effectively
+
 ## v8.7.5 (Session History Management & Code Cleanup)
 - **Session Conversation History**: Now saves conversation history to sessions.
   - User messages and AI responses are automatically saved to the current session

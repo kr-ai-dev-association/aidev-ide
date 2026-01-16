@@ -12289,8 +12289,8 @@ if (sendButton && chatInput) {
   chatInput.addEventListener("input", function (e) {
     autoResizeTextarea();
     const value = chatInput.value;
-    // / 로 시작하면 슬래시 메뉴 표시
-    if (value.startsWith('/')) {
+    // / 로 시작하고 스페이스가 없을 때만 슬래시 메뉴 표시
+    if (value.startsWith('/') && !value.includes(' ')) {
       const filter = value.slice(1);
       slashMenuSelectedIndex = 0;
       renderSlashMenu(filter);
@@ -12304,7 +12304,15 @@ if (sendButton && chatInput) {
   chatInput.addEventListener("blur", function () {
     setTimeout(() => {
       hideSlashMenu();
-    }, 300);
+    }, 150);
+  });
+
+  // 다른 곳 클릭 시 슬래시 메뉴 숨기기
+  document.addEventListener("click", function (e) {
+    const menu = document.getElementById('slash-command-menu');
+    if (slashMenuVisible && menu && !menu.contains(e.target) && e.target !== chatInput) {
+      hideSlashMenu();
+    }
   });
 }
 
@@ -12525,9 +12533,10 @@ function populateModelDropdown(models, current) {
     }
     item.dataset.model = m.name;
     item.textContent = m.displayName;
-    item.style.padding = "6px 10px";
+    item.style.padding = "4px 8px";
     item.style.cursor = "pointer";
-    item.style.borderLeft = "3px solid #4285f4"; // Gemini 색상 포인트
+    item.style.fontSize = "10px";
+    item.style.borderRadius = "4px";
     item.addEventListener("click", () => {
       currentOllamaModel = m.name;
       setModelLabel(m.displayName, "gemini");
@@ -12561,9 +12570,10 @@ function populateModelDropdown(models, current) {
     }
     item.dataset.model = m.name;
     item.textContent = m.displayName;
-    item.style.padding = "6px 10px";
+    item.style.padding = "4px 8px";
     item.style.cursor = "pointer";
-    item.style.borderLeft = "3px solid #000000"; // Banya 색상 포인트 (검은색)
+    item.style.fontSize = "10px";
+    item.style.borderRadius = "4px";
     item.addEventListener("click", () => {
       currentOllamaModel = m.name;
       setModelLabel(m.displayName, "banya");
@@ -12598,9 +12608,10 @@ function populateModelDropdown(models, current) {
     }
     item.dataset.model = m.name;
     item.textContent = display;
-    item.style.padding = "6px 10px";
+    item.style.padding = "4px 8px";
     item.style.cursor = "pointer";
-    item.style.borderLeft = "3px solid #f68537"; // Ollama 색상 포인트 (주황색)
+    item.style.fontSize = "10px";
+    item.style.borderRadius = "4px";
     item.addEventListener("click", () => {
       currentOllamaModel = m.name;
       setModelLabel(display, "ollama");
@@ -12853,6 +12864,18 @@ window.addEventListener("message", event => {
       }
       if (message.error) {
         console.warn("[chat] ollamaModelChanged error:", message.error);
+      }
+      break;
+    case "updateContextInfo":
+      if (message.contextInfo && window.updateContextInfo) {
+        window.updateContextInfo(message.contextInfo);
+      }
+      break;
+    case "clearChat":
+      console.log('Clearing chat messages');
+      const chatMessagesDiv = document.getElementById('chat-messages');
+      if (chatMessagesDiv) {
+        chatMessagesDiv.innerHTML = '';
       }
       break;
     case "receiveMessage":
@@ -13411,9 +13434,22 @@ function displayCodePilotMessage(markdownText) {
     // 코드 블록 헤더 생성 (언어 표시만)
     const codeHeader = document.createElement("div");
     codeHeader.classList.add("code-block-header");
+
+    // 접기/펼치기 버튼 (span으로 변경)
+    const toggleButton = document.createElement("span");
+    toggleButton.classList.add("code-toggle-button");
+    toggleButton.textContent = "▾";
     const languageLabel = document.createElement("span");
     languageLabel.classList.add("code-language");
     languageLabel.textContent = lang || "text";
+
+    // 왼쪽 그룹 (토글 버튼 + 언어 라벨) - a 태그로 클릭 이벤트 위임
+    const headerLeft = document.createElement("a");
+    headerLeft.classList.add("code-header-left");
+    headerLeft.href = "codepilot://toggle"; // 이벤트 위임용 (ID는 나중에 설정)
+    headerLeft.title = "접기/펼치기";
+    headerLeft.appendChild(toggleButton);
+    headerLeft.appendChild(languageLabel);
 
     // ✅ 라인 수 정보 표시 (삭제/추가 라인 수만, 총 라인 수는 표시하지 않음)
     const lineCountLabel = document.createElement("span");
@@ -13443,31 +13479,25 @@ function displayCodePilotMessage(markdownText) {
         diffIcon.href = `codepilot://diff?path=${encodedPath}`;
         diffIcon.style.cssText = `
                     cursor: pointer;
-                    margin-left: 4px;
-                    opacity: 0.7;
+                    margin-left: 6px;
+                    opacity: 0.5;
                     transition: opacity 0.2s;
                     display: inline-flex;
                     align-items: center;
-                    justify-content: center;
-                    vertical-align: middle;
-                    background: none;
-                    border: 1px solid var(--vscode-panel-border);
-                    border-radius: 3px;
-                    padding: 2px 6px;
-                    color: var(--vscode-foreground);
+                    color: rgba(255, 255, 255, 0.7);
+                    font-size: 12px;
+                    text-decoration: none;
                     font-size: 12px;
                     position: relative;
                     text-decoration: none;
                 `;
         diffIcon.addEventListener("mouseenter", () => {
           diffIcon.style.opacity = "1";
-          diffIcon.style.backgroundColor = "var(--vscode-focusBorder)";
         }, {
           passive: true
         });
         diffIcon.addEventListener("mouseleave", () => {
-          diffIcon.style.opacity = "0.7";
-          diffIcon.style.backgroundColor = "transparent";
+          diffIcon.style.opacity = "0.5";
         }, {
           passive: true
         });
@@ -13487,17 +13517,14 @@ function displayCodePilotMessage(markdownText) {
         openFileIcon.href = `codepilot://open?path=${encodedPath}`;
         openFileIcon.style.cssText = `
                     cursor: pointer;
-                    margin-left: 4px;
-                    opacity: 0.7;
+                    margin-left: 6px;
+                    opacity: 0.5;
                     transition: opacity 0.2s;
                     display: inline-flex;
                     align-items: center;
-                    justify-content: center;
-                    vertical-align: middle;
-                    background: none;
-                    border: 1px solid var(--vscode-panel-border);
-                    border-radius: 3px;
-                    padding: 2px 6px;
+                    color: rgba(255, 255, 255, 0.7);
+                    font-size: 12px;
+                    text-decoration: none;
                     color: var(--vscode-foreground);
                     font-size: 12px;
                     position: relative;
@@ -13507,13 +13534,11 @@ function displayCodePilotMessage(markdownText) {
         // Hover 효과 (인풋과 동일한 파란색)
         openFileIcon.addEventListener("mouseenter", () => {
           openFileIcon.style.opacity = "1";
-          openFileIcon.style.backgroundColor = "var(--vscode-focusBorder)";
         }, {
           passive: true
         });
         openFileIcon.addEventListener("mouseleave", () => {
-          openFileIcon.style.opacity = "0.7";
-          openFileIcon.style.backgroundColor = "transparent";
+          openFileIcon.style.opacity = "0.5";
         }, {
           passive: true
         });
@@ -13523,7 +13548,7 @@ function displayCodePilotMessage(markdownText) {
     }
     // 라인 수 정보가 없으면 라인 수 라벨 자체를 표시하지 않음
 
-    codeHeader.appendChild(languageLabel);
+    codeHeader.appendChild(headerLeft);
     if (deletedLines > 0 || addedLines > 0) {
       codeHeader.appendChild(lineCountLabel);
       console.log();
@@ -13540,31 +13565,22 @@ function displayCodePilotMessage(markdownText) {
       diffIcon.href = `codepilot://diff?path=${encodedPathDiff}`;
       diffIcon.style.cssText = `
                 cursor: pointer;
-                margin-left: 8px;
-                opacity: 0.7;
+                margin-left: 6px;
+                opacity: 0.5;
                 transition: opacity 0.2s;
                 display: inline-flex;
                 align-items: center;
-                justify-content: center;
-                vertical-align: middle;
-                background: none;
-                border: 1px solid var(--vscode-panel-border);
-                border-radius: 3px;
-                padding: 2px 6px;
-                color: var(--vscode-foreground);
+                color: rgba(255, 255, 255, 0.7);
                 font-size: 12px;
-                position: relative;
                 text-decoration: none;
             `;
       diffIcon.addEventListener("mouseenter", () => {
         diffIcon.style.opacity = "1";
-        diffIcon.style.backgroundColor = "var(--vscode-focusBorder)";
       }, {
         passive: true
       });
       diffIcon.addEventListener("mouseleave", () => {
-        diffIcon.style.opacity = "0.7";
-        diffIcon.style.backgroundColor = "transparent";
+        diffIcon.style.opacity = "0.5";
       }, {
         passive: true
       });
@@ -13581,33 +13597,22 @@ function displayCodePilotMessage(markdownText) {
       openFileIcon.href = `codepilot://open?path=${encodedPath}`;
       openFileIcon.style.cssText = `
                 cursor: pointer;
-                margin-left: 8px;
-                opacity: 0.7;
+                margin-left: 6px;
+                opacity: 0.5;
                 transition: opacity 0.2s;
                 display: inline-flex;
                 align-items: center;
-                justify-content: center;
-                vertical-align: middle;
-                background: none;
-                border: 1px solid var(--vscode-panel-border);
-                border-radius: 3px;
-                padding: 2px 6px;
-                color: var(--vscode-foreground);
+                color: rgba(255, 255, 255, 0.7);
                 font-size: 12px;
-                position: relative;
                 text-decoration: none;
             `;
-
-      // Hover 효과 (인풋과 동일한 파란색)
       openFileIcon.addEventListener("mouseenter", () => {
         openFileIcon.style.opacity = "1";
-        openFileIcon.style.backgroundColor = "var(--vscode-focusBorder)";
       }, {
         passive: true
       });
       openFileIcon.addEventListener("mouseleave", () => {
-        openFileIcon.style.opacity = "0.7";
-        openFileIcon.style.backgroundColor = "transparent";
+        openFileIcon.style.opacity = "0.5";
       }, {
         passive: true
       });
@@ -13626,6 +13631,18 @@ function displayCodePilotMessage(markdownText) {
     highlightCodeBlock(codeElement, lang ? lang.trim() : null);
     preElement.appendChild(codeElement);
     codeContainer.appendChild(preElement);
+
+    // 고유 ID 생성 (토글용)
+    const blockId = `code-block-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    codeBlockContainer.setAttribute("data-block-id", blockId);
+    codeContainer.setAttribute("data-container-for", blockId);
+
+    // 토글 버튼과 헤더에 블록 ID 추가
+    toggleButton.href = `codepilot://toggle?id=${blockId}`;
+    headerLeft.href = `codepilot://toggle?id=${blockId}`;
+
+    // 커서 스타일
+    codeHeader.style.cursor = "pointer";
 
     // 코드 블록 컨테이너에 헤더와 코드 추가
     codeBlockContainer.appendChild(codeHeader);
@@ -13974,6 +13991,37 @@ if (chatMessages) {
       } catch (e) {
         console.error("[chat.js] Failed to parse rejectAll link:", href, e);
       }
+    } else if (href.startsWith("codepilot://toggle")) {
+      // ✅ 코드 블록 접기/펼치기 토글
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const query = href.split("?")[1] || "";
+        const params = new URLSearchParams(query);
+        const blockId = params.get("id");
+        if (blockId) {
+          const codeBlock = document.querySelector(`[data-block-id="${blockId}"]`);
+          const codeContainer = document.querySelector(`[data-container-for="${blockId}"]`);
+          if (codeBlock && codeContainer) {
+            const toggleBtn = codeBlock.querySelector(".code-toggle-button");
+            const header = codeBlock.querySelector(".code-block-header");
+            const isCurrentlyCollapsed = codeContainer.style.display === "none";
+            if (isCurrentlyCollapsed) {
+              // 펼치기
+              codeContainer.style.display = "block";
+              if (toggleBtn) toggleBtn.classList.remove("collapsed");
+              if (header) header.classList.remove("collapsed");
+            } else {
+              // 접기
+              codeContainer.style.display = "none";
+              if (toggleBtn) toggleBtn.classList.add("collapsed");
+              if (header) header.classList.add("collapsed");
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[chat.js] Failed to toggle code block:", href, e);
+      }
     }
   });
 }
@@ -14117,6 +14165,51 @@ function rejectAllChanges() {
     console.warn("VS Code API not available");
   }
 }
+
+// 컨텍스트 정보 업데이트 함수
+function updateContextInfo(contextInfo) {
+  const contextCountElement = document.getElementById('context-messages-count');
+  const gaugeFill = document.getElementById('token-gauge-fill');
+  const percentageElement = document.getElementById('token-percentage');
+  const gaugeContainer = document.querySelector('.token-gauge-container');
+  if (contextCountElement && contextInfo.messageCount !== undefined) {
+    const count = contextInfo.messageCount;
+    contextCountElement.textContent = count > 9999 ? '9999+' : count;
+  }
+  if (gaugeFill && percentageElement && contextInfo.tokenUsage !== undefined) {
+    const {
+      current,
+      max,
+      percentage
+    } = contextInfo.tokenUsage;
+    const roundedPercentage = Math.round(percentage);
+
+    // 게이지 바 너비 업데이트
+    gaugeFill.style.width = `${Math.min(100, roundedPercentage)}%`;
+
+    // 퍼센트 텍스트 업데이트
+    percentageElement.textContent = roundedPercentage > 100 ? '100%+' : `${roundedPercentage}%`;
+
+    // tooltip 업데이트
+    if (gaugeContainer) {
+      const maxFormatted = max >= 1000 ? `${Math.floor(max / 1000)}K` : max;
+      let tooltipText = `토큰 사용량: ${current.toLocaleString()} / ${maxFormatted}`;
+
+      // 컨텍스트 정보 추가
+      if (contextInfo.messageCount !== undefined) {
+        const contextCount = contextInfo.messageCount;
+        tooltipText += `\n컨텍스트: ${contextCount.toLocaleString()}개 메시지`;
+      }
+      gaugeContainer.title = tooltipText;
+    }
+
+    // 토큰 사용량에 따른 색상 변경 (항상 흰색으로 고정)
+    gaugeFill.className = 'token-gauge-fill';
+  }
+}
+
+// 전역으로 노출
+window.updateContextInfo = updateContextInfo;
 })();
 
 /******/ 	return __webpack_exports__;

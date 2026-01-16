@@ -22,8 +22,10 @@ export interface Session {
     createdAt: number;
     lastActiveAt: number;
     conversationHistory: ConversationEntry[];
+    compactedSummaries?: ConversationSummary[]; // 압축된 과거 대화 요약
     state: SessionState;
     metadata?: SessionMetadata;
+    totalTokensUsed?: number; // 세션 전체 누적 토큰
 }
 
 /**
@@ -48,16 +50,59 @@ export interface SessionMetadata {
 }
 
 /**
- * 대화 엔트리
+ * 도구 실행 기록
+ */
+export interface ActionEntry {
+    type: 'create' | 'modify' | 'read' | 'delete' | 'execute' | 'search';
+    file?: string;
+    command?: string;
+    result?: 'success' | 'error';
+}
+
+/**
+ * 대화 엔트리 (전체 대화 내용 + 구조화된 메타데이터)
  */
 export interface ConversationEntry {
     id: string;
     timestamp: number;
-    type: 'user' | 'assistant' | 'system';
-    content: string;
+
+    // 전체 대화 내용 (ASK 모드 컨텍스트 재사용을 위해)
+    userRequest: string;           // 사용자 원본 요청
+    assistantResponse?: string;    // LLM 전체 응답 (CODE 모드는 파일 변경으로 대체 가능)
+
+    // 구조화된 메타데이터 (CODE 모드)
+    actions: ActionEntry[];        // 실행된 도구들
+    filesCreated?: string[];       // 생성된 파일 목록
+    filesModified?: string[];      // 수정된 파일 목록
+    commandsExecuted?: string[];   // 실행된 명령어 목록
+
+    // 상태 및 성능 지표
+    result: 'success' | 'error' | 'cancelled';
     model?: string;
     tokensUsed?: number;
-    metadata?: Record<string, any>;
+    durationMs?: number;           // 실행 시간
+
+    // 요약 참조 (압축 후)
+    compactedSummaryId?: string;   // 요약으로 대체되면 요약 ID 참조
+}
+
+/**
+ * 대화 요약 (LLM 생성)
+ */
+export interface ConversationSummary {
+    id: string;
+    createdAt: number;
+    messageRange: {
+        startIndex: number;
+        endIndex: number;
+    };
+    summary: string;               // LLM 생성 요약
+    filesModified: string[];
+    filesCreated: string[];
+    keyContext: string[];          // 다음 작업에 필요한 핵심 컨텍스트
+    primaryRequest: string;        // 주요 요청
+    currentWork: string;           // 현재 진행 중인 작업
+    nextStep?: string;             // 다음 단계
 }
 
 /**

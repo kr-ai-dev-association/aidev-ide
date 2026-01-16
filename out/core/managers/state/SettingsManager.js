@@ -333,7 +333,7 @@ class SettingsManager extends BaseManager_1.BaseManager {
         await this.updateUserSetting('debugEnabled', enabled, vscode.ConfigurationTarget.Global);
     }
     /**
-     * 자동 테스트 실패 시 재시도 On/Off 상태를 가져옵니다
+     * 자동 코드 검증 On/Off 상태를 가져옵니다
      */
     async isAutoTestRetryEnabled() {
         // 워크스페이스 설정을 명시적으로 읽기
@@ -345,7 +345,7 @@ class SettingsManager extends BaseManager_1.BaseManager {
         return value;
     }
     /**
-     * 자동 테스트 실패 시 재시도 On/Off 상태를 저장합니다
+     * 자동 코드 검증 On/Off 상태를 저장합니다
      */
     async updateAutoTestRetryEnabled(enabled) {
         console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Workspace)`);

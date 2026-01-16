@@ -11,7 +11,7 @@ import {
     ContextUpdateType,
     ContextCheckpoint,
     ContextSizeInfo,
-    ConversationSummary,
+    ContextConversationSummary,
     TaskProgress,
     ConversationHistoryDeletedRange,
     MessageHistoryIndex
@@ -23,7 +23,7 @@ export class ContextHistoryManager {
     private context: vscode.ExtensionContext;
     private updates: Map<number, ContextUpdate[]> = new Map(); // messageIndex -> updates
     private checkpoints: Map<string, ContextCheckpoint> = new Map();
-    private summaries: Map<string, ConversationSummary> = new Map(); // summaryId -> summary
+    private summaries: Map<string, ContextConversationSummary> = new Map(); // summaryId -> summary
     private maxContextSize: number = 100000; // 기본 100K 문자
     private maxTokenSize: number = 50000; // 기본 50K 토큰
 
@@ -138,8 +138,9 @@ export class ContextHistoryManager {
         // 대화 히스토리 크기 계산
         if (conversationHistory) {
             for (const entry of conversationHistory) {
-                currentSize += entry.content.length;
-                tokenCount += estimateTokens(entry.content);
+                const content = entry.userRequest + (entry.assistantResponse || '');
+                currentSize += content.length;
+                tokenCount += estimateTokens(content);
             }
         }
 
@@ -350,7 +351,7 @@ export class ContextHistoryManager {
             const historyData = this.context.globalState.get<{
                 updates: [number, ContextUpdate[]][];
                 checkpoints: [string, ContextCheckpoint][];
-                summaries?: [string, ConversationSummary][];
+                summaries?: [string, ContextConversationSummary][];
                 conversationHistoryDeletedRange?: [number, number];
             }>('contextHistory');
 

@@ -111,4 +111,26 @@ export class WebviewBridge {
             WebviewBridge.sendProcessingStatus(webview, step, status);
         };
     }
+
+    /**
+     * 컨텍스트 정보 업데이트
+     */
+    public static updateContextInfo(
+        webview: vscode.Webview | undefined, 
+        contextInfo: {
+            messageCount: number;
+            tokenUsage: {
+                current: number;
+                max: number;
+                percentage: number;
+            };
+        }
+    ): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'updateContextInfo',
+                contextInfo
+            });
+        }
+    }
 }

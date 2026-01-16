@@ -11,5 +11,18 @@ export * from './file';
 export { EditorContextCollector } from './EditorContext';
 export { TerminalContextCollector } from './TerminalContext';
 export { ContextHistoryManager } from './ContextHistoryManager';
-export * from './types/contextHistory';
+
+// contextHistory 타입들 (ConversationSummary와 충돌 방지를 위해 명시적 export)
+export type {
+    ContextUpdateType,
+    ContextUpdate,
+    ContextCheckpoint,
+    ContextSizeInfo,
+    SummarizationOptions,
+    ContextConversationSummary,
+    ContinuationPrompt,
+    TaskProgress,
+    ConversationHistoryDeletedRange,
+    MessageHistoryIndex
+} from './types/contextHistory';
 
