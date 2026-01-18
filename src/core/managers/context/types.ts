@@ -16,7 +16,8 @@ export enum ContextType {
     TERMINAL = 'terminal',
     EDIT_HISTORY = 'edit_history',
     RELATED_FILES = 'related_files',
-    PROJECT = 'project'
+    PROJECT = 'project',
+    OPEN_TABS = 'open_tabs'
 }
 
 /**
@@ -134,6 +135,26 @@ export interface ProjectContext {
 }
 
 /**
+ * 열린 탭 컨텍스트
+ */
+export interface OpenTabsContext {
+    tabs: OpenTabInfo[];
+    activeTabPath?: string;
+}
+
+/**
+ * 열린 탭 정보
+ */
+export interface OpenTabInfo {
+    path: string;
+    name: string;
+    language: string;
+    isActive: boolean;
+    isDirty: boolean;
+    previewContent?: string; // 파일의 첫 몇 줄 미리보기
+}
+
+/**
  * 통합 컨텍스트 데이터
  */
 export interface ContextData {
@@ -145,6 +166,7 @@ export interface ContextData {
     editHistory?: EditHistoryContext;
     relatedFiles?: RelatedFilesContext;
     project?: ProjectContext;
+    openTabs?: OpenTabsContext;
     metadata: ContextMetadata;
 }
 

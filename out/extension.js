@@ -95,52 +95,7 @@ async function activate(context) {
     else {
         console.warn('[Extension] No workspace folder found, core managers initialized without project path');
     }
-    // ollama-blocker 자동 설치 확인 및 설치
-    try {
-        const isInstalled = await ollamaBlockerService.isInstalled();
-        if (!isInstalled) {
-            console.log('ollama-blocker 설치 중...');
-            const installResult = await ollamaBlockerService.install();
-            if (installResult.success) {
-                console.log('ollama-blocker 설치 완료:', installResult.message);
-            }
-            else {
-                console.error('ollama-blocker 설치 실패:', installResult.message);
-            }
-        }
-    }
-    catch (error) {
-        console.error('ollama-blocker 설치 확인 중 오류:', error);
-    }
-    // ollama-blocker 자동 시작 (시리얼 번호가 없는 경우에만)
-    try {
-        const stateManager = core_1.StateManager.getInstance(context);
-        const licenseSerial = await stateManager.getBanyaLicenseSerial();
-        if (!licenseSerial || licenseSerial.trim() === '') {
-            console.log('ollama-blocker 자동 시작 중...');
-            const statusResult = await ollamaBlockerService.getStatus();
-            if (!statusResult.running) {
-                const startResult = await ollamaBlockerService.start();
-                if (!startResult.success) {
-                    console.error('ollama-blocker 자동 시작 실패:', startResult.message);
-                    console.log('ollama-blocker 재시도 중...');
-                    const retryResult = await ollamaBlockerService.start();
-                    if (!retryResult.success) {
-                        console.error('ollama-blocker 재시도 실패:', retryResult.message);
-                    }
-                }
-                else {
-                    console.log('ollama-blocker 자동 시작 완료:', startResult.message);
-                }
-            }
-            else {
-                console.log('ollama-blocker가 이미 실행 중입니다.');
-            }
-        }
-    }
-    catch (error) {
-        console.error('ollama-blocker 자동 시작 중 오류:', error);
-    }
+
     const stateManager = core_1.StateManager.getInstance(context);
     const settingsManager = core_1.SettingsManager.getInstance(context);
     let currentAiModel = await stateManager.getCurrentAiModel();

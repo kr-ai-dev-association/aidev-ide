@@ -175,27 +175,64 @@ export function getSimpleSummaryPrompt(
   createdFiles: string[],
   modifiedFiles: string[]
 ): string {
-  const fileListContext =
-    (createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}\n` : '') +
-    (modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}\n` : '');
+  const createdList = createdFiles.length > 0
+    ? createdFiles.map(f => `- \`${f}\``).join('\n')
+    : '';
+  const modifiedList = modifiedFiles.length > 0
+    ? modifiedFiles.map(f => `- \`${f}\``).join('\n')
+    : '';
 
-  return `다음 작업 결과를 요약하세요.
+  // 파일 타입에 따른 사용 방법 힌트 생성
+  const allFiles = [...createdFiles, ...modifiedFiles];
+  const hasPackageJson = allFiles.some(f => f.includes('package.json'));
+  const hasTsConfig = allFiles.some(f => f.includes('tsconfig'));
+  const hasReactFiles = allFiles.some(f => f.endsWith('.tsx') || f.endsWith('.jsx'));
+  const hasPythonFiles = allFiles.some(f => f.endsWith('.py'));
+  const hasHtmlFiles = allFiles.some(f => f.endsWith('.html'));
 
-[SYSTEM: 실제 생성/수정된 파일 목록]
-${fileListContext}
+  return `[SYSTEM INSTRUCTION - 요약 생성 단계. 도구 태그 출력 절대 금지]
 
-위 파일 목록을 기반으로 작업 결과를 간결하게 요약해주세요.
+## 작업한 파일
+${createdFiles.length > 0 ? `**생성:**\n${createdList}\n` : ''}
+${modifiedFiles.length > 0 ? `**수정:**\n${modifiedList}\n` : ''}
 
-## 중요 지침:
-- **⚠️ 언어**: 반드시 **한국어**로만 응답하세요. 영어로 응답하지 마세요.
-- **절대 금지**: 도구 호출 태그(<create_file>, <update_file>, <read_file> 등)를 출력하지 마세요. 이 단계는 요약만 생성하는 단계입니다.
-- **절대 금지**: thinking, reasoning, explanation 등의 내부 사고 과정을 출력하지 마세요. 순수한 요약 텍스트만 출력하세요.
-- **절대 금지**: "I think...", "Let me...", "We should..." 같은 사고 과정 표현을 사용하지 마세요.
-- **명령어 형식 (CRITICAL)**: 실행 가능한 명령어(예: \`npm run dev\`, \`npm install\`, \`python main.py\` 등)는 반드시 코드 블록 형식으로 작성하세요
-  - ❌ 잘못된 예: "npm install && npm run dev 로 바로 개발 서버를 실행할 수 있습니다"
-  - ✅ 올바른 예: "\`\`\`bash\nnpm install && npm run dev\n\`\`\` 로 바로 개발 서버를 실행할 수 있습니다"
-  - ✅ 올바른 예: "이 파일들을 통해 \`\`\`bash\nnpm install && npm run dev\n\`\`\` 로 바로 개발 서버를 실행할 수 있습니다"
-  - ✅ 올바른 예: "다음 명령어를 실행하세요: \`\`\`powershell\nnpm run dev\n\`\`\`"
+## 출력 형식 (반드시 마크다운 형식으로)
 
-작업 내용을 간결하게 **한국어로** 요약해주세요.`;
+### 작업 완료 ✅
+(전체 작업을 한 문장으로 요약)
+
+### 변경 내용
+(각 파일별로 무엇이 변경/생성되었는지 설명)
+- **파일명**: 설명
+
+### 사용 방법
+(프로젝트 실행 방법이나 다음 단계 안내 - 해당되는 경우만)
+
+---
+
+## 예시 출력
+
+### 작업 완료 ✅
+React + TypeScript 기반의 Vite 프로젝트가 초기화되었습니다.
+
+### 변경 내용
+- **package.json**: React, React-DOM, Vite 및 TypeScript 관련 의존성 설정
+- **tsconfig.json**: TypeScript 컴파일러 옵션 정의 (strict 모드, JSX 지원)
+- **src/App.tsx**: 기본 UI를 표시하는 메인 컴포넌트
+
+### 사용 방법
+\`\`\`bash
+npm install    # 의존성 설치
+npm run dev    # 개발 서버 실행
+\`\`\`
+
+---
+
+## 절대 금지 사항
+- <create_file>, <update_file>, <read_file>, <run_command> 등 XML 도구 태그 출력 금지
+- <think>, <reasoning> 등 사고 과정 태그 출력 금지
+- 영어로 응답 금지 - 반드시 한국어로만 응답
+- "I think", "Let me" 등 사고 과정 표현 금지
+
+지금 바로 한국어로 마크다운 형식의 요약을 작성하세요:`;
 }

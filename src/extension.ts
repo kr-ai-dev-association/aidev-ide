@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { GeminiApi, BanyaApi, NotificationService, OllamaApi, LicenseService, OllamaBlockerService, GitRepositoryService } from './services';
+import { GeminiApi, BanyaApi, NotificationService, OllamaApi, LicenseService, GitRepositoryService } from './services';
 import { AiModelType } from './services/types';
 import { ChatViewProvider } from './webview/providers';
 import { openSettingsPanel } from './core/webview/SettingsPanelProvider';
@@ -52,7 +52,6 @@ let ollamaApi: OllamaApi;
 let banyaApi: BanyaApi;
 let notificationService: NotificationService;
 let licenseService: LicenseService;
-let ollamaBlockerService: OllamaBlockerService;
 let gitRepositoryService: GitRepositoryService;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -69,7 +68,6 @@ export async function activate(context: vscode.ExtensionContext) {
     notificationService = new NotificationService();
 
     licenseService = new LicenseService();
-    ollamaBlockerService = OllamaBlockerService.getInstance(context);
     gitRepositoryService = new GitRepositoryService(context);
 
     // Core Manager 시스템 초기화
@@ -89,48 +87,6 @@ export async function activate(context: vscode.ExtensionContext) {
         console.warn('[Extension] No workspace folder found, core managers initialized without project path');
     }
 
-    // ollama-blocker 자동 설치 확인 및 설치
-    try {
-        const isInstalled = await ollamaBlockerService.isInstalled();
-        if (!isInstalled) {
-            console.log('ollama-blocker 설치 중...');
-            const installResult = await ollamaBlockerService.install();
-            if (installResult.success) {
-                console.log('ollama-blocker 설치 완료:', installResult.message);
-            } else {
-                console.error('ollama-blocker 설치 실패:', installResult.message);
-            }
-        }
-    } catch (error) {
-        console.error('ollama-blocker 설치 확인 중 오류:', error);
-    }
-
-    // ollama-blocker 자동 시작 (시리얼 번호가 없는 경우에만)
-    try {
-        const stateManager = StateManager.getInstance(context);
-        const licenseSerial = await stateManager.getBanyaLicenseSerial();
-        if (!licenseSerial || licenseSerial.trim() === '') {
-            console.log('ollama-blocker 자동 시작 중...');
-            const statusResult = await ollamaBlockerService.getStatus();
-            if (!statusResult.running) {
-                const startResult = await ollamaBlockerService.start();
-                if (!startResult.success) {
-                    console.error('ollama-blocker 자동 시작 실패:', startResult.message);
-                    console.log('ollama-blocker 재시도 중...');
-                    const retryResult = await ollamaBlockerService.start();
-                    if (!retryResult.success) {
-                        console.error('ollama-blocker 재시도 실패:', retryResult.message);
-                    }
-                } else {
-                    console.log('ollama-blocker 자동 시작 완료:', startResult.message);
-                }
-            } else {
-                console.log('ollama-blocker가 이미 실행 중입니다.');
-            }
-        }
-    } catch (error) {
-        console.error('ollama-blocker 자동 시작 중 오류:', error);
-    }
 
     const stateManager = StateManager.getInstance(context);
     const settingsManager = SettingsManager.getInstance(context);
@@ -541,7 +497,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const chatViewProvider = new ChatViewProvider(
         context.extensionUri,
         context,
-        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, undefined, chatViewProvider),
+        (viewColumn: vscode.ViewColumn) => openSettingsPanel(context.extensionUri, context, viewColumn, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, chatViewProvider),
         settingsManager,
         notificationService,
         gitRepositoryService,
@@ -586,7 +542,7 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage('Settings panel could not be opened. Please reload the extension.');
             return;
         }
-        openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, ollamaBlockerService, undefined, chatViewProvider);
+        openSettingsPanel(context.extensionUri, context, vscode.ViewColumn.One, settingsManager, notificationService, geminiApi, licenseService, ollamaApi, undefined, undefined, chatViewProvider);
     }));
     // Command registered: codepilot.openSettingsPanel
 
@@ -635,53 +591,6 @@ export async function activate(context: vscode.ExtensionContext) {
         // debugEnabled 설정은 더 이상 사용하지 않음 (Run/Debug 이벤트로만 제어)
     }));
 
-    // ollama-blocker 관리 명령어들
-    context.subscriptions.push(vscode.commands.registerCommand('codepilot.startOllamaBlocker', async () => {
-        const result = await ollamaBlockerService.start();
-        if (result.success) {
-            vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
-        } else {
-            vscode.window.showErrorMessage(`ollama-blocker: ${result.message}`);
-        }
-    }));
-
-    context.subscriptions.push(vscode.commands.registerCommand('codepilot.stopOllamaBlocker', async () => {
-        const result = await ollamaBlockerService.stop();
-        if (result.success) {
-            vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
-        } else {
-            vscode.window.showErrorMessage(`ollama-blocker: ${result.message}`);
-        }
-    }));
-
-    context.subscriptions.push(vscode.commands.registerCommand('codepilot.ollamaBlockerStatus', async () => {
-        const status = await ollamaBlockerService.getStatus();
-        vscode.window.showInformationMessage(`ollama-blocker Status: ${status.message}`);
-    }));
-
-    context.subscriptions.push(vscode.commands.registerCommand('codepilot.killOllamaProcesses', async () => {
-        const result = await ollamaBlockerService.killOllamaProcesses();
-        if (result.success) {
-            vscode.window.showInformationMessage(`ollama-blocker: ${result.message}`);
-        } else {
-            vscode.window.showErrorMessage(`ollama-blocker: ${result.message}`);
-        }
-    }));
-
-    // 디버그용 ollama-blocker 테스트 명령어
-    context.subscriptions.push(vscode.commands.registerCommand('codepilot.testOllamaBlocker', async () => {
-        try {
-            const isInstalled = await ollamaBlockerService.isInstalled();
-            vscode.window.showInformationMessage(`ollama-blocker 설치 상태: ${isInstalled ? '설치됨' : '설치되지 않음'}`);
-
-            if (isInstalled) {
-                const status = await ollamaBlockerService.getStatus();
-                vscode.window.showInformationMessage(`ollama-blocker 상태: ${status.message}`);
-            }
-        } catch (error) {
-            vscode.window.showErrorMessage(`ollama-blocker 테스트 오류: ${error}`);
-        }
-    }));
 
     // Firebase 연결 테스트 명령어
     context.subscriptions.push(vscode.commands.registerCommand('codepilot.testFirebaseConnection', async () => {
@@ -826,6 +735,57 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         } catch (error) {
             vscode.window.showErrorMessage(`세션 복원 실패: ${error}`);
+        }
+    }));
+
+    // 대화 압축 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.compactConversation', async () => {
+        try {
+            const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
+            const currentSession = sessionManager.getCurrentSession();
+
+            if (!currentSession || currentSession.conversationHistory.length < 3) {
+                vscode.window.showInformationMessage('압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)');
+                return;
+            }
+
+            // LLMManager와 ConversationCompactor 가져오기
+            const { ConversationCompactor } = await import('./core/managers/conversation/ConversationCompactor');
+            const { LLMManager } = await import('./core/managers/model/LLMManager');
+            const llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi);
+            const compactor = ConversationCompactor.getInstance(llmManager);
+
+            // 현재 세션의 대화 히스토리를 userParts 형식으로 변환
+            const userParts = currentSession.conversationHistory.map((entry: any) => ({
+                text: `[User]: ${entry.userRequest}\n[Assistant]: ${entry.assistantResponse || '(응답 없음)'}`
+            }));
+
+            // 모델의 최대 토큰 가져오기
+            const currentModelType = llmManager.getCurrentModel();
+            const { MODEL_TOKEN_LIMITS } = await import('./utils/tokenUtils');
+            const maxTokens = MODEL_TOKEN_LIMITS[currentModelType]?.maxInputTokens || 128000;
+
+            // 강제 압축 실행
+            const result = await compactor.forceCompact(userParts, maxTokens);
+
+            if (result.compacted && result.summary) {
+                // 세션에 압축 요약 저장
+                sessionManager.addCompactedSummary(currentSession.id, result.summary);
+
+                // 오래된 대화 히스토리 정리 (최근 N개만 유지)
+                const keepCount = Math.min(6, currentSession.conversationHistory.length);
+                sessionManager.trimSessionHistory(keepCount);
+
+                const savedPercent = ((result.savedTokens / result.originalTokens) * 100).toFixed(1);
+                vscode.window.showInformationMessage(
+                    `대화 압축 완료: ${result.originalTokens.toLocaleString()} → ${result.compactedTokens.toLocaleString()} 토큰 (${savedPercent}% 절감)`
+                );
+            } else {
+                vscode.window.showInformationMessage('압축할 대화가 충분하지 않습니다.');
+            }
+        } catch (error) {
+            console.error('[Extension] 대화 압축 실패:', error);
+            vscode.window.showErrorMessage(`대화 압축 실패: ${error}`);
         }
     }));
 

@@ -6,7 +6,6 @@
 import * as path from 'path';
 import { glob } from 'glob';
 import { ProjectManager } from '../../project/ProjectManager';
-import { KeywordSelector } from '../KeywordSelector';
 import { estimateTokens } from '../../../../utils';
 import { LLMManager } from '../../model/LLMManager';
 import { FileSearcher } from './FileSearcher';
@@ -15,12 +14,10 @@ export interface RelevantFilesResult {
     fileContentsContext: string;
     includedFilesForContext: { name: string; fullPath: string }[];
     extractedKeywords?: string[];
-    selectedKeywords?: { keywords: string[]; reasoning: string; confidence: number };
 }
 
 export class RelevantFilesFinder {
     private projectManager: ProjectManager;
-    private keywordService?: KeywordSelector;
     private llmManager?: LLMManager;
     private fileSearcher: FileSearcher;
     private readonly MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
@@ -32,13 +29,6 @@ export class RelevantFilesFinder {
     constructor(projectManager: ProjectManager) {
         this.projectManager = projectManager;
         this.fileSearcher = FileSearcher.getInstance();
-    }
-
-    /**
-     * 키워드 선택 서비스를 설정합니다
-     */
-    public setKeywordService(keywordService: KeywordSelector): void {
-        this.keywordService = keywordService;
     }
 
     /**
@@ -60,8 +50,7 @@ export class RelevantFilesFinder {
         const defaultResult: RelevantFilesResult = {
             fileContentsContext: '',
             includedFilesForContext: [],
-            extractedKeywords: [],
-            selectedKeywords: { keywords: [], reasoning: '', confidence: 0 }
+            extractedKeywords: []
         };
 
         let fileContentsContext = '';
@@ -193,29 +182,17 @@ export class RelevantFilesFinder {
                 }
             }
 
-            // LLM을 통한 키워드 선택 (선택적)
-            let selectedKeywords: { keywords: string[]; reasoning: string; confidence: number } = { keywords: [], reasoning: '', confidence: 0 };
-            if (this.keywordService && expandedKeywords.length > 0) {
-                try {
-                    selectedKeywords = await this.selectKeywordsWithLLM(userQuery, expandedKeywords, projectRoot);
-                } catch (error) {
-                    console.warn('[RelevantFilesFinder] LLM 키워드 선택 실패:', error);
-                }
-            }
-
             return {
                 fileContentsContext,
                 includedFilesForContext,
-                extractedKeywords: expandedKeywords,
-                selectedKeywords
+                extractedKeywords: expandedKeywords
             };
         } catch (error) {
             console.error('[RelevantFilesFinder] 관련 파일 컨텍스트 수집 중 오류:', error);
             return {
                 fileContentsContext: fileContentsContext || '',
                 includedFilesForContext: includedFilesForContext || [],
-                extractedKeywords: [],
-                selectedKeywords: { keywords: [], reasoning: '', confidence: 0 }
+                extractedKeywords: []
             };
         }
     }
@@ -229,44 +206,18 @@ export class RelevantFilesFinder {
             .replace(/\s+/g, ' ')
             .trim();
 
-        // 한국어 형태소 분석을 통한 키워드 추출
-        const koreanStems = this.extractKoreanStems(cleanQuery);
-
-        // 영어 단어들 추출
-        const englishWords = cleanQuery.split(' ')
-            .filter(word => word.length > 1)
-            .filter(word => !/^[가-힣]+$/.test(word));
+        // 모든 단어 추출 (한국어 포함)
+        const allWords = cleanQuery.split(' ')
+            .filter(word => word.length > 1);
 
         // 개발 관련 키워드 추가
         const developmentKeywords = this.getDevelopmentKeywords(userQuery);
 
         // 모든 키워드 결합
-        const allKeywords = [...koreanStems, ...englishWords, ...developmentKeywords];
+        const allKeywords = [...allWords, ...developmentKeywords];
 
         // 키워드 우선순위 기반 필터링
         return this.prioritizeKeywords(allKeywords, userQuery);
-    }
-
-    /**
-     * 한국어 형태소 분석을 통해 어간을 추출합니다
-     */
-    private extractKoreanStems(text: string): string[] {
-        const koreanWords = text.split(' ')
-            .filter(word => /^[가-힣]+$/.test(word))
-            .filter(word => word.length > 1);
-
-        return koreanWords.map(word => this.extractKoreanStem(word));
-    }
-
-    /**
-     * 한국어 어간 추출 (간단한 버전)
-     */
-    private extractKoreanStem(word: string): string {
-        // 간단한 어간 추출 (실제로는 형태소 분석 라이브러리 사용 권장)
-        if (word.length > 2) {
-            return word.slice(0, -1); // 마지막 글자 제거
-        }
-        return word;
     }
 
 
@@ -591,40 +542,6 @@ export class RelevantFilesFinder {
 
         console.log(`[RelevantFilesFinder] 명시적으로 언급된 파일: ${explicitFiles.map(f => path.relative(projectRoot, f)).join(', ')}`);
         return explicitFiles;
-    }
-
-    /**
-     * LLM을 통한 키워드 선택
-     */
-    private async selectKeywordsWithLLM(
-        userQuery: string,
-        keywords: string[],
-        projectRoot: string
-    ): Promise<{ keywords: string[]; reasoning: string; confidence: number }> {
-        if (!this.keywordService) {
-            return {
-                keywords: keywords.slice(0, 5),
-                reasoning: 'LLM 서비스 미설정으로 기본 키워드 사용',
-                confidence: 0.3
-            };
-        }
-
-        try {
-            // KeywordSelector를 사용하여 키워드 선택
-            // 실제 구현은 KeywordSelector에 위임
-            return {
-                keywords: keywords.slice(0, 5),
-                reasoning: 'LLM 키워드 선택 (구현 예정)',
-                confidence: 0.7
-            };
-        } catch (error) {
-            console.warn('[RelevantFilesFinder] LLM 키워드 선택 실패:', error);
-            return {
-                keywords: keywords.slice(0, 5),
-                reasoning: 'LLM 키워드 선택 실패',
-                confidence: 0.3
-            };
-        }
     }
 
     /**

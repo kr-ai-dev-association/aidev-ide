@@ -52,6 +52,13 @@ export class CreateFileToolHandler implements IToolHandler {
         // diff 표시
         await inlineDiffManager.showInlineDiff(absolutePath, originalContent, cleanedContent);
 
+        // ✅ 디버깅: fileContent 반환 확인
+        console.log(`[CreateFileToolHandler] Returning response with fileContent:`, {
+            filePath,
+            cleanedContentLength: cleanedContent?.length || 0,
+            cleanedContentPreview: cleanedContent?.substring(0, 100) || 'empty'
+        });
+
         return {
             success: true,
             message: `File ${filePath} ready for review in diff editor. Please approve or reject the changes.`,

@@ -4,16 +4,16 @@
  */
 
 import { ToolUse, ToolResponse, Tool } from './types';
-import { IToolHandler, ToolExecutionContext } from './IToolHandler';
+import { ToolExecutionContext } from './IToolHandler';
 import { ToolRegistry } from './ToolRegistry';
 
 export class ToolExecutor {
     private registry: ToolRegistry;
-    
+
     constructor() {
         this.registry = ToolRegistry.getInstance();
     }
-    
+
     /**
      * 툴 실행
      */
@@ -22,7 +22,7 @@ export class ToolExecutor {
         context: ToolExecutionContext
     ): Promise<ToolResponse> {
         const handler = this.registry.getHandler(toolUse.name);
-        
+
         if (!handler) {
             return {
                 success: false,
@@ -30,14 +30,16 @@ export class ToolExecutor {
                 error: { code: 'UNKNOWN_TOOL', message: `Tool ${toolUse.name} is not registered` }
             };
         }
-        
+
         try {
             console.log(`[ToolExecutor] Executing tool: ${toolUse.name}`);
             const result = await handler.execute(toolUse, context);
             console.log(`[ToolExecutor] Tool ${toolUse.name} completed: ${result.success ? 'success' : 'failed'}`);
+
             return result;
         } catch (error) {
             console.error(`[ToolExecutor] Tool execution failed: ${toolUse.name}`, error);
+
             return {
                 success: false,
                 message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,

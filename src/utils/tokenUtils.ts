@@ -23,26 +23,31 @@ export const MODEL_TOKEN_LIMITS = {
 
 /**
  * 텍스트의 대략적인 토큰 수를 계산합니다.
- * 영어: 약 4자 = 1토큰
- * 한국어: 약 3자 = 1토큰
- * 코드: 약 4자 = 1토큰
+ * 대부분의 토큰화 모델에서 1 토큰 ≈ 4 문자 (영어 기준) 또는 1-2 문자 (한국어 기준)
+ * @param text 토큰 수를 계산할 텍스트
+ * @returns 대략적인 토큰 수
  */
-export function estimateTokenCount(text: string): number {
+export function estimateTokens(text: string): number {
     if (!text) return 0;
 
-    // 영어, 한국어, 코드 문자를 구분하여 계산
-    const englishChars = (text.match(/[a-zA-Z0-9\s]/g) || []).length;
+    // 한국어와 영어를 구분하여 계산
     const koreanChars = (text.match(/[가-힣]/g) || []).length;
-    const codeChars = (text.match(/[{}()\[\]<>;:,./\\|`~!@#$%^&*+=?-]/g) || []).length;
-    const otherChars = text.length - englishChars - koreanChars - codeChars;
+    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+    const otherChars = text.length - koreanChars - englishChars;
 
-    // 토큰 계산 (대략적인 추정)
+    // 한국어: 1-2 문자당 1 토큰, 영어: 4 문자당 1 토큰, 기타: 3 문자당 1 토큰
+    const koreanTokens = Math.ceil(koreanChars / 1.5);
     const englishTokens = Math.ceil(englishChars / 4);
-    const koreanTokens = Math.ceil(koreanChars / 3);
-    const codeTokens = Math.ceil(codeChars / 4);
-    const otherTokens = Math.ceil(otherChars / 4);
+    const otherTokens = Math.ceil(otherChars / 3);
 
-    return englishTokens + koreanTokens + codeTokens + otherTokens;
+    return koreanTokens + englishTokens + otherTokens;
+}
+
+/**
+ * @deprecated estimateTokens() 사용 권장
+ */
+export function estimateTokenCount(text: string): number {
+    return estimateTokens(text);
 }
 
 /**
@@ -136,26 +141,4 @@ export function logTokenUsage(
     if (currentTokens > limits.maxInputTokens) {
         console.error(`[TokenUtils] 토큰 제한 초과: ${currentTokens.toLocaleString()} > ${limits.maxInputTokens.toLocaleString()}`);
     }
-}
-
-/**
- * 텍스트의 대략적인 토큰 수를 계산합니다.
- * 대부분의 토큰화 모델에서 1 토큰 ≈ 4 문자 (영어 기준) 또는 1-2 문자 (한국어 기준)
- * @param text 토큰 수를 계산할 텍스트
- * @returns 대략적인 토큰 수
- */
-export function estimateTokens(text: string): number {
-    if (!text) return 0;
-
-    // 한국어와 영어를 구분하여 계산
-    const koreanChars = (text.match(/[가-힣]/g) || []).length;
-    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
-    const otherChars = text.length - koreanChars - englishChars;
-
-    // 한국어: 1-2 문자당 1 토큰, 영어: 4 문자당 1 토큰, 기타: 3 문자당 1 토큰
-    const koreanTokens = Math.ceil(koreanChars / 1.5);
-    const englishTokens = Math.ceil(englishChars / 4);
-    const otherTokens = Math.ceil(otherChars / 3);
-
-    return koreanTokens + englishTokens + otherTokens;
 }

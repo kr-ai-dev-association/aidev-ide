@@ -51,10 +51,12 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.READ_FILE)) {
             specs.push({
                 name: Tool.READ_FILE,
-                description: '지정된 경로의 파일 내용을 읽습니다. 여러 파일을 한 번에 읽으려면 <paths> 태그에 쉼표로 구분된 경로 목록을 제공하거나, 여러 <path> 태그를 사용할 수 있습니다.',
+                description: '지정된 경로의 파일 내용을 읽습니다. 여러 파일을 한 번에 읽으려면 <paths> 태그에 쉼표로 구분된 경로 목록을 제공하거나, 여러 <path> 태그를 사용할 수 있습니다. 큰 파일의 경우 startLine과 endLine을 사용하여 특정 범위만 읽을 수 있습니다.',
                 parameters: [
                     { name: 'path', required: false, description: '읽을 파일 경로 (단일 파일인 경우)', type: 'string' },
-                    { name: 'paths', required: false, description: '읽을 파일 경로 목록 (쉼표로 구분된 문자열 또는 여러 <path> 태그)', type: 'string' }
+                    { name: 'paths', required: false, description: '읽을 파일 경로 목록 (쉼표로 구분된 문자열 또는 여러 <path> 태그)', type: 'string' },
+                    { name: 'startLine', required: false, description: '읽기 시작할 줄 번호 (1부터 시작, 생략하면 처음부터)', type: 'number' },
+                    { name: 'endLine', required: false, description: '읽기 끝낼 줄 번호 (포함, 생략하면 끝까지)', type: 'number' }
                 ]
             });
         }

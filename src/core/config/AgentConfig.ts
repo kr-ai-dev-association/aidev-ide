@@ -69,9 +69,6 @@ export class AgentConfig {
         GENERAL: 0.8      // requirements.txt만 있는 경우
     };
 
-    // ===== 키워드 선택 =====
-    static readonly KEYWORD_SELECTION_CONFIDENCE = 0.85;
-
     // 파일 경로 관련
     static readonly IGNORED_DIRECTORIES = ['.git', '.cursor', '.DS_Store', 'node_modules', '.idea', '.vscode'];
 

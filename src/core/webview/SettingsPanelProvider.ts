@@ -5,7 +5,6 @@ import {
   GeminiApi,
   NotificationService,
   LicenseService,
-  OllamaBlockerService,
   AiModelType,
   ExternalApiService,
 } from "../../services";
@@ -47,7 +46,6 @@ export function openSettingsPanel(
   licenseService: LicenseService, // LicenseService 추가
   ollamaApi?: any, // OllamaApi 추가
   llmService?: any, // LlmService 추가
-  ollamaBlockerService?: OllamaBlockerService, // OllamaBlockerService 추가
   terminalMonitorService?: any, // TerminalMonitorService 추가
   chatViewProvider?: any, // ChatViewProvider 추가
 ) {
@@ -1230,51 +1228,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "testOllamaBlockerConnection": // Ollama Blocker 연결 테스트 케이스 추가
-          try {
-            if (!ollamaBlockerService) {
-              safePostMessage(panel, {
-                command: "ollamaBlockerConnectionTestResult",
-                success: false,
-                error: "Ollama Blocker service not available",
-              });
-              notificationService.showErrorMessage(
-                "CODEPILOT: Ollama Blocker service not available.",
-              );
-              return;
-            }
-
-            const testResult = await ollamaBlockerService.testConnection();
-            if (testResult.success) {
-              safePostMessage(panel, {
-                command: "ollamaBlockerConnectionTestResult",
-                success: true,
-                data: testResult.data,
-              });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Ollama Blocker connection test successful.",
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "ollamaBlockerConnectionTestResult",
-                success: false,
-                error: testResult.error,
-              });
-              notificationService.showErrorMessage(
-                `CODEPILOT: Ollama Blocker connection test failed: ${testResult.error}`,
-              );
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "ollamaBlockerConnectionTestResult",
-              success: false,
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `CODEPILOT: Ollama Blocker connection test failed: ${error.message}`,
-            );
-          }
-          break;
         case "testTerminalDaemonConnection": // Terminal Daemon 연결 테스트 케이스 추가
           try {
             // 🆕 core TerminalManager 사용
@@ -1316,7 +1269,6 @@ export function openSettingsPanel(
               gemini: false,
               ollama: false,
               banyaLicense: false,
-              ollamaBlocker: false,
               terminalDaemon: false,
             };
 
@@ -1365,15 +1317,6 @@ export function openSettingsPanel(
               /* 무시 */
             }
 
-            // Ollama Blocker 연결 테스트
-            try {
-              if (ollamaBlockerService) {
-                const blockerTest = await ollamaBlockerService.testConnection();
-                results.ollamaBlocker = blockerTest.success;
-              }
-            } catch (e) {
-              /* 무시 */
-            }
 
             // Terminal Daemon 연결 테스트
             try {

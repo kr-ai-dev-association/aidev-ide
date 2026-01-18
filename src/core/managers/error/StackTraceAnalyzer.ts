@@ -8,6 +8,7 @@ import {
     StackFrame,
     ErrorLocation
 } from './types';
+import { EXCLUDED_LIBRARY_PATHS } from '../../utils/FileExclusionConstants';
 
 export class StackTraceAnalyzer {
     /**
@@ -66,23 +67,9 @@ export class StackTraceAnalyzer {
 
         const file = frame.file.toLowerCase();
 
-        // node_modules, 라이브러리 경로 제외
-        const libraryPatterns = [
-            'node_modules',
-            'vendor',
-            'packages',
-            '.gradle',
-            '.m2',
-            'site-packages',
-            'dist',
-            'build',
-            'target',
-            '.next',
-            '.nuxt'
-        ];
-
-        for (const pattern of libraryPatterns) {
-            if (file.includes(pattern)) {
+        // 라이브러리 경로 제외 (공용 상수 사용)
+        for (const pattern of EXCLUDED_LIBRARY_PATHS) {
+            if (file.includes(pattern.toLowerCase())) {
                 return false;
             }
         }

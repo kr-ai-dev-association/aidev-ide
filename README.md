@@ -6,6 +6,58 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.8.1 (Summary Improvements & Session History Restoration)
+- **Improved Summary Format**: Enhanced task completion summary output with markdown formatting.
+  - Structured with `### Task Complete ✅`, `### Changes`, `### Usage` sections
+  - File changes displayed as `**filename**: description` format
+  - Project execution instructions provided in code blocks
+  - Added retry logic when LLM responds with tool tags (max 3 attempts)
+- **Complete Session History Restoration**: Full conversation restoration on VSCode restart.
+  - Restores code blocks (created/modified file contents)
+  - Restores action areas (📖 [Read], ✅ [Created], 📝 [Updated], etc.)
+  - All messages displayed in webview are saved via `uiMessages` field
+  - Backwards compatibility with older data format
+- **Action Tracker UI Removed**: Removed unnecessary real-time action tracker UI.
+  - Removed displays like "Working... 📖Reading file: App.tsx"
+  - Removed `WebviewBridge.updateActionTracker`, `clearActionTracker` methods
+  - Removed action tracker calls from `ToolExecutor`
+  - Reduced bundle size by removing related CSS styles
+
+## v8.8.0 (Real-time Action Tracker & Context Improvements)
+- **Real-time Action Tracker**: Added Windsurf-style real-time action tracking UI during AI operations.
+  - Shows live progress of file reads, creates, modifies, deletes
+  - Displays command execution status in real-time
+  - Search and analysis operations are tracked with visual indicators
+  - Each action shows start/complete/error status with icons
+  - Animated spinner and status indicators for active operations
+  - Maximum 10 actions displayed with auto-scroll
+- **WebviewBridge Enhancement**: Added `updateActionTracker` and `clearActionTracker` methods
+- **ToolExecutor Integration**: Automatic action tracking for all tool executions
+- **Visual Improvements**:
+  - Action-specific icons and color coding (read: blue, create: green, modify: orange, delete: red)
+  - Smooth slide-in animations for new actions
+  - Completed actions fade to indicate progress
+- **Open Tabs Context**: Added ability to include open editor tabs in LLM context.
+  - `ContextManager.getOpenTabsContext()` returns list of all open tabs
+  - Includes file path, name, language, active status, and dirty status
+  - Helps LLM understand which files user is working with
+- **Partial File Reading**: Enhanced `read_file` tool with line range support.
+  - `startLine` and `endLine` parameters for reading specific portions of large files
+  - Returns line numbers with content for easy reference
+  - Reduces token usage when only part of a file is needed
+
+## v8.7.8 (Input Area Styling Improvements)
+- **Input Area Border Styling**: Improved input area border appearance for cleaner UI.
+  - Added subtle light gray border to input area (`.input-row`)
+  - Removed blue focus border, maintaining consistent light gray border on focus
+  - Provides cleaner, more consistent visual appearance
+- **File Selection UX**: Improved '@' command file selection behavior.
+  - File name no longer remains in input field after selection
+  - Selected files are only shown in the file selection area
+  - Cleaner input experience when using '@' command
+- **UI Text Consistency**: Standardized text capitalization in Pending Changes button.
+  - Changed "file/files" to "File/Files" for consistency
+
 ## v8.7.7 (UI Improvements & Code Block Toggle Refactoring)
 - **Code Block Toggle Refactoring**: Refactored code block toggle functionality to use event delegation pattern.
   - Changed from direct event listeners to `codepilot://toggle` scheme-based event delegation

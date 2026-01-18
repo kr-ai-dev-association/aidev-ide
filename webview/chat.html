@@ -237,15 +237,30 @@
             max-height: 200px;
             overflow: auto;
             box-sizing: border-box;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* 파일 멘션 블록 스타일 */
+        .file-mention {
+            display: inline-block;
+            background-color: rgba(0, 122, 255, 0.2);
+            color: rgba(0, 122, 255, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin: 0 2px;
+            user-select: none;
+            -webkit-user-select: none;
+            white-space: nowrap;
+        }
+
+        .file-mention::before {
+            content: '@';
+            margin-right: 2px;
         }
 
         /* <-- 수정 끝 --> */
-
-
-        #chat-input:focus {
-            border-color: var(--vscode-focusBorder);
-            /* 포커스 시 테두리 색상 변경 */
-        }
 
         /* 상단 컨트롤 (Agent, Mode) */
         .top-controls {
@@ -330,14 +345,14 @@
             flex-direction: column;
             align-items: stretch;
             background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-panel-border);
+            border: 1px solid rgba(128, 128, 128, 0.3);
             border-radius: 8px;
             padding: 8px 12px 10px 12px;
             transition: border-color 0.2s ease;
         }
 
         .input-row:focus-within {
-            border-color: var(--vscode-focusBorder);
+            border-color: rgba(128, 128, 128, 0.3);
         }
 
         /* 아이콘 행 */
@@ -1005,17 +1020,28 @@
         }
 
         .code-language {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             color: rgba(255, 255, 255, 0.7);
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             text-transform: uppercase;
             font-size: 11px;
             cursor: pointer;
             transition: color 0.2s;
+            text-decoration: none;
+            min-height: 16px;
         }
 
         .code-language:hover {
             color: rgba(255, 255, 255, 0.9);
             letter-spacing: 0.5px;
+            text-decoration: none;
+        }
+
+        .code-language:visited {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
         }
 
         .code-line-count {
@@ -1865,15 +1891,7 @@
         <!-- Pending Question Queue Area -->
         <div id="pending-queue-area" class="hidden"></div>
         <!-- File Selection Area - 입력창과 채팅 출력창 사이로 이동 -->
-        <div id="file-selection-area" class="hidden">
-            <div id="selected-files-container">
-                <!-- 선택된 파일들이 여기에 표시됩니다 -->
-            </div>
-            <button id="clear-files-button" title="Clear all selected files">×</button>
-        </div>
-
-        <!-- 파일 선택 영역과 입력 영역 사이의 구분선 -->
-        <hr class="file-input-divider hidden" />
+        <!-- 파일 선택 영역 제거됨 - 입력창에 @filename 블록으로 표시 -->
 
         <div id="chat-input-area">
             <!-- 상단 컨트롤 -->
@@ -1890,7 +1908,7 @@
                 <div style="flex: 1;"></div>
                 <!-- Pending Changes Button -->
                 <button class="dropdown-button" id="pending-changes-btn" style="display: none;" title="Pending Changes">
-                    <span id="pending-changes-label">0 files</span>
+                    <span id="pending-changes-label">0 Files</span>
                     <span style="font-size: 10px;">›</span>
                 </button>
                 <!-- Pending Changes Dropdown -->
@@ -1934,7 +1952,7 @@
                     <button id="remove-image-button" title="Remove image">×</button>
                 </div>
 
-                <textarea id="chat-input" rows="1" placeholder="메시지를 입력하세요... (/ 로 명령어 사용)"></textarea>
+                <div id="chat-input" contenteditable="true" role="textbox" aria-multiline="true"></div>
 
                 <!-- 아이콘 버튼들 -->
                 <div class="input-actions-row">
@@ -2032,14 +2050,28 @@
                 dropdown.style.display = 'none';
             };
 
+            // 선택된 옵션 업데이트 함수
+            const updateSelectedOption = () => {
+                dropdown.querySelectorAll('.dropdown-option').forEach(opt => {
+                    const optMode = opt.getAttribute('data-mode') || 'CODE';
+                    if (optMode === window.chatMode) {
+                        opt.classList.add('selected');
+                    } else {
+                        opt.classList.remove('selected');
+                    }
+                });
+            };
+
             // 초기 라벨/모드 세팅
             applyMode(window.chatMode);
+            updateSelectedOption(); // 초기 로드 시 선택된 옵션 표시
             closeDropdown();
 
             modeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const willShow = dropdown.classList.contains('hidden');
                 if (willShow) {
+                    updateSelectedOption(); // 드롭다운 열 때 선택된 옵션 업데이트
                     dropdown.classList.remove('hidden');
                     dropdown.style.display = 'block';
                 } else {
@@ -2051,6 +2083,7 @@
                 opt.addEventListener('click', () => {
                     const mode = opt.getAttribute('data-mode') || 'CODE';
                     applyMode(mode);
+                    updateSelectedOption(); // 모드 변경 시 선택된 옵션 업데이트
                     closeDropdown();
                 });
             });
@@ -2190,7 +2223,7 @@
 
                     if (pendingFiles.length > 0) {
                         pendingBtn.style.display = 'inline-flex';
-                        pendingLabel.textContent = `${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}`;
+                        pendingLabel.textContent = `${pendingFiles.length} File${pendingFiles.length > 1 ? 's' : ''}`;
                     } else {
                         pendingBtn.style.display = 'none';
                         closeDropdown();
@@ -2720,7 +2753,7 @@
                     className: 'task-queue-header',
                     onClick: () => setIsMinimized(!isMinimized)
                 }, [
-                    React.createElement('span', { key: 'title' }, `작업 계획 (${tasks.filter(t => t.status === 'done').length}/${tasks.length})`),
+                    React.createElement('span', { key: 'title' }, `Todos (${tasks.filter(t => t.status === 'done').length}/${tasks.length})`),
                     React.createElement('div', {
                         key: 'actions',
                         className: 'task-queue-header-actions'

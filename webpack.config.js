@@ -89,7 +89,7 @@ const webviewConfig = {
   },
   devtool: 'source-map', // 웹뷰 JS 디버깅을 위해 source-map 사용 (nosources-source-map 대신)
 
-  // external은 일반적으로 필요하지 않습니다. 웹뷰 JS는 모든 의존성(dompurify, markdown-it 등)을 번들링해야 합니다.
+  // external은 일반적으로 필요하지 않습니다. 웹뷰 JS는 모든 의존성(sanitize-html, markdown-it 등)을 번들링해야 합니다.
   // vscode 모듈은 웹뷰 환경에 없습니다.
 
   resolve: {

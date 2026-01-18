@@ -186,6 +186,7 @@ export function getFileOperationsRules(): string {
 **XML 툴 형식만 사용**
 - TOOLS 섹션에 정의된 XML 형식으로만 파일 작업을 지시하세요.
 - 예시: \`<create_file><path>src/App.tsx</path><content>...</content></create_file>\`
+- **CDATA 절대 금지**: \`<![CDATA[...]]>\`로 코드를 감싸지 마세요. 코드를 그대로 출력하세요.
 
 **프레임워크 인식 규칙 (중요)**
 - 작업 전 프로젝트 설정 파일을 먼저 확인하세요:

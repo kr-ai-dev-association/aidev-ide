@@ -413,6 +413,42 @@ export class SessionManager {
     }
 
     /**
+     * 압축된 요약을 세션에 추가
+     */
+    public addCompactedSummary(sessionId: string, summary: string): void {
+        const session = this.sessions.get(sessionId);
+        if (!session) {
+            console.warn(`[SessionManager] Session not found: ${sessionId}`);
+            return;
+        }
+
+        if (!session.compactedSummaries) {
+            session.compactedSummaries = [];
+        }
+
+        const summaryEntry: ConversationSummary = {
+            id: `summary_${Date.now()}`,
+            createdAt: Date.now(),
+            messageRange: {
+                startIndex: 0,
+                endIndex: session.conversationHistory.length - 1
+            },
+            summary,
+            filesModified: [],
+            filesCreated: [],
+            keyContext: [],
+            primaryRequest: '',
+            currentWork: ''
+        };
+
+        session.compactedSummaries.push(summaryEntry);
+        session.lastActiveAt = Date.now();
+        this.saveSessions();
+
+        console.log(`[SessionManager] Added compacted summary to session ${sessionId}`);
+    }
+
+    /**
      * 세션 히스토리 정리가 필요한지 확인
      */
     public needsSessionTrim(maxEntries: number = 50): boolean {

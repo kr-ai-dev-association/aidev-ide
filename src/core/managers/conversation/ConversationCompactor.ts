@@ -13,6 +13,7 @@ import { estimateTokens } from '../../../utils';
 import { getSummarizationPrompt } from '../context/prompts/task';
 import { SummarizationOptions } from '../context/types/contextHistory';
 import { AgentConfig } from '../../config/AgentConfig';
+import { StringUtils } from '../../utils/StringUtils';
 
 export interface ConversationMessage {
     role: 'user' | 'assistant' | 'system';
@@ -41,7 +42,7 @@ export interface CompactorConfig {
 }
 
 const DEFAULT_CONFIG: CompactorConfig = {
-    tokenThreshold: 0.8, // 80% of max tokens
+    tokenThreshold: 0.9, // 90% of max tokens
     keepRecentCount: 12,
     summarizationOptions: {
         includeTechnicalDetails: true,
@@ -176,9 +177,92 @@ export class ConversationCompactor {
             };
         } catch (error) {
             console.error('[ConversationCompactor] Compaction failed, using fallback strategy:', error);
-            
+
             // 폴백: LLM 요약 실패 시 단순 슬라이딩 윈도우 적용
             return this.fallbackCompaction(userParts, systemPrompt, originalTokens);
+        }
+    }
+
+    /**
+     * 강제 압축 실행 (슬래시 명령어용, 임계값 무시)
+     * @param userParts 압축할 대화 내용
+     * @param maxTokens 최대 토큰 수
+     */
+    public async forceCompact(
+        userParts: any[],
+        maxTokens: number
+    ): Promise<CompactionResult> {
+        // 메시지가 충분하지 않으면 압축 불가
+        if (userParts.length < 3) {
+            console.log('[ConversationCompactor] Force compact - not enough messages');
+            return {
+                compacted: false,
+                originalTokens: 0,
+                compactedTokens: 0,
+                recentMessages: userParts,
+                savedTokens: 0
+            };
+        }
+
+        const originalTokens = this.calculateTotalTokens(userParts, '');
+        console.log(`[ConversationCompactor] Force compact starting. Messages: ${userParts.length}, Tokens: ${originalTokens}`);
+
+        // 최근 메시지와 요약 대상 분리 (keepRecentCount 사용)
+        const keepCount = Math.min(this.config.keepRecentCount, Math.max(2, Math.floor(userParts.length / 2)));
+        const recentMessages = userParts.slice(-keepCount);
+        const messagesToSummarize = userParts.slice(0, -keepCount);
+
+        if (messagesToSummarize.length === 0) {
+            console.log('[ConversationCompactor] Force compact - all messages are recent, nothing to summarize');
+            return {
+                compacted: false,
+                originalTokens,
+                compactedTokens: originalTokens,
+                recentMessages: userParts,
+                savedTokens: 0
+            };
+        }
+
+        try {
+            // LLM을 사용해 오래된 대화 요약
+            const summary = await this.generateSummary(messagesToSummarize);
+            this.lastSummary = summary;
+
+            // 요약을 새 userParts의 첫 번째 메시지로 추가
+            const compactedParts = [
+                { text: `[이전 대화 요약]:\n${summary}` },
+                ...recentMessages
+            ];
+
+            const compactedTokens = this.calculateTotalTokens(compactedParts, '');
+            const savedTokens = originalTokens - compactedTokens;
+
+            // 압축 히스토리 기록
+            this.compactionHistory.push({
+                timestamp: Date.now(),
+                originalTokens,
+                compactedTokens
+            });
+
+            console.log(`[ConversationCompactor] Force compact complete. Saved ${savedTokens} tokens (${originalTokens} -> ${compactedTokens})`);
+
+            return {
+                compacted: true,
+                originalTokens,
+                compactedTokens,
+                summary,
+                recentMessages: compactedParts,
+                savedTokens
+            };
+        } catch (error) {
+            console.error('[ConversationCompactor] Force compact failed:', error);
+            return {
+                compacted: false,
+                originalTokens,
+                compactedTokens: originalTokens,
+                recentMessages: userParts,
+                savedTokens: 0
+            };
         }
     }
 
@@ -189,6 +273,9 @@ export class ConversationCompactor {
         messagesToSummarize: any[],
         abortSignal?: AbortSignal
     ): Promise<string> {
+        console.log(`[ConversationCompactor] 🔄 요약 생성 시작 - ${messagesToSummarize.length}개 메시지 요약 중...`);
+        const startTime = Date.now();
+
         // 메시지들을 문자열로 변환
         const conversationText = messagesToSummarize
             .map((part, index) => {
@@ -197,9 +284,12 @@ export class ConversationCompactor {
             })
             .join('\n\n');
 
+        const inputTokens = estimateTokens(conversationText);
+        console.log(`[ConversationCompactor] 📊 요약 입력 토큰: ${inputTokens.toLocaleString()}`);
+
         // 요약 프롬프트 생성
         const summarizationPrompt = this.getCompactSummarizationPrompt();
-        
+
         const userParts = [
             {
                 text: `다음 대화를 요약해주세요:\n\n${conversationText}`
@@ -212,7 +302,14 @@ export class ConversationCompactor {
             { signal: abortSignal }
         );
 
-        return this.extractSummaryFromResponse(response);
+        const summary = this.extractSummaryFromResponse(response);
+        const outputTokens = estimateTokens(summary);
+        const elapsed = Date.now() - startTime;
+
+        console.log(`[ConversationCompactor] ✅ 요약 생성 완료 - 출력 토큰: ${outputTokens.toLocaleString()}, 소요시간: ${elapsed}ms`);
+        console.log(`[ConversationCompactor] 📉 토큰 압축률: ${((1 - outputTokens / inputTokens) * 100).toFixed(1)}% 절감`);
+
+        return summary;
     }
 
     /**
@@ -258,11 +355,15 @@ export class ConversationCompactor {
             // JSON 파싱 실패 시 원본 사용
         }
 
-        // thinking 태그 제거
-        let cleaned = response.replace(/<think>[\s\S]*?<\/think>/g, '');
-        cleaned = cleaned.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
-        
-        return cleaned.trim();
+        // StringUtils를 사용하여 thinking 태그 및 기타 불필요한 내용 제거
+        return StringUtils.cleanText(response, {
+            removeThinking: true,
+            removeNaturalLanguage: false,  // 요약은 자연어이므로 제거하지 않음
+            removeSystemMessages: false,
+            removeToolTags: true,
+            removeJsonThinking: true,
+            extractJson: false
+        }).trim();
     }
 
     /**

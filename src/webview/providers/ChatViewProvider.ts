@@ -2,16 +2,17 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
 import { PromptType, NotificationService, LicenseService, GitRepositoryService, GeminiApi } from '../../services';
-import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager } from '../../core';
+import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager, SessionManager } from '../../core';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
+import { EXCLUDED_LIBRARY_PATHS } from '../../core/utils/FileExclusionConstants';
 
 /**
  * Diff 가상 문서 프로바이더
  * codepilot-diff: 스킴으로 등록하여 before 내용을 제공
  */
 class DiffDocumentProvider implements vscode.TextDocumentContentProvider {
-    constructor(private diffManager: InlineDiffManager) {}
+    constructor(private diffManager: InlineDiffManager) { }
 
     provideTextDocumentContent(uri: vscode.Uri): string {
         // URI에서 실제 파일 경로 추출 (codepilot-diff:/path/to/file.ts.before)
@@ -90,6 +91,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // Git 리포지토리 정보 표시
         // this.showGitRepositoryInfo(webviewView.webview);
+
+        // 🆕 VSCode 시작 시 세션 자동 복원
+        this.restoreSessionOnStartup(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
 
@@ -343,7 +347,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
                 case 'sendMessage':
-                    // ollama-blocker 방식으로 시리얼 번호 검증
+                    // 시리얼 번호 검증
                     const stateManager = StateManager.getInstance(this.context);
                     const licenseSerial = await stateManager.getBanyaLicenseSerial();
                     if (!licenseSerial || licenseSerial.trim() === '') {
@@ -368,7 +372,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         return;
                     }
 
-                    // 시리얼 번호 검증 (ollama-blocker 방식)
+                    // 시리얼 번호 검증
                     const licenseService = new LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
@@ -430,6 +434,9 @@ ${JSON.stringify(errorContext, null, 2)}
                             case 'restoreSavedSession':
                                 await vscode.commands.executeCommand('codepilot.restoreSavedSession');
                                 break;
+                            case 'compactConversation':
+                                await vscode.commands.executeCommand('codepilot.compactConversation');
+                                break;
                             default:
                                 console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
                         }
@@ -473,7 +480,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         console.log('[ChatViewProvider] Calling acceptAllChanges for:', filePath);
                         await inlineDiffManager.acceptAllChanges(filePath);
                         console.log('[ChatViewProvider] acceptAllChanges completed for:', filePath);
-                        
+
                         // ✅ Pending Changes 드롭다운 업데이트
                         const stats = inlineDiffManager.getPendingChangesStats();
                         webviewView.webview.postMessage({
@@ -500,7 +507,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         console.log('[ChatViewProvider] Calling rejectAllChanges for:', filePath);
                         await inlineDiffManager.rejectAllChanges(filePath);
                         console.log('[ChatViewProvider] rejectAllChanges completed for:', filePath);
-                        
+
                         // ✅ Pending Changes 드롭다운 업데이트
                         const stats = inlineDiffManager.getPendingChangesStats();
                         webviewView.webview.postMessage({
@@ -545,12 +552,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     console.log('[Extension Host] Clearing conversation history for Code tab');
                     try {
                         await ConversationService.clearHistory(PromptType.CODE_GENERATION, this.context);
-                        webviewView.webview.postMessage({
-                            command: 'receiveMessage',
-                            sender: 'CODEPILOT',
-                            text: '대화기록이 삭제되었습니다.'
-                        });
-                        // React 컴포넌트에도 메시지 초기화 신호 전송
                         webviewView.webview.postMessage({
                             command: 'clearHistory'
                         });
@@ -866,6 +867,15 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 }
+
+                case 'requestFileList': {
+                    try {
+                        await this.sendFileList(webviewView.webview);
+                    } catch (error: any) {
+                        console.error('[ChatViewProvider] Failed to get file list:', error);
+                    }
+                    break;
+                }
             }
         });
         webviewView.onDidDispose(() => {
@@ -928,6 +938,76 @@ ${JSON.stringify(errorContext, null, 2)}
         } catch (error) {
             console.error('Error opening file picker:', error);
             this.notificationService.showErrorMessage('파일 선택 중 오류가 발생했습니다.');
+        }
+    }
+
+    private async sendFileList(webview: vscode.Webview) {
+        try {
+            // 프로젝트 루트 경로 가져오기
+            const projectRoot = await this.configurationService.getProjectRoot();
+            let searchRoot: vscode.Uri | undefined;
+
+            if (projectRoot) {
+                try {
+                    searchRoot = vscode.Uri.file(projectRoot);
+                    await vscode.workspace.fs.stat(searchRoot);
+                } catch (error) {
+                    console.warn('설정된 프로젝트 루트 경로에 접근할 수 없습니다:', error);
+                    searchRoot = undefined;
+                }
+            }
+
+            if (!searchRoot && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                searchRoot = vscode.workspace.workspaceFolders[0].uri;
+            }
+
+            if (!searchRoot) {
+                webview.postMessage({
+                    command: 'fileListReceived',
+                    files: []
+                });
+                return;
+            }
+
+            // 제외할 디렉토리 패턴 (공용 상수 사용)
+            // glob 패턴에서 사용할 수 있도록 중괄호 안에 쉼표로 구분된 리스트 생성
+            // 점(.)으로 시작하는 디렉토리와 일반 디렉토리를 모두 포함
+            const excludeDirs = EXCLUDED_LIBRARY_PATHS
+                .filter((excludedPath: string) => !excludedPath.includes('*') && !excludedPath.includes('/')) // 와일드카드와 경로 구분자 제외
+                .join(',');
+            const excludePattern = `**/{${excludeDirs}}/**`;
+
+            // 파일 검색 (최대 500개로 제한)
+            const files = await vscode.workspace.findFiles(
+                new vscode.RelativePattern(searchRoot, '**/*'),
+                excludePattern,
+                500
+            );
+
+            const fileList = files.map(uri => {
+                const fsPath = uri.fsPath;
+                const relativePath = path.relative(searchRoot!.fsPath, fsPath);
+                const fileName = path.basename(fsPath);
+                return {
+                    path: fsPath,
+                    name: fileName,
+                    relativePath: relativePath
+                };
+            }).sort((a, b) => {
+                // 파일명으로 정렬
+                return a.name.localeCompare(b.name);
+            });
+
+            webview.postMessage({
+                command: 'fileListReceived',
+                files: fileList
+            });
+        } catch (error) {
+            console.error('Error getting file list:', error);
+            webview.postMessage({
+                command: 'fileListReceived',
+                files: []
+            });
         }
     }
 
@@ -1022,6 +1102,7 @@ ${JSON.stringify(errorContext, null, 2)}
 
     /**
      * 세션의 대화 히스토리를 복원
+     * ✅ 개선: uiMessages가 있으면 코드블록, 액션 영역 포함하여 복원
      */
     public restoreConversationHistory(conversationHistory: any[]): void {
         if (!this._view) {
@@ -1037,20 +1118,69 @@ ${JSON.stringify(errorContext, null, 2)}
         });
 
         // 각 대화 항목을 순차적으로 표시
+        // ConversationEntry 형식: { userRequest, assistantResponse, uiMessages, ... }
         conversationHistory.forEach(entry => {
-            if (entry.type === 'user') {
+            // 사용자 요청 표시
+            if (entry.userRequest) {
                 this._view?.webview.postMessage({
                     command: 'displayUserMessage',
-                    text: entry.content
+                    text: entry.userRequest
                 });
-            } else if (entry.type === 'assistant') {
+            }
+
+            // ✅ uiMessages가 있으면 전체 UI 메시지 복원 (코드블록, 액션 포함)
+            if (entry.uiMessages && entry.uiMessages.length > 0) {
+                entry.uiMessages.forEach((msg: { sender: string; text: string; type?: string }) => {
+                    this._view?.webview.postMessage({
+                        command: 'receiveMessage',
+                        sender: msg.sender,
+                        text: msg.text
+                    });
+                });
+            } else if (entry.assistantResponse) {
+                // uiMessages가 없으면 기존 방식 (ASK 모드 또는 구버전 데이터)
                 this._view?.webview.postMessage({
                     command: 'receiveMessage',
                     sender: 'CODEPILOT',
-                    text: entry.content
+                    text: entry.assistantResponse
                 });
+            } else if (entry.actions && entry.actions.length > 0) {
+                // CODE 모드: 파일 변경 요약 표시 (구버전 호환)
+                const actionSummary = this.generateActionSummary(entry);
+                if (actionSummary) {
+                    this._view?.webview.postMessage({
+                        command: 'receiveMessage',
+                        sender: 'CODEPILOT',
+                        text: actionSummary
+                    });
+                }
             }
         });
+    }
+
+    /**
+     * CODE 모드 액션 요약 생성
+     */
+    private generateActionSummary(entry: any): string {
+        const parts: string[] = [];
+
+        if (entry.filesCreated && entry.filesCreated.length > 0) {
+            parts.push(`📁 생성된 파일: ${entry.filesCreated.join(', ')}`);
+        }
+
+        if (entry.filesModified && entry.filesModified.length > 0) {
+            parts.push(`✏️ 수정된 파일: ${entry.filesModified.join(', ')}`);
+        }
+
+        if (entry.commandsExecuted && entry.commandsExecuted.length > 0) {
+            parts.push(`💻 실행된 명령어: ${entry.commandsExecuted.length}개`);
+        }
+
+        if (parts.length === 0) {
+            return '';
+        }
+
+        return `**작업 완료** (${entry.result})\n\n${parts.join('\n')}`;
     }
 
     /**
@@ -1059,5 +1189,54 @@ ${JSON.stringify(errorContext, null, 2)}
     public postMessageToWebview(message: any): void {
         console.log('[ChatViewProvider] Sending message to webview:', message);
         this._view?.webview.postMessage(message);
+    }
+
+    /**
+     * VSCode 시작 시 세션 자동 복원
+     * - 대화 히스토리 복원
+     * - 토큰 사용량 및 컨텍스트 수 복원
+     */
+    private restoreSessionOnStartup(webview: vscode.Webview): void {
+        // 약간의 지연 후 복원 (웹뷰 초기화 완료 대기)
+        setTimeout(async () => {
+            try {
+                const sessionManager = SessionManager.getInstance(this.context);
+                const currentSession = sessionManager.getCurrentSession();
+
+                if (!currentSession) {
+                    console.log('[ChatViewProvider] No session to restore');
+                    return;
+                }
+
+                console.log(`[ChatViewProvider] Restoring session: ${currentSession.id}`);
+
+                // 1. 대화 히스토리 복원
+                if (currentSession.conversationHistory && currentSession.conversationHistory.length > 0) {
+                    this.restoreConversationHistory(currentSession.conversationHistory);
+                    console.log(`[ChatViewProvider] Restored ${currentSession.conversationHistory.length} conversation entries`);
+                }
+
+                // 2. 토큰 사용량 및 컨텍스트 수 복원
+                const stats = sessionManager.getCumulativeSessionStats();
+                const config = vscode.workspace.getConfiguration('codepilot');
+                const maxTokens = config.get<number>('maxInputTokens') || 128000;
+
+                webview.postMessage({
+                    command: 'updateContextInfo',
+                    contextInfo: {
+                        messageCount: stats.messageCount,
+                        tokenUsage: {
+                            current: stats.totalTokensUsed,
+                            max: maxTokens,
+                            percentage: (stats.totalTokensUsed / maxTokens) * 100
+                        }
+                    }
+                });
+
+                console.log(`[ChatViewProvider] Restored context info: ${stats.messageCount} messages, ${stats.totalTokensUsed} tokens`);
+            } catch (error) {
+                console.error('[ChatViewProvider] Failed to restore session:', error);
+            }
+        }, 1000); // 1초 지연
     }
 }

@@ -13,6 +13,8 @@ export class ToolParser {
         const toolCalls: ToolUse[] = [];
         const toolNames = Object.values(Tool);
 
+        console.log(`[ToolParser] parseToolCalls called, contentLength=${content.length}, hasCreateFile=${content.includes('<create_file>')}`);
+
         // XML 태그 기반 파싱
         for (const toolName of toolNames) {
             const pattern = new RegExp(`<${toolName}>([\\s\\S]*?)<\\/${toolName}>`, 'gi');
@@ -25,8 +27,10 @@ export class ToolParser {
                 // create_file은 content 필수: 누락 시 경고를 추가하고 스킵
                 if (toolName === Tool.CREATE_FILE) {
                     const hasContent = typeof params.content === 'string' && params.content.trim().length > 0;
+                    console.log(`[ToolParser] create_file 파싱: path="${params.path}", hasContent=${hasContent}, contentLength=${params.content?.length || 0}`);
                     if (!hasContent) {
                         warnings?.push(`⚠️ create_file에 content가 없습니다 (path=${params.path || 'unknown'})`);
+                        console.log(`[ToolParser] create_file 스킵: content 파라미터가 없습니다. params:`, params);
                         continue; // 이 호출은 무시
                     }
                 }
@@ -60,6 +64,7 @@ export class ToolParser {
             }
         }
 
+        console.log(`[ToolParser] parseToolCalls result: ${toolCalls.length} tool calls found`, toolCalls.map(c => c.name));
         return toolCalls;
     }
 

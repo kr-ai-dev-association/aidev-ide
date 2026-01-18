@@ -60,6 +60,15 @@ export interface ActionEntry {
 }
 
 /**
+ * UI 메시지 엔트리 (히스토리 복원용)
+ */
+export interface UIMessageEntry {
+    sender: 'USER' | 'CODEPILOT' | 'System';
+    text: string;
+    type?: 'action' | 'code' | 'summary' | 'message';  // 메시지 타입
+}
+
+/**
  * 대화 엔트리 (전체 대화 내용 + 구조화된 메타데이터)
  */
 export interface ConversationEntry {
@@ -75,6 +84,9 @@ export interface ConversationEntry {
     filesCreated?: string[];       // 생성된 파일 목록
     filesModified?: string[];      // 수정된 파일 목록
     commandsExecuted?: string[];   // 실행된 명령어 목록
+
+    // ✅ UI 메시지 히스토리 (세션 복원용)
+    uiMessages?: UIMessageEntry[]; // 웹뷰에 표시된 모든 메시지 (액션, 코드블록 포함)
 
     // 상태 및 성능 지표
     result: 'success' | 'error' | 'cancelled';

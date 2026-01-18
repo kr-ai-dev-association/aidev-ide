@@ -32,11 +32,14 @@ export class WebviewBridge {
      */
     public static receiveMessage(webview: vscode.Webview | undefined, sender: string, text: string): void {
         if (webview) {
-            safePostMessage(webview, { 
-                command: 'receiveMessage', 
-                sender, 
-                text 
+            console.log(`[WebviewBridge] receiveMessage: sender="${sender}", textLength=${text?.length || 0}, hasCodeBlock=${text?.includes('\`\`\`') || false}`);
+            safePostMessage(webview, {
+                command: 'receiveMessage',
+                sender,
+                text
             });
+        } else {
+            console.warn(`[WebviewBridge] receiveMessage SKIPPED: webview is undefined, sender="${sender}"`);
         }
     }
 
@@ -116,7 +119,7 @@ export class WebviewBridge {
      * 컨텍스트 정보 업데이트
      */
     public static updateContextInfo(
-        webview: vscode.Webview | undefined, 
+        webview: vscode.Webview | undefined,
         contextInfo: {
             messageCount: number;
             tokenUsage: {

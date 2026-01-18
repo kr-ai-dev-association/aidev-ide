@@ -7,8 +7,6 @@ import { getSimpleSummaryPrompt } from '../../context/prompts/task';
 import { LLMManager } from '../../model/LLMManager';
 import { StringUtils } from '../../../utils/StringUtils';
 import { AgentConfig } from '../../../config/AgentConfig';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 
 export class ResponseProcessor {
     private llmManager: LLMManager;
@@ -22,7 +20,7 @@ export class ResponseProcessor {
      */
     public extractResponseText(llmResponse: string): string {
         if (!llmResponse) return '';
-        
+
         // StringUtils를 사용하여 모든 패턴 제거
         return StringUtils.cleanText(llmResponse, {
             removeThinking: true,
@@ -35,7 +33,11 @@ export class ResponseProcessor {
     }
 
     /**
-     * 실제 파일 목록을 주입하여 검증된 요약 생성
+     * 파일 목록을 기반으로 요약 생성
+     *
+     * ✅ 수정: 디스크 검증 제거 (InlineDiffManager pending 상태 파일도 포함)
+     * - 파일이 pending 상태(diff 표시 중)일 때 디스크에 없어도 요약 생성
+     * - createdFiles/modifiedFiles는 이미 도구 실행 시 수집된 정확한 목록
      */
     public async generateVerifiedSummary(
         originalSummary: string,
@@ -46,67 +48,143 @@ export class ResponseProcessor {
         accumulatedParts: any[],
         abortSignal?: AbortSignal
     ): Promise<string> {
-        // 실제 디스크에서 파일 존재 여부 확인
-        const verifiedCreated: string[] = [];
-        const verifiedModified: string[] = [];
+        // ✅ 디스크 검증 제거: pending 상태 파일도 포함하여 요약 생성
+        const verifiedCreated = [...createdFiles];
+        const verifiedModified = [...modifiedFiles];
 
-        for (const filePath of createdFiles) {
-            try {
-                const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
-                await fs.access(absPath);
-                verifiedCreated.push(filePath);
-            } catch {
-                // 파일이 존재하지 않으면 무시
-            }
-        }
-
-        for (const filePath of modifiedFiles) {
-            try {
-                const absPath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
-                await fs.access(absPath);
-                verifiedModified.push(filePath);
-            } catch {
-                // 파일이 존재하지 않으면 무시
-            }
-        }
-
-        // 실제 파일 목록이 없으면 원본 요약 반환
+        // 파일 목록이 없으면 기본 메시지 반환
         if (verifiedCreated.length === 0 && verifiedModified.length === 0) {
             return originalSummary || AgentConfig.DEFAULT_COMPLETION_MESSAGE;
         }
 
-        // 원본 요약이 있으면 검증만 수행, 없으면 새로 생성
+        // 원본 요약이 있으면 그대로 반환 (파일 목록 추가 제거)
         if (originalSummary && originalSummary.trim()) {
-            return originalSummary +
-                (verifiedCreated.length > 0 ? `\n\n[생성된 파일: ${verifiedCreated.join(', ')}]` : '') +
-                (verifiedModified.length > 0 ? `\n[수정된 파일: ${verifiedModified.join(', ')}]` : '');
-        } else {
-            // 원본 요약이 없는 경우: LLM에게 요약 생성 요청
-            const summaryPrompt = getSimpleSummaryPrompt(verifiedCreated, verifiedModified);
-
-            try {
-                const verifiedSummary = await this.llmManager.sendMessageWithSystemPrompt(
-                    summaryPrompt,
-                    accumulatedParts,
-                    { signal: abortSignal }
-                );
-
-                // StringUtils를 사용하여 완전히 정제
-                const summaryText = StringUtils.cleanText(verifiedSummary, {
-                    removeThinking: true,
-                    removeNaturalLanguage: true,
-                    removeSystemMessages: true,
-                    removeToolTags: true,
-                    removeJsonThinking: true,
-                    extractJson: true
-                });
-
-                return summaryText.trim() || AgentConfig.DEFAULT_COMPLETION_MESSAGE;
-            } catch (error) {
-                console.warn('[ResponseProcessor] Failed to generate verified summary:', error);
-                return '작업이 완료되었습니다.';
-            }
+            return originalSummary;
         }
+
+        // 원본 요약이 없는 경우: LLM에게 요약 생성 요청
+        return await this.requestLLMSummary(verifiedCreated, verifiedModified, accumulatedParts, abortSignal);
+    }
+
+    /**
+     * LLM에게 요약 요청 (재시도 로직 포함)
+     */
+    private async requestLLMSummary(
+        createdFiles: string[],
+        modifiedFiles: string[],
+        accumulatedParts: any[],
+        abortSignal?: AbortSignal,
+        retryCount: number = 0
+    ): Promise<string> {
+        const MAX_RETRIES = 2;
+        const summaryPrompt = getSimpleSummaryPrompt(createdFiles, modifiedFiles);
+
+        try {
+            // 첫 시도: accumulated context 포함
+            // 재시도: accumulated context 없이 (도구 태그 응답 방지)
+            const contextParts = retryCount === 0 ? accumulatedParts : [];
+
+            console.log(`[ResponseProcessor] Requesting LLM summary (attempt ${retryCount + 1}/${MAX_RETRIES + 1}, contextParts=${contextParts.length})`);
+
+            const verifiedSummary = await this.llmManager.sendMessageWithSystemPrompt(
+                summaryPrompt,
+                contextParts,
+                { signal: abortSignal }
+            );
+
+            // ✅ LLM이 도구 태그로 응답한 경우
+            const hasToolTags = /<(create_file|update_file|remove_file|read_file|run_command|list_files|search_files|ripgrep_search)>/i.test(verifiedSummary);
+            if (hasToolTags) {
+                console.warn(`[ResponseProcessor] LLM responded with tool tags (attempt ${retryCount + 1})`);
+
+                // 재시도 가능하면 context 없이 재시도
+                if (retryCount < MAX_RETRIES) {
+                    console.log('[ResponseProcessor] Retrying without accumulated context...');
+                    return await this.requestLLMSummary(createdFiles, modifiedFiles, accumulatedParts, abortSignal, retryCount + 1);
+                }
+
+                // 재시도 실패: 도구 태그 제거 후 텍스트만 추출 시도
+                console.warn('[ResponseProcessor] Max retries reached. Extracting text from response.');
+                const cleanedText = this.extractTextFromToolResponse(verifiedSummary);
+                if (cleanedText.trim()) {
+                    return cleanedText;
+                }
+
+                // 최후의 수단: 기본 요약 생성
+                return this.generateDefaultSummary(createdFiles, modifiedFiles);
+            }
+
+            // StringUtils를 사용하여 정제 (자연어는 유지)
+            const summaryText = StringUtils.cleanText(verifiedSummary, {
+                removeThinking: true,
+                removeNaturalLanguage: false,  // ✅ 요약은 자연어이므로 유지
+                removeSystemMessages: true,
+                removeToolTags: true,
+                removeJsonThinking: true,
+                extractJson: false  // ✅ JSON 추출 불필요
+            });
+
+            // 정제 후 빈 문자열이면 기본 요약 생성
+            if (!summaryText.trim()) {
+                console.warn('[ResponseProcessor] Summary text is empty after cleaning.');
+                if (retryCount < MAX_RETRIES) {
+                    return await this.requestLLMSummary(createdFiles, modifiedFiles, accumulatedParts, abortSignal, retryCount + 1);
+                }
+                return this.generateDefaultSummary(createdFiles, modifiedFiles);
+            }
+
+            return summaryText.trim();
+        } catch (error) {
+            console.warn('[ResponseProcessor] Failed to generate summary:', error);
+            if (retryCount < MAX_RETRIES) {
+                return await this.requestLLMSummary(createdFiles, modifiedFiles, accumulatedParts, abortSignal, retryCount + 1);
+            }
+            return this.generateDefaultSummary(createdFiles, modifiedFiles);
+        }
+    }
+
+    /**
+     * 도구 태그 응답에서 텍스트만 추출
+     */
+    private extractTextFromToolResponse(response: string): string {
+        // 도구 태그 제거
+        let text = response.replace(/<(create_file|update_file|remove_file|read_file|run_command|list_files|search_files|ripgrep_search)>[\s\S]*?<\/\1>/gi, '');
+        // thinking 태그 제거
+        text = text.replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '');
+        // 연속 공백 정리
+        text = text.replace(/\n{3,}/g, '\n\n').trim();
+        return text;
+    }
+
+    /**
+     * 기본 요약 생성 (LLM 요약 실패 시 fallback)
+     *
+     * ✅ 개선: 마크다운 형식으로 보기 좋게 표현
+     */
+    private generateDefaultSummary(createdFiles: string[], modifiedFiles: string[]): string {
+        if (createdFiles.length === 0 && modifiedFiles.length === 0) {
+            return AgentConfig.DEFAULT_COMPLETION_MESSAGE;
+        }
+
+        let summary = '### 작업 완료\n';
+        summary += '요청하신 작업이 완료되었습니다.\n\n';
+        summary += '### 변경 내용\n';
+
+        if (createdFiles.length > 0) {
+            createdFiles.forEach(f => {
+                const fileName = f.split('/').pop() || f;
+                summary += `- **${fileName}**: 새로 생성됨\n`;
+            });
+        }
+
+        if (modifiedFiles.length > 0) {
+            modifiedFiles.forEach(f => {
+                const fileName = f.split('/').pop() || f;
+                summary += `- **${fileName}**: 수정됨\n`;
+            });
+        }
+
+        return summary.trim();
     }
 
     /**

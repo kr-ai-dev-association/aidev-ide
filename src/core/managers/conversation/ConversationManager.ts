@@ -238,6 +238,24 @@ export class ConversationManager {
 
         const contextData = await this.contextManager.collectContext({});
 
+        // selectedFiles에서 파일 내용 읽기
+        let selectedFilesContent = '';
+        if (options.selectedFiles && options.selectedFiles.length > 0) {
+            const fileContents: string[] = [];
+            for (const filePath of options.selectedFiles) {
+                try {
+                    const uri = vscode.Uri.file(filePath);
+                    const document = await vscode.workspace.openTextDocument(uri);
+                    const content = document.getText();
+                    const fileName = filePath.split(/[/\\]/).pop() || filePath;
+                    fileContents.push(`=== ${fileName} (${filePath}) ===\n${content}\n`);
+                } catch (error) {
+                    console.warn(`[ConversationManager] Failed to read file ${filePath}:`, error);
+                }
+            }
+            selectedFilesContent = fileContents.join('\n\n');
+        }
+
         // ContextData의 속성들을 PromptBuilderOptions 형식에 맞게 변환
         return {
             codebaseContext: contextData.file?.content,
@@ -245,7 +263,8 @@ export class ConversationManager {
             profileContext: contextData.project?.structure,
             intentContext: JSON.stringify(intent),
             gitContext: '',
-            languageInstruction: '반드시 한국어로 답변하세요.'
+            languageInstruction: '반드시 한국어로 답변하세요.',
+            selectedFilesContent: selectedFilesContent
         };
     }
 
@@ -263,6 +282,7 @@ export class ConversationManager {
 
         // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
         const collectedActions: Array<{ type: string; file?: string; command?: string; result?: string }> = [];
+        const collectedUIMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];
         let lastAssistantResponse = '';
 
         // 🔥 문제 1 해결: npm install 등 명령어 중복 실행 방지 (전역 추적)
@@ -444,29 +464,18 @@ export class ConversationManager {
                     }
                 }
 
-                // CODE 모드: 세션 누적 토큰 + 현재 루프 토큰
-                const currentLoopTokens = compactor.calculateTotalTokens(accumulatedUserParts, systemPrompt);
-                let totalTokens = currentLoopTokens;
-                let totalMessages = accumulatedUserParts.length;
+                // 현재 대화 컨텍스트의 토큰만 계산 (세션 누적 제거 - 이중 계산 방지)
+                const currentContextTokens = compactor.calculateTotalTokens(accumulatedUserParts, systemPrompt);
+                const currentMessageCount = accumulatedUserParts.length;
 
-                if (options.extensionContext) {
-                    try {
-                        const { SessionManager } = await import('../state/SessionManager');
-                        const sessionManager = SessionManager.getInstance(options.extensionContext);
-                        const cumulativeStats = sessionManager.getCumulativeSessionStats();
-                        totalTokens += cumulativeStats.totalTokensUsed;
-                        totalMessages += cumulativeStats.messageCount;
-                    } catch (e) {
-                        // 세션 로드 실패 시 현재 루프 토큰만 사용
-                    }
-                }
+                console.log(`[ConversationManager] 토큰 사용량: ${currentContextTokens.toLocaleString()} / ${maxTokens.toLocaleString()} (${((currentContextTokens / maxTokens) * 100).toFixed(1)}%)`);
 
                 WebviewBridge.updateContextInfo(webviewToRespond, {
-                    messageCount: totalMessages,
+                    messageCount: currentMessageCount,
                     tokenUsage: {
-                        current: totalTokens,
+                        current: currentContextTokens,
                         max: maxTokens,
-                        percentage: (totalTokens / maxTokens) * 100
+                        percentage: (currentContextTokens / maxTokens) * 100
                     }
                 });
             } catch (compactionError) {
@@ -486,6 +495,7 @@ export class ConversationManager {
             // FSM에서 현재 상태 가져오기
             const currentPhase = stateManager.getCurrentState();
             const statusPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : '';
+            console.log(`[ConversationManager] Turn ${turnCount + 1}: currentPhase=${currentPhase}, planItem=${currentPlanItem?.title || 'none'}`);
 
             // REVIEW 또는 DONE 단계는 LLM 호출 없이 시스템이 처리
             // ⚠️ 핵심 수정: REVIEW는 한 번만 처리되도록 플래그 추가
@@ -500,6 +510,7 @@ export class ConversationManager {
                 (this as any).reviewProcessed = reviewProcessedKey;
 
                 console.log('[ConversationManager] REVIEW phase: Generating summary and transitioning to DONE.');
+                console.log(`[ConversationManager] REVIEW phase files - created: [${createdFiles.join(', ')}], modified: [${modifiedFiles.join(', ')}]`);
                 const currentProject = ProjectManager.getInstance().getCurrentProject();
                 const workspaceRoot = currentProject?.root || '';
 
@@ -560,6 +571,11 @@ export class ConversationManager {
                                 }
                             });
 
+                            // 요약 메시지도 UI 메시지에 추가
+                            if (finalResponse) {
+                                collectedUIMessages.push({ sender: 'CODEPILOT', text: finalResponse, type: 'summary' });
+                            }
+
                             // 구조화된 대화 엔트리 저장 (CODE 모드)
                             sessionManager.addConversationEntry(currentSession.id, {
                                 id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -569,6 +585,7 @@ export class ConversationManager {
                                 actions: collectedActions as any,
                                 filesCreated: createdFiles,
                                 filesModified: modifiedFiles,
+                                uiMessages: collectedUIMessages,  // ✅ UI 메시지 저장
                                 result: 'success',
                                 model: options.currentModelType
                             });
@@ -679,7 +696,8 @@ export class ConversationManager {
                         contextManager: this.contextManager
                     });
 
-                    ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromPlanCreation, toolResults);
+                    const uiMsgs1 = ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromPlanCreation, toolResults);
+                    collectedUIMessages.push(...uiMsgs1);
 
                     // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
                     toolCallsFromPlanCreation.forEach((call, index) => {
@@ -978,7 +996,8 @@ export class ConversationManager {
                                 contextManager: this.contextManager
                             });
 
-                            ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromExecution, toolResults);
+                            const uiMsgs2 = ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, toolCallsFromExecution, toolResults);
+                            collectedUIMessages.push(...uiMsgs2);
 
                             // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
                             toolCallsFromExecution.forEach((call, index) => {
@@ -1711,7 +1730,8 @@ export class ConversationManager {
                                     });
 
                                     // UI에 조사 도구 실행 결과 전송 (🧩 [Ripgrep], 📖 [Read] 등)
-                                    ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, autoInvestigationToolCalls, toolResults);
+                                    const uiMsgs3 = ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, autoInvestigationToolCalls, toolResults);
+                                    collectedUIMessages.push(...uiMsgs3);
 
                                     // 조사 도구 실행 결과를 accumulatedUserParts에 추가
                                     let hasListFilesAuto = false;
@@ -2464,7 +2484,8 @@ export class ConversationManager {
                             });
 
                             // UI에 실행 결과 전송 (✅ [Created] ...)
-                            ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, finalDeduplicatedCalls, toolResults);
+                            const uiMsgs4 = ToolExecutionCoordinator.sendToolExecutionResultsToUI(webviewToRespond, finalDeduplicatedCalls, toolResults);
+                            collectedUIMessages.push(...uiMsgs4);
 
                             // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
                             finalDeduplicatedCalls.forEach((call, index) => {
@@ -3520,16 +3541,9 @@ export class ConversationManager {
         return (isExecutionCategory || isCodeGenerateOrRun) && hasHighConfidence;
     }
 
-    /**
-     * @deprecated 이 메서드는 ResponseProcessor.extractResponseText로 대체되었습니다.
-     * 호환성을 위해 유지하지만, 내부적으로는 ResponseProcessor를 사용합니다.
-     */
-    private extractResponseText(llmResponse: string): string {
-        return this.responseProcessor.extractResponseText(llmResponse);
-    }
-
-    // getToolLabel, createToolResultSummary, sendToolExecutionResultsToUI, hasSideEffects, trackFileChanges는
-    // ToolExecutionCoordinator로 이동되었습니다. 이 메서드들은 더 이상 사용되지 않습니다.
+    // 참고: 이전 메서드들 (extractResponseText, getToolLabel, createToolResultSummary,
+    // sendToolExecutionResultsToUI, hasSideEffects, trackFileChanges)은
+    // ResponseProcessor 및 ToolExecutionCoordinator로 이동되었습니다.
 
     /**
      * 실제 파일 목록을 주입하여 검증된 요약 생성
@@ -4000,6 +4014,46 @@ JSON 형식으로 응답하세요:
     private parseCommandsInSummary(summary: string): string {
         // 변환 없이 그대로 반환 (프롬프트에서 이미 코드 블록 형식으로 출력하도록 지시)
         return summary;
+    }
+
+    /**
+     * 현재 세션의 대화를 강제로 압축 (슬래시 명령어용)
+     * @param userParts - 압축할 대화 메시지 배열
+     * @returns 압축 결과
+     */
+    public async forceCompact(userParts: any[]): Promise<{
+        compacted: boolean;
+        originalTokens: number;
+        compactedTokens: number;
+        savedTokens: number;
+        summary?: string;
+    }> {
+        try {
+            const compactor = ConversationCompactor.getInstance(this.llmManager);
+            const currentModelType = this.llmManager.getCurrentModel();
+            const maxTokens = MODEL_TOKEN_LIMITS[currentModelType]?.maxInputTokens || 128000;
+
+            // 강제 압축 실행 (임계값 무시)
+            const result = await compactor.forceCompact(userParts, maxTokens);
+
+            console.log(`[ConversationManager] Force compact result: ${result.originalTokens} -> ${result.compactedTokens} tokens`);
+
+            return {
+                compacted: result.compacted,
+                originalTokens: result.originalTokens,
+                compactedTokens: result.compactedTokens,
+                savedTokens: result.savedTokens,
+                summary: result.summary
+            };
+        } catch (error) {
+            console.error('[ConversationManager] Force compact failed:', error);
+            return {
+                compacted: false,
+                originalTokens: 0,
+                compactedTokens: 0,
+                savedTokens: 0
+            };
+        }
     }
 
 }
