@@ -501,6 +501,69 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
     autoResizeTextarea();
 }
 
+// 터미널 멘션 블록 삽입
+function insertTerminalMention(terminalName) {
+    if (!chatInput) return;
+
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) {
+        const range = document.createRange();
+        range.selectNodeContents(chatInput);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
+
+    const range = selection.getRangeAt(0);
+    const currentText = getChatInputValue();
+    const atIndex = currentText.lastIndexOf('@');
+
+    // '@' 입력 부분 찾아서 제거
+    if (atIndex !== -1) {
+        const beforeAt = currentText.substring(0, atIndex);
+        chatInput.textContent = beforeAt;
+
+        const newRange = document.createRange();
+        newRange.selectNodeContents(chatInput);
+        newRange.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+    }
+
+    // 터미널 멘션 블록 생성
+    const mentionSpan = document.createElement('span');
+    mentionSpan.className = 'terminal-mention';
+    mentionSpan.setAttribute('data-terminal-name', terminalName);
+    mentionSpan.textContent = `Terminal: ${terminalName}`;
+    mentionSpan.contentEditable = 'false';
+    mentionSpan.style.display = 'inline-block';
+
+    // 현재 커서 위치에 삽입
+    try {
+        range.insertNode(mentionSpan);
+
+        const spaceNode = document.createTextNode(' ');
+        range.setStartAfter(mentionSpan);
+        range.insertNode(spaceNode);
+        range.setStartAfter(spaceNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    } catch (e) {
+        chatInput.appendChild(mentionSpan);
+        const spaceNode = document.createTextNode(' ');
+        chatInput.appendChild(spaceNode);
+
+        const newRange = document.createRange();
+        newRange.selectNodeContents(chatInput);
+        newRange.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+    }
+
+    autoResizeTextarea();
+}
+
 function enqueuePendingQuestion(payload) {
     pendingQuestions.push(payload);
     updatePendingQueueUI();
@@ -728,9 +791,14 @@ let selectedCategory = null; // 선택된 카테고리
 // '@' 메뉴 카테고리 정의
 const atMenuCategories = [
     { id: 'files', label: 'Files', description: '프로젝트 파일 목록' },
-    // 나중에 추가할 카테고리들
-    // { id: 'directories', label: 'Directories', description: '디렉토리 목록', icon: '📁' },
+    { id: 'terminal', label: 'Terminal', description: '터미널 히스토리 및 출력' },
 ];
+
+// 선택된 터미널 컨텍스트
+let selectedTerminalContext = null;
+
+// 터미널 목록
+let terminalList = [];
 
 // 슬래시 메뉴 생성
 function createSlashMenu() {
@@ -1001,9 +1069,104 @@ function renderAtMenu(filter = '') {
         });
     }
 
-    // 선택된 항목이 보이도록 스크롤 이동 (파일 모드일 때만)
+    // 터미널 리스트 모드
+    else if (atMenuMode === 'terminal') {
+        // 터미널 목록이 없으면 요청
+        if (terminalList.length === 0) {
+            if (vscode) {
+                vscode.postMessage({ command: 'requestTerminalList' });
+            }
+            menu.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">터미널 목록 로딩 중...</div>';
+            menu.style.display = 'block';
+            atMenuVisible = true;
+            return;
+        }
+
+        const filteredTerminals = terminalList.filter(terminal =>
+            terminal.name.toLowerCase().includes(filter.toLowerCase())
+        );
+
+        if (filteredTerminals.length === 0) {
+            menu.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">터미널이 없습니다</div>';
+            menu.style.display = 'block';
+            atMenuVisible = true;
+            return;
+        }
+
+        // 뒤로가기 버튼
+        const backButton = document.createElement('div');
+        backButton.className = 'at-back-item';
+        backButton.style.cssText = `
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            background: rgba(128,128,128,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            backdrop-filter: blur(4px);
+        `;
+        backButton.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 10px;">←</span>
+                <span style="font-weight: 500; font-size: 10px;">뒤로</span>
+            </div>
+        `;
+        backButton.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            goBackToCategories();
+        });
+        backButton.addEventListener('mouseenter', () => {
+            backButton.style.background = 'rgba(128,128,128,0.2)';
+        });
+        backButton.addEventListener('mouseleave', () => {
+            backButton.style.background = 'rgba(128,128,128,0.1)';
+        });
+        menu.innerHTML = '';
+        menu.appendChild(backButton);
+
+        const terminalsHtml = filteredTerminals.map((terminal, index) => {
+            const isSelected = selectedTerminalContext && selectedTerminalContext.name === terminal.name;
+            const isItemSelected = index === atMenuSelectedIndex;
+            return `
+            <div class="at-terminal-item ${isItemSelected ? 'selected' : ''}"
+                 data-index="${index}" data-name="${terminal.name}"
+                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${isItemSelected ? 'background: rgba(128,128,128,0.2);' : ''} ${isSelected ? 'opacity: 0.6;' : ''}">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 14px;">></span>
+                    <span style="font-weight: 500; font-size: 10px;">${terminal.name}</span>
+                    ${isSelected ? '<span style="color: var(--vscode-textLink-foreground); font-size: 9px;">(선택됨)</span>' : ''}
+                </div>
+                <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${terminal.commandCount || 0}개 명령어</div>
+            </div>
+        `;
+        }).join('');
+
+        const terminalsContainer = document.createElement('div');
+        terminalsContainer.innerHTML = terminalsHtml;
+        menu.appendChild(terminalsContainer);
+
+        menu.querySelectorAll('.at-terminal-item').forEach(item => {
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const terminalName = item.getAttribute('data-name');
+                selectTerminalFromAtMenu(terminalName);
+            });
+            item.addEventListener('mouseenter', () => {
+                atMenuSelectedIndex = parseInt(item.getAttribute('data-index'));
+                renderAtMenu(filter);
+            });
+        });
+    }
+
+    // 선택된 항목이 보이도록 스크롤 이동
     if (atMenuMode === 'files') {
         const selectedItem = menu.querySelector(`.at-file-item[data-index="${atMenuSelectedIndex}"]`);
+        if (selectedItem) {
+            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    } else if (atMenuMode === 'terminal') {
+        const selectedItem = menu.querySelector(`.at-terminal-item[data-index="${atMenuSelectedIndex}"]`);
         if (selectedItem) {
             selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
@@ -1018,15 +1181,42 @@ function renderAtMenu(filter = '') {
     atMenuVisible = true;
 }
 
+// '@' 메뉴에서 터미널 선택
+function selectTerminalFromAtMenu(terminalName) {
+    // 이미 선택된 터미널인지 체크
+    if (selectedTerminalContext && selectedTerminalContext.name === terminalName) {
+        console.log("Terminal already selected:", terminalName);
+        hideAtMenu();
+        chatInput.focus();
+        return;
+    }
+
+    // 터미널 컨텍스트 요청
+    if (vscode) {
+        vscode.postMessage({ command: 'requestTerminalContext', terminalName: terminalName });
+    }
+
+    hideAtMenu();
+    chatInput.focus();
+}
+
 // 카테고리 선택
 function selectCategory(categoryId) {
     selectedCategory = categoryId;
-    atMenuMode = 'files';
-    atMenuSelectedIndex = 0; // 파일 리스트 첫 번째 항목부터 시작
+    atMenuSelectedIndex = 0;
 
-    // 파일 목록이 없으면 요청
-    if (fileList.length === 0 && vscode) {
-        vscode.postMessage({ command: 'requestFileList' });
+    if (categoryId === 'files') {
+        atMenuMode = 'files';
+        // 파일 목록이 없으면 요청
+        if (fileList.length === 0 && vscode) {
+            vscode.postMessage({ command: 'requestFileList' });
+        }
+    } else if (categoryId === 'terminal') {
+        atMenuMode = 'terminal';
+        // 터미널 목록 요청
+        if (vscode) {
+            vscode.postMessage({ command: 'requestTerminalList' });
+        }
     }
 
     // 입력창 업데이트: '@' 뒤에 카테고리명 추가
@@ -1084,11 +1274,20 @@ function hideAtMenu() {
 
 // '@' 메뉴에서 파일 선택
 function selectFileFromAtMenu(filePath, fileName) {
-    addSelectedFile(filePath, fileName);
+    // 중복 파일 체크
+    if (selectedFiles.some((file) => file.path === filePath)) {
+        console.log("File already selected:", filePath);
+        hideAtMenu();
+        chatInput.focus();
+        return;
+    }
+
+    // selectedFiles에 추가 (insertFileMention은 여기서 직접 호출)
+    selectedFiles.push({ path: filePath, name: fileName });
     hideAtMenu();
 
-    // 파일 멘션 블록 삽입
-    insertFileMention(fileName, filePath);
+    // 파일 멘션 블록 삽입 ('@' 기호 제거)
+    insertFileMention(fileName, filePath, true);
     chatInput.focus();
 }
 
@@ -1199,6 +1398,56 @@ if (sendButton && chatInput) {
                     return;
                 }
             }
+            // 터미널 리스트 모드
+            else if (atMenuMode === 'terminal') {
+                // 뒤로가기: Escape 키
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    goBackToCategories();
+                    return;
+                }
+
+                // 터미널명 필터링
+                const parts = afterAt.split(/\s+/);
+                const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+                const filteredTerminals = terminalList.filter(terminal =>
+                    terminal.name.toLowerCase().includes(filter.toLowerCase())
+                );
+
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    atMenuSelectedIndex = Math.min(atMenuSelectedIndex + 1, Math.max(0, filteredTerminals.length - 1));
+                    renderAtMenu(filter);
+                    setTimeout(() => {
+                        const menu = document.getElementById('at-file-menu');
+                        const selectedItem = menu?.querySelector(`.at-terminal-item[data-index="${atMenuSelectedIndex}"]`);
+                        if (selectedItem) {
+                            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    }, 0);
+                    return;
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    atMenuSelectedIndex = Math.max(atMenuSelectedIndex - 1, 0);
+                    renderAtMenu(filter);
+                    setTimeout(() => {
+                        const menu = document.getElementById('at-file-menu');
+                        const selectedItem = menu?.querySelector(`.at-terminal-item[data-index="${atMenuSelectedIndex}"]`);
+                        if (selectedItem) {
+                            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    }, 0);
+                    return;
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filteredTerminals[atMenuSelectedIndex]) {
+                        const terminal = filteredTerminals[atMenuSelectedIndex];
+                        selectTerminalFromAtMenu(terminal.name);
+                    }
+                    return;
+                }
+            }
         }
 
         // 슬래시 메뉴가 열려있을 때 키보드 네비게이션
@@ -1246,40 +1495,62 @@ if (sendButton && chatInput) {
             }
         }
 
-        // 백스페이스로 파일 멘션 블록 삭제
+        // 백스페이스로 파일/터미널 멘션 블록 삭제
         if (e.key === "Backspace") {
             const selection = window.getSelection();
             if (selection.rangeCount > 0) {
                 const range = selection.getRangeAt(0);
                 const node = range.startContainer;
 
-                // 커서가 파일 멘션 블록 바로 앞에 있는지 확인
+                // 커서가 멘션 블록 바로 앞에 있는지 확인
                 if (node.nodeType === Node.TEXT_NODE && range.startOffset === 0) {
                     const prevSibling = node.previousSibling;
-                    if (prevSibling && prevSibling.classList && prevSibling.classList.contains('file-mention')) {
-                        e.preventDefault();
-                        const filePath = prevSibling.getAttribute('data-file-path');
-                        if (filePath) {
-                            removeSelectedFile(filePath);
+                    if (prevSibling && prevSibling.classList) {
+                        // 파일 멘션 블록 삭제
+                        if (prevSibling.classList.contains('file-mention')) {
+                            e.preventDefault();
+                            const filePath = prevSibling.getAttribute('data-file-path');
+                            if (filePath) {
+                                removeSelectedFile(filePath);
+                            }
+                            prevSibling.remove();
+                            autoResizeTextarea();
+                            return;
                         }
-                        prevSibling.remove();
-                        autoResizeTextarea();
-                        return;
+                        // 터미널 멘션 블록 삭제
+                        if (prevSibling.classList.contains('terminal-mention')) {
+                            e.preventDefault();
+                            selectedTerminalContext = null;
+                            prevSibling.remove();
+                            autoResizeTextarea();
+                            return;
+                        }
                     }
                 }
 
-                // 커서가 파일 멘션 블록 내부에 있는지 확인
+                // 커서가 멘션 블록 내부에 있는지 확인
                 let currentNode = node;
                 while (currentNode && currentNode !== chatInput) {
-                    if (currentNode.classList && currentNode.classList.contains('file-mention')) {
-                        e.preventDefault();
-                        const filePath = currentNode.getAttribute('data-file-path');
-                        if (filePath) {
-                            removeSelectedFile(filePath);
+                    if (currentNode.classList) {
+                        // 파일 멘션 블록 내부
+                        if (currentNode.classList.contains('file-mention')) {
+                            e.preventDefault();
+                            const filePath = currentNode.getAttribute('data-file-path');
+                            if (filePath) {
+                                removeSelectedFile(filePath);
+                            }
+                            currentNode.remove();
+                            autoResizeTextarea();
+                            return;
                         }
-                        currentNode.remove();
-                        autoResizeTextarea();
-                        return;
+                        // 터미널 멘션 블록 내부
+                        if (currentNode.classList.contains('terminal-mention')) {
+                            e.preventDefault();
+                            selectedTerminalContext = null;
+                            currentNode.remove();
+                            autoResizeTextarea();
+                            return;
+                        }
                     }
                     currentNode = currentNode.parentNode;
                 }
@@ -1296,6 +1567,9 @@ if (sendButton && chatInput) {
 
     chatInput.addEventListener("input", function (e) {
         autoResizeTextarea();
+
+        // 멘션 블록이 DOM에서 삭제되었는지 확인하고 selectedFiles/selectedTerminalContext 동기화
+        syncMentionsWithDOM();
 
         const value = getChatInputValue();
         const lastAtIndex = value.lastIndexOf('@');
@@ -1319,11 +1593,16 @@ if (sendButton && chatInput) {
                 const category = atMenuCategories.find(c => c.label.toLowerCase() === firstPart || c.id === firstPart);
 
                 if (category) {
-                    // 파일 모드
-                    if (atMenuMode !== 'files' || selectedCategory !== category.id) {
-                        atMenuMode = 'files';
+                    // 카테고리에 따라 모드 설정
+                    const targetMode = category.id === 'terminal' ? 'terminal' : 'files';
+                    if (atMenuMode !== targetMode || selectedCategory !== category.id) {
+                        atMenuMode = targetMode;
                         selectedCategory = category.id;
                         atMenuSelectedIndex = 0;
+                        // 터미널 모드면 터미널 목록 요청
+                        if (targetMode === 'terminal' && vscode) {
+                            vscode.postMessage({ command: 'requestTerminalList' });
+                        }
                     }
                     const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
                     renderAtMenu(filter);
@@ -1459,14 +1738,15 @@ function handleSendMessage() {
         return;
     }
     const text = getChatInputText().trimEnd(); // 파일 멘션 제외하고 텍스트만 추출
-    if (text || selectedImageBase64 || selectedFiles.length > 0) {
-        // 텍스트, 이미지, 또는 선택된 파일이 있을 때만 전송
+    if (text || selectedImageBase64 || selectedFiles.length > 0 || selectedTerminalContext) {
+        // 텍스트, 이미지, 선택된 파일, 또는 터미널 컨텍스트가 있을 때만 전송
         const payload = {
             id: generateId(),
             text: text,
             imageData: selectedImageBase64,
             imageMimeType: selectedImageMimeType,
             selectedFiles: selectedFiles.map((file) => file.path),
+            terminalContext: selectedTerminalContext ? selectedTerminalContext.contextString : null,
             mode: currentMode,
         };
 
@@ -1486,6 +1766,8 @@ function handleSendMessage() {
         removeAttachedImage(); // 이미지 전송 후 썸네일 제거
         // 선택된 파일들 초기화 (입력창의 파일 멘션 블록은 이미 textContent = ""로 제거됨)
         selectedFiles = [];
+        // 터미널 컨텍스트 초기화
+        selectedTerminalContext = null;
         autoResizeTextarea();
         chatInput.focus();
         // 스크롤은 showLoading 시 처리됨
@@ -2033,6 +2315,33 @@ window.addEventListener("message", (event) => {
                         renderAtMenu(filter);
                     }
                 }
+            }
+            break;
+
+        case "terminalListReceived":
+            console.log("Terminal list received:", message.terminals?.length || 0, "terminals");
+            if (message.terminals) {
+                terminalList = message.terminals;
+                // '@' 메뉴가 열려있고 터미널 모드면 다시 렌더링
+                if (atMenuVisible && atMenuMode === 'terminal' && chatInput) {
+                    const currentValue = getChatInputValue();
+                    const atIndex = currentValue.lastIndexOf('@');
+                    if (atIndex !== -1) {
+                        const afterAt = currentValue.substring(atIndex + 1);
+                        const parts = afterAt.trim().split(/\s+/);
+                        const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+                        renderAtMenu(filter);
+                    }
+                }
+            }
+            break;
+
+        case "terminalContextReceived":
+            console.log("Terminal context received:", message.terminalContext?.name);
+            if (message.terminalContext) {
+                selectedTerminalContext = message.terminalContext;
+                // 입력창에 터미널 멘션 블록 삽입
+                insertTerminalMention(message.terminalContext.name);
             }
             break;
 
@@ -2964,6 +3273,40 @@ function addSelectedFile(filePath, fileName) {
 }
 
 // 선택된 파일 제거
+/**
+ * DOM의 멘션 블록과 selectedFiles/selectedTerminalContext를 동기화
+ * 사용자가 백스페이스 등으로 멘션 블록을 삭제하면 상태도 업데이트
+ */
+function syncMentionsWithDOM() {
+    if (!chatInput) return;
+
+    // 파일 멘션 동기화
+    if (selectedFiles.length > 0) {
+        const fileMentions = chatInput.querySelectorAll('.file-mention');
+        const mentionedPaths = new Set();
+        fileMentions.forEach(mention => {
+            const path = mention.getAttribute('data-file-path');
+            if (path) mentionedPaths.add(path);
+        });
+
+        // DOM에 없는 파일은 selectedFiles에서 제거
+        const removedFiles = selectedFiles.filter(file => !mentionedPaths.has(file.path));
+        if (removedFiles.length > 0) {
+            console.log('[chat.js] File mentions removed from DOM:', removedFiles.map(f => f.name));
+            selectedFiles = selectedFiles.filter(file => mentionedPaths.has(file.path));
+        }
+    }
+
+    // 터미널 멘션 동기화
+    if (selectedTerminalContext) {
+        const terminalMention = chatInput.querySelector('.terminal-mention');
+        if (!terminalMention) {
+            console.log('[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext');
+            selectedTerminalContext = null;
+        }
+    }
+}
+
 function removeSelectedFile(filePath) {
     selectedFiles = selectedFiles.filter((file) => file.path !== filePath);
     // 입력창에서 파일 멘션 블록도 제거
@@ -3287,10 +3630,10 @@ function removeChatPanelButtonsForFile(filePath) {
             let nextElement = block.nextElementSibling;
             while (nextElement) {
                 if (nextElement.classList.contains('bash-button-container')) {
-                    const acceptBtn = nextElement.querySelector('.accept-all-button');
-                    const rejectBtn = nextElement.querySelector('.reject-all-button');
-                    if (acceptBtn) acceptBtn.remove();
-                    if (rejectBtn) rejectBtn.remove();
+                    const keepBtn = nextElement.querySelector('.keep-button');
+                    const undoBtn = nextElement.querySelector('.undo-button');
+                    if (keepBtn) keepBtn.remove();
+                    if (undoBtn) undoBtn.remove();
                     // 버튼 컨테이너가 비어있으면 제거
                     if (nextElement.children.length === 0) {
                         nextElement.remove();

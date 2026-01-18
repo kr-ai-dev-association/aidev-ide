@@ -622,36 +622,42 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
-    // 캐시 통계 보기 명령어 (QuickPick)
+    // 캐시 통계 보기 명령어 (패널에 출력)
     context.subscriptions.push(vscode.commands.registerCommand('codepilot.viewCacheStats', async () => {
         try {
             const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
             const stats = sessionManager.getCacheStats();
 
             if (!stats) {
-                vscode.window.showWarningMessage('캐시 통계를 가져올 수 없습니다.');
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 캐시 통계를 가져올 수 없습니다.'
+                });
                 return;
             }
 
-            const items = [
-                `총 캐시 엔트리: ${stats.totalEntries}개`,
-                `총 캐시 크기: ${(stats.totalSize / 1024 / 1024).toFixed(2)} MB`,
-                `캐시 히트: ${stats.hitCount}회`,
-                `캐시 미스: ${stats.missCount}회`,
-                `캐시 히트율: ${(stats.hitRate * 100).toFixed(1)}%`
-            ];
-
-            const selected = await vscode.window.showQuickPick(items, {
-                title: '캐시 통계',
-                placeHolder: '캐시 통계 정보'
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 캐시 통계\n\n` +
+                    `- **총 캐시 엔트리**: ${stats.totalEntries}개\n` +
+                    `- **총 캐시 크기**: ${(stats.totalSize / 1024 / 1024).toFixed(2)} MB\n` +
+                    `- **캐시 히트**: ${stats.hitCount}회\n` +
+                    `- **캐시 미스**: ${stats.missCount}회\n` +
+                    `- **캐시 히트율**: ${(stats.hitRate * 100).toFixed(1)}%`
             });
 
         } catch (error) {
-            vscode.window.showErrorMessage(`캐시 통계 조회 실패: ${error}`);
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ 캐시 통계 조회 실패: ${error}`
+            });
         }
     }));
 
-    // 캐시 초기화 명령어 (QuickPick 확인)
+    // 캐시 초기화 명령어 (QuickPick 확인 + 패널에 결과 출력)
     context.subscriptions.push(vscode.commands.registerCommand('codepilot.clearCache', async () => {
         try {
             const confirm = await vscode.window.showQuickPick(['예', '아니오'], {
@@ -662,10 +668,18 @@ export async function activate(context: vscode.ExtensionContext) {
             if (confirm === '예') {
                 const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
                 sessionManager.clearAllCache();
-                vscode.window.showInformationMessage('모든 캐시가 초기화되었습니다.');
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '### 캐시 초기화 완료\n\n모든 컨텍스트 캐시가 초기화되었습니다.'
+                });
             }
         } catch (error) {
-            vscode.window.showErrorMessage(`캐시 초기화 실패: ${error}`);
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ 캐시 초기화 실패: ${error}`
+            });
         }
     }));
 
@@ -738,16 +752,37 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
-    // 대화 압축 명령어
+    // 대화 압축 명령어 (QuickPick 확인 추가)
     context.subscriptions.push(vscode.commands.registerCommand('codepilot.compactConversation', async () => {
         try {
             const sessionManager = (await import('./core/managers/state/SessionManager')).SessionManager.getInstance(context);
             const currentSession = sessionManager.getCurrentSession();
 
             if (!currentSession || currentSession.conversationHistory.length < 3) {
-                vscode.window.showInformationMessage('압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)');
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)'
+                });
                 return;
             }
+
+            // 확인 다이얼로그
+            const confirm = await vscode.window.showQuickPick(['예', '아니오'], {
+                title: '대화 압축',
+                placeHolder: `현재 대화(${currentSession.conversationHistory.length}개)를 압축하시겠습니까?`
+            });
+
+            if (confirm !== '예') {
+                return;
+            }
+
+            // 로딩 표시 및 Processing Steps 업데이트
+            chatViewProvider.postMessageToWebview({ command: 'showLoading' });
+            chatViewProvider.postMessageToWebview({
+                command: 'updateProcessingStatus',
+                status: '> 대화 압축 준비 중...'
+            });
 
             // LLMManager와 ConversationCompactor 가져오기
             const { ConversationCompactor } = await import('./core/managers/conversation/ConversationCompactor');
@@ -765,8 +800,16 @@ export async function activate(context: vscode.ExtensionContext) {
             const { MODEL_TOKEN_LIMITS } = await import('./utils/tokenUtils');
             const maxTokens = MODEL_TOKEN_LIMITS[currentModelType]?.maxInputTokens || 128000;
 
+            chatViewProvider.postMessageToWebview({
+                command: 'updateProcessingStatus',
+                status: `> 대화 압축 중... (${currentSession.conversationHistory.length}개 대화)`
+            });
+
             // 강제 압축 실행
             const result = await compactor.forceCompact(userParts, maxTokens);
+
+            // 로딩 숨기기
+            chatViewProvider.postMessageToWebview({ command: 'hideLoading' });
 
             if (result.compacted && result.summary) {
                 // 세션에 압축 요약 저장
@@ -777,15 +820,32 @@ export async function activate(context: vscode.ExtensionContext) {
                 sessionManager.trimSessionHistory(keepCount);
 
                 const savedPercent = ((result.savedTokens / result.originalTokens) * 100).toFixed(1);
-                vscode.window.showInformationMessage(
-                    `대화 압축 완료: ${result.originalTokens.toLocaleString()} → ${result.compactedTokens.toLocaleString()} 토큰 (${savedPercent}% 절감)`
-                );
+
+                // 패널에 결과 메시지 표시
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: `### 대화 압축 완료\n\n` +
+                        `- **원본 토큰**: ${result.originalTokens.toLocaleString()}\n` +
+                        `- **압축 후 토큰**: ${result.compactedTokens.toLocaleString()}\n` +
+                        `- **절감률**: ${savedPercent}%\n\n` +
+                        `최근 ${keepCount}개의 대화만 유지됩니다.`
+                });
             } else {
-                vscode.window.showInformationMessage('압축할 대화가 충분하지 않습니다.');
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 압축할 대화가 충분하지 않습니다.'
+                });
             }
         } catch (error) {
             console.error('[Extension] 대화 압축 실패:', error);
-            vscode.window.showErrorMessage(`대화 압축 실패: ${error}`);
+            chatViewProvider.postMessageToWebview({ command: 'hideLoading' });
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ 대화 압축 실패: ${error}`
+            });
         }
     }));
 

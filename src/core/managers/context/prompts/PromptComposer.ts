@@ -22,6 +22,7 @@ export interface PromptComposerOptions {
     projectType?: string; // 프로젝트 타입 정보
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
     selectedFilesContent?: string; // 사용자가 선택한 파일들의 내용
+    terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
     allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
 }
 
@@ -92,7 +93,7 @@ ${rules.join('\n\n---\n\n')}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, allowedTools } = options;
+        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, allowedTools } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -136,6 +137,12 @@ ${codebaseContext}` : '';
 
 ${selectedFilesContent}` : '';
 
+        // 사용자가 선택한 터미널 히스토리
+        const terminalContextSection = terminalContextContent ? `**터미널 컨텍스트:**
+다음은 사용자가 명시적으로 대화 컨텍스트에 포함하도록 요청한 터미널 히스토리입니다. 최근 실행한 명령어와 그 결과를 참고하여 작업을 수행하세요.
+
+${terminalContextContent}` : '';
+
         // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
         const agentRules = this.loadAgentRules();
 
@@ -148,6 +155,7 @@ ${selectedFilesContent}` : '';
             taskPrompt,
             codebaseSection,
             selectedFilesSection, // 사용자가 선택한 파일들 (코드베이스 컨텍스트 다음에 배치)
+            terminalContextSection, // 사용자가 선택한 터미널 히스토리
             llmPrompt,
             osPrompt
         ].filter(part => part && part.trim() !== '');

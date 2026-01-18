@@ -266,12 +266,12 @@ function attachCopyButtonListener(button, codeElement) {
 
 // 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
 // Keep 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
-function createAcceptAllButton(filePath) {
+function createKeepButton(filePath) {
     const button = document.createElement('a');
-    button.classList.add('accept-all-button');
+    button.classList.add('keep-button');
     button.textContent = 'Keep';
     button.title = `Keep all changes for ${filePath}`;
-    
+
     // ✅ codepilot://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
     const encodedPath = encodeURIComponent(filePath);
     button.href = `codepilot://acceptAll?path=${encodedPath}`;
@@ -301,12 +301,12 @@ function createAcceptAllButton(filePath) {
 }
 
 // Undo 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
-function createRejectAllButton(filePath) {
+function createUndoButton(filePath) {
     const button = document.createElement('a');
-    button.classList.add('reject-all-button');
+    button.classList.add('undo-button');
     button.textContent = 'Undo';
     button.title = `Undo all changes for ${filePath}`;
-    
+
     // ✅ codepilot://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
     const encodedPath = encodeURIComponent(filePath);
     button.href = `codepilot://rejectAll?path=${encodedPath}`;
@@ -360,15 +360,15 @@ export function addCopyButtonsToCodeBlocks(bubbleElement) { // <-- export 키워
             const buttonContainer = document.createElement('div');
             buttonContainer.classList.add('bash-button-container');
 
-            // 파일 경로가 있는 경우: Accept/Reject 버튼 추가
+            // 파일 경로가 있는 경우: Undo/Keep 버튼 추가
             if (filePath) {
-                // Reject 버튼 생성 (먼저)
-                const rejectButton = createRejectAllButton(filePath);
-                buttonContainer.appendChild(rejectButton);
+                // Undo 버튼 생성 (먼저)
+                const undoButton = createUndoButton(filePath);
+                buttonContainer.appendChild(undoButton);
 
-                // Accept 버튼 생성 (나중)
-                const acceptButton = createAcceptAllButton(filePath);
-                buttonContainer.appendChild(acceptButton);
+                // Keep 버튼 생성 (나중)
+                const keepButton = createKeepButton(filePath);
+                buttonContainer.appendChild(keepButton);
             } else {
                 // 파일 경로가 없는 경우: Bash/PowerShell/Cmd 블록에만 Copy와 Run 버튼 추가
                 if (isBash || isPwsh || isCmd) {

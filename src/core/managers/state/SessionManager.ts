@@ -353,9 +353,22 @@ export class SessionManager {
             return { messageCount: 0, totalTokensUsed: 0 };
         }
 
-        return { 
+        // totalTokensUsed가 없으면 각 ConversationEntry의 tokensUsed 합산 (구버전 호환)
+        let totalTokens = session.totalTokensUsed || 0;
+        if (totalTokens === 0 && session.conversationHistory.length > 0) {
+            totalTokens = session.conversationHistory.reduce((sum, entry) => {
+                return sum + (entry.tokensUsed || 0);
+            }, 0);
+            // 계산된 값을 세션에 저장
+            if (totalTokens > 0) {
+                session.totalTokensUsed = totalTokens;
+                this.saveSessions();
+            }
+        }
+
+        return {
             messageCount: session.conversationHistory.length,
-            totalTokensUsed: session.totalTokensUsed || 0
+            totalTokensUsed: totalTokens
         };
     }
 

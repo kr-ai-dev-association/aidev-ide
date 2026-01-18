@@ -17,6 +17,7 @@ export interface ConversationServiceOptions {
     imageData?: string;
     imageMimeType?: string;
     selectedFiles?: string[];
+    terminalContext?: string;
     extensionContext?: vscode.ExtensionContext;
     geminiApi?: GeminiApi;
     ollamaApi?: OllamaApi;
@@ -68,6 +69,7 @@ export class ConversationService {
             imageData: options.imageData,
             imageMimeType: options.imageMimeType,
             selectedFiles: options.selectedFiles,
+            terminalContext: options.terminalContext,
             extensionContext: options.extensionContext,
             geminiApi: geminiApi,
             ollamaApi: ollamaApi,

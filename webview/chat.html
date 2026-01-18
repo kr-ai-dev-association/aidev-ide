@@ -260,6 +260,26 @@
             margin-right: 2px;
         }
 
+        /* 터미널 멘션 블록 스타일 */
+        .terminal-mention {
+            display: inline-block;
+            background-color: rgba(255, 149, 0, 0.2);
+            color: rgba(255, 149, 0, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin: 0 2px;
+            user-select: none;
+            -webkit-user-select: none;
+            white-space: nowrap;
+        }
+
+        .terminal-mention::before {
+            content: '>';
+            margin-right: 4px;
+            font-family: monospace;
+        }
+
         /* <-- 수정 끝 --> */
 
         /* 상단 컨트롤 (Agent, Mode) */
@@ -718,8 +738,8 @@
             gap: 5px;
         }
 
-        .accept-all-button,
-        .reject-all-button {
+        .keep-button,
+        .undo-button {
             display: flex;
             justify-content: center;
             align-items: center;
@@ -737,36 +757,36 @@
             font-weight: 500;
         }
 
-        .reject-all-button {
+        .undo-button {
             /* Undo 버튼 - 검은색 배경 */
             background-color: #1e1e1e;
             color: white;
             border: none;
         }
 
-        .reject-all-button:hover {
+        .undo-button:hover {
             background-color: #333333;
             color: white;
         }
 
-        .reject-all-button:active {
+        .undo-button:active {
             background-color: #000000;
             color: white;
         }
 
-        .accept-all-button {
+        .keep-button {
             /* Keep 버튼 - 초록색 배경 */
             background-color: #73c991;
             color: white;
             border: none;
         }
 
-        .accept-all-button:hover {
+        .keep-button:hover {
             background-color: #5fb07d;
             color: white;
         }
 
-        .accept-all-button:active {
+        .keep-button:active {
             background-color: #4a9968;
             color: white;
         }
@@ -2141,10 +2161,10 @@
                         let nextElement = block.nextElementSibling;
                         while (nextElement) {
                             if (nextElement.classList.contains('bash-button-container')) {
-                                const acceptBtn = nextElement.querySelector('.accept-all-button');
-                                const rejectBtn = nextElement.querySelector('.reject-all-button');
-                                if (acceptBtn) acceptBtn.remove();
-                                if (rejectBtn) rejectBtn.remove();
+                                const keepBtn = nextElement.querySelector('.keep-button');
+                                const undoBtn = nextElement.querySelector('.undo-button');
+                                if (keepBtn) keepBtn.remove();
+                                if (undoBtn) undoBtn.remove();
                                 if (nextElement.children.length === 0) {
                                     nextElement.remove();
                                 }

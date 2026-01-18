@@ -43,6 +43,7 @@ export interface ConversationOptions {
     imageData?: string;
     imageMimeType?: string;
     selectedFiles?: string[];
+    terminalContext?: string;
     extensionContext?: vscode.ExtensionContext;
     geminiApi?: any;
     ollamaApi?: any;
@@ -101,7 +102,9 @@ export class ConversationManager {
      * 사용자의 메시지를 처리하고 응답을 생성하는 메인 엔트리 포인트
      */
     public async handleUserMessageAndRespond(options: ConversationOptions): Promise<void> {
-        const { userQuery, webviewToRespond, extensionContext } = options;
+        const { webviewToRespond, extensionContext } = options;
+
+        const userQuery = options.userQuery;
 
         try {
             // 1. 초기화 및 준비
@@ -256,6 +259,12 @@ export class ConversationManager {
             selectedFilesContent = fileContents.join('\n\n');
         }
 
+        // 터미널 컨텍스트 (사용자가 @terminal로 선택한 터미널 히스토리)
+        const terminalContextContent = options.terminalContext || '';
+        if (terminalContextContent) {
+            console.log('[ConversationManager] Terminal context included in system prompt');
+        }
+
         // ContextData의 속성들을 PromptBuilderOptions 형식에 맞게 변환
         return {
             codebaseContext: contextData.file?.content,
@@ -264,7 +273,8 @@ export class ConversationManager {
             intentContext: JSON.stringify(intent),
             gitContext: '',
             languageInstruction: '반드시 한국어로 답변하세요.',
-            selectedFilesContent: selectedFilesContent
+            selectedFilesContent: selectedFilesContent,
+            terminalContextContent: terminalContextContent
         };
     }
 

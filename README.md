@@ -6,6 +6,23 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.8.2 (Terminal Context in '@' Menu)
+- **Terminal Context Support**: Added Terminal category to '@' menu (similar to Continue IDE).
+  - Type `@terminal` to see list of VS Code terminals
+  - Select a terminal to include its command history in LLM context
+  - Terminal mention block displayed as orange badge in input area
+  - Up to 20 recent commands with outputs included in context
+  - Exit codes shown as ✓ (success) or ✗(code) (failure)
+  - Long outputs automatically truncated to 500 characters
+- **File/Terminal Mention Sync**: Improved mention block deletion handling.
+  - Backspace deletion of file/terminal mentions now properly clears selection state
+  - "(Selected)" indicator updates correctly when mention is removed
+  - `syncMentionsWithDOM()` function ensures DOM and state consistency
+- **Context Integration**: Both file and terminal contexts are included in system prompt.
+  - File context: "**Selected Files:**" section with full file contents
+  - Terminal context: "**Terminal Context:**" section with command history and outputs
+  - LLM can reference both contexts to understand user's development environment
+
 ## v8.8.1 (Summary Improvements & Session History Restoration)
 - **Improved Summary Format**: Enhanced task completion summary output with markdown formatting.
   - Structured with `### Task Complete ✅`, `### Changes`, `### Usage` sections

@@ -394,6 +394,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         imageData: data.imageData,
                         imageMimeType: data.imageMimeType,
                         selectedFiles: data.selectedFiles,
+                        terminalContext: data.terminalContext,
                         extensionContext: this.context,
                         notificationService: this.notificationService,
                         gitRepositoryService: this.gitRepositoryService
@@ -876,6 +877,25 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 }
+
+                case 'requestTerminalList': {
+                    try {
+                        await this.sendTerminalList(webviewView.webview);
+                    } catch (error: any) {
+                        console.error('[ChatViewProvider] Failed to get terminal list:', error);
+                    }
+                    break;
+                }
+
+                case 'requestTerminalContext': {
+                    try {
+                        const terminalName = data.terminalName;
+                        await this.sendTerminalContext(webviewView.webview, terminalName);
+                    } catch (error: any) {
+                        console.error('[ChatViewProvider] Failed to get terminal context:', error);
+                    }
+                    break;
+                }
             }
         });
         webviewView.onDidDispose(() => {
@@ -1009,6 +1029,109 @@ ${JSON.stringify(errorContext, null, 2)}
                 files: []
             });
         }
+    }
+
+    private async sendTerminalList(webview: vscode.Webview) {
+        try {
+            const terminalManager = TerminalManager.getInstance();
+
+            // VS Code의 모든 터미널 가져오기
+            const vscodeTerminals = vscode.window.terminals;
+
+            // TerminalManager의 히스토리와 매칭
+            const history = terminalManager.getHistory();
+
+            const terminalList = vscodeTerminals.map(terminal => {
+                // 해당 터미널의 히스토리 명령어 수 계산
+                const terminalHistory = history.getAll().filter((entry: any) =>
+                    entry.sessionName === terminal.name
+                );
+
+                return {
+                    name: terminal.name,
+                    commandCount: terminalHistory.length
+                };
+            });
+
+            webview.postMessage({
+                command: 'terminalListReceived',
+                terminals: terminalList
+            });
+        } catch (error) {
+            console.error('Error getting terminal list:', error);
+            webview.postMessage({
+                command: 'terminalListReceived',
+                terminals: []
+            });
+        }
+    }
+
+    private async sendTerminalContext(webview: vscode.Webview, terminalName: string) {
+        try {
+            const terminalManager = TerminalManager.getInstance();
+
+            // 해당 터미널의 히스토리 가져오기
+            const history = terminalManager.getHistory();
+            const terminalHistory = history.getAll().filter((entry: any) =>
+                entry.sessionName === terminalName
+            );
+
+            // 최근 20개의 명령어와 출력 가져오기
+            const recentEntries = terminalHistory.slice(-20);
+
+            // 컨텍스트 구성
+            const commands = recentEntries.map((entry: any) => ({
+                command: entry.command.command,
+                output: entry.command.output?.combined || entry.command.output?.stdout || '',
+                exitCode: entry.command.exitCode,
+                timestamp: entry.command.timestamp
+            }));
+
+            const terminalContext = {
+                name: terminalName,
+                commands: commands,
+                // 요약된 컨텍스트 문자열 생성
+                contextString: this.formatTerminalContext(terminalName, commands)
+            };
+
+            webview.postMessage({
+                command: 'terminalContextReceived',
+                terminalContext: terminalContext
+            });
+        } catch (error) {
+            console.error('Error getting terminal context:', error);
+            webview.postMessage({
+                command: 'terminalContextReceived',
+                terminalContext: null
+            });
+        }
+    }
+
+    private formatTerminalContext(terminalName: string, commands: Array<{command: string; output: string; exitCode?: number; timestamp: number}>): string {
+        if (commands.length === 0) {
+            return `[Terminal: ${terminalName}]\n(No command history)`;
+        }
+
+        let context = `[Terminal: ${terminalName}]\n`;
+        context += `Recent ${commands.length} commands:\n\n`;
+
+        for (const cmd of commands) {
+            const status = cmd.exitCode === 0 ? '✓' : cmd.exitCode !== undefined ? `✗(${cmd.exitCode})` : '?';
+            context += `$ ${cmd.command} ${status}\n`;
+            if (cmd.output && cmd.output.trim()) {
+                // 출력이 너무 길면 자르기
+                const output = cmd.output.trim();
+                const maxOutputLength = 500;
+                if (output.length > maxOutputLength) {
+                    context += output.substring(0, maxOutputLength) + '...(truncated)\n';
+                } else {
+                    context += output + '\n';
+                }
+            }
+            context += '\n';
+        }
+
+        return context;
     }
 
     private async executeBashCommands(commands: string[]): Promise<void> {

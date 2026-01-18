@@ -198,7 +198,7 @@ ${modifiedFiles.length > 0 ? `**수정:**\n${modifiedList}\n` : ''}
 
 ## 출력 형식 (반드시 마크다운 형식으로)
 
-### 작업 완료 ✅
+### 작업 완료
 (전체 작업을 한 문장으로 요약)
 
 ### 변경 내용
@@ -212,7 +212,7 @@ ${modifiedFiles.length > 0 ? `**수정:**\n${modifiedList}\n` : ''}
 
 ## 예시 출력
 
-### 작업 완료 ✅
+### 작업 완료
 React + TypeScript 기반의 Vite 프로젝트가 초기화되었습니다.
 
 ### 변경 내용
