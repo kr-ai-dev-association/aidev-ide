@@ -6,7 +6,7 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
-## v8.8.2 (Terminal Context in '@' Menu)
+## v8.8.2 (Terminal Context & Fast Diagnostics)
 - **Terminal Context Support**: Added Terminal category to '@' menu (similar to Continue IDE).
   - Type `@terminal` to see list of VS Code terminals
   - Select a terminal to include its command history in LLM context
@@ -22,6 +22,12 @@ VSCode base code assistant plugin with LLM and LM support.
   - File context: "**Selected Files:**" section with full file contents
   - Terminal context: "**Terminal Context:**" section with command history and outputs
   - LLM can reference both contexts to understand user's development environment
+- **Fast Diagnostics Check**: Added VS Code Diagnostics validation before CLI commands.
+  - Uses LSP-based diagnostics to catch syntax/type errors instantly
+  - Filters only `DiagnosticSeverity.Error` (warnings ignored)
+  - Runs before CLI validation commands for faster feedback
+  - If errors found, returns immediately without running CLI (saves time)
+  - Error format: `file:line: message` with max 10 errors displayed
 
 ## v8.8.1 (Summary Improvements & Session History Restoration)
 - **Improved Summary Format**: Enhanced task completion summary output with markdown formatting.
