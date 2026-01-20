@@ -31,7 +31,10 @@ export class TreeSitterAdapter implements ICodeParserAdapter {
             'typescript',
             'python',
             'java',
-            // 필요시 추가
+            'go',
+            'rust',
+            'c',
+            'cpp',
         ];
     }
 

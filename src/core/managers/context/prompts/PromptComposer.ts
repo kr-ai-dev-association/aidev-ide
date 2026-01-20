@@ -23,6 +23,7 @@ export interface PromptComposerOptions {
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
     selectedFilesContent?: string; // 사용자가 선택한 파일들의 내용
     terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
+    diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics (에러/경고)
     allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
 }
 
@@ -93,7 +94,7 @@ ${rules.join('\n\n---\n\n')}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, allowedTools } = options;
+        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -143,6 +144,12 @@ ${selectedFilesContent}` : '';
 
 ${terminalContextContent}` : '';
 
+        // 사용자가 선택한 Diagnostics (에러/경고)
+        const diagnosticsContextSection = diagnosticsContextContent ? `**Diagnostics (에러/경고):**
+다음은 현재 워크스페이스에서 감지된 에러와 경고입니다. 이 문제들을 해결하는 데 참고하세요.
+
+${diagnosticsContextContent}` : '';
+
         // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
         const agentRules = this.loadAgentRules();
 
@@ -156,6 +163,7 @@ ${terminalContextContent}` : '';
             codebaseSection,
             selectedFilesSection, // 사용자가 선택한 파일들 (코드베이스 컨텍스트 다음에 배치)
             terminalContextSection, // 사용자가 선택한 터미널 히스토리
+            diagnosticsContextSection, // 사용자가 선택한 Diagnostics (에러/경고)
             llmPrompt,
             osPrompt
         ].filter(part => part && part.trim() !== '');

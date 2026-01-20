@@ -395,6 +395,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         imageMimeType: data.imageMimeType,
                         selectedFiles: data.selectedFiles,
                         terminalContext: data.terminalContext,
+                        diagnosticsContext: data.diagnosticsContext,
                         extensionContext: this.context,
                         notificationService: this.notificationService,
                         gitRepositoryService: this.gitRepositoryService
@@ -448,8 +449,8 @@ ${JSON.stringify(errorContext, null, 2)}
                 }
                 case 'approveAllChanges': {
                     try {
-                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
-                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        const diffModule = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
                         await inlineDiffManager.acceptAllChangesForAllFiles();
                     } catch (e) {
                         this.notificationService.showErrorMessage('변경사항 승인에 실패했습니다.');
@@ -458,8 +459,8 @@ ${JSON.stringify(errorContext, null, 2)}
                 }
                 case 'rejectAllChanges': {
                     try {
-                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
-                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        const diffModule = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
                         await inlineDiffManager.rejectAllChangesForAllFiles();
                     } catch (e) {
                         this.notificationService.showErrorMessage('변경사항 거부에 실패했습니다.');
@@ -476,8 +477,8 @@ ${JSON.stringify(errorContext, null, 2)}
                             break;
                         }
                         console.log('[ChatViewProvider] Importing InlineDiffManager...');
-                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
-                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        const diffModule = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
                         console.log('[ChatViewProvider] Calling acceptAllChanges for:', filePath);
                         await inlineDiffManager.acceptAllChanges(filePath);
                         console.log('[ChatViewProvider] acceptAllChanges completed for:', filePath);
@@ -503,8 +504,8 @@ ${JSON.stringify(errorContext, null, 2)}
                             break;
                         }
                         console.log('[ChatViewProvider] Importing InlineDiffManager...');
-                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
-                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        const diffModule = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
                         console.log('[ChatViewProvider] Calling rejectAllChanges for:', filePath);
                         await inlineDiffManager.rejectAllChanges(filePath);
                         console.log('[ChatViewProvider] rejectAllChanges completed for:', filePath);
@@ -555,6 +556,18 @@ ${JSON.stringify(errorContext, null, 2)}
                         await ConversationService.clearHistory(PromptType.CODE_GENERATION, this.context);
                         webviewView.webview.postMessage({
                             command: 'clearHistory'
+                        });
+                        // 토큰 사용량 및 컨텍스트 수 초기화 UI 업데이트
+                        webviewView.webview.postMessage({
+                            command: 'updateContextInfo',
+                            contextInfo: {
+                                messageCount: 0,
+                                tokenUsage: {
+                                    current: 0,
+                                    max: 128000, // 기본 최대 토큰 값
+                                    percentage: 0
+                                }
+                            }
                         });
                     } catch (error) {
                         webviewView.webview.postMessage({
@@ -896,6 +909,15 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 }
+
+                case 'requestDiagnosticsContext': {
+                    try {
+                        await this.sendDiagnosticsContext(webviewView.webview);
+                    } catch (error: any) {
+                        console.error('[ChatViewProvider] Failed to get diagnostics context:', error);
+                    }
+                    break;
+                }
             }
         });
         webviewView.onDidDispose(() => {
@@ -1127,6 +1149,114 @@ ${JSON.stringify(errorContext, null, 2)}
                 } else {
                     context += output + '\n';
                 }
+            }
+            context += '\n';
+        }
+
+        return context;
+    }
+
+    /**
+     * Diagnostics (에러/경고) 컨텍스트를 webview에 전송
+     */
+    private async sendDiagnosticsContext(webview: vscode.Webview) {
+        try {
+            // 모든 진단 정보 가져오기
+            const allDiagnostics = vscode.languages.getDiagnostics();
+
+            let errorCount = 0;
+            let warningCount = 0;
+            const diagnosticItems: Array<{
+                file: string;
+                line: number;
+                column: number;
+                severity: string;
+                message: string;
+                code?: string;
+            }> = [];
+
+            for (const [uri, diagnostics] of allDiagnostics) {
+                // 워크스페이스 내 파일만 처리
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+                if (!workspaceFolder) continue;
+
+                for (const diag of diagnostics) {
+                    const severity = diag.severity === vscode.DiagnosticSeverity.Error ? 'error'
+                        : diag.severity === vscode.DiagnosticSeverity.Warning ? 'warning'
+                        : diag.severity === vscode.DiagnosticSeverity.Information ? 'info'
+                        : 'hint';
+
+                    if (severity === 'error') errorCount++;
+                    else if (severity === 'warning') warningCount++;
+
+                    // Error와 Warning만 포함 (info, hint 제외)
+                    if (severity === 'error' || severity === 'warning') {
+                        const relativePath = vscode.workspace.asRelativePath(uri);
+                        diagnosticItems.push({
+                            file: relativePath,
+                            line: diag.range.start.line + 1,
+                            column: diag.range.start.character + 1,
+                            severity: severity,
+                            message: diag.message,
+                            code: typeof diag.code === 'object' ? String(diag.code.value) : String(diag.code || '')
+                        });
+                    }
+                }
+            }
+
+            // 컨텍스트 문자열 생성
+            const contextString = this.formatDiagnosticsContext(diagnosticItems, errorCount, warningCount);
+
+            const diagnosticsContext = {
+                errorCount,
+                warningCount,
+                items: diagnosticItems,
+                contextString
+            };
+
+            webview.postMessage({
+                command: 'diagnosticsContextReceived',
+                diagnosticsContext: diagnosticsContext
+            });
+        } catch (error) {
+            console.error('Error getting diagnostics context:', error);
+            webview.postMessage({
+                command: 'diagnosticsContextReceived',
+                diagnosticsContext: null
+            });
+        }
+    }
+
+    /**
+     * Diagnostics 컨텍스트를 문자열로 포맷팅
+     */
+    private formatDiagnosticsContext(
+        items: Array<{file: string; line: number; column: number; severity: string; message: string; code?: string}>,
+        errorCount: number,
+        warningCount: number
+    ): string {
+        if (items.length === 0) {
+            return '[Diagnostics]\nNo errors or warnings found.';
+        }
+
+        let context = `[Diagnostics]\n`;
+        context += `Summary: ${errorCount} error(s), ${warningCount} warning(s)\n\n`;
+
+        // 파일별로 그룹화
+        const byFile = new Map<string, typeof items>();
+        for (const item of items) {
+            if (!byFile.has(item.file)) {
+                byFile.set(item.file, []);
+            }
+            byFile.get(item.file)!.push(item);
+        }
+
+        for (const [file, fileItems] of byFile) {
+            context += `📄 ${file}\n`;
+            for (const item of fileItems) {
+                const icon = item.severity === 'error' ? '❌' : '⚠️';
+                const codeStr = item.code ? ` [${item.code}]` : '';
+                context += `  ${icon} Line ${item.line}:${item.column}${codeStr}: ${item.message}\n`;
             }
             context += '\n';
         }

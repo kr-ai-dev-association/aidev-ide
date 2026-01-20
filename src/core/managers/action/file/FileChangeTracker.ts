@@ -400,18 +400,19 @@ export class FileChangeTracker {
         filePath: string,
         beforeContent: string,
         afterContent: string,
-        changeType: ChangeType
+        _changeType: ChangeType
     ): Promise<void> {
         try {
-            const { InlineDiffManager } = await import('../../diff/InlineDiffManager');
-            const inlineDiffManager = InlineDiffManager.getInstance();
-            
+            // 동적 import - 모듈 전체를 가져온 후 named export 접근
+            const diffModule = await import('../../diff/InlineDiffManager');
+            const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
+
             await inlineDiffManager.showInlineDiff(
                 filePath,
                 beforeContent,
                 afterContent
             );
-            
+
             console.log(`[FileChangeTracker] Opened inline diff for ${filePath}`);
         } catch (error) {
             console.error(`[FileChangeTracker] Failed to open inline diff:`, error);

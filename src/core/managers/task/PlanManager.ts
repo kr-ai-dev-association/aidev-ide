@@ -7,6 +7,14 @@
 import { SettingsManager } from '../state/SettingsManager';
 import { LLMApiClient } from '../model/LLMApiClient';
 import { AiModelType } from '../../../services';
+import {
+    getSplitInstructionPrompt,
+    getSplitInstructionSystemPrompt,
+    getStructuredPlanPrompt,
+    getLegacyPlanPrompt,
+    getSummarizePlanPrompt,
+    getSummarizePlanSystemPrompt
+} from '../context/prompts/plan';
 
 export interface PlanItem {
     title: string;
@@ -55,55 +63,11 @@ export class PlanManager {
         const lang = (await SettingsManager.getInstance().getLanguage?.()) || 'ko';
         const forceKorean = lang.toLowerCase().startsWith('ko');
 
-        const splitPrompt = forceKorean
-            ? `다음 사용자 지시사항을 행위 단위로 분리하세요. 각 행위는 독립적으로 실행 가능한 단위여야 합니다.
-
-사용자 지시사항:
-"""
-${userQuery}
-"""
-
-요구사항:
-- 각 행위를 하나의 문장으로 표현하세요.
-- 행위는 동사로 시작하는 명확한 액션으로 작성하세요.
-- 각 행위는 순서대로 번호를 매겨주세요.
-- JSON 배열 형식으로 출력하세요.
-
-출력 형식 (JSON):
-{
-  "actions": [
-    "첫 번째 행위",
-    "두 번째 행위",
-    "세 번째 행위"
-  ]
-}`
-            : `Split the following user instruction into action units. Each action should be independently executable.
-
-User instruction:
-"""
-${userQuery}
-"""
-
-Requirements:
-- Express each action as a single sentence.
-- Actions should start with a verb and be clear actions.
-- Number each action in order.
-- Output in JSON array format.
-
-Output format (JSON):
-{
-  "actions": [
-    "First action",
-    "Second action",
-    "Third action"
-  ]
-}`;
+        const splitPrompt = getSplitInstructionPrompt({ userQuery, forceKorean });
 
         try {
             const parts = [{ text: splitPrompt }];
-            const systemPromptForSplit = forceKorean
-                ? '행위 단위로 지시사항을 분리하세요. JSON 형식으로 응답하세요.'
-                : 'Split instructions into action units. Respond in JSON format.';
+            const systemPromptForSplit = getSplitInstructionSystemPrompt(forceKorean);
 
             if (!geminiApi && !ollamaApi) {
                 return [userQuery];
@@ -151,73 +115,14 @@ Output format (JSON):
         const lang = (await SettingsManager.getInstance().getLanguage?.()) || 'ko';
         const forceKorean = lang.toLowerCase().startsWith('ko');
 
-        const languageRule = forceKorean
-            ? '\n- "description"과 "title"은 반드시 한국어로 작성하세요. 코드나 식별자는 원래 언어를 유지하세요.'
-            : '\n- Write "description" and "title" in English. Keep identifiers/code in their original language.';
-
-        const prompt = forceKorean
-            ? `다음 사용자 요청을 분석하여 실행 가능한 단계별 계획을 JSON 형식으로 수립하세요.
-            
-사용자 요청:
-"""
-${userQuery}
-"""
-
-프로젝트 컨텍스트:
-- OS: ${os}
-- 모델: ${modelName}
-- 관련 파일:
-${topFiles || '(없음)'}
-- 키워드: ${kw || '(없음)'}
-
-요구사항:
-1. 복잡한 작업을 논리적인 단계(Step)로 나누세요.
-2. 각 단계는 명확한 목표(Goal)와 실행할 툴(Tool)에 대한 힌트를 포함해야 합니다.
-3. 파일 생성/수정/삭제가 필요한 경우 파일 경로를 명시하세요.
-4. JSON 배열 포맷으로 출력해야 합니다.${languageRule}
-
-출력 포맷 (JSON):
-[
-  {
-    "id": "step_1",
-    "title": "작업 제목 (간결하게)",
-    "description": "구체적인 작업 내용과 목적",
-    "expected_artifact": "생성되거나 수정될 파일 경로 (없으면 null)"
-  },
-  ...
-]`
-            : `다음 사용자 요청을 분석하여 실행 가능한 단계별 계획을 JSON 형식으로 수립하세요.
-
-사용자 요청:
-"""
-${userQuery}
-"""
-
-프로젝트 컨텍스트:
-- OS: ${os}
-- 모델: ${modelName}
-- 관련 파일:
-${topFiles || '(없음)'}
-- 키워드: ${kw || '(없음)'}
-
-요구사항:
-1. 복잡한 작업을 논리적인 단계(Step)로 나누세요.
-2. 각 단계는 명확한 목표(Goal)와 실행할 툴(Tool)에 대한 힌트를 포함해야 합니다.
-3. 파일 생성/수정/삭제가 필요한 경우 파일 경로를 명시하세요.
-4. JSON 배열 포맷으로 출력해야 합니다.${languageRule}
-
-출력 포맷 (JSON):
-[
-  {
-    "id": "step_1",
-    "title": "작업 제목 (간결하게)",
-    "description": "구체적인 작업 내용과 목적",
-    "expected_artifact": "생성되거나 수정될 파일 경로 (없으면 null)"
-  },
-  ...
-]`;
-
-        return prompt;
+        return getStructuredPlanPrompt({
+            userQuery,
+            os,
+            modelName,
+            topFiles,
+            keywords: kw,
+            forceKorean
+        });
     }
 
     /**
@@ -258,65 +163,15 @@ ${topFiles || '(없음)'}
         const kw = keywords.join(', ');
         const lang = (await SettingsManager.getInstance().getLanguage?.()) || 'ko';
         const forceKorean = lang.toLowerCase().startsWith('ko');
-        const languageRule = forceKorean
-            ? '\n- 모든 출력은 한국어로 작성하세요. 영어 표현이 필요한 식별자/코드는 그대로 두되 설명과 계획은 한국어로 작성하세요.'
-            : '\n- Write all output in English. Keep identifiers/code in their original language, but write descriptions and plans in English.';
 
-        const prompt = forceKorean
-            ? `다음 사용자 요청을 분석하여 단계별 실행 계획을 수립하세요.
-
-사용자 요청:
-"""
-${userQuery}
-"""
-
-프로젝트 컨텍스트:
-- OS: ${os}
-- 모델: ${modelName}
-- 관련 파일:
-${topFiles || '(없음)'}
-- 키워드: ${kw || '(없음)'}
-
-요구사항:
-- 각 단계는 명확하고 실행 가능해야 합니다.
-- 단계는 순서대로 번호를 매겨주세요.
-- 각 단계는 한 문장으로 간결하게 작성하세요.
-- 마크다운 체크박스 형식(- [ ] 단계 설명)으로 작성하세요.
-- 최대 10개 단계로 제한하세요.${languageRule}
-
-출력 형식:
-- [ ] 1단계: 첫 번째 작업
-- [ ] 2단계: 두 번째 작업
-- [ ] 3단계: 세 번째 작업
-...`
-            : `Analyze the following user request and create a step-by-step execution plan.
-
-User request:
-"""
-${userQuery}
-"""
-
-Project context:
-- OS: ${os}
-- Model: ${modelName}
-- Related files:
-${topFiles || '(none)'}
-- Keywords: ${kw || '(none)'}
-
-Requirements:
-- Each step should be clear and executable.
-- Number steps in order.
-- Write each step concisely in one sentence.
-- Write in markdown checkbox format (- [ ] step description).
-- Limit to maximum 10 steps.${languageRule}
-
-Output format:
-- [ ] Step 1: First task
-- [ ] Step 2: Second task
-- [ ] Step 3: Third task
-...`;
-
-        return prompt;
+        return getLegacyPlanPrompt({
+            userQuery,
+            os,
+            modelName,
+            topFiles,
+            keywords: kw,
+            forceKorean
+        });
     }
 
     /**
@@ -471,51 +326,11 @@ Output format:
 
         const itemsText = items.map((item, idx) => `${idx + 1}. ${item.title}${item.detail ? ` - ${item.detail}` : ''}`).join('\n');
 
-        const summaryPrompt = forceKorean
-            ? `다음 작업 목록을 매우 간결하게 요약하세요.
-
-**중요 요구사항:**
-- 전체 요약을 정확히 100자 이하로 작성 (초과 금지)
-- 최대 3개의 핵심 명령어만 출력
-- 각 명령어는 30자 이내로 매우 간결하게
-- 마크다운 불릿 포인트 형식으로만 출력
-- 반복되는 내용은 제거하고 핵심만 추출
-
-**출력 형식 (정확히 이 형식으로만):**
-- 전체 요약 (100자 이하)
-- 명령어 1 (30자 이내)
-- 명령어 2 (30자 이내)
-- 명령어 3 (30자 이내)
-
-작업 목록:
-${itemsText}
-
-출력:`
-            : `Summarize the following task list very concisely.
-
-**Critical Requirements:**
-- Write a summary in exactly 100 characters or less (no exceed)
-- Output maximum 3 core commands only
-- Each command should be very concise within 30 characters
-- Output only in markdown bullet point format
-- Remove repetitive content and extract only core points
-
-**Output format (exactly this format only):**
-- Overall summary (100 chars or less)
-- Command 1 (30 chars or less)
-- Command 2 (30 chars or less)
-- Command 3 (30 chars or less)
-
-Task list:
-${itemsText}
-
-Output:`;
+        const summaryPrompt = getSummarizePlanPrompt({ itemsText, forceKorean });
 
         try {
             const parts = [{ text: summaryPrompt }];
-            const systemPrompt = forceKorean
-                ? '작업 목록을 간결한 명령어 리스트로 요약하세요. 100자 이하 요약과 최대 3개의 핵심 명령어만 출력하세요.'
-                : 'Summarize task list into concise command list. Output summary under 100 chars and max 3 core commands.';
+            const systemPrompt = getSummarizePlanSystemPrompt(forceKorean);
 
             if (!geminiApi && !ollamaApi) {
                 return null;

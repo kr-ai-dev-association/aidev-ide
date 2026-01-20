@@ -21338,7 +21338,7 @@ if (typeof window.vscode === "undefined" && typeof acquireVsCodeApi !== "undefin
   // ✅ __BOOT_PING__ 테스트 - Webview 연결 확인
   try {
     window.vscode.postMessage({
-      command: '__BOOT_PING__',
+      command: "__BOOT_PING__",
       timestamp: Date.now()
     });
   } catch (error) {
@@ -21351,6 +21351,11 @@ const vscode = window.vscode || null;
 let processingStepsArray = [];
 let typingInterval = null;
 let lastFullText = "";
+
+// 스트리밍 메시지 처리 변수들
+let streamingMessageElement = null;
+let streamingTextContent = "";
+let streamingRenderTimeout = null;
 
 // showProcessingSteps(), hideProcessingSteps() - 상단 고정 UI 삭제됨 (하단 타자기 효과로 통합)
 
@@ -21498,6 +21503,227 @@ function handleScroll() {
   }
 }
 
+// ===== 스트리밍 메시지 처리 함수들 =====
+
+/**
+ * 스트리밍 메시지 시작
+ * 새로운 스트리밍 응답을 위한 메시지 요소 생성
+ */
+function startStreamingMessage(sender) {
+  if (!chatMessages) {
+    console.warn("[Streaming] chatMessages element not found");
+    return;
+  }
+
+  // thinking bubble 숨기기
+  if (thinkingBubbleElement) {
+    thinkingBubbleElement.style.display = "none";
+  }
+
+  // 기존 스트리밍 요소가 있으면 먼저 완료 처리
+  if (streamingMessageElement) {
+    endStreamingMessage();
+  }
+
+  // 새 메시지 요소 생성
+  streamingMessageElement = document.createElement("div");
+  streamingMessageElement.classList.add("codepilot-message", "streaming");
+  streamingMessageElement.innerHTML = `
+        <div class="message-content">
+            <span class="streaming-cursor"></span>
+        </div>
+    `;
+  chatMessages.appendChild(streamingMessageElement);
+  streamingTextContent = "";
+
+  // 스크롤을 하단으로
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+/**
+ * 스트리밍 청크 추가
+ * 수신된 텍스트 청크를 메시지에 추가
+ */
+function appendStreamingChunk(chunk) {
+  if (!streamingMessageElement) {
+    // 스트리밍이 시작되지 않았으면 시작
+    startStreamingMessage("assistant");
+  }
+  streamingTextContent += chunk;
+
+  // 디바운싱: 빠른 청크 수신 시 렌더링 최적화
+  if (streamingRenderTimeout) {
+    clearTimeout(streamingRenderTimeout);
+  }
+  streamingRenderTimeout = setTimeout(() => {
+    renderStreamingContent();
+  }, 16); // 약 60fps
+}
+
+/**
+ * think 태그에서 현재 진행 중인 사고 과정 추출
+ * 스트리밍 중에만 표시하고 완료되면 제거됨
+ */
+function extractCurrentThink(text) {
+  // 아직 닫히지 않은 think 태그 찾기 (현재 진행 중인 것)
+  const openThinkMatch = text.match(/<think>([\s\S]*)$/i);
+  if (openThinkMatch) {
+    // 닫히지 않은 think 태그가 있음 = 현재 사고 중
+    return {
+      thinkContent: openThinkMatch[1].trim(),
+      isThinking: true
+    };
+  }
+
+  // 가장 마지막 완료된 think 태그 찾기 (바로 직전에 완료된 것 - 잠시 표시용)
+  const closedThinkMatches = [...text.matchAll(/<think>([\s\S]*?)<\/think>/gi)];
+  if (closedThinkMatches.length > 0) {
+    const lastMatch = closedThinkMatches[closedThinkMatches.length - 1];
+    return {
+      thinkContent: lastMatch[1].trim(),
+      isThinking: false,
+      justCompleted: true
+    };
+  }
+  return {
+    thinkContent: null,
+    isThinking: false
+  };
+}
+
+/**
+ * think 태그를 제거한 텍스트 반환 (최종 출력용)
+ */
+function removeThinkTags(text) {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/gi, "").trim();
+}
+
+/**
+ * 스트리밍 콘텐츠 렌더링
+ * 누적된 텍스트를 마크다운으로 렌더링
+ * think 태그는 실시간으로 표시하고 완료되면 제거
+ */
+function renderStreamingContent() {
+  if (!streamingMessageElement) {
+    return;
+  }
+  const contentElement = streamingMessageElement.querySelector(".message-content");
+  if (!contentElement) {
+    return;
+  }
+  try {
+    // 현재 진행 중인 think 내용 추출
+    const {
+      thinkContent,
+      isThinking
+    } = extractCurrentThink(streamingTextContent);
+
+    // think 태그가 제거된 실제 응답 텍스트
+    const cleanText = removeThinkTags(streamingTextContent);
+    let html = "";
+
+    // think 내용이 있고 현재 사고 중이면 상단에 표시
+    if (thinkContent && isThinking) {
+      html += `<div class="think-bubble">
+                <span class="think-icon">💭</span>
+                <span class="think-text">${escapeHtml(thinkContent)}</span>
+                <span class="think-cursor">▌</span>
+            </div>`;
+    }
+
+    // 실제 응답 텍스트 렌더링
+    if (cleanText) {
+      if (typeof md !== "undefined" && md.render) {
+        html += md.render(cleanText);
+      } else {
+        html += escapeHtml(cleanText);
+      }
+    }
+    contentElement.innerHTML = html + '<span class="streaming-cursor"></span>';
+
+    // 코드 블록에 복사 버튼 추가
+    if (typeof _codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks === "function") {
+      (0,_codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks)(contentElement);
+    }
+  } catch (e) {
+    console.error("[Streaming] Render error:", e);
+    contentElement.textContent = streamingTextContent;
+  }
+
+  // 스크롤을 하단으로
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * 스트리밍 메시지 완료
+ * 스트리밍 응답 완료 후 최종 처리
+ * think 태그는 완전히 제거됨
+ */
+function endStreamingMessage() {
+  if (streamingRenderTimeout) {
+    clearTimeout(streamingRenderTimeout);
+    streamingRenderTimeout = null;
+  }
+  if (!streamingMessageElement) {
+    return;
+  }
+
+  // 커서 제거 및 최종 렌더링
+  const contentElement = streamingMessageElement.querySelector(".message-content");
+  if (contentElement) {
+    const cursor = contentElement.querySelector(".streaming-cursor");
+    if (cursor) {
+      cursor.remove();
+    }
+
+    // think 버블 제거
+    const thinkBubble = contentElement.querySelector(".think-bubble");
+    if (thinkBubble) {
+      thinkBubble.remove();
+    }
+
+    // 최종 마크다운 렌더링 (think 태그 제거 후)
+    try {
+      const cleanText = removeThinkTags(streamingTextContent);
+      if (typeof md !== "undefined" && md.render && cleanText) {
+        contentElement.innerHTML = md.render(cleanText);
+      }
+
+      // 코드 블록에 복사 버튼 추가
+      if (typeof _codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks === "function") {
+        (0,_codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks)(contentElement);
+      }
+    } catch (e) {
+      console.error("[Streaming] Final render error:", e);
+    }
+  }
+
+  // 스트리밍 클래스 제거
+  streamingMessageElement.classList.remove("streaming");
+
+  // 상태 초기화
+  streamingMessageElement = null;
+  streamingTextContent = "";
+
+  // 스크롤을 하단으로
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * HTML 이스케이프 헬퍼 함수
+ */
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ===== 스트리밍 메시지 처리 함수들 끝 =====
+
 // Auto Correcting Indicator Functions
 function showAutoCorrectingIndicator() {
   const indicator = document.getElementById("auto-correcting-indicator");
@@ -21551,15 +21777,15 @@ function resetProcessingStatuses() {
 
 // sanitize-html 옵션 설정 (codepilot:// 스킴 허용)
 const sanitizeOptions = {
-  allowedTags: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li', 'code', 'pre', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr'],
+  allowedTags: ["b", "i", "em", "strong", "a", "p", "br", "ul", "ol", "li", "code", "pre", "span", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "hr"],
   allowedAttributes: {
-    'a': ['href', 'title'],
-    '*': ['class', 'id', 'style']
+    a: ["href", "title"],
+    "*": ["class", "id", "style"]
   },
-  allowedSchemes: ['http', 'https', 'mailto', 'codepilot'],
+  allowedSchemes: ["http", "https", "mailto", "codepilot"],
   // codepilot:// 스킴 허용
   allowedSchemesByTag: {
-    'a': ['http', 'https', 'mailto', 'codepilot']
+    a: ["http", "https", "mailto", "codepilot"]
   }
 };
 const sendButton = document.getElementById("send-button");
@@ -21608,7 +21834,7 @@ function loadFileIcon(filename, container, displayLang, iconSize = 18) {
     container.textContent = displayLang.toUpperCase();
   } else {
     // displayLang이 없으면 빈 상태로 시작 (파일 리스트용)
-    container.textContent = '';
+    container.textContent = "";
   }
 
   // 아이콘 가져오기
@@ -21616,7 +21842,7 @@ function loadFileIcon(filename, container, displayLang, iconSize = 18) {
     const iconData = (0,_peoplesgrocers_seti_ui_file_icons__WEBPACK_IMPORTED_MODULE_4__.getIcon)(filename);
     if (iconData && iconData.svg) {
       // 기존 텍스트 제거
-      container.textContent = '';
+      container.textContent = "";
 
       // SVG를 안전하게 삽입
       const iconContainer = document.createElement("span");
@@ -21634,17 +21860,17 @@ function loadFileIcon(filename, container, displayLang, iconSize = 18) {
       iconContainer.innerHTML = iconData.svg;
 
       // 색상 및 크기 적용
-      const svgElement = iconContainer.querySelector('svg');
+      const svgElement = iconContainer.querySelector("svg");
       if (svgElement) {
         // 1. 색상 적용
         if (iconData.color) {
-          svgElement.setAttribute('fill', iconData.color);
+          svgElement.setAttribute("fill", iconData.color);
         }
 
         // 2. 핵심: 기존 width/height 속성을 제거하거나 100%로 변경
         // 이렇게 해야 viewBox 설정에 따라 아이콘이 부모 크기에 맞춰 리사이징됩니다.
-        svgElement.removeAttribute('width');
-        svgElement.removeAttribute('height');
+        svgElement.removeAttribute("width");
+        svgElement.removeAttribute("height");
 
         // 3. 스타일로 크기 제어
         svgElement.style.cssText = `
@@ -21664,36 +21890,40 @@ function loadFileIcon(filename, container, displayLang, iconSize = 18) {
       }
     }
   } catch (error) {
-    console.warn('Failed to get file icon:', error);
+    console.warn("Failed to get file icon:", error);
     // 에러 발생 시 텍스트만 표시 (이미 설정됨)
   }
 }
 
 // contenteditable div에서 텍스트만 추출 (파일 멘션 제외)
 function getChatInputText() {
-  if (!chatInput) return '';
+  if (!chatInput) {
+    return "";
+  }
   // 파일 멘션 블록을 제외하고 텍스트만 추출
   const clone = chatInput.cloneNode(true);
-  const mentions = clone.querySelectorAll('.file-mention');
+  const mentions = clone.querySelectorAll(".file-mention");
   mentions.forEach(mention => mention.remove());
-  return clone.textContent || clone.innerText || '';
+  return clone.textContent || clone.innerText || "";
 }
 
 // contenteditable div에서 전체 내용을 가져오기 (파일 멘션 포함, 표시용)
 // 입력 순서대로 그대로 표시
 function getChatInputDisplayContent() {
-  if (!chatInput) return '';
+  if (!chatInput) {
+    return "";
+  }
   // 입력창의 모든 노드를 순서대로 순회하면서 파일 멘션을 @filename으로 변환
   const result = [];
   function processNode(node) {
     if (node.nodeType === Node.TEXT_NODE) {
       // 텍스트 노드는 그대로 추가
-      result.push(node.textContent || '');
+      result.push(node.textContent || "");
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.classList && node.classList.contains('file-mention')) {
+      if (node.classList && node.classList.contains("file-mention")) {
         // 파일 멘션을 @filename으로 변환
-        const fileName = node.getAttribute('data-file-name') || node.textContent || '';
-        result.push('@' + fileName);
+        const fileName = node.getAttribute("data-file-name") || node.textContent || "";
+        result.push("@" + fileName);
       } else {
         // 다른 요소는 자식 노드들을 재귀적으로 처리
         const children = Array.from(node.childNodes);
@@ -21705,24 +21935,30 @@ function getChatInputDisplayContent() {
   // 모든 자식 노드를 순서대로 처리
   const children = Array.from(chatInput.childNodes);
   children.forEach(child => processNode(child));
-  return result.join('');
+  return result.join("");
 }
 
 // contenteditable div에 텍스트 설정
 function setChatInputText(text) {
-  if (!chatInput) return;
+  if (!chatInput) {
+    return;
+  }
   chatInput.textContent = text;
 }
 
 // contenteditable div에서 현재 커서 위치의 텍스트 가져오기
 function getChatInputValue() {
-  if (!chatInput) return '';
-  return chatInput.innerText || chatInput.textContent || '';
+  if (!chatInput) {
+    return "";
+  }
+  return chatInput.innerText || chatInput.textContent || "";
 }
 
 // 파일 멘션 블록 삽입
 function insertFileMention(fileName, filePath, removeAtSymbol = true) {
-  if (!chatInput) return;
+  if (!chatInput) {
+    return;
+  }
   const selection = window.getSelection();
   if (selection.rangeCount === 0) {
     // 선택이 없으면 끝에 추가
@@ -21734,7 +21970,7 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   }
   const range = selection.getRangeAt(0);
   const currentText = getChatInputValue();
-  const atIndex = currentText.lastIndexOf('@');
+  const atIndex = currentText.lastIndexOf("@");
 
   // '@' 입력 부분 찾아서 제거 (removeAtSymbol이 true일 때만)
   if (removeAtSymbol && atIndex !== -1) {
@@ -21751,20 +21987,20 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   }
 
   // 파일 멘션 블록 생성
-  const mentionSpan = document.createElement('span');
-  mentionSpan.className = 'file-mention';
-  mentionSpan.setAttribute('data-file-path', filePath);
-  mentionSpan.setAttribute('data-file-name', fileName);
+  const mentionSpan = document.createElement("span");
+  mentionSpan.className = "file-mention";
+  mentionSpan.setAttribute("data-file-path", filePath);
+  mentionSpan.setAttribute("data-file-name", fileName);
   mentionSpan.textContent = fileName;
-  mentionSpan.contentEditable = 'false';
-  mentionSpan.style.display = 'inline-block';
+  mentionSpan.contentEditable = "false";
+  mentionSpan.style.display = "inline-block";
 
   // 현재 커서 위치에 삽입 (또는 끝에 추가)
   try {
     range.insertNode(mentionSpan);
 
     // 공백 추가
-    const spaceNode = document.createTextNode(' ');
+    const spaceNode = document.createTextNode(" ");
     range.setStartAfter(mentionSpan);
     range.insertNode(spaceNode);
     range.setStartAfter(spaceNode);
@@ -21774,7 +22010,7 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   } catch (e) {
     // insertNode가 실패하면 끝에 추가
     chatInput.appendChild(mentionSpan);
-    const spaceNode = document.createTextNode(' ');
+    const spaceNode = document.createTextNode(" ");
     chatInput.appendChild(spaceNode);
 
     // 커서를 끝으로 이동
@@ -21789,7 +22025,9 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
 
 // 터미널 멘션 블록 삽입
 function insertTerminalMention(terminalName) {
-  if (!chatInput) return;
+  if (!chatInput) {
+    return;
+  }
   const selection = window.getSelection();
   if (selection.rangeCount === 0) {
     const range = document.createRange();
@@ -21800,7 +22038,7 @@ function insertTerminalMention(terminalName) {
   }
   const range = selection.getRangeAt(0);
   const currentText = getChatInputValue();
-  const atIndex = currentText.lastIndexOf('@');
+  const atIndex = currentText.lastIndexOf("@");
 
   // '@' 입력 부분 찾아서 제거
   if (atIndex !== -1) {
@@ -21814,17 +22052,17 @@ function insertTerminalMention(terminalName) {
   }
 
   // 터미널 멘션 블록 생성
-  const mentionSpan = document.createElement('span');
-  mentionSpan.className = 'terminal-mention';
-  mentionSpan.setAttribute('data-terminal-name', terminalName);
+  const mentionSpan = document.createElement("span");
+  mentionSpan.className = "terminal-mention";
+  mentionSpan.setAttribute("data-terminal-name", terminalName);
   mentionSpan.textContent = `Terminal: ${terminalName}`;
-  mentionSpan.contentEditable = 'false';
-  mentionSpan.style.display = 'inline-block';
+  mentionSpan.contentEditable = "false";
+  mentionSpan.style.display = "inline-block";
 
   // 현재 커서 위치에 삽입
   try {
     range.insertNode(mentionSpan);
-    const spaceNode = document.createTextNode(' ');
+    const spaceNode = document.createTextNode(" ");
     range.setStartAfter(mentionSpan);
     range.insertNode(spaceNode);
     range.setStartAfter(spaceNode);
@@ -21833,7 +22071,67 @@ function insertTerminalMention(terminalName) {
     selection.addRange(range);
   } catch (e) {
     chatInput.appendChild(mentionSpan);
-    const spaceNode = document.createTextNode(' ');
+    const spaceNode = document.createTextNode(" ");
+    chatInput.appendChild(spaceNode);
+    const newRange = document.createRange();
+    newRange.selectNodeContents(chatInput);
+    newRange.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+  }
+  autoResizeTextarea();
+}
+
+// Diagnostics 멘션 삽입
+function insertDiagnosticsMention(errorCount, warningCount) {
+  if (!chatInput) {
+    return;
+  }
+  const selection = window.getSelection();
+  if (selection.rangeCount === 0) {
+    const range = document.createRange();
+    range.selectNodeContents(chatInput);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  const range = selection.getRangeAt(0);
+  const currentText = getChatInputValue();
+  const atIndex = currentText.lastIndexOf("@");
+
+  // '@' 입력 부분 찾아서 제거
+  if (atIndex !== -1) {
+    const beforeAt = currentText.substring(0, atIndex);
+    chatInput.textContent = beforeAt;
+    const newRange = document.createRange();
+    newRange.selectNodeContents(chatInput);
+    newRange.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+  }
+
+  // Diagnostics 멘션 블록 생성
+  const mentionSpan = document.createElement("span");
+  mentionSpan.className = "diagnostics-mention";
+  mentionSpan.setAttribute("data-error-count", errorCount);
+  mentionSpan.setAttribute("data-warning-count", warningCount);
+  mentionSpan.textContent = `Diagnostics: ${errorCount} errors, ${warningCount} warnings`;
+  mentionSpan.contentEditable = "false";
+  mentionSpan.style.display = "inline-block";
+
+  // 현재 커서 위치에 삽입
+  try {
+    range.insertNode(mentionSpan);
+    const spaceNode = document.createTextNode(" ");
+    range.setStartAfter(mentionSpan);
+    range.insertNode(spaceNode);
+    range.setStartAfter(spaceNode);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch (e) {
+    chatInput.appendChild(mentionSpan);
+    const spaceNode = document.createTextNode(" ");
     chatInput.appendChild(spaceNode);
     const newRange = document.createRange();
     newRange.selectNodeContents(chatInput);
@@ -21918,70 +22216,72 @@ function doSendUserMessage(payload) {
 
 // 언어명 정규화 함수 (일반적인 별칭을 표준 언어명으로 변환)
 function normalizeLanguage(lang) {
-  if (!lang) return null;
+  if (!lang) {
+    return null;
+  }
   const langMap = {
-    'js': 'javascript',
-    'jsx': 'javascript',
-    'ts': 'typescript',
-    'tsx': 'typescript',
-    'py': 'python',
-    'rb': 'ruby',
-    'sh': 'bash',
-    'yml': 'yaml',
-    'md': 'markdown',
-    'json': 'json',
-    'html': 'html',
-    'css': 'css',
-    'scss': 'scss',
-    'sass': 'sass',
-    'less': 'less',
-    'java': 'java',
-    'c': 'c',
-    'cpp': 'cpp',
-    'cxx': 'cpp',
-    'cc': 'cpp',
-    'cs': 'csharp',
-    'php': 'php',
-    'go': 'go',
-    'rs': 'rust',
-    'swift': 'swift',
-    'kt': 'kotlin',
-    'scala': 'scala',
-    'clj': 'clojure',
-    'hs': 'haskell',
-    'ml': 'ocaml',
-    'fs': 'fsharp',
-    'sql': 'sql',
-    'xml': 'xml',
-    'dockerfile': 'dockerfile',
-    'makefile': 'makefile',
-    'ini': 'ini',
-    'toml': 'toml',
-    'diff': 'diff',
-    'patch': 'diff',
-    'vue': 'vue',
-    'svelte': 'svelte',
-    'dart': 'dart',
-    'r': 'r',
-    'lua': 'lua',
-    'perl': 'perl',
-    'elixir': 'elixir',
-    'erlang': 'erlang',
-    'julia': 'julia',
-    'matlab': 'matlab',
-    'powershell': 'powershell',
-    'ps1': 'powershell',
-    'pwsh': 'powershell',
-    'vb': 'vbnet',
-    'vba': 'vba',
-    'graphql': 'graphql',
-    'protobuf': 'protobuf',
-    'proto': 'protobuf',
-    'thrift': 'thrift',
-    'solidity': 'solidity',
-    'sol': 'solidity',
-    'terraform': 'terraform',
-    'tf': 'terraform'
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    py: "python",
+    rb: "ruby",
+    sh: "bash",
+    yml: "yaml",
+    md: "markdown",
+    json: "json",
+    html: "html",
+    css: "css",
+    scss: "scss",
+    sass: "sass",
+    less: "less",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+    cxx: "cpp",
+    cc: "cpp",
+    cs: "csharp",
+    php: "php",
+    go: "go",
+    rs: "rust",
+    swift: "swift",
+    kt: "kotlin",
+    scala: "scala",
+    clj: "clojure",
+    hs: "haskell",
+    ml: "ocaml",
+    fs: "fsharp",
+    sql: "sql",
+    xml: "xml",
+    dockerfile: "dockerfile",
+    makefile: "makefile",
+    ini: "ini",
+    toml: "toml",
+    diff: "diff",
+    patch: "diff",
+    vue: "vue",
+    svelte: "svelte",
+    dart: "dart",
+    r: "r",
+    lua: "lua",
+    perl: "perl",
+    elixir: "elixir",
+    erlang: "erlang",
+    julia: "julia",
+    matlab: "matlab",
+    powershell: "powershell",
+    ps1: "powershell",
+    pwsh: "powershell",
+    vb: "vbnet",
+    vba: "vba",
+    graphql: "graphql",
+    protobuf: "protobuf",
+    proto: "protobuf",
+    thrift: "thrift",
+    solidity: "solidity",
+    sol: "solidity",
+    terraform: "terraform",
+    tf: "terraform"
   };
   const lowerLang = lang.toLowerCase();
   return langMap[lowerLang] || lowerLang;
@@ -22000,15 +22300,15 @@ function highlightCodeBlock(codeElement, language) {
     try {
       window.hljs.highlightElement(codeElement);
     } catch (err) {
-      console.warn('Syntax highlighting failed:', err);
+      console.warn("Syntax highlighting failed:", err);
     }
   } else {
     // 언어를 모르면 자동 감지
-    codeElement.className = '';
+    codeElement.className = "";
     try {
       window.hljs.highlightElement(codeElement);
     } catch (err) {
-      console.warn('Auto-detection highlighting failed:', err);
+      console.warn("Auto-detection highlighting failed:", err);
     }
   }
 }
@@ -22037,30 +22337,30 @@ md.use(markdown_it_container__WEBPACK_IMPORTED_MODULE_3__["default"], "text", {
 
 // 슬래시 명령어 목록
 const slashCommands = [{
-  command: '/cache',
-  label: '캐시 통계 보기',
-  description: '프로젝트 컨텍스트 캐시 통계 표시',
-  action: 'viewCacheStats'
+  command: "/cache",
+  label: "캐시 통계 보기",
+  description: "프로젝트 컨텍스트 캐시 통계 표시",
+  action: "viewCacheStats"
 }, {
-  command: '/clear-cache',
-  label: '캐시 초기화',
-  description: '모든 컨텍스트 캐시 삭제',
-  action: 'clearCache'
+  command: "/clear-cache",
+  label: "캐시 초기화",
+  description: "모든 컨텍스트 캐시 삭제",
+  action: "clearCache"
 }, {
-  command: '/compact',
-  label: '대화 압축',
-  description: '현재 대화를 요약하여 토큰 절약',
-  action: 'compactConversation'
+  command: "/compact",
+  label: "대화 압축",
+  description: "현재 대화를 요약하여 토큰 절약",
+  action: "compactConversation"
 }, {
-  command: '/sessions',
-  label: '저장된 세션 목록',
-  description: '저장된 대화 세션 목록 보기',
-  action: 'listSavedSessions'
+  command: "/sessions",
+  label: "저장된 세션 목록",
+  description: "저장된 대화 세션 목록 보기",
+  action: "listSavedSessions"
 }, {
-  command: '/restore',
-  label: '세션 복원',
-  description: '저장된 세션 복원하기',
-  action: 'restoreSavedSession'
+  command: "/restore",
+  label: "세션 복원",
+  description: "저장된 세션 복원하기",
+  action: "restoreSavedSession"
 }];
 let slashMenuVisible = false;
 let slashMenuSelectedIndex = 0;
@@ -22069,18 +22369,22 @@ let slashMenuSelectedIndex = 0;
 let atMenuVisible = false;
 let atMenuSelectedIndex = 0;
 let fileList = []; // 파일 목록 캐시
-let atMenuMode = 'categories'; // 'categories' 또는 'files'
+let atMenuMode = "categories"; // 'categories' 또는 'files'
 let selectedCategory = null; // 선택된 카테고리
 
 // '@' 메뉴 카테고리 정의
 const atMenuCategories = [{
-  id: 'files',
-  label: 'Files',
-  description: '프로젝트 파일 목록'
+  id: "files",
+  label: "Files",
+  description: "프로젝트 파일 목록"
 }, {
-  id: 'terminal',
-  label: 'Terminal',
-  description: '터미널 히스토리 및 출력'
+  id: "terminal",
+  label: "Terminal",
+  description: "터미널 히스토리 및 출력"
+}, {
+  id: "diagnostics",
+  label: "Diagnostics",
+  description: "에러 및 경고"
 }];
 
 // 선택된 터미널 컨텍스트
@@ -22089,13 +22393,16 @@ let selectedTerminalContext = null;
 // 터미널 목록
 let terminalList = [];
 
+// 선택된 진단(Diagnostics) 컨텍스트
+let selectedDiagnosticsContext = null;
+
 // 슬래시 메뉴 생성
 function createSlashMenu() {
-  let menu = document.getElementById('slash-command-menu');
+  let menu = document.getElementById("slash-command-menu");
   if (!menu) {
-    menu = document.createElement('div');
-    menu.id = 'slash-command-menu';
-    menu.className = 'slash-command-menu';
+    menu = document.createElement("div");
+    menu.id = "slash-command-menu";
+    menu.className = "slash-command-menu";
     menu.style.cssText = `
             display: none;
             position: absolute;
@@ -22111,9 +22418,9 @@ function createSlashMenu() {
             max-height: 200px;
             overflow-y: auto;
         `;
-    const inputWrapper = document.querySelector('.input-row');
+    const inputWrapper = document.querySelector(".input-row");
     if (inputWrapper) {
-      inputWrapper.style.position = 'relative';
+      inputWrapper.style.position = "relative";
       inputWrapper.appendChild(menu);
     }
   }
@@ -22122,11 +22429,11 @@ function createSlashMenu() {
 
 // '@' 파일 참조 메뉴 생성
 function createAtMenu() {
-  let menu = document.getElementById('at-file-menu');
+  let menu = document.getElementById("at-file-menu");
   if (!menu) {
-    menu = document.createElement('div');
-    menu.id = 'at-file-menu';
-    menu.className = 'at-file-menu';
+    menu = document.createElement("div");
+    menu.id = "at-file-menu";
+    menu.className = "at-file-menu";
     menu.style.cssText = `
             display: none;
             position: absolute;
@@ -22142,9 +22449,9 @@ function createAtMenu() {
             max-height: 200px;
             overflow-y: auto;
         `;
-    const inputWrapper = document.querySelector('.input-row');
+    const inputWrapper = document.querySelector(".input-row");
     if (inputWrapper) {
-      inputWrapper.style.position = 'relative';
+      inputWrapper.style.position = "relative";
       inputWrapper.appendChild(menu);
     }
   }
@@ -22152,7 +22459,7 @@ function createAtMenu() {
 }
 
 // 슬래시 메뉴 렌더링
-function renderSlashMenu(filter = '') {
+function renderSlashMenu(filter = "") {
   const menu = createSlashMenu();
   const filteredCommands = slashCommands.filter(cmd => cmd.command.toLowerCase().includes(filter.toLowerCase()) || cmd.label.toLowerCase().includes(filter.toLowerCase()));
   if (filteredCommands.length === 0) {
@@ -22160,24 +22467,24 @@ function renderSlashMenu(filter = '') {
     return;
   }
   menu.innerHTML = filteredCommands.map((cmd, index) => `
-        <div class="slash-command-item ${index === slashMenuSelectedIndex ? 'selected' : ''}" 
+        <div class="slash-command-item ${index === slashMenuSelectedIndex ? "selected" : ""}" 
              data-index="${index}" data-action="${cmd.action}"
-             style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? 'background: rgba(128,128,128,0.2);' : ''}">
+             style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? "background: rgba(128,128,128,0.2);" : ""}">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-weight: 500; font-size: 10px;">${cmd.label}</span>
                 <span style="color: var(--vscode-descriptionForeground); font-size: 9px;">${cmd.command}</span>
             </div>
             <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${cmd.description}</div>
         </div>
-    `).join('');
-  menu.querySelectorAll('.slash-command-item').forEach(item => {
-    item.addEventListener('mousedown', e => {
+    `).join("");
+  menu.querySelectorAll(".slash-command-item").forEach(item => {
+    item.addEventListener("mousedown", e => {
       e.preventDefault(); // blur 이벤트 방지
-      const action = item.getAttribute('data-action');
+      const action = item.getAttribute("data-action");
       executeSlashCommand(action);
     });
-    item.addEventListener('mouseenter', () => {
-      slashMenuSelectedIndex = parseInt(item.getAttribute('data-index'));
+    item.addEventListener("mouseenter", () => {
+      slashMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
       renderSlashMenu(filter);
     });
   });
@@ -22186,19 +22493,19 @@ function renderSlashMenu(filter = '') {
   const selectedItem = menu.querySelector(`.slash-command-item[data-index="${slashMenuSelectedIndex}"]`);
   if (selectedItem) {
     selectedItem.scrollIntoView({
-      behavior: 'smooth',
-      block: 'nearest'
+      behavior: "smooth",
+      block: "nearest"
     });
   }
-  menu.style.display = 'block';
+  menu.style.display = "block";
   slashMenuVisible = true;
 }
 
 // 슬래시 메뉴 숨기기
 function hideSlashMenu() {
-  const menu = document.getElementById('slash-command-menu');
+  const menu = document.getElementById("slash-command-menu");
   if (menu) {
-    menu.style.display = 'none';
+    menu.style.display = "none";
   }
   slashMenuVisible = false;
   slashMenuSelectedIndex = 0;
@@ -22208,61 +22515,61 @@ function hideSlashMenu() {
 function executeSlashCommand(action) {
   hideSlashMenu();
   if (chatInput) {
-    chatInput.textContent = '';
+    chatInput.textContent = "";
     autoResizeTextarea();
   }
   if (vscode) {
     vscode.postMessage({
-      command: 'executeSlashCommand',
+      command: "executeSlashCommand",
       action: action
     });
   }
 }
 
 // '@' 파일 참조 메뉴 렌더링
-function renderAtMenu(filter = '') {
+function renderAtMenu(filter = "") {
   const menu = createAtMenu();
 
   // 카테고리 모드
-  if (atMenuMode === 'categories') {
+  if (atMenuMode === "categories") {
     const filteredCategories = atMenuCategories.filter(cat => cat.label.toLowerCase().includes(filter.toLowerCase()) || cat.description.toLowerCase().includes(filter.toLowerCase()));
     if (filteredCategories.length === 0) {
       hideAtMenu();
       return;
     }
     menu.innerHTML = filteredCategories.map((category, index) => `
-            <div class="at-category-item ${index === atMenuSelectedIndex ? 'selected' : ''}" 
+            <div class="at-category-item ${index === atMenuSelectedIndex ? "selected" : ""}" 
                  data-index="${index}" data-category="${category.id}"
-                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === atMenuSelectedIndex ? 'background: rgba(128,128,128,0.2);' : ''}">
+                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === atMenuSelectedIndex ? "background: rgba(128,128,128,0.2);" : ""}">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-weight: 500; font-size: 10px;">${category.label}</span>
                 </div>
                 <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${category.description}</div>
             </div>
-        `).join('');
-    menu.querySelectorAll('.at-category-item').forEach(item => {
-      item.addEventListener('mousedown', e => {
+        `).join("");
+    menu.querySelectorAll(".at-category-item").forEach(item => {
+      item.addEventListener("mousedown", e => {
         e.preventDefault();
-        const categoryId = item.getAttribute('data-category');
+        const categoryId = item.getAttribute("data-category");
         selectCategory(categoryId);
       });
-      item.addEventListener('mouseenter', () => {
-        atMenuSelectedIndex = parseInt(item.getAttribute('data-index'));
+      item.addEventListener("mouseenter", () => {
+        atMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
         renderAtMenu(filter);
       });
     });
   }
   // 파일 리스트 모드
-  else if (atMenuMode === 'files') {
+  else if (atMenuMode === "files") {
     // 파일 목록이 없으면 요청
     if (fileList.length === 0) {
       if (vscode) {
         vscode.postMessage({
-          command: 'requestFileList'
+          command: "requestFileList"
         });
       }
       menu.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">파일 목록 로딩 중...</div>';
-      menu.style.display = 'block';
+      menu.style.display = "block";
       atMenuVisible = true;
       return;
     }
@@ -22273,8 +22580,8 @@ function renderAtMenu(filter = '') {
     }
 
     // 뒤로가기 버튼 추가 (상단 고정)
-    const backButton = document.createElement('div');
-    backButton.className = 'at-back-item';
+    const backButton = document.createElement("div");
+    backButton.className = "at-back-item";
     backButton.style.cssText = `
             padding: 8px 12px;
             cursor: pointer;
@@ -22291,84 +22598,84 @@ function renderAtMenu(filter = '') {
                 <span style="font-weight: 500; font-size: 10px;">뒤로</span>
             </div>
         `;
-    backButton.addEventListener('mousedown', e => {
+    backButton.addEventListener("mousedown", e => {
       e.preventDefault();
       goBackToCategories();
     });
-    backButton.addEventListener('mouseenter', () => {
-      backButton.style.background = 'rgba(128,128,128,0.2)';
+    backButton.addEventListener("mouseenter", () => {
+      backButton.style.background = "rgba(128,128,128,0.2)";
     });
-    backButton.addEventListener('mouseleave', () => {
-      backButton.style.background = 'rgba(128,128,128,0.1)';
+    backButton.addEventListener("mouseleave", () => {
+      backButton.style.background = "rgba(128,128,128,0.1)";
     });
-    menu.innerHTML = '';
+    menu.innerHTML = "";
     menu.appendChild(backButton);
     const filesHtml = filteredFiles.map((file, index) => {
       const isSelected = selectedFiles.some(f => f.path === file.path);
       const isItemSelected = index === atMenuSelectedIndex;
       return `
-            <div class="at-file-item ${isItemSelected ? 'selected' : ''}" 
+            <div class="at-file-item ${isItemSelected ? "selected" : ""}" 
                  data-index="${index}" data-path="${file.path}" data-name="${file.name}"
-                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${isItemSelected ? 'background: rgba(128,128,128,0.2);' : ''} ${isSelected ? 'opacity: 0.6;' : ''}">
+                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${isItemSelected ? "background: rgba(128,128,128,0.2);" : ""} ${isSelected ? "opacity: 0.6;" : ""}">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span class="at-file-icon" data-filename="${file.name}" style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; box-sizing: border-box;"></span>
                     <span style="font-weight: 500; font-size: 10px;">${file.name}</span>
-                    ${isSelected ? '<span style="color: var(--vscode-textLink-foreground); font-size: 9px;">(선택됨)</span>' : ''}
+                    ${isSelected ? '<span style="color: var(--vscode-textLink-foreground); font-size: 9px;">(선택됨)</span>' : ""}
                 </div>
                 <div style="font-size: 9px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${file.path}</div>
             </div>
         `;
-    }).join('');
-    const filesContainer = document.createElement('div');
+    }).join("");
+    const filesContainer = document.createElement("div");
     filesContainer.innerHTML = filesHtml;
     menu.appendChild(filesContainer);
 
     // 각 파일 항목에 아이콘 추가 (파일 리스트용 작은 크기)
-    filesContainer.querySelectorAll('.at-file-icon').forEach(iconContainer => {
-      const fileName = iconContainer.getAttribute('data-filename');
+    filesContainer.querySelectorAll(".at-file-icon").forEach(iconContainer => {
+      const fileName = iconContainer.getAttribute("data-filename");
       if (fileName) {
-        loadFileIcon(fileName, iconContainer, '', 16);
+        loadFileIcon(fileName, iconContainer, "", 16);
       }
     });
-    menu.querySelectorAll('.at-file-item').forEach(item => {
-      item.addEventListener('mousedown', e => {
+    menu.querySelectorAll(".at-file-item").forEach(item => {
+      item.addEventListener("mousedown", e => {
         e.preventDefault();
-        const filePath = item.getAttribute('data-path');
-        const fileName = item.getAttribute('data-name');
+        const filePath = item.getAttribute("data-path");
+        const fileName = item.getAttribute("data-name");
         selectFileFromAtMenu(filePath, fileName);
       });
-      item.addEventListener('mouseenter', () => {
-        atMenuSelectedIndex = parseInt(item.getAttribute('data-index'));
+      item.addEventListener("mouseenter", () => {
+        atMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
         renderAtMenu(filter);
       });
     });
   }
 
   // 터미널 리스트 모드
-  else if (atMenuMode === 'terminal') {
+  else if (atMenuMode === "terminal") {
     // 터미널 목록이 없으면 요청
     if (terminalList.length === 0) {
       if (vscode) {
         vscode.postMessage({
-          command: 'requestTerminalList'
+          command: "requestTerminalList"
         });
       }
       menu.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">터미널 목록 로딩 중...</div>';
-      menu.style.display = 'block';
+      menu.style.display = "block";
       atMenuVisible = true;
       return;
     }
     const filteredTerminals = terminalList.filter(terminal => terminal.name.toLowerCase().includes(filter.toLowerCase()));
     if (filteredTerminals.length === 0) {
       menu.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">터미널이 없습니다</div>';
-      menu.style.display = 'block';
+      menu.style.display = "block";
       atMenuVisible = true;
       return;
     }
 
     // 뒤로가기 버튼
-    const backButton = document.createElement('div');
-    backButton.className = 'at-back-item';
+    const backButton = document.createElement("div");
+    backButton.className = "at-back-item";
     backButton.style.cssText = `
             padding: 8px 12px;
             cursor: pointer;
@@ -22385,77 +22692,77 @@ function renderAtMenu(filter = '') {
                 <span style="font-weight: 500; font-size: 10px;">뒤로</span>
             </div>
         `;
-    backButton.addEventListener('mousedown', e => {
+    backButton.addEventListener("mousedown", e => {
       e.preventDefault();
       goBackToCategories();
     });
-    backButton.addEventListener('mouseenter', () => {
-      backButton.style.background = 'rgba(128,128,128,0.2)';
+    backButton.addEventListener("mouseenter", () => {
+      backButton.style.background = "rgba(128,128,128,0.2)";
     });
-    backButton.addEventListener('mouseleave', () => {
-      backButton.style.background = 'rgba(128,128,128,0.1)';
+    backButton.addEventListener("mouseleave", () => {
+      backButton.style.background = "rgba(128,128,128,0.1)";
     });
-    menu.innerHTML = '';
+    menu.innerHTML = "";
     menu.appendChild(backButton);
     const terminalsHtml = filteredTerminals.map((terminal, index) => {
       const isSelected = selectedTerminalContext && selectedTerminalContext.name === terminal.name;
       const isItemSelected = index === atMenuSelectedIndex;
       return `
-            <div class="at-terminal-item ${isItemSelected ? 'selected' : ''}"
+            <div class="at-terminal-item ${isItemSelected ? "selected" : ""}"
                  data-index="${index}" data-name="${terminal.name}"
-                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${isItemSelected ? 'background: rgba(128,128,128,0.2);' : ''} ${isSelected ? 'opacity: 0.6;' : ''}">
+                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${isItemSelected ? "background: rgba(128,128,128,0.2);" : ""} ${isSelected ? "opacity: 0.6;" : ""}">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 14px;">></span>
                     <span style="font-weight: 500; font-size: 10px;">${terminal.name}</span>
-                    ${isSelected ? '<span style="color: var(--vscode-textLink-foreground); font-size: 9px;">(선택됨)</span>' : ''}
+                    ${isSelected ? '<span style="color: var(--vscode-textLink-foreground); font-size: 9px;">(선택됨)</span>' : ""}
                 </div>
                 <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${terminal.commandCount || 0}개 명령어</div>
             </div>
         `;
-    }).join('');
-    const terminalsContainer = document.createElement('div');
+    }).join("");
+    const terminalsContainer = document.createElement("div");
     terminalsContainer.innerHTML = terminalsHtml;
     menu.appendChild(terminalsContainer);
-    menu.querySelectorAll('.at-terminal-item').forEach(item => {
-      item.addEventListener('mousedown', e => {
+    menu.querySelectorAll(".at-terminal-item").forEach(item => {
+      item.addEventListener("mousedown", e => {
         e.preventDefault();
-        const terminalName = item.getAttribute('data-name');
+        const terminalName = item.getAttribute("data-name");
         selectTerminalFromAtMenu(terminalName);
       });
-      item.addEventListener('mouseenter', () => {
-        atMenuSelectedIndex = parseInt(item.getAttribute('data-index'));
+      item.addEventListener("mouseenter", () => {
+        atMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
         renderAtMenu(filter);
       });
     });
   }
 
   // 선택된 항목이 보이도록 스크롤 이동
-  if (atMenuMode === 'files') {
+  if (atMenuMode === "files") {
     const selectedItem = menu.querySelector(`.at-file-item[data-index="${atMenuSelectedIndex}"]`);
     if (selectedItem) {
       selectedItem.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest'
+        behavior: "smooth",
+        block: "nearest"
       });
     }
-  } else if (atMenuMode === 'terminal') {
+  } else if (atMenuMode === "terminal") {
     const selectedItem = menu.querySelector(`.at-terminal-item[data-index="${atMenuSelectedIndex}"]`);
     if (selectedItem) {
       selectedItem.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest'
+        behavior: "smooth",
+        block: "nearest"
       });
     }
   } else {
     const selectedItem = menu.querySelector(`.at-category-item[data-index="${atMenuSelectedIndex}"]`);
     if (selectedItem) {
       selectedItem.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest'
+        behavior: "smooth",
+        block: "nearest"
       });
     }
   }
-  menu.style.display = 'block';
+  menu.style.display = "block";
   atMenuVisible = true;
 }
 
@@ -22472,7 +22779,7 @@ function selectTerminalFromAtMenu(terminalName) {
   // 터미널 컨텍스트 요청
   if (vscode) {
     vscode.postMessage({
-      command: 'requestTerminalContext',
+      command: "requestTerminalContext",
       terminalName: terminalName
     });
   }
@@ -22484,50 +22791,60 @@ function selectTerminalFromAtMenu(terminalName) {
 function selectCategory(categoryId) {
   selectedCategory = categoryId;
   atMenuSelectedIndex = 0;
-  if (categoryId === 'files') {
-    atMenuMode = 'files';
+  if (categoryId === "files") {
+    atMenuMode = "files";
     // 파일 목록이 없으면 요청
     if (fileList.length === 0 && vscode) {
       vscode.postMessage({
-        command: 'requestFileList'
+        command: "requestFileList"
       });
     }
-  } else if (categoryId === 'terminal') {
-    atMenuMode = 'terminal';
+  } else if (categoryId === "terminal") {
+    atMenuMode = "terminal";
     // 터미널 목록 요청
     if (vscode) {
       vscode.postMessage({
-        command: 'requestTerminalList'
+        command: "requestTerminalList"
       });
     }
+  } else if (categoryId === "diagnostics") {
+    // Diagnostics는 바로 컨텍스트 요청 (목록 없이 전체 진단 정보)
+    if (vscode) {
+      vscode.postMessage({
+        command: "requestDiagnosticsContext"
+      });
+    }
+    hideAtMenu();
+    chatInput.focus();
+    return; // 메뉴 렌더링 건너뛰기
   }
 
   // 입력창 업데이트: '@' 뒤에 카테고리명 추가
   if (chatInput) {
     const currentValue = getChatInputValue();
-    const atIndex = currentValue.lastIndexOf('@');
+    const atIndex = currentValue.lastIndexOf("@");
     if (atIndex !== -1) {
       const category = atMenuCategories.find(c => c.id === categoryId);
       const beforeAt = currentValue.substring(0, atIndex + 1);
-      const newValue = beforeAt + category.label.toLowerCase() + ' ';
+      const newValue = beforeAt + category.label.toLowerCase() + " ";
       chatInput.textContent = newValue;
       autoResizeTextarea();
       chatInput.focus();
     }
   }
-  renderAtMenu('');
+  renderAtMenu("");
 }
 
 // 카테고리로 돌아가기
 function goBackToCategories() {
-  atMenuMode = 'categories';
+  atMenuMode = "categories";
   selectedCategory = null;
   atMenuSelectedIndex = 0;
 
   // 입력창 업데이트: '@'만 남기기
   if (chatInput) {
     const currentValue = getChatInputValue();
-    const atIndex = currentValue.lastIndexOf('@');
+    const atIndex = currentValue.lastIndexOf("@");
     if (atIndex !== -1) {
       const beforeAt = currentValue.substring(0, atIndex + 1);
       chatInput.textContent = beforeAt;
@@ -22535,7 +22852,7 @@ function goBackToCategories() {
       chatInput.focus();
     }
   }
-  renderAtMenu('');
+  renderAtMenu("");
 }
 
 // 전역으로 노출
@@ -22543,13 +22860,13 @@ window.goBackToCategories = goBackToCategories;
 
 // '@' 파일 참조 메뉴 숨기기
 function hideAtMenu() {
-  const menu = document.getElementById('at-file-menu');
+  const menu = document.getElementById("at-file-menu");
   if (menu) {
-    menu.style.display = 'none';
+    menu.style.display = "none";
   }
   atMenuVisible = false;
   atMenuSelectedIndex = 0;
-  atMenuMode = 'categories';
+  atMenuMode = "categories";
   selectedCategory = null;
 }
 
@@ -22582,59 +22899,59 @@ if (sendButton && chatInput) {
     // '@' 메뉴가 열려있을 때 키보드 네비게이션
     if (atMenuVisible) {
       const currentValue = getChatInputValue();
-      const atIndex = currentValue.lastIndexOf('@');
-      const afterAt = atIndex !== -1 ? currentValue.substring(atIndex + 1) : '';
+      const atIndex = currentValue.lastIndexOf("@");
+      const afterAt = atIndex !== -1 ? currentValue.substring(atIndex + 1) : "";
 
       // 카테고리 모드
-      if (atMenuMode === 'categories') {
+      if (atMenuMode === "categories") {
         const filter = afterAt.trim();
         const filteredCategories = atMenuCategories.filter(cat => cat.label.toLowerCase().includes(filter.toLowerCase()) || cat.description.toLowerCase().includes(filter.toLowerCase()));
-        if (e.key === 'ArrowDown') {
+        if (e.key === "ArrowDown") {
           e.preventDefault();
           atMenuSelectedIndex = Math.min(atMenuSelectedIndex + 1, filteredCategories.length - 1);
           renderAtMenu(filter);
           setTimeout(() => {
-            const menu = document.getElementById('at-file-menu');
+            const menu = document.getElementById("at-file-menu");
             const selectedItem = menu?.querySelector(`.at-category-item[data-index="${atMenuSelectedIndex}"]`);
             if (selectedItem) {
               selectedItem.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest'
+                behavior: "smooth",
+                block: "nearest"
               });
             }
           }, 0);
           return;
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === "ArrowUp") {
           e.preventDefault();
           atMenuSelectedIndex = Math.max(atMenuSelectedIndex - 1, 0);
           renderAtMenu(filter);
           setTimeout(() => {
-            const menu = document.getElementById('at-file-menu');
+            const menu = document.getElementById("at-file-menu");
             const selectedItem = menu?.querySelector(`.at-category-item[data-index="${atMenuSelectedIndex}"]`);
             if (selectedItem) {
               selectedItem.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest'
+                behavior: "smooth",
+                block: "nearest"
               });
             }
           }, 0);
           return;
-        } else if (e.key === 'Enter') {
+        } else if (e.key === "Enter") {
           e.preventDefault();
           if (filteredCategories[atMenuSelectedIndex]) {
             selectCategory(filteredCategories[atMenuSelectedIndex].id);
           }
           return;
-        } else if (e.key === 'Escape') {
+        } else if (e.key === "Escape") {
           e.preventDefault();
           hideAtMenu();
           return;
         }
       }
       // 파일 리스트 모드
-      else if (atMenuMode === 'files') {
+      else if (atMenuMode === "files") {
         // 뒤로가기: Escape 키
-        if (e.key === 'Escape') {
+        if (e.key === "Escape") {
           e.preventDefault();
           goBackToCategories();
           return;
@@ -22642,41 +22959,41 @@ if (sendButton && chatInput) {
 
         // 파일명 필터링
         const parts = afterAt.split(/\s+/);
-        const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+        const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
         const filteredFiles = fileList.filter(file => file.name.toLowerCase().includes(filter.toLowerCase()) || file.path.toLowerCase().includes(filter.toLowerCase()));
-        if (e.key === 'ArrowDown') {
+        if (e.key === "ArrowDown") {
           e.preventDefault();
           // 파일 리스트만 탐색 (0부터 시작)
           atMenuSelectedIndex = Math.min(atMenuSelectedIndex + 1, filteredFiles.length - 1);
           renderAtMenu(filter);
           setTimeout(() => {
-            const menu = document.getElementById('at-file-menu');
+            const menu = document.getElementById("at-file-menu");
             const selectedItem = menu?.querySelector(`.at-file-item[data-index="${atMenuSelectedIndex}"]`);
             if (selectedItem) {
               selectedItem.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest'
+                behavior: "smooth",
+                block: "nearest"
               });
             }
           }, 0);
           return;
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === "ArrowUp") {
           e.preventDefault();
           // 파일 리스트만 탐색 (최소 0)
           atMenuSelectedIndex = Math.max(atMenuSelectedIndex - 1, 0);
           renderAtMenu(filter);
           setTimeout(() => {
-            const menu = document.getElementById('at-file-menu');
+            const menu = document.getElementById("at-file-menu");
             const selectedItem = menu?.querySelector(`.at-file-item[data-index="${atMenuSelectedIndex}"]`);
             if (selectedItem) {
               selectedItem.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest'
+                behavior: "smooth",
+                block: "nearest"
               });
             }
           }, 0);
           return;
-        } else if (e.key === 'Enter') {
+        } else if (e.key === "Enter") {
           e.preventDefault();
           if (filteredFiles[atMenuSelectedIndex]) {
             const file = filteredFiles[atMenuSelectedIndex];
@@ -22686,9 +23003,9 @@ if (sendButton && chatInput) {
         }
       }
       // 터미널 리스트 모드
-      else if (atMenuMode === 'terminal') {
+      else if (atMenuMode === "terminal") {
         // 뒤로가기: Escape 키
-        if (e.key === 'Escape') {
+        if (e.key === "Escape") {
           e.preventDefault();
           goBackToCategories();
           return;
@@ -22696,39 +23013,39 @@ if (sendButton && chatInput) {
 
         // 터미널명 필터링
         const parts = afterAt.split(/\s+/);
-        const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+        const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
         const filteredTerminals = terminalList.filter(terminal => terminal.name.toLowerCase().includes(filter.toLowerCase()));
-        if (e.key === 'ArrowDown') {
+        if (e.key === "ArrowDown") {
           e.preventDefault();
           atMenuSelectedIndex = Math.min(atMenuSelectedIndex + 1, Math.max(0, filteredTerminals.length - 1));
           renderAtMenu(filter);
           setTimeout(() => {
-            const menu = document.getElementById('at-file-menu');
+            const menu = document.getElementById("at-file-menu");
             const selectedItem = menu?.querySelector(`.at-terminal-item[data-index="${atMenuSelectedIndex}"]`);
             if (selectedItem) {
               selectedItem.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest'
+                behavior: "smooth",
+                block: "nearest"
               });
             }
           }, 0);
           return;
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === "ArrowUp") {
           e.preventDefault();
           atMenuSelectedIndex = Math.max(atMenuSelectedIndex - 1, 0);
           renderAtMenu(filter);
           setTimeout(() => {
-            const menu = document.getElementById('at-file-menu');
+            const menu = document.getElementById("at-file-menu");
             const selectedItem = menu?.querySelector(`.at-terminal-item[data-index="${atMenuSelectedIndex}"]`);
             if (selectedItem) {
               selectedItem.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest'
+                behavior: "smooth",
+                block: "nearest"
               });
             }
           }, 0);
           return;
-        } else if (e.key === 'Enter') {
+        } else if (e.key === "Enter") {
           e.preventDefault();
           if (filteredTerminals[atMenuSelectedIndex]) {
             const terminal = filteredTerminals[atMenuSelectedIndex];
@@ -22742,45 +23059,45 @@ if (sendButton && chatInput) {
     // 슬래시 메뉴가 열려있을 때 키보드 네비게이션
     if (slashMenuVisible) {
       const filteredCommands = slashCommands.filter(cmd => cmd.command.toLowerCase().includes(getChatInputValue().toLowerCase()));
-      if (e.key === 'ArrowDown') {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
         slashMenuSelectedIndex = Math.min(slashMenuSelectedIndex + 1, filteredCommands.length - 1);
         renderSlashMenu(getChatInputValue().slice(1));
         // 선택된 항목이 보이도록 스크롤 이동
         setTimeout(() => {
-          const menu = document.getElementById('slash-command-menu');
+          const menu = document.getElementById("slash-command-menu");
           const selectedItem = menu?.querySelector(`.slash-command-item[data-index="${slashMenuSelectedIndex}"]`);
           if (selectedItem) {
             selectedItem.scrollIntoView({
-              behavior: 'smooth',
-              block: 'nearest'
+              behavior: "smooth",
+              block: "nearest"
             });
           }
         }, 0);
         return;
-      } else if (e.key === 'ArrowUp') {
+      } else if (e.key === "ArrowUp") {
         e.preventDefault();
         slashMenuSelectedIndex = Math.max(slashMenuSelectedIndex - 1, 0);
         renderSlashMenu(getChatInputValue().slice(1));
         // 선택된 항목이 보이도록 스크롤 이동
         setTimeout(() => {
-          const menu = document.getElementById('slash-command-menu');
+          const menu = document.getElementById("slash-command-menu");
           const selectedItem = menu?.querySelector(`.slash-command-item[data-index="${slashMenuSelectedIndex}"]`);
           if (selectedItem) {
             selectedItem.scrollIntoView({
-              behavior: 'smooth',
-              block: 'nearest'
+              behavior: "smooth",
+              block: "nearest"
             });
           }
         }, 0);
         return;
-      } else if (e.key === 'Enter') {
+      } else if (e.key === "Enter") {
         e.preventDefault();
         if (filteredCommands[slashMenuSelectedIndex]) {
           executeSlashCommand(filteredCommands[slashMenuSelectedIndex].action);
         }
         return;
-      } else if (e.key === 'Escape') {
+      } else if (e.key === "Escape") {
         e.preventDefault();
         hideSlashMenu();
         return;
@@ -22799,9 +23116,9 @@ if (sendButton && chatInput) {
           const prevSibling = node.previousSibling;
           if (prevSibling && prevSibling.classList) {
             // 파일 멘션 블록 삭제
-            if (prevSibling.classList.contains('file-mention')) {
+            if (prevSibling.classList.contains("file-mention")) {
               e.preventDefault();
-              const filePath = prevSibling.getAttribute('data-file-path');
+              const filePath = prevSibling.getAttribute("data-file-path");
               if (filePath) {
                 removeSelectedFile(filePath);
               }
@@ -22810,7 +23127,7 @@ if (sendButton && chatInput) {
               return;
             }
             // 터미널 멘션 블록 삭제
-            if (prevSibling.classList.contains('terminal-mention')) {
+            if (prevSibling.classList.contains("terminal-mention")) {
               e.preventDefault();
               selectedTerminalContext = null;
               prevSibling.remove();
@@ -22825,9 +23142,9 @@ if (sendButton && chatInput) {
         while (currentNode && currentNode !== chatInput) {
           if (currentNode.classList) {
             // 파일 멘션 블록 내부
-            if (currentNode.classList.contains('file-mention')) {
+            if (currentNode.classList.contains("file-mention")) {
               e.preventDefault();
-              const filePath = currentNode.getAttribute('data-file-path');
+              const filePath = currentNode.getAttribute("data-file-path");
               if (filePath) {
                 removeSelectedFile(filePath);
               }
@@ -22836,7 +23153,7 @@ if (sendButton && chatInput) {
               return;
             }
             // 터미널 멘션 블록 내부
-            if (currentNode.classList.contains('terminal-mention')) {
+            if (currentNode.classList.contains("terminal-mention")) {
               e.preventDefault();
               selectedTerminalContext = null;
               currentNode.remove();
@@ -22861,8 +23178,8 @@ if (sendButton && chatInput) {
     // 멘션 블록이 DOM에서 삭제되었는지 확인하고 selectedFiles/selectedTerminalContext 동기화
     syncMentionsWithDOM();
     const value = getChatInputValue();
-    const lastAtIndex = value.lastIndexOf('@');
-    const lastSlashIndex = value.lastIndexOf('/');
+    const lastAtIndex = value.lastIndexOf("@");
+    const lastSlashIndex = value.lastIndexOf("/");
 
     // '@' 입력 감지 (가장 마지막 '@' 이후에 스페이스가 없을 때만)
     if (lastAtIndex !== -1 && (lastSlashIndex === -1 || lastAtIndex > lastSlashIndex)) {
@@ -22870,11 +23187,11 @@ if (sendButton && chatInput) {
       const parts = afterAt.trim().split(/\s+/);
 
       // 카테고리 모드인지 파일 모드인지 확인
-      if (parts.length === 0 || parts.length === 1 && parts[0] === '') {
+      if (parts.length === 0 || parts.length === 1 && parts[0] === "") {
         // 카테고리 모드
-        atMenuMode = 'categories';
+        atMenuMode = "categories";
         atMenuSelectedIndex = 0;
-        renderAtMenu('');
+        renderAtMenu("");
         hideSlashMenu();
       } else {
         // 카테고리명 확인
@@ -22882,24 +23199,24 @@ if (sendButton && chatInput) {
         const category = atMenuCategories.find(c => c.label.toLowerCase() === firstPart || c.id === firstPart);
         if (category) {
           // 카테고리에 따라 모드 설정
-          const targetMode = category.id === 'terminal' ? 'terminal' : 'files';
+          const targetMode = category.id === "terminal" ? "terminal" : "files";
           if (atMenuMode !== targetMode || selectedCategory !== category.id) {
             atMenuMode = targetMode;
             selectedCategory = category.id;
             atMenuSelectedIndex = 0;
             // 터미널 모드면 터미널 목록 요청
-            if (targetMode === 'terminal' && vscode) {
+            if (targetMode === "terminal" && vscode) {
               vscode.postMessage({
-                command: 'requestTerminalList'
+                command: "requestTerminalList"
               });
             }
           }
-          const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+          const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
           renderAtMenu(filter);
           hideSlashMenu();
-        } else if (!afterAt.includes('\n')) {
+        } else if (!afterAt.includes("\n")) {
           // 아직 카테고리 선택 전
-          atMenuMode = 'categories';
+          atMenuMode = "categories";
           atMenuSelectedIndex = 0;
           renderAtMenu(afterAt.trim());
           hideSlashMenu();
@@ -22912,12 +23229,12 @@ if (sendButton && chatInput) {
     }
 
     // / 로 시작하고 스페이스가 없을 때만 슬래시 메뉴 표시
-    if (value.startsWith('/') && !value.includes(' ') && (lastAtIndex === -1 || lastSlashIndex > lastAtIndex)) {
+    if (value.startsWith("/") && !value.includes(" ") && (lastAtIndex === -1 || lastSlashIndex > lastAtIndex)) {
       const filter = value.slice(1);
       slashMenuSelectedIndex = 0;
       renderSlashMenu(filter);
       hideAtMenu(); // '@' 메뉴는 숨기기
-    } else if (!value.startsWith('/') || lastAtIndex !== -1 && lastAtIndex > lastSlashIndex) {
+    } else if (!value.startsWith("/") || lastAtIndex !== -1 && lastAtIndex > lastSlashIndex) {
       hideSlashMenu();
     }
   });
@@ -22933,8 +23250,8 @@ if (sendButton && chatInput) {
 
   // 다른 곳 클릭 시 메뉴 숨기기
   document.addEventListener("click", function (e) {
-    const slashMenu = document.getElementById('slash-command-menu');
-    const atMenu = document.getElementById('at-file-menu');
+    const slashMenu = document.getElementById("slash-command-menu");
+    const atMenu = document.getElementById("at-file-menu");
     if (slashMenuVisible && slashMenu && !slashMenu.contains(e.target) && e.target !== chatInput) {
       hideSlashMenu();
     }
@@ -22976,8 +23293,11 @@ if (filePickerButton) {
 // }
 
 function handlePaste(event) {
-  const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+  const clipboardData = event.clipboardData || event.originalEvent.clipboardData;
+  const items = clipboardData.items;
   let imageFound = false;
+
+  // 1. 이미지 파일 처리
   for (const item of items) {
     if (item.kind === "file" && item.type.startsWith("image/")) {
       const file = item.getAsFile();
@@ -23004,6 +23324,36 @@ function handlePaste(event) {
   }
   if (imageFound) {
     event.preventDefault(); // 이미지가 붙여넣어졌으면 기본 텍스트 붙여넣기 방지
+    return;
+  }
+
+  // 2. 텍스트 붙여넣기: HTML 서식 제거하고 plain text만 삽입
+  // contenteditable에 직접 HTML이 들어가는 것을 방지 (색상, 폰트 등 제거)
+  const plainText = clipboardData.getData("text/plain");
+  if (plainText) {
+    event.preventDefault();
+
+    // 현재 선택 영역에 plain text 삽입
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+
+      // 텍스트 노드로 삽입 (HTML 태그 방지)
+      const textNode = document.createTextNode(plainText);
+      range.insertNode(textNode);
+
+      // 커서를 삽입된 텍스트 뒤로 이동
+      range.setStartAfter(textNode);
+      range.setEndAfter(textNode);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    // 입력 이벤트 발생시켜 자동 높이 조절 등 트리거
+    chatInput.dispatchEvent(new Event("input", {
+      bubbles: true
+    }));
   }
 }
 function removeAttachedImage() {
@@ -23024,8 +23374,8 @@ function handleSendMessage() {
     return;
   }
   const text = getChatInputText().trimEnd(); // 파일 멘션 제외하고 텍스트만 추출
-  if (text || selectedImageBase64 || selectedFiles.length > 0 || selectedTerminalContext) {
-    // 텍스트, 이미지, 선택된 파일, 또는 터미널 컨텍스트가 있을 때만 전송
+  if (text || selectedImageBase64 || selectedFiles.length > 0 || selectedTerminalContext || selectedDiagnosticsContext) {
+    // 텍스트, 이미지, 선택된 파일, 터미널 컨텍스트, 또는 Diagnostics 컨텍스트가 있을 때만 전송
     const payload = {
       id: generateId(),
       text: text,
@@ -23033,6 +23383,7 @@ function handleSendMessage() {
       imageMimeType: selectedImageMimeType,
       selectedFiles: selectedFiles.map(file => file.path),
       terminalContext: selectedTerminalContext ? selectedTerminalContext.contextString : null,
+      diagnosticsContext: selectedDiagnosticsContext ? selectedDiagnosticsContext.contextString : null,
       mode: currentMode
     };
     if (loadingDepth > 0) {
@@ -23052,6 +23403,8 @@ function handleSendMessage() {
     selectedFiles = [];
     // 터미널 컨텍스트 초기화
     selectedTerminalContext = null;
+    // Diagnostics 컨텍스트 초기화
+    selectedDiagnosticsContext = null;
     autoResizeTextarea();
     chatInput.focus();
     // 스크롤은 showLoading 시 처리됨
@@ -23139,8 +23492,11 @@ function populateModelDropdown(models, current) {
 
   // Banya 모델 정의
   const banyaModels = [{
-    name: "Banya-Solar:100b",
+    name: "Banya Solar:100b",
     displayName: "Banya Solar 100B"
+  }, {
+    name: "Banya Qwen-Coder:32b",
+    displayName: "Banya Qwen-Coder 32B"
   }];
 
   // models: [{name, displayName}] 또는 ["name", ...]
@@ -23458,7 +23814,7 @@ window.addEventListener("message", event => {
       populateModelDropdown(message.models || [], message.current || "");
       break;
     case "ollamaModelChanged":
-      console.log('[chat] ollamaModelChanged received:', message.model);
+      console.log("[chat] ollamaModelChanged received:", message.model);
       if (message.model) {
         const _geminiModels = [{
           name: "gemini-3-pro-preview",
@@ -23468,8 +23824,11 @@ window.addEventListener("message", event => {
           displayName: "Gemini 3.0 Flash"
         }];
         const _banyaModels = [{
-          name: "Banya-Solar:100b",
+          name: "Banya Solar:100b",
           displayName: "Banya Solar 100B"
+        }, {
+          name: "Banya Qwen-Coder:32b",
+          displayName: "Banya Qwen-Coder 32B"
         }];
         const _allModels = [..._geminiModels, ..._banyaModels, ...availableOllamaModels];
         const currentModel = _allModels.find(m => m.name === message.model);
@@ -23481,19 +23840,19 @@ window.addEventListener("message", event => {
         } else if (_banyaModels.some(m => m.name === message.model)) {
           modelType = "banya";
         }
-        console.log('[chat] Setting model label:', display, modelType);
+        console.log("[chat] Setting model label:", display, modelType);
         setModelLabel(display, modelType);
 
         // 드롭다운의 selected 클래스 업데이트
         if (modelDropdown) {
-          const allItems = modelDropdown.querySelectorAll('.dropdown-option');
-          console.log('[chat] Updating dropdown items, total:', allItems.length);
+          const allItems = modelDropdown.querySelectorAll(".dropdown-option");
+          console.log("[chat] Updating dropdown items, total:", allItems.length);
           allItems.forEach(item => {
             if (item.dataset.model === message.model) {
-              console.log('[chat] Marking item as selected:', item.dataset.model);
-              item.classList.add('selected');
+              console.log("[chat] Marking item as selected:", item.dataset.model);
+              item.classList.add("selected");
             } else {
-              item.classList.remove('selected');
+              item.classList.remove("selected");
             }
           });
         }
@@ -23508,10 +23867,10 @@ window.addEventListener("message", event => {
       }
       break;
     case "clearChat":
-      console.log('Clearing chat messages');
-      const chatMessagesDiv = document.getElementById('chat-messages');
+      console.log("Clearing chat messages");
+      const chatMessagesDiv = document.getElementById("chat-messages");
       if (chatMessagesDiv) {
-        chatMessagesDiv.innerHTML = '';
+        chatMessagesDiv.innerHTML = "";
       }
       break;
     case "receiveMessage":
@@ -23553,13 +23912,13 @@ window.addEventListener("message", event => {
       if (message.files) {
         fileList = message.files;
         // '@' 메뉴가 열려있고 파일 모드면 다시 렌더링
-        if (atMenuVisible && atMenuMode === 'files' && chatInput) {
+        if (atMenuVisible && atMenuMode === "files" && chatInput) {
           const currentValue = getChatInputValue();
-          const atIndex = currentValue.lastIndexOf('@');
+          const atIndex = currentValue.lastIndexOf("@");
           if (atIndex !== -1) {
             const afterAt = currentValue.substring(atIndex + 1);
             const parts = afterAt.trim().split(/\s+/);
-            const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+            const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
             renderAtMenu(filter);
           }
         }
@@ -23570,13 +23929,13 @@ window.addEventListener("message", event => {
       if (message.terminals) {
         terminalList = message.terminals;
         // '@' 메뉴가 열려있고 터미널 모드면 다시 렌더링
-        if (atMenuVisible && atMenuMode === 'terminal' && chatInput) {
+        if (atMenuVisible && atMenuMode === "terminal" && chatInput) {
           const currentValue = getChatInputValue();
-          const atIndex = currentValue.lastIndexOf('@');
+          const atIndex = currentValue.lastIndexOf("@");
           if (atIndex !== -1) {
             const afterAt = currentValue.substring(atIndex + 1);
             const parts = afterAt.trim().split(/\s+/);
-            const filter = parts.length > 1 ? parts.slice(1).join(' ') : '';
+            const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
             renderAtMenu(filter);
           }
         }
@@ -23588,6 +23947,14 @@ window.addEventListener("message", event => {
         selectedTerminalContext = message.terminalContext;
         // 입력창에 터미널 멘션 블록 삽입
         insertTerminalMention(message.terminalContext.name);
+      }
+      break;
+    case "diagnosticsContextReceived":
+      console.log("Diagnostics context received:", message.diagnosticsContext);
+      if (message.diagnosticsContext) {
+        selectedDiagnosticsContext = message.diagnosticsContext;
+        // 입력창에 Diagnostics 멘션 블록 삽입
+        insertDiagnosticsMention(message.diagnosticsContext.errorCount || 0, message.diagnosticsContext.warningCount || 0);
       }
       break;
     case "openPanel":
@@ -23626,6 +23993,21 @@ window.addEventListener("message", event => {
         hideContainer.style.display = "none";
       }
       break;
+
+    // 스트리밍 메시지 처리
+    case "startStreamingMessage":
+      console.log("[Streaming] Starting streaming message from:", message.sender);
+      startStreamingMessage(message.sender);
+      break;
+    case "streamMessageChunk":
+      if (message.chunk) {
+        appendStreamingChunk(message.chunk);
+      }
+      break;
+    case "endStreamingMessage":
+      console.log("[Streaming] Ending streaming message");
+      endStreamingMessage();
+      break;
   }
 });
 
@@ -23638,6 +24020,12 @@ function displayUserMessage(text, imageData = null) {
   if (!chatMessages) {
     return;
   }
+
+  // 사용자 메시지 컨테이너 생성
+  const containerElement = document.createElement("div");
+  containerElement.classList.add("user-message-container");
+
+  // 메시지 내용
   const userMessageElement = document.createElement("div");
   userMessageElement.classList.add("user-plain-message");
 
@@ -23658,13 +24046,14 @@ function displayUserMessage(text, imageData = null) {
     textNode.textContent = text;
     userMessageElement.appendChild(textNode);
   }
+  containerElement.appendChild(userMessageElement);
   const separatorElement = document.createElement("hr");
   separatorElement.classList.add("message-separator");
-  chatMessages.appendChild(userMessageElement);
+  chatMessages.appendChild(containerElement);
   chatMessages.appendChild(separatorElement);
 
   // 사용자 메시지가 추가된 후 즉시 스크롤을 해당 메시지로 이동 (여러 번 시도)
-  scrollToUserMessage(userMessageElement);
+  scrollToUserMessage(containerElement);
 }
 
 // 시스템 메시지 (툴 실행 결과 등)를 표시하는 함수
@@ -24097,7 +24486,7 @@ function displayCodePilotMessage(markdownText) {
     let cleanCodeContent = codeContent;
 
     // CDATA 섹션 제거 (LLM이 XML CDATA로 감싸는 경우 처리)
-    cleanCodeContent = cleanCodeContent.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+    cleanCodeContent = cleanCodeContent.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
 
     // HTML 엔티티 디코딩
     const textarea = document.createElement("textarea");
@@ -24134,7 +24523,7 @@ function displayCodePilotMessage(markdownText) {
     let iconFilename = `file.${displayLang}`;
     if (filePath) {
       // 파일 경로에서 파일명 추출
-      const pathParts = filePath.split('/');
+      const pathParts = filePath.split("/");
       const fileName = pathParts[pathParts.length - 1];
       headerDisplayText = fileName;
       iconFilename = fileName;
@@ -24426,31 +24815,44 @@ function addSelectedFile(filePath, fileName) {
  * 사용자가 백스페이스 등으로 멘션 블록을 삭제하면 상태도 업데이트
  */
 function syncMentionsWithDOM() {
-  if (!chatInput) return;
+  if (!chatInput) {
+    return;
+  }
 
   // 파일 멘션 동기화
   if (selectedFiles.length > 0) {
-    const fileMentions = chatInput.querySelectorAll('.file-mention');
+    const fileMentions = chatInput.querySelectorAll(".file-mention");
     const mentionedPaths = new Set();
     fileMentions.forEach(mention => {
-      const path = mention.getAttribute('data-file-path');
-      if (path) mentionedPaths.add(path);
+      const path = mention.getAttribute("data-file-path");
+      if (path) {
+        mentionedPaths.add(path);
+      }
     });
 
     // DOM에 없는 파일은 selectedFiles에서 제거
     const removedFiles = selectedFiles.filter(file => !mentionedPaths.has(file.path));
     if (removedFiles.length > 0) {
-      console.log('[chat.js] File mentions removed from DOM:', removedFiles.map(f => f.name));
+      console.log("[chat.js] File mentions removed from DOM:", removedFiles.map(f => f.name));
       selectedFiles = selectedFiles.filter(file => mentionedPaths.has(file.path));
     }
   }
 
   // 터미널 멘션 동기화
   if (selectedTerminalContext) {
-    const terminalMention = chatInput.querySelector('.terminal-mention');
+    const terminalMention = chatInput.querySelector(".terminal-mention");
     if (!terminalMention) {
-      console.log('[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext');
+      console.log("[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext");
       selectedTerminalContext = null;
+    }
+  }
+
+  // Diagnostics 멘션 동기화
+  if (selectedDiagnosticsContext) {
+    const diagnosticsMention = chatInput.querySelector(".diagnostics-mention");
+    if (!diagnosticsMention) {
+      console.log("[chat.js] Diagnostics mention removed from DOM, clearing selectedDiagnosticsContext");
+      selectedDiagnosticsContext = null;
     }
   }
 }
@@ -24469,7 +24871,7 @@ function clearAllSelectedFiles() {
   selectedFiles = [];
   // 입력창에서 모든 파일 멘션 블록 제거
   if (chatInput) {
-    const mentions = chatInput.querySelectorAll('.file-mention');
+    const mentions = chatInput.querySelectorAll(".file-mention");
     mentions.forEach(mention => mention.remove());
     autoResizeTextarea();
   }
@@ -24596,7 +24998,7 @@ if (chatMessages) {
           const filePath = decodeURIComponent(p);
 
           // ✅ openFile 명령 사용 (ChatViewProvider에서 처리)
-          if (window.vscode && typeof window.vscode.postMessage === 'function') {
+          if (window.vscode && typeof window.vscode.postMessage === "function") {
             window.vscode.postMessage({
               command: "openFile",
               filePath: filePath,
@@ -24618,7 +25020,7 @@ if (chatMessages) {
           const filePath = decodeURIComponent(p);
 
           // ✅ openDiff 명령 사용 (ChatViewProvider에서 처리)
-          if (window.vscode && typeof window.vscode.postMessage === 'function') {
+          if (window.vscode && typeof window.vscode.postMessage === "function") {
             window.vscode.postMessage({
               command: "openDiff",
               filePath: filePath,
@@ -24631,7 +25033,7 @@ if (chatMessages) {
       }
     } else if (href.startsWith("codepilot://acceptAll") || href.startsWith("https://codepilot.invalid/acceptAll")) {
       event.preventDefault();
-      console.log('[chat.js] Accept All button clicked');
+      console.log("[chat.js] Accept All button clicked");
       try {
         const url = new URL(href);
         const query = url.search ? url.search.slice(1) : href.split("?")[1] || "";
@@ -24639,22 +25041,22 @@ if (chatMessages) {
         const p = params.get("path");
         if (p) {
           const filePath = decodeURIComponent(p);
-          console.log('[chat.js] Accept All for file:', filePath);
+          console.log("[chat.js] Accept All for file:", filePath);
 
           // ✅ 같은 파일의 모든 Keep/Undo 버튼 제거
           removeChatPanelButtonsForFile(filePath);
-          console.log('[chat.js] All Keep/Undo buttons removed for file:', filePath);
+          console.log("[chat.js] All Keep/Undo buttons removed for file:", filePath);
 
           // ✅ acceptAllChangesForFile 명령 사용
-          if (window.vscode && typeof window.vscode.postMessage === 'function') {
+          if (window.vscode && typeof window.vscode.postMessage === "function") {
             window.vscode.postMessage({
               command: "acceptAllChangesForFile",
               filePath: filePath,
               timestamp: Date.now()
             });
-            console.log('[chat.js] Accept All message sent');
+            console.log("[chat.js] Accept All message sent");
           } else {
-            console.warn('[chat.js] VS Code API not available');
+            console.warn("[chat.js] VS Code API not available");
           }
         }
       } catch (e) {
@@ -24662,7 +25064,7 @@ if (chatMessages) {
       }
     } else if (href.startsWith("codepilot://rejectAll") || href.startsWith("https://codepilot.invalid/rejectAll")) {
       event.preventDefault();
-      console.log('[chat.js] Reject All button clicked');
+      console.log("[chat.js] Reject All button clicked");
       try {
         const url = new URL(href);
         const query = url.search ? url.search.slice(1) : href.split("?")[1] || "";
@@ -24670,22 +25072,22 @@ if (chatMessages) {
         const p = params.get("path");
         if (p) {
           const filePath = decodeURIComponent(p);
-          console.log('[chat.js] Reject All for file:', filePath);
+          console.log("[chat.js] Reject All for file:", filePath);
 
           // ✅ 같은 파일의 모든 Keep/Undo 버튼 제거
           removeChatPanelButtonsForFile(filePath);
-          console.log('[chat.js] All Keep/Undo buttons removed for file:', filePath);
+          console.log("[chat.js] All Keep/Undo buttons removed for file:", filePath);
 
           // ✅ rejectAllChangesForFile 명령 사용
-          if (window.vscode && typeof window.vscode.postMessage === 'function') {
+          if (window.vscode && typeof window.vscode.postMessage === "function") {
             window.vscode.postMessage({
               command: "rejectAllChangesForFile",
               filePath: filePath,
               timestamp: Date.now()
             });
-            console.log('[chat.js] Reject All message sent');
+            console.log("[chat.js] Reject All message sent");
           } else {
-            console.warn('[chat.js] VS Code API not available');
+            console.warn("[chat.js] VS Code API not available");
           }
         }
       } catch (e) {
@@ -24709,13 +25111,21 @@ if (chatMessages) {
             if (isCurrentlyCollapsed) {
               // 펼치기
               codeContainer.style.display = "block";
-              if (toggleBtn) toggleBtn.classList.remove("collapsed");
-              if (header) header.classList.remove("collapsed");
+              if (toggleBtn) {
+                toggleBtn.classList.remove("collapsed");
+              }
+              if (header) {
+                header.classList.remove("collapsed");
+              }
             } else {
               // 접기
               codeContainer.style.display = "none";
-              if (toggleBtn) toggleBtn.classList.add("collapsed");
-              if (header) header.classList.add("collapsed");
+              if (toggleBtn) {
+                toggleBtn.classList.add("collapsed");
+              }
+              if (header) {
+                header.classList.add("collapsed");
+              }
             }
           }
         }
@@ -24731,12 +25141,12 @@ if (chatMessages) {
  * @param {string} filePath - 파일 경로
  */
 function removeChatPanelButtonsForFile(filePath) {
-  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+  const fileName = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
 
   // data-file-path 속성으로 코드 블록 찾기
-  const codeBlocks = document.querySelectorAll('.code-block-container');
+  const codeBlocks = document.querySelectorAll(".code-block-container");
   codeBlocks.forEach(block => {
-    const dataFilePath = block.getAttribute('data-file-path');
+    const dataFilePath = block.getAttribute("data-file-path");
 
     // 파일 경로가 일치하는지 확인 (절대/상대 경로 모두 처리)
     const isMatch = dataFilePath && (dataFilePath === filePath || dataFilePath.endsWith(fileName) || filePath.endsWith(dataFilePath) || dataFilePath.includes(fileName));
@@ -24744,11 +25154,15 @@ function removeChatPanelButtonsForFile(filePath) {
       // 해당 코드 블록 다음의 버튼 컨테이너 찾기
       let nextElement = block.nextElementSibling;
       while (nextElement) {
-        if (nextElement.classList.contains('bash-button-container')) {
-          const keepBtn = nextElement.querySelector('.keep-button');
-          const undoBtn = nextElement.querySelector('.undo-button');
-          if (keepBtn) keepBtn.remove();
-          if (undoBtn) undoBtn.remove();
+        if (nextElement.classList.contains("bash-button-container")) {
+          const keepBtn = nextElement.querySelector(".keep-button");
+          const undoBtn = nextElement.querySelector(".undo-button");
+          if (keepBtn) {
+            keepBtn.remove();
+          }
+          if (undoBtn) {
+            undoBtn.remove();
+          }
           // 버튼 컨테이너가 비어있으면 제거
           if (nextElement.children.length === 0) {
             nextElement.remove();
@@ -24756,7 +25170,7 @@ function removeChatPanelButtonsForFile(filePath) {
           break;
         }
         // 다른 코드 블록이 나오면 중단
-        if (nextElement.classList.contains('code-block-container')) {
+        if (nextElement.classList.contains("code-block-container")) {
           break;
         }
         nextElement = nextElement.nextElementSibling;
@@ -24868,13 +25282,13 @@ function rejectAllChanges() {
 
 // 컨텍스트 정보 업데이트 함수
 function updateContextInfo(contextInfo) {
-  const contextCountElement = document.getElementById('context-messages-count');
-  const gaugeFill = document.getElementById('token-gauge-fill');
-  const percentageElement = document.getElementById('token-percentage');
-  const gaugeContainer = document.querySelector('.token-gauge-container');
+  const contextCountElement = document.getElementById("context-messages-count");
+  const gaugeFill = document.getElementById("token-gauge-fill");
+  const percentageElement = document.getElementById("token-percentage");
+  const gaugeContainer = document.querySelector(".token-gauge-container");
   if (contextCountElement && contextInfo.messageCount !== undefined) {
     const count = contextInfo.messageCount;
-    contextCountElement.textContent = count > 9999 ? '9999+' : count;
+    contextCountElement.textContent = count > 9999 ? "9999+" : count;
   }
   if (gaugeFill && percentageElement && contextInfo.tokenUsage !== undefined) {
     const {
@@ -24888,7 +25302,7 @@ function updateContextInfo(contextInfo) {
     gaugeFill.style.width = `${Math.min(100, roundedPercentage)}%`;
 
     // 퍼센트 텍스트 업데이트
-    percentageElement.textContent = roundedPercentage > 100 ? '100%+' : `${roundedPercentage}%`;
+    percentageElement.textContent = roundedPercentage > 100 ? "100%+" : `${roundedPercentage}%`;
 
     // tooltip 업데이트
     if (gaugeContainer) {
@@ -24904,7 +25318,7 @@ function updateContextInfo(contextInfo) {
     }
 
     // 토큰 사용량에 따른 색상 변경 (항상 흰색으로 고정)
-    gaugeFill.className = 'token-gauge-fill';
+    gaugeFill.className = "token-gauge-fill";
   }
 }
 

@@ -32,8 +32,8 @@ export class FileContextCollector {
             if (document) {
                 // ✅ pending change 확인 및 제외
                 try {
-                    const { InlineDiffManager } = await import('../../diff/InlineDiffManager');
-                    const inlineDiffManager = InlineDiffManager.getInstance();
+                    const diffModule = await import('../../diff/InlineDiffManager');
+                    const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
                     const stableContent = inlineDiffManager.getCurrentDocumentContent(filePath);
                     
                     if (stableContent !== undefined) {

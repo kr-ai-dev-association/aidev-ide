@@ -6,6 +6,25 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.9.0 (Banya Multi-Model & Prompt Architecture)
+- **Banya Qwen-Coder Model Support**: Added support for Banya Qwen-Coder:32b model.
+  - New model: `Banya Qwen-Coder:32b` (port 8081) alongside existing `Banya Solar:100b` (port 8080)
+  - Model routing via `X-Target-Port` header for API proxy
+  - Model selector in both Settings panel and Chat panel
+  - Renamed model from `Banya-Solar:100b` to `Banya Solar:100b` (space instead of hyphen)
+- **Prompt System Reorganization**: Centralized prompts into `context/prompts` directory.
+  - Plan prompts moved to `context/prompts/plan/` (splitInstruction, structuredPlan, legacyPlan, summarizePlan)
+  - Tool prompts moved to `context/prompts/tools/` (toolCalling with JSON Function Calling format)
+  - PlanManager and ToolSpecBuilder now import from centralized prompt files
+  - Improved maintainability and reduced code duplication
+- **Tree-sitter Query Expansion**: Added support for additional languages.
+  - New queries for Go, Rust, C, C++ languages
+  - Updated `getSupportedExtensions()` to include `.go`, `.rs`, `.c`, `.h`, `.cpp`, `.hpp`, `.cc`
+- **Bug Fixes**:
+  - Fixed `list_files` tool validation to accept empty string path (represents project root)
+  - Fixed abort handling in Banya API - cancel no longer retries 3 times
+  - AbortError now immediately throws without retry attempts
+
 ## v8.8.2 (Terminal Context & Fast Diagnostics)
 - **Terminal Context Support**: Added Terminal category to '@' menu (similar to Continue IDE).
   - Type `@terminal` to see list of VS Code terminals

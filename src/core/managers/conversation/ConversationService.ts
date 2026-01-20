@@ -18,6 +18,7 @@ export interface ConversationServiceOptions {
     imageMimeType?: string;
     selectedFiles?: string[];
     terminalContext?: string;
+    diagnosticsContext?: string;
     extensionContext?: vscode.ExtensionContext;
     geminiApi?: GeminiApi;
     ollamaApi?: OllamaApi;
@@ -70,6 +71,7 @@ export class ConversationService {
             imageMimeType: options.imageMimeType,
             selectedFiles: options.selectedFiles,
             terminalContext: options.terminalContext,
+            diagnosticsContext: options.diagnosticsContext,
             extensionContext: options.extensionContext,
             geminiApi: geminiApi,
             ollamaApi: ollamaApi,
@@ -85,9 +87,14 @@ export class ConversationService {
      * 현재 호출을 취소합니다
      */
     public static cancelCurrentCall(): void {
-        const conversationManager = ConversationManager.getInstance();
-        // ConversationManager는 LLMApiClient를 통해 취소 처리
-        // 필요시 추가 구현
+        try {
+            const conversationManager = ConversationManager.getInstance();
+            conversationManager.cancelCurrentCall();
+            console.log('[ConversationService] Current call cancelled');
+        } catch (error) {
+            // ConversationManager가 아직 초기화되지 않은 경우 무시
+            console.warn('[ConversationService] Failed to cancel call:', error);
+        }
     }
 
     /**

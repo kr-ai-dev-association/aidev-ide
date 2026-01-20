@@ -22,13 +22,29 @@ export class UpdateFileToolHandler implements IToolHandler {
     context: ToolExecutionContext,
   ): Promise<ToolResponse> {
     const filePath = toolUse.params.path;
-    const diff = toolUse.params.diff;
+    let diff = toolUse.params.diff;
+
+    // LLM이 diff 대신 content를 보낸 경우 처리 (전체 파일 덮어쓰기로 폴백)
+    if (!diff && toolUse.params.content) {
+      console.log(`[UpdateFileToolHandler] ⚠️ LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
+      // content가 있으면 create_file처럼 전체 파일 덮어쓰기로 처리
+      const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
+      const createHandler = new CreateFileToolHandler();
+      return createHandler.execute({
+        ...toolUse,
+        name: Tool.CREATE_FILE,
+        params: {
+          path: filePath,
+          content: toolUse.params.content
+        }
+      }, context);
+    }
 
     if (!filePath || !diff) {
       return {
         success: false,
-        message: "Path and diff parameters are required",
-        error: { code: "MISSING_PARAM", message: "path and diff are required" },
+        message: "Path and diff parameters are required. Use 'diff' parameter with SEARCH/REPLACE blocks, not 'content'.",
+        error: { code: "MISSING_PARAM", message: "path and diff are required. If you want to replace entire file, use 'content' parameter instead." },
       };
     }
 
@@ -40,7 +56,12 @@ export class UpdateFileToolHandler implements IToolHandler {
     cleanedDiff = removeCDataSections(cleanedDiff);
 
     // SEARCH/REPLACE 블록 파싱
+    console.log(`[UpdateFileToolHandler] Raw diff (first 500 chars): ${cleanedDiff.substring(0, 500)}`);
     const replacements = this.parseDiff(cleanedDiff);
+    console.log(`[UpdateFileToolHandler] Parsed ${replacements.length} replacement(s)`);
+    replacements.forEach((r, i) => {
+      console.log(`[UpdateFileToolHandler] Replacement ${i}: search="${r.search.substring(0, 50)}...", replace="${r.replace.substring(0, 50)}..."`);
+    });
     if (replacements.length === 0) {
       return {
         success: false,
@@ -239,8 +260,8 @@ export class UpdateFileToolHandler implements IToolHandler {
     newContent += fileContent.substring(lastEnd);
 
     // InlineDiffManager를 통해 diff 표시
-    const { InlineDiffManager } = await import('../../managers/diff/InlineDiffManager');
-    const inlineDiffManager = InlineDiffManager.getInstance();
+    const diffModule = await import('../../managers/diff/InlineDiffManager');
+    const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
 
     // ✅ 핵심 수정: 현재 문서의 실제 내용을 가져오기 (pending changes 제외)
     // fileContent는 디스크에서 읽은 내용이지만, 실제 문서에는 이미 pending changes가 적용되어 있을 수 있음
@@ -290,6 +311,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     let currentReplace = "";
     let inSearch = false;
     let inReplace = false;
+    let hadSeparator = false; // ======= 구분자가 있었는지 추적
 
     for (const line of lines) {
       const trimmedLine = line.trim();
@@ -298,6 +320,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       if (trimmedLine.match(/^([-=]{3,}|<{4,})\s*SEARCH\s*/i)) {
         inSearch = true;
         inReplace = false;
+        hadSeparator = false;
         currentSearch = "";
         continue;
       }
@@ -306,18 +329,35 @@ export class UpdateFileToolHandler implements IToolHandler {
       if (inSearch && trimmedLine.match(/^([=]{3,})$/)) {
         inSearch = false;
         inReplace = true;
+        hadSeparator = true;
         currentReplace = "";
         continue;
       }
 
       // REPLACE 종료 마커 (>>>>>>> REPLACE 등)
-      if (inReplace && trimmedLine.match(/^([+]{3,}|>{4,})\s*REPLACE\s*/i)) {
-        replacements.push({
-          search: currentSearch.trimEnd(),
-          replace: currentReplace.trimEnd(),
-        });
-        inReplace = false;
-        continue;
+      // 🔥 핵심 수정: ======= 구분자 없이 바로 >>>>>>> REPLACE가 나온 경우 처리
+      if (trimmedLine.match(/^([+]{3,}|>{4,})\s*REPLACE\s*/i)) {
+        if (inSearch && !hadSeparator) {
+          // ======= 없이 SEARCH에서 바로 REPLACE로 전환된 경우
+          // SEARCH 내용을 그대로 유지하고 REPLACE 수집 시작
+          console.log('[UpdateFileToolHandler] Warning: Missing ======= separator, treating content after >>>>>>> REPLACE as replacement');
+          inSearch = false;
+          inReplace = true;
+          currentReplace = "";
+          continue;
+        } else if (inReplace) {
+          // 정상 케이스: REPLACE 블록 완료
+          replacements.push({
+            search: currentSearch.trimEnd(),
+            replace: currentReplace.trimEnd(),
+          });
+          inReplace = false;
+          hadSeparator = false;
+          // 🔥 중복 push 방지: 블록 완료 후 상태 초기화
+          currentSearch = "";
+          currentReplace = "";
+          continue;
+        }
       }
 
       if (inSearch) {
@@ -325,6 +365,14 @@ export class UpdateFileToolHandler implements IToolHandler {
       } else if (inReplace) {
         currentReplace += line + "\n";
       }
+    }
+
+    // 🔥 마지막 블록 처리: REPLACE 마커 없이 끝난 경우 (>>>>>>> REPLACE 이후 내용)
+    if (currentSearch && currentReplace) {
+      replacements.push({
+        search: currentSearch.trimEnd(),
+        replace: currentReplace.trimEnd(),
+      });
     }
 
     return replacements;

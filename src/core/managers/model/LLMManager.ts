@@ -369,5 +369,107 @@ export class LLMManager {
             timestamp: Date.now()
         };
     }
+
+    /**
+     * LLM에 스트리밍 메시지를 전송합니다 (시스템 프롬프트 포함)
+     * @param systemPrompt 시스템 프롬프트
+     * @param userParts 사용자 메시지 파트
+     * @param onChunk 청크 수신 콜백
+     * @param options 요청 옵션
+     */
+    public async sendMessageWithSystemPromptStreaming(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        this.currentCallController = new AbortController();
+        const signal = options?.signal || this.currentCallController.signal;
+
+        try {
+            let response: string;
+
+            if (this.currentModelType === AiModelType.GEMINI) {
+                // Gemini API 형식으로 변환 (Part 타입)
+                const parts: any[] = userParts.map(part => {
+                    if (part.inlineData) {
+                        return { inlineData: part.inlineData };
+                    }
+                    if (part.imageData && part.imageMimeType) {
+                        return {
+                            inlineData: {
+                                data: part.imageData,
+                                mimeType: part.imageMimeType
+                            }
+                        };
+                    }
+                    return { text: part.text || '' };
+                });
+
+                response = await this.geminiApi.sendMessageWithSystemPromptStreaming(
+                    systemPrompt,
+                    parts,
+                    onChunk,
+                    { signal }
+                );
+
+                // Offline fallback trigger
+                if (typeof response === 'string' && response.startsWith('OFFLINE:')) {
+                    try {
+                        await this.ollamaApi.loadSettingsFromStorage();
+                    } catch { }
+                    // Ollama로 폴백 (스트리밍)
+                    const ollamaParts = userParts.map(part => ({ text: part.text || '' }));
+                    response = await this.ollamaApi.sendMessageWithSystemPromptStreaming(
+                        systemPrompt,
+                        ollamaParts,
+                        onChunk,
+                        { signal }
+                    );
+                }
+            } else if (this.currentModelType === AiModelType.BANYA) {
+                try {
+                    await this.banyaApi.loadSettingsFromStorage();
+                } catch { }
+
+                // Banya API 형식으로 변환
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+
+                response = await this.banyaApi.sendMessageWithSystemPromptStreaming(
+                    systemPrompt,
+                    parts,
+                    onChunk,
+                    { signal }
+                );
+            } else {
+                try {
+                    await this.ollamaApi.loadSettingsFromStorage();
+                } catch { }
+
+                // Ollama API 형식으로 변환
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+
+                response = await this.ollamaApi.sendMessageWithSystemPromptStreaming(
+                    systemPrompt,
+                    parts,
+                    onChunk,
+                    { signal }
+                );
+            }
+
+            return response;
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                console.log('[LLMManager] Streaming request cancelled');
+                throw error;
+            }
+            console.error('[LLMManager] Failed to send streaming message:', error);
+            throw error;
+        } finally {
+            if (this.currentCallController && !options?.signal) {
+                this.currentCallController = null;
+            }
+        }
+    }
 }
 

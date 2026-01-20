@@ -140,6 +140,18 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                         webviewView.webview.postMessage({
                             command: 'clearHistory'
                         });
+                        // 토큰 사용량 및 컨텍스트 수 초기화 UI 업데이트
+                        webviewView.webview.postMessage({
+                            command: 'updateContextInfo',
+                            contextInfo: {
+                                messageCount: 0,
+                                tokenUsage: {
+                                    current: 0,
+                                    max: 128000, // 기본 최대 토큰 값
+                                    percentage: 0
+                                }
+                            }
+                        });
                     } catch (error) {
                         console.error('[AskViewProvider] Failed to clear history:', error);
                         webviewView.webview.postMessage({

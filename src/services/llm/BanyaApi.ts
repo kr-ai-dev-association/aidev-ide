@@ -14,12 +14,19 @@ export interface BanyaMessagePart {
 export class BanyaApi {
     private apiUrl: string;
     private apiKey: string = '';
-    private modelName: string = 'Banya-Solar:100b';
+    private modelName: string = 'Banya Solar:100b';
     private extensionContext: vscode.ExtensionContext | undefined;
 
     // 모델 매핑: UI 표시 이름 -> 실제 API 모델 경로
-    private readonly modelMapping: Record<string, string> = {
-        'Banya-Solar:100b': '/mnt/models/Solar-Open-100B.q4_k_m.gguf'
+    private readonly modelMapping: Record<string, { path: string; port: string }> = {
+        'Banya Solar:100b': {
+            path: '/mnt/models/Solar-Open-100B.q4_k_m.gguf',
+            port: '8080'
+        },
+        'Banya Qwen-Coder:32b': {
+            path: '/mnt/models/qwen2.5-coder-32b-instruct-q4_k_m',
+            port: '8081'
+        }
     };
 
     constructor(apiUrl?: string, apiKey?: string, extensionContext?: vscode.ExtensionContext) {
@@ -88,7 +95,16 @@ export class BanyaApi {
      * UI 모델명을 실제 API 모델 경로로 변환
      */
     private getActualModelPath(modelName: string): string {
-        return this.modelMapping[modelName] || modelName;
+        const mapping = this.modelMapping[modelName];
+        return mapping?.path || modelName;
+    }
+
+    /**
+     * 모델에 해당하는 X-Target-Port 값 반환
+     */
+    private getTargetPort(modelName: string): string {
+        const mapping = this.modelMapping[modelName];
+        return mapping?.port || '8080';
     }
 
     /**
@@ -102,6 +118,11 @@ export class BanyaApi {
             try {
                 return await this.sendMessageInternal(message, undefined, options);
             } catch (error: any) {
+                // AbortError는 재시도하지 않고 즉시 throw
+                if (error.name === 'AbortError') {
+                    throw error;
+                }
+
                 lastError = error;
                 console.warn(`[BanyaApi] Attempt ${attempt}/${maxRetries} failed:`, error.message);
 
@@ -132,6 +153,11 @@ export class BanyaApi {
             try {
                 return await this.sendMessageInternal(userParts, systemPrompt, options);
             } catch (error: any) {
+                // AbortError는 재시도하지 않고 즉시 throw
+                if (error.name === 'AbortError') {
+                    throw error;
+                }
+
                 lastError = error;
                 console.warn(`[BanyaApi] Attempt ${attempt}/${maxRetries} failed:`, error.message);
 
@@ -190,9 +216,11 @@ export class BanyaApi {
             stream: false
         };
 
+        const targetPort = this.getTargetPort(this.modelName);
         console.log('[BanyaApi] Sending request:', {
             url: this.apiUrl,
             model: requestBody.model,
+            targetPort: targetPort,
             messageCount: messages.length
         });
 
@@ -201,7 +229,8 @@ export class BanyaApi {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'X-Target-Port': targetPort
                 },
                 body: JSON.stringify(requestBody),
                 signal: options?.signal
@@ -250,5 +279,122 @@ export class BanyaApi {
      */
     public getModelName(): string {
         return this.modelName;
+    }
+
+    /**
+     * 스트리밍 응답을 위한 메서드
+     * @param systemPrompt 시스템 프롬프트
+     * @param userParts 사용자 메시지 파트
+     * @param onChunk 청크 수신 콜백
+     * @param options 요청 옵션
+     */
+    public async sendMessageWithSystemPromptStreaming(
+        systemPrompt: string,
+        userParts: BanyaMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: SendOptions
+    ): Promise<string> {
+        if (!this.apiKey || this.apiKey.trim() === '') {
+            throw new Error('Banya API Key is not set. Please configure it in settings.');
+        }
+
+        // 메시지 구성
+        const messages: Array<{ role: string; content: string }> = [];
+
+        if (systemPrompt) {
+            messages.push({
+                role: 'system',
+                content: systemPrompt
+            });
+        }
+
+        const userContent = userParts.map(part => part.text || '').join('\n');
+        messages.push({
+            role: 'user',
+            content: userContent
+        });
+
+        // API 요청 바디 (스트리밍 활성화)
+        const requestBody = {
+            model: this.getActualModelPath(this.modelName),
+            messages: messages,
+            stream: true
+        };
+
+        const targetPort = this.getTargetPort(this.modelName);
+        console.log('[BanyaApi] Sending streaming request:', {
+            url: this.apiUrl,
+            model: requestBody.model,
+            targetPort: targetPort,
+            messageCount: messages.length
+        });
+
+        try {
+            const response = await fetch(this.apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'X-Target-Port': targetPort
+                },
+                body: JSON.stringify(requestBody),
+                signal: options?.signal
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                onChunk('', true);
+                throw new Error(`Banya API error: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+
+            if (!response.body) {
+                onChunk('', true);
+                throw new Error('No response body for streaming');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n').filter(line => line.trim().startsWith('data:'));
+
+                for (const line of lines) {
+                    const data = line.replace('data:', '').trim();
+                    if (data === '[DONE]') {
+                        onChunk('', true);
+                        return fullText;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(data);
+                        const content = parsed.choices?.[0]?.delta?.content;
+                        if (content) {
+                            fullText += content;
+                            onChunk(content, false);
+                        }
+                    } catch (e) {
+                        // JSON 파싱 실패는 무시
+                    }
+                }
+            }
+
+            onChunk('', true);
+            return fullText;
+        } catch (error: any) {
+            if (error.name === 'AbortError') {
+                console.log('[BanyaApi] Streaming request aborted');
+                onChunk('', true);
+                throw error;
+            }
+
+            console.error('[BanyaApi] Streaming request failed:', error);
+            onChunk('', true);
+            throw error;
+        }
     }
 }

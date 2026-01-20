@@ -100,7 +100,7 @@
   "banyaLicenseTitle": "CODEPILOT 시리얼 번호 인증",
   "banyaLicenseDescription": "CODEPILOT 시리얼 번호를 입력하고 검증합니다.",
   "banyaLicenseLabel": "시리얼 번호",
-  "banyaLicenseSectionDescription": "ollama-blocker에서 사용하는 시리얼 번호를 입력하여 제품을 활성화하세요.",
+  "banyaLicenseSectionDescription": "시리얼 번호를 입력하여 제품을 활성화하세요.",
   "saveBanyaLicenseButton": "시리얼 번호 저장",
   "verifyBanyaLicenseButton": "시리얼 번호 검증",
   "banyaLicenseSaving": "CODEPILOT 시리얼 번호 저장 중...",

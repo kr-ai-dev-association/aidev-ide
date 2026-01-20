@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "8.8.2",
+  "version": "8.9.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -194,9 +194,10 @@
         },
         "codepilot.banyaModel": {
           "type": "string",
-          "default": "Banya-Solar:100b",
+          "default": "Banya Solar:100b",
           "enum": [
-            "Banya-Solar:100b"
+            "Banya Solar:100b",
+            "Banya Qwen-Coder:32b"
           ],
           "description": "사용할 Banya 모델을 선택합니다.",
           "scope": "resource"
@@ -329,7 +330,6 @@
   "devDependencies": {
     "@babel/core": "^7.27.3",
     "@babel/preset-env": "^7.27.2",
-    "@google/generative-ai": "^0.16.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.24",
     "@types/vscode": "1.85",

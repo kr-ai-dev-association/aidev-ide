@@ -142,8 +142,8 @@ export class FileContextTracker {
     ): Promise<void> {
         // ✅ pending change 확인
         try {
-            const { InlineDiffManager } = await import('../../diff/InlineDiffManager');
-            const inlineDiffManager = InlineDiffManager.getInstance();
+            const diffModule = await import('../../diff/InlineDiffManager');
+            const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
             const changes = inlineDiffManager.getChanges(filePath);
             const pendingChanges = changes?.filter(c => c.status === 'pending') || [];
             

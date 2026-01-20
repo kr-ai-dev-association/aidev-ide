@@ -280,6 +280,26 @@
             font-family: monospace;
         }
 
+        /* Diagnostics 멘션 블록 스타일 */
+        .diagnostics-mention {
+            display: inline-block;
+            background-color: rgba(255, 59, 48, 0.2);
+            color: rgba(255, 59, 48, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin: 0 2px;
+            user-select: none;
+            -webkit-user-select: none;
+            white-space: nowrap;
+            font-size: 11px;
+        }
+
+        .diagnostics-mention::before {
+            content: '⚠';
+            margin-right: 4px;
+        }
+
         /* <-- 수정 끝 --> */
 
         /* 상단 컨트롤 (Agent, Mode) */
@@ -487,35 +507,43 @@
         }
 
 
-        /* (기존 메시지 관련 스타일 유지) */
+        /* 사용자 메시지 컨테이너 - LLM 응답과 명확히 구분 */
+        .user-message-container {
+            margin-top: 20px;
+            margin-bottom: 4px;
+            padding: 12px 14px;
+            background: rgba(128, 128, 128, 0.1);
+            border-left: 3px solid rgba(128, 128, 128, 0.5);
+            border-radius: 0 8px 8px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
         .user-plain-message {
             margin-bottom: 0;
             word-wrap: break-word;
             white-space: pre-wrap;
-            /* <-- 추가: user-plain-message에서도 줄바꿈 유지 */
             align-self: flex-start;
             max-width: 100%;
-            color: white;
-            /* 요청에 따라 흰색으로 변경 */
-            font-weight: bold;
-            /* 요청에 따라 굵게 변경 */
-            padding: 0 10px;
+            color: var(--vscode-foreground);
+            font-weight: 500;
+            padding: 0;
             box-sizing: border-box;
             width: 100%;
             display: flex;
-            /* 이미지와 텍스트를 함께 표시하기 위해 flex 사용 */
             flex-direction: column;
-            /* 이미지와 텍스트를 세로로 쌓음 */
             align-items: flex-start;
+            line-height: 1.5;
         }
 
         .message-separator {
             width: 100%;
             border: none;
             border-top: 1px solid var(--vscode-panel-border);
-            margin-top: 5px;
-            margin-bottom: 15px;
+            margin-top: 4px;
+            margin-bottom: 8px;
             flex-shrink: 0;
+            opacity: 0.5;
         }
 
         .codepilot-message-container {
@@ -589,6 +617,88 @@
             margin-left: 4px;
             animation: blink 1s infinite;
             vertical-align: middle;
+        }
+
+        /* 스트리밍 메시지 스타일 */
+        .codepilot-message.streaming {
+            opacity: 1;
+        }
+
+        .codepilot-message.streaming .message-content {
+            min-height: 20px;
+        }
+
+        .streaming-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--vscode-editor-foreground, #d4d4d4);
+            margin-left: 2px;
+            animation: streamingBlink 0.7s infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes streamingBlink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        /* Think 버블 스타일 - 스트리밍 중 AI 사고 과정 표시 */
+        .think-bubble {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, rgba(100, 100, 200, 0.15) 0%, rgba(80, 80, 160, 0.1) 100%);
+            border: 1px solid rgba(120, 120, 200, 0.3);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground, #8b949e);
+            animation: thinkFadeIn 0.3s ease-out;
+        }
+
+        .think-bubble .think-icon {
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .think-bubble .think-text {
+            flex: 1;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .think-bubble .think-cursor {
+            color: var(--vscode-editor-foreground, #d4d4d4);
+            animation: thinkBlink 0.5s infinite;
+        }
+
+        @keyframes thinkFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes thinkBlink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0;
+            }
         }
 
         @keyframes blink {

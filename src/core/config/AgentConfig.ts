@@ -7,6 +7,26 @@ export class AgentConfig {
     // 루프 및 재시도 설정
     static readonly MAX_TURNS = 15;
     static readonly MAX_TEST_FIX_ATTEMPTS = 5; // 기본값 (실제로는 SettingsManager에서 가져옴)
+    static readonly MAX_NUDGE_COUNT = 3; // INVESTIGATION 단계에서 최대 nudge 횟수
+    static readonly MAX_NUDGE_COUNT_EXECUTION = 1; // EXECUTION 단계에서 최대 nudge 횟수
+    static readonly MAX_INVESTIGATION_TEXT_ONLY_COUNT = 3; // 텍스트만 출력 시 최대 허용 횟수
+
+    // 대화 히스토리 설정
+    static readonly MAX_HISTORY_ENTRIES = 10; // ASK 모드에서 포함할 최대 대화 히스토리 수
+    static readonly MAX_LOG_PREVIEW_LENGTH = 500; // 로그 출력 시 truncate 길이
+    static readonly MAX_HISTORY_ACTION_PREVIEW_LENGTH = 200; // 히스토리 액션 미리보기 길이
+
+    // 세션 관리 설정
+    static readonly SESSION_TRIM_THRESHOLD = 50; // 세션 트림 필요 여부 판단 임계값
+    static readonly SESSION_TRIM_TARGET = 30; // 트림 후 유지할 세션 수
+
+    // 문자열 길이 (로그/미리보기용)
+    static readonly MIN_ANALYSIS_RESPONSE_LENGTH = 100; // 로그 출력 시 응답 미리보기 길이
+    static readonly MIN_SIGNIFICANT_MODIFICATION_LINES = 10; // 유의미한 수정으로 간주하는 최소 라인 수
+    static readonly MAX_LINT_CHECK_FILES = 10; // Lint 체크 시 최대 파일 수
+    static readonly MAX_FAILURE_KEYWORDS = 5; // 실패 패턴 추출 시 최대 키워드 수
+    static readonly MIN_KEYWORD_LENGTH = 3; // 최소 키워드 길이
+    static readonly MIN_FILE_PATH_LENGTH = 3; // 최소 파일 경로 길이
 
     // 파일 관련 설정
     static readonly MAX_PROJECT_INVENTORY_FILES = 200;

@@ -6,6 +6,25 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.9.0 (Banya 멀티 모델 & 프롬프트 아키텍처)
+- **Banya Qwen-Coder 모델 지원**: Banya Qwen-Coder:32b 모델 지원을 추가했습니다.
+  - 새 모델: `Banya Qwen-Coder:32b` (포트 8081), 기존 `Banya Solar:100b` (포트 8080)
+  - API 프록시를 위한 `X-Target-Port` 헤더로 모델 라우팅
+  - Settings 패널과 Chat 패널 모두에서 모델 선택 가능
+  - 모델명 변경: `Banya-Solar:100b` → `Banya Solar:100b` (하이픈 대신 공백)
+- **프롬프트 시스템 재구성**: 프롬프트를 `context/prompts` 디렉토리로 중앙화했습니다.
+  - Plan 프롬프트를 `context/prompts/plan/`으로 이동 (splitInstruction, structuredPlan, legacyPlan, summarizePlan)
+  - Tool 프롬프트를 `context/prompts/tools/`로 이동 (JSON Function Calling 형식의 toolCalling)
+  - PlanManager와 ToolSpecBuilder가 중앙화된 프롬프트 파일에서 import
+  - 유지보수성 향상 및 코드 중복 감소
+- **Tree-sitter 쿼리 확장**: 추가 언어 지원을 추가했습니다.
+  - Go, Rust, C, C++ 언어용 새 쿼리 추가
+  - `getSupportedExtensions()`에 `.go`, `.rs`, `.c`, `.h`, `.cpp`, `.hpp`, `.cc` 포함
+- **버그 수정**:
+  - `list_files` 도구 검증에서 빈 문자열 경로 허용 (프로젝트 루트를 의미)
+  - Banya API에서 취소 처리 수정 - 취소 시 더 이상 3회 재시도하지 않음
+  - AbortError는 재시도 없이 즉시 throw됨
+
 ## v8.8.2 ('@' 메뉴 터미널 컨텍스트 & 빠른 Diagnostics 검사)
 - **터미널 컨텍스트 지원**: '@' 메뉴에 Terminal 카테고리를 추가했습니다 (Continue IDE와 유사).
   - `@terminal` 입력 시 VS Code 터미널 목록 표시

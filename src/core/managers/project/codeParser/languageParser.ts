@@ -6,6 +6,10 @@ import {
     javascriptQuery,
     pythonQuery,
     javaQuery,
+    goQuery,
+    rustQuery,
+    cQuery,
+    cppQuery,
 } from './queries';
 
 /**
@@ -129,13 +133,31 @@ export async function loadRequiredLanguageParsers(filesToParse: string[]): Promi
                     language = await loadLanguage('java');
                     query = language.query(javaQuery);
                     break;
-                    
-                // 추가 언어는 여기에 case 추가
-                // case 'rs':
-                //     language = await loadLanguage('rust');
-                //     query = language.query(rustQuery);
-                //     break;
-                
+
+                case 'go':
+                    language = await loadLanguage('go');
+                    query = language.query(goQuery);
+                    break;
+
+                case 'rs':
+                    language = await loadLanguage('rust');
+                    query = language.query(rustQuery);
+                    break;
+
+                case 'c':
+                case 'h':
+                    language = await loadLanguage('c');
+                    query = language.query(cQuery);
+                    break;
+
+                case 'cpp':
+                case 'hpp':
+                case 'cc':
+                case 'hh':
+                    language = await loadLanguage('cpp');
+                    query = language.query(cppQuery);
+                    break;
+
                 default:
                     console.log(`[LanguageParser] Unsupported language extension: ${ext}`);
                     continue;
@@ -170,16 +192,10 @@ export function getSupportedExtensions(): string[] {
         'ts', 'tsx',           // TypeScript
         'py',                  // Python
         'java',                // Java
-        // 필요시 추가
-        // 'rs',               // Rust
-        // 'go',               // Go
-        // 'c', 'h',           // C
-        // 'cpp', 'hpp',       // C++
-        // 'cs',               // C#
-        // 'rb',               // Ruby
-        // 'php',              // PHP
-        // 'swift',            // Swift
-        // 'kt',               // Kotlin
+        'go',                  // Go
+        'rs',                  // Rust
+        'c', 'h',              // C
+        'cpp', 'hpp', 'cc', 'hh',  // C++
     ];
 }
 

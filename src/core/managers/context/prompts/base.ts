@@ -40,48 +40,42 @@ export function getNoInternalMonologueRules(): string {
 }
 
 export function getPlanFormatRules(): string {
-  return `**Plan 태그 형식 (필수):**
-- 계획은 반드시 다음 XML 구조를 엄격히 지켜야 합니다
-- **절대 숫자 리스트(1., 2. 등)를 사용하지 마세요**
-- <kind>: **필수** - 작업의 종류를 명시하세요. 'investigation' (조사 작업) 또는 'execution' (실행 작업)
-- <title>: 수행할 작업의 요약 (예: "Button 컴포넌트 생성")
-- <detail>: 작업에 대한 간결한 설명 (파일 경로, 수정할 함수 등). **⚠️ 주의: 실제 소스코드를 여기에 포함하지 마세요.** 코드는 나중에 실행 단계에서 도구를 통해 작성합니다.
+  return `**Plan 형식 (JSON 필수):**
+- 계획은 반드시 다음 JSON 구조를 엄격히 지켜야 합니다
+- **절대 숫자 리스트(1., 2. 등)나 마크다운 형식을 사용하지 마세요**
+- kind: **필수** - 작업의 종류. 'investigation' (조사 작업) 또는 'execution' (실행 작업)
+- title: 수행할 작업의 요약 (예: "Button 컴포넌트 생성")
+- detail: 작업에 대한 간결한 설명. **⚠️ 주의: 실제 소스코드를 여기에 포함하지 마세요.**
 
 ### 올바른 예시:
-<plan>
-  <item>
-    <kind>investigation</kind>
-    <title>프로젝트 구조 조사</title>
-    <detail>design.md, src/App.tsx, package.json 파일을 읽어 프로젝트 구조와 요구사항을 파악합니다.</detail>
-  </item>
-  <item>
-    <kind>execution</kind>
-    <title>필요한 파일 생성</title>
-    <detail>package.json, vite.config.ts, src/App.tsx 등을 생성합니다.</detail>
-  </item>
-</plan>
+\`\`\`json
+{
+  "plan": [
+    {
+      "kind": "investigation",
+      "title": "프로젝트 구조 조사",
+      "detail": "design.md, src/App.tsx, package.json 파일을 읽어 프로젝트 구조와 요구사항을 파악합니다."
+    },
+    {
+      "kind": "execution",
+      "title": "필요한 파일 생성",
+      "detail": "package.json, vite.config.ts, src/App.tsx 등을 생성합니다."
+    }
+  ]
+}
+\`\`\`
 
 ### 잘못된 예시 (절대 금지):
-<plan>
-1. 파일 구조 분석
-2. 컴포넌트 구현
-</plan>
-
-또는
-
-<plan>
-  <item>
-    <title>파일 구조 분석</title>
-    <detail>프로젝트 구조를 확인합니다.</detail>
-  </item>
-</plan>
-<!-- kind 필드가 없음! -->`;
+\`\`\`json
+{ "plan": [{ "title": "파일 구조 분석", "detail": "..." }] }
+\`\`\`
+// kind 필드가 없음!`;
 }
 
 export function getMultiFileReadRules(): string {
   return `**다중 파일 읽기 (중요):**
-- 필요한 파일이 여러 개라면 반드시 한 번의 응답에 모든 <read_file>을 호출하세요
-- 예: \`<read_file><path>design.md</path></read_file><read_file><path>src/App.tsx</path></read_file><read_file><path>src/main.tsx</path></read_file>\`
+- 필요한 파일이 여러 개라면 반드시 한 번의 응답에 모든 read_file을 호출하세요
+- 예: \`{ "function_calls": [{ "name": "read_file", "args": { "path": "design.md" } }, { "name": "read_file", "args": { "path": "src/App.tsx" } }] }\`
 - 파일을 하나씩 읽는 것은 비효율적입니다
 - 여러 파일을 동시에 읽는 것은 안전합니다`;
 }
@@ -89,7 +83,7 @@ export function getMultiFileReadRules(): string {
 export function getNoDuplicateReadRules(): string {
   return `**이미 읽은 파일 중복 읽기 금지:**
 - 대화 기록을 확인하세요
-- "[System] ⚠️ **이미 읽은 파일**" 또는 "미리 로드된 파일"로 표시된 파일은 다시 <read_file>을 호출하지 마세요
+- "[System] ⚠️ **이미 읽은 파일**" 또는 "미리 로드된 파일"로 표시된 파일은 다시 read_file을 호출하지 마세요
 - 파일 내용이 이미 제공되었으므로 위 대화 기록에서 확인하세요
 - Pre-load/Cache 활용: 이미 읽은 파일은 대화 기록에서 확인하세요`;
 }
@@ -97,9 +91,9 @@ export function getNoDuplicateReadRules(): string {
 export function getFileCreationContext(): string {
   return `**⚠️ 중요 컨텍스트:**
 - 이미 대부분의 파일은 생성되어 있습니다
-- 실패 원인만 최소 수정(<update_file>)으로 해결하세요
-- <create_file>을 사용하여 파일을 다시 만들지 마세요
-- 파일이 이미 존재하는 경우 반드시 <update_file> 도구를 사용하여 수정하세요`;
+- 실패 원인만 최소 수정(update_file)으로 해결하세요
+- create_file을 사용하여 파일을 다시 만들지 마세요
+- 파일이 이미 존재하는 경우 반드시 update_file 도구를 사용하여 수정하세요`;
 }
 
 export function getNoThinkingLeakageRules(): string {
@@ -110,11 +104,10 @@ export function getNoThinkingLeakageRules(): string {
 - ❌ "생각해보니...", "아마도...", "추측하건대..." 같은 한국어 사고 과정 출력
 - ❌ "We need to...", "We should...", "According to..." 같은 추론 과정 출력
 - ❌ "But the rule says...", "However the instruction..." 같은 규칙 해석 출력
-- ❌ <think>, <thinking>, <reasoning>, <think> 같은 태그를 response에 포함
 - ❌ 내부 사고 과정을 설명하는 모든 텍스트
 
 **올바른 응답:**
-- ✅ XML 도구 호출만 직접 출력 (<create_file>, <update_file>, <read_file> 등)
+- ✅ JSON function_call 형식으로 도구 호출
 - ✅ 최종 결과나 요약만 한국어로 간결하게 출력
 - ✅ 사고 과정은 thinking 필드에만 포함 (시스템이 자동 처리)
 - ✅ 규칙을 논의하거나 해석하지 말고, 규칙을 따르기만 하세요
@@ -122,12 +115,16 @@ export function getNoThinkingLeakageRules(): string {
 **예시:**
 ❌ 잘못된 응답:
 "I think we need to create a new file. Let me check the structure first..."
-<read_file>...</read_file>
-"Now I should create the component file..."
 
 ✅ 올바른 응답:
-<read_file><path>src/App.tsx</path></read_file>
-<create_file><path>src/components/Button.tsx</path>...</create_file>
+\`\`\`json
+{
+  "function_calls": [
+    { "name": "read_file", "args": { "path": "src/App.tsx" } },
+    { "name": "create_file", "args": { "path": "src/components/Button.tsx", "content": "// Button component" } }
+  ]
+}
+\`\`\`
 
 **⚠️ 중요:** 모든 thinking, reasoning, explanation은 시스템의 thinking 필드에만 있어야 하며, 최종 response에는 절대 포함되지 않아야 합니다.`;
 }
@@ -141,21 +138,21 @@ export function getBaseRules(): string {
 **글로벌 핵심 규칙 (우선순위 순)**
 
 1. **정보 부족 시 조사 우선**:
-   - 파일 구조나 내용을 모르면 먼저 <read_file>, <list_files> 사용
+   - 파일 구조나 내용을 모르면 먼저 read_file, list_files 사용
    - 조사 후 즉시 작업 실행 가능 (같은 응답에서 조사 + 실행 가능)
-   - 예: <read_file>로 파일 확인 → 바로 <create_file> 또는 <update_file> 실행
+   - 예: read_file로 파일 확인 → 바로 create_file 또는 update_file 실행
 
 2. **복잡한 작업은 계획 수립**:
-   - 3단계 이상 작업: <plan> 태그로 계획 먼저
+   - 3단계 이상 작업: 계획 먼저 제시
    - 단순 작업 (1-2단계): 바로 실행
 
 3. **행동 우선**:
    - "해야 한다", "조사하겠다" 같은 설명만 하지 말 것
-   - 즉시 XML 도구 호출 (<read_file>, <create_file>, <update_file> 등)
+   - 즉시 JSON function_call 형식으로 도구 호출
    - 규칙 충돌로 멈추지 마세요. 의심스러우면 파일을 읽고 실행하세요.
 
 4. **실행 중심**:
-   - 작업 중에는 최소 하나 이상의 XML 도구 호출을 포함하세요
+   - 작업 중에는 최소 하나 이상의 도구 호출을 포함하세요
    - 설명만 하지 마세요
 
 **기타 규칙:**
@@ -163,16 +160,22 @@ export function getBaseRules(): string {
 - **완료 요약**: 작업 완료 후 결과를 한국어로 요약하세요.
 - **도구 호출 규칙**: 필요한 파일은 한 번에 읽고, 이미 읽은 파일은 재읽지 마세요.
 - **도구 묶음 제한**: Read-only 묶음/Write-only 묶음만 허용, Read A + Update A 금지.
-- **현실 확인**: \`update_file\` 전 최신 내용을 \`read_file\`로 확인하세요.
+- **현실 확인**: update_file 전 최신 내용을 read_file로 확인하세요.
 - **가정 금지**: 구조/파일을 추측하지 말고 확인 후 작업하세요.
 - **코드 보존**: 기존 스타일/주석 유지, 변경 범위 최소화.
-- **일괄 수정 금지**: \`sed -i\` 등 대신 \`ripgrep_search\` → \`read_file\` → \`update_file\`.
+- **일괄 수정 금지**: sed -i 등 대신 ripgrep_search → read_file → update_file.
 - **보안 최우선**: 파괴적/위험 명령·코드는 거부하세요.
 
 **예시 (SQL 파일 생성):**
 ✅ 올바른 흐름:
-<read_file><path>backend/src/index.ts</path></read_file>
-<create_file><path>backend/schema.sql</path><content>CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));</content></create_file>
+\`\`\`json
+{
+  "function_calls": [
+    { "name": "read_file", "args": { "path": "backend/src/index.ts" } },
+    { "name": "create_file", "args": { "path": "backend/schema.sql", "content": "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));" } }
+  ]
+}
+\`\`\`
 
 ❌ 잘못된 흐름:
 "We need to read the file first. According to the rule..." (아무 행동 없음)`;
@@ -181,12 +184,11 @@ export function getBaseRules(): string {
 
 // ==================== File Operations ====================
 export function getFileOperationsRules(): string {
-  return `파일 작업 형식 (XML 전용):
+  return `파일 작업 형식 (JSON Function Calling):
 
-**XML 툴 형식만 사용**
-- TOOLS 섹션에 정의된 XML 형식으로만 파일 작업을 지시하세요.
-- 예시: \`<create_file><path>src/App.tsx</path><content>...</content></create_file>\`
-- **CDATA 절대 금지**: \`<![CDATA[...]]>\`로 코드를 감싸지 마세요. 코드를 그대로 출력하세요.
+**JSON function_call 형식 사용**
+- TOOLS 섹션에 정의된 JSON 형식으로만 파일 작업을 지시하세요.
+- 예시: \`{ "function_call": { "name": "create_file", "args": { "path": "src/App.tsx", "content": "..." } } }\`
 
 **프레임워크 인식 규칙 (중요)**
 - 작업 전 프로젝트 설정 파일을 먼저 확인하세요:
@@ -212,9 +214,9 @@ export function getFileOperationsRules(): string {
 export function getCodeVsScriptRules(): string {
   return `**코드 작성 vs 쉘 스크립트 작업 구별:**
 - **code_work**: 소스 코드 파일만 생성/수정. 쉘 스크립트나 터미널 명령 블록 생성 금지.
-  - 프로젝트 생성 시: XML 도구로 파일만 생성 (package.json, pom.xml, 소스 코드 등)
+  - 프로젝트 생성 시: JSON function_call로 파일만 생성 (package.json, pom.xml, 소스 코드 등)
   - 쉘 명령(\`\`\`bash, cat <<EOF, mkdir, brew install 등) 절대 사용 금지
-- **execution_work**: 터미널 명령 실행만. 반드시 \`<run_command>\` XML 도구 사용 (마크다운 코드 블록 금지)
+- **execution_work**: 터미널 명령 실행만. 반드시 run_command 도구 사용 (마크다운 코드 블록 금지)
 - **taskType 확인 필수**: 사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.`;
 }
 
@@ -253,8 +255,12 @@ export function getDefaultOutputFormat(): string {
 }
 
 // ==================== Tools ====================
+/**
+ * 도구 프롬프트 생성
+ * v8.9.0: JSON Function Calling 형식으로 변경
+ */
 export function getToolsPrompt(allowedTools?: Tool[]): string {
-  return ToolSpecBuilder.buildToolPromptSection(allowedTools);
+  return ToolSpecBuilder.buildToolPromptSectionJson(allowedTools);
 }
 
 // ==================== Terminal Commands ====================
@@ -262,8 +268,8 @@ export function getTerminalCommandRules(shellType?: string): string {
   const shellInfo = shellType ? `- 명령어는 **${shellType}** 문법으로 작성하세요.\n` : '';
 
   return `**터미널 명령 실행 규칙:**
-${shellInfo}- 반드시 \`<run_command>\` XML 도구 사용 (마크다운 코드 블록 금지)
-- 직접 XML 도구 호출 (실행 계획 형식 응답 금지)
+${shellInfo}- 반드시 run_command 도구 사용 (마크다운 코드 블록 금지)
+- 직접 JSON function_call 형식으로 도구 호출 (실행 계획 형식 응답 금지)
 - 명령 내 주석(#, //)이나 플레이스홀더 경로 절대 금지
 - 최대 4개 이하 명령만 반환
 - 버전 확인은 1회만
@@ -281,15 +287,18 @@ export function getCommandExecutionGuide(): string {
 }
 
 export function buildShellSpecificPrompt(shellType: string): string {
-  return `**⚠️ 중요: execution_work에서는 XML 도구 호출을 사용하세요!**
+  return `**⚠️ 중요: execution_work에서는 JSON function_call을 사용하세요!**
 - 명령어는 **${shellType}** 문법으로 작성하세요.
-- **반드시 \`<run_command>\` XML 도구를 사용하세요.**
+- **반드시 run_command 도구를 JSON 형식으로 호출하세요.**
 - **마크다운 코드 블록(\\\`\\\`\\\`bash 등)은 사용하지 마세요.**
 
 **올바른 형식:**
-\`\`\`
-<run_command>
-<command>${shellType} 명령어</command>
-</run_command>
+\`\`\`json
+{
+  "function_call": {
+    "name": "run_command",
+    "args": { "command": "${shellType} 명령어" }
+  }
+}
 \`\`\``;
 }

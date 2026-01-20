@@ -43,8 +43,8 @@ export class CreateFileToolHandler implements IToolHandler {
             : path.join(context.projectRoot, filePath);
 
         // InlineDiffManager를 통해 diff 표시
-        const { InlineDiffManager } = await import('../../managers/diff/InlineDiffManager');
-        const inlineDiffManager = InlineDiffManager.getInstance();
+        const diffModule = await import('../../managers/diff/InlineDiffManager');
+        const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
 
         // 원본 내용 (새 파일이므로 빈 문자열)
         const originalContent = '';

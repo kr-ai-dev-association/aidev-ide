@@ -45,7 +45,7 @@ export class ResponseProcessor {
         modifiedFiles: string[],
         workspaceRoot: string,
         systemPrompt: string,
-        accumulatedParts: any[],
+        _accumulatedParts: any[],
         abortSignal?: AbortSignal
     ): Promise<string> {
         // ✅ 디스크 검증 제거: pending 상태 파일도 포함하여 요약 생성
@@ -63,16 +63,20 @@ export class ResponseProcessor {
         }
 
         // 원본 요약이 없는 경우: LLM에게 요약 생성 요청
-        return await this.requestLLMSummary(verifiedCreated, verifiedModified, accumulatedParts, abortSignal);
+        return await this.requestLLMSummary(verifiedCreated, verifiedModified, _accumulatedParts, abortSignal);
     }
 
     /**
      * LLM에게 요약 요청 (재시도 로직 포함)
+     *
+     * 🔥 수정: 첫 시도부터 context 없이 요약 요청
+     * - 이전 에러 메시지나 도구 호출 컨텍스트가 요약 품질을 저하시킴
+     * - LLM이 "다음 할 일"을 응답하는 문제 방지
      */
     private async requestLLMSummary(
         createdFiles: string[],
         modifiedFiles: string[],
-        accumulatedParts: any[],
+        __accumulatedParts: any[], // 🔥 더 이상 사용하지 않음 (API 호환성 유지)
         abortSignal?: AbortSignal,
         retryCount: number = 0
     ): Promise<string> {
@@ -80,9 +84,15 @@ export class ResponseProcessor {
         const summaryPrompt = getSimpleSummaryPrompt(createdFiles, modifiedFiles);
 
         try {
-            // 첫 시도: accumulated context 포함
-            // 재시도: accumulated context 없이 (도구 태그 응답 방지)
-            const contextParts = retryCount === 0 ? accumulatedParts : [];
+            // 🔥 수정: 요약 요청에 필요한 최소한의 context만 제공
+            // Gemini API는 빈 parts를 허용하지 않음 - "Request has empty input" 에러 발생
+            // 파일 목록을 context로 제공하여 LLM이 요약할 대상을 명확히 알 수 있게 함
+            const fileListText = [
+                createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}` : '',
+                modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}` : ''
+            ].filter(Boolean).join('\n');
+
+            const contextParts: any[] = [{ text: fileListText || '작업 완료' }];
 
             console.log(`[ResponseProcessor] Requesting LLM summary (attempt ${retryCount + 1}/${MAX_RETRIES + 1}, contextParts=${contextParts.length})`);
 
@@ -100,7 +110,7 @@ export class ResponseProcessor {
                 // 재시도 가능하면 context 없이 재시도
                 if (retryCount < MAX_RETRIES) {
                     console.log('[ResponseProcessor] Retrying without accumulated context...');
-                    return await this.requestLLMSummary(createdFiles, modifiedFiles, accumulatedParts, abortSignal, retryCount + 1);
+                    return await this.requestLLMSummary(createdFiles, modifiedFiles, __accumulatedParts, abortSignal, retryCount + 1);
                 }
 
                 // 재시도 실패: 도구 태그 제거 후 텍스트만 추출 시도
@@ -111,6 +121,13 @@ export class ResponseProcessor {
                 }
 
                 // 최후의 수단: 기본 요약 생성
+                return this.generateDefaultSummary(createdFiles, modifiedFiles);
+            }
+
+            // 🔥 에러 응답이 반환된 경우 기본 요약 생성
+            // LLM API 에러가 문자열로 반환되는 경우 처리
+            if (verifiedSummary.startsWith('Error:') || verifiedSummary.startsWith('OFFLINE:')) {
+                console.warn('[ResponseProcessor] LLM returned error response:', verifiedSummary.substring(0, 100));
                 return this.generateDefaultSummary(createdFiles, modifiedFiles);
             }
 
@@ -128,7 +145,7 @@ export class ResponseProcessor {
             if (!summaryText.trim()) {
                 console.warn('[ResponseProcessor] Summary text is empty after cleaning.');
                 if (retryCount < MAX_RETRIES) {
-                    return await this.requestLLMSummary(createdFiles, modifiedFiles, accumulatedParts, abortSignal, retryCount + 1);
+                    return await this.requestLLMSummary(createdFiles, modifiedFiles, __accumulatedParts, abortSignal, retryCount + 1);
                 }
                 return this.generateDefaultSummary(createdFiles, modifiedFiles);
             }
@@ -137,7 +154,7 @@ export class ResponseProcessor {
         } catch (error) {
             console.warn('[ResponseProcessor] Failed to generate summary:', error);
             if (retryCount < MAX_RETRIES) {
-                return await this.requestLLMSummary(createdFiles, modifiedFiles, accumulatedParts, abortSignal, retryCount + 1);
+                return await this.requestLLMSummary(createdFiles, modifiedFiles, __accumulatedParts, abortSignal, retryCount + 1);
             }
             return this.generateDefaultSummary(createdFiles, modifiedFiles);
         }
