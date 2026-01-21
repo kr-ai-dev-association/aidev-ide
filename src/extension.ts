@@ -849,6 +849,266 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }));
 
+    // Git 상태 보기 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitStatus', async () => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 워크스페이스가 열려있지 않습니다.'
+                });
+                return;
+            }
+
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+
+            const { stdout } = await execAsync('git status', { cwd: workspaceFolder.uri.fsPath });
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 📊 Git 상태\n\n\`\`\`\n${stdout}\n\`\`\``
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ Git 상태 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
+    // Git 변경사항 보기 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitDiff', async () => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 워크스페이스가 열려있지 않습니다.'
+                });
+                return;
+            }
+
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+
+            const { stdout } = await execAsync('git diff --stat', { cwd: workspaceFolder.uri.fsPath });
+
+            if (!stdout.trim()) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '### 📝 Git 변경사항\n\n변경된 파일이 없습니다.'
+                });
+                return;
+            }
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 📝 Git 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ Git 변경사항 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
+    // Git 히스토리 보기 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitLog', async () => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 워크스페이스가 열려있지 않습니다.'
+                });
+                return;
+            }
+
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+
+            const { stdout } = await execAsync('git log --oneline -15', { cwd: workspaceFolder.uri.fsPath });
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 📜 Git 커밋 히스토리 (최근 15개)\n\n\`\`\`\n${stdout}\n\`\`\``
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ Git 히스토리 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
+    // Git 브랜치 목록 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitBranch', async () => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 워크스페이스가 열려있지 않습니다.'
+                });
+                return;
+            }
+
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+
+            const { stdout: localBranches } = await execAsync('git branch', { cwd: workspaceFolder.uri.fsPath });
+            const { stdout: remoteBranches } = await execAsync('git branch -r', { cwd: workspaceFolder.uri.fsPath });
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 🌿 Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ Git 브랜치 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
+    // Git 리포지토리 정보 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitInfo', async () => {
+        try {
+            const gitInfo = await gitRepositoryService.getRepositoryInfo();
+
+            if (!gitInfo) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '### ℹ️ Git 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.'
+                });
+                return;
+            }
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### ℹ️ Git 리포지토리 정보\n\n` +
+                    `- **소유자**: ${gitInfo.owner}\n` +
+                    `- **리포지토리**: ${gitInfo.repo}\n` +
+                    `- **현재 브랜치**: ${gitInfo.branch}\n` +
+                    `- **원격 저장소**: ${gitInfo.remoteName}\n` +
+                    `- **URL**: ${gitInfo.url}\n` +
+                    `- **GitHub**: ${gitInfo.isGitHub ? '✅' : '❌'}`
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ Git 정보 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
+    // Git 스테이징된 변경사항 보기 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitStaged', async () => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 워크스페이스가 열려있지 않습니다.'
+                });
+                return;
+            }
+
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+
+            const { stdout } = await execAsync('git diff --staged --stat', { cwd: workspaceFolder.uri.fsPath });
+
+            if (!stdout.trim()) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '### 📋 스테이징된 변경사항\n\n스테이징된 파일이 없습니다.'
+                });
+                return;
+            }
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 📋 스테이징된 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ 스테이징 변경사항 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
+    // Git Stash 목록 보기 명령어
+    context.subscriptions.push(vscode.commands.registerCommand('codepilot.gitStash', async () => {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '⚠️ 워크스페이스가 열려있지 않습니다.'
+                });
+                return;
+            }
+
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+
+            const { stdout } = await execAsync('git stash list', { cwd: workspaceFolder.uri.fsPath });
+
+            if (!stdout.trim()) {
+                chatViewProvider.postMessageToWebview({
+                    command: 'receiveMessage',
+                    sender: 'System',
+                    text: '### 📦 Git Stash 목록\n\n저장된 stash가 없습니다.'
+                });
+                return;
+            }
+
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `### 📦 Git Stash 목록\n\n\`\`\`\n${stdout}\n\`\`\``
+            });
+        } catch (error: any) {
+            chatViewProvider.postMessageToWebview({
+                command: 'receiveMessage',
+                sender: 'System',
+                text: `❌ Stash 목록 확인 실패: ${error.message || error}`
+            });
+        }
+    }));
+
     // 워크스페이스 변경 시 Git 리포지토리 정보 업데이트
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
         try {

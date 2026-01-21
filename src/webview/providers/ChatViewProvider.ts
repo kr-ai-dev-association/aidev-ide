@@ -440,6 +440,27 @@ ${JSON.stringify(errorContext, null, 2)}
                             case 'compactConversation':
                                 await vscode.commands.executeCommand('codepilot.compactConversation');
                                 break;
+                            case 'gitStatus':
+                                await vscode.commands.executeCommand('codepilot.gitStatus');
+                                break;
+                            case 'gitDiff':
+                                await vscode.commands.executeCommand('codepilot.gitDiff');
+                                break;
+                            case 'gitLog':
+                                await vscode.commands.executeCommand('codepilot.gitLog');
+                                break;
+                            case 'gitBranch':
+                                await vscode.commands.executeCommand('codepilot.gitBranch');
+                                break;
+                            case 'gitInfo':
+                                await vscode.commands.executeCommand('codepilot.gitInfo');
+                                break;
+                            case 'gitStaged':
+                                await vscode.commands.executeCommand('codepilot.gitStaged');
+                                break;
+                            case 'gitStash':
+                                await vscode.commands.executeCommand('codepilot.gitStash');
+                                break;
                             default:
                                 console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
                         }

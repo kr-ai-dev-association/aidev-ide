@@ -22626,35 +22626,94 @@ md.use(markdown_it_container__WEBPACK_IMPORTED_MODULE_3__["default"], "text", {
   }
 });
 
-// 슬래시 명령어 목록
-const slashCommands = [{
-  command: "/cache",
-  label: "캐시 통계 보기",
-  description: "프로젝트 컨텍스트 캐시 통계 표시",
-  action: "viewCacheStats"
+// 슬래시 명령어 카테고리 정의
+const slashCategories = [{
+  id: "git",
+  label: "Git",
+  description: "Git 리포지토리 관련 명령어"
 }, {
-  command: "/clear-cache",
-  label: "캐시 초기화",
-  description: "모든 컨텍스트 캐시 삭제",
-  action: "clearCache"
+  id: "session",
+  label: "Session",
+  description: "대화 세션 관리"
 }, {
-  command: "/compact",
-  label: "대화 압축",
-  description: "현재 대화를 요약하여 토큰 절약",
-  action: "compactConversation"
-}, {
-  command: "/sessions",
-  label: "저장된 세션 목록",
-  description: "저장된 대화 세션 목록 보기",
-  action: "listSavedSessions"
-}, {
-  command: "/restore",
-  label: "세션 복원",
-  description: "저장된 세션 복원하기",
-  action: "restoreSavedSession"
+  id: "cache",
+  label: "Cache",
+  description: "캐시 관리"
 }];
+
+// 카테고리별 슬래시 명령어
+const slashCommandsByCategory = {
+  git: [{
+    command: "/git status",
+    label: "상태 보기",
+    description: "현재 Git 리포지토리 상태 표시",
+    action: "gitStatus"
+  }, {
+    command: "/git diff",
+    label: "변경사항",
+    description: "스테이징 안된 변경사항 보기",
+    action: "gitDiff"
+  }, {
+    command: "/git log",
+    label: "히스토리",
+    description: "최근 커밋 히스토리 보기",
+    action: "gitLog"
+  }, {
+    command: "/git branch",
+    label: "브랜치 목록",
+    description: "로컬/원격 브랜치 목록 보기",
+    action: "gitBranch"
+  }, {
+    command: "/git info",
+    label: "리포지토리 정보",
+    description: "GitHub 리포지토리 정보 표시",
+    action: "gitInfo"
+  }, {
+    command: "/git staged",
+    label: "스테이징 변경사항",
+    description: "스테이징된 변경사항 보기",
+    action: "gitStaged"
+  }, {
+    command: "/git stash",
+    label: "Stash 목록",
+    description: "저장된 stash 목록 보기",
+    action: "gitStash"
+  }],
+  session: [{
+    command: "/sessions",
+    label: "세션 목록",
+    description: "저장된 대화 세션 목록 보기",
+    action: "listSavedSessions"
+  }, {
+    command: "/restore",
+    label: "세션 복원",
+    description: "저장된 세션 복원하기",
+    action: "restoreSavedSession"
+  }, {
+    command: "/compact",
+    label: "대화 압축",
+    description: "현재 대화를 요약하여 토큰 절약",
+    action: "compactConversation"
+  }],
+  cache: [{
+    command: "/cache",
+    label: "캐시 통계",
+    description: "프로젝트 컨텍스트 캐시 통계 표시",
+    action: "viewCacheStats"
+  }, {
+    command: "/clear-cache",
+    label: "캐시 초기화",
+    description: "모든 컨텍스트 캐시 삭제",
+    action: "clearCache"
+  }]
+};
+
+// 모든 슬래시 명령어 목록 (하위 호환성)
+const slashCommands = Object.values(slashCommandsByCategory).flat();
 let slashMenuVisible = false;
 let slashMenuSelectedIndex = 0;
+let slashMenuMode = "categories"; // 'categories' 또는 'commands'
+let selectedSlashCategory = null;
 
 // '@' 파일 참조 메뉴 관련 변수
 let atMenuVisible = false;
@@ -22749,36 +22808,95 @@ function createAtMenu() {
 // 슬래시 메뉴 렌더링
 function renderSlashMenu(filter = "") {
   const menu = createSlashMenu();
-  const filteredCommands = slashCommands.filter(cmd => cmd.command.toLowerCase().includes(filter.toLowerCase()) || cmd.label.toLowerCase().includes(filter.toLowerCase()));
-  if (filteredCommands.length === 0) {
-    hideSlashMenu();
-    return;
+
+  // 카테고리 모드
+  if (slashMenuMode === "categories") {
+    const filteredCategories = slashCategories.filter(cat => cat.label.toLowerCase().includes(filter.toLowerCase()) || cat.description.toLowerCase().includes(filter.toLowerCase()) || cat.id.toLowerCase().includes(filter.toLowerCase()));
+    if (filteredCategories.length === 0) {
+      hideSlashMenu();
+      return;
+    }
+    menu.innerHTML = filteredCategories.map((category, index) => `
+          <div class="slash-category-item ${index === slashMenuSelectedIndex ? "selected" : ""}"
+               data-index="${index}" data-category="${category.id}"
+               style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? "background: rgba(128,128,128,0.2);" : ""}">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 500; font-size: 10px;">${category.label}</span>
+                  <span style="color: var(--vscode-descriptionForeground); font-size: 9px;">/${category.id}</span>
+              </div>
+              <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${category.description}</div>
+          </div>
+      `).join("");
+    menu.querySelectorAll(".slash-category-item").forEach(item => {
+      item.addEventListener("mousedown", e => {
+        e.preventDefault();
+        const categoryId = item.getAttribute("data-category");
+        selectSlashCategory(categoryId);
+      });
+      item.addEventListener("mouseenter", () => {
+        slashMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
+        renderSlashMenu(filter);
+      });
+    });
+  } else {
+    // 명령어 모드 (카테고리 선택 후)
+    const commands = slashCommandsByCategory[selectedSlashCategory] || [];
+    const filteredCommands = commands.filter(cmd => cmd.command.toLowerCase().includes(filter.toLowerCase()) || cmd.label.toLowerCase().includes(filter.toLowerCase()));
+    if (filteredCommands.length === 0) {
+      hideSlashMenu();
+      return;
+    }
+
+    // 뒤로가기 버튼 + 명령어 목록
+    const backButton = `
+      <div class="slash-back-item"
+           style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background);">
+          <span style="font-size: 12px;">←</span>
+          <span style="font-size: 10px; color: var(--vscode-descriptionForeground);">뒤로 (카테고리 선택)</span>
+      </div>
+    `;
+    menu.innerHTML = backButton + filteredCommands.map((cmd, index) => `
+          <div class="slash-command-item ${index === slashMenuSelectedIndex ? "selected" : ""}"
+               data-index="${index}" data-action="${cmd.action}"
+               style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? "background: rgba(128,128,128,0.2);" : ""}">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 500; font-size: 10px;">${cmd.label}</span>
+                  <span style="color: var(--vscode-descriptionForeground); font-size: 9px;">${cmd.command}</span>
+              </div>
+              <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${cmd.description}</div>
+          </div>
+      `).join("");
+
+    // 뒤로가기 버튼 이벤트
+    const backBtn = menu.querySelector(".slash-back-item");
+    if (backBtn) {
+      backBtn.addEventListener("mousedown", e => {
+        e.preventDefault();
+        slashMenuMode = "categories";
+        selectedSlashCategory = null;
+        slashMenuSelectedIndex = 0;
+        renderSlashMenu("");
+        if (chatInput) {
+          chatInput.textContent = "/";
+          setCursorToEnd(chatInput);
+        }
+      });
+    }
+    menu.querySelectorAll(".slash-command-item").forEach(item => {
+      item.addEventListener("mousedown", e => {
+        e.preventDefault();
+        const action = item.getAttribute("data-action");
+        executeSlashCommand(action);
+      });
+      item.addEventListener("mouseenter", () => {
+        slashMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
+        renderSlashMenu(filter);
+      });
+    });
   }
-  menu.innerHTML = filteredCommands.map((cmd, index) => `
-        <div class="slash-command-item ${index === slashMenuSelectedIndex ? "selected" : ""}" 
-             data-index="${index}" data-action="${cmd.action}"
-             style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? "background: rgba(128,128,128,0.2);" : ""}">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-weight: 500; font-size: 10px;">${cmd.label}</span>
-                <span style="color: var(--vscode-descriptionForeground); font-size: 9px;">${cmd.command}</span>
-            </div>
-            <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${cmd.description}</div>
-        </div>
-    `).join("");
-  menu.querySelectorAll(".slash-command-item").forEach(item => {
-    item.addEventListener("mousedown", e => {
-      e.preventDefault(); // blur 이벤트 방지
-      const action = item.getAttribute("data-action");
-      executeSlashCommand(action);
-    });
-    item.addEventListener("mouseenter", () => {
-      slashMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
-      renderSlashMenu(filter);
-    });
-  });
 
   // 선택된 항목이 보이도록 스크롤 이동
-  const selectedItem = menu.querySelector(`.slash-command-item[data-index="${slashMenuSelectedIndex}"]`);
+  const selectedItem = menu.querySelector(`[data-index="${slashMenuSelectedIndex}"]`);
   if (selectedItem) {
     selectedItem.scrollIntoView({
       behavior: "smooth",
@@ -22789,6 +22907,20 @@ function renderSlashMenu(filter = "") {
   slashMenuVisible = true;
 }
 
+// 슬래시 카테고리 선택
+function selectSlashCategory(categoryId) {
+  selectedSlashCategory = categoryId;
+  slashMenuMode = "commands";
+  slashMenuSelectedIndex = 0;
+  renderSlashMenu("");
+
+  // 입력창에 카테고리 표시
+  if (chatInput) {
+    chatInput.textContent = `/${categoryId} `;
+    setCursorToEnd(chatInput);
+  }
+}
+
 // 슬래시 메뉴 숨기기
 function hideSlashMenu() {
   const menu = document.getElementById("slash-command-menu");
@@ -22797,6 +22929,8 @@ function hideSlashMenu() {
   }
   slashMenuVisible = false;
   slashMenuSelectedIndex = 0;
+  slashMenuMode = "categories";
+  selectedSlashCategory = null;
 }
 
 // 슬래시 명령 실행
@@ -23183,49 +23317,63 @@ if (sendButton && chatInput) {
 
     // 슬래시 메뉴가 열려있을 때 키보드 네비게이션
     if (slashMenuVisible) {
-      const filteredCommands = slashCommands.filter(cmd => cmd.command.toLowerCase().includes(getChatInputValue().toLowerCase()));
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        slashMenuSelectedIndex = Math.min(slashMenuSelectedIndex + 1, filteredCommands.length - 1);
-        renderSlashMenu(getChatInputValue().slice(1));
-        // 선택된 항목이 보이도록 스크롤 이동
-        setTimeout(() => {
-          const menu = document.getElementById("slash-command-menu");
-          const selectedItem = menu?.querySelector(`.slash-command-item[data-index="${slashMenuSelectedIndex}"]`);
-          if (selectedItem) {
-            selectedItem.scrollIntoView({
-              behavior: "smooth",
-              block: "nearest"
-            });
+      // 카테고리 모드인지 명령어 모드인지에 따라 다르게 처리
+      if (slashMenuMode === "categories") {
+        const filteredCategories = slashCategories.filter(cat => cat.label.toLowerCase().includes(getChatInputValue().slice(1).toLowerCase()) || cat.id.toLowerCase().includes(getChatInputValue().slice(1).toLowerCase()));
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          slashMenuSelectedIndex = Math.min(slashMenuSelectedIndex + 1, filteredCategories.length - 1);
+          renderSlashMenu(getChatInputValue().slice(1));
+          return;
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          slashMenuSelectedIndex = Math.max(slashMenuSelectedIndex - 1, 0);
+          renderSlashMenu(getChatInputValue().slice(1));
+          return;
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          if (filteredCategories[slashMenuSelectedIndex]) {
+            selectSlashCategory(filteredCategories[slashMenuSelectedIndex].id);
           }
-        }, 0);
-        return;
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        slashMenuSelectedIndex = Math.max(slashMenuSelectedIndex - 1, 0);
-        renderSlashMenu(getChatInputValue().slice(1));
-        // 선택된 항목이 보이도록 스크롤 이동
-        setTimeout(() => {
-          const menu = document.getElementById("slash-command-menu");
-          const selectedItem = menu?.querySelector(`.slash-command-item[data-index="${slashMenuSelectedIndex}"]`);
-          if (selectedItem) {
-            selectedItem.scrollIntoView({
-              behavior: "smooth",
-              block: "nearest"
-            });
-          }
-        }, 0);
-        return;
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (filteredCommands[slashMenuSelectedIndex]) {
-          executeSlashCommand(filteredCommands[slashMenuSelectedIndex].action);
+          return;
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          hideSlashMenu();
+          return;
         }
-        return;
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        hideSlashMenu();
-        return;
+      } else {
+        // 명령어 모드
+        const commands = slashCommandsByCategory[selectedSlashCategory] || [];
+        const filteredCommands = commands.filter(cmd => cmd.command.toLowerCase().includes(getChatInputValue().toLowerCase()) || cmd.label.toLowerCase().includes(getChatInputValue().toLowerCase()));
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          slashMenuSelectedIndex = Math.min(slashMenuSelectedIndex + 1, filteredCommands.length - 1);
+          renderSlashMenu(getChatInputValue().slice(1));
+          return;
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          slashMenuSelectedIndex = Math.max(slashMenuSelectedIndex - 1, 0);
+          renderSlashMenu(getChatInputValue().slice(1));
+          return;
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          if (filteredCommands[slashMenuSelectedIndex]) {
+            executeSlashCommand(filteredCommands[slashMenuSelectedIndex].action);
+          }
+          return;
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          // 뒤로가기 (카테고리 모드로)
+          slashMenuMode = "categories";
+          selectedSlashCategory = null;
+          slashMenuSelectedIndex = 0;
+          renderSlashMenu("");
+          if (chatInput) {
+            chatInput.textContent = "/";
+            setCursorToEnd(chatInput);
+          }
+          return;
+        }
       }
     }
 
