@@ -6,6 +6,26 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.9.4 (Critic Pass 제거 및 버전 표시)
+- **Critic Pass 기능 제거**: Critic Pass 기능을 완전히 제거했습니다.
+  - Critic Pass는 tsc 검증 전에 실행되어 중복 검증을 수행하고 있었음
+  - 제거된 파일: `context/prompts/test/criticPass.ts`
+  - 제거된 메서드: `TestRunner.runCriticPassAndTests()`, `TestRunner.runCriticPass()`
+  - 제거된 설정: StateManager의 `criticPassEnabled` 관련 저장/불러오기 메서드
+  - 제거된 UI: Settings 패널의 Critic Pass 토글 스위치 제거
+  - `ConversationManager`에서 모든 테스트 호출이 `runAutomatedTests()`로 단순화됨
+- **설정 화면 버전 표시**: CODEPILOT 설정 화면 하단에 버전 정보를 추가했습니다.
+  - 설정 화면 최하단에 "CODEPILOT v8.9.4" 형식으로 버전 표시
+  - 구분선과 함께 중앙 정렬된 푸터 스타일 적용
+
+## v8.9.3 (SEARCH 블록 무결성 규칙)
+- **SEARCH 블록 무결성 규칙**: LLM이 잘못된 SEARCH 패턴을 생성하는 것을 방지하기 위해 update_file 프롬프트에 엄격한 지침 추가.
+  - 규칙: SEARCH 블록은 현재 파일 내용을 그대로 복사해야 함 (read_file 결과에서)
+  - 규칙: 수정 전 코드 섹션에 오타, 중복, 누락 금지
+  - 규칙: SEARCH 블록에서 기존 코드 구조를 재작성하거나 변형 금지
+  - 흔한 실수 섹션 추가: 중복 중괄호 `export default App;}`, 코드 블록 누락, 임의 공백 변경 등
+  - 수정된 파일: toolCalling.ts
+
 ## v8.9.2 (범용 LLM 지원 & UI 개선)
 - **다국어 파일 작업 키워드 지원**: 한국어와 영어 파일 지시어 모두 지원.
   - 모든 파일 작업 패턴이 다음을 지원: `새 파일`/`New file`/`Create file`, `수정 파일`/`Update file`/`Modify file`, `삭제 파일`/`Delete file`/`Remove file`

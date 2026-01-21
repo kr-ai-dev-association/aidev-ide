@@ -275,7 +275,6 @@ export class StateManager {
     private readonly OUTPUT_LOG_ENABLED_KEY = 'codepilot.outputLogEnabled';
     private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
     private readonly AUTO_CORRECTION_ENABLED_KEY = 'codepilot.autoCorrectionEnabled';
-    private readonly CRITIC_PASS_ENABLED_KEY = 'codepilot.criticPassEnabled';
 
     /**
      * API Key를 저장합니다
@@ -527,15 +526,6 @@ export class StateManager {
 
     public async getAutoCorrectionEnabled(): Promise<boolean> {
         return this.context.workspaceState.get<boolean>(this.AUTO_CORRECTION_ENABLED_KEY) ?? false;
-    }
-
-    // Critic Pass enabled
-    public async saveCriticPassEnabled(enabled: boolean): Promise<void> {
-        await this.context.workspaceState.update(this.CRITIC_PASS_ENABLED_KEY, enabled);
-    }
-
-    public async getCriticPassEnabled(): Promise<boolean> {
-        return this.context.workspaceState.get<boolean>(this.CRITIC_PASS_ENABLED_KEY) ?? true;
     }
 
     // ===== AgentPolicy 관련 메서드들 =====

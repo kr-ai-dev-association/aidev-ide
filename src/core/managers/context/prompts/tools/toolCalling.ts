@@ -53,6 +53,20 @@ export function getToolSpecPrompt(spec: ToolSpec): string {
         prompt += '- 파일이 이미 수정되었을 수 있습니다\n';
         prompt += '- 이전에 읽은 내용이나 추측을 기반으로 SEARCH 패턴을 만들면 실패합니다\n';
         prompt += '- **항상 `read_file` → `update_file` 순서로 사용하세요**\n\n';
+
+        prompt += '**⚠️ SEARCH 블록 무결성 규칙 (필수) ⚠️**\n';
+        prompt += 'SEARCH 블록에는 반드시:\n';
+        prompt += '- **현재 파일의 내용을 그대로 복사**해서 사용하세요 (read_file 결과에서 복사)\n';
+        prompt += '- **수정 전 코드에 오타, 중복, 누락을 절대 만들지 마세요**\n';
+        prompt += '- **기존 코드 구조를 재작성하거나 변형하지 마세요**\n';
+        prompt += '- SEARCH 블록이 현재 파일 내용과 정확히 일치하지 않으면 수정이 실패합니다\n\n';
+
+        prompt += '**흔한 실수 (절대 금지):**\n';
+        prompt += '- ❌ `export default App;}` (중복 중괄호)\n';
+        prompt += '- ❌ 코드 블록 누락 또는 추가\n';
+        prompt += '- ❌ 들여쓰기/공백 임의 변경\n';
+        prompt += '- ❌ 세미콜론, 쉼표 임의 추가/삭제\n';
+        prompt += '- ❌ 기억에 의존한 코드 작성 (반드시 read_file 결과 확인)\n\n';
     }
 
     prompt += '**파라미터:**\n';

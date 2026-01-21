@@ -55,20 +55,24 @@ export function getExecutionFirstRulePrompt(): string {
  */
 export function getErrorRetryPrompt(errorMessage: string): string {
   return (
-    `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n**🔥 중요: 오류를 먼저 분석하세요**\n` +
-    `1. **오류 유형 파악**: TypeScript 컴파일 오류인가? 의존성 누락인가? 런타임 오류인가?\n` +
-    `2. **오류 원인 분석**:\n` +
-    `   - TypeScript 오류 (예: "Cannot find module", "Property does not exist") → 파일 수정 필요, npm install로 해결 안 됨\n` +
-    `   - 의존성 오류 (예: "Cannot find module 'xxx'", "Module not found") → npm install 필요\n` +
-    `   - 빌드 오류 (예: "Command failed", "Build failed") → 빌드 설정 또는 코드 오류 확인\n` +
-    `3. **적절한 조치 선택**:\n` +
-    `   - TypeScript/컴파일 오류 → update_file로 파일 수정\n` +
-    `   - 의존성 누락 → run_command로 npm install (단, 이미 실행했다면 다른 원인 확인)\n` +
-    `   - 빌드 설정 오류 → 설정 파일 수정\n\n` +
-    `**절대 하지 말 것**:\n` +
-    `- 오류 분석 없이 무작정 npm install 실행 (이미 실행했다면 효과 없음)\n` +
-    `- 같은 명령어 반복 실행 (중복 실행 방지됨)\n\n` +
-    `오류를 분석한 후 적절한 수정을 수행하세요.\n`
+    `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+    `**🔥 중요: JSON Function Calling으로만 응답하세요**\n\n` +
+    `**오류 유형별 수정 방법:**\n` +
+    `- TypeScript 오류 ("Cannot find module", "Property does not exist") → update_file로 파일 수정\n` +
+    `- 의존성 누락 ("Cannot find module 'xxx'") → run_command로 npm install\n` +
+    `- 빌드 오류 ("Command failed") → 설정 파일 수정\n\n` +
+    `**⚠️ 절대 금지:**\n` +
+    `- 자연어 응답 (설명, 분석, "We need to..." 등)\n` +
+    `- 같은 명령어 반복 실행\n\n` +
+    `**✅ 필수 출력 형식 (JSON만 출력):**\n` +
+    "```json\n" +
+    `{ "function_call": { "name": "read_file", "args": { "path": "오류_파일_경로" } } }\n` +
+    "```\n" +
+    `또는:\n` +
+    "```json\n" +
+    `{ "function_call": { "name": "update_file", "args": { "path": "...", "diff": "..." } } }\n` +
+    "```\n\n" +
+    `**지금 바로 JSON function_call을 출력하세요. 자연어 텍스트는 무시됩니다.**\n`
   );
 }
 
@@ -271,7 +275,16 @@ export function getValidationCommandInferencePrompt(
  * 테스트 실패 시 간단한 오류 메시지
  */
 export function getSimpleTestFailurePrompt(errorMessage: string): string {
-  return `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n${errorMessage}\n\n오류를 분석하고 필요한 수정을 수행하세요. 필요하다면 run_command 도구를 사용하여 명령어를 실행하세요.\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 update_file 도구를 사용하여 수정하세요.\n`;
+  return (
+    `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+    `**⚠️ JSON Function Calling 필수 - 자연어 응답 금지**\n\n` +
+    `오류를 수정하기 위해 JSON function_call을 출력하세요.\n` +
+    `- 파일 수정: update_file\n` +
+    `- 파일 생성: create_file (파일이 없을 때만)\n` +
+    `- 명령어 실행: run_command\n\n` +
+    `**중요:** 이미 존재하는 파일은 create_file 대신 update_file을 사용하세요.\n\n` +
+    `**지금 바로 JSON function_call을 출력하세요.**\n`
+  );
 }
 
 // ==================== Execution Phase Context ====================

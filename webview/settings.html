@@ -520,6 +520,20 @@
         background-color: var(--vscode-disabledForeground);
       }
 
+      /* 버전 정보 푸터 스타일 */
+      .version-footer {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid var(--vscode-panel-border);
+        text-align: center;
+      }
+
+      .version-footer p {
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.85em;
+        margin: 0;
+      }
+
       /* 반응형 레이아웃 */
       @media (max-width: 600px) {
         .api-key-input-group,
@@ -716,19 +730,6 @@
       <p class="info-message" data-i18n="autoExecuteDescription">
         LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지
         여부를 설정합니다. 비활성화하면 수동으로 실행해야 합니다.
-      </p>
-    </div>
-
-    <div class="section-container">
-      <h2 id="critic-pass-section" data-i18n="criticPassSection">코드 검증</h2>
-      <div class="toggle-switch-container" style="margin-bottom: 8px">
-        <input type="checkbox" id="critic-pass-toggle" />
-        <label for="critic-pass-toggle">Toggle</label>
-      </div>
-      <p id="critic-pass-status" class="info-message"></p>
-      <p class="info-message" data-i18n="criticPassDescription">
-        코드 생성 후 별도의 LLM 호출로 생성된 코드를 검증합니다. 활성화하면 코드
-        품질이 향상되지만 응답 시간이 길어질 수 있습니다.
       </p>
     </div>
 
@@ -1177,6 +1178,11 @@
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
       </div>
+    </div>
+
+    <!-- 버전 정보 -->
+    <div class="version-footer">
+      <p id="version-info">CODEPILOT v<span id="version-number">8.9.4</span></p>
     </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->

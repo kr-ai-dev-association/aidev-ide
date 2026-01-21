@@ -36,8 +36,6 @@ const autoCorrectionToggle = document.getElementById("auto-correction-toggle");
 const autoCorrectionStatus = document.getElementById("auto-correction-status");
 const autoExecuteToggle = document.getElementById("auto-execute-toggle");
 const autoExecuteStatus = document.getElementById("auto-execute-status");
-const criticPassToggle = document.getElementById("critic-pass-toggle");
-const criticPassStatus = document.getElementById("critic-pass-status");
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
@@ -110,23 +108,6 @@ if (autoExecuteToggle) {
     if (vscode) {
       vscode.postMessage({
         command: "setAutoExecuteCommandsEnabled",
-        enabled
-      });
-    }
-  });
-}
-
-// Critic Pass 토글
-if (criticPassToggle) {
-  criticPassToggle.addEventListener("change", () => {
-    const enabled = criticPassToggle.checked;
-    if (criticPassStatus) {
-      criticPassStatus.textContent = enabled ? languageData["criticPassOn"] || "코드검증: 켜짐" : languageData["criticPassOff"] || "코드검증: 꺼짐";
-      criticPassStatus.className = enabled ? "info-message success-message" : "info-message";
-    }
-    if (vscode) {
-      vscode.postMessage({
-        command: "setCriticPassEnabled",
         enabled
       });
     }
@@ -1671,13 +1652,6 @@ window.addEventListener("message", event => {
         if (errorRetrySpinner) {
           errorRetrySpinner.disabled = !message.autoCorrectionEnabled;
           errorRetrySpinner.style.opacity = message.autoCorrectionEnabled ? "1" : "0.5";
-        }
-      }
-      if (typeof message.criticPassEnabled === "boolean" && criticPassToggle) {
-        criticPassToggle.checked = message.criticPassEnabled;
-        if (criticPassStatus) {
-          criticPassStatus.textContent = message.criticPassEnabled ? languageData["criticPassOn"] || "코드검증: 켜짐" : languageData["criticPassOff"] || "코드검증: 꺼짐";
-          criticPassStatus.className = message.criticPassEnabled ? "info-message success-message" : "info-message";
         }
       }
       if (typeof message.autoTestRetryEnabled === "boolean" && autoTestRetryToggle) {

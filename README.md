@@ -6,6 +6,14 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.9.3 (SEARCH Block Integrity Rules)
+- **SEARCH Block Integrity Rules**: Added strict guidelines in update_file prompt to prevent LLM from generating broken SEARCH patterns.
+  - Rule: SEARCH block must be an exact copy of current file content (from read_file result)
+  - Rule: No typos, duplicates, or omissions in the original code section
+  - Rule: Never rewrite or modify existing code structure in SEARCH block
+  - Added common mistakes section: duplicate brackets `export default App;}`, missing code blocks, arbitrary whitespace changes, etc.
+  - Updated: toolCalling.ts
+
 ## v8.9.2 (Universal LLM Support & UI Improvements)
 - **Bilingual File Operation Keywords**: Full support for both Korean and English file directives.
   - All file operation patterns now support: `New file`/`Create file`, `Update file`/`Modify file`, `Delete file`/`Remove file`

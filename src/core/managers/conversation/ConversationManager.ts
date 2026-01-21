@@ -191,7 +191,7 @@ export class ConversationManager {
             // 5. 작업 타입에 따른 실행 분기
             if (optionsWithAbort.promptType === PromptType.CODE_GENERATION) {
                 const userParts = [{ text: userQuery }];
-                await this.executeAgentLoop(systemPrompt, userParts, optionsWithAbort, intent);
+                await this.executeAgentLoop(systemPrompt, userParts, optionsWithAbort, intent, context);
             } else {
                 // ASK 모드: 이전 대화 컨텍스트 포함
                 const userParts = await this.buildUserPartsWithHistory(userQuery, optionsWithAbort);
@@ -329,7 +329,7 @@ export class ConversationManager {
         };
     }
 
-    private async executeAgentLoop(systemPrompt: string, userParts: any[], options: ConversationOptions, intent: any): Promise<void> {
+    private async executeAgentLoop(systemPrompt: string, userParts: any[], options: ConversationOptions, intent: any, gatheredContext?: any): Promise<void> {
         // 🔥 참고: executionIntent는 더 이상 INVESTIGATION→EXECUTION 전환에 사용되지 않음
         // 실행 도구 자체가 실행 의도의 증거이므로 조건 없이 전환됨
         const { webviewToRespond, abortSignal, userQuery } = options;
@@ -755,11 +755,17 @@ export class ConversationManager {
                 allowedTools = investigationManager.getInvestigationTools();
 
                 // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
+                // 🔥 핵심 수정: gatheredContext의 첨부 컨텍스트(selectedFilesContent 등)를 포함해야 함
                 const promptOptions: PromptBuilderOptions = {
                     userOS: options.userOS || process.platform,
                     modelType: options.currentModelType || AiModelType.OLLAMA,
                     promptType: options.promptType,
-                    allowedTools // 도구 제한 전달
+                    allowedTools, // 도구 제한 전달
+                    // 사용자가 첨부한 컨텍스트 포함 (gatheredContext에서 가져옴)
+                    selectedFilesContent: gatheredContext?.selectedFilesContent,
+                    terminalContextContent: gatheredContext?.terminalContextContent,
+                    diagnosticsContextContent: gatheredContext?.diagnosticsContextContent,
+                    codebaseContext: gatheredContext?.codebaseContext
                 };
                 activeSystemPrompt = investigationPrompt + '\n\n' + this.promptBuilder.generateSystemPrompt(promptOptions);
 
@@ -858,12 +864,10 @@ export class ConversationManager {
                         const hasFileChanges = createdFiles.length > 0 || modifiedFiles.length > 0;
 
                         if (hasFileChanges) {
-                            console.log('[ConversationManager] All plan items completed. Running Critic Pass + automated tests before transitioning to REVIEW.');
+                            console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
-                            const testResult = options.extensionContext
-                                ? await TestRunner.runCriticPassAndTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles, options.extensionContext, userQuery)
-                                : await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                            const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                             if (testResult.success) {
                                 // 테스트 통과 → REVIEW로 전환
@@ -938,12 +942,10 @@ export class ConversationManager {
                                 const hasFileChanges = createdFiles.length > 0 || modifiedFiles.length > 0;
 
                                 if (hasFileChanges) {
-                                    console.log('[ConversationManager] All plan items completed. Running Critic Pass + automated tests before transitioning to REVIEW.');
+                                    console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                     const currentProject = ProjectManager.getInstance().getCurrentProject();
                                     const workspaceRoot = currentProject?.root || '';
-                                    const testResult = options.extensionContext
-                                        ? await TestRunner.runCriticPassAndTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles, options.extensionContext, userQuery)
-                                        : await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                    const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                     if (testResult.success) {
                                         console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
@@ -1133,12 +1135,10 @@ export class ConversationManager {
                                 turnCount++;
                                 continue;
                             } else {
-                                console.log('[ConversationManager] All plan items completed. Running Critic Pass + automated tests before transitioning to REVIEW.');
+                                console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                 const currentProject = ProjectManager.getInstance().getCurrentProject();
                                 const workspaceRoot = currentProject?.root || '';
-                                const testResult = options.extensionContext
-                                    ? await TestRunner.runCriticPassAndTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles, options.extensionContext, userQuery)
-                                    : await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                 if (testResult.success) {
                                     // 테스트 통과 → REVIEW로 전환
@@ -1175,13 +1175,25 @@ export class ConversationManager {
                             // LLM을 호출했지만 여전히 도구 호출이 없다면, 해당 plan item을 완료로 간주하고 다음으로 이동
                             console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
 
-                            // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시 (EXECUTION phase에서는 제외)
+                            // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시
+                            // 단, 사용자가 첨부한 컨텍스트(터미널, 파일, Diagnostics)가 있을 때는 분석 응답이므로 표시해야 함
                             const textResponse = this.responseProcessor.extractResponseText(cleanExecutionResponse);
+                            const hasAttachedContext = options.terminalContext || (options.selectedFiles && options.selectedFiles.length > 0) || options.diagnosticsContext;
+
                             if (textResponse && textResponse.trim().length > 0) {
-                                console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Skipping display (EXECUTION phase blocks CODEPILOT text).`);
-                                // ✅ EXECUTION phase에서는 CODEPILOT 텍스트를 보내지 않음 (내부 사고로 간주)
-                                // 텍스트 응답을 accumulatedUserParts에 추가하여 다음 턴에서 참조 가능하도록 함
-                                accumulatedUserParts.push({ text: llmResponseForExecution });
+                                if (hasAttachedContext) {
+                                    // ✅ 첨부 컨텍스트가 있을 때는 분석 응답이므로 사용자에게 표시
+                                    console.log(`[ConversationManager] EXECUTION phase: Text response with attached context (length: ${textResponse.length}). Displaying to user.`);
+                                    WebviewBridge.receiveMessage(webviewToRespond, 'CODEPILOT', textResponse);
+                                    // 분석 완료 후 REVIEW로 전환
+                                    stateManager.transitionTo(AgentPhase.REVIEW);
+                                    break;
+                                } else {
+                                    console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Skipping display (EXECUTION phase blocks CODEPILOT text).`);
+                                    // EXECUTION phase에서는 CODEPILOT 텍스트를 보내지 않음 (내부 사고로 간주)
+                                    // 텍스트 응답을 accumulatedUserParts에 추가하여 다음 턴에서 참조 가능하도록 함
+                                    accumulatedUserParts.push({ text: llmResponseForExecution });
+                                }
                             }
 
                             if (currentPlanItem) {
@@ -1194,12 +1206,10 @@ export class ConversationManager {
                                 turnCount++;
                                 continue;
                             } else {
-                                console.log('[ConversationManager] All plan items completed. Running Critic Pass + automated tests before transitioning to REVIEW.');
+                                console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                                 const currentProject = ProjectManager.getInstance().getCurrentProject();
                                 const workspaceRoot = currentProject?.root || '';
-                                const testResult = options.extensionContext
-                                    ? await TestRunner.runCriticPassAndTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles, options.extensionContext, userQuery)
-                                    : await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                                const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                                 if (testResult.success) {
                                     console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
@@ -1245,12 +1255,10 @@ export class ConversationManager {
                             turnCount++;
                             continue;
                         } else {
-                            console.log('[ConversationManager] All plan items completed. Running Critic Pass + automated tests before transitioning to REVIEW.');
+                            console.log('[ConversationManager] All plan items completed. Running automated tests before transitioning to REVIEW.');
                             const currentProject = ProjectManager.getInstance().getCurrentProject();
                             const workspaceRoot = currentProject?.root || '';
-                            const testResult = options.extensionContext
-                                ? await TestRunner.runCriticPassAndTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles, options.extensionContext, userQuery)
-                                : await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
+                            const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRoot, createdFiles, modifiedFiles);
 
                             if (testResult.success) {
                                 // 테스트 통과 → REVIEW로 전환
@@ -1706,7 +1714,7 @@ export class ConversationManager {
                         console.log('[ConversationManager] All tasks completed after tool execution. Running automated tests before transitioning to REVIEW.');
                         const currentProjectForTest = ProjectManager.getInstance().getCurrentProject();
                         const workspaceRootForTest = currentProjectForTest?.root || '';
-                        const testResult = await this.runAutomatedTests(webviewToRespond, workspaceRootForTest, createdFiles, modifiedFiles);
+                        const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRootForTest, createdFiles, modifiedFiles);
 
                         if (testResult.success) {
                             // 테스트 통과 → REVIEW로 전환

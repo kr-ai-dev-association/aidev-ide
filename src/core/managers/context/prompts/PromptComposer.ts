@@ -132,38 +132,63 @@ ${rules.join('\n\n---\n\n')}`;
 
 ${codebaseContext}` : '';
 
-        // 사용자가 선택한 파일들의 내용
-        const selectedFilesSection = selectedFilesContent ? `**사용자가 선택한 파일들:**
-다음 파일들은 사용자가 명시적으로 대화 컨텍스트에 포함하도록 요청한 파일들입니다. 이 파일들의 내용을 반드시 참고하여 작업을 수행하세요.
+        // 사용자가 선택한 파일들의 내용 - 강한 지시 (ASK 모드와 동일)
+        const selectedFilesSection = selectedFilesContent ? `
+## ⚠️ 중요: 사용자가 첨부한 파일
+**아래 파일들은 사용자가 @파일로 명시적으로 첨부한 파일입니다.**
+**반드시 아래 파일 내용을 기반으로 작업을 수행하세요.**
+**다른 파일을 먼저 읽거나 프로젝트 탐색을 하지 마세요 - 첨부된 파일이 최우선입니다.**
 
-${selectedFilesContent}` : '';
+${selectedFilesContent}
+` : '';
 
         // 사용자가 선택한 터미널 히스토리
-        const terminalContextSection = terminalContextContent ? `**터미널 컨텍스트:**
-다음은 사용자가 명시적으로 대화 컨텍스트에 포함하도록 요청한 터미널 히스토리입니다. 최근 실행한 명령어와 그 결과를 참고하여 작업을 수행하세요.
+        const terminalContextSection = terminalContextContent ? `
+## ⚠️ 중요: 사용자가 첨부한 터미널 출력
+**아래는 사용자가 @terminal로 명시적으로 첨부한 실제 터미널 화면 내용입니다.**
+**반드시 아래 터미널 출력의 실제 데이터를 분석하여 답변하세요. 일반적인 설명이 아닌 실제 값을 기반으로 답변해야 합니다.**
 
-${terminalContextContent}` : '';
+\`\`\`
+${terminalContextContent}
+\`\`\`
+` : '';
 
-        // 사용자가 선택한 Diagnostics (에러/경고)
-        const diagnosticsContextSection = diagnosticsContextContent ? `**Diagnostics (에러/경고):**
-다음은 현재 워크스페이스에서 감지된 에러와 경고입니다. 이 문제들을 해결하는 데 참고하세요.
+        // 사용자가 선택한 Diagnostics (에러/경고) - 강한 지시
+        const diagnosticsContextSection = diagnosticsContextContent ? `
+## ⚠️ 중요: 사용자가 첨부한 Diagnostics
+**아래는 현재 워크스페이스에서 사용자가 명시적으로 분석을 요청한 에러/경고입니다.**
+**반드시 아래 Diagnostics 내용을 기반으로 답변하세요.**
 
-${diagnosticsContextContent}` : '';
+${diagnosticsContextContent}
+` : '';
+
+        // 첨부 컨텍스트 존재 여부
+        const hasAttachedContext = selectedFilesContent || terminalContextContent || diagnosticsContextContent;
+
+        // 첨부 컨텍스트가 있을 때 최상단에 강조
+        const attachedContextWarning = hasAttachedContext ? `
+# ⚠️ 최우선 지시사항
+사용자가 아래에 파일/터미널/Diagnostics를 첨부했습니다.
+**반드시 첨부된 내용을 최우선으로 분석하고 작업을 수행하세요.**
+다른 파일을 먼저 읽거나 프로젝트 탐색을 하지 마세요.
+` : '';
 
         // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
         const agentRules = this.loadAgentRules();
 
-        // 조합 (개발 규칙을 basePrompt 바로 다음에 배치하여 강조)
+        // 조합 (첨부 컨텍스트 경고를 최상단에 배치)
         const parts = [
+            attachedContextWarning, // 첨부 컨텍스트 경고 (최상단)
             osContextInfo,
             basePrompt,
             agentRules, // 개발 규칙을 강력하게 포함
             terminalCommandRules,
             taskPrompt,
-            codebaseSection,
-            selectedFilesSection, // 사용자가 선택한 파일들 (코드베이스 컨텍스트 다음에 배치)
-            terminalContextSection, // 사용자가 선택한 터미널 히스토리
-            diagnosticsContextSection, // 사용자가 선택한 Diagnostics (에러/경고)
+            // 사용자가 첨부한 컨텍스트 (터미널, 파일, Diagnostics)를 코드베이스보다 앞에 배치
+            terminalContextSection, // 사용자가 @terminal로 첨부한 터미널 출력 (우선순위 높음)
+            selectedFilesSection, // 사용자가 @file로 선택한 파일들
+            diagnosticsContextSection, // 사용자가 @diagnostics로 선택한 에러/경고
+            codebaseSection, // 자동 수집된 코드베이스 컨텍스트
             llmPrompt,
             osPrompt
         ].filter(part => part && part.trim() !== '');
