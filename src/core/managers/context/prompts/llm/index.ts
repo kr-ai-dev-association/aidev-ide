@@ -4,6 +4,7 @@
  */
 
 export { getGeminiPrompt } from './GeminiPrompt';
+export { getBanyaPrompt } from './BanyaPrompt';
 export { getGPTOSSPrompt } from './GPTOSSPrompt';
 export { getDeepSeekPrompt } from './DeepSeekPrompt';
 export { getGemmaPrompt } from './GemmaPrompt';

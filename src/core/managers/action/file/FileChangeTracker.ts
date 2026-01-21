@@ -107,6 +107,13 @@ export class FileChangeTracker {
         // 리스너에게 알림
         this.notifyListeners(filePath, change);
 
+        // AI가 변경한 파일이면 자동으로 diff 에디터 열기
+        if (metadata?.source === 'ai' && before !== undefined && after !== undefined) {
+            this.openDiffEditorForChange(filePath, before, after, changeType).catch(err => {
+                console.error(`[FileChangeTracker] Failed to open diff editor:`, err);
+            });
+        }
+
         console.log(`[FileChangeTracker] Recorded ${changeType} change for ${filePath}: ${changeId}`);
         return changeId;
     }
@@ -382,6 +389,33 @@ export class FileChangeTracker {
             }
         } catch (error) {
             console.error('[FileChangeTracker] Failed to load history:', error);
+        }
+    }
+
+    /**
+     * 변경사항에 대한 diff 에디터 자동 열기 (AI가 변경한 파일만)
+     * InlineDiffManager를 사용하여 인라인 diff 표시
+     */
+    private async openDiffEditorForChange(
+        filePath: string,
+        beforeContent: string,
+        afterContent: string,
+        _changeType: ChangeType
+    ): Promise<void> {
+        try {
+            // 동적 import - 모듈 전체를 가져온 후 named export 접근
+            const diffModule = await import('../../diff/InlineDiffManager');
+            const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
+
+            await inlineDiffManager.showInlineDiff(
+                filePath,
+                beforeContent,
+                afterContent
+            );
+
+            console.log(`[FileChangeTracker] Opened inline diff for ${filePath}`);
+        } catch (error) {
+            console.error(`[FileChangeTracker] Failed to open inline diff:`, error);
         }
     }
 }

@@ -1,6 +1,7 @@
 export enum AiModelType {
     GEMINI = 'gemini',
-    OLLAMA = 'ollama'
+    OLLAMA = 'ollama',
+    BANYA = 'banya'
 }
 
 export enum PromptType {

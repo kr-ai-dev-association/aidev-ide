@@ -16,6 +16,7 @@ import {
 } from './types';
 import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
+import { EXCLUDED_LIBRARY_PATHS } from '../../utils/FileExclusionConstants';
 
 export class ProjectIndexer {
     private index: FileIndex = {
@@ -24,21 +25,6 @@ export class ProjectIndexer {
         totalFiles: 0
     };
     private codeParserAdapter: ICodeParserAdapter;
-    
-    // 라이브러리 디렉토리 경로 목록
-    private readonly EXCLUDED_LIBRARY_PATHS = [
-        'node_modules', '.npm', 'npm-cache',
-        '.m2', 'target', 'build', '.gradle', 'gradle',
-        '__pycache__', '.pytest_cache', 'venv', 'env', '.venv', '.env', 'site-packages', '.pip',
-        'bin', 'obj', 'packages', '.nuget',
-        'vendor', 'pkg',
-        'Cargo.lock',
-        'composer', '.bundle', 'bundle',
-        'dist', 'out', '.build', 'coverage', '.coverage', 'logs', '.logs', 'tmp', '.tmp', 'temp', '.temp', 'cache', '.cache',
-        '.vscode', '.idea', '.eclipse', '.settings', '.project', '.classpath',
-        '.git', '.svn', '.hg', '.bzr',
-        '.DS_Store', 'Thumbs.db', '.Spotlight-V100', '.Trashes', '.fseventsd', '.TemporaryItems'
-    ];
 
     constructor() {
         this.codeParserAdapter = new TreeSitterAdapter();
@@ -393,14 +379,14 @@ export class ProjectIndexer {
 
         // 경로의 각 부분을 확인하여 라이브러리 디렉토리인지 검사
         for (const part of pathParts) {
-            if (this.EXCLUDED_LIBRARY_PATHS.includes(part.toLowerCase())) {
+            if (EXCLUDED_LIBRARY_PATHS.includes(part.toLowerCase())) {
                 return true;
             }
         }
 
         // 경로 자체에 라이브러리 디렉토리가 포함되어 있는지 확인
         const normalizedPath = relativePath.toLowerCase().replace(/\\/g, '/');
-        for (const excludedPath of this.EXCLUDED_LIBRARY_PATHS) {
+        for (const excludedPath of EXCLUDED_LIBRARY_PATHS) {
             if (normalizedPath.includes(`/${excludedPath}/`) ||
                 normalizedPath.startsWith(`${excludedPath}/`) ||
                 normalizedPath.endsWith(`/${excludedPath}`) ||

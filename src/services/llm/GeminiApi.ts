@@ -1,120 +1,70 @@
 // src/services/gemini.ts
+// v9.1.0: REST API 직접 호출 방식 (ByteString 에러 해결)
 
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, GenerationConfig, Part, GenerateContentRequest, Content, RequestOptions } from '@google/generative-ai';
-
-declare module '@google/generative-ai' {
-    interface RequestOptions {
-        signal?: AbortSignal;
-    }
+/**
+ * Part 타입 정의
+ */
+export interface Part {
+    text?: string;
+    inlineData?: {
+        data: string;
+        mimeType: string;
+    };
 }
 
+/**
+ * 요청 옵션 타입
+ */
+export interface RequestOptions {
+    signal?: AbortSignal;
+}
+
+/**
+ * Native Function Calling 응답 타입
+ */
+export interface GeminiNativeResponse {
+    text: string;
+    functionCalls?: Array<{
+        name: string;
+        args: Record<string, any>;
+    }>;
+    rawResponse?: any;
+}
+
+/**
+ * Safety 설정
+ */
+const SAFETY_SETTINGS = [
+    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+];
+
+const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 export class GeminiApi {
-    private genAI: GoogleGenerativeAI | undefined;
-    private model: any; // SDK의 GenerativeModel 타입으로 지정 권장 (GenerativeModel)
     public apiKey: string | undefined;
     private modelName: string = "gemini-3-pro-preview";
 
-    private readonly defaultGenerationConfig: GenerationConfig = {
+    private readonly defaultGenerationConfig = {
         temperature: 0.7,
         topK: 1,
         topP: 1,
         maxOutputTokens: 500000,
     };
 
-    private readonly defaultSafetySettings = [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-    ];
-
     constructor(apiKey?: string) {
         console.log('[GeminiApi] Constructor called', {
             hasApiKey: !!apiKey,
             apiKeyLength: apiKey?.length || 0,
             apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
-            apiKeyTrimmed: apiKey ? apiKey.trim() : 'N/A'
         });
         if (apiKey && apiKey.trim() !== '') {
-            this.apiKey = apiKey; // API 키를 인스턴스 변수에 저장
-            this.initializeApi(apiKey);
+            this.apiKey = apiKey;
         } else {
             console.warn('[GeminiApi] API Key is not provided at construction.');
             this.apiKey = undefined;
-        }
-    }
-
-    private initializeApi(apiKey: string, systemInstructionText?: string): void {
-        console.log('[GeminiApi] initializeApi called', {
-            hasApiKey: !!apiKey,
-            apiKeyLength: apiKey?.length || 0,
-            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
-            apiKeyTrimmed: apiKey ? apiKey.trim() : 'N/A',
-            hasSystemInstruction: !!systemInstructionText
-        });
-        try {
-            if (!apiKey || apiKey.trim() === '') {
-                console.error('[GeminiApi] API initialization failed: API key is empty');
-                this.genAI = undefined;
-                this.model = undefined;
-                console.log('[GeminiApi] Initialization state after failure:', {
-                    genAI: !!this.genAI,
-                    model: !!this.model,
-                    isInitialized: this.isInitialized()
-                });
-                return;
-            }
-            console.log('[GeminiApi] Creating GoogleGenerativeAI instance...');
-            this.genAI = new GoogleGenerativeAI(apiKey);
-            console.log('[GeminiApi] GoogleGenerativeAI instance created', {
-                genAI: !!this.genAI,
-                modelName: this.modelName
-            });
-
-            console.log('[GeminiApi] Getting generative model...');
-            this.model = this.genAI.getGenerativeModel({
-                model: this.modelName,
-                safetySettings: this.defaultSafetySettings,
-            });
-            console.log('[GeminiApi] Generative model obtained', {
-                model: !!this.model
-            });
-
-            console.log(`[GeminiApi] API initialized with model: ${this.modelName}${systemInstructionText ? " and system instruction." : "."}`);
-
-            // 초기화 후 검증
-            const isInitialized = this.isInitialized();
-            console.log('[GeminiApi] Initialization verification', {
-                genAI: !!this.genAI,
-                model: !!this.model,
-                isInitialized: isInitialized
-            });
-
-            if (!isInitialized) {
-                console.error('[GeminiApi] API initialization failed: genAI or model is null/undefined', {
-                    genAI: !!this.genAI,
-                    model: !!this.model,
-                    genAIType: typeof this.genAI,
-                    modelType: typeof this.model
-                });
-            }
-        } catch (error) {
-            console.error('[GeminiApi] Error initializing API:', error);
-            console.error('[GeminiApi] Error details:', {
-                errorName: (error as any)?.name,
-                errorMessage: (error as any)?.message,
-                errorStack: (error as any)?.stack,
-                apiKeyLength: apiKey?.length || 0,
-                apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A'
-            });
-            this.genAI = undefined;
-            this.model = undefined;
-            console.log('[GeminiApi] Initialization state after error:', {
-                genAI: !!this.genAI,
-                model: !!this.model,
-                isInitialized: this.isInitialized()
-            });
         }
     }
 
@@ -122,40 +72,15 @@ export class GeminiApi {
         console.log('[GeminiApi] updateApiKey called', {
             hasApiKey: !!apiKey,
             apiKeyLength: apiKey?.length || 0,
-            apiKeyPrefix: apiKey ? `${apiKey.substring(0, 10)}...` : 'N/A',
             previousApiKeyExists: !!this.apiKey
         });
 
         this.apiKey = apiKey;
         if (apiKey && apiKey.trim() !== '') {
-            console.log('[GeminiApi] Updating API key and initializing...');
-            this.initializeApi(apiKey);
-            const initialized = this.isInitialized();
-            console.log('[GeminiApi] updateApiKey result', {
-                initialized: initialized,
-                hasModel: !!this.model,
-                hasGenAI: !!this.genAI
-            });
-
-            if (initialized) {
-                console.log('[GeminiApi] API Key updated and initialized successfully.');
-            } else {
-                console.error('[GeminiApi] API Key updated but initialization failed. Full status:', {
-                    hasApiKey: !!this.apiKey,
-                    apiKeyLength: this.apiKey?.length || 0,
-                    apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
-                    hasModel: !!this.model,
-                    hasGenAI: !!this.genAI,
-                    modelType: typeof this.model,
-                    genAIType: typeof this.genAI
-                });
-            }
-            return initialized;
+            console.log('[GeminiApi] API Key updated successfully.');
+            return true;
         } else {
-            console.log('[GeminiApi] Removing API key...');
-            this.genAI = undefined;
-            this.model = undefined;
-            console.warn('[GeminiApi] API Key removed. API is now uninitialized.');
+            console.warn('[GeminiApi] API Key removed.');
             return false;
         }
     }
@@ -163,9 +88,6 @@ export class GeminiApi {
     updateModelName(modelName: string): void {
         console.log(`[GeminiApi] Updating model name to: ${modelName}`);
         this.modelName = modelName;
-        if (this.apiKey) {
-            this.initializeApi(this.apiKey);
-        }
     }
 
     public getModelName(): string {
@@ -173,190 +95,278 @@ export class GeminiApi {
     }
 
     public isInitialized(): boolean {
-        const initialized = !!this.model && !!this.genAI;
-        if (!initialized) {
-            console.log('[GeminiApi] isInitialized check', {
-                hasModel: !!this.model,
-                hasGenAI: !!this.genAI,
-                hasApiKey: !!this.apiKey,
-                apiKeyLength: this.apiKey?.length || 0,
-                modelType: typeof this.model,
-                genAIType: typeof this.genAI
-            });
-        }
-        return initialized;
+        return !!this.apiKey;
     }
 
-    async sendMessage(message: string, generationConfigParam?: GenerationConfig, options?: RequestOptions): Promise<string> {
-        console.log('[GeminiApi] sendMessage called', {
-            messageLength: message?.length || 0,
-            isInitialized: this.isInitialized(),
-            hasApiKey: !!this.apiKey,
-            apiKeyLength: this.apiKey?.length || 0
+    /**
+     * Part[] 배열을 API 형식으로 변환
+     */
+    private partsToApiFormat(parts: Part[]): any[] {
+        return parts.map(part => {
+            if (part.inlineData) {
+                return { inlineData: part.inlineData };
+            }
+            return { text: part.text || '' };
+        });
+    }
+
+    /**
+     * REST API 직접 호출 (429 자동 재시도 포함)
+     */
+    private async callApi(endpoint: string, body: any, signal?: AbortSignal, retryCount: number = 0): Promise<any> {
+        const MAX_RETRIES = 3;
+        const url = `${API_BASE_URL}${endpoint}?key=${this.apiKey}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal,
         });
 
-        // API 키가 있지만 초기화되지 않은 경우 재시도
-        if (!this.isInitialized()) {
-            console.warn('[GeminiApi] API not initialized, checking API key...', {
-                hasApiKey: !!this.apiKey,
-                apiKeyLength: this.apiKey?.length || 0,
-                apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
-                apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A'
-            });
-
-            if (this.apiKey && this.apiKey.trim() !== '') {
-                console.warn('[GeminiApi] API not initialized but API key exists. Attempting to reinitialize...');
-                this.initializeApi(this.apiKey);
-
-                const reinitialized = this.isInitialized();
-                console.log('[GeminiApi] Reinitialization result', {
-                    success: reinitialized,
-                    hasModel: !!this.model,
-                    hasGenAI: !!this.genAI
-                });
-
-                if (!reinitialized) {
-                    console.error('[GeminiApi] API reinitialization failed. Full status:', {
-                        hasApiKey: !!this.apiKey,
-                        apiKeyLength: this.apiKey?.length || 0,
-                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
-                        apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A',
-                        hasModel: !!this.model,
-                        hasGenAI: !!this.genAI,
-                        modelType: typeof this.model,
-                        genAIType: typeof this.genAI
-                    });
-                    throw new Error("ACODEPILO API is not initialized. Please set your API Key in the ACODEPILO settings (License section).");
-                }
-                console.log('[GeminiApi] API reinitialized successfully.');
-            } else {
-                console.error('[GeminiApi] API not initialized and no API key available', {
-                    hasApiKey: !!this.apiKey,
-                    apiKeyValue: this.apiKey || 'undefined',
-                    apiKeyType: typeof this.apiKey
-                });
-                throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
+        if (!response.ok) {
+            // 429 Rate Limit: exponential backoff 재시도
+            if (response.status === 429 && retryCount < MAX_RETRIES) {
+                const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000; // 1s, 2s, 4s + jitter
+                console.log(`[GeminiApi] Rate limited (429). Retrying in ${Math.round(delay)}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.callApi(endpoint, body, signal, retryCount + 1);
             }
+
+            const errorText = await response.text();
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.error?.message) {
+                    errorMessage = errorJson.error.message;
+                }
+            } catch {
+                // JSON 파싱 실패 시 원본 텍스트 사용
+                if (errorText) {
+                    errorMessage = errorText;
+                }
+            }
+            throw new Error(errorMessage);
+        }
+
+        return response.json();
+    }
+
+    /**
+     * 스트리밍 REST API 호출 (429 자동 재시도 포함)
+     * Gemini API는 JSON 배열 형태로 스트리밍 응답을 반환
+     */
+    private async callApiStreaming(
+        endpoint: string,
+        body: any,
+        onChunk: (chunk: string, done: boolean) => void,
+        signal?: AbortSignal,
+        retryCount: number = 0
+    ): Promise<string> {
+        const MAX_RETRIES = 3;
+        const url = `${API_BASE_URL}${endpoint}?key=${this.apiKey}`;
+
+        console.log('[GeminiApi] Starting streaming request to:', endpoint);
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal,
+        });
+
+        if (!response.ok) {
+            // 429 Rate Limit: exponential backoff 재시도
+            if (response.status === 429 && retryCount < MAX_RETRIES) {
+                const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000; // 1s, 2s, 4s + jitter
+                console.log(`[GeminiApi] Rate limited (429). Retrying in ${Math.round(delay)}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.callApiStreaming(endpoint, body, onChunk, signal, retryCount + 1);
+            }
+
+            const errorText = await response.text();
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.error?.message) {
+                    errorMessage = errorJson.error.message;
+                }
+            } catch {
+                if (errorText) {
+                    errorMessage = errorText;
+                }
+            }
+            throw new Error(errorMessage);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error('Response body is not readable');
+        }
+
+        const decoder = new TextDecoder('utf-8');
+        let fullText = '';
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Gemini 스트리밍 응답은 JSON 객체들의 배열 형태
+                // 각 청크는 완전한 JSON이 아닐 수 있으므로 파싱 시도
+                // 형식: [{"candidates":[...]},{"candidates":[...]},...]
+
+                // 완전한 JSON 객체 추출 시도
+                let startIdx = 0;
+                while (startIdx < buffer.length) {
+                    // '[' 또는 ',' 다음의 '{' 찾기
+                    let objStart = buffer.indexOf('{', startIdx);
+                    if (objStart === -1) break;
+
+                    // 중괄호 매칭으로 완전한 객체 찾기
+                    let depth = 0;
+                    let objEnd = -1;
+                    let inString = false;
+                    let escape = false;
+
+                    for (let i = objStart; i < buffer.length; i++) {
+                        const char = buffer[i];
+
+                        if (escape) {
+                            escape = false;
+                            continue;
+                        }
+
+                        if (char === '\\' && inString) {
+                            escape = true;
+                            continue;
+                        }
+
+                        if (char === '"') {
+                            inString = !inString;
+                            continue;
+                        }
+
+                        if (!inString) {
+                            if (char === '{') depth++;
+                            else if (char === '}') {
+                                depth--;
+                                if (depth === 0) {
+                                    objEnd = i;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (objEnd === -1) {
+                        // 완전한 객체가 없음 - 다음 청크 대기
+                        break;
+                    }
+
+                    // 완전한 JSON 객체 추출
+                    const jsonStr = buffer.substring(objStart, objEnd + 1);
+                    startIdx = objEnd + 1;
+
+                    try {
+                        const json = JSON.parse(jsonStr);
+                        const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        if (text) {
+                            fullText += text;
+                            onChunk(text, false);
+                        }
+                    } catch (e) {
+                        // JSON 파싱 실패 - 무시
+                        console.warn('[GeminiApi] Failed to parse streaming chunk:', e);
+                    }
+                }
+
+                // 처리된 부분 제거
+                if (startIdx > 0) {
+                    buffer = buffer.substring(startIdx);
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+
+        console.log('[GeminiApi] Streaming completed, total length:', fullText.length);
+        onChunk('', true);
+        return fullText;
+    }
+
+    async sendMessage(message: string, generationConfigParam?: any, options?: RequestOptions): Promise<string> {
+        console.log('[GeminiApi] sendMessage called', {
+            messageLength: message?.length || 0,
+            hasApiKey: !!this.apiKey,
+        });
+
+        if (!this.apiKey) {
+            throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
         }
 
         try {
-            // generateContent API를 사용해 요청 객체를 전달 (옵션과 함께 Abort 지원)
-            const request: GenerateContentRequest = {
-                contents: [{ role: "user", parts: [{ text: message }] }],
-                generationConfig: generationConfigParam || this.defaultGenerationConfig,
+            const body = {
+                contents: [{ role: 'user', parts: [{ text: message }] }],
+                generationConfig: { ...this.defaultGenerationConfig, ...generationConfigParam },
+                safetySettings: SAFETY_SETTINGS,
             };
-            const result = await this.model.generateContent(request, options);
-            const response = result.response;
-            const text = response.text();
-            return text;
+
+            const result = await this.callApi(`/models/${this.modelName}:generateContent`, body, options?.signal);
+            return result.candidates?.[0]?.content?.parts?.[0]?.text || '';
         } catch (error: any) {
             console.error('Error calling CODEPILOT API (sendMessage):', error);
-            console.error('API Key present:', !!this.apiKey);
-            console.error('API Key length:', this.apiKey?.length || 0);
-            console.error('Is initialized:', this.isInitialized());
-            console.error('Error details:', {
-                name: error?.name,
-                message: error?.message,
-                status: error?.status,
-                statusText: error?.statusText,
-                code: error?.code
-            });
             return this.handleApiError(error);
         }
     }
-    // <-- 수정 끝 -->
 
-    // <-- 수정: sendMessageWithSystemPrompt 메서드에서 webSearch 기능 제거 -->
-    // userPrompt: string 대신 userParts: Part[]를 받도록 변경
+    /**
+     * 시스템 프롬프트와 함께 메시지 전송
+     */
     async sendMessageWithSystemPrompt(systemInstructionText: string, userParts: Part[], options?: RequestOptions): Promise<string> {
-        // API 키가 있지만 초기화되지 않은 경우 재시도
-        if (!this.isInitialized()) {
-            console.warn('[GeminiApi] API not initialized, checking API key...', {
-                hasApiKey: !!this.apiKey,
-                apiKeyLength: this.apiKey?.length || 0,
-                apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
-                apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A'
-            });
-
-            if (this.apiKey && this.apiKey.trim() !== '') {
-                console.warn('[GeminiApi] API not initialized but API key exists. Attempting to reinitialize...');
-                this.initializeApi(this.apiKey, systemInstructionText);
-
-                const reinitialized = this.isInitialized();
-                console.log('[GeminiApi] Reinitialization result', {
-                    success: reinitialized,
-                    hasModel: !!this.model,
-                    hasGenAI: !!this.genAI
-                });
-
-                if (!reinitialized) {
-                    console.error('[GeminiApi] API reinitialization failed. Full status:', {
-                        hasApiKey: !!this.apiKey,
-                        apiKeyLength: this.apiKey?.length || 0,
-                        apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
-                        apiKeyTrimmed: this.apiKey ? this.apiKey.trim() : 'N/A',
-                        hasModel: !!this.model,
-                        hasGenAI: !!this.genAI,
-                        modelType: typeof this.model,
-                        genAIType: typeof this.genAI
-                    });
-                    throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
-                }
-                console.log('[GeminiApi] API reinitialized successfully.');
-            } else {
-                console.error('[GeminiApi] API not initialized and no API key available', {
-                    hasApiKey: !!this.apiKey,
-                    apiKeyValue: this.apiKey || 'undefined',
-                    apiKeyType: typeof this.apiKey
-                });
-                throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
-            }
+        if (!this.apiKey) {
+            throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
         }
 
         try {
-            // systemInstruction을 포함하는 request 형태로 호출 (SDK가 지원)
-            const request: any = {
-                systemInstruction: { role: "user", parts: [{ text: systemInstructionText }] },
-                contents: [{ role: "user", parts: userParts }],
+            const apiParts = this.partsToApiFormat(userParts);
+
+            const body = {
+                systemInstruction: { parts: [{ text: systemInstructionText }] },
+                contents: [{ role: 'user', parts: apiParts }],
                 generationConfig: this.defaultGenerationConfig,
-                safetySettings: this.defaultSafetySettings,
-                model: this.modelName,
+                safetySettings: SAFETY_SETTINGS,
             };
-            // @types 제한으로 any 사용. SDK는 request 내 systemInstruction를 허용
-            const result = await (this.model as any).generateContent(request, options);
 
-            const response = result.response;
-            if (response.promptFeedback && response.promptFeedback.blockReason) {
-                console.warn(`CODEPILOT API response blocked. Reason: ${response.promptFeedback.blockReason}`, response.promptFeedback);
-                throw new Error(`Response was blocked by safety settings. Reason: ${response.promptFeedback.blockReason}. Please adjust your prompt or safety settings.`);
+            const result = await this.callApi(`/models/${this.modelName}:generateContent`, body, options?.signal);
+
+            // 차단 확인
+            if (result.promptFeedback?.blockReason) {
+                const blockReason = result.promptFeedback.blockReason;
+                console.warn(`CODEPILOT API response blocked. Reason: ${blockReason}`);
+                throw new Error(`Response was blocked by safety settings. Reason: ${blockReason}. Please adjust your prompt or safety settings.`);
             }
-            const text = response.text();
-            return text;
 
+            return result.candidates?.[0]?.content?.parts?.[0]?.text || '';
         } catch (error: any) {
             console.error('Error calling CODEPILOT API (sendMessageWithSystemPrompt):', error);
-            console.error('API Key present:', !!this.apiKey);
-            console.error('API Key length:', this.apiKey?.length || 0);
-            console.error('Is initialized:', this.isInitialized());
-            console.error('Error details:', {
-                name: error?.name,
-                message: error?.message,
-                status: error?.status,
-                statusText: error?.statusText,
-                code: error?.code
-            });
             return this.handleApiError(error);
         }
     }
-    // <-- 수정 끝 -->
 
     private handleApiError(error: any): string {
         if (error.name === 'AbortError') {
             return "Error: API call was cancelled.";
         }
 
-        // API 키가 없거나 초기화되지 않은 경우
-        if (!this.apiKey || !this.isInitialized()) {
+        if (!this.apiKey) {
             return "Error: CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).";
         }
 
@@ -372,10 +382,8 @@ export class GeminiApi {
                 lowerMsg.includes('offline');
 
             if (isOffline) {
-                // Special marker that upstream can detect to trigger offline fallback
                 return 'OFFLINE: Network unavailable for Gemini. Falling back is recommended.';
             }
-            // Common explicit causes
             if (error.message.includes('quota') || error.message.includes('Quota')) {
                 return "Error: CODEPILOT API quota exceeded. Please check your CODEPILOT License detail.";
             }
@@ -388,30 +396,19 @@ export class GeminiApi {
             if (error.message.includes('Response was blocked')) {
                 return error.message;
             }
-            // Auth / key / permission patterns
-            // HTTP 상태 코드나 에러 코드도 확인
             const statusCode = error.status || error.code || error.response?.status;
             if (statusCode === 401 || lowerMsg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('invalid api key') || lowerMsg.includes('apikey') || lowerMsg.includes('api key') || lowerMsg.includes('api_key')) {
-                console.error('Authentication error detected. API Key status:', {
-                    hasApiKey: !!this.apiKey,
-                    apiKeyLength: this.apiKey?.length || 0,
-                    apiKeyPrefix: this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'N/A',
-                    isInitialized: this.isInitialized()
-                });
                 return 'Error: Authentication failed. Please verify your Gemini API key in Settings. The API key may be invalid or expired.';
             }
             if (statusCode === 403 || lowerMsg.includes('403') || lowerMsg.includes('forbidden')) {
-                // API 키가 유출되었다고 보고된 경우
                 if (lowerMsg.includes('leaked') || lowerMsg.includes('reported as leaked')) {
                     return 'Error: Your API key was reported as leaked. Please generate a new API key from Google AI Studio and update it in Settings.';
                 }
-                // 일반적인 권한 문제
                 if (lowerMsg.includes('permission') || lowerMsg.includes('permission denied')) {
                     return 'Error: Access forbidden. Check project permissions and billing enablement.';
                 }
                 return 'Error: Access forbidden (403). Please check your API key permissions and billing account status.';
             }
-            // Model/endpoint issues
             if (lowerMsg.includes('404') || lowerMsg.includes('not found') || lowerMsg.includes('model not found')) {
                 return 'Error: API endpoint/model not found. Verify model name and API endpoint.';
             }
@@ -424,9 +421,45 @@ export class GeminiApi {
             if (lowerMsg.includes('internal') || lowerMsg.includes('server error') || lowerMsg.includes('500')) {
                 return 'Error: Upstream server error. Please try again later.';
             }
-            return `Error communicating with CODEPILOT: CODEPILOT agent orchestration service aborted LLM calling`;
+            return `Error communicating with CODEPILOT: ${error.message}`;
         }
         return "Error: An unknown error occurred while communicating with the CODEPILOT.";
+    }
+
+    /**
+     * 스트리밍 응답을 위한 메서드
+     */
+    async sendMessageWithSystemPromptStreaming(
+        systemInstructionText: string,
+        userParts: Part[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: RequestOptions
+    ): Promise<string> {
+        if (!this.apiKey) {
+            throw new Error("CODEPILOT API is not initialized. Please set your API Key in the CODEPILOT settings (License section).");
+        }
+
+        try {
+            const apiParts = this.partsToApiFormat(userParts);
+
+            const body = {
+                systemInstruction: { parts: [{ text: systemInstructionText }] },
+                contents: [{ role: 'user', parts: apiParts }],
+                generationConfig: this.defaultGenerationConfig,
+                safetySettings: SAFETY_SETTINGS,
+            };
+
+            return await this.callApiStreaming(
+                `/models/${this.modelName}:streamGenerateContent`,
+                body,
+                onChunk,
+                options?.signal
+            );
+        } catch (error: any) {
+            console.error('Error calling CODEPILOT API (streaming):', error);
+            onChunk('', true);
+            return this.handleApiError(error);
+        }
     }
 
     /**
@@ -438,8 +471,7 @@ export class GeminiApi {
                 return { success: false, error: 'No API key configured' };
             }
 
-            // 간단한 테스트 요청
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`);
+            const response = await fetch(`${API_BASE_URL}/models?key=${this.apiKey}`);
 
             if (response.ok) {
                 const data = await response.json();
@@ -452,4 +484,3 @@ export class GeminiApi {
         }
     }
 }
-

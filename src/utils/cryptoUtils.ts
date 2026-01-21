@@ -4,7 +4,7 @@ console.log('[CryptoUtils] Module loading...');
 export class CryptoUtils {
     private static readonly ALGORITHM = 'aes-256-cbc';
     private static readonly ENCODING = 'hex';
-    private static readonly SECRET_KEY = 'aidev-ide-banya-license-2025-secret-key-32bytes'; // 32바이트 키
+    private static readonly SECRET_KEY = 'codepilot-banya-license-2025-secret-key-32bytes'; // 32바이트 키
 
     /**
      * 문자열을 암호화합니다.

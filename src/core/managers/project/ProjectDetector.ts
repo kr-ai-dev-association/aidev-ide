@@ -318,6 +318,18 @@ export class ProjectDetector {
         }
     }
 
+    /**
+     * Go 프로젝트에 테스트 파일이 있는지 확인
+     */
+    private hasGoTestFiles(projectRoot: string): boolean {
+        try {
+            const files = fs.readdirSync(projectRoot);
+            return files.some(f => f.endsWith('_test.go'));
+        } catch {
+            return false;
+        }
+    }
+
     public getValidationCommand(
         projectType: ProjectType,
         projectRoot: string,
@@ -371,6 +383,25 @@ export class ProjectDetector {
         }
         if (fs.existsSync(path.join(projectRoot, 'turbo.json'))) {
             return { command: 'npx turbo run lint --filter=...', description: 'TurboRepo Lint' };
+        }
+
+        // 5. GitHub Actions Workflow Validation (프로젝트에 .github/workflows가 있는 경우)
+        if (fs.existsSync(path.join(projectRoot, '.github', 'workflows'))) {
+            try {
+                const workflowFiles = fs.readdirSync(path.join(projectRoot, '.github', 'workflows'))
+                    .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'));
+                if (workflowFiles.length > 0) {
+                    // actionlint가 설치되어 있는지 확인 (설치 여부와 관계없이 명령 제공)
+                    return { command: 'actionlint', description: 'GitHub Actions Workflow Lint' };
+                }
+            } catch {
+                // 디렉토리 읽기 실패 시 무시
+            }
+        }
+
+        // 6. EditorConfig 검증
+        if (fs.existsSync(path.join(projectRoot, '.editorconfig'))) {
+            return { command: 'editorconfig-checker', description: 'EditorConfig 검증' };
         }
 
         switch (projectType) {
@@ -436,11 +467,32 @@ export class ProjectDetector {
                         return { command: 'deno lint', description: 'Deno Lint' };
                     }
 
+                    // ESLint (설정 파일이 있는 경우)
+                    if (fs.existsSync(path.join(projectRoot, '.eslintrc')) ||
+                        fs.existsSync(path.join(projectRoot, '.eslintrc.js')) ||
+                        fs.existsSync(path.join(projectRoot, '.eslintrc.json')) ||
+                        fs.existsSync(path.join(projectRoot, '.eslintrc.yml')) ||
+                        fs.existsSync(path.join(projectRoot, 'eslint.config.js')) ||
+                        fs.existsSync(path.join(projectRoot, 'eslint.config.mjs'))) {
+                        return { command: `${pm} eslint .`, description: 'ESLint 검사' };
+                    }
+
+                    // Standard JS (설정이 있는 경우)
+                    try {
+                        const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'));
+                        if (pkg.devDependencies?.standard || pkg.dependencies?.standard) {
+                            return { command: `${pm} standard`, description: 'Standard JS 검사' };
+                        }
+                    } catch {
+                        // package.json 파싱 실패 시 무시
+                    }
+
                     // package.json scripts
                     if (this.hasScript(projectRoot, 'lint')) return { command: `${pm} run lint`, description: 'NPM Lint 스크립트' };
                     if (this.hasScript(projectRoot, 'type-check')) return { command: `${pm} run type-check`, description: 'Type Check' };
                     if (this.hasScript(projectRoot, 'validate')) return { command: `${pm} run validate`, description: 'Validate 스크립트' };
                     if (this.hasScript(projectRoot, 'build')) return { command: `${pm} run build`, description: 'Build 스크립트' };
+                    if (this.hasScript(projectRoot, 'test')) return { command: `${pm} run test`, description: 'Test 스크립트' };
                 }
 
                 // JavaScript만 있는 경우 npm run build 시도 (package.json에 build 스크립트가 있는 경우)
@@ -477,84 +529,127 @@ export class ProjectDetector {
                 // =========================================================
                 // Python 프로젝트: 린터 → 타입 체커 → 문법 검사 순으로 실행
                 // =========================================================
-                
+
                 const pythonFiles = allFiles.filter(f => f.endsWith('.py'));
-                
+
                 if (pythonFiles.length > 0) {
                     const relativePaths = pythonFiles.map(f =>
                         path.isAbsolute(f) ? path.relative(projectRoot, f) : f
                     ).join(' ');
-                    
+
                     // 1순위: Ruff (매우 빠른 최신 린터 + 포매터)
-                    if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) || 
+                    if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) ||
                         fs.existsSync(path.join(projectRoot, '.ruff.toml')) ||
                         fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
-                        return { 
-                            command: `ruff check ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
-                            description: 'Ruff Lint + Python Syntax Check' 
+                        return {
+                            command: `ruff check ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Ruff Lint + Python Syntax Check'
                         };
                     }
-                    
+
                     // 2순위: Flake8 (널리 사용되는 린터)
                     if (fs.existsSync(path.join(projectRoot, '.flake8')) ||
                         fs.existsSync(path.join(projectRoot, 'setup.cfg'))) {
-                        return { 
-                            command: `flake8 ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
-                            description: 'Flake8 Lint + Python Syntax Check' 
+                        return {
+                            command: `flake8 ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Flake8 Lint + Python Syntax Check'
                         };
                     }
-                    
+
                     // 3순위: Pylint (강력한 린터)
                     if (fs.existsSync(path.join(projectRoot, '.pylintrc')) ||
                         fs.existsSync(path.join(projectRoot, 'pylintrc'))) {
-                        return { 
-                            command: `pylint ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
-                            description: 'Pylint + Python Syntax Check' 
+                        return {
+                            command: `pylint ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Pylint + Python Syntax Check'
                         };
                     }
-                    
+
                     // 4순위: Mypy (타입 체커)
                     if (fs.existsSync(path.join(projectRoot, 'mypy.ini')) ||
                         fs.existsSync(path.join(projectRoot, '.mypy.ini'))) {
-                        return { 
-                            command: `mypy ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`, 
-                            description: 'Mypy Type Check + Python Syntax Check' 
+                        return {
+                            command: `mypy ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Mypy Type Check + Python Syntax Check'
                         };
                     }
-                    
-                    // 5순위: Poetry/Pipenv 환경 검사
+
+                    // 5순위: Bandit (보안 취약점 검사)
+                    if (fs.existsSync(path.join(projectRoot, '.bandit')) ||
+                        fs.existsSync(path.join(projectRoot, 'bandit.yaml'))) {
+                        return {
+                            command: `bandit -r ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Bandit Security Check + Python Syntax Check'
+                        };
+                    }
+
+                    // 6순위: Pyright (타입 체커 - 빠름)
+                    if (fs.existsSync(path.join(projectRoot, 'pyrightconfig.json'))) {
+                        return {
+                            command: `pyright ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Pyright Type Check + Python Syntax Check'
+                        };
+                    }
+
+                    // 7순위: Poetry/Pipenv 환경 검사
                     if (fs.existsSync(path.join(projectRoot, 'poetry.lock'))) {
-                        return { 
-                            command: `poetry check && python3 -m compileall -q -j 0 ${relativePaths}`, 
-                            description: 'Poetry Check + Python Syntax Check' 
+                        return {
+                            command: `poetry check && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Poetry Check + Python Syntax Check'
                         };
                     }
-                    
+
                     if (fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
-                        return { 
-                            command: `pipenv check && python3 -m compileall -q -j 0 ${relativePaths}`, 
-                            description: 'Pipenv Check + Python Syntax Check' 
+                        return {
+                            command: `pipenv check && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            description: 'Pipenv Check + Python Syntax Check'
                         };
                     }
-                    
+
                     // 기본: 문법 검사만 수행
-                    return { 
-                        command: `python3 -m compileall -q -j 0 ${relativePaths}`, 
-                        description: 'Python Syntax Check' 
+                    return {
+                        command: `python3 -m compileall -q -j 0 ${relativePaths}`,
+                        description: 'Python Syntax Check'
                     };
                 }
-                
+
                 return null;
 
             case ProjectType.GO:
                 // Go 확장 검증 옵션
-                if (fs.existsSync(path.join(projectRoot, 'golangci.yml'))) {
+                // 1순위: golangci-lint (종합 린터)
+                if (fs.existsSync(path.join(projectRoot, '.golangci.yml')) ||
+                    fs.existsSync(path.join(projectRoot, '.golangci.yaml')) ||
+                    fs.existsSync(path.join(projectRoot, 'golangci.yml'))) {
                     return { command: 'golangci-lint run', description: 'GolangCI-Lint' };
                 }
+
+                // 2순위: staticcheck (인기있는 정적 분석 도구)
+                if (fs.existsSync(path.join(projectRoot, 'staticcheck.conf'))) {
+                    return { command: 'staticcheck ./...', description: 'Go Staticcheck' };
+                }
+
+                // 3순위: go vet + go test -race (데이터 레이스 검사)
+                if (this.hasGoTestFiles(projectRoot)) {
+                    return { command: 'go vet ./... && go test -race -short ./...', description: 'Go Vet + Race Detection' };
+                }
+
+                // 기본: go vet
                 return { command: 'go vet ./...', description: 'Go Vet' };
 
             case ProjectType.RUST:
-                return { command: 'cargo check', description: 'Rust 컴파일 검사 (cargo check)' };
+                // Rust 확장 검증 옵션
+                // 1순위: cargo clippy (강력한 린터)
+                if (fs.existsSync(path.join(projectRoot, 'clippy.toml')) ||
+                    fs.existsSync(path.join(projectRoot, '.clippy.toml'))) {
+                    return { command: 'cargo clippy -- -D warnings', description: 'Cargo Clippy (warnings as errors)' };
+                }
+
+                // 2순위: cargo clippy (기본)
+                return { command: 'cargo clippy', description: 'Cargo Clippy' };
+
+                // 3순위: cargo check (컴파일 검사만)
+                // return { command: 'cargo check', description: 'Rust 컴파일 검사 (cargo check)' };
 
             case ProjectType.FLUTTER:
                 return { command: 'flutter analyze', description: 'Flutter 정적 분석' };
@@ -657,6 +752,112 @@ export class ProjectDetector {
                 // --- Elixir ---
                 if (extensions.has('.ex') || extensions.has('.exs')) {
                     return { command: 'mix compile --warnings-as-errors', description: 'Mix Compile' };
+                }
+
+                // --- Scala ---
+                if (extensions.has('.scala')) {
+                    if (fs.existsSync(path.join(projectRoot, 'build.sbt'))) {
+                        return { command: 'sbt compile', description: 'Scala Compile' };
+                    }
+                    return { command: 'scalac -version && echo "Scala files detected"', description: 'Scala Check' };
+                }
+
+                // --- Kotlin (non-Android) ---
+                if (extensions.has('.kt') || extensions.has('.kts')) {
+                    if (fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
+                        return { command: './gradlew compileKotlin', description: 'Kotlin Gradle Compile' };
+                    }
+                    return { command: 'kotlinc -version && echo "Kotlin files detected"', description: 'Kotlin Check' };
+                }
+
+                // --- Haskell ---
+                if (extensions.has('.hs')) {
+                    if (fs.existsSync(path.join(projectRoot, 'stack.yaml'))) {
+                        return { command: 'stack build --dry-run', description: 'Haskell Stack Check' };
+                    }
+                    if (fs.existsSync(path.join(projectRoot, 'cabal.project'))) {
+                        return { command: 'cabal build --dry-run', description: 'Haskell Cabal Check' };
+                    }
+                }
+
+                // --- OCaml ---
+                if (extensions.has('.ml') || extensions.has('.mli')) {
+                    if (fs.existsSync(path.join(projectRoot, 'dune-project'))) {
+                        return { command: 'dune build --dry-run', description: 'OCaml Dune Build' };
+                    }
+                }
+
+                // --- YAML/YML (일반) ---
+                if (extensions.has('.yaml') || extensions.has('.yml')) {
+                    // yamllint 또는 yq 사용
+                    const yamlFiles = allFiles.filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+                    if (yamlFiles.length > 0) {
+                        const firstFile = yamlFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        return { command: `yamllint ${relativePath} || yq eval ${relativePath} > /dev/null`, description: 'YAML Validation' };
+                    }
+                }
+
+                // --- TOML ---
+                if (extensions.has('.toml')) {
+                    const tomlFiles = allFiles.filter(f => f.endsWith('.toml'));
+                    if (tomlFiles.length > 0) {
+                        const firstFile = tomlFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        return { command: `taplo format --check ${relativePath} || echo "TOML file exists"`, description: 'TOML Validation' };
+                    }
+                }
+
+                // --- Markdown ---
+                if (extensions.has('.md')) {
+                    // markdownlint 사용
+                    const mdFiles = allFiles.filter(f => f.endsWith('.md'));
+                    if (mdFiles.length > 0) {
+                        const fileList = mdFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return { command: `markdownlint ${fileList}`, description: 'Markdown Lint' };
+                    }
+                }
+
+                // --- SQL ---
+                if (extensions.has('.sql')) {
+                    const sqlFiles = allFiles.filter(f => f.endsWith('.sql'));
+                    if (sqlFiles.length > 0) {
+                        const firstFile = sqlFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        // sqlfluff 또는 sql-lint 사용
+                        return { command: `sqlfluff lint ${relativePath} || sql-lint ${relativePath}`, description: 'SQL Lint' };
+                    }
+                }
+
+                // --- GraphQL ---
+                if (extensions.has('.graphql') || extensions.has('.gql')) {
+                    const gqlFiles = allFiles.filter(f => f.endsWith('.graphql') || f.endsWith('.gql'));
+                    if (gqlFiles.length > 0) {
+                        const fileList = gqlFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return { command: `graphql-schema-linter ${fileList}`, description: 'GraphQL Schema Lint' };
+                    }
+                }
+
+                // --- Protobuf ---
+                if (extensions.has('.proto')) {
+                    const protoFiles = allFiles.filter(f => f.endsWith('.proto'));
+                    if (protoFiles.length > 0) {
+                        const firstFile = protoFiles[0];
+                        const relativePath = path.isAbsolute(firstFile)
+                            ? path.relative(projectRoot, firstFile)
+                            : firstFile;
+                        return { command: `protoc --descriptor_set_out=/dev/null ${relativePath}`, description: 'Protobuf Validation' };
+                    }
                 }
 
                 // =========================================================
@@ -920,6 +1121,304 @@ JSON 형식으로 응답하세요:
         } catch (error) {
             console.error('[ProjectDetector] Error in LLM fallback:', error);
             return null;
+        }
+    }
+
+    /**
+     * 프로젝트 타입에 따라 적절한 formatter 명령어를 반환합니다
+     * Formatter는 tsc/build 전에 실행되어야 합니다
+     */
+    public getFormatterCommand(
+        projectType: ProjectType,
+        projectRoot: string,
+        createdFiles: string[],
+        modifiedFiles: string[]
+    ): { command: string; description: string } | null {
+        const allFiles = [...createdFiles, ...modifiedFiles];
+
+        switch (projectType) {
+            case ProjectType.TYPESCRIPT:
+            case ProjectType.REACT:
+            case ProjectType.VUE:
+            case ProjectType.ANGULAR:
+            case ProjectType.NODE:
+            case ProjectType.JAVASCRIPT:
+                // ✅ JavaScript / TypeScript / Web 계열
+                // 1순위: Biome (Formatter + Linter 통합, 매우 빠름)
+                if (fs.existsSync(path.join(projectRoot, 'biome.json')) ||
+                    fs.existsSync(path.join(projectRoot, 'biome.jsonc'))) {
+                    if (allFiles.length > 0) {
+                        const fileList = allFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return {
+                            command: `biome format --write ${fileList}`,
+                            description: 'Biome Formatter (선택 파일)'
+                        };
+                    }
+                    return {
+                        command: 'biome format --write .',
+                        description: 'Biome Formatter (전체)'
+                    };
+                }
+
+                // 2순위: Prettier (사실상 표준)
+                // package.json scripts 확인 (우선순위 1)
+                if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
+                    const pm = this.detectPackageManager(projectRoot);
+                    if (this.hasScript(projectRoot, 'format')) {
+                        return {
+                            command: `${pm} run format`,
+                            description: 'NPM Format 스크립트'
+                        };
+                    }
+                }
+
+                // Prettier 설정 파일 확인
+                if (fs.existsSync(path.join(projectRoot, '.prettierrc')) ||
+                    fs.existsSync(path.join(projectRoot, '.prettierrc.json')) ||
+                    fs.existsSync(path.join(projectRoot, '.prettierrc.js')) ||
+                    fs.existsSync(path.join(projectRoot, 'prettier.config.js')) ||
+                    fs.existsSync(path.join(projectRoot, '.prettierrc.yaml')) ||
+                    fs.existsSync(path.join(projectRoot, '.prettierrc.yml'))) {
+                    // ✅ npx prettier 사용 (npm, yarn, pnpm 모두 지원)
+                    if (allFiles.length > 0) {
+                        const fileList = allFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return {
+                            command: `npx prettier --write ${fileList}`,
+                            description: 'Prettier Formatter (선택 파일)'
+                        };
+                    }
+                    return {
+                        command: 'npx prettier --write .',
+                        description: 'Prettier Formatter (전체)'
+                    };
+                }
+
+                // 기본값: Prettier 시도 (설정 파일이 없어도)
+                if (allFiles.length > 0) {
+                    const fileList = allFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `npx prettier --write ${fileList}`,
+                        description: 'Prettier Formatter (기본, 선택 파일)'
+                    };
+                }
+                return {
+                    command: 'npx prettier --write .',
+                    description: 'Prettier Formatter (기본, 전체)'
+                };
+
+            case ProjectType.PYTHON:
+            case ProjectType.DJANGO:
+            case ProjectType.FLASK:
+            case ProjectType.FASTAPI:
+                // ✅ Python
+                // 1순위: Ruff format (Black 호환 + 매우 빠름)
+                if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) ||
+                    fs.existsSync(path.join(projectRoot, '.ruff.toml')) ||
+                    fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
+                    const pythonFiles = allFiles.filter(f => f.endsWith('.py'));
+                    if (pythonFiles.length > 0) {
+                        const fileList = pythonFiles.map(f =>
+                            path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                        ).join(' ');
+                        return {
+                            command: `ruff format ${fileList}`,
+                            description: 'Ruff Formatter (선택 파일)'
+                        };
+                    }
+                    return {
+                        command: 'ruff format .',
+                        description: 'Ruff Formatter (전체)'
+                    };
+                }
+
+                // 2순위: Black (사실상 표준)
+                const pythonFiles = allFiles.filter(f => f.endsWith('.py'));
+                if (pythonFiles.length > 0) {
+                    const fileList = pythonFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `black ${fileList}`,
+                        description: 'Black Formatter (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'black .',
+                    description: 'Black Formatter (전체)'
+                };
+
+            case ProjectType.GO:
+                // ✅ Go
+                // gofmt는 절대적 표준
+                const goFiles = allFiles.filter(f => f.endsWith('.go'));
+                if (goFiles.length > 0) {
+                    const fileList = goFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `gofmt -w ${fileList}`,
+                        description: 'gofmt Formatter (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'gofmt -w .',
+                    description: 'gofmt Formatter (전체)'
+                };
+
+            case ProjectType.RUST:
+                // ✅ Rust
+                return {
+                    command: 'cargo fmt',
+                    description: 'rustfmt Formatter'
+                };
+
+            case ProjectType.SPRING_BOOT:
+            case ProjectType.JAVA:
+                // ✅ Java
+                // google-java-format
+                const javaFiles = allFiles.filter(f => f.endsWith('.java'));
+                if (javaFiles.length > 0) {
+                    const fileList = javaFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `google-java-format -i ${fileList}`,
+                        description: 'google-java-format (선택 파일)'
+                    };
+                }
+                // 전체 파일 포맷팅은 시간이 오래 걸릴 수 있으므로 선택 파일만
+                return null;
+
+            case ProjectType.PHP:
+                // ✅ PHP
+                // Laravel Pint (Laravel 전용)
+                if (fs.existsSync(path.join(projectRoot, 'pint.json')) ||
+                    fs.existsSync(path.join(projectRoot, 'composer.json'))) {
+                    const composerJson = JSON.parse(
+                        fs.readFileSync(path.join(projectRoot, 'composer.json'), 'utf8')
+                    );
+                    if (composerJson.require?.['laravel/framework'] ||
+                        composerJson['require-dev']?.['laravel/pint']) {
+                        const phpFiles = allFiles.filter(f => f.endsWith('.php'));
+                        if (phpFiles.length > 0) {
+                            const fileList = phpFiles.map(f =>
+                                path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                            ).join(' ');
+                            return {
+                                command: `./vendor/bin/pint ${fileList}`,
+                                description: 'Laravel Pint Formatter (선택 파일)'
+                            };
+                        }
+                        return {
+                            command: './vendor/bin/pint',
+                            description: 'Laravel Pint Formatter (전체)'
+                        };
+                    }
+                }
+
+                // PHP-CS-Fixer
+                const phpFiles = allFiles.filter(f => f.endsWith('.php'));
+                if (phpFiles.length > 0) {
+                    const fileList = phpFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `php-cs-fixer fix ${fileList}`,
+                        description: 'PHP-CS-Fixer (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'php-cs-fixer fix .',
+                    description: 'PHP-CS-Fixer (전체)'
+                };
+
+            case ProjectType.RUBY:
+                // ✅ Ruby
+                // Rubocop --auto-correct
+                const rubyFiles = allFiles.filter(f => f.endsWith('.rb'));
+                if (rubyFiles.length > 0) {
+                    const fileList = rubyFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `rubocop --auto-correct ${fileList}`,
+                        description: 'Rubocop Formatter (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'rubocop --auto-correct',
+                    description: 'Rubocop Formatter (전체)'
+                };
+
+            case ProjectType.CSHARP:
+                // ✅ C#
+                return {
+                    command: 'dotnet format',
+                    description: 'dotnet format Formatter'
+                };
+
+            case ProjectType.SWIFT:
+                // ✅ Swift
+                const swiftFiles = allFiles.filter(f => f.endsWith('.swift'));
+                if (swiftFiles.length > 0) {
+                    const fileList = swiftFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `swift-format -i ${fileList}`,
+                        description: 'swift-format (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'swift-format -i .',
+                    description: 'swift-format (전체)'
+                };
+
+            case ProjectType.FLUTTER:
+                // ✅ Flutter / Dart
+                const dartFiles = allFiles.filter(f => f.endsWith('.dart'));
+                if (dartFiles.length > 0) {
+                    const fileList = dartFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `dart format ${fileList}`,
+                        description: 'dart format (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'dart format .',
+                    description: 'dart format (전체)'
+                };
+
+            case ProjectType.C_CPP:
+                // ✅ C / C++
+                const cppFiles = allFiles.filter(f =>
+                    f.endsWith('.c') || f.endsWith('.cpp') || f.endsWith('.cc') ||
+                    f.endsWith('.cxx') || f.endsWith('.h') || f.endsWith('.hpp')
+                );
+                if (cppFiles.length > 0) {
+                    const fileList = cppFiles.map(f =>
+                        path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                    ).join(' ');
+                    return {
+                        command: `clang-format -i ${fileList}`,
+                        description: 'clang-format (선택 파일)'
+                    };
+                }
+                return {
+                    command: 'find . -name "*.cpp" -o -name "*.h" | xargs clang-format -i',
+                    description: 'clang-format (전체)'
+                };
+
+            default:
+                return null;
         }
     }
 }

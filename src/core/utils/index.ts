@@ -4,4 +4,5 @@
  */
 
 export { SafeSettingsHelper } from './SafeSettingsHelper';
+export * from './FileExclusionConstants';
 

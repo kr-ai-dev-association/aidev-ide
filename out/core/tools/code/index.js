@@ -1,0 +1,7 @@
+"use strict";
+/**
+ * Code-related tool handlers (분석/검증/리팩토링용)
+ * 현재는 placeholder이며, 향후 Analyze/Verify/Refactor 툴 추가 시 여기에 배치합니다.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+//# sourceMappingURL=index.js.map

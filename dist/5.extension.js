@@ -3,225 +3,447 @@ exports.id = 5;
 exports.ids = [5];
 exports.modules = {
 
-/***/ 298:
-/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+/***/ 517:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   toFormData: () => (/* binding */ toFormData)
+/* harmony export */ });
+/* harmony import */ var fetch_blob_from_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(514);
+/* harmony import */ var formdata_polyfill_esm_min_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(501);
 
 
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.OllamaApi = void 0;
-const http = __importStar(__webpack_require__(151));
-const https = __importStar(__webpack_require__(152));
-const url_1 = __webpack_require__(153);
-// @deprecated StorageService는 core StateManager로 대체됨
-// import { StorageService } from '../services/storage';
-const StateManager_1 = __webpack_require__(123);
-class OllamaApi {
-    apiUrl;
-    endpoint = '/api/generate';
-    modelName = 'gemma3:27b';
-    // @deprecated storageService는 core StateManager로 대체됨
-    // private storageService: StorageService | null;
-    extensionContext;
-    constructor(apiUrl, endpoint, extensionContext) {
-        this.apiUrl = apiUrl || 'http://localhost:11434';
-        this.endpoint = endpoint || '/api/generate';
-        this.extensionContext = extensionContext;
-    }
-    getApiUrl() {
-        return this.apiUrl;
-    }
-    getEndpoint() {
-        return this.endpoint;
-    }
-    getModel() {
-        return this.modelName;
-    }
-    getCurrentModelName() {
-        return this.modelName;
-    }
-    setModel(modelName) {
-        this.modelName = modelName;
-    }
-    setApiUrl(apiUrl) {
-        this.apiUrl = apiUrl;
-    }
-    setEndpoint(endpoint) {
-        this.endpoint = endpoint;
-    }
-    async loadSettingsFromStorage() {
-        if (!this.extensionContext)
-            return;
-        try {
-            const stateManager = StateManager_1.StateManager.getInstance(this.extensionContext);
-            const serverType = await stateManager.getOllamaServerType();
-            if (serverType === 'remote') {
-                const remoteApiUrl = await stateManager.getRemoteOllamaApiUrl();
-                const remoteEndpoint = await stateManager.getRemoteOllamaEndpoint();
-                const remoteModel = await stateManager.getRemoteOllamaModel();
-                if (remoteApiUrl)
-                    this.setApiUrl(remoteApiUrl);
-                if (remoteEndpoint)
-                    this.setEndpoint(remoteEndpoint);
-                if (remoteModel)
-                    this.setModel(remoteModel);
-            }
-            else {
-                const localApiUrl = await stateManager.getOllamaApiUrl();
-                const localEndpoint = await stateManager.getOllamaEndpoint();
-                const localModel = await stateManager.getOllamaModel();
-                if (localApiUrl)
-                    this.setApiUrl(localApiUrl);
-                if (localEndpoint)
-                    this.setEndpoint(localEndpoint);
-                if (localModel)
-                    this.setModel(localModel);
-            }
-        }
-        catch (error) {
-            console.error('[OllamaApi] Failed to load settings from storage:', error);
-        }
-    }
-    async sendMessage(message, options) {
-        const maxRetries = options?.retries || 3;
-        let lastError = null;
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                const result = await this.sendMessageInternal(message, options);
-                return result;
-            }
-            catch (error) {
-                lastError = error;
-                console.warn(`[OllamaApi] Attempt ${attempt}/${maxRetries} failed:`, error);
-                if (attempt < maxRetries) {
-                    // 재시도 전 대기 (지수 백오프)
-                    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-                    console.log(`[OllamaApi] Retrying in ${delay}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-        }
-        throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
-    }
-    async sendMessageInternal(message, options) {
-        return new Promise((resolve, reject) => {
-            const url = new url_1.URL(`${this.apiUrl}${this.endpoint}`);
-            const requestData = {
-                model: this.modelName,
-                prompt: message,
-                stream: false
-            };
-            const requestOptions = {
-                hostname: url.hostname,
-                port: url.port || (url.protocol === 'https:' ? 443 : 80),
-                path: url.pathname + url.search,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(JSON.stringify(requestData))
-                }
-            };
-            const req = (url.protocol === 'https:' ? https : http).request(requestOptions, (res) => {
-                let data = '';
-                // HTTP 상태 코드 확인
-                if (res.statusCode && res.statusCode >= 400) {
-                    console.error(`Ollama API error: ${res.statusCode} ${res.statusMessage}`);
-                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-                    return;
-                }
-                res.on('data', (chunk) => {
-                    data += chunk;
-                });
-                res.on('end', () => {
-                    try {
-                        const response = JSON.parse(data);
-                        console.log('Ollama raw response:', response);
-                        // Ollama API 응답 형식 확인 (여러 형식 지원)
-                        if (response.response) {
-                            resolve(response.response);
-                        }
-                        else if (response.message && response.message.content) {
-                            // 다른 형식의 응답 처리
-                            resolve(response.message.content);
-                        }
-                        else if (response.content) {
-                            // content 필드가 있는 경우
-                            resolve(response.content);
-                        }
-                        else if (response.text) {
-                            // text 필드가 있는 경우
-                            resolve(response.text);
-                        }
-                        else if (response.choices && response.choices[0] && response.choices[0].message) {
-                            // OpenAI 형식의 응답 처리
-                            resolve(response.choices[0].message.content);
-                        }
-                        else if (typeof response === 'string') {
-                            // 문자열 응답 처리
-                            resolve(response);
-                        }
-                        else {
-                            console.error('Ollama response format error:', response);
-                            reject(new Error(`Invalid response format: ${JSON.stringify(response)}`));
-                        }
-                    }
-                    catch (error) {
-                        console.error('Ollama response parse error:', error, 'Raw data:', data);
-                        reject(new Error(`Failed to parse response: ${error}`));
-                    }
-                });
-            });
-            req.on('error', (error) => {
-                reject(error);
-            });
-            if (options?.signal) {
-                options.signal.addEventListener('abort', () => {
-                    req.destroy();
-                    reject(new Error('Request aborted'));
-                });
-            }
-            req.write(JSON.stringify(requestData));
-            req.end();
-        });
-    }
-    async sendMessageWithSystemPrompt(systemPrompt, userParts, options) {
-        const fullPrompt = `${systemPrompt}\n\n${userParts.map(part => part.text).join('\n')}`;
-        return this.sendMessage(fullPrompt, options);
-    }
+
+let s = 0;
+const S = {
+	START_BOUNDARY: s++,
+	HEADER_FIELD_START: s++,
+	HEADER_FIELD: s++,
+	HEADER_VALUE_START: s++,
+	HEADER_VALUE: s++,
+	HEADER_VALUE_ALMOST_DONE: s++,
+	HEADERS_ALMOST_DONE: s++,
+	PART_DATA_START: s++,
+	PART_DATA: s++,
+	END: s++
+};
+
+let f = 1;
+const F = {
+	PART_BOUNDARY: f,
+	LAST_BOUNDARY: f *= 2
+};
+
+const LF = 10;
+const CR = 13;
+const SPACE = 32;
+const HYPHEN = 45;
+const COLON = 58;
+const A = 97;
+const Z = 122;
+
+const lower = c => c | 0x20;
+
+const noop = () => {};
+
+class MultipartParser {
+	/**
+	 * @param {string} boundary
+	 */
+	constructor(boundary) {
+		this.index = 0;
+		this.flags = 0;
+
+		this.onHeaderEnd = noop;
+		this.onHeaderField = noop;
+		this.onHeadersEnd = noop;
+		this.onHeaderValue = noop;
+		this.onPartBegin = noop;
+		this.onPartData = noop;
+		this.onPartEnd = noop;
+
+		this.boundaryChars = {};
+
+		boundary = '\r\n--' + boundary;
+		const ui8a = new Uint8Array(boundary.length);
+		for (let i = 0; i < boundary.length; i++) {
+			ui8a[i] = boundary.charCodeAt(i);
+			this.boundaryChars[ui8a[i]] = true;
+		}
+
+		this.boundary = ui8a;
+		this.lookbehind = new Uint8Array(this.boundary.length + 8);
+		this.state = S.START_BOUNDARY;
+	}
+
+	/**
+	 * @param {Uint8Array} data
+	 */
+	write(data) {
+		let i = 0;
+		const length_ = data.length;
+		let previousIndex = this.index;
+		let {lookbehind, boundary, boundaryChars, index, state, flags} = this;
+		const boundaryLength = this.boundary.length;
+		const boundaryEnd = boundaryLength - 1;
+		const bufferLength = data.length;
+		let c;
+		let cl;
+
+		const mark = name => {
+			this[name + 'Mark'] = i;
+		};
+
+		const clear = name => {
+			delete this[name + 'Mark'];
+		};
+
+		const callback = (callbackSymbol, start, end, ui8a) => {
+			if (start === undefined || start !== end) {
+				this[callbackSymbol](ui8a && ui8a.subarray(start, end));
+			}
+		};
+
+		const dataCallback = (name, clear) => {
+			const markSymbol = name + 'Mark';
+			if (!(markSymbol in this)) {
+				return;
+			}
+
+			if (clear) {
+				callback(name, this[markSymbol], i, data);
+				delete this[markSymbol];
+			} else {
+				callback(name, this[markSymbol], data.length, data);
+				this[markSymbol] = 0;
+			}
+		};
+
+		for (i = 0; i < length_; i++) {
+			c = data[i];
+
+			switch (state) {
+				case S.START_BOUNDARY:
+					if (index === boundary.length - 2) {
+						if (c === HYPHEN) {
+							flags |= F.LAST_BOUNDARY;
+						} else if (c !== CR) {
+							return;
+						}
+
+						index++;
+						break;
+					} else if (index - 1 === boundary.length - 2) {
+						if (flags & F.LAST_BOUNDARY && c === HYPHEN) {
+							state = S.END;
+							flags = 0;
+						} else if (!(flags & F.LAST_BOUNDARY) && c === LF) {
+							index = 0;
+							callback('onPartBegin');
+							state = S.HEADER_FIELD_START;
+						} else {
+							return;
+						}
+
+						break;
+					}
+
+					if (c !== boundary[index + 2]) {
+						index = -2;
+					}
+
+					if (c === boundary[index + 2]) {
+						index++;
+					}
+
+					break;
+				case S.HEADER_FIELD_START:
+					state = S.HEADER_FIELD;
+					mark('onHeaderField');
+					index = 0;
+					// falls through
+				case S.HEADER_FIELD:
+					if (c === CR) {
+						clear('onHeaderField');
+						state = S.HEADERS_ALMOST_DONE;
+						break;
+					}
+
+					index++;
+					if (c === HYPHEN) {
+						break;
+					}
+
+					if (c === COLON) {
+						if (index === 1) {
+							// empty header field
+							return;
+						}
+
+						dataCallback('onHeaderField', true);
+						state = S.HEADER_VALUE_START;
+						break;
+					}
+
+					cl = lower(c);
+					if (cl < A || cl > Z) {
+						return;
+					}
+
+					break;
+				case S.HEADER_VALUE_START:
+					if (c === SPACE) {
+						break;
+					}
+
+					mark('onHeaderValue');
+					state = S.HEADER_VALUE;
+					// falls through
+				case S.HEADER_VALUE:
+					if (c === CR) {
+						dataCallback('onHeaderValue', true);
+						callback('onHeaderEnd');
+						state = S.HEADER_VALUE_ALMOST_DONE;
+					}
+
+					break;
+				case S.HEADER_VALUE_ALMOST_DONE:
+					if (c !== LF) {
+						return;
+					}
+
+					state = S.HEADER_FIELD_START;
+					break;
+				case S.HEADERS_ALMOST_DONE:
+					if (c !== LF) {
+						return;
+					}
+
+					callback('onHeadersEnd');
+					state = S.PART_DATA_START;
+					break;
+				case S.PART_DATA_START:
+					state = S.PART_DATA;
+					mark('onPartData');
+					// falls through
+				case S.PART_DATA:
+					previousIndex = index;
+
+					if (index === 0) {
+						// boyer-moore derrived algorithm to safely skip non-boundary data
+						i += boundaryEnd;
+						while (i < bufferLength && !(data[i] in boundaryChars)) {
+							i += boundaryLength;
+						}
+
+						i -= boundaryEnd;
+						c = data[i];
+					}
+
+					if (index < boundary.length) {
+						if (boundary[index] === c) {
+							if (index === 0) {
+								dataCallback('onPartData', true);
+							}
+
+							index++;
+						} else {
+							index = 0;
+						}
+					} else if (index === boundary.length) {
+						index++;
+						if (c === CR) {
+							// CR = part boundary
+							flags |= F.PART_BOUNDARY;
+						} else if (c === HYPHEN) {
+							// HYPHEN = end boundary
+							flags |= F.LAST_BOUNDARY;
+						} else {
+							index = 0;
+						}
+					} else if (index - 1 === boundary.length) {
+						if (flags & F.PART_BOUNDARY) {
+							index = 0;
+							if (c === LF) {
+								// unset the PART_BOUNDARY flag
+								flags &= ~F.PART_BOUNDARY;
+								callback('onPartEnd');
+								callback('onPartBegin');
+								state = S.HEADER_FIELD_START;
+								break;
+							}
+						} else if (flags & F.LAST_BOUNDARY) {
+							if (c === HYPHEN) {
+								callback('onPartEnd');
+								state = S.END;
+								flags = 0;
+							} else {
+								index = 0;
+							}
+						} else {
+							index = 0;
+						}
+					}
+
+					if (index > 0) {
+						// when matching a possible boundary, keep a lookbehind reference
+						// in case it turns out to be a false lead
+						lookbehind[index - 1] = c;
+					} else if (previousIndex > 0) {
+						// if our boundary turned out to be rubbish, the captured lookbehind
+						// belongs to partData
+						const _lookbehind = new Uint8Array(lookbehind.buffer, lookbehind.byteOffset, lookbehind.byteLength);
+						callback('onPartData', 0, previousIndex, _lookbehind);
+						previousIndex = 0;
+						mark('onPartData');
+
+						// reconsider the current character even so it interrupted the sequence
+						// it could be the beginning of a new sequence
+						i--;
+					}
+
+					break;
+				case S.END:
+					break;
+				default:
+					throw new Error(`Unexpected state entered: ${state}`);
+			}
+		}
+
+		dataCallback('onHeaderField');
+		dataCallback('onHeaderValue');
+		dataCallback('onPartData');
+
+		// Update properties for the next call
+		this.index = index;
+		this.state = state;
+		this.flags = flags;
+	}
+
+	end() {
+		if ((this.state === S.HEADER_FIELD_START && this.index === 0) ||
+			(this.state === S.PART_DATA && this.index === this.boundary.length)) {
+			this.onPartEnd();
+		} else if (this.state !== S.END) {
+			throw new Error('MultipartParser.end(): stream ended unexpectedly');
+		}
+	}
 }
-exports.OllamaApi = OllamaApi;
+
+function _fileName(headerValue) {
+	// matches either a quoted-string or a token (RFC 2616 section 19.5.1)
+	const m = headerValue.match(/\bfilename=("(.*?)"|([^()<>@,;:\\"/[\]?={}\s\t]+))($|;\s)/i);
+	if (!m) {
+		return;
+	}
+
+	const match = m[2] || m[3] || '';
+	let filename = match.slice(match.lastIndexOf('\\') + 1);
+	filename = filename.replace(/%22/g, '"');
+	filename = filename.replace(/&#(\d{4});/g, (m, code) => {
+		return String.fromCharCode(code);
+	});
+	return filename;
+}
+
+async function toFormData(Body, ct) {
+	if (!/multipart/i.test(ct)) {
+		throw new TypeError('Failed to fetch');
+	}
+
+	const m = ct.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+
+	if (!m) {
+		throw new TypeError('no or bad content-type header, no multipart boundary');
+	}
+
+	const parser = new MultipartParser(m[1] || m[2]);
+
+	let headerField;
+	let headerValue;
+	let entryValue;
+	let entryName;
+	let contentType;
+	let filename;
+	const entryChunks = [];
+	const formData = new formdata_polyfill_esm_min_js__WEBPACK_IMPORTED_MODULE_1__.FormData();
+
+	const onPartData = ui8a => {
+		entryValue += decoder.decode(ui8a, {stream: true});
+	};
+
+	const appendToFile = ui8a => {
+		entryChunks.push(ui8a);
+	};
+
+	const appendFileToFormData = () => {
+		const file = new fetch_blob_from_js__WEBPACK_IMPORTED_MODULE_0__.File(entryChunks, filename, {type: contentType});
+		formData.append(entryName, file);
+	};
+
+	const appendEntryToFormData = () => {
+		formData.append(entryName, entryValue);
+	};
+
+	const decoder = new TextDecoder('utf-8');
+	decoder.decode();
+
+	parser.onPartBegin = function () {
+		parser.onPartData = onPartData;
+		parser.onPartEnd = appendEntryToFormData;
+
+		headerField = '';
+		headerValue = '';
+		entryValue = '';
+		entryName = '';
+		contentType = '';
+		filename = null;
+		entryChunks.length = 0;
+	};
+
+	parser.onHeaderField = function (ui8a) {
+		headerField += decoder.decode(ui8a, {stream: true});
+	};
+
+	parser.onHeaderValue = function (ui8a) {
+		headerValue += decoder.decode(ui8a, {stream: true});
+	};
+
+	parser.onHeaderEnd = function () {
+		headerValue += decoder.decode();
+		headerField = headerField.toLowerCase();
+
+		if (headerField === 'content-disposition') {
+			// matches either a quoted-string or a token (RFC 2616 section 19.5.1)
+			const m = headerValue.match(/\bname=("([^"]*)"|([^()<>@,;:\\"/[\]?={}\s\t]+))/i);
+
+			if (m) {
+				entryName = m[2] || m[3] || '';
+			}
+
+			filename = _fileName(headerValue);
+
+			if (filename) {
+				parser.onPartData = appendToFile;
+				parser.onPartEnd = appendFileToFormData;
+			}
+		} else if (headerField === 'content-type') {
+			contentType = headerValue;
+		}
+
+		headerValue = '';
+		headerField = '';
+	};
+
+	for await (const chunk of Body) {
+		parser.write(chunk);
+	}
+
+	parser.end();
+
+	return formData;
+}
 
 
 /***/ })

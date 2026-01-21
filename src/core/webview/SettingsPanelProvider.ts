@@ -5,7 +5,6 @@ import {
   GeminiApi,
   NotificationService,
   LicenseService,
-  OllamaBlockerService,
   AiModelType,
   ExternalApiService,
 } from "../../services";
@@ -47,8 +46,8 @@ export function openSettingsPanel(
   licenseService: LicenseService, // LicenseService 추가
   ollamaApi?: any, // OllamaApi 추가
   llmService?: any, // LlmService 추가
-  ollamaBlockerService?: OllamaBlockerService, // OllamaBlockerService 추가
   terminalMonitorService?: any, // TerminalMonitorService 추가
+  chatViewProvider?: any, // ChatViewProvider 추가
 ) {
   const settingsManager = SettingsManager.getInstance(context);
   const panel = createAndSetupWebviewPanel(
@@ -88,6 +87,8 @@ export function openSettingsPanel(
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
             const geminiModel = await stateManager.getGeminiModel();
+            const banyaApiKey = await stateManager.getBanyaApiKey();
+            const banyaModel = await stateManager.getBanyaModel();
             const currentAiModel = await stateManager.getCurrentAiModel();
             // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
             const modelToUse = currentAiModel || aiModel || "ollama";
@@ -96,6 +97,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoUpdateEnabled();
             const autoExecuteCommandsEnabled =
               await settingsManager.isAutoExecuteCommandsEnabled();
+            const streamingEnabled =
+              await settingsManager.isStreamingEnabled();
 
             // duplicate removed
             const messageToSend = {
@@ -122,6 +125,7 @@ export function openSettingsPanel(
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
+              streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
             };
             // console.log('Sending currentApiKeys message:', messageToSend);
             safePostMessage(panel, messageToSend);
@@ -230,6 +234,15 @@ export function openSettingsPanel(
                 geminiApi.updateModelName(geminiModelToSave);
               }
               safePostMessage(panel, { command: "geminiModelSaved" });
+
+              // 채팅 패널에도 모델 변경 알림
+              if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
+                chatViewProvider.postMessageToWebview({
+                  command: 'ollamaModelChanged',
+                  model: geminiModelToSave
+                });
+              }
+
               notificationService.showInfoMessage(
                 `CODEPILOT: Gemini Model saved as ${geminiModelToSave}.`,
               );
@@ -248,6 +261,71 @@ export function openSettingsPanel(
               error: "Invalid Gemini Model",
             });
             notificationService.showErrorMessage("Invalid Gemini Model provided.");
+          }
+          break;
+        case "saveBanyaApiKey": // Banya API 키 저장 케이스 추가
+          const banyaApiKeyToSave = data.apiKey;
+          if (banyaApiKeyToSave && typeof banyaApiKeyToSave === "string") {
+            try {
+              await stateManager.saveBanyaApiKey(banyaApiKeyToSave);
+              safePostMessage(panel, { command: "banyaApiKeySaved" });
+              notificationService.showInfoMessage(
+                "CODEPILOT: Banya API Key saved successfully.",
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "banyaApiKeySaveError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error saving Banya API Key: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "banyaApiKeySaveError",
+              error: "Invalid API key",
+            });
+            notificationService.showErrorMessage("Invalid Banya API key provided.");
+          }
+          break;
+        case "saveBanyaModel": // Banya 모델 저장 케이스 추가
+          const banyaModelToSave = data.model;
+          if (banyaModelToSave && typeof banyaModelToSave === "string") {
+            try {
+              await stateManager.saveBanyaModel(banyaModelToSave);
+              safePostMessage(panel, { command: "banyaModelSaved" });
+
+              // 채팅 패널에도 모델 변경 알림
+              console.log('[SettingsPanel] chatViewProvider:', chatViewProvider ? 'exists' : 'undefined');
+              if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
+                console.log('[SettingsPanel] Sending ollamaModelChanged to chat panel:', banyaModelToSave);
+                chatViewProvider.postMessageToWebview({
+                  command: 'ollamaModelChanged',
+                  model: banyaModelToSave
+                });
+              } else {
+                console.warn('[SettingsPanel] chatViewProvider not available or postMessageToWebview not a function');
+              }
+
+              notificationService.showInfoMessage(
+                `CODEPILOT: Banya Model saved as ${banyaModelToSave}.`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "banyaModelSaveError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error saving Banya Model: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "banyaModelSaveError",
+              error: "Invalid Banya Model",
+            });
+            notificationService.showErrorMessage("Invalid Banya Model provided.");
           }
           break;
         case "saveOllamaApiUrl": // Ollama API URL 저장 케이스 추가
@@ -378,6 +456,15 @@ export function openSettingsPanel(
             try {
               await stateManager.saveOllamaModel(ollamaModelToSave);
               safePostMessage(panel, { command: "ollamaModelSaved" });
+
+              // 채팅 패널에도 모델 변경 알림
+              if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
+                chatViewProvider.postMessageToWebview({
+                  command: 'ollamaModelChanged',
+                  model: ollamaModelToSave
+                });
+              }
+
               notificationService.showInfoMessage(
                 "CODEPILOT: Ollama Model saved.",
               );
@@ -887,6 +974,41 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setStreamingEnabled": // 스트리밍 설정 저장 케이스 추가
+          const streamingEnabledToSet = data.enabled;
+          if (typeof streamingEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateStreamingEnabled(
+                streamingEnabledToSet,
+              );
+              safePostMessage(panel, {
+                command: "streamingEnabledSet",
+              });
+              console.log(
+                `[PanelManager] Streaming 설정 저장됨: ${streamingEnabledToSet}`,
+              );
+              notificationService.showInfoMessage(
+                `CODEPILOT: Streaming ${streamingEnabledToSet ? 'enabled' : 'disabled'}.`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "streamingEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Streaming: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "streamingEnabledSetError",
+              error: "Invalid Streaming setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Streaming setting provided.",
+            );
+          }
+          break;
         case "saveAiModel": // AI 모델 저장 케이스 추가
           const aiModelToSave = data.aiModel || data.model;
           if (aiModelToSave && typeof aiModelToSave === "string") {
@@ -902,6 +1024,28 @@ export function openSettingsPanel(
               await stateManager.saveCurrentAiModel(toRuntime);
 
               safePostMessage(panel, { command: "aiModelSaved" });
+
+              // 채팅 패널에도 모델 변경 알림
+              if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
+                // 현재 모델 이름을 가져와서 전달 (Gemini, Banya, Ollama 구분)
+                let modelName = aiModelToSave;
+                if (aiModelToSave === 'gemini') {
+                  const geminiModel = await stateManager.getGeminiModel();
+                  modelName = geminiModel || 'gemini-3-pro-preview';
+                } else if (aiModelToSave === 'banya') {
+                  const config = vscode.workspace.getConfiguration('codepilot');
+                  modelName = config.get<string>('banyaModel') || 'Banya-Solar:100b';
+                } else if (aiModelToSave === 'ollama') {
+                  const ollamaModel = await stateManager.getOllamaModel();
+                  modelName = ollamaModel || '';
+                }
+
+                chatViewProvider.postMessageToWebview({
+                  command: 'ollamaModelChanged',
+                  model: modelName
+                });
+              }
+
               notificationService.showInfoMessage("CODEPILOT: AI Model saved.");
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1084,51 +1228,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "testOllamaBlockerConnection": // Ollama Blocker 연결 테스트 케이스 추가
-          try {
-            if (!ollamaBlockerService) {
-              safePostMessage(panel, {
-                command: "ollamaBlockerConnectionTestResult",
-                success: false,
-                error: "Ollama Blocker service not available",
-              });
-              notificationService.showErrorMessage(
-                "CODEPILOT: Ollama Blocker service not available.",
-              );
-              return;
-            }
-
-            const testResult = await ollamaBlockerService.testConnection();
-            if (testResult.success) {
-              safePostMessage(panel, {
-                command: "ollamaBlockerConnectionTestResult",
-                success: true,
-                data: testResult.data,
-              });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Ollama Blocker connection test successful.",
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "ollamaBlockerConnectionTestResult",
-                success: false,
-                error: testResult.error,
-              });
-              notificationService.showErrorMessage(
-                `CODEPILOT: Ollama Blocker connection test failed: ${testResult.error}`,
-              );
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "ollamaBlockerConnectionTestResult",
-              success: false,
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `CODEPILOT: Ollama Blocker connection test failed: ${error.message}`,
-            );
-          }
-          break;
         case "testTerminalDaemonConnection": // Terminal Daemon 연결 테스트 케이스 추가
           try {
             // 🆕 core TerminalManager 사용
@@ -1170,7 +1269,6 @@ export function openSettingsPanel(
               gemini: false,
               ollama: false,
               banyaLicense: false,
-              ollamaBlocker: false,
               terminalDaemon: false,
             };
 
@@ -1219,15 +1317,6 @@ export function openSettingsPanel(
               /* 무시 */
             }
 
-            // Ollama Blocker 연결 테스트
-            try {
-              if (ollamaBlockerService) {
-                const blockerTest = await ollamaBlockerService.testConnection();
-                results.ollamaBlocker = blockerTest.success;
-              }
-            } catch (e) {
-              /* 무시 */
-            }
 
             // Terminal Daemon 연결 테스트
             try {
@@ -1281,11 +1370,15 @@ export function openSettingsPanel(
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
             const geminiModel = await stateManager.getGeminiModel();
+            const banyaApiKey = await stateManager.getBanyaApiKey();
+            const banyaModel = await stateManager.getBanyaModel();
 
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
               geminiModel: geminiModel || "gemini-3-pro-preview",
+              banyaApiKey: banyaApiKey || "",
+              banyaModel: banyaModel || "Banya-Solar:100b",
               ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
@@ -1341,6 +1434,8 @@ export function openSettingsPanel(
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
             const geminiModel = await stateManager.getGeminiModel();
+            const banyaApiKey = await stateManager.getBanyaApiKey();
+            const banyaModel = await stateManager.getBanyaModel();
             const currentAiModel = await stateManager.getCurrentAiModel();
             // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
             const modelToUse = currentAiModel || aiModel || "ollama";
@@ -1349,6 +1444,8 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               geminiModel: geminiModel || "gemini-3-pro-preview",
+              banyaApiKey: banyaApiKey || "",
+              banyaModel: banyaModel || "Banya-Solar:100b",
               ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",

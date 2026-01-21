@@ -5,4 +5,5 @@
 
 export { ConversationManager, ConversationOptions } from './ConversationManager';
 export { ConversationService, ConversationServiceOptions } from './ConversationService';
+export { ConversationCompactor, CompactionResult, CompactorConfig } from './ConversationCompactor';
 

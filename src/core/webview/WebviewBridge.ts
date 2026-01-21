@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { safePostMessage } from '../../utils';
+import { StreamingToolParser, StreamingParseResult, createStreamingToolCallback } from '../tools/StreamingToolParser';
+import { ToolUse } from '../tools/types';
 
 export interface ProcessingStatusCallback {
     (step: string, status: string): void;
@@ -32,11 +34,14 @@ export class WebviewBridge {
      */
     public static receiveMessage(webview: vscode.Webview | undefined, sender: string, text: string): void {
         if (webview) {
-            safePostMessage(webview, { 
-                command: 'receiveMessage', 
-                sender, 
-                text 
+            console.log(`[WebviewBridge] receiveMessage: sender="${sender}", textLength=${text?.length || 0}, hasCodeBlock=${text?.includes('\`\`\`') || false}`);
+            safePostMessage(webview, {
+                command: 'receiveMessage',
+                sender,
+                text
             });
+        } else {
+            console.warn(`[WebviewBridge] receiveMessage SKIPPED: webview is undefined, sender="${sender}"`);
         }
     }
 
@@ -110,5 +115,121 @@ export class WebviewBridge {
         return (step: string, status: string) => {
             WebviewBridge.sendProcessingStatus(webview, step, status);
         };
+    }
+
+    /**
+     * 컨텍스트 정보 업데이트
+     */
+    public static updateContextInfo(
+        webview: vscode.Webview | undefined,
+        contextInfo: {
+            messageCount: number;
+            tokenUsage: {
+                current: number;
+                max: number;
+                percentage: number;
+            };
+        }
+    ): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'updateContextInfo',
+                contextInfo
+            });
+        }
+    }
+
+    /**
+     * 스트리밍 메시지 시작
+     * 새로운 스트리밍 응답 시작을 알립니다
+     */
+    public static startStreamingMessage(webview: vscode.Webview | undefined, sender: string): void {
+        if (webview) {
+            console.log(`[WebviewBridge] startStreamingMessage: sender="${sender}"`);
+            safePostMessage(webview, {
+                command: 'startStreamingMessage',
+                sender
+            });
+        }
+    }
+
+    /**
+     * 스트리밍 메시지 청크 전송
+     * 스트리밍 응답의 일부분을 전송합니다
+     */
+    public static streamMessageChunk(webview: vscode.Webview | undefined, chunk: string): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'streamMessageChunk',
+                chunk
+            });
+        }
+    }
+
+    /**
+     * 스트리밍 메시지 완료
+     * 스트리밍 응답 완료를 알립니다
+     */
+    public static endStreamingMessage(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            console.log(`[WebviewBridge] endStreamingMessage`);
+            safePostMessage(webview, {
+                command: 'endStreamingMessage'
+            });
+        }
+    }
+
+    /**
+     * 스트리밍 청크 콜백 생성
+     * LLM 스트리밍 응답에 사용할 콜백 함수를 생성합니다
+     */
+    public static createStreamingCallback(webview: vscode.Webview | undefined): (chunk: string, done: boolean) => void {
+        let isStarted = false;
+        return (chunk: string, done: boolean) => {
+            if (!isStarted && !done) {
+                WebviewBridge.startStreamingMessage(webview, 'assistant');
+                isStarted = true;
+            }
+            if (chunk) {
+                WebviewBridge.streamMessageChunk(webview, chunk);
+            }
+            if (done) {
+                WebviewBridge.endStreamingMessage(webview);
+            }
+        };
+    }
+
+    /**
+     * CODE 모드용 스트리밍 콜백 생성 (도구 호출 파싱 포함)
+     * 텍스트는 실시간 스트리밍하고, 도구 호출은 분리하여 처리
+     * @param webview 웹뷰 인스턴스
+     * @param onToolCallsReady 도구 호출 파싱 완료 시 호출되는 콜백
+     * @returns 스트리밍 청크 콜백과 파서 인스턴스
+     */
+    public static createStreamingCallbackWithToolParsing(
+        webview: vscode.Webview | undefined,
+        onToolCallsReady: (result: StreamingParseResult) => void
+    ): {
+        onChunk: (chunk: string, done: boolean) => void;
+        parser: StreamingToolParser;
+    } {
+        let isStarted = false;
+
+        const onTextChunk = (text: string) => {
+            if (!isStarted && text) {
+                WebviewBridge.startStreamingMessage(webview, 'assistant');
+                isStarted = true;
+            }
+            if (text) {
+                WebviewBridge.streamMessageChunk(webview, text);
+            }
+        };
+
+        const onComplete = (result: StreamingParseResult) => {
+            WebviewBridge.endStreamingMessage(webview);
+            onToolCallsReady(result);
+        };
+
+        return createStreamingToolCallback(onTextChunk, onComplete);
     }
 }

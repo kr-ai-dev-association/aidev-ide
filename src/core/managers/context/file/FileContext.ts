@@ -14,6 +14,10 @@ import {
 export class FileContextCollector {
     /**
      * 파일 컨텍스트를 수집합니다
+     * 
+     * ✅ 핵심: LLM context에는 pending change를 제외한 내용만 전달
+     * - pending change가 있으면 checkpoint.beforeContent + accepted changes만 사용
+     * - 이렇게 해야 LLM이 자기 자신을 다시 생성하지 않음
      */
     public async collect(filePath: string): Promise<FileContext | null> {
         try {
@@ -26,11 +30,30 @@ export class FileContextCollector {
             let isDirty = false;
 
             if (document) {
-                content = document.getText();
+                // ✅ pending change 확인 및 제외
+                try {
+                    const diffModule = await import('../../diff/InlineDiffManager');
+                    const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
+                    const stableContent = inlineDiffManager.getCurrentDocumentContent(filePath);
+                    
+                    if (stableContent !== undefined) {
+                        // getCurrentDocumentContent가 pending change를 제외한 내용 반환
+                        content = stableContent;
+                        console.log(`[FileContext] Using stable content (pending changes excluded): ${filePath}`);
+                    } else {
+                        // fallback: document.getText() 사용
+                        content = document.getText();
+                    }
+                } catch (error) {
+                    // InlineDiffManager를 사용할 수 없으면 fallback
+                    console.warn(`[FileContext] Failed to get stable content, using document.getText(): ${filePath}`, error);
+                    content = document.getText();
+                }
+                
                 isOpen = true;
                 isDirty = document.isDirty;
             } else {
-                // 파일 시스템에서 읽기
+                // 파일 시스템에서 읽기 (pending change 고려 불필요)
                 content = fs.readFileSync(filePath, 'utf8');
             }
 

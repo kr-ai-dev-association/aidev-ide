@@ -108,7 +108,30 @@ export class TestRunner {
                 WebviewBridge.sendProcessingStatus(webview, 'executing', 'Smoke Test 통과');
             }
 
-            // 2. Lint Check: 프로젝트 타입별 컴파일/빌드 검사
+            // 2. VS Code Diagnostics Check (LSP 기반 빠른 검사)
+            // CLI 실행 전에 문법/타입 에러를 빠르게 잡음
+            WebviewBridge.sendProcessingStatus(webview, 'executing', 'Diagnostics 검사 중...');
+            const diagnosticErrors = await TestRunner.checkDiagnostics(createdFiles, modifiedFiles, workspaceRoot);
+            if (diagnosticErrors.length > 0) {
+                const errorSummary = diagnosticErrors
+                    .slice(0, 10) // 최대 10개만 표시
+                    .map((e: { file: string; line: number; message: string }) => `- ${e.file}:${e.line}: ${e.message}`)
+                    .join('\n');
+                const truncatedNote = diagnosticErrors.length > 10 ? `\n... 외 ${diagnosticErrors.length - 10}개 에러` : '';
+                testResults.push(`Diagnostics 검사 실패:\n${errorSummary}${truncatedNote}`);
+                WebviewBridge.sendProcessingStatus(webview, 'executing', `Diagnostics 에러 ${diagnosticErrors.length}개 발견`);
+
+                // Diagnostics 에러가 있으면 CLI 검사 없이 바로 반환 (빠른 피드백)
+                return {
+                    success: false,
+                    errorMessage: `Diagnostics 검사 실패 (${diagnosticErrors.length}개 에러):\n${errorSummary}${truncatedNote}`
+                };
+            } else {
+                testResults.push(`Diagnostics 검사 통과: 문법/타입 에러 없음`);
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'Diagnostics 검사 통과');
+            }
+
+            // 3. Lint Check: 프로젝트 타입별 컴파일/빌드 검사 (CLI)
             let validationCmd = detector.getValidationCommand(projectInfo.type, workspaceRoot, createdFiles, modifiedFiles);
 
             // Fallback: getValidationCommand()가 null을 반환하면 LLM에게 질의
@@ -244,6 +267,55 @@ export class TestRunner {
             WebviewBridge.sendProcessingStatus(webview, 'executing', `${validationCmd.description} 실행 실패`);
             return message;
         }
+    }
+
+    /**
+     * VS Code Diagnostics를 사용한 빠른 에러 검사
+     * LSP 기반으로 문법/타입 에러를 CLI 실행 없이 빠르게 확인
+     */
+    private static async checkDiagnostics(
+        createdFiles: string[],
+        modifiedFiles: string[],
+        workspaceRoot: string
+    ): Promise<Array<{ file: string; line: number; message: string; code: string | number }>> {
+        const errors: Array<{ file: string; line: number; message: string; code: string | number }> = [];
+        const allFiles = [...createdFiles, ...modifiedFiles];
+
+        for (const filePath of allFiles) {
+            try {
+                const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+                const uri = vscode.Uri.file(absolutePath);
+
+                // 파일이 존재하는지 확인
+                try {
+                    await fs.access(absolutePath);
+                } catch {
+                    continue; // 파일이 없으면 스킵
+                }
+
+                // VS Code Diagnostics 가져오기
+                const diagnostics = vscode.languages.getDiagnostics(uri);
+
+                // Error 수준만 필터링 (Warning은 무시)
+                const criticalErrors = diagnostics.filter(
+                    d => d.severity === vscode.DiagnosticSeverity.Error
+                );
+
+                for (const diagnostic of criticalErrors) {
+                    const fileName = path.relative(workspaceRoot, absolutePath);
+                    errors.push({
+                        file: fileName,
+                        line: diagnostic.range.start.line + 1, // 0-based to 1-based
+                        message: diagnostic.message,
+                        code: diagnostic.code?.toString() || 'unknown'
+                    });
+                }
+            } catch (error) {
+                console.warn(`[TestRunner] Failed to check diagnostics for ${filePath}:`, error);
+            }
+        }
+
+        return errors;
     }
 
     /**

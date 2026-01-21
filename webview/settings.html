@@ -573,11 +573,11 @@
 
     <div class="section-container">
         <h2 id="banya-license-title">CODEPILOT 시리얼 번호 인증</h2>
-        <p class="info-message">ollama-blocker와 연동된 CODEPILOT 시리얼 번호를 입력하고 검증합니다.</p>
+        <p class="info-message">CODEPILOT 시리얼 번호를 입력하고 검증합니다.</p>
 
         <div class="api-key-section">
             <h3 id="banya-license-label">시리얼 번호</h3>
-            <p class="info-message">ollama-blocker에서 사용하는 시리얼 번호를 입력하여 제품을 활성화하세요.</p>
+            <p class="info-message">시리얼 번호를 입력하여 제품을 활성화하세요.</p>
             <div class="license-input-group">
                 <div class="license-input-row">
                     <input type="text" id="banya-license-serial-input" placeholder="시리얼 번호를 입력하세요 (예: TEST_SERIAL_123)">
@@ -621,13 +621,14 @@
     </div>
 
     <div class="section-container">
-        <h2 id="test-retry-label" data-i18n="autoTestRetrySection">자동 테스트 실패 시 재시도</h2>
+        <h2 id="test-retry-label" data-i18n="autoTestRetrySection">자동 코드 검증</h2>
         <div class="toggle-switch-container" style="margin-bottom:8px;">
             <input type="checkbox" id="auto-test-retry-toggle" />
             <label for="auto-test-retry-toggle">Toggle</label>
         </div>
         <p id="auto-test-retry-status" class="info-message"></p>
-        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Lint Check)이 실패했을 때 자동으로 재시도하는 최대
+        <p class="info-message" data-i18n="testRetryDescription">자동 테스트 검증(Smoke Test, Diagnostics, Lint Check)이 실패했을 때
+            자동으로 재시도하는 최대
             횟수를 설정합니다. (1-10회, 기본값: 3회)</p>
         <div class="spinner-container">
             <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
@@ -676,9 +677,18 @@
             <select id="ai-model-select">
                 <option value="ollama">Ollama (Local/Remote)</option>
                 <option value="gemini">Google Gemini</option>
+                <option value="banya">Banya</option>
             </select>
         </div>
         <p id="ai-model-status" class="info-message"></p>
+
+        <!-- 스트리밍 설정 -->
+        <div class="toggle-switch-container" style="margin-top: 15px; margin-bottom: 15px;">
+            <input type="checkbox" id="streaming-toggle">
+            <label for="streaming-toggle"></label>
+            <span style="margin-left: 10px;"><b>스트리밍 응답 활성화</b></span>
+        </div>
+        <p id="streaming-status" class="info-message" style="margin-top: 5px; margin-bottom: 15px;">스트리밍 응답: 꺼짐</p>
 
         <!-- Gemini API 키 설정 -->
         <div class="api-key-section" id="gemini-settings-section">
@@ -701,6 +711,28 @@
                 <button id="save-gemini-api-key-button">API 키 저장</button>
             </div>
             <p id="gemini-api-key-status" class="info-message"></p>
+        </div>
+
+        <!-- Banya API 키 설정 -->
+        <div class="api-key-section" id="banya-settings-section">
+            <h3 id="banya-api-key-label">Banya 설정</h3>
+            <p class="info-message">Banya API를 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.</p>
+
+            <!-- Banya 모델 선택 추가 -->
+            <div class="api-key-input-group" style="margin-bottom: 15px;">
+                <select id="banya-model-select">
+                    <option value="Banya Solar:100b" selected>Banya Solar:100b</option>
+                    <option value="Banya Qwen-Coder:32b">Banya Qwen-Coder:32b</option>
+                </select>
+                <button id="save-banya-model-button">모델 저장</button>
+            </div>
+
+            <p class="info-message"><strong>등록 방법:</strong> Banya API 키를 입력하세요.</p>
+            <div class="api-key-input-group">
+                <input type="password" id="banya-api-key-input" placeholder="Banya API 키를 입력하세요...">
+                <button id="save-banya-api-key-button">API 키 저장</button>
+            </div>
+            <p id="banya-api-key-status" class="info-message"></p>
         </div>
 
         <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
@@ -799,20 +831,6 @@
                 <p id="remote-ollama-endpoint-status" class="info-message"></p>
             </div>
 
-            <!-- Ollama 모델 다운로드 섹션 -->
-            <div class="api-key-section" id="ollama-model-download-section">
-                <h3 id="ollama-model-download-label">Ollama 모델 다운로드</h3>
-                <p class="info-message">로컬 Ollama에 사용할 수 있는 다양한 LLM 모델을 다운로드할 수 있습니다.</p>
-                <p class="info-message"><strong>사용 방법:</strong> 원하는 모델의 다운로드 버튼을 클릭하면 자동으로 Ollama에 모델이 다운로드되고 드롭다운에
-                    추가됩니다.
-                </p>
-
-                <div id="ollama-model-list" class="model-list-container">
-                    <!-- 모델 리스트가 여기에 동적으로 로드됩니다 -->
-                </div>
-
-                <p id="ollama-model-download-status" class="info-message"></p>
-            </div>
         </div>
     </div>
 
@@ -828,7 +846,8 @@
             <h3>버전 관리 규칙</h3>
             <p class="info-message">프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown" style="display: none;">
+                <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown,text/markdown"
+                    style="display: none;">
                 <button id="select-stable-version-button" type="button">파일 선택</button>
                 <button id="upload-stable-version-button" type="button" disabled>저장</button>
                 <button id="delete-stable-version-button" type="button" style="display: none;">삭제</button>
@@ -843,7 +862,8 @@
             <h3>코딩 스타일 규칙</h3>
             <p class="info-message">프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="file" id="agent-policy-coding-style-input" accept=".md장.markdown" style="display: none;">
+                <input type="file" id="agent-policy-coding-style-input" accept=".md,.markdown,text/markdown"
+                    style="display: none;">
                 <button id="select-coding-style-button" type="button">파일 선택</button>
                 <button id="upload-coding-style-button" type="button" disabled>저장</button>
                 <button id="delete-coding-style-button" type="button" style="display: none;">삭제</button>
@@ -858,7 +878,7 @@
             <h3>프로젝트 아키텍처 규칙</h3>
             <p class="info-message">프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown"
+                <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown,text/markdown"
                     style="display: none;">
                 <button id="select-project-architecture-button" type="button">파일 선택</button>
                 <button id="upload-project-architecture-button" type="button" disabled>저장</button>
@@ -874,7 +894,7 @@
             <h3>의존성 정책 규칙</h3>
             <p class="info-message">프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown"
+                <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown,text/markdown"
                     style="display: none;">
                 <button id="select-dependency-policy-button" type="button">파일 선택</button>
                 <button id="upload-dependency-policy-button" type="button" disabled>저장</button>
@@ -890,7 +910,8 @@
             <h3>DB 규칙</h3>
             <p class="info-message">프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.</p>
             <div class="api-key-input-group">
-                <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown" style="display: none;">
+                <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown,text/markdown"
+                    style="display: none;">
                 <button id="select-db-policy-button" type="button">파일 선택</button>
                 <button id="upload-db-policy-button" type="button" disabled>저장</button>
                 <button id="delete-db-policy-button" type="button" style="display: none;">삭제</button>

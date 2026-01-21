@@ -193,7 +193,7 @@ export class StateManager {
      */
     private loadState(): void {
         try {
-            const stored = this.context.globalState.get<GlobalState>('aidevIde.globalState');
+            const stored = this.context.globalState.get<GlobalState>('codepilot.globalState');
             if (stored) {
                 this.state = stored;
                 console.log('[StateManager] State loaded');
@@ -208,7 +208,7 @@ export class StateManager {
      */
     private saveState(): void {
         try {
-            this.context.globalState.update('aidevIde.globalState', this.state);
+            this.context.globalState.update('codepilot.globalState', this.state);
         } catch (error) {
             console.error('[StateManager] Failed to save state:', error);
         }
@@ -256,24 +256,25 @@ export class StateManager {
     }
 
     // API 키 및 모델 관련 키
-    private readonly API_KEY_SECRET_KEY = 'aidev-ide.geminiApiKey';
-    private readonly CURRENT_AI_MODEL_SECRET_KEY = 'aidev-ide.currentAiModel';
-    private readonly BANYA_LICENSE_SERIAL_SECRET_KEY = 'aidev-ide.banyaLicenseSerial';
-    private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'aidev-ide.ollamaServerType';
-    private readonly OLLAMA_API_URL_SECRET_KEY = 'aidev-ide.ollamaApiUrl';
-    private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.ollamaEndpoint';
-    private readonly OLLAMA_MODEL_SECRET_KEY = 'aidev-ide.ollamaModel';
-    private readonly LOCAL_OLLAMA_API_URL_SECRET_KEY = 'aidev-ide.localOllamaApiUrl';
-    private readonly LOCAL_OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.localOllamaEndpoint';
-    private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'aidev-ide.remoteOllamaApiUrl';
-    private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'aidev-ide.remoteOllamaEndpoint';
-    private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'aidev-ide.remoteOllamaModel';
-    private readonly IS_LICENSE_VERIFIED_KEY = 'aidev-ide.isLicenseVerified';
-    private readonly LANGUAGE_KEY = 'aidev-ide.language';
-    private readonly AUTO_UPDATE_ENABLED_KEY = 'aidev-ide.autoUpdateEnabled';
-    private readonly OUTPUT_LOG_ENABLED_KEY = 'aidev-ide.outputLogEnabled';
-    private readonly ERROR_RETRY_COUNT_KEY = 'aidev-ide.errorRetryCount';
-    private readonly AUTO_CORRECTION_ENABLED_KEY = 'aidev-ide.autoCorrectionEnabled';
+    private readonly API_KEY_SECRET_KEY = 'codepilot.geminiApiKey';
+    private readonly CURRENT_AI_MODEL_SECRET_KEY = 'codepilot.currentAiModel';
+    private readonly BANYA_LICENSE_SERIAL_SECRET_KEY = 'codepilot.banyaLicenseSerial';
+    private readonly BANYA_API_KEY_SECRET_KEY = 'codepilot.banyaApiKey';
+    private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'codepilot.ollamaServerType';
+    private readonly OLLAMA_API_URL_SECRET_KEY = 'codepilot.ollamaApiUrl';
+    private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.ollamaEndpoint';
+    private readonly OLLAMA_MODEL_SECRET_KEY = 'codepilot.ollamaModel';
+    private readonly LOCAL_OLLAMA_API_URL_SECRET_KEY = 'codepilot.localOllamaApiUrl';
+    private readonly LOCAL_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.localOllamaEndpoint';
+    private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'codepilot.remoteOllamaApiUrl';
+    private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.remoteOllamaEndpoint';
+    private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'codepilot.remoteOllamaModel';
+    private readonly IS_LICENSE_VERIFIED_KEY = 'codepilot.isLicenseVerified';
+    private readonly LANGUAGE_KEY = 'codepilot.language';
+    private readonly AUTO_UPDATE_ENABLED_KEY = 'codepilot.autoUpdateEnabled';
+    private readonly OUTPUT_LOG_ENABLED_KEY = 'codepilot.outputLogEnabled';
+    private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
+    private readonly AUTO_CORRECTION_ENABLED_KEY = 'codepilot.autoCorrectionEnabled';
 
     /**
      * API Key를 저장합니다
@@ -438,19 +439,39 @@ export class StateManager {
     }
 
     public async getAiModel(): Promise<string> {
-        return (await this.getSecret('aidev-ide.aiModel')) || 'ollama';
+        return (await this.getSecret('codepilot.aiModel')) || 'ollama';
     }
 
     public async saveAiModel(model: string): Promise<void> {
-        await this.saveSecret('aidev-ide.aiModel', model);
+        await this.saveSecret('codepilot.aiModel', model);
     }
 
     public async getGeminiModel(): Promise<string> {
-        return (await this.getSecret('aidev-ide.geminiModel')) || 'gemini-3-pro-preview';
+        return (await this.getSecret('codepilot.geminiModel')) || 'gemini-3-pro-preview';
     }
 
     public async saveGeminiModel(model: string): Promise<void> {
-        await this.saveSecret('aidev-ide.geminiModel', model);
+        await this.saveSecret('codepilot.geminiModel', model);
+    }
+
+    public async getBanyaApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.BANYA_API_KEY_SECRET_KEY);
+    }
+
+    public async saveBanyaApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.BANYA_API_KEY_SECRET_KEY, apiKey);
+    }
+
+    public async deleteBanyaApiKey(): Promise<void> {
+        await this.deleteSecret(this.BANYA_API_KEY_SECRET_KEY);
+    }
+
+    public async getBanyaModel(): Promise<string> {
+        return (await this.getSecret('codepilot.banyaModel')) || 'Banya-Solar:100b';
+    }
+
+    public async saveBanyaModel(model: string): Promise<void> {
+        await this.saveSecret('codepilot.banyaModel', model);
     }
 
     // License verified flag
@@ -495,7 +516,7 @@ export class StateManager {
     }
 
     public async getErrorRetryCount(): Promise<number> {
-        return this.context.workspaceState.get<number>(this.ERROR_RETRY_COUNT_KEY) ?? 3;
+        return this.context.workspaceState.get<number>(this.ERROR_RETRY_COUNT_KEY) ?? 5;
     }
 
     // Auto correction enabled
@@ -508,11 +529,11 @@ export class StateManager {
     }
 
     // ===== AgentPolicy 관련 메서드들 =====
-    private readonly AGENT_POLICY_STABLE_VERSION_KEY = 'aidev-ide.agentPolicy.stableVersion';
-    private readonly AGENT_POLICY_CODING_STYLE_KEY = 'aidev-ide.agentPolicy.codingStyle';
-    private readonly AGENT_POLICY_PROJECT_ARCHITECTURE_KEY = 'aidev-ide.agentPolicy.projectArchitecture';
-    private readonly AGENT_POLICY_DEPENDENCY_POLICY_KEY = 'aidev-ide.agentPolicy.dependencyPolicy';
-    private readonly AGENT_POLICY_DB_POLICY_KEY = 'aidev-ide.agentPolicy.dbPolicy';
+    private readonly AGENT_POLICY_STABLE_VERSION_KEY = 'codepilot.agentPolicy.stableVersion';
+    private readonly AGENT_POLICY_CODING_STYLE_KEY = 'codepilot.agentPolicy.codingStyle';
+    private readonly AGENT_POLICY_PROJECT_ARCHITECTURE_KEY = 'codepilot.agentPolicy.projectArchitecture';
+    private readonly AGENT_POLICY_DEPENDENCY_POLICY_KEY = 'codepilot.agentPolicy.dependencyPolicy';
+    private readonly AGENT_POLICY_DB_POLICY_KEY = 'codepilot.agentPolicy.dbPolicy';
 
     /**
      * Stable Version Markdown을 저장합니다

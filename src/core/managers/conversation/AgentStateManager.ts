@@ -104,14 +104,18 @@ const OUTPUT_CONTRACTS: Record<AgentPhase, OutputContract> = {
         requiredBeforeTransition: {
             to: AgentPhase.EXECUTION,
             condition: (context: any) => {
-                // EXECUTION으로 전환하려면 유효한 plan이 있으면 충분함
-                // plan 자체가 조사 완료의 증거이므로, plan만 있어도 전환 가능
-                // 실행 도구는 EXECUTION 단계에서 생성할 수 있음
+                // EXECUTION으로 전환 조건:
+                // 1. plan이 있으면 전환 가능 (계획 수립 완료)
+                // 2. 실행 도구가 나왔으면 전환 가능 (실행 의도가 명확함)
+                //
+                // 🔥 개선: 실행 도구 자체가 "실행 의도"의 증거이므로 plan 없이도 전환 허용
+                // - 단순 작업에서 LLM이 바로 create_file/update_file을 호출하는 경우
+                // - 불필요한 plan 수립 강요로 인한 턴 낭비 방지
                 const hasPlan = context.hasPlan || false;
+                const hasToolCalls = context.toolCallsInTurn && context.toolCallsInTurn.length > 0;
 
-                // plan이 있으면 즉시 전환 가능 (plan 자체가 조사 완료의 증거)
-                // 실행 도구가 없으면 EXECUTION 단계에서 LLM을 호출하여 생성
-                return hasPlan;
+                // plan이 있거나 실행 도구가 있으면 전환 가능
+                return hasPlan || hasToolCalls;
             }
         }
     },

@@ -1,0 +1,654 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ChatViewProvider = void 0;
+const vscode = __importStar(require("vscode"));
+const path = __importStar(require("path"));
+const utils_1 = require("../../utils");
+const services_1 = require("../../services");
+const core_1 = require("../../core");
+const ModelConnectionService_1 = require("../../core/managers/model/ModelConnectionService");
+class ChatViewProvider {
+    extensionUri;
+    context;
+    openSettingsPanel;
+    configurationService;
+    notificationService;
+    gitRepositoryService;
+    geminiApi;
+    ollamaApi;
+    static viewType = 'codepilot.chatView';
+    _view;
+    constructor(extensionUri, context, openSettingsPanel, configurationService, notificationService, gitRepositoryService, geminiApi, ollamaApi) {
+        this.extensionUri = extensionUri;
+        this.context = context;
+        this.openSettingsPanel = openSettingsPanel;
+        this.configurationService = configurationService;
+        this.notificationService = notificationService;
+        this.gitRepositoryService = gitRepositoryService;
+        this.geminiApi = geminiApi;
+        this.ollamaApi = ollamaApi;
+    }
+    resolveWebviewView(webviewView, context, _token) {
+        this._view = webviewView;
+        try {
+            webviewView.title = 'Codepilot';
+        }
+        catch { }
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                this.extensionUri,
+                vscode.Uri.joinPath(this.extensionUri, 'webview'),
+                vscode.Uri.joinPath(this.extensionUri, 'media'),
+                vscode.Uri.joinPath(this.extensionUri, 'dist'),
+                vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')
+            ]
+        };
+        webviewView.webview.html = (0, utils_1.getHtmlContentWithUris)(this.extensionUri, 'chat', webviewView.webview);
+        // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
+        // LLMApiClient는 ConversationManager에서 관리되므로 여기서는 웹뷰만 설정
+        // LLMApiClient는 필요시 ConversationManager를 통해 가져올 수 있음
+        core_1.TerminalManager.getInstance().setErrorCorrectionServices(undefined, webviewView.webview);
+        // 🆕 core TaskManager 사용
+        // TaskManager를 초기화하여 실행 경로에서도 작업 큐가 생성되도록 함
+        try {
+            const taskManager = core_1.TaskManager.getInstance(this.context);
+            console.log('[ChatViewProvider] TaskManager 초기화 완료');
+        }
+        catch (e) {
+            console.warn('[ChatViewProvider] TaskManager 초기화 실패:', e);
+        }
+        // Git 리포지토리 정보 표시
+        // this.showGitRepositoryInfo(webviewView.webview);
+        webviewView.webview.onDidReceiveMessage(async (data) => {
+            switch (data.command) {
+                case 'priorityErrorPrompt': {
+                    try {
+                        const text = typeof data.text === 'string' ? data.text : '';
+                        if (text) {
+                            await core_1.ConversationService.handleUserMessage({
+                                userQuery: text,
+                                webviewToRespond: webviewView.webview,
+                                promptType: services_1.PromptType.CODE_GENERATION,
+                                extensionContext: this.context,
+                                notificationService: this.notificationService,
+                                gitRepositoryService: this.gitRepositoryService
+                            });
+                        }
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] priorityErrorPrompt failed:', e);
+                    }
+                    break;
+                }
+                case 'getOllamaModels': {
+                    try {
+                        const stateManager = core_1.StateManager.getInstance(this.context);
+                        const apiUrl = await stateManager.getOllamaApiUrl();
+                        // SettingsPanel과 동일하게 Ollama API(/api/tags) 호출
+                        const rawModels = await ModelConnectionService_1.ModelConnectionService.getOllamaModels(apiUrl);
+                        // strings -> objects로 정규화
+                        const models = (rawModels || []).map((m) => {
+                            if (typeof m === 'string') {
+                                return { name: m, displayName: m };
+                            }
+                            return {
+                                name: m?.name || '',
+                                displayName: m?.displayName || m?.name || ''
+                            };
+                        }).filter((m) => m.name);
+                        const aiModelEngine = await stateManager.getAiModel();
+                        let currentModel = '';
+                        if (aiModelEngine === 'gemini') {
+                            currentModel = await stateManager.getGeminiModel();
+                        }
+                        else {
+                            currentModel = await stateManager.getOllamaModel();
+                        }
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModels',
+                            models,
+                            current: currentModel
+                        });
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] getOllamaModels failed:', e);
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModels',
+                            models: [],
+                            current: ''
+                        });
+                    }
+                    break;
+                }
+                case 'setOllamaModel': {
+                    try {
+                        const modelName = typeof data.model === 'string' ? data.model : '';
+                        if (!modelName) {
+                            throw new Error('Invalid model name');
+                        }
+                        const stateManager = core_1.StateManager.getInstance(this.context);
+                        // Ollama 모델인 경우 엔진을 ollama로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('ollama');
+                        await stateManager.saveCurrentAiModel('ollama');
+                        await stateManager.saveOllamaModel(modelName);
+                        // 원격 서버를 사용하는 경우에도 모델명이 적용되도록 저장
+                        const serverType = await stateManager.getOllamaServerType();
+                        if (serverType === 'remote') {
+                            await stateManager.saveRemoteOllamaModel(modelName);
+                        }
+                        // OllamaApi 인스턴스 업데이트
+                        if (this.ollamaApi) {
+                            this.ollamaApi.setModel(modelName);
+                        }
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged',
+                            model: modelName
+                        });
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] setOllamaModel failed:', e);
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged',
+                            model: '',
+                            error: '모델을 저장하지 못했습니다.'
+                        });
+                    }
+                    break;
+                }
+                case 'setGeminiModel': {
+                    try {
+                        const modelName = typeof data.model === 'string' ? data.model : '';
+                        if (!modelName) {
+                            throw new Error('Invalid model name');
+                        }
+                        const stateManager = core_1.StateManager.getInstance(this.context);
+                        // Gemini 모델인 경우 엔진을 gemini로 설정하고 모델명 저장
+                        await stateManager.saveAiModel('gemini');
+                        await stateManager.saveCurrentAiModel('gemini');
+                        await stateManager.saveGeminiModel(modelName);
+                        // GeminiApi 인스턴스 업데이트
+                        if (this.geminiApi) {
+                            this.geminiApi.updateModelName(modelName);
+                        }
+                        webviewView.webview.postMessage({
+                            command: 'ollamaModelChanged', // 기존 UI 호환성을 위해 동일한 명령 사용 가능 또는 새 명령 정의
+                            model: modelName
+                        });
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] setGeminiModel failed:', e);
+                    }
+                    break;
+                }
+                case 'openFileInEditor': {
+                    try {
+                        const fsPath = typeof data.path === 'string' ? data.path : '';
+                        if (fsPath) {
+                            const uri = vscode.Uri.file(fsPath);
+                            const doc = await vscode.workspace.openTextDocument(uri);
+                            await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+                        }
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] openFileInEditor failed:', e);
+                        this.notificationService.showErrorMessage('파일을 열 수 없습니다.');
+                    }
+                    break;
+                }
+                case 'analyzeErrors': {
+                    try {
+                        console.log('[ChatViewProvider] 오류 분석 요청');
+                        // 🆕 ErrorManager를 사용하여 최근 오류 분석
+                        const { ErrorManager } = await import('../../core/managers/error/ErrorManager');
+                        const { ErrorSource } = await import('../../core/managers/error/types');
+                        const errorManager = ErrorManager.getInstance();
+                        const history = errorManager.getHistory();
+                        const recentErrors = history.getAll()
+                            .filter((entry) => entry.error.source === ErrorSource.TERMINAL)
+                            .sort((a, b) => b.error.timestamp - a.error.timestamp)
+                            .slice(0, 20); // 최근 20개 오류
+                        if (recentErrors.length === 0) {
+                            this.notificationService.showInfoMessage('분석할 오류가 없습니다.');
+                            webviewView.webview.postMessage({
+                                command: 'receiveMessage',
+                                sender: 'CODEPILOT',
+                                text: '최근 터미널 오류가 없습니다.'
+                            });
+                            break;
+                        }
+                        // 오류 분석을 위한 컨텍스트 구성
+                        const errorContext = recentErrors.map((entry) => {
+                            const e = entry.error;
+                            return {
+                                time: new Date(e.timestamp).toLocaleString(),
+                                category: e.category,
+                                severity: e.severity,
+                                message: e.message,
+                                rawOutput: e.rawOutput.substring(0, 500) // 처음 500자만
+                            };
+                        });
+                        const analysisPrompt = `다음은 터미널에서 발생한 최근 오류들입니다. 분석하고 수정 방안을 제시해주세요:
+
+${JSON.stringify(errorContext, null, 2)}
+
+오류 분석 결과를 다음 형식으로 제공해주세요:
+## 🔍 오류 분석 결과
+
+### 📊 오류 요약
+- 총 오류 수: ${recentErrors.length}
+- 주요 오류 유형: [유형들]
+- 심각도: [low/medium/high/critical]
+
+### 🎯 근본 원인
+[오류의 근본 원인 분석]
+
+### 🛠️ 수정 방안
+1. [수정 방안 1]
+2. [수정 방안 2]
+3. [수정 방안 3]
+
+### 💡 권장 명령어
+\`\`\`bash
+[수정을 위한 명령어들]
+\`\`\`
+
+### ⚠️ 주의사항
+[실행 시 주의할 점들]`;
+                        // ConversationService를 통해 오류 분석 요청
+                        await core_1.ConversationService.handleUserMessage({
+                            userQuery: analysisPrompt,
+                            webviewToRespond: webviewView.webview,
+                            promptType: services_1.PromptType.CODE_GENERATION,
+                            extensionContext: this.context,
+                            notificationService: this.notificationService,
+                            gitRepositoryService: this.gitRepositoryService
+                        });
+                        this.notificationService.showInfoMessage('오류 분석을 시작했습니다.');
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] analyzeErrors failed:', e);
+                        this.notificationService.showErrorMessage('오류 분석 중 문제가 발생했습니다.');
+                    }
+                    break;
+                }
+                case 'sendMessage':
+                    // ollama-blocker 방식으로 시리얼 번호 검증
+                    const stateManager = core_1.StateManager.getInstance(this.context);
+                    const licenseSerial = await stateManager.getBanyaLicenseSerial();
+                    if (!licenseSerial || licenseSerial.trim() === '') {
+                        // 다국어 메시지 가져오기
+                        const currentLanguage = await stateManager.getLanguage() || 'ko';
+                        const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${currentLanguage}.json`);
+                        let licenseNotSetMessage = '시리얼 번호가 설정되지 않았습니다. 설정에서 AIDEV 시리얼 번호를 입력하고 검증해주세요.';
+                        try {
+                            const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
+                            const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
+                            licenseNotSetMessage = languageData.licenseNotSetMessage || licenseNotSetMessage;
+                        }
+                        catch (error) {
+                            console.error('Error loading language data for license message:', error);
+                        }
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'CODEPILOT',
+                            text: licenseNotSetMessage
+                        });
+                        return;
+                    }
+                    // 시리얼 번호 검증 (ollama-blocker 방식)
+                    const licenseService = new services_1.LicenseService();
+                    const verificationResult = await licenseService.verifyLicense(licenseSerial);
+                    if (!verificationResult.success) {
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'CODEPILOT',
+                            text: `시리얼 번호 검증 실패: ${verificationResult.message}`
+                        });
+                        return;
+                    }
+                    // ConversationService를 통해 메시지 처리
+                    const promptType = data.mode === 'ASK' ? services_1.PromptType.GENERAL_ASK : services_1.PromptType.CODE_GENERATION;
+                    await core_1.ConversationService.handleUserMessage({
+                        userQuery: data.text,
+                        webviewToRespond: webviewView.webview,
+                        promptType,
+                        imageData: data.imageData,
+                        imageMimeType: data.imageMimeType,
+                        selectedFiles: data.selectedFiles,
+                        extensionContext: this.context,
+                        notificationService: this.notificationService,
+                        gitRepositoryService: this.gitRepositoryService
+                    });
+                    break;
+                case 'openPanel':
+                    let panelViewColumn = vscode.ViewColumn.Beside;
+                    if (vscode.window.activeTextEditor?.viewColumn) {
+                        panelViewColumn = vscode.window.activeTextEditor.viewColumn;
+                    }
+                    if (data.panel === 'settings')
+                        this.openSettingsPanel(panelViewColumn);
+                    break;
+                case 'webviewLoaded':
+                    console.log('[ChatViewProvider] Chat webview loaded.');
+                    break;
+                case 'cancelGeminiCall':
+                    console.log('[Extension Host] Received cancelGeminiCall command.');
+                    core_1.ConversationService.cancelCurrentCall();
+                    // 즉시 로딩/처리 상태를 종료하고 알림 표시
+                    webviewView.webview.postMessage({ command: 'hideLoading' });
+                    webviewView.webview.postMessage({ command: 'cancelProcessing' });
+                    webviewView.webview.postMessage({ command: 'resetProcessingState' });
+                    this.notificationService.showInfoMessage('전송을 취소하였습니다.');
+                    break;
+                case 'approveAllChanges': {
+                    try {
+                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        await inlineDiffManager.acceptAllChangesForAllFiles();
+                        this.notificationService.showInfoMessage('모든 변경사항이 승인되었습니다.');
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] approveAllChanges failed:', e);
+                        this.notificationService.showErrorMessage('변경사항 승인에 실패했습니다.');
+                    }
+                    break;
+                }
+                case 'rejectAllChanges': {
+                    try {
+                        const { InlineDiffManager } = await import('../../core/managers/diff/InlineDiffManager');
+                        const inlineDiffManager = InlineDiffManager.getInstance();
+                        await inlineDiffManager.rejectAllChangesForAllFiles();
+                        this.notificationService.showInfoMessage('모든 변경사항이 거부되었습니다.');
+                    }
+                    catch (e) {
+                        console.warn('[ChatViewProvider] rejectAllChanges failed:', e);
+                        this.notificationService.showErrorMessage('변경사항 거부에 실패했습니다.');
+                    }
+                    break;
+                }
+                case 'cancelAutoCorrection':
+                    console.log('[Extension Host] Received cancelAutoCorrection command.');
+                    webviewView.webview.postMessage({
+                        command: 'hideAutoCorrecting',
+                        message: '자동 오류 수정이 중단되었습니다.'
+                    });
+                    // cancel 후 상태 초기화
+                    webviewView.webview.postMessage({
+                        command: 'cancelProcessing'
+                    });
+                    webviewView.webview.postMessage({
+                        command: 'resetProcessingState'
+                    });
+                    break;
+                case 'stopCommandExecution':
+                    console.log('[Extension Host] Received stopCommandExecution command.');
+                    webviewView.webview.postMessage({
+                        command: 'hideAutoCorrecting',
+                        message: '명령어 실행이 중단되었습니다.'
+                    });
+                    break;
+                case 'openFilePicker':
+                    console.log('[Extension Host] Opening file picker...');
+                    this.openFilePicker(webviewView.webview);
+                    break;
+                case 'executeBashCommands':
+                    // console.log('[Extension Host] Executing bash commands:', data.commands);
+                    this.executeBashCommands(data.commands);
+                    break;
+                case 'clearHistory':
+                    console.log('[Extension Host] Clearing conversation history for Code tab');
+                    try {
+                        await core_1.ConversationService.clearHistory(services_1.PromptType.CODE_GENERATION, this.context);
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'CODEPILOT',
+                            text: '대화기록이 삭제되었습니다.'
+                        });
+                        // React 컴포넌트에도 메시지 초기화 신호 전송
+                        webviewView.webview.postMessage({
+                            command: 'clearHistory'
+                        });
+                    }
+                    catch (error) {
+                        console.error('[ChatViewProvider] Failed to clear history:', error);
+                        webviewView.webview.postMessage({
+                            command: 'receiveMessage',
+                            sender: 'CODEPILOT',
+                            text: '대화기록 삭제에 실패했습니다.'
+                        });
+                    }
+                    break;
+                case 'displayUserMessage': // 웹뷰 자체에서 사용자 메시지 표시를 요청할 때, 이미지도 포함
+                    console.log('Received command to display user message from webview:', data.text, data.imageData);
+                    if (data.text !== undefined || data.imageData !== undefined) {
+                        webviewView.webview.postMessage({ command: 'displayUserMessage', text: data.text, imageData: data.imageData });
+                    }
+                    break;
+                case 'projectTypeSelected': // 사용자가 프로젝트 타입을 선택한 경우
+                    console.log('[ChatViewProvider] 프로젝트 타입 선택됨:', data.projectType);
+                    try {
+                        // 선택된 프로젝트 타입을 저장하고 현재 요청을 다시 처리
+                        // 이는 임시로 전역 변수나 storage에 저장하고 재요청하는 방식으로 구현 가능
+                        // 현재는 단순히 로그만 남기고, 향후 확장 가능하도록 구조화
+                        this.notificationService.showInfoMessage(`프로젝트 타입이 선택되었습니다: ${data.projectType}`);
+                        // TODO: 선택된 프로젝트 타입을 사용하여 요청 재처리
+                    }
+                    catch (error) {
+                        console.error('[ChatViewProvider] 프로젝트 타입 선택 처리 실패:', error);
+                    }
+                    break;
+                case 'getLanguage':
+                    try {
+                        const language = await this.configurationService.getLanguage();
+                        webviewView.webview.postMessage({ command: 'currentLanguage', language: language });
+                    }
+                    catch (error) {
+                        // 오류 시 기본값 반환
+                        webviewView.webview.postMessage({ command: 'currentLanguage', language: 'ko' });
+                    }
+                    break;
+                case 'languageChanged':
+                    console.log('[ChatViewProvider] Language changed to:', data.language);
+                    // 언어 변경 시 언어 데이터를 다시 요청
+                    try {
+                        const language = data.language;
+                        if (language && typeof language === 'string') {
+                            // 언어 파일 경로
+                            const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${language}.json`);
+                            // 파일 읽기
+                            const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
+                            const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
+                            // 웹뷰에 언어 데이터 전송
+                            webviewView.webview.postMessage({
+                                command: 'languageDataReceived',
+                                language: language,
+                                data: languageData
+                            });
+                        }
+                    }
+                    catch (error) {
+                        console.error('Error loading language data in ChatViewProvider:', error);
+                        // 오류 시 기본 한국어 데이터 반환
+                        try {
+                            const defaultLanguagePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', 'lang_ko.json');
+                            const defaultContent = await vscode.workspace.fs.readFile(defaultLanguagePath);
+                            const defaultData = JSON.parse(Buffer.from(defaultContent).toString('utf8'));
+                            webviewView.webview.postMessage({
+                                command: 'languageDataReceived',
+                                language: 'ko',
+                                data: defaultData
+                            });
+                        }
+                        catch (fallbackError) {
+                            console.error('Error loading fallback language data in ChatViewProvider:', fallbackError);
+                        }
+                    }
+                    break;
+            }
+        });
+        webviewView.onDidDispose(() => {
+            console.log('[ChatViewProvider] Chat view disposed');
+            this._view = undefined;
+            // webview는 직접 관리하므로 별도 설정 불필요
+        }, null, this.context.subscriptions);
+        // webview는 직접 관리하므로 별도 설정 불필요
+    }
+    async openFilePicker(webview) {
+        try {
+            // 설정에서 프로젝트 루트 경로 가져오기
+            const projectRoot = await this.configurationService.getProjectRoot();
+            let defaultUri;
+            if (projectRoot) {
+                // Remote SSH 환경을 고려한 경로 처리
+                try {
+                    defaultUri = vscode.Uri.file(projectRoot);
+                    // 경로가 유효한지 확인
+                    await vscode.workspace.fs.stat(defaultUri);
+                }
+                catch (error) {
+                    console.warn('설정된 프로젝트 루트 경로에 접근할 수 없습니다:', error);
+                    defaultUri = undefined;
+                }
+            }
+            if (!defaultUri && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                defaultUri = vscode.workspace.workspaceFolders[0].uri;
+            }
+            const uris = await vscode.window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: true,
+                openLabel: 'Select Files for Context',
+                defaultUri: defaultUri,
+                filters: {
+                    'All Files': ['*'],
+                    'Source Files': ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'scala', 'html', 'css', 'scss', 'sass', 'json', 'xml', 'yaml', 'yml', 'md', 'txt'],
+                    'Code Files': ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'scala'],
+                    'Web Files': ['html', 'css', 'scss', 'sass', 'js', 'ts', 'jsx', 'tsx'],
+                    'Config Files': ['json', 'xml', 'yaml', 'yml', 'md', 'txt']
+                }
+            });
+            if (uris && uris.length > 0) {
+                for (const uri of uris) {
+                    const fileName = uri.fsPath.split(/[/\\]/).pop() || 'Unknown';
+                    // Remote SSH 환경에서 경로 정규화
+                    const normalizedPath = path.resolve(uri.fsPath);
+                    webview.postMessage({
+                        command: 'fileSelected',
+                        filePath: normalizedPath,
+                        fileName: fileName
+                    });
+                }
+            }
+        }
+        catch (error) {
+            console.error('Error opening file picker:', error);
+            this.notificationService.showErrorMessage('파일 선택 중 오류가 발생했습니다.');
+        }
+    }
+    async executeBashCommands(commands) {
+        try {
+            console.log('[ChatViewProvider] executeBashCommands called with:', commands);
+            if (!commands || commands.length === 0) {
+                console.log('[ChatViewProvider] No commands to execute');
+                return;
+            }
+            // 실행 상태 표시
+            this._view?.webview.postMessage({
+                command: 'showRunExecution',
+                status: 'Executing commands...'
+            });
+            // OS 정보 가져오기
+            const platform = require('os').platform();
+            const userOS = platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : platform === 'linux' ? 'linux' : 'unknown';
+            console.log('[ChatViewProvider] Detected user OS:', userOS);
+            // OS별 적절한 셸 선택
+            let shellPath;
+            let terminalName;
+            if (userOS === 'windows') {
+                shellPath = 'powershell.exe';
+                terminalName = 'CODEPILOT PowerShell Commands';
+            }
+            else if (userOS === 'macos') {
+                shellPath = '/bin/bash';
+                terminalName = 'CODEPILOT Bash Commands';
+            }
+            else if (userOS === 'linux') {
+                shellPath = '/bin/bash';
+                terminalName = 'CODEPILOT Bash Commands';
+            }
+            else {
+                const osAdapter = core_1.ExecutionManager.getInstance().getOSAdapter();
+                shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
+                terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Bash Commands';
+            }
+            // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
+            const terminalCwd = await this.configurationService.getProjectRoot();
+            if (terminalCwd) {
+                console.log('[ChatViewProvider] Using workspace root for terminal:', terminalCwd);
+            }
+            else {
+                console.warn('[ChatViewProvider] 워크스페이스가 열려있지 않습니다.');
+            }
+            console.log('[ChatViewProvider] Creating new terminal with shell:', shellPath, 'cwd:', terminalCwd);
+            const terminal = vscode.window.createTerminal({ name: terminalName, shellPath, cwd: terminalCwd });
+            terminal.show();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            // 스크립트를 단일 세션으로 실행: bash는 heredoc, PowerShell은 here-string 사용
+            if (userOS === 'windows') {
+                const script = commands.join('\n');
+                const ps = `$script = @'\n${script}\n'@; powershell -NoLogo -NoProfile -NonInteractive -Command $script`;
+                terminal.sendText(ps);
+            }
+            else {
+                const script = commands.join('\n');
+                const heredoc = `bash <<'AIDEV_EOF'\nset -e\n${script}\nAIDEV_EOF`;
+                terminal.sendText(heredoc);
+            }
+            console.log(`[ChatViewProvider] Submitted script as single block (${commands.length} logical lines)`);
+            setTimeout(() => {
+                this._view?.webview.postMessage({ command: 'hideRunExecution' });
+            }, 2000);
+        }
+        catch (error) {
+            console.error('[ChatViewProvider] Error executing commands:', error);
+            this._view?.webview.postMessage({ command: 'hideRunExecution' });
+            this.notificationService.showErrorMessage('명령어 실행 중 오류가 발생했습니다.');
+        }
+    }
+}
+exports.ChatViewProvider = ChatViewProvider;
+//# sourceMappingURL=ChatViewProvider.js.map

@@ -6,6 +6,295 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.9.1 (Terminal Context & Mention System Improvements)
+- **Terminal Context via Clipboard**: Completely redesigned terminal context capture.
+  - Changed from Shell Integration API to clipboard-based approach (Continue IDE style)
+  - Reads active terminal's full screen content via `selectAll` + `copySelection`
+  - Single terminal selection only (no multi-select list)
+  - `@terminal` now directly captures active terminal content without showing terminal list
+  - Maximum 5000 characters captured (older content truncated)
+- **Mention Context Delivery Fix**: Fixed critical bug where mentions weren't sent to LLM.
+  - `doSendUserMessage()` now properly passes `terminalContext` and `diagnosticsContext`
+  - All three mention types (file, terminal, diagnostics) now correctly delivered
+- **Enhanced ASK Mode Prompt**: Stronger prompt instructions for attached contexts.
+  - Added `⚠️ 최우선 지시사항` warning when any context is attached
+  - Each context section now explicitly instructs LLM to focus on attached content
+  - Removed unnecessary codebaseContext/profileContext from ASK prompt
+- **Cancel Request Improvements**: Cleaner abort handling.
+  - AbortError no longer logs error message (silent cancellation)
+  - Removed "전송을 취소하였습니다" notification popup
+  - Console shows `[ConversationManager] Request cancelled by user` instead of error stack
+- **File List Realtime Update**: `@파일` menu now shows current files.
+  - File list cache cleared on category selection
+  - Deleted files no longer appear in the list
+
+## v8.9.0 (Banya Multi-Model & Prompt Architecture)
+- **Banya Qwen-Coder Model Support**: Added support for Banya Qwen-Coder:32b model.
+  - New model: `Banya Qwen-Coder:32b` (port 8081) alongside existing `Banya Solar:100b` (port 8080)
+  - Model routing via `X-Target-Port` header for API proxy
+  - Model selector in both Settings panel and Chat panel
+  - Renamed model from `Banya-Solar:100b` to `Banya Solar:100b` (space instead of hyphen)
+- **Prompt System Reorganization**: Centralized prompts into `context/prompts` directory.
+  - Plan prompts moved to `context/prompts/plan/` (splitInstruction, structuredPlan, legacyPlan, summarizePlan)
+  - Tool prompts moved to `context/prompts/tools/` (toolCalling with JSON Function Calling format)
+  - PlanManager and ToolSpecBuilder now import from centralized prompt files
+  - Improved maintainability and reduced code duplication
+- **Tree-sitter Query Expansion**: Added support for additional languages.
+  - New queries for Go, Rust, C, C++ languages
+  - Updated `getSupportedExtensions()` to include `.go`, `.rs`, `.c`, `.h`, `.cpp`, `.hpp`, `.cc`
+- **Bug Fixes**:
+  - Fixed `list_files` tool validation to accept empty string path (represents project root)
+  - Fixed abort handling in Banya API - cancel no longer retries 3 times
+  - AbortError now immediately throws without retry attempts
+
+## v8.8.2 (Terminal Context & Fast Diagnostics)
+- **Terminal Context Support**: Added Terminal category to '@' menu (similar to Continue IDE).
+  - Type `@terminal` to see list of VS Code terminals
+  - Select a terminal to include its command history in LLM context
+  - Terminal mention block displayed as orange badge in input area
+  - Up to 20 recent commands with outputs included in context
+  - Exit codes shown as ✓ (success) or ✗(code) (failure)
+  - Long outputs automatically truncated to 500 characters
+- **File/Terminal Mention Sync**: Improved mention block deletion handling.
+  - Backspace deletion of file/terminal mentions now properly clears selection state
+  - "(Selected)" indicator updates correctly when mention is removed
+  - `syncMentionsWithDOM()` function ensures DOM and state consistency
+- **Context Integration**: Both file and terminal contexts are included in system prompt.
+  - File context: "**Selected Files:**" section with full file contents
+  - Terminal context: "**Terminal Context:**" section with command history and outputs
+  - LLM can reference both contexts to understand user's development environment
+- **Fast Diagnostics Check**: Added VS Code Diagnostics validation before CLI commands.
+  - Uses LSP-based diagnostics to catch syntax/type errors instantly
+  - Filters only `DiagnosticSeverity.Error` (warnings ignored)
+  - Runs before CLI validation commands for faster feedback
+  - If errors found, returns immediately without running CLI (saves time)
+  - Error format: `file:line: message` with max 10 errors displayed
+
+## v8.8.1 (Summary Improvements & Session History Restoration)
+- **Improved Summary Format**: Enhanced task completion summary output with markdown formatting.
+  - Structured with `### Task Complete ✅`, `### Changes`, `### Usage` sections
+  - File changes displayed as `**filename**: description` format
+  - Project execution instructions provided in code blocks
+  - Added retry logic when LLM responds with tool tags (max 3 attempts)
+- **Complete Session History Restoration**: Full conversation restoration on VSCode restart.
+  - Restores code blocks (created/modified file contents)
+  - Restores action areas (📖 [Read], ✅ [Created], 📝 [Updated], etc.)
+  - All messages displayed in webview are saved via `uiMessages` field
+  - Backwards compatibility with older data format
+- **Action Tracker UI Removed**: Removed unnecessary real-time action tracker UI.
+  - Removed displays like "Working... 📖Reading file: App.tsx"
+  - Removed `WebviewBridge.updateActionTracker`, `clearActionTracker` methods
+  - Removed action tracker calls from `ToolExecutor`
+  - Reduced bundle size by removing related CSS styles
+
+## v8.8.0 (Real-time Action Tracker & Context Improvements)
+- **Real-time Action Tracker**: Added Windsurf-style real-time action tracking UI during AI operations.
+  - Shows live progress of file reads, creates, modifies, deletes
+  - Displays command execution status in real-time
+  - Search and analysis operations are tracked with visual indicators
+  - Each action shows start/complete/error status with icons
+  - Animated spinner and status indicators for active operations
+  - Maximum 10 actions displayed with auto-scroll
+- **WebviewBridge Enhancement**: Added `updateActionTracker` and `clearActionTracker` methods
+- **ToolExecutor Integration**: Automatic action tracking for all tool executions
+- **Visual Improvements**:
+  - Action-specific icons and color coding (read: blue, create: green, modify: orange, delete: red)
+  - Smooth slide-in animations for new actions
+  - Completed actions fade to indicate progress
+- **Open Tabs Context**: Added ability to include open editor tabs in LLM context.
+  - `ContextManager.getOpenTabsContext()` returns list of all open tabs
+  - Includes file path, name, language, active status, and dirty status
+  - Helps LLM understand which files user is working with
+- **Partial File Reading**: Enhanced `read_file` tool with line range support.
+  - `startLine` and `endLine` parameters for reading specific portions of large files
+  - Returns line numbers with content for easy reference
+  - Reduces token usage when only part of a file is needed
+
+## v8.7.8 (Input Area Styling Improvements)
+- **Input Area Border Styling**: Improved input area border appearance for cleaner UI.
+  - Added subtle light gray border to input area (`.input-row`)
+  - Removed blue focus border, maintaining consistent light gray border on focus
+  - Provides cleaner, more consistent visual appearance
+- **File Selection UX**: Improved '@' command file selection behavior.
+  - File name no longer remains in input field after selection
+  - Selected files are only shown in the file selection area
+  - Cleaner input experience when using '@' command
+- **UI Text Consistency**: Standardized text capitalization in Pending Changes button.
+  - Changed "file/files" to "File/Files" for consistency
+
+## v8.7.7 (UI Improvements & Code Block Toggle Refactoring)
+- **Code Block Toggle Refactoring**: Refactored code block toggle functionality to use event delegation pattern.
+  - Changed from direct event listeners to `codepilot://toggle` scheme-based event delegation
+  - Each code block now has a unique ID for reliable toggle state management
+  - Improved click handling to prevent conflicts with file open and diff icons
+  - Toggle button and header use anchor tags with custom scheme for better event handling
+- **UI Simplification**: Removed borders and backgrounds from dropdown buttons and options for cleaner text-like appearance.
+  - Model selector and Code/ASK mode selector buttons now appear as plain text
+  - Removed all left-side color indicators from dropdown buttons and options
+  - File button already had no border/background, now consistent across all controls
+- **Token Usage Tooltip Enhancement**: Added context information to token usage tooltip.
+  - Tooltip now shows both token usage and context message count
+  - Format: "Token usage: X / Y\nContext: Z messages"
+  - Provides comprehensive context information at a glance
+- **Notification Cleanup**: Removed approval notification messages for cleaner user experience.
+  - File change approval no longer shows "Changes approved" notification
+  - Reduces notification noise during development workflow
+
+## v8.7.6 (Conversation History Management Architecture Improvements)
+- **Unified History System**: Consolidated 4 duplicate storage systems into a single SessionManager repository for clearer context management.
+  - `SessionManager.conversationHistory` as the single source of truth
+  - Stores both full conversation content and structured metadata
+  - Both ASK and CODE modes use the same storage
+- **ConversationEntry Type Extensions**: Stores both full responses and metadata.
+  - `assistantResponse`: Stores complete LLM response (for ASK mode context reuse)
+  - `filesCreated`, `filesModified`, `commandsExecuted`: Structured metadata
+  - `compactedSummaryId`: Reference to compressed summary
+  - `durationMs`: Execution time tracking
+- **Automatic Session Compaction**: Intelligent history compression using LLM summarization.
+  - Auto-compacts when token threshold exceeds 80%
+  - Summarizes old conversations with LLM and persistently stores in `compactedSummaries`
+  - Keeps recent 20 conversations in original form
+  - Falls back to simple trim on compression failure
+- **ASK Mode Context Improvements**: Provides context in summary + recent conversation structure.
+  - `getHistoryContext()` method combines compressed summaries with recent conversations
+  - Past conversation context is preserved as summaries, not lost
+  - Context management quality on par with Cursor/Copilot/Claude Code
+- **ConversationCompactor Integration**: Integrated SessionManager with ConversationCompactor.
+  - `generateSummaryFromText()` method for direct summary generation
+  - SessionManager handles compression timing and summary persistence
+  - Dual strategy: in-loop temporary compression + session persistent compression
+- **Performance Optimizations**: Removed unnecessary LLM calls and utilized caching.
+  - CODE mode can store only file change information (full response optional)
+  - Fast search and filtering with structured metadata
+  - Reduced token costs through compressed summary reuse
+
+## v8.7.6 (Context Visualization & Token Usage Display)
+- **Context Visualization**: Added real-time context information display in the input area.
+  - Shows current number of messages in context
+  - Displays token usage with visual indicators
+  - Color-coded token usage warnings (yellow at 70%, red at 90%)
+  - Updates automatically during conversation
+- **Token Usage Tracking**: Real-time token consumption monitoring.
+  - Shows current tokens / max tokens
+  - Percentage-based display for easy understanding
+  - Helps users manage context length effectively
+
+## v8.7.5 (Session History Management & Code Cleanup)
+- **Session Conversation History**: Now saves conversation history to sessions.
+  - User messages and AI responses are automatically saved to the current session
+  - Conversation history is stored with each session (up to 100 entries per session)
+  - Clear History button now clears the actual session conversation history
+- **Code Cleanup**: Removed unused TabHistory system.
+  - Removed legacy TabHistory methods (getTabHistory, addTabHistoryEntry, getTabHistoryContext, clearTabHistory)
+  - Simplified conversation history management
+  - ConversationCompactor handles context management (keeps recent 12 messages + summarizes older ones)
+- **Improved Session Restoration**: Sessions now include full conversation context when restored
+
+## v8.7.4 (Project Context Caching & Slash Commands)
+- **Project Context Caching**: Significantly improved performance by caching frequently accessed files and project structures.
+  - Automatic caching of priority files (package.json, tsconfig.json, pyproject.toml, etc.)
+  - Automatic file change detection and cache invalidation
+  - Memory-efficient management with LRU cache policy
+  - TTL (Time To Live) based automatic expiration (5 minutes default)
+  - Maximum cache size limit (10MB default)
+  - Disk persistence for cache retention after restart
+  - Project structure caching (file tree, config file list)
+  - Cache hit rate and statistics viewing
+- **Slash Commands in Chat Panel**: Added slash command support in chat input.
+  - Type `/` in chat input to see available commands
+  - `/cache` - View cache statistics
+  - `/clear-cache` - Clear context cache
+  - `/sessions` - List saved sessions
+  - `/restore` - Restore saved session
+  - Keyboard navigation support (Arrow Up/Down, Enter, Escape)
+- **New Commands Added**:
+  - `Codepilot: View Cache Statistics` - View cache statistics with QuickPick UI
+  - `Codepilot: Clear Context Cache` - Clear context cache with confirmation prompt
+  - `Codepilot: List Saved Sessions` - View all saved sessions
+  - `Codepilot: Restore Saved Session` - Restore a previously saved session
+- **SessionManager Enhancement**: Integrated project context caching for improved performance
+
+## v8.7.3 (Retry Count Default Update & UI Improvements)
+- **Default Retry Count Increase**: Increased default retry counts for better error recovery.
+  - Error auto-correction default retry count: 3 → 5
+  - Auto test retry default count: 3 → 5
+- **UI Terminology Update**: Changed "Auto Test Retry on Failure" to "Auto Code Validation" for clearer semantics
+- **Pending Changes Synchronization**: Improved synchronization between chat panel and dropdown.
+  - Clicking Keep/Undo in chat panel now removes all buttons for the same file across all code blocks
+  - Pending changes dropdown automatically updates when changes are accepted/rejected from chat panel
+
+## v8.7.2 (Prompt Rules Conflict Resolution)
+- **Prompt Rules Priority Clarification**: Resolved prompt rule conflicts that caused LLM confusion and inaction.
+  - Added clear priority order: 1) Information gathering first, 2) Complex tasks need planning, 3) Action priority, 4) Execution-focused
+  - Updated `getBaseRules()` with prioritized rule structure and practical examples
+  - Added "When in doubt, read files and execute" guideline to prevent analysis paralysis
+  - Enhanced `getNoInternalMonologueRules()` with exception clause for unclear situations
+  - Improved `getCodeWorkPrompt()` and `getExecutionWorkPrompt()` with task mode decision guidelines
+  - Fixed issue where LLM would output internal reasoning ("We need to...", "According to...") without taking action
+  - Added explicit examples showing correct workflow (read → execute) vs incorrect workflow (internal monologue only)
+
+## v8.7.1 (Pending Changes UI Improvements)
+- **Pending Changes Dropdown UI Enhancements**: Improved the pending changes dropdown interface with better usability.
+  - File path display: Shows full relative path (e.g., `src/app.ts`) instead of just filename
+  - Button labels: Changed "Accept" → "Keep", "Reject" → "Undo" for clearer action semantics
+  - Undo button styling: Black background (#1e1e1e) for Undo button to distinguish from Keep button
+  - Dropdown width: Increased from 320px to 420px to accommodate file paths
+  - Icon update: Changed arrow icon from `>` to `›` for better visual consistency
+  - Chat panel buttons: Updated Accept/Reject buttons below code blocks to match dropdown styling (Keep/Undo with same colors)
+
+## v8.7.0 (Pending Changes Popup)
+- **Pending Changes Popup**: Added a popup UI to manage pending file changes (diffs) that haven't been accepted or rejected yet.
+  - New button in the input panel (next to model selector) shows pending changes count badge
+  - Click to open popup showing all files with pending changes
+  - Each file displays: filename, added/deleted line counts
+  - Per-file actions: View Diff, Accept, Reject
+  - Global actions: Accept All, Reject All
+  - Automatically updates when file changes occur
+- **InlineDiffManager Enhancements**: Added `getPendingChangesStats()` and `hasPendingChanges()` methods for UI integration
+- **Real-time Updates**: Pending changes popup automatically refreshes after tool execution
+
+## v8.6.0 (Automatic Context Compaction)
+- **Automatic Context Compaction**: Added automatic context compaction feature to manage long conversations. When conversation context exceeds 80% of the model's token limit, the system automatically:
+  - Summarizes older messages using LLM
+  - Keeps recent 12 messages in original form
+  - Creates a compact [Previous Conversation Summary] + [Recent Messages] structure
+  - Falls back to sliding window if LLM summarization fails
+- **ConversationCompactor**: New class (`ConversationCompactor.ts`) implementing hybrid summarization strategy:
+  - Token threshold monitoring (configurable, default 80%)
+  - LLM-based intelligent summarization for old messages
+  - Sliding window fallback for reliability
+  - Compaction statistics tracking
+- **UI Notification**: Users are notified when context compaction occurs with token savings information
+
+## v8.5.1 (Prompt System Cleanup)
+- **Prompt System Cleanup**: Cleaned up duplicate and unused prompt rules to improve maintainability.
+  - Removed unused `getXmlToolRules()` function from base prompts
+  - Removed duplicate XML/markdown rules from task-specific prompts (already covered in base rules)
+  - Simplified and consolidated global rules in base.ts for better clarity
+  - Streamlined prompt structure while preserving all essential functionality
+
+## v8.5.0 (Development Rules Auto-Loading)
+- **Development Rules Auto-Loading**: Added automatic loading of development rules from `.agent/rules` directory. The system now automatically reads markdown files (stable-version.md, coding-style.md, project-architecture.md, dependency-policy.md, db-policy.md) from the `.agent/rules` directory and includes them as mandatory rules in the system prompt. Only existing files are loaded, so partial rule sets are supported.
+
+## v8.4.0 (Framework-Specific Prompts Removal)
+- **Framework-Specific Prompts Removal**: Removed all framework-specific prompt files to simplify the prompt system. The system now relies on LLM to dynamically detect and handle framework-specific requirements by reading project files (package.json, pom.xml, etc.) instead of using hardcoded framework prompts.
+
+## v8.2.0 (File Diff Display & Formatter Integration Improvements)
+- **File Diff Display**: Enhanced file diff display in code blocks with improved visual indicators for added and removed lines. Diff blocks now show line count changes in the header.
+- **Formatter-Aware Decoration Management**: Improved decoration handling during and after formatter execution. Decorations are now properly preserved and re-applied after code formatting, preventing decoration loss when formatters modify files.
+- **Document Change Detection**: Enhanced document change detection to properly handle formatter-triggered changes. First document change after formatter completion is automatically ignored to prevent false reconciliation.
+
+## v8.1.0 (Diff UI/UX Improvements & Code Block Enhancements)
+- **Accept/Reject All Buttons**: Added "Accept" and "Reject" buttons below code blocks that display diffs, allowing users to accept or reject all changes for a file at once. Buttons are automatically removed after being clicked.
+- **Code Block Syntax Highlighting**: Implemented syntax highlighting for code blocks using Highlight.js with VS Code dark theme colors. Added comprehensive language mapping to support various language aliases.
+- **Button Visibility Improvements**: Copy and Run buttons for Bash/PowerShell/Cmd blocks are now always visible (not just on hover). Copy button removed from general code blocks, kept only for Bash blocks.
+- **New File Decoration Timing Fix**: Fixed decoration application timing issues for newly created files. Decorations now apply correctly even when files are created and immediately formatted.
+- **Formatter Integration**: Improved decoration re-application after formatter execution. Decorations are now properly restored after code formatting completes.
+- **File Path Resolution**: Fixed file path matching issues in Accept/Reject All functionality by normalizing relative paths to absolute paths.
+
+## v8.0.0 (CryptoUtils Enhancements)
+- **CryptoUtils Security Improvements**: Enhanced security, code quality, type safety, and error handling in `cryptoUtils.ts`. Added license serial encryption functionality.
+
 ## v7.0.1 (Probability-Based Decision Logic Consistency Improvements)
 - **Centralized Threshold Management**: All probability-based decision thresholds (confidence, thresholds, percentages) are now centralized in `AgentConfig.ts` for better maintainability and consistency.
 - **Consistent Confidence Values**: Unified confidence values for the same purposes:

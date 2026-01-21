@@ -9,6 +9,9 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
         /* (기존 스타일 유지) */
         body {
@@ -59,6 +62,47 @@
             height: 18px;
             vertical-align: middle;
             filter: var(--vscode-icon-foreground-filter);
+        }
+
+        /* Approval Buttons */
+        #approval-buttons-container {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            margin-right: 10px;
+            background-color: var(--vscode-editor-background);
+            border: 2px solid var(--vscode-focusBorder);
+            border-radius: 6px;
+        }
+
+        .approval-button {
+            padding: 6px 12px;
+            border: 1px solid;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .approve-button {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border-color: var(--vscode-button-border);
+        }
+
+        .approve-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .reject-button {
+            background-color: transparent;
+            color: var(--vscode-errorForeground);
+            border-color: var(--vscode-errorForeground);
+        }
+
+        .reject-button:hover {
+            background-color: var(--vscode-inputValidation-errorBackground);
         }
 
         /* 메인 컨테이너 - 채팅 영역과 입력 영역을 포함 */
@@ -193,15 +237,70 @@
             max-height: 200px;
             overflow: auto;
             box-sizing: border-box;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* 파일 멘션 블록 스타일 */
+        .file-mention {
+            display: inline-block;
+            background-color: rgba(0, 122, 255, 0.2);
+            color: rgba(0, 122, 255, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin: 0 2px;
+            user-select: none;
+            -webkit-user-select: none;
+            white-space: nowrap;
+        }
+
+        .file-mention::before {
+            content: '@';
+            margin-right: 2px;
+        }
+
+        /* 터미널 멘션 블록 스타일 */
+        .terminal-mention {
+            display: inline-block;
+            background-color: rgba(255, 149, 0, 0.2);
+            color: rgba(255, 149, 0, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin: 0 2px;
+            user-select: none;
+            -webkit-user-select: none;
+            white-space: nowrap;
+        }
+
+        .terminal-mention::before {
+            content: '>';
+            margin-right: 4px;
+            font-family: monospace;
+        }
+
+        /* Diagnostics 멘션 블록 스타일 */
+        .diagnostics-mention {
+            display: inline-block;
+            background-color: rgba(255, 59, 48, 0.2);
+            color: rgba(255, 59, 48, 0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin: 0 2px;
+            user-select: none;
+            -webkit-user-select: none;
+            white-space: nowrap;
+            font-size: 11px;
+        }
+
+        .diagnostics-mention::before {
+            content: '⚠';
+            margin-right: 4px;
         }
 
         /* <-- 수정 끝 --> */
-
-
-        #chat-input:focus {
-            border-color: var(--vscode-focusBorder);
-            /* 포커스 시 테두리 색상 변경 */
-        }
 
         /* 상단 컨트롤 (Agent, Mode) */
         .top-controls {
@@ -214,65 +313,56 @@
         .dropdown-button {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 5px;
+            gap: 4px;
+            padding: 3px 8px;
+            background-color: transparent;
+            border: none;
+            border-radius: 0;
             color: var(--vscode-foreground);
-            font-size: 12px;
+            font-size: 10px;
             cursor: pointer;
             transition: all 0.2s ease;
             position: relative;
         }
 
-        /* CODE/ASK 색상 포인트 */
+        /* CODE/ASK 색상 포인트 - 제거됨 */
         #mode-selector::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background-color: #2196F3;
-            /* CODE 기본 색상 (파란색) */
-            border-radius: 5px 0 0 5px;
+            display: none;
         }
 
         #mode-selector[data-mode="ASK"]::before {
-            background-color: #4CAF50;
-            /* ASK 색상 (녹색) */
+            display: none;
         }
 
-        /* 모델 선택 버튼 색상 포인트 */
+        /* 모델 선택 버튼 색상 포인트 - 제거됨 */
         #model-selector::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background-color: #f68537;
-            /* Ollama 기본 색상 (주황색) */
-            border-radius: 5px 0 0 5px;
+            display: none;
         }
 
         #model-selector[data-model-type="gemini"]::before {
-            background-color: #4285f4;
-            /* Gemini 색상 (파란색) */
+            display: none;
+        }
+
+        #model-selector[data-model-type="banya"]::before {
+            display: none;
         }
 
         .dropdown-icon-img {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             object-fit: contain;
             filter: brightness(0) invert(1);
             opacity: 0.9;
         }
 
         .dropdown-button:hover {
-            background-color: rgba(255, 255, 255, 0.05);
-            border-color: var(--vscode-focusBorder);
+            background-color: transparent;
+            border: none;
+        }
+
+        .dropdown-option {
+            font-size: 10px;
+            border-radius: 4px;
         }
 
         .dropdown-option:hover {
@@ -285,7 +375,7 @@
         }
 
         .dropdown-icon {
-            font-size: 16px;
+            font-size: 14px;
             opacity: 0.7;
         }
 
@@ -295,14 +385,14 @@
             flex-direction: column;
             align-items: stretch;
             background-color: var(--vscode-input-background);
-            border: 1px solid var(--vscode-panel-border);
+            border: 1px solid rgba(128, 128, 128, 0.3);
             border-radius: 8px;
             padding: 8px 12px 10px 12px;
             transition: border-color 0.2s ease;
         }
 
         .input-row:focus-within {
-            border-color: var(--vscode-focusBorder);
+            border-color: rgba(128, 128, 128, 0.3);
         }
 
         /* 아이콘 행 */
@@ -354,36 +444,104 @@
             height: 16px;
         }
 
+        /* 컨텍스트 정보 표시 영역 */
+        .context-info-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-right: auto;
+        }
 
-        /* (기존 메시지 관련 스타일 유지) */
+        .token-gauge-container {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: default;
+        }
+
+        .token-gauge {
+            width: 15px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .token-gauge-fill {
+            height: 100%;
+            background: rgba(255, 255, 255, 0.4);
+            transition: width 0.3s ease, background-color 0.3s ease;
+            border-radius: 2px;
+        }
+
+        .token-gauge-fill.warning {
+            background: #cca700;
+        }
+
+        .token-gauge-fill.danger {
+            background: #f48771;
+        }
+
+        .token-percentage {
+            font-size: 10px;
+            color: var(--vscode-descriptionForeground);
+            font-family: monospace;
+        }
+
+        .context-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            font-family: monospace;
+            cursor: default;
+        }
+
+        .context-indicator svg {
+            width: 12px;
+            height: 12px;
+            fill: var(--vscode-foreground);
+            opacity: 0.8;
+        }
+
+
+        /* 사용자 메시지 컨테이너 - LLM 응답과 명확히 구분 */
+        .user-message-container {
+            margin-top: 20px;
+            margin-bottom: 4px;
+            padding: 12px 14px;
+            background: rgba(128, 128, 128, 0.1);
+            border-left: 3px solid rgba(128, 128, 128, 0.5);
+            border-radius: 0 8px 8px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
         .user-plain-message {
             margin-bottom: 0;
             word-wrap: break-word;
             white-space: pre-wrap;
-            /* <-- 추가: user-plain-message에서도 줄바꿈 유지 */
             align-self: flex-start;
             max-width: 100%;
-            color: white;
-            /* 요청에 따라 흰색으로 변경 */
-            font-weight: bold;
-            /* 요청에 따라 굵게 변경 */
-            padding: 0 10px;
+            color: var(--vscode-foreground);
+            font-weight: 500;
+            padding: 0;
             box-sizing: border-box;
             width: 100%;
-            display: flex;
-            /* 이미지와 텍스트를 함께 표시하기 위해 flex 사용 */
-            flex-direction: column;
-            /* 이미지와 텍스트를 세로로 쌓음 */
-            align-items: flex-start;
+            display: block;
+            line-height: 1.5;
         }
 
         .message-separator {
             width: 100%;
             border: none;
             border-top: 1px solid var(--vscode-panel-border);
-            margin-top: 5px;
-            margin-bottom: 15px;
+            margin-top: 4px;
+            margin-bottom: 8px;
             flex-shrink: 0;
+            opacity: 0.5;
         }
 
         .codepilot-message-container {
@@ -457,6 +615,88 @@
             margin-left: 4px;
             animation: blink 1s infinite;
             vertical-align: middle;
+        }
+
+        /* 스트리밍 메시지 스타일 */
+        .codepilot-message.streaming {
+            opacity: 1;
+        }
+
+        .codepilot-message.streaming .message-content {
+            min-height: 20px;
+        }
+
+        .streaming-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--vscode-editor-foreground, #d4d4d4);
+            margin-left: 2px;
+            animation: streamingBlink 0.7s infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes streamingBlink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        /* Think 버블 스타일 - 스트리밍 중 AI 사고 과정 표시 */
+        .think-bubble {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, rgba(100, 100, 200, 0.15) 0%, rgba(80, 80, 160, 0.1) 100%);
+            border: 1px solid rgba(120, 120, 200, 0.3);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground, #8b949e);
+            animation: thinkFadeIn 0.3s ease-out;
+        }
+
+        .think-bubble .think-icon {
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .think-bubble .think-text {
+            flex: 1;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .think-bubble .think-cursor {
+            color: var(--vscode-editor-foreground, #d4d4d4);
+            animation: thinkBlink 0.5s infinite;
+        }
+
+        @keyframes thinkFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes thinkBlink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0;
+            }
         }
 
         @keyframes blink {
@@ -557,14 +797,9 @@
             border: none;
             border-radius: 3px;
             cursor: pointer;
-            opacity: 0;
-            transition: opacity 0.2s ease-in-out;
-            z-index: 2;
-        }
-
-        .codepilot-message-container:hover .copy-code-button,
-        .message-bubble:hover .copy-code-button {
             opacity: 1;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 2;
         }
 
         .copy-code-button:hover {
@@ -591,14 +826,9 @@
             border: none;
             border-radius: 3px;
             cursor: pointer;
-            opacity: 0;
-            transition: opacity 0.2s ease-in-out;
-            z-index: 2;
-        }
-
-        .aidev-ide-message-container:hover .run-bash-button,
-        .message-bubble:hover .run-bash-button {
             opacity: 1;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 2;
         }
 
         .run-bash-button:hover {
@@ -614,6 +844,59 @@
             display: flex;
             justify-content: flex-end;
             gap: 5px;
+        }
+
+        .keep-button,
+        .undo-button {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            padding: 4px 12px;
+            font-size: 11px;
+            line-height: 1;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            opacity: 1;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 2;
+            font-weight: 500;
+        }
+
+        .undo-button {
+            /* Undo 버튼 - 검은색 배경 */
+            background-color: #1e1e1e;
+            color: white;
+            border: none;
+        }
+
+        .undo-button:hover {
+            background-color: #333333;
+            color: white;
+        }
+
+        .undo-button:active {
+            background-color: #000000;
+            color: white;
+        }
+
+        .keep-button {
+            /* Keep 버튼 - 초록색 배경 */
+            background-color: #73c991;
+            color: white;
+            border: none;
+        }
+
+        .keep-button:hover {
+            background-color: #5fb07d;
+            color: white;
+        }
+
+        .keep-button:active {
+            background-color: #4a9968;
+            color: white;
         }
 
         .message-bubble p {
@@ -787,10 +1070,10 @@
         /* 코드 블록 컨테이너 스타일 */
         .code-block-container {
             margin: 10px 0;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
             overflow: hidden;
-            background-color: var(--vscode-editor-background);
+            background-color: rgba(30, 30, 30, 0.95);
         }
 
         /* 코드 블록 헤더 스타일 */
@@ -799,43 +1082,139 @@
             justify-content: space-between;
             align-items: center;
             padding: 8px 12px;
-            background-color: var(--vscode-editor-inactiveSelectionBackground);
-            border-bottom: 1px solid var(--vscode-panel-border);
+            background-color: rgba(30, 30, 30, 0.95);
             font-size: 12px;
             font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .code-block-header.collapsed {
+            border-bottom: none;
+        }
+
+        .code-header-left {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            outline: none;
+        }
+
+        .code-header-left:focus,
+        .code-header-left:active {
+            outline: none;
+            box-shadow: none;
+        }
+
+        .code-header-left:hover .code-toggle-button {
+            opacity: 0.8;
+        }
+
+        .code-header-left:hover .code-language {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .code-toggle-button {
+            cursor: pointer;
+            color: var(--vscode-foreground);
+            font-size: 10px;
+            padding: 0;
+            opacity: 0.5;
+            transition: opacity 0.2s, transform 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            width: 16px;
+            height: 16px;
+            text-decoration: none;
+            outline: none;
+        }
+
+        .code-toggle-button:focus,
+        .code-toggle-button:active {
+            outline: none;
+            box-shadow: none;
+        }
+
+        .code-toggle-button:hover {
+            opacity: 1;
+        }
+
+        .code-toggle-button.collapsed {
+            transform: rotate(-90deg);
         }
 
         .code-language {
-            color: var(--vscode-descriptionForeground);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: rgba(255, 255, 255, 0.7);
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             text-transform: uppercase;
             font-size: 11px;
+            cursor: pointer;
+            transition: color 0.2s;
+            text-decoration: none;
+            min-height: 16px;
+        }
+
+        .code-language:hover {
+            color: rgba(255, 255, 255, 0.9);
             letter-spacing: 0.5px;
+            text-decoration: none;
+        }
+
+        .code-language:visited {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
         }
 
         .code-line-count {
-            color: var(--vscode-descriptionForeground);
+            color: rgba(255, 255, 255, 0.5);
             font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         /* 코드 컨테이너 스타일 */
         .code-container {
             position: relative;
-            max-height: 300px;
-            /* 최대 높이 설정 */
+            max-height: 400px;
             overflow-y: auto;
-            /* 수직 스크롤 추가 */
+            background-color: rgba(30, 30, 30, 0.95);
+        }
+
+        .code-container::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .code-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .code-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+
+        .code-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
         }
 
         .code-container pre {
             margin: 0;
-            padding: 12px;
-            background-color: var(--vscode-editor-background);
+            padding: 12px 14px;
+            background-color: transparent;
             border-radius: 0;
             overflow-x: auto;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             font-size: 13px;
-            line-height: 1.4;
+            line-height: 1.5;
             white-space: pre;
         }
 
@@ -845,7 +1224,87 @@
             border-radius: 0;
             font-family: inherit;
             font-size: inherit;
-            color: var(--vscode-editor-foreground);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Highlight.js 스타일 오버라이드 - VS Code 테마와 조화 */
+        .code-container code.hljs {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.9);
+            padding: 0;
+        }
+
+        /* Highlight.js 구문 강조 색상 조정 */
+        .code-container .hljs-keyword,
+        .code-container .hljs-selector-tag,
+        .code-container .hljs-literal,
+        .code-container .hljs-section,
+        .code-container .hljs-link {
+            color: #569cd6;
+            /* VS Code 키워드 색상 (파란색) */
+        }
+
+        .code-container .hljs-function,
+        .code-container .hljs-title,
+        .code-container .hljs-params {
+            color: #dcdcaa;
+            /* VS Code 함수 색상 (노란색) */
+        }
+
+        .code-container .hljs-string,
+        .code-container .hljs-attr {
+            color: #ce9178;
+            /* VS Code 문자열 색상 (주황색) */
+        }
+
+        .code-container .hljs-comment,
+        .code-container .hljs-quote {
+            color: #6a9955;
+            /* VS Code 주석 색상 (초록색) */
+            font-style: italic;
+        }
+
+        .code-container .hljs-number,
+        .code-container .hljs-built_in,
+        .code-container .hljs-builtin-name {
+            color: #b5cea8;
+            /* VS Code 숫자 색상 (연두색) */
+        }
+
+        .code-container .hljs-variable,
+        .code-container .hljs-template-variable {
+            color: #9cdcfe;
+            /* VS Code 변수 색상 (하늘색) */
+        }
+
+        .code-container .hljs-type,
+        .code-container .hljs-class {
+            color: #4ec9b0;
+            /* VS Code 타입 색상 (청록색) */
+        }
+
+        .code-container .hljs-tag,
+        .code-container .hljs-name,
+        .code-container .hljs-attribute {
+            color: #569cd6;
+            /* VS Code 태그 색상 */
+        }
+
+        .code-container .hljs-meta,
+        .code-container .hljs-meta-keyword {
+            color: #808080;
+            /* VS Code 메타 색상 (회색) */
+        }
+
+        .code-container .hljs-regexp,
+        .code-container .hljs-deletion {
+            color: #f48771;
+            /* VS Code 정규식 색상 (빨간색) */
+        }
+
+        .code-container .hljs-addition {
+            color: #73c991;
+            /* VS Code 추가 색상 (초록색) */
         }
 
         /* 스크롤바 스타일링 */
@@ -1249,6 +1708,88 @@
             display: none;
         }
 
+        /* Pending Changes Dropdown Styles */
+        .pending-dropdown-item {
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+
+        .pending-dropdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .pending-dropdown-item:hover {
+            background: rgba(128, 128, 128, 0.1);
+        }
+
+        .pending-dropdown-item .file-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pending-dropdown-item .file-path {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .pending-dropdown-item .file-stats {
+            font-size: 11px;
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .pending-dropdown-item .file-stats .added {
+            color: #73c991;
+        }
+
+        .pending-dropdown-item .file-stats .deleted {
+            color: #f48771;
+        }
+
+        .pending-dropdown-item .actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .pending-dropdown-item .actions button {
+            padding: 2px 6px;
+            font-size: 10px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .pending-dropdown-item .actions .view-btn {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+
+        .pending-dropdown-item .actions .undo-btn {
+            background: #1e1e1e;
+            color: white;
+        }
+
+        .pending-dropdown-item .actions .keep-btn {
+            background: #73c991;
+            color: white;
+        }
+
+        .pending-dropdown-item .actions button:hover {
+            opacity: 0.8;
+        }
+
         .task-queue-content {
             padding: 10px;
             overflow-y: auto;
@@ -1478,15 +2019,7 @@
         <!-- Pending Question Queue Area -->
         <div id="pending-queue-area" class="hidden"></div>
         <!-- File Selection Area - 입력창과 채팅 출력창 사이로 이동 -->
-        <div id="file-selection-area" class="hidden">
-            <div id="selected-files-container">
-                <!-- 선택된 파일들이 여기에 표시됩니다 -->
-            </div>
-            <button id="clear-files-button" title="Clear all selected files">×</button>
-        </div>
-
-        <!-- 파일 선택 영역과 입력 영역 사이의 구분선 -->
-        <hr class="file-input-divider hidden" />
+        <!-- 파일 선택 영역 제거됨 - 입력창에 @filename 블록으로 표시 -->
 
         <div id="chat-input-area">
             <!-- 상단 컨트롤 -->
@@ -1499,15 +2032,43 @@
                     <span id="model-label">Model</span>
                     <img src="{{dropdownIconUri}}" class="dropdown-icon-img" alt="dropdown" />
                 </button>
+                <!-- Spacer to push pending changes button to right -->
+                <div style="flex: 1;"></div>
+                <!-- Pending Changes Button -->
+                <button class="dropdown-button" id="pending-changes-btn" style="display: none;" title="Pending Changes">
+                    <span id="pending-changes-label">0 Files</span>
+                    <span style="font-size: 10px;">›</span>
+                </button>
+                <!-- Pending Changes Dropdown -->
+                <div id="pending-changes-dropdown" class="hidden"
+                    style="display:none; position:absolute; bottom: 100%; right: 0; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; min-width: 420px; max-height: 300px; overflow: hidden;">
+                    <div class="pending-dropdown-header"
+                        style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+                        <span id="pending-dropdown-title">Pending Changes</span>
+                    </div>
+                    <div id="pending-dropdown-content" style="max-height: 200px; overflow-y: auto; padding: 4px 0;">
+                    </div>
+                    <div class="pending-dropdown-footer"
+                        style="padding: 8px 12px; border-top: 1px solid var(--vscode-panel-border); display: flex; justify-content: flex-end; gap: 8px;">
+                        <button id="pending-reject-all"
+                            style="padding: 4px 12px; font-size: 11px; border-radius: 4px; border: none; background: #1e1e1e; color: white; cursor: pointer;">Undo
+                            All</button>
+                        <button id="pending-accept-all"
+                            style="padding: 4px 12px; font-size: 11px; border-radius: 4px; border: none; background: #73c991; color: white; cursor: pointer;">Keep
+                            All</button>
+                    </div>
+                </div>
                 <div id="mode-dropdown" class="hidden"
-                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
+                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20;">
                     <div class="dropdown-option" data-mode="CODE"
-                        style="padding:6px 10px; cursor:pointer; border-left: 3px solid #2196F3;">CODE</div>
+                        style="padding:4px 8px; cursor:pointer; font-size: 10px; border-radius: 4px;">
+                        CODE</div>
                     <div class="dropdown-option" data-mode="ASK"
-                        style="padding:6px 10px; cursor:pointer; border-left: 3px solid #4CAF50;">ASK</div>
+                        style="padding:4px 8px; cursor:pointer; font-size: 10px; border-radius: 4px;">
+                        ASK</div>
                 </div>
                 <div id="model-dropdown" class="hidden"
-                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
+                    style="display:none; position:absolute; bottom: 100%; margin-bottom: 4px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 20; max-height: 220px; overflow-y: auto;">
                 </div>
             </div>
 
@@ -1519,10 +2080,28 @@
                     <button id="remove-image-button" title="Remove image">×</button>
                 </div>
 
-                <textarea id="chat-input" rows="1"></textarea>
+                <div id="chat-input" contenteditable="true" role="textbox" aria-multiline="true"></div>
 
                 <!-- 아이콘 버튼들 -->
                 <div class="input-actions-row">
+                    <!-- 왼쪽: 컨텍스트 정보 -->
+                    <div class="context-info-left">
+                        <div class="token-gauge-container" title="">
+                            <div class="token-gauge">
+                                <div class="token-gauge-fill" id="token-gauge-fill" style="width: 0%;"></div>
+                            </div>
+                            <span class="token-percentage" id="token-percentage">0%</span>
+                        </div>
+                        <div class="context-indicator" title="컨텍스트 메시지 수">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path
+                                    d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z" />
+                            </svg>
+                            <span id="context-messages-count">0</span>
+                        </div>
+                    </div>
+
+                    <!-- 오른쪽: 기존 버튼들 -->
                     <button id="file-picker-button" class="input-icon-button" title="파일 선택">
                         <img src="{{clipIconUri}}" class="icon-img icon-img--small" alt="attach" />
                     </button>
@@ -1541,6 +2120,18 @@
     </div>
 
     <div class="chat-header-icons">
+        <!-- Approval Buttons (초기에는 숨김) -->
+        <div id="approval-buttons-container" style="display: none;">
+            <span style="margin-right: 8px; font-weight: 600;">파일 변경사항:</span>
+            <button class="approval-button approve-button" id="approve-all-btn" title="모든 변경사항 승인"
+                onclick="approveAllChanges()">
+                ✓ 승인
+            </button>
+            <button class="approval-button reject-button" id="reject-all-btn" title="모든 변경사항 되돌리기"
+                onclick="rejectAllChanges()">
+                ↶ 되돌리기
+            </button>
+        </div>
         <label id="language-label" for="language-select" style="margin-right:6px;">Language</label>
         <select id="language-select">
             <option value="ko">한국어</option>
@@ -1587,14 +2178,28 @@
                 dropdown.style.display = 'none';
             };
 
+            // 선택된 옵션 업데이트 함수
+            const updateSelectedOption = () => {
+                dropdown.querySelectorAll('.dropdown-option').forEach(opt => {
+                    const optMode = opt.getAttribute('data-mode') || 'CODE';
+                    if (optMode === window.chatMode) {
+                        opt.classList.add('selected');
+                    } else {
+                        opt.classList.remove('selected');
+                    }
+                });
+            };
+
             // 초기 라벨/모드 세팅
             applyMode(window.chatMode);
+            updateSelectedOption(); // 초기 로드 시 선택된 옵션 표시
             closeDropdown();
 
             modeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const willShow = dropdown.classList.contains('hidden');
                 if (willShow) {
+                    updateSelectedOption(); // 드롭다운 열 때 선택된 옵션 업데이트
                     dropdown.classList.remove('hidden');
                     dropdown.style.display = 'block';
                 } else {
@@ -1606,6 +2211,7 @@
                 opt.addEventListener('click', () => {
                     const mode = opt.getAttribute('data-mode') || 'CODE';
                     applyMode(mode);
+                    updateSelectedOption(); // 모드 변경 시 선택된 옵션 업데이트
                     closeDropdown();
                 });
             });
@@ -1615,6 +2221,186 @@
                     closeDropdown();
                 }
             });
+        })();
+    </script>
+
+    <!-- Pending Changes Dropdown -->
+    <script>
+        (function () {
+            const pendingBtn = document.getElementById('pending-changes-btn');
+            const pendingLabel = document.getElementById('pending-changes-label');
+            const dropdown = document.getElementById('pending-changes-dropdown');
+            const dropdownContent = document.getElementById('pending-dropdown-content');
+            const dropdownTitle = document.getElementById('pending-dropdown-title');
+            const acceptAllBtn = document.getElementById('pending-accept-all');
+            const rejectAllBtn = document.getElementById('pending-reject-all');
+
+            if (!pendingBtn || !dropdown || !dropdownContent) return;
+
+            let pendingFiles = [];
+
+            const closeDropdown = () => {
+                dropdown.classList.add('hidden');
+                dropdown.style.display = 'none';
+            };
+
+            const openDropdown = () => {
+                dropdown.classList.remove('hidden');
+                dropdown.style.display = 'block';
+                // 열릴 때 최신 정보 요청
+                if (window.vscode) {
+                    window.vscode.postMessage({ command: 'requestPendingChanges' });
+                }
+            };
+
+            // 채팅 패널에서 해당 파일의 Accept/Reject 버튼 제거
+            const removeChatPanelButtons = (filePath) => {
+                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+                const codeBlocks = document.querySelectorAll('.code-block-container');
+                codeBlocks.forEach(block => {
+                    const dataFilePath = block.getAttribute('data-file-path');
+                    const isMatch = dataFilePath && (
+                        dataFilePath === filePath ||
+                        dataFilePath.endsWith(fileName) ||
+                        filePath.endsWith(dataFilePath) ||
+                        dataFilePath.includes(fileName)
+                    );
+                    if (isMatch) {
+                        let nextElement = block.nextElementSibling;
+                        while (nextElement) {
+                            if (nextElement.classList.contains('bash-button-container')) {
+                                const keepBtn = nextElement.querySelector('.keep-button');
+                                const undoBtn = nextElement.querySelector('.undo-button');
+                                if (keepBtn) keepBtn.remove();
+                                if (undoBtn) undoBtn.remove();
+                                if (nextElement.children.length === 0) {
+                                    nextElement.remove();
+                                }
+                                break;
+                            }
+                            if (nextElement.classList.contains('code-block-container')) {
+                                break;
+                            }
+                            nextElement = nextElement.nextElementSibling;
+                        }
+                    }
+                });
+            };
+
+            const renderDropdownContent = () => {
+                dropdownContent.innerHTML = '';
+                dropdownTitle.textContent = `Pending Changes (${pendingFiles.length} files)`;
+
+                if (pendingFiles.length === 0) {
+                    dropdownContent.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px;">No pending changes</div>';
+                    return;
+                }
+
+                pendingFiles.forEach(file => {
+                    const item = document.createElement('div');
+                    item.className = 'pending-dropdown-item';
+                    // 상대 경로 추출 (workspace 경로 제거)
+                    const displayPath = file.filePath.replace(/^.*?(?=src\/|app\/|lib\/|components\/|pages\/|utils\/|services\/|core\/|webview\/)/i, '') || file.filePath;
+                    item.innerHTML = `
+                        <div class="file-info">
+                            <span class="file-path" title="${file.filePath}">${displayPath}</span>
+                            <span class="file-stats">
+                                <span class="added">+${file.addedLines}</span>
+                                <span class="deleted">−${file.deletedLines}</span>
+                            </span>
+                        </div>
+                        <div class="actions">
+                            <button class="view-btn" title="View Diff">View</button>
+                            <button class="undo-btn" title="Undo">Undo</button>
+                            <button class="keep-btn" title="Keep">Keep</button>
+                        </div>
+                    `;
+
+                    item.querySelector('.view-btn').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (window.vscode) {
+                            window.vscode.postMessage({ command: 'viewPendingDiff', filePath: file.filePath });
+                        }
+                    });
+
+                    item.querySelector('.keep-btn').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (window.vscode) {
+                            window.vscode.postMessage({ command: 'acceptPendingFile', filePath: file.filePath });
+                        }
+                        removeChatPanelButtons(file.filePath);
+                    });
+
+                    item.querySelector('.undo-btn').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (window.vscode) {
+                            window.vscode.postMessage({ command: 'rejectPendingFile', filePath: file.filePath });
+                        }
+                        removeChatPanelButtons(file.filePath);
+                    });
+
+                    dropdownContent.appendChild(item);
+                });
+            };
+
+            // 메시지 리스너
+            window.addEventListener('message', (event) => {
+                const data = event.data;
+                if (data.command === 'updatePendingChanges') {
+                    pendingFiles = data.files || [];
+
+                    if (pendingFiles.length > 0) {
+                        pendingBtn.style.display = 'inline-flex';
+                        pendingLabel.textContent = `${pendingFiles.length} File${pendingFiles.length > 1 ? 's' : ''}`;
+                    } else {
+                        pendingBtn.style.display = 'none';
+                        closeDropdown();
+                    }
+
+                    renderDropdownContent();
+                }
+            });
+
+            // 버튼 클릭
+            pendingBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const willShow = dropdown.classList.contains('hidden');
+                if (willShow) {
+                    openDropdown();
+                } else {
+                    closeDropdown();
+                }
+            });
+
+            // Accept All
+            acceptAllBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                pendingFiles.forEach(file => removeChatPanelButtons(file.filePath));
+                if (window.vscode) {
+                    window.vscode.postMessage({ command: 'acceptAllPendingFiles' });
+                }
+                closeDropdown();
+            });
+
+            // Reject All
+            rejectAllBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                pendingFiles.forEach(file => removeChatPanelButtons(file.filePath));
+                if (window.vscode) {
+                    window.vscode.postMessage({ command: 'rejectAllPendingFiles' });
+                }
+                closeDropdown();
+            });
+
+            // 외부 클릭 시 닫기
+            document.addEventListener('click', (e) => {
+                if (!dropdown.contains(e.target) && e.target !== pendingBtn && !pendingBtn.contains(e.target)) {
+                    closeDropdown();
+                }
+            });
+
+            // 초기 상태
+            closeDropdown();
         })();
     </script>
 
@@ -2095,7 +2881,7 @@
                     className: 'task-queue-header',
                     onClick: () => setIsMinimized(!isMinimized)
                 }, [
-                    React.createElement('span', { key: 'title' }, `작업 계획 (${tasks.filter(t => t.status === 'done').length}/${tasks.length})`),
+                    React.createElement('span', { key: 'title' }, `Todos (${tasks.filter(t => t.status === 'done').length}/${tasks.length})`),
                     React.createElement('div', {
                         key: 'actions',
                         className: 'task-queue-header-actions'
@@ -2202,8 +2988,8 @@
             }, [
                 React.createElement(RunExecutionIndicator, { key: 'run-execution' }),
                 React.createElement(AutoCorrectingIndicator, { key: 'auto-correcting' }),
-                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }), // 프로젝트 타입 선택 컴포넌트 추가
-                React.createElement(TaskQueue, { key: 'task-queue' }) // 작업 큐 컴포넌트 추가
+                React.createElement(ProjectTypeSelection, { key: 'project-type-selection' }),
+                React.createElement(TaskQueue, { key: 'task-queue' })
             ]);
         }
 

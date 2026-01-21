@@ -5,7 +5,7 @@ import { PromptType, NotificationService } from '../../services'; // PromptType 
 import { SettingsManager, StateManager, TerminalManager, ConversationService, ExecutionManager } from '../../core';
 
 export class AskViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'aidevIde.askView'; // 새로운 뷰 타입
+    public static readonly viewType = 'codepilot.askView'; // 새로운 뷰 타입
     private _view?: vscode.WebviewView;
 
     constructor(
@@ -42,7 +42,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
                 case 'sendMessage':
-                    // ollama-blocker 방식으로 시리얼 번호 검증
+                    // 시리얼 번호 검증
                     const stateManager = StateManager.getInstance(this.context);
                     const licenseSerial = await stateManager.getBanyaLicenseSerial();
                     if (!licenseSerial || licenseSerial.trim() === '') {
@@ -67,7 +67,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                         return;
                     }
 
-                    // 시리얼 번호 검증 (ollama-blocker 방식)
+                    // 시리얼 번호 검증
                     const licenseService = new (await import('../../services')).LicenseService();
                     const verificationResult = await licenseService.verifyLicense(licenseSerial);
                     if (!verificationResult.success) {
@@ -136,14 +136,21 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     console.log('[Extension Host] Clearing conversation history for Ask tab');
                     try {
                         await ConversationService.clearHistory(PromptType.GENERAL_ASK, this.context);
-                        webviewView.webview.postMessage({
-                            command: 'receiveMessage',
-                            sender: 'CODEPILOT',
-                            text: '대화기록이 삭제되었습니다.'
-                        });
                         // React 컴포넌트에도 메시지 초기화 신호 전송
                         webviewView.webview.postMessage({
                             command: 'clearHistory'
+                        });
+                        // 토큰 사용량 및 컨텍스트 수 초기화 UI 업데이트
+                        webviewView.webview.postMessage({
+                            command: 'updateContextInfo',
+                            contextInfo: {
+                                messageCount: 0,
+                                tokenUsage: {
+                                    current: 0,
+                                    max: 128000, // 기본 최대 토큰 값
+                                    percentage: 0
+                                }
+                            }
                         });
                     } catch (error) {
                         console.error('[AskViewProvider] Failed to clear history:', error);

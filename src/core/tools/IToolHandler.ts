@@ -1,8 +1,9 @@
 /**
- * Tool Handler 인터페이스
- * 각 툴은 이 인터페이스를 구현해야 합니다
+ * Tool Handler Interface
+ * 툴 핸들러 인터페이스 정의
  */
 
+import * as vscode from 'vscode';
 import { ToolUse, ToolResponse } from './types';
 import { ActionManager } from '../managers/action/ActionManager';
 import { ExecutionManager } from '../managers/execution/ExecutionManager';
@@ -36,5 +37,5 @@ export interface ToolExecutionContext {
     executionManager: ExecutionManager;
     terminalManager: TerminalManager;
     contextManager: ContextManager;
+    webview?: vscode.Webview; // diff 승인을 위한 webview
 }
-

@@ -22,13 +22,29 @@ export class UpdateFileToolHandler implements IToolHandler {
     context: ToolExecutionContext,
   ): Promise<ToolResponse> {
     const filePath = toolUse.params.path;
-    const diff = toolUse.params.diff;
+    let diff = toolUse.params.diff;
+
+    // LLM이 diff 대신 content를 보낸 경우 처리 (전체 파일 덮어쓰기로 폴백)
+    if (!diff && toolUse.params.content) {
+      console.log(`[UpdateFileToolHandler] ⚠️ LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
+      // content가 있으면 create_file처럼 전체 파일 덮어쓰기로 처리
+      const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
+      const createHandler = new CreateFileToolHandler();
+      return createHandler.execute({
+        ...toolUse,
+        name: Tool.CREATE_FILE,
+        params: {
+          path: filePath,
+          content: toolUse.params.content
+        }
+      }, context);
+    }
 
     if (!filePath || !diff) {
       return {
         success: false,
-        message: "Path and diff parameters are required",
-        error: { code: "MISSING_PARAM", message: "path and diff are required" },
+        message: "Path and diff parameters are required. Use 'diff' parameter with SEARCH/REPLACE blocks, not 'content'.",
+        error: { code: "MISSING_PARAM", message: "path and diff are required. If you want to replace entire file, use 'content' parameter instead." },
       };
     }
 
@@ -40,7 +56,12 @@ export class UpdateFileToolHandler implements IToolHandler {
     cleanedDiff = removeCDataSections(cleanedDiff);
 
     // SEARCH/REPLACE 블록 파싱
+    console.log(`[UpdateFileToolHandler] Raw diff (first 500 chars): ${cleanedDiff.substring(0, 500)}`);
     const replacements = this.parseDiff(cleanedDiff);
+    console.log(`[UpdateFileToolHandler] Parsed ${replacements.length} replacement(s)`);
+    replacements.forEach((r, i) => {
+      console.log(`[UpdateFileToolHandler] Replacement ${i}: search="${r.search.substring(0, 50)}...", replace="${r.replace.substring(0, 50)}..."`);
+    });
     if (replacements.length === 0) {
       return {
         success: false,
@@ -73,10 +94,20 @@ export class UpdateFileToolHandler implements IToolHandler {
 
     // --- 사전 파일 검사 (Preflight Inspection) ---
     const analysis = mutationManager.analyzeFile(fileContent);
-    const strategy = mutationManager.chooseStrategy(analysis, replacements[0].search);
-    
-    if (strategy === PatchStrategy.STRUCTURAL_REWRITE) {
-        console.log(`[UpdateFileToolHandler] Strategy switched to STRUCTURAL_REWRITE for ${filePath}`);
+
+    // ✅ 핵심: SEARCH/REPLACE diff가 있으면 무조건 SEARCH_REPLACE 전략 사용
+    // ❌ 절대 금지: SEARCH/REPLACE diff + STRUCTURAL_REWRITE 혼용
+    // STRUCTURAL_REWRITE는 전체 파일 재작성 전략이므로 SEARCH/REPLACE와 모순됨
+    let strategy = mutationManager.chooseStrategy(analysis, replacements[0].search);
+
+    // SEARCH/REPLACE 블록이 있으면 무조건 SEARCH_REPLACE 전략 사용
+    if (replacements.length > 0) {
+      strategy = PatchStrategy.SEARCH_REPLACE;
+      console.log(`[UpdateFileToolHandler] Using SEARCH_REPLACE strategy (SEARCH/REPLACE diff detected) for ${filePath}`);
+    } else if (strategy === PatchStrategy.STRUCTURAL_REWRITE) {
+      console.log(`[UpdateFileToolHandler] Strategy switched to STRUCTURAL_REWRITE for ${filePath}`);
+      // STRUCTURAL_REWRITE는 전체 파일 재작성이므로 별도 처리 필요
+      // 하지만 지금은 SEARCH/REPLACE만 처리하므로 여기서는 발생하지 않음
     }
 
     // 각 REPLACE 블록의 매칭 위치를 찾아서 저장
@@ -162,33 +193,42 @@ export class UpdateFileToolHandler implements IToolHandler {
           replace: replacement.replace,
         });
       } else {
-        // --- 실패 시 Fallback 및 사용자 친화적 메시지 ---
+        // --- 실패 시 Fallback ---
         console.warn(
           `[UpdateFileToolHandler] Search pattern not found in file: ${filePath}`,
         );
 
-        let errorMessage = `❌ **수정 실패: SEARCH 블록을 찾을 수 없습니다** (파일: ${filePath})\n\n`;
-        
-        if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
-            errorMessage += `⚠️ **분석 결과:** 이 파일은 기본 Vite 템플릿 상태입니다. 에이전트가 예상한 메뉴나 네비게이션 구조가 아직 구현되지 않아 부분 수정(SEARCH/REPLACE)이 불가능합니다.\n\n`;
-            errorMessage += `💡 **권장 해결 방법:**\n`;
-            errorMessage += `1. \`create_file\` 도구를 사용하여 파일 전체 내용을 새 구조로 재작성하세요.\n`;
-            errorMessage += `2. 또는 \`read_file\`로 현재 파일의 실제 구조를 다시 확인한 후 SEARCH 블록을 수정하세요.\n\n`;
+        // 단일 블록이고 SEARCH/REPLACE가 실패하면 전체 파일 덮어쓰기 Fallback
+        if (replacements.length === 1) {
+          console.warn(
+            `[UpdateFileToolHandler] Falling back to full overwrite for ${filePath} (SEARCH block not found)`
+          );
+          replacementsToApply.push({
+            start: 0,
+            end: fileContent.length,
+            replace: replacement.replace,
+          });
         } else {
+          let errorMessage = `❌ **수정 실패: SEARCH 블록을 찾을 수 없습니다** (파일: ${filePath})\n\n`;
+
+          if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
+            errorMessage += `**분석 결과:** 에이전트가 예상한 메뉴나 네비게이션 구조가 아직 구현되지 않아 부분 수정(SEARCH/REPLACE)이 불가능합니다.\n\n`;
+          } else {
             errorMessage += `에이전트가 제시한 SEARCH 블록의 내용이 실제 파일의 내용과 일치하지 않습니다. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
+          }
+
+          errorMessage += `**현재 파일의 실제 내용 (아래 내용을 복사하여 SEARCH 블록에 사용하세요):**\n`;
+          errorMessage += `\`\`\`\n${fileContent}\n\`\`\`\n`;
+
+          return {
+            success: false,
+            message: errorMessage,
+            error: {
+              code: "PATTERN_NOT_FOUND",
+              message: "Search block not found.",
+            },
+          };
         }
-
-        errorMessage += `**현재 파일의 실제 내용 (아래 내용을 복사하여 SEARCH 블록에 사용하세요):**\n`;
-        errorMessage += `\`\`\`\n${fileContent}\n\`\`\`\n`;
-
-        return {
-          success: false,
-          message: errorMessage,
-          error: {
-            code: "PATTERN_NOT_FOUND",
-            message: "Search block not found.",
-          },
-        };
       }
     }
 
@@ -219,13 +259,45 @@ export class UpdateFileToolHandler implements IToolHandler {
     }
     newContent += fileContent.substring(lastEnd);
 
-    // 파일 쓰기
-    await fs.writeFile(absolutePath, newContent, "utf8");
+    // InlineDiffManager를 통해 diff 표시
+    const diffModule = await import('../../managers/diff/InlineDiffManager');
+    const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
+
+    // ✅ 핵심 수정: 현재 문서의 실제 내용을 가져오기 (pending changes 제외)
+    // fileContent는 디스크에서 읽은 내용이지만, 실제 문서에는 이미 pending changes가 적용되어 있을 수 있음
+    // getCurrentDocumentContent()는 pending changes를 제외한 "stable content"를 반환하므로 이를 사용
+    let currentDocumentContent: string;
+    try {
+      const currentContent = inlineDiffManager.getCurrentDocumentContent(absolutePath);
+      if (currentContent !== undefined) {
+        currentDocumentContent = currentContent;
+        console.log(`[UpdateFileToolHandler] Using current document content (pending changes excluded) for ${filePath}`);
+      } else {
+        // Fallback: VS Code editor에서 직접 가져오기
+        const vscode = await import('vscode');
+        const uri = vscode.Uri.file(absolutePath);
+        try {
+          const document = await vscode.workspace.openTextDocument(uri);
+          currentDocumentContent = document.getText();
+          console.log(`[UpdateFileToolHandler] Using document.getText() as fallback for ${filePath}`);
+        } catch {
+          // 최종 Fallback: 디스크에서 읽은 내용 사용
+          currentDocumentContent = fileContent;
+          console.log(`[UpdateFileToolHandler] Using fileContent from disk as final fallback for ${filePath}`);
+        }
+      }
+    } catch (error) {
+      console.warn(`[UpdateFileToolHandler] Could not get current document content, using fileContent: ${error}`);
+      currentDocumentContent = fileContent;
+    }
+
+    // diff 표시 (현재 문서 상태를 기준으로)
+    await inlineDiffManager.showInlineDiff(absolutePath, currentDocumentContent, newContent);
 
     return {
       success: true,
-      message: `File ${filePath} updated successfully`,
-      data: { filePath, changes: replacements.length },
+      message: `File ${filePath} ready for review in diff editor. Please approve or reject the changes.`,
+      data: { filePath, changes: replacements.length, pending: true },
       filePath: filePath,
       fileContent: newContent,
     };
@@ -239,6 +311,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     let currentReplace = "";
     let inSearch = false;
     let inReplace = false;
+    let hadSeparator = false; // ======= 구분자가 있었는지 추적
 
     for (const line of lines) {
       const trimmedLine = line.trim();
@@ -247,6 +320,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       if (trimmedLine.match(/^([-=]{3,}|<{4,})\s*SEARCH\s*/i)) {
         inSearch = true;
         inReplace = false;
+        hadSeparator = false;
         currentSearch = "";
         continue;
       }
@@ -255,18 +329,35 @@ export class UpdateFileToolHandler implements IToolHandler {
       if (inSearch && trimmedLine.match(/^([=]{3,})$/)) {
         inSearch = false;
         inReplace = true;
+        hadSeparator = true;
         currentReplace = "";
         continue;
       }
 
       // REPLACE 종료 마커 (>>>>>>> REPLACE 등)
-      if (inReplace && trimmedLine.match(/^([+]{3,}|>{4,})\s*REPLACE\s*/i)) {
-        replacements.push({
-          search: currentSearch.trimEnd(),
-          replace: currentReplace.trimEnd(),
-        });
-        inReplace = false;
-        continue;
+      // 🔥 핵심 수정: ======= 구분자 없이 바로 >>>>>>> REPLACE가 나온 경우 처리
+      if (trimmedLine.match(/^([+]{3,}|>{4,})\s*REPLACE\s*/i)) {
+        if (inSearch && !hadSeparator) {
+          // ======= 없이 SEARCH에서 바로 REPLACE로 전환된 경우
+          // SEARCH 내용을 그대로 유지하고 REPLACE 수집 시작
+          console.log('[UpdateFileToolHandler] Warning: Missing ======= separator, treating content after >>>>>>> REPLACE as replacement');
+          inSearch = false;
+          inReplace = true;
+          currentReplace = "";
+          continue;
+        } else if (inReplace) {
+          // 정상 케이스: REPLACE 블록 완료
+          replacements.push({
+            search: currentSearch.trimEnd(),
+            replace: currentReplace.trimEnd(),
+          });
+          inReplace = false;
+          hadSeparator = false;
+          // 🔥 중복 push 방지: 블록 완료 후 상태 초기화
+          currentSearch = "";
+          currentReplace = "";
+          continue;
+        }
       }
 
       if (inSearch) {
@@ -274,6 +365,14 @@ export class UpdateFileToolHandler implements IToolHandler {
       } else if (inReplace) {
         currentReplace += line + "\n";
       }
+    }
+
+    // 🔥 마지막 블록 처리: REPLACE 마커 없이 끝난 경우 (>>>>>>> REPLACE 이후 내용)
+    if (currentSearch && currentReplace) {
+      replacements.push({
+        search: currentSearch.trimEnd(),
+        replace: currentReplace.trimEnd(),
+      });
     }
 
     return replacements;

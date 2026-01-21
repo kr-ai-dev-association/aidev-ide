@@ -13,7 +13,7 @@ export class LocaleService {
             path.join(__dirname, '..', 'webview', 'locales', `lang_${language}.json`), // dist/../webview/locales
             path.join(__dirname, '..', '..', 'webview', 'locales', `lang_${language}.json`), // dist/../../webview/locales
             path.join(process.cwd(), 'webview', 'locales', `lang_${language}.json`),
-            path.join(process.cwd(), 'aidev-ide', 'webview', 'locales', `lang_${language}.json`),
+            path.join(process.cwd(), 'codepilot', 'webview', 'locales', `lang_${language}.json`),
         ];
 
         for (const p of candidates) {

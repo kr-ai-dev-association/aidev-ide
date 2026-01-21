@@ -57,9 +57,9 @@ export interface SummarizationOptions {
 }
 
 /**
- * 대화 요약
+ * 대화 요약 (Context History Manager 전용)
  */
-export interface ConversationSummary {
+export interface ContextConversationSummary {
     id: string;
     createdAt: number;
     messageRange: {
@@ -85,7 +85,7 @@ export interface ConversationSummary {
  * 요약된 세션 재개 프롬프트
  */
 export interface ContinuationPrompt {
-    summary: ConversationSummary;
+    summary: ContextConversationSummary;
     prompt: string;
     contextHint: string;
 }

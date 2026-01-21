@@ -128,8 +128,25 @@ export class ErrorDetector {
             }
         }
 
-        // 파일 경로 추출
-        const fileMatch = /(?:at\s+|in\s+|File\s+")?([\/\w\-\.]+\.(?:ts|js|tsx|jsx|py|java|go|rs|cpp|c))(?::(\d+))?(?::(\d+))?/i.exec(output);
+        // 파일 경로 추출 (확장자 있는 파일 + 특수 파일명)
+        // 지원: .ts, .js, .tsx, .jsx, .py, .java, .go, .rs, .cpp, .c, .json, .yaml, .yml, .toml, .md, .sh, .css, .scss, .html
+        // 특수 파일: .env*, Dockerfile*, Makefile, .gitignore, .eslintrc*, .prettierrc*, package.json 등
+        const filePatterns = [
+            // 표준 확장자 파일
+            /(?:at\s+|in\s+|File\s+")?([\/\w\-\.]+\.(?:ts|js|tsx|jsx|mjs|cjs|py|java|go|rs|cpp|c|h|hpp|json|yaml|yml|toml|md|sh|bash|zsh|css|scss|sass|less|html|xml|sql|rb|php|swift|kt|scala|vue|svelte))(?::(\d+))?(?::(\d+))?/i,
+            // .env 파일 (.env, .env.local, .env.development 등)
+            /(?:at\s+|in\s+|File\s+")?([\/\w\-]*\.env(?:\.[a-zA-Z]+)?)(?::(\d+))?(?::(\d+))?/i,
+            // 특수 설정 파일 (확장자 없음 또는 dot prefix)
+            /(?:at\s+|in\s+|File\s+")?([\/\w\-]*(?:Dockerfile|Makefile|Procfile|Gemfile|Rakefile|\.gitignore|\.dockerignore|\.editorconfig|\.browserslistrc)(?:\.[a-zA-Z]+)?)(?::(\d+))?(?::(\d+))?/i,
+            // rc 설정 파일 (.eslintrc, .prettierrc, .babelrc 등)
+            /(?:at\s+|in\s+|File\s+")?([\/\w\-]*\.[a-z]+rc(?:\.(?:js|json|yaml|yml))?)(?::(\d+))?(?::(\d+))?/i
+        ];
+
+        let fileMatch: RegExpExecArray | null = null;
+        for (const pattern of filePatterns) {
+            fileMatch = pattern.exec(output);
+            if (fileMatch) break;
+        }
         if (fileMatch) {
             details.file = fileMatch[1];
             if (fileMatch[2]) {

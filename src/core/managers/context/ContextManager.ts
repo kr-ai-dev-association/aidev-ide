@@ -16,7 +16,9 @@ import {
     ErrorContext,
     EditHistoryContext,
     RelatedFilesContext,
-    ProjectContext
+    ProjectContext,
+    OpenTabsContext,
+    OpenTabInfo
 } from './types';
 import { ErrorSource } from '../error/types';
 import { FileContextCollector } from './file/FileContext';
@@ -77,6 +79,16 @@ export class ContextManager {
         this.projectManager = projectManager;
         this.relevantFilesService = new RelevantFilesFinder(projectManager);
         console.log('[ContextManager] Project Manager set');
+    }
+
+    /**
+     * LLM Manager를 설정합니다 (내용 기반 relevance scoring용)
+     */
+    public setLLMManager(llmManager: any): void {
+        if (this.relevantFilesService) {
+            this.relevantFilesService.setLLMManager(llmManager);
+            console.log('[ContextManager] LLM Manager set for RelevantFilesFinder');
+        }
     }
 
     /**
@@ -182,6 +194,15 @@ export class ContextManager {
             if (projectContext) {
                 contextData.project = projectContext;
                 contextData.metadata.types.push(ContextType.PROJECT);
+            }
+        }
+
+        // 열린 탭 컨텍스트
+        if (types.includes(ContextType.OPEN_TABS)) {
+            const openTabsContext = await this.collectOpenTabsContext();
+            if (openTabsContext) {
+                contextData.openTabs = openTabsContext;
+                contextData.metadata.types.push(ContextType.OPEN_TABS);
             }
         }
 
@@ -332,6 +353,76 @@ export class ContextManager {
             dependencies: [],
             structure: ''
         };
+    }
+
+    /**
+     * 열린 탭 컨텍스트를 수집합니다
+     */
+    private async collectOpenTabsContext(): Promise<OpenTabsContext | null> {
+        const tabGroups = vscode.window.tabGroups;
+        if (!tabGroups || tabGroups.all.length === 0) {
+            return null;
+        }
+
+        const tabs: OpenTabInfo[] = [];
+        const activeEditor = vscode.window.activeTextEditor;
+        const activeTabPath = activeEditor?.document.uri.fsPath;
+
+        for (const group of tabGroups.all) {
+            for (const tab of group.tabs) {
+                // 파일 탭만 처리 (터미널, 설정 등 제외)
+                if (tab.input instanceof vscode.TabInputText) {
+                    const uri = tab.input.uri;
+                    const filePath = uri.fsPath;
+                    const fileName = filePath.split(/[/\\]/).pop() || filePath;
+
+                    // 언어 감지
+                    let language = 'plaintext';
+                    try {
+                        const document = await vscode.workspace.openTextDocument(uri);
+                        language = document.languageId;
+                    } catch {
+                        // 파일 확장자로 fallback
+                        const ext = fileName.split('.').pop() || '';
+                        const extToLang: Record<string, string> = {
+                            'ts': 'typescript', 'tsx': 'typescriptreact',
+                            'js': 'javascript', 'jsx': 'javascriptreact',
+                            'py': 'python', 'java': 'java', 'go': 'go',
+                            'rs': 'rust', 'c': 'c', 'cpp': 'cpp', 'h': 'c',
+                            'css': 'css', 'scss': 'scss', 'less': 'less',
+                            'html': 'html', 'vue': 'vue', 'svelte': 'svelte',
+                            'json': 'json', 'yaml': 'yaml', 'yml': 'yaml',
+                            'md': 'markdown', 'sh': 'shellscript', 'bash': 'shellscript'
+                        };
+                        language = extToLang[ext] || 'plaintext';
+                    }
+
+                    tabs.push({
+                        path: filePath,
+                        name: fileName,
+                        language,
+                        isActive: filePath === activeTabPath,
+                        isDirty: tab.isDirty || false
+                    });
+                }
+            }
+        }
+
+        if (tabs.length === 0) {
+            return null;
+        }
+
+        return {
+            tabs,
+            activeTabPath
+        };
+    }
+
+    /**
+     * 열린 탭 목록을 가져옵니다 (public 메서드)
+     */
+    public async getOpenTabsContext(): Promise<OpenTabsContext | null> {
+        return await this.collectOpenTabsContext();
     }
 
     /**

@@ -163,10 +163,10 @@ export class SettingsManager extends BaseManager {
      */
     private registerVSCodeSettingsWatcher(): void {
         vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration('aidevIde')) {
+            if (event.affectsConfiguration('codepilot')) {
                 // 설정 변경 시 캐시 무효화
                 ConfigurationService.invalidateCache();
-                // 모든 aidevIde 설정이 변경되었음을 알림
+                // 모든 codepilot 설정이 변경되었음을 알림
                 console.log('[SettingsManager] Configuration changed');
             }
         });
@@ -298,7 +298,7 @@ export class SettingsManager extends BaseManager {
      * 자동 오류 수정 횟수를 가져옵니다
      */
     public async getErrorRetryCount(): Promise<number> {
-        const count = ConfigurationService.get<number>('errorRetryCount') ?? 3;
+        const count = ConfigurationService.get<number>('errorRetryCount') ?? 5;
         return Math.max(1, Math.min(10, count));
     }
 
@@ -345,6 +345,21 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
+     * 스트리밍 On/Off 상태를 읽습니다
+     */
+    public async isStreamingEnabled(): Promise<boolean> {
+        return ConfigurationService.get<boolean>('streamingEnabled', false) ?? false;
+    }
+
+    /**
+     * 스트리밍 On/Off 상태를 저장합니다
+     */
+    public async updateStreamingEnabled(enabled: boolean): Promise<void> {
+        console.log(`[SettingsManager] Update streamingEnabled -> ${enabled} (Workspace)`);
+        await ConfigurationService.updateConfig('streamingEnabled', enabled, vscode.ConfigurationTarget.Workspace);
+    }
+
+    /**
      * 디버그 모드 On/Off 상태를 가져옵니다
      */
     public async isDebugEnabled(): Promise<boolean> {
@@ -359,11 +374,11 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
-     * 자동 테스트 실패 시 재시도 On/Off 상태를 가져옵니다
+     * 자동 코드 검증 On/Off 상태를 가져옵니다
      */
     public async isAutoTestRetryEnabled(): Promise<boolean> {
         // 워크스페이스 설정을 명시적으로 읽기
-        const config = vscode.workspace.getConfiguration('aidevIde');
+        const config = vscode.workspace.getConfiguration('codepilot');
         const workspaceValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceValue;
         const workspaceFolderValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceFolderValue;
         const value = workspaceFolderValue ?? workspaceValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
@@ -372,7 +387,7 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
-     * 자동 테스트 실패 시 재시도 On/Off 상태를 저장합니다
+     * 자동 코드 검증 On/Off 상태를 저장합니다
      */
     public async updateAutoTestRetryEnabled(enabled: boolean): Promise<void> {
         console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Workspace)`);
@@ -384,10 +399,10 @@ export class SettingsManager extends BaseManager {
      */
     public async getTestRetryCount(): Promise<number> {
         // 워크스페이스 설정을 명시적으로 읽기
-        const config = vscode.workspace.getConfiguration('aidevIde');
+        const config = vscode.workspace.getConfiguration('codepilot');
         const workspaceValue = config.inspect<number>('testRetryCount')?.workspaceValue;
         const workspaceFolderValue = config.inspect<number>('testRetryCount')?.workspaceFolderValue;
-        const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 3;
+        const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 5;
         const validCount = Math.max(1, Math.min(10, count));
         console.log(`[SettingsManager] Get testRetryCount: ${validCount} (workspaceFolder: ${workspaceFolderValue}, workspace: ${workspaceValue})`);
         return validCount;

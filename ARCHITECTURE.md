@@ -184,7 +184,7 @@ src/
 │   │   └── index.ts
 │   ├── tools/                       # LLM Tool 레이어 (XML 툴 콜링)
 │   │   ├── ToolParser.ts            # 툴 파싱 및 엄격한 계획(Plan) 추출 (v5.2.0)
-│   │   ├── ToolExecutor.ts          # 툴 통합 실행기
+│   │   ├── ToolExecutor.ts          # 툴 통합 실행기 (v8.8.0: 실시간 액션 트래커 통합)
 │   │   ├── ToolSpecBuilder.ts       # 툴 명세 및 페이즈별 도구 제한 생성
 │   │   ├── file/                    # 파일/프로젝트 관련 툴
 │   │   │   ├── CreateFileToolHandler.ts
@@ -247,7 +247,7 @@ src/
 - **엄격한 계획 파싱**: `<plan><item>...` 구조를 강제하며, 일반 텍스트 리스트는 무시합니다.
 - **인터리브드 파싱**: 텍스트와 XML이 섞인 응답에서 순서를 유지하며 요소를 분리합니다.
 
-### 📱 Webview Bridge (v5.2.1 개선, v6.4.0 UI 개선)
+### 📱 Webview Bridge (v5.2.1 개선, v6.4.0 UI 개선, v8.8.0 액션 트래커)
 **역할**: 확장 기능과 채팅 UI 간의 실시간 통신 및 상태 표시를 담당합니다.
 
 **책임**:
@@ -255,7 +255,12 @@ src/
 - **타자기 애니메이션**: 현재 에이전트의 페이즈와 진행 단계를 애니메이션으로 시각화.
 - **작업 큐(Plan) 실시간 동기화**: `TaskQueue` 팝업 UI와 연동하여 작업 진행 상태를 실시간 업데이트.
 - **도구 결과 렌더링**: 실행된 코드나 터미널 출력을 채팅 패널에 통합 표시.
-- **v6.4.0**: 작업 계획 팝업 UI 개선 (제목/상세 분리 표시), 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황).│
+- **v6.4.0**: 작업 계획 팝업 UI 개선 (제목/상세 분리 표시), 검증 단계별 상태 표시 (Smoke Test, Lint Check 진행 상황).
+- **v8.8.0 실시간 액션 트래커**: Windsurf 스타일의 실시간 도구 실행 추적 UI.
+  - `updateActionTracker()`: 파일 읽기/생성/수정/삭제, 명령 실행, 검색 작업의 시작/완료/오류 상태를 실시간 표시
+  - `clearActionTracker()`: 액션 트래커 초기화
+  - 액션별 아이콘 및 색상 코딩 (읽기: 파란색, 생성: 녹색, 수정: 주황색, 삭제: 빨간색)
+  - 최대 10개 액션 표시 및 자동 스크롤, 완료된 액션은 페이드 처리│
 └── index.ts                     # 모든 매니저 및 추상화 export
 │
 ├── services/                        # 보조 서비스 (도메인별 분류)
@@ -293,7 +298,10 @@ src/
 │   ├── panelUtils.ts                # 웹뷰 공용 유틸 (safePostMessage, html 로더 등)
 │   ├── tokenUtils.ts                # 토큰 관련 유틸
 │   ├── debugLogger.ts               # 디버그 로거
-│   ├── cryptoUtils.ts               # 암호화 유틸
+│   ├── cryptoUtils.ts               # 암호화 유틸 (v8.0.0: 향상된 타입 안정성 및 에러 처리)
+│   │                                # - AES-256-CBC 암호화 알고리즘 사용
+│   │                                # - SHA-256 키 해싱을 통한 보안 강화
+│   │                                # - 암호화된 텍스트 형식 검증 개선
 │   ├── fileUtils.ts                 # 파일 유틸
 │   └── string.ts                    # 문자열 유틸 (v5.1.2: removeCDataSections 추가)
 │

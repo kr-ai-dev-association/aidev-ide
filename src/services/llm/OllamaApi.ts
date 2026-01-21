@@ -108,12 +108,12 @@ export class OllamaApi {
                 // XML 형식이 필요하지만 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
                 if (attempt < maxRetries) {
                     if (error.message.includes("생각만 수행")) {
-                        currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field. 
-If you are NOT DONE, you MUST output actual XML tool calls (e.g., <list_files>, <read_file>, <plan>) in your FINAL RESPONSE. 
-If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE. 
+                        currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field.
+If you are NOT DONE, you MUST output actual JSON function calls (e.g., { "function_call": { "name": "list_files", "args": {...} } }) in your FINAL RESPONSE.
+If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE.
 Do NOT leave the response field empty. Every turn must produce a non-empty response.`;
                     } else if (!currentOptions.xmlRetry) {
-                        currentMessage = `${message}\n\nCRITICAL: Output ONLY XML tool calls in <tool_name>...</tool_name>. Do NOT put tool calls in thinking.`;
+                        currentMessage = `${message}\n\nCRITICAL: Output ONLY JSON function calls in \`\`\`json { "function_call": {...} } \`\`\` format. Do NOT put tool calls in thinking.`;
                         currentOptions.xmlRetry = true;
                     }
                 }
@@ -152,7 +152,13 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
 
         // [수정] thinking 데이터를 함부로 response로 사용하지 않음
         // 1. responseContent가 시스템 에코나 Junk(예: "Wait...", "We need result")인 경우 필터링
-        const isJunkResponse = responseContent && (
+        // 🔥 핵심: JSON Function Call이 포함된 응답은 junk가 아님 (자연어와 섞여있어도 유효)
+        const hasJsonFunctionCall = responseContent && (
+            /\{\s*"function_call(?:s)?"\s*:/.test(responseContent) ||
+            /```json[\s\S]*?\{[\s\S]*?"function_call(?:s)?"[\s\S]*?\}[\s\S]*?```/i.test(responseContent)
+        );
+
+        const isJunkResponse = responseContent && !hasJsonFunctionCall && (
             responseContent.includes('=== Tool Execution Results') ||
             responseContent.includes('Wait: We should produce') ||
             responseContent.match(/^We need result\./i) ||
@@ -162,11 +168,13 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
 
         // 2. response가 유효하지 않은 경우 (비어있거나 junk인 경우)
         if (!responseContent || isJunkResponse) {
-            // 생각 데이터는 있지만 실제 응답이 없는 경우, 에러를 던져 재시도 유도 (xmlRetry 옵션 활용)
-            if (thinkingContent && thinkingContent.length > 0) {
-                console.log('[OllamaApi] Thought detected but response is empty or junk. Triggering retry for XML output.');
+            // 생각 데이터는 있지만 실제 응답이 없는 경우
+            // 🔥 수정: REVIEW 단계에서 텍스트 요약만 있는 경우도 있으므로,
+            // response가 완전히 비어있을 때만 에러 (최소한 공백이라도 있으면 허용)
+            if (thinkingContent && thinkingContent.length > 0 && (!responseContent || responseContent.trim() === '')) {
+                console.log('[OllamaApi] Thought detected but response is empty. Triggering retry.');
                 // 텔레메트리나 로그를 위해 thinking 내용을 에러에 포함
-                throw new Error(`모델이 생각만 수행했습니다. 도구 호출이 포함된 답변이 필요합니다. (Thinking length: ${thinkingContent.length})`);
+                throw new Error(`모델이 생각만 수행했습니다. 도구 호출 또는 텍스트 응답이 필요합니다. (Thinking length: ${thinkingContent.length})`);
             }
 
             // 둘 다 없는 경우
@@ -258,5 +266,106 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
     public async sendMessageWithSystemPrompt(systemPrompt: string, userParts: any[], options?: SendOptions): Promise<string> {
         const fullPrompt = `${systemPrompt}\n\n${userParts.map(part => part.text).join('\n')}`;
         return this.sendMessage(fullPrompt, options);
+    }
+
+    /**
+     * 스트리밍 응답을 위한 메서드
+     * @param systemPrompt 시스템 프롬프트
+     * @param userParts 사용자 메시지 파트
+     * @param onChunk 청크 수신 콜백
+     * @param options 요청 옵션
+     */
+    public async sendMessageWithSystemPromptStreaming(
+        systemPrompt: string,
+        userParts: any[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: SendOptions
+    ): Promise<string> {
+        const fullPrompt = `${systemPrompt}\n\n${userParts.map(part => part.text).join('\n')}`;
+        return this.sendMessageStreaming(fullPrompt, onChunk, options);
+    }
+
+    /**
+     * 스트리밍 메시지 전송 메서드
+     * @param message 메시지
+     * @param onChunk 청크 수신 콜백
+     * @param options 요청 옵션
+     */
+    public async sendMessageStreaming(
+        message: string,
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: SendOptions
+    ): Promise<string> {
+        const url = new URL(`${this.apiUrl}${this.endpoint}`);
+        const requestData = {
+            model: this.modelName,
+            prompt: message,
+            stream: true
+        };
+
+        console.log(`[OllamaApi] Sending streaming request to ${url.toString()} with model ${this.modelName}`);
+
+        return new Promise((resolve, reject) => {
+            const isCloud = this.apiUrl.includes('ollama.com') || this.apiUrl.includes('cloud');
+            const requestOptions = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(isCloud ? { 'Authorization': `Bearer ${process.env.OLLAMA_API_KEY || ''}` } : {})
+                }
+            };
+
+            let fullText = '';
+            const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
+                if (res.statusCode && res.statusCode >= 400) {
+                    let errorData = '';
+                    res.on('data', (chunk) => { errorData += chunk; });
+                    res.on('end', () => {
+                        onChunk('', true);
+                        reject(new Error(`Ollama API error (${res.statusCode}): ${errorData}`));
+                    });
+                    return;
+                }
+
+                res.on('data', (chunk) => {
+                    try {
+                        const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
+                        for (const line of lines) {
+                            const parsed = JSON.parse(line);
+                            if (parsed.response) {
+                                fullText += parsed.response;
+                                onChunk(parsed.response, false);
+                            }
+                            if (parsed.done) {
+                                onChunk('', true);
+                            }
+                        }
+                    } catch (e) {
+                        // JSON 파싱 실패는 무시 (불완전한 청크일 수 있음)
+                    }
+                });
+
+                res.on('end', () => {
+                    onChunk('', true);
+                    resolve(fullText);
+                });
+            });
+
+            req.on('error', (err) => {
+                onChunk('', true);
+                reject(new Error(`Network error: ${err.message}`));
+            });
+
+            if (options?.signal) {
+                options.signal.addEventListener('abort', () => {
+                    req.destroy();
+                    onChunk('', true);
+                    reject(new Error('Request aborted'));
+                });
+            }
+
+            req.write(JSON.stringify(requestData));
+            req.end();
+        });
     }
 }
