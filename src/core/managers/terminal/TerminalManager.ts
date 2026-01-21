@@ -73,10 +73,19 @@ export class TerminalManager {
     // 손상된 PowerShell 스크립트 저장용 맵
     private corruptedPowerShellScripts: Map<string, { decoded: string, originalCommand: string }> = new Map();
 
+    // Shell Integration을 통해 수집된 명령어 히스토리 (터미널 이름 -> 명령어 배열)
+    private shellIntegrationHistory: Map<string, Array<{
+        command: string;
+        output: string;
+        exitCode?: number;
+        timestamp: number;
+    }>> = new Map();
+
     private constructor() {
         this.history = new TerminalHistory();
         this.executionManager = ExecutionManager.getInstance();
         this.registerVSCodeEventHandlers();
+        this.registerShellIntegrationHandlers();
     }
 
     /**
@@ -372,6 +381,116 @@ export class TerminalManager {
         });
 
         this.disposables.push(openDisposable);
+    }
+
+    /**
+     * Shell Integration 이벤트 핸들러를 등록합니다 (VS Code 1.93+)
+     * 사용자가 직접 실행한 터미널 명령어도 추적합니다.
+     */
+    private registerShellIntegrationHandlers(): void {
+        // VS Code 1.93+에서 사용 가능한 Shell Integration API
+        // 타입 정의가 없을 수 있으므로 any로 캐스팅
+        const windowAny = vscode.window as any;
+        const onDidStartExecution = windowAny.onDidStartTerminalShellExecution;
+        const onDidEndExecution = windowAny.onDidEndTerminalShellExecution;
+
+        if (onDidStartExecution && onDidEndExecution) {
+            console.log('[TerminalManager] Shell Integration API available, registering handlers');
+
+            // 명령어 실행 시작 감지
+            const startDisposable = onDidStartExecution.call(windowAny, (event: any) => {
+                const terminal = event.terminal;
+                const execution = event.execution;
+                const commandLine = execution.commandLine?.value || '';
+                const terminalName = terminal.name;
+
+                console.log(`[TerminalManager] Shell execution started in "${terminalName}": ${commandLine}`);
+
+                // 명령어 시작 시 기록 (출력은 나중에 업데이트)
+                if (!this.shellIntegrationHistory.has(terminalName)) {
+                    this.shellIntegrationHistory.set(terminalName, []);
+                }
+
+                const history = this.shellIntegrationHistory.get(terminalName)!;
+                history.push({
+                    command: commandLine,
+                    output: '', // 실행 종료 시 업데이트
+                    timestamp: Date.now()
+                });
+
+                // 최근 50개만 유지
+                if (history.length > 50) {
+                    history.shift();
+                }
+            });
+
+            this.disposables.push(startDisposable);
+
+            // 명령어 실행 종료 감지
+            const endDisposable = onDidEndExecution.call(windowAny, (event: any) => {
+                const terminal = event.terminal;
+                const execution = event.execution;
+                const terminalName = terminal.name;
+                const exitCode = event.exitCode;
+
+                console.log(`[TerminalManager] Shell execution ended in "${terminalName}" with exit code: ${exitCode}`);
+
+                // 해당 터미널의 히스토리에서 마지막 항목 업데이트
+                const history = this.shellIntegrationHistory.get(terminalName);
+                if (history && history.length > 0) {
+                    const lastEntry = history[history.length - 1];
+                    lastEntry.exitCode = exitCode;
+
+                    // 출력 수집 시도 (shellIntegration.read() 사용)
+                    // 비동기 처리를 위해 즉시 실행 async 함수 사용
+                    (async () => {
+                        try {
+                            if (execution.read) {
+                                let output = '';
+                                for await (const data of execution.read()) {
+                                    output += data;
+                                }
+                                // 출력이 너무 길면 자르기 (마지막 2000자)
+                                if (output.length > 2000) {
+                                    output = '...(truncated)\n' + output.slice(-2000);
+                                }
+                                lastEntry.output = output;
+                            }
+                        } catch (error) {
+                            console.warn('[TerminalManager] Failed to read shell execution output:', error);
+                        }
+                    })();
+                }
+            });
+
+            this.disposables.push(endDisposable);
+        } else {
+            console.log('[TerminalManager] Shell Integration API not available (requires VS Code 1.93+)');
+        }
+    }
+
+    /**
+     * Shell Integration을 통해 수집된 특정 터미널의 명령어 히스토리를 반환합니다.
+     */
+    public getShellIntegrationHistory(terminalName: string): Array<{
+        command: string;
+        output: string;
+        exitCode?: number;
+        timestamp: number;
+    }> {
+        return this.shellIntegrationHistory.get(terminalName) || [];
+    }
+
+    /**
+     * 모든 Shell Integration 히스토리를 반환합니다.
+     */
+    public getAllShellIntegrationHistory(): Map<string, Array<{
+        command: string;
+        output: string;
+        exitCode?: number;
+        timestamp: number;
+    }>> {
+        return this.shellIntegrationHistory;
     }
 
     /**

@@ -561,6 +561,8 @@ let selectedImageMimeType = null; // 이미지 MIME 타입 저장
 let selectedFiles = []; // 선택된 파일 목록
 let loadingDepth = 0; // 중첩 로딩 상태(에러 우선 처리 대비)
 let pendingQuestions = []; // 대기 중 사용자 질문 큐
+let mentionObserver = null; // MutationObserver for mention restoration
+let isRestoringMentions = false; // 멘션 복원 중 플래그 (무한 루프 방지)
 
 function generateId() {
   return "q_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -651,26 +653,49 @@ function getChatInputText() {
   return clone.textContent || clone.innerText || "";
 }
 
-// contenteditable div에서 전체 내용을 가져오기 (파일 멘션 포함, 표시용)
+// contenteditable div에서 전체 내용을 가져오기 (멘션 포함, 표시용)
 // 입력 순서대로 그대로 표시
 function getChatInputDisplayContent() {
   if (!chatInput) {
     return "";
   }
-  // 입력창의 모든 노드를 순서대로 순회하면서 파일 멘션을 @filename으로 변환
+  // 입력창의 모든 노드를 순서대로 순회하면서 멘션을 텍스트로 변환
   const result = [];
 
   function processNode(node) {
     if (node.nodeType === Node.TEXT_NODE) {
-      // 텍스트 노드는 그대로 추가
-      result.push(node.textContent || "");
+      // 텍스트 노드는 그대로 추가 (줄바꿈 문자는 공백으로 변환)
+      const text = (node.textContent || "").replace(/[\n\r]/g, " ");
+      result.push(text);
     } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tagName = node.tagName.toLowerCase();
+
+      // <br> 태그는 공백으로 처리 (줄바꿈 방지)
+      if (tagName === "br") {
+        result.push(" ");
+        return;
+      }
+
       if (node.classList && node.classList.contains("file-mention")) {
         // 파일 멘션을 @filename으로 변환
         const fileName =
           node.getAttribute("data-file-name") || node.textContent || "";
         result.push("@" + fileName);
+      } else if (node.classList && node.classList.contains("terminal-mention")) {
+        // 터미널 멘션을 "Terminal: 터미널이름"으로 변환
+        const terminalName =
+          node.getAttribute("data-terminal-name") || node.textContent || "";
+        result.push("Terminal: " + terminalName);
+      } else if (node.classList && node.classList.contains("diagnostics-mention")) {
+        // Diagnostics 멘션을 "Diagnostics: N errors, M warnings"로 변환
+        const errorCount = node.getAttribute("data-error-count") || "0";
+        const warningCount = node.getAttribute("data-warning-count") || "0";
+        result.push(`Diagnostics: ${errorCount} errors, ${warningCount} warnings`);
       } else {
+        // <div>나 다른 블록 요소 앞에 공백 추가 (줄바꿈 대신)
+        if (tagName === "div" && result.length > 0) {
+          result.push(" ");
+        }
         // 다른 요소는 자식 노드들을 재귀적으로 처리
         const children = Array.from(node.childNodes);
         children.forEach((child) => processNode(child));
@@ -682,7 +707,8 @@ function getChatInputDisplayContent() {
   const children = Array.from(chatInput.childNodes);
   children.forEach((child) => processNode(child));
 
-  return result.join("");
+  // 연속 공백을 단일 공백으로 정리하고 앞뒤 공백 제거
+  return result.join("").replace(/\s+/g, " ").trim();
 }
 
 // contenteditable div에 텍스트 설정
@@ -701,39 +727,252 @@ function getChatInputValue() {
   return chatInput.innerText || chatInput.textContent || "";
 }
 
+// '@' 문자와 그 이후 검색어를 제거하는 헬퍼 함수 (멘션 span은 유지)
+// '@' 메뉴에서 항목 선택 시 '@검색어' 부분만 제거
+// 반환값: { node, offset } - 삽입할 위치 정보
+/**
+ * 텍스트로 변환된 멘션을 복원합니다.
+ * 브라우저가 contenteditable에서 타이핑할 때 contenteditable="false" 스팬을
+ * 텍스트로 변환하는 문제를 해결합니다.
+ */
+function restoreMentionsFromText() {
+  if (!chatInput || selectedFiles.length === 0 || isRestoringMentions) return;
+
+  // 현재 DOM에서 멘션 스팬으로 존재하는 파일 경로들
+  const existingMentions = new Set();
+  chatInput.querySelectorAll('.file-mention').forEach(span => {
+    const path = span.getAttribute('data-file-path');
+    if (path) existingMentions.add(path);
+  });
+
+  // selectedFiles 중 DOM에 스팬으로 없는 파일들 (텍스트로 변환되었을 수 있음)
+  const missingFiles = selectedFiles.filter(file => !existingMentions.has(file.path));
+
+  if (missingFiles.length === 0) return;
+
+  console.log("[restoreMentionsFromText] Missing files to restore:", missingFiles.map(f => f.name));
+
+  // 복원 중 플래그 설정 (MutationObserver 무한 루프 방지)
+  isRestoringMentions = true;
+
+  try {
+    // 모든 누락된 파일을 한 번에 복원하기 위해 반복
+    // DOM이 변경되면 다시 텍스트 노드를 수집해야 함
+    let remainingFiles = [...missingFiles];
+    let maxIterations = 10; // 무한 루프 방지
+
+    while (remainingFiles.length > 0 && maxIterations > 0) {
+      maxIterations--;
+
+      // TreeWalker로 모든 텍스트 노드 순회 (매 반복마다 새로 수집)
+      const walker = document.createTreeWalker(
+        chatInput,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
+
+      const nodesToProcess = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        nodesToProcess.push(node);
+      }
+
+      let restoredAny = false;
+
+      // 각 텍스트 노드에서 누락된 파일명 찾아서 복원
+      for (const textNode of nodesToProcess) {
+        if (!textNode.parentNode) continue;
+
+        const text = textNode.textContent;
+
+        for (let i = 0; i < remainingFiles.length; i++) {
+          const file = remainingFiles[i];
+          const fileName = file.name;
+
+          // '@파일명' 또는 '파일명' 형태로 검색
+          // '@'가 앞에 있으면 함께 제거
+          const atFileName = '@' + fileName;
+          let index = text.indexOf(atFileName);
+          let matchLength = atFileName.length;
+
+          if (index === -1) {
+            // '@' 없이 파일명만 검색
+            index = text.indexOf(fileName);
+            matchLength = fileName.length;
+          }
+
+          if (index !== -1) {
+            console.log("[restoreMentionsFromText] Restoring:", fileName);
+
+            // 텍스트 노드를 분할하고 멘션 스팬 삽입
+            const beforeText = text.substring(0, index);
+            const afterText = text.substring(index + matchLength);
+
+            // 새 멘션 스팬 생성
+            const mentionSpan = document.createElement("span");
+            mentionSpan.className = "file-mention";
+            mentionSpan.setAttribute("data-file-path", file.path);
+            mentionSpan.setAttribute("data-file-name", fileName);
+            mentionSpan.textContent = fileName;
+            mentionSpan.contentEditable = "false";
+            mentionSpan.style.display = "inline-block";
+
+            // DOM 업데이트
+            const parent = textNode.parentNode;
+
+            if (beforeText) {
+              const beforeNode = document.createTextNode(beforeText);
+              parent.insertBefore(beforeNode, textNode);
+            }
+
+            parent.insertBefore(mentionSpan, textNode);
+
+            if (afterText) {
+              textNode.textContent = afterText;
+            } else {
+              parent.removeChild(textNode);
+            }
+
+            // 이 파일은 복원했으므로 remainingFiles에서 제거
+            remainingFiles.splice(i, 1);
+            restoredAny = true;
+            break; // DOM이 변경되었으므로 다시 텍스트 노드 수집 필요
+          }
+        }
+
+        if (restoredAny) break; // 외부 for 루프도 중단하고 while 루프로 돌아감
+      }
+
+      // 이번 반복에서 아무것도 복원하지 못했으면 종료
+      if (!restoredAny) break;
+    }
+
+    if (remainingFiles.length > 0) {
+      console.log("[restoreMentionsFromText] Could not restore:", remainingFiles.map(f => f.name));
+    }
+  } finally {
+    isRestoringMentions = false;
+  }
+}
+
+/**
+ * chatInput에 MutationObserver를 설정하여 멘션 스팬이 텍스트로 변환될 때 즉시 복원합니다.
+ */
+function setupMentionObserver() {
+  if (!chatInput || mentionObserver) return;
+
+  mentionObserver = new MutationObserver((mutations) => {
+    if (isRestoringMentions || selectedFiles.length === 0) return;
+
+    // 멘션 스팬이 제거되었는지 확인
+    let mentionRemoved = false;
+    for (const mutation of mutations) {
+      if (mutation.type === 'childList') {
+        for (const removedNode of mutation.removedNodes) {
+          if (removedNode.nodeType === Node.ELEMENT_NODE &&
+              removedNode.classList &&
+              removedNode.classList.contains('file-mention')) {
+            mentionRemoved = true;
+            break;
+          }
+        }
+      }
+      if (mentionRemoved) break;
+    }
+
+    // 멘션이 제거되었으면 복원 시도
+    if (mentionRemoved) {
+      // requestAnimationFrame으로 DOM 안정화 후 복원
+      requestAnimationFrame(() => {
+        restoreMentionsFromText();
+      });
+    }
+  });
+
+  mentionObserver.observe(chatInput, {
+    childList: true,
+    subtree: true
+  });
+
+  console.log("[setupMentionObserver] MutationObserver initialized");
+}
+
+function removeAtSymbolFromInput() {
+  if (!chatInput) return null;
+
+  // TreeWalker로 텍스트 노드만 순회하며 마지막 '@'가 포함된 노드 찾기
+  const walker = document.createTreeWalker(
+    chatInput,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  );
+
+  let lastAtNode = null;
+  let lastAtIndex = -1;
+
+  let node;
+  while ((node = walker.nextNode())) {
+    const idx = node.textContent.lastIndexOf("@");
+    if (idx !== -1) {
+      lastAtNode = node;
+      lastAtIndex = idx;
+    }
+  }
+
+  console.log("[removeAtSymbolFromInput] Found '@' at:", {
+    nodeText: lastAtNode?.textContent,
+    atIndex: lastAtIndex,
+    chatInputHTML: chatInput.innerHTML
+  });
+
+  if (lastAtNode && lastAtIndex !== -1) {
+    const textContent = lastAtNode.textContent;
+    // '@' 이후의 검색어 끝 찾기 (공백이나 문자열 끝까지)
+    // '@검색어' 패턴에서 '@검색어' 부분만 제거
+    let endIndex = textContent.length;
+    for (let i = lastAtIndex + 1; i < textContent.length; i++) {
+      if (textContent[i] === ' ' || textContent[i] === '\n') {
+        endIndex = i;
+        break;
+      }
+    }
+    // '@검색어' 제거하고 앞뒤 텍스트 유지
+    const beforeAt = textContent.substring(0, lastAtIndex);
+    const afterSearch = textContent.substring(endIndex);
+    lastAtNode.textContent = beforeAt + afterSearch;
+
+    console.log("[removeAtSymbolFromInput] After removal:", {
+      beforeAt,
+      afterSearch,
+      newNodeText: lastAtNode.textContent,
+      offset: beforeAt.length,
+      chatInputHTML: chatInput.innerHTML
+    });
+
+    // 삽입 위치 반환 (beforeAt의 끝 위치)
+    return { node: lastAtNode, offset: beforeAt.length };
+  }
+  return null;
+}
+
 // 파일 멘션 블록 삽입
 function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   if (!chatInput) {
     return;
   }
 
-  const selection = window.getSelection();
-  if (selection.rangeCount === 0) {
-    // 선택이 없으면 끝에 추가
-    const range = document.createRange();
-    range.selectNodeContents(chatInput);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
+  console.log("[insertFileMention] Before removal, chatInput.innerHTML:", chatInput.innerHTML);
+
+  // '@' 제거 (기존 멘션 span은 유지) 및 삽입 위치 가져오기
+  let insertPosition = null;
+  if (removeAtSymbol) {
+    insertPosition = removeAtSymbolFromInput();
   }
 
-  const range = selection.getRangeAt(0);
-  const currentText = getChatInputValue();
-  const atIndex = currentText.lastIndexOf("@");
-
-  // '@' 입력 부분 찾아서 제거 (removeAtSymbol이 true일 때만)
-  if (removeAtSymbol && atIndex !== -1) {
-    // '@' 이전 텍스트만 유지
-    const beforeAt = currentText.substring(0, atIndex);
-    chatInput.textContent = beforeAt;
-
-    // 커서 위치 재설정
-    const newRange = document.createRange();
-    newRange.selectNodeContents(chatInput);
-    newRange.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(newRange);
-  }
+  console.log("[insertFileMention] insertPosition:", insertPosition);
+  console.log("[insertFileMention] After removal, chatInput.innerHTML:", chatInput.innerHTML);
 
   // 파일 멘션 블록 생성
   const mentionSpan = document.createElement("span");
@@ -744,32 +983,80 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   mentionSpan.contentEditable = "false";
   mentionSpan.style.display = "inline-block";
 
-  // 현재 커서 위치에 삽입 (또는 끝에 추가)
-  try {
-    range.insertNode(mentionSpan);
+  const selection = window.getSelection();
+  const range = document.createRange();
 
-    // 공백 추가
-    const spaceNode = document.createTextNode(" ");
-    range.setStartAfter(mentionSpan);
-    range.insertNode(spaceNode);
-    range.setStartAfter(spaceNode);
-    range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
+  try {
+    if (insertPosition && insertPosition.node && insertPosition.node.parentNode) {
+      // '@'가 있던 위치에 멘션 삽입
+      const textNode = insertPosition.node;
+      const offset = insertPosition.offset;
+
+      if (offset === 0) {
+        // 텍스트 노드 앞에 삽입
+        textNode.parentNode.insertBefore(mentionSpan, textNode);
+      } else if (offset >= textNode.textContent.length) {
+        // 텍스트 노드 뒤에 삽입
+        if (textNode.nextSibling) {
+          textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
+        } else {
+          textNode.parentNode.appendChild(mentionSpan);
+        }
+      } else {
+        // 텍스트 노드 중간에 삽입 - 노드를 분할
+        const afterText = textNode.textContent.substring(offset);
+        textNode.textContent = textNode.textContent.substring(0, offset);
+        const afterNode = document.createTextNode(afterText);
+        if (textNode.nextSibling) {
+          textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
+          mentionSpan.parentNode.insertBefore(afterNode, mentionSpan.nextSibling);
+        } else {
+          textNode.parentNode.appendChild(mentionSpan);
+          textNode.parentNode.appendChild(afterNode);
+        }
+      }
+
+      // 공백 추가
+      const spaceNode = document.createTextNode(" ");
+      if (mentionSpan.nextSibling) {
+        mentionSpan.parentNode.insertBefore(spaceNode, mentionSpan.nextSibling);
+      } else {
+        mentionSpan.parentNode.appendChild(spaceNode);
+      }
+
+      // 커서를 공백 뒤로 이동
+      range.setStartAfter(spaceNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      // 삽입 위치를 찾지 못하면 끝에 추가
+      chatInput.appendChild(mentionSpan);
+      const spaceNode = document.createTextNode(" ");
+      chatInput.appendChild(spaceNode);
+
+      // 커서를 끝으로 이동
+      range.selectNodeContents(chatInput);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
   } catch (e) {
-    // insertNode가 실패하면 끝에 추가
+    console.error("[insertFileMention] Error:", e);
+    // 오류 발생 시 끝에 추가
     chatInput.appendChild(mentionSpan);
     const spaceNode = document.createTextNode(" ");
     chatInput.appendChild(spaceNode);
 
     // 커서를 끝으로 이동
-    const newRange = document.createRange();
-    newRange.selectNodeContents(chatInput);
-    newRange.collapse(false);
+    range.selectNodeContents(chatInput);
+    range.collapse(false);
     selection.removeAllRanges();
-    selection.addRange(newRange);
+    selection.addRange(range);
   }
 
+  console.log("[insertFileMention] Final chatInput.innerHTML:", chatInput.innerHTML);
+  console.log("[insertFileMention] Final chatInput.childNodes:", Array.from(chatInput.childNodes).map(n => ({type: n.nodeType, text: n.textContent, className: n.className})));
   autoResizeTextarea();
 }
 
@@ -779,60 +1066,78 @@ function insertTerminalMention(terminalName) {
     return;
   }
 
-  const selection = window.getSelection();
-  if (selection.rangeCount === 0) {
-    const range = document.createRange();
-    range.selectNodeContents(chatInput);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  const range = selection.getRangeAt(0);
-  const currentText = getChatInputValue();
-  const atIndex = currentText.lastIndexOf("@");
-
-  // '@' 입력 부분 찾아서 제거
-  if (atIndex !== -1) {
-    const beforeAt = currentText.substring(0, atIndex);
-    chatInput.textContent = beforeAt;
-
-    const newRange = document.createRange();
-    newRange.selectNodeContents(chatInput);
-    newRange.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(newRange);
-  }
+  // '@' 제거 (기존 멘션 span은 유지) 및 삽입 위치 가져오기
+  const insertPosition = removeAtSymbolFromInput();
 
   // 터미널 멘션 블록 생성
   const mentionSpan = document.createElement("span");
   mentionSpan.className = "terminal-mention";
   mentionSpan.setAttribute("data-terminal-name", terminalName);
-  mentionSpan.textContent = `Terminal: ${terminalName}`;
+  mentionSpan.textContent = terminalName;
   mentionSpan.contentEditable = "false";
   mentionSpan.style.display = "inline-block";
 
-  // 현재 커서 위치에 삽입
-  try {
-    range.insertNode(mentionSpan);
+  const selection = window.getSelection();
+  const range = document.createRange();
 
-    const spaceNode = document.createTextNode(" ");
-    range.setStartAfter(mentionSpan);
-    range.insertNode(spaceNode);
-    range.setStartAfter(spaceNode);
-    range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
+  try {
+    if (insertPosition && insertPosition.node && insertPosition.node.parentNode) {
+      // '@'가 있던 위치에 멘션 삽입
+      const textNode = insertPosition.node;
+      const offset = insertPosition.offset;
+
+      if (offset === 0) {
+        textNode.parentNode.insertBefore(mentionSpan, textNode);
+      } else if (offset >= textNode.textContent.length) {
+        if (textNode.nextSibling) {
+          textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
+        } else {
+          textNode.parentNode.appendChild(mentionSpan);
+        }
+      } else {
+        const afterText = textNode.textContent.substring(offset);
+        textNode.textContent = textNode.textContent.substring(0, offset);
+        const afterNode = document.createTextNode(afterText);
+        if (textNode.nextSibling) {
+          textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
+          mentionSpan.parentNode.insertBefore(afterNode, mentionSpan.nextSibling);
+        } else {
+          textNode.parentNode.appendChild(mentionSpan);
+          textNode.parentNode.appendChild(afterNode);
+        }
+      }
+
+      const spaceNode = document.createTextNode(" ");
+      if (mentionSpan.nextSibling) {
+        mentionSpan.parentNode.insertBefore(spaceNode, mentionSpan.nextSibling);
+      } else {
+        mentionSpan.parentNode.appendChild(spaceNode);
+      }
+
+      range.setStartAfter(spaceNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      chatInput.appendChild(mentionSpan);
+      const spaceNode = document.createTextNode(" ");
+      chatInput.appendChild(spaceNode);
+
+      range.selectNodeContents(chatInput);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
   } catch (e) {
+    console.error("[insertTerminalMention] Error:", e);
     chatInput.appendChild(mentionSpan);
     const spaceNode = document.createTextNode(" ");
     chatInput.appendChild(spaceNode);
 
-    const newRange = document.createRange();
-    newRange.selectNodeContents(chatInput);
-    newRange.collapse(false);
+    range.selectNodeContents(chatInput);
+    range.collapse(false);
     selection.removeAllRanges();
-    selection.addRange(newRange);
+    selection.addRange(range);
   }
 
   autoResizeTextarea();
@@ -844,61 +1149,79 @@ function insertDiagnosticsMention(errorCount, warningCount) {
     return;
   }
 
-  const selection = window.getSelection();
-  if (selection.rangeCount === 0) {
-    const range = document.createRange();
-    range.selectNodeContents(chatInput);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  const range = selection.getRangeAt(0);
-  const currentText = getChatInputValue();
-  const atIndex = currentText.lastIndexOf("@");
-
-  // '@' 입력 부분 찾아서 제거
-  if (atIndex !== -1) {
-    const beforeAt = currentText.substring(0, atIndex);
-    chatInput.textContent = beforeAt;
-
-    const newRange = document.createRange();
-    newRange.selectNodeContents(chatInput);
-    newRange.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(newRange);
-  }
+  // '@' 제거 (기존 멘션 span은 유지) 및 삽입 위치 가져오기
+  const insertPosition = removeAtSymbolFromInput();
 
   // Diagnostics 멘션 블록 생성
   const mentionSpan = document.createElement("span");
   mentionSpan.className = "diagnostics-mention";
   mentionSpan.setAttribute("data-error-count", errorCount);
   mentionSpan.setAttribute("data-warning-count", warningCount);
-  mentionSpan.textContent = `Diagnostics: ${errorCount} errors, ${warningCount} warnings`;
+  mentionSpan.textContent = `${errorCount} errors, ${warningCount} warnings`;
   mentionSpan.contentEditable = "false";
   mentionSpan.style.display = "inline-block";
 
-  // 현재 커서 위치에 삽입
-  try {
-    range.insertNode(mentionSpan);
+  const selection = window.getSelection();
+  const range = document.createRange();
 
-    const spaceNode = document.createTextNode(" ");
-    range.setStartAfter(mentionSpan);
-    range.insertNode(spaceNode);
-    range.setStartAfter(spaceNode);
-    range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
+  try {
+    if (insertPosition && insertPosition.node && insertPosition.node.parentNode) {
+      // '@'가 있던 위치에 멘션 삽입
+      const textNode = insertPosition.node;
+      const offset = insertPosition.offset;
+
+      if (offset === 0) {
+        textNode.parentNode.insertBefore(mentionSpan, textNode);
+      } else if (offset >= textNode.textContent.length) {
+        if (textNode.nextSibling) {
+          textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
+        } else {
+          textNode.parentNode.appendChild(mentionSpan);
+        }
+      } else {
+        const afterText = textNode.textContent.substring(offset);
+        textNode.textContent = textNode.textContent.substring(0, offset);
+        const afterNode = document.createTextNode(afterText);
+        if (textNode.nextSibling) {
+          textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
+          mentionSpan.parentNode.insertBefore(afterNode, mentionSpan.nextSibling);
+        } else {
+          textNode.parentNode.appendChild(mentionSpan);
+          textNode.parentNode.appendChild(afterNode);
+        }
+      }
+
+      const spaceNode = document.createTextNode(" ");
+      if (mentionSpan.nextSibling) {
+        mentionSpan.parentNode.insertBefore(spaceNode, mentionSpan.nextSibling);
+      } else {
+        mentionSpan.parentNode.appendChild(spaceNode);
+      }
+
+      range.setStartAfter(spaceNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      chatInput.appendChild(mentionSpan);
+      const spaceNode = document.createTextNode(" ");
+      chatInput.appendChild(spaceNode);
+
+      range.selectNodeContents(chatInput);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
   } catch (e) {
+    console.error("[insertDiagnosticsMention] Error:", e);
     chatInput.appendChild(mentionSpan);
     const spaceNode = document.createTextNode(" ");
     chatInput.appendChild(spaceNode);
 
-    const newRange = document.createRange();
-    newRange.selectNodeContents(chatInput);
-    newRange.collapse(false);
+    range.selectNodeContents(chatInput);
+    range.collapse(false);
     selection.removeAllRanges();
-    selection.addRange(newRange);
+    selection.addRange(range);
   }
 
   autoResizeTextarea();
@@ -967,6 +1290,8 @@ function doSendUserMessage(payload) {
   const imgMime = payload.imageMimeType || null;
   const files = payload.selectedFiles || [];
   const mode = payload.mode || currentMode || "CODE";
+  const terminalCtx = payload.terminalContext || null;
+  const diagnosticsCtx = payload.diagnosticsContext || null;
 
   updateSendCancelButtons(true); // 전송 시작 시 중지 버튼으로 스왑
 
@@ -981,6 +1306,8 @@ function doSendUserMessage(payload) {
     imageData: img,
     imageMimeType: imgMime,
     selectedFiles: files,
+    terminalContext: terminalCtx,
+    diagnosticsContext: diagnosticsCtx,
     mode,
   });
 }
@@ -1162,11 +1489,8 @@ const atMenuCategories = [
   { id: "diagnostics", label: "Diagnostics", description: "에러 및 경고" },
 ];
 
-// 선택된 터미널 컨텍스트
+// 선택된 터미널 컨텍스트 (단일 - 활성 터미널만 선택 가능)
 let selectedTerminalContext = null;
-
-// 터미널 목록
-let terminalList = [];
 
 // 선택된 진단(Diagnostics) 컨텍스트
 let selectedDiagnosticsContext = null;
@@ -1356,11 +1680,8 @@ function renderAtMenu(filter = "") {
   }
   // 파일 리스트 모드
   else if (atMenuMode === "files") {
-    // 파일 목록이 없으면 요청
+    // 파일 목록이 로딩 중이면 로딩 표시
     if (fileList.length === 0) {
-      if (vscode) {
-        vscode.postMessage({ command: "requestFileList" });
-      }
       menu.innerHTML =
         '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">파일 목록 로딩 중...</div>';
       menu.style.display = "block";
@@ -1458,113 +1779,13 @@ function renderAtMenu(filter = "") {
     });
   }
 
-  // 터미널 리스트 모드
-  else if (atMenuMode === "terminal") {
-    // 터미널 목록이 없으면 요청
-    if (terminalList.length === 0) {
-      if (vscode) {
-        vscode.postMessage({ command: "requestTerminalList" });
-      }
-      menu.innerHTML =
-        '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">터미널 목록 로딩 중...</div>';
-      menu.style.display = "block";
-      atMenuVisible = true;
-      return;
-    }
-
-    const filteredTerminals = terminalList.filter((terminal) =>
-      terminal.name.toLowerCase().includes(filter.toLowerCase()),
-    );
-
-    if (filteredTerminals.length === 0) {
-      menu.innerHTML =
-        '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 10px;">터미널이 없습니다</div>';
-      menu.style.display = "block";
-      atMenuVisible = true;
-      return;
-    }
-
-    // 뒤로가기 버튼
-    const backButton = document.createElement("div");
-    backButton.className = "at-back-item";
-    backButton.style.cssText = `
-            padding: 8px 12px;
-            cursor: pointer;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            background: rgba(128,128,128,0.1);
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            backdrop-filter: blur(4px);
-        `;
-    backButton.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 10px;">←</span>
-                <span style="font-weight: 500; font-size: 10px;">뒤로</span>
-            </div>
-        `;
-    backButton.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      goBackToCategories();
-    });
-    backButton.addEventListener("mouseenter", () => {
-      backButton.style.background = "rgba(128,128,128,0.2)";
-    });
-    backButton.addEventListener("mouseleave", () => {
-      backButton.style.background = "rgba(128,128,128,0.1)";
-    });
-    menu.innerHTML = "";
-    menu.appendChild(backButton);
-
-    const terminalsHtml = filteredTerminals
-      .map((terminal, index) => {
-        const isSelected =
-          selectedTerminalContext &&
-          selectedTerminalContext.name === terminal.name;
-        const isItemSelected = index === atMenuSelectedIndex;
-        return `
-            <div class="at-terminal-item ${isItemSelected ? "selected" : ""}"
-                 data-index="${index}" data-name="${terminal.name}"
-                 style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${isItemSelected ? "background: rgba(128,128,128,0.2);" : ""} ${isSelected ? "opacity: 0.6;" : ""}">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 14px;">></span>
-                    <span style="font-weight: 500; font-size: 10px;">${terminal.name}</span>
-                    ${isSelected ? '<span style="color: var(--vscode-textLink-foreground); font-size: 9px;">(선택됨)</span>' : ""}
-                </div>
-                <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${terminal.commandCount || 0}개 명령어</div>
-            </div>
-        `;
-      })
-      .join("");
-
-    const terminalsContainer = document.createElement("div");
-    terminalsContainer.innerHTML = terminalsHtml;
-    menu.appendChild(terminalsContainer);
-
-    menu.querySelectorAll(".at-terminal-item").forEach((item) => {
-      item.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        const terminalName = item.getAttribute("data-name");
-        selectTerminalFromAtMenu(terminalName);
-      });
-      item.addEventListener("mouseenter", () => {
-        atMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
-        renderAtMenu(filter);
-      });
-    });
-  }
+  // 참고: 터미널은 이제 selectCategory에서 바로 활성 터미널 컨텍스트를 요청함 (Continue IDE 방식)
+  // atMenuMode === "terminal" 케이스는 더 이상 여기에서 렌더링되지 않음
 
   // 선택된 항목이 보이도록 스크롤 이동
   if (atMenuMode === "files") {
     const selectedItem = menu.querySelector(
       `.at-file-item[data-index="${atMenuSelectedIndex}"]`,
-    );
-    if (selectedItem) {
-      selectedItem.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-  } else if (atMenuMode === "terminal") {
-    const selectedItem = menu.querySelector(
-      `.at-terminal-item[data-index="${atMenuSelectedIndex}"]`,
     );
     if (selectedItem) {
       selectedItem.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1582,31 +1803,6 @@ function renderAtMenu(filter = "") {
   atMenuVisible = true;
 }
 
-// '@' 메뉴에서 터미널 선택
-function selectTerminalFromAtMenu(terminalName) {
-  // 이미 선택된 터미널인지 체크
-  if (
-    selectedTerminalContext &&
-    selectedTerminalContext.name === terminalName
-  ) {
-    console.log("Terminal already selected:", terminalName);
-    hideAtMenu();
-    chatInput.focus();
-    return;
-  }
-
-  // 터미널 컨텍스트 요청
-  if (vscode) {
-    vscode.postMessage({
-      command: "requestTerminalContext",
-      terminalName: terminalName,
-    });
-  }
-
-  hideAtMenu();
-  chatInput.focus();
-}
-
 // 카테고리 선택
 function selectCategory(categoryId) {
   selectedCategory = categoryId;
@@ -1614,16 +1810,19 @@ function selectCategory(categoryId) {
 
   if (categoryId === "files") {
     atMenuMode = "files";
-    // 파일 목록이 없으면 요청
-    if (fileList.length === 0 && vscode) {
+    // 파일 목록 항상 새로 요청 (실시간 업데이트)
+    if (vscode) {
+      fileList = []; // 캐시 초기화
       vscode.postMessage({ command: "requestFileList" });
     }
   } else if (categoryId === "terminal") {
-    atMenuMode = "terminal";
-    // 터미널 목록 요청
+    // Terminal은 활성 터미널의 내용을 바로 가져옴 (Continue IDE 방식)
     if (vscode) {
-      vscode.postMessage({ command: "requestTerminalList" });
+      vscode.postMessage({ command: "requestTerminalContext" });
     }
+    hideAtMenu();
+    chatInput.focus();
+    return; // 메뉴 렌더링 건너뛰기
   } else if (categoryId === "diagnostics") {
     // Diagnostics는 바로 컨텍스트 요청 (목록 없이 전체 진단 정보)
     if (vscode) {
@@ -1841,68 +2040,8 @@ if (sendButton && chatInput) {
           return;
         }
       }
-      // 터미널 리스트 모드
-      else if (atMenuMode === "terminal") {
-        // 뒤로가기: Escape 키
-        if (e.key === "Escape") {
-          e.preventDefault();
-          goBackToCategories();
-          return;
-        }
-
-        // 터미널명 필터링
-        const parts = afterAt.split(/\s+/);
-        const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
-        const filteredTerminals = terminalList.filter((terminal) =>
-          terminal.name.toLowerCase().includes(filter.toLowerCase()),
-        );
-
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          atMenuSelectedIndex = Math.min(
-            atMenuSelectedIndex + 1,
-            Math.max(0, filteredTerminals.length - 1),
-          );
-          renderAtMenu(filter);
-          setTimeout(() => {
-            const menu = document.getElementById("at-file-menu");
-            const selectedItem = menu?.querySelector(
-              `.at-terminal-item[data-index="${atMenuSelectedIndex}"]`,
-            );
-            if (selectedItem) {
-              selectedItem.scrollIntoView({
-                behavior: "smooth",
-                block: "nearest",
-              });
-            }
-          }, 0);
-          return;
-        } else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          atMenuSelectedIndex = Math.max(atMenuSelectedIndex - 1, 0);
-          renderAtMenu(filter);
-          setTimeout(() => {
-            const menu = document.getElementById("at-file-menu");
-            const selectedItem = menu?.querySelector(
-              `.at-terminal-item[data-index="${atMenuSelectedIndex}"]`,
-            );
-            if (selectedItem) {
-              selectedItem.scrollIntoView({
-                behavior: "smooth",
-                block: "nearest",
-              });
-            }
-          }, 0);
-          return;
-        } else if (e.key === "Enter") {
-          e.preventDefault();
-          if (filteredTerminals[atMenuSelectedIndex]) {
-            const terminal = filteredTerminals[atMenuSelectedIndex];
-            selectTerminalFromAtMenu(terminal.name);
-          }
-          return;
-        }
-      }
+      // 참고: 터미널은 이제 selectCategory에서 바로 활성 터미널 컨텍스트를 요청함 (Continue IDE 방식)
+      // 터미널 리스트 키보드 네비게이션 코드는 더 이상 필요하지 않음
     }
 
     // 슬래시 메뉴가 열려있을 때 키보드 네비게이션
@@ -2036,8 +2175,15 @@ if (sendButton && chatInput) {
   chatInput.addEventListener("input", function (e) {
     autoResizeTextarea();
 
+    // 브라우저가 멘션 스팬을 텍스트로 변환했을 수 있으므로 먼저 복원 시도
+    // '@' 메뉴가 열려있을 때도 복원은 수행 (타이핑 중 변환된 멘션 복구)
+    restoreMentionsFromText();
+
     // 멘션 블록이 DOM에서 삭제되었는지 확인하고 selectedFiles/selectedTerminalContext 동기화
-    syncMentionsWithDOM();
+    // '@' 메뉴가 열려있을 때는 동기화하지 않음 (멘션 삽입 중일 수 있으므로)
+    if (!atMenuVisible) {
+      syncMentionsWithDOM();
+    }
 
     const value = getChatInputValue();
     const lastAtIndex = value.lastIndexOf("@");
@@ -2273,9 +2419,7 @@ function handleSendMessage() {
       imageData: selectedImageBase64,
       imageMimeType: selectedImageMimeType,
       selectedFiles: selectedFiles.map((file) => file.path),
-      terminalContext: selectedTerminalContext
-        ? selectedTerminalContext.contextString
-        : null,
+      terminalContext: selectedTerminalContext ? selectedTerminalContext.contextString : null,
       diagnosticsContext: selectedDiagnosticsContext
         ? selectedDiagnosticsContext.contextString
         : null,
@@ -2622,6 +2766,8 @@ function updateChatContainerPadding() {
 document.addEventListener("DOMContentLoaded", () => {
   if (chatInput) {
     autoResizeTextarea();
+    // MutationObserver 설정 (멘션 복원용)
+    setupMentionObserver();
   }
   // 초기 로드 시 Cancel 버튼 비활성화
   if (cancelButton) {
@@ -2866,34 +3012,27 @@ window.addEventListener("message", (event) => {
       }
       break;
 
-    case "terminalListReceived":
-      console.log(
-        "Terminal list received:",
-        message.terminals?.length || 0,
-        "terminals",
-      );
-      if (message.terminals) {
-        terminalList = message.terminals;
-        // '@' 메뉴가 열려있고 터미널 모드면 다시 렌더링
-        if (atMenuVisible && atMenuMode === "terminal" && chatInput) {
-          const currentValue = getChatInputValue();
-          const atIndex = currentValue.lastIndexOf("@");
-          if (atIndex !== -1) {
-            const afterAt = currentValue.substring(atIndex + 1);
-            const parts = afterAt.trim().split(/\s+/);
-            const filter = parts.length > 1 ? parts.slice(1).join(" ") : "";
-            renderAtMenu(filter);
-          }
-        }
-      }
-      break;
+    // 참고: terminalListReceived는 더 이상 사용되지 않음 (Continue IDE 방식으로 변경)
+    // 터미널은 이제 활성 터미널의 내용을 직접 읽어옴
 
     case "terminalContextReceived":
       console.log("Terminal context received:", message.terminalContext?.name);
       if (message.terminalContext) {
+        // 기존 터미널 멘션이 있으면 제거
+        if (selectedTerminalContext) {
+          const existingMention = chatInput.querySelector('.terminal-mention');
+          if (existingMention) {
+            existingMention.remove();
+          }
+        }
+        // 단일 터미널 컨텍스트 설정 (활성 터미널만)
         selectedTerminalContext = message.terminalContext;
         // 입력창에 터미널 멘션 블록 삽입
         insertTerminalMention(message.terminalContext.name);
+      } else if (message.error) {
+        // 에러 메시지 표시
+        console.warn("Terminal context error:", message.error);
+        // 사용자에게 알림 (선택적)
       }
       break;
 
@@ -3000,14 +3139,49 @@ function displayUserMessage(text, imageData = null) {
     userMessageElement.appendChild(imgElement);
   }
 
-  // 텍스트가 있으면 텍스트 표시
+  // 텍스트가 있으면 멘션 패턴을 파싱하여 스타일링 적용
   if (text) {
-    const textNode = document.createElement("span");
-    // ✅ 사용자 입력은 순수 텍스트로 표시 (HTML 태그 이스케이프)
-    // textContent를 사용하여 HTML 태그가 렌더링되지 않도록 함
-    // white-space: pre-wrap CSS로 줄바꿈 유지
-    textNode.textContent = text;
-    userMessageElement.appendChild(textNode);
+    // 파일 멘션: @로 시작하고 파일명 문자만 매칭 (공백에서 종료)
+    // 터미널 멘션: "Terminal: 터미널이름" 형식 (공백 전까지)
+    // 진단 멘션: "Diagnostics: N errors, M warnings" 형식
+    const mentionRegex = /(@[a-zA-Z0-9\.\-\_\/\\]+)|(Terminal:\s*[^\s]+)|(Diagnostics:\s*\d+\s*errors?,\s*\d+\s*warnings?)/g;
+
+    let lastIndex = 0;
+    let match;
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      // 멘션 이전의 일반 텍스트 추가
+      if (match.index > lastIndex) {
+        const textBefore = document.createTextNode(text.substring(lastIndex, match.index));
+        userMessageElement.appendChild(textBefore);
+      }
+
+      const matchedText = match[0];
+      const mentionSpan = document.createElement("span");
+
+      if (match[1]) {
+        // 파일 멘션 (@파일명)
+        mentionSpan.className = "file-mention";
+        mentionSpan.textContent = match[1].substring(1); // @ 제거 (CSS ::before로 추가됨)
+      } else if (match[2]) {
+        // 터미널 멘션 (Terminal: 터미널이름)
+        mentionSpan.className = "terminal-mention";
+        mentionSpan.textContent = match[2].replace("Terminal:", "").trim();
+      } else if (match[3]) {
+        // 진단 멘션 (Diagnostics: N errors, M warnings)
+        mentionSpan.className = "diagnostics-mention";
+        mentionSpan.textContent = match[3].replace("Diagnostics:", "").trim();
+      }
+
+      userMessageElement.appendChild(mentionSpan);
+      lastIndex = match.index + matchedText.length;
+    }
+
+    // 마지막 멘션 이후의 텍스트 추가
+    if (lastIndex < text.length) {
+      const textAfter = document.createTextNode(text.substring(lastIndex));
+      userMessageElement.appendChild(textAfter);
+    }
   }
 
   containerElement.appendChild(userMessageElement);
@@ -3919,12 +4093,12 @@ function syncMentionsWithDOM() {
     }
   }
 
-  // 터미널 멘션 동기화
+  // 터미널 멘션 동기화 (단일)
   if (selectedTerminalContext) {
     const terminalMention = chatInput.querySelector(".terminal-mention");
     if (!terminalMention) {
       console.log(
-        "[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext",
+        "[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext"
       );
       selectedTerminalContext = null;
     }

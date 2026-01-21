@@ -26,6 +26,7 @@ export interface PromptBuilderOptions {
   languageInstruction?: string;
   selectedFilesContent?: string; // 사용자가 선택한 파일들의 내용
   terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
+  diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics (에러/경고)
   taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
   userQuery?: string; // 사용자 쿼리 (프레임워크 추출용)
   allowedTools?: Tool[]; // 사용 가능한 도구 목록
@@ -53,7 +54,10 @@ export class PromptBuilder {
         intentContext,
         realTimeInfo,
         gitContext,
-        languageInstruction
+        languageInstruction,
+        selectedFilesContent: options.selectedFilesContent,
+        terminalContextContent: options.terminalContextContent,
+        diagnosticsContextContent: options.diagnosticsContextContent
       });
     }
 
@@ -69,6 +73,7 @@ export class PromptBuilder {
       codebaseContext: codebaseContext, // 코드베이스 컨텍스트 포함
       selectedFilesContent: options.selectedFilesContent, // 사용자가 선택한 파일들 내용 포함
       terminalContextContent: options.terminalContextContent, // 사용자가 선택한 터미널 히스토리 포함
+      diagnosticsContextContent: options.diagnosticsContextContent, // 사용자가 선택한 Diagnostics 포함
       allowedTools: options.allowedTools, // 허용된 도구 전달
     };
 

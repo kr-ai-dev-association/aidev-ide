@@ -94,16 +94,36 @@ export class IntentDetector {
   }
 
   /**
+   * 멘션 텍스트를 쿼리에서 제거합니다.
+   * @파일명, Terminal: ..., Diagnostics: ... 패턴 제거
+   */
+  private removeMentionsFromQuery(query: string): string {
+    // 파일 멘션: @파일명 (공백에서 종료)
+    // 터미널 멘션: Terminal: 터미널이름
+    // Diagnostics 멘션: Diagnostics: N errors, M warnings
+    return query
+      .replace(/@[a-zA-Z0-9\.\-\_\/\\]+/g, '')
+      .replace(/Terminal:\s*[^\s]+/g, '')
+      .replace(/Diagnostics:\s*\d+\s*errors?,\s*\d+\s*warnings?/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
    * 사용자 쿼리에서 의도를 감지합니다.
    */
   public async detectIntent(
     userQuery: string,
     options?: { modelName?: string },
   ): Promise<IntentDetectionResult> {
+    // 멘션 텍스트 제거 후 의도 판별
+    const cleanedQuery = this.removeMentionsFromQuery(userQuery);
+    console.log('[IntentDetector] Cleaned query for intent:', cleanedQuery);
+
     // 1. LLM을 통한 의도 판별 (Only)
     try {
       // 현재 활성화된 모델을 사용하여 의도 파악
-      const llmRaw = await this.queryLLMForIntent(userQuery);
+      const llmRaw = await this.queryLLMForIntent(cleanedQuery);
       if (llmRaw) {
         const subtype = llmRaw.subtype;
         const taskType = this.subtypeToTaskType[subtype] || "analysis";

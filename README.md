@@ -6,6 +6,28 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.9.1 (Terminal Context & Mention System Improvements)
+- **Terminal Context via Clipboard**: Completely redesigned terminal context capture.
+  - Changed from Shell Integration API to clipboard-based approach (Continue IDE style)
+  - Reads active terminal's full screen content via `selectAll` + `copySelection`
+  - Single terminal selection only (no multi-select list)
+  - `@terminal` now directly captures active terminal content without showing terminal list
+  - Maximum 5000 characters captured (older content truncated)
+- **Mention Context Delivery Fix**: Fixed critical bug where mentions weren't sent to LLM.
+  - `doSendUserMessage()` now properly passes `terminalContext` and `diagnosticsContext`
+  - All three mention types (file, terminal, diagnostics) now correctly delivered
+- **Enhanced ASK Mode Prompt**: Stronger prompt instructions for attached contexts.
+  - Added `⚠️ 최우선 지시사항` warning when any context is attached
+  - Each context section now explicitly instructs LLM to focus on attached content
+  - Removed unnecessary codebaseContext/profileContext from ASK prompt
+- **Cancel Request Improvements**: Cleaner abort handling.
+  - AbortError no longer logs error message (silent cancellation)
+  - Removed "전송을 취소하였습니다" notification popup
+  - Console shows `[ConversationManager] Request cancelled by user` instead of error stack
+- **File List Realtime Update**: `@파일` menu now shows current files.
+  - File list cache cleared on category selection
+  - Deleted files no longer appear in the list
+
 ## v8.9.0 (Banya Multi-Model & Prompt Architecture)
 - **Banya Qwen-Coder Model Support**: Added support for Banya Qwen-Coder:32b model.
   - New model: `Banya Qwen-Coder:32b` (port 8081) alongside existing `Banya Solar:100b` (port 8080)

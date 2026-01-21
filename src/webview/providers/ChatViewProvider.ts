@@ -147,6 +147,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         let currentModel = '';
                         if (aiModelEngine === 'gemini') {
                             currentModel = await stateManager.getGeminiModel();
+                        } else if (aiModelEngine === 'banya') {
+                            currentModel = await stateManager.getBanyaModel();
                         } else {
                             currentModel = await stateManager.getOllamaModel();
                         }
@@ -413,11 +415,10 @@ ${JSON.stringify(errorContext, null, 2)}
                 case 'cancelGeminiCall':
                     console.log('[Extension Host] Received cancelGeminiCall command.');
                     ConversationService.cancelCurrentCall();
-                    // 즉시 로딩/처리 상태를 종료하고 알림 표시
+                    // 즉시 로딩/처리 상태를 종료
                     webviewView.webview.postMessage({ command: 'hideLoading' });
                     webviewView.webview.postMessage({ command: 'cancelProcessing' });
                     webviewView.webview.postMessage({ command: 'resetProcessingState' });
-                    this.notificationService.showInfoMessage('전송을 취소하였습니다.');
                     break;
                 case 'executeSlashCommand': {
                     const action = data.action;
@@ -902,8 +903,8 @@ ${JSON.stringify(errorContext, null, 2)}
 
                 case 'requestTerminalContext': {
                     try {
-                        const terminalName = data.terminalName;
-                        await this.sendTerminalContext(webviewView.webview, terminalName);
+                        // Continue IDE 방식: 활성 터미널의 내용을 직접 읽음
+                        await this.sendActiveTerminalContext(webviewView.webview);
                     } catch (error: any) {
                         console.error('[ChatViewProvider] Failed to get terminal context:', error);
                     }
@@ -1054,107 +1055,148 @@ ${JSON.stringify(errorContext, null, 2)}
     }
 
     private async sendTerminalList(webview: vscode.Webview) {
-        try {
-            const terminalManager = TerminalManager.getInstance();
-
-            // VS Code의 모든 터미널 가져오기
-            const vscodeTerminals = vscode.window.terminals;
-
-            // TerminalManager의 히스토리와 매칭
-            const history = terminalManager.getHistory();
-
-            const terminalList = vscodeTerminals.map(terminal => {
-                // 해당 터미널의 히스토리 명령어 수 계산
-                const terminalHistory = history.getAll().filter((entry: any) =>
-                    entry.sessionName === terminal.name
-                );
-
-                return {
-                    name: terminal.name,
-                    commandCount: terminalHistory.length
-                };
-            });
-
-            webview.postMessage({
-                command: 'terminalListReceived',
-                terminals: terminalList
-            });
-        } catch (error) {
-            console.error('Error getting terminal list:', error);
-            webview.postMessage({
-                command: 'terminalListReceived',
-                terminals: []
-            });
-        }
+        // 더 이상 터미널 목록을 보내지 않음 - 활성 터미널만 사용
+        // 이 메서드는 호환성을 위해 유지하되 빈 목록 반환
+        webview.postMessage({
+            command: 'terminalListReceived',
+            terminals: []
+        });
     }
 
-    private async sendTerminalContext(webview: vscode.Webview, terminalName: string) {
+    /**
+     * 활성 터미널의 내용을 직접 읽어서 컨텍스트로 전송합니다.
+     * Continue IDE 방식: 터미널 버퍼 내용을 직접 읽어옴
+     */
+    private async sendActiveTerminalContext(webview: vscode.Webview) {
         try {
-            const terminalManager = TerminalManager.getInstance();
+            const activeTerminal = vscode.window.activeTerminal;
 
-            // 해당 터미널의 히스토리 가져오기
-            const history = terminalManager.getHistory();
-            const terminalHistory = history.getAll().filter((entry: any) =>
-                entry.sessionName === terminalName
-            );
+            if (!activeTerminal) {
+                console.log('[ChatViewProvider] No active terminal found');
+                webview.postMessage({
+                    command: 'terminalContextReceived',
+                    terminalContext: null,
+                    error: '활성화된 터미널이 없습니다. 터미널을 열고 다시 시도해주세요.'
+                });
+                return;
+            }
 
-            // 최근 20개의 명령어와 출력 가져오기
-            const recentEntries = terminalHistory.slice(-20);
+            const terminalName = activeTerminal.name;
+            console.log(`[ChatViewProvider] Reading active terminal content: "${terminalName}"`);
 
-            // 컨텍스트 구성
-            const commands = recentEntries.map((entry: any) => ({
-                command: entry.command.command,
-                output: entry.command.output?.combined || entry.command.output?.stdout || '',
-                exitCode: entry.command.exitCode,
-                timestamp: entry.command.timestamp
-            }));
+            // 터미널 내용 읽기 시도
+            let terminalContent = '';
+
+            // 방법 1: 클립보드를 통해 터미널 전체 내용 복사 (가장 신뢰성 높음)
+            try {
+                // 기존 클립보드 내용 저장
+                const originalClipboard = await vscode.env.clipboard.readText();
+
+                // 터미널 포커스 및 전체 선택 + 복사
+                activeTerminal.show(); // 터미널 포커스
+                await new Promise(resolve => setTimeout(resolve, 100)); // 포커스 대기
+
+                // 터미널 전체 선택 및 복사
+                await vscode.commands.executeCommand('workbench.action.terminal.selectAll');
+                await new Promise(resolve => setTimeout(resolve, 50));
+                await vscode.commands.executeCommand('workbench.action.terminal.copySelection');
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                // 복사된 내용 읽기
+                const copiedContent = await vscode.env.clipboard.readText();
+
+                // 선택 해제
+                await vscode.commands.executeCommand('workbench.action.terminal.clearSelection');
+
+                // 클립보드 복원
+                await vscode.env.clipboard.writeText(originalClipboard);
+
+                if (copiedContent && copiedContent.trim()) {
+                    console.log(`[ChatViewProvider] Got terminal content via clipboard: ${copiedContent.length} chars`);
+                    // 내용이 너무 길면 마지막 5000자만
+                    if (copiedContent.length > 5000) {
+                        terminalContent = '...(earlier content truncated)\n\n' + copiedContent.slice(-5000);
+                    } else {
+                        terminalContent = copiedContent;
+                    }
+                }
+            } catch (clipboardError) {
+                console.warn('[ChatViewProvider] Clipboard method failed:', clipboardError);
+            }
+
+            // 방법 2: Shell Integration 히스토리 (클립보드 실패 시 fallback)
+            if (!terminalContent) {
+                const terminalManager = TerminalManager.getInstance();
+                const shellHistory = terminalManager.getShellIntegrationHistory(terminalName);
+
+                if (shellHistory.length > 0) {
+                    console.log(`[ChatViewProvider] Using Shell Integration history: ${shellHistory.length} commands`);
+                    const recentHistory = shellHistory.slice(-10);
+                    for (const entry of recentHistory) {
+                        const status = entry.exitCode === 0 ? '✓' : entry.exitCode !== undefined ? `✗(${entry.exitCode})` : '';
+                        terminalContent += `$ ${entry.command} ${status}\n`;
+                        if (entry.output && entry.output.trim()) {
+                            const output = entry.output.trim();
+                            if (output.length > 1000) {
+                                terminalContent += '...(truncated)\n' + output.slice(-1000) + '\n';
+                            } else {
+                                terminalContent += output + '\n';
+                            }
+                        }
+                        terminalContent += '\n';
+                    }
+                } else {
+                    // 기존 TerminalHistory 사용
+                    const history = terminalManager.getHistory();
+                    const terminalHistory = history.getAll().filter((entry: any) =>
+                        entry.sessionName === terminalName
+                    ).slice(-10);
+
+                    if (terminalHistory.length > 0) {
+                        console.log(`[ChatViewProvider] Using TerminalHistory: ${terminalHistory.length} commands`);
+                        for (const entry of terminalHistory) {
+                            const cmd = entry.command;
+                            const status = cmd.exitCode === 0 ? '✓' : cmd.exitCode !== undefined ? `✗(${cmd.exitCode})` : '';
+                            terminalContent += `$ ${cmd.command} ${status}\n`;
+                            const output = cmd.output?.combined || cmd.output?.stdout || '';
+                            if (output && output.trim()) {
+                                const trimmedOutput = output.trim();
+                                if (trimmedOutput.length > 1000) {
+                                    terminalContent += '...(truncated)\n' + trimmedOutput.slice(-1000) + '\n';
+                                } else {
+                                    terminalContent += trimmedOutput + '\n';
+                                }
+                            }
+                            terminalContent += '\n';
+                        }
+                    } else {
+                        terminalContent = '(No terminal content available)\n';
+                        terminalContent += 'Tip: 터미널에서 명령어를 실행한 후 다시 시도해주세요.\n';
+                    }
+                }
+            }
 
             const terminalContext = {
                 name: terminalName,
-                commands: commands,
-                // 요약된 컨텍스트 문자열 생성
-                contextString: this.formatTerminalContext(terminalName, commands)
+                contextString: `[Terminal: ${terminalName}]\n\n${terminalContent}`
             };
+
+            console.log(`[ChatViewProvider] Terminal context ready: ${terminalContext.contextString.length} chars`);
 
             webview.postMessage({
                 command: 'terminalContextReceived',
                 terminalContext: terminalContext
             });
         } catch (error) {
-            console.error('Error getting terminal context:', error);
+            console.error('Error getting active terminal context:', error);
             webview.postMessage({
                 command: 'terminalContextReceived',
-                terminalContext: null
+                terminalContext: null,
+                error: '터미널 내용을 읽는 중 오류가 발생했습니다.'
             });
         }
     }
 
-    private formatTerminalContext(terminalName: string, commands: Array<{command: string; output: string; exitCode?: number; timestamp: number}>): string {
-        if (commands.length === 0) {
-            return `[Terminal: ${terminalName}]\n(No command history)`;
-        }
-
-        let context = `[Terminal: ${terminalName}]\n`;
-        context += `Recent ${commands.length} commands:\n\n`;
-
-        for (const cmd of commands) {
-            const status = cmd.exitCode === 0 ? '✓' : cmd.exitCode !== undefined ? `✗(${cmd.exitCode})` : '?';
-            context += `$ ${cmd.command} ${status}\n`;
-            if (cmd.output && cmd.output.trim()) {
-                // 출력이 너무 길면 자르기
-                const output = cmd.output.trim();
-                const maxOutputLength = 500;
-                if (output.length > maxOutputLength) {
-                    context += output.substring(0, maxOutputLength) + '...(truncated)\n';
-                } else {
-                    context += output + '\n';
-                }
-            }
-            context += '\n';
-        }
-
-        return context;
-    }
 
     /**
      * Diagnostics (에러/경고) 컨텍스트를 webview에 전송

@@ -284,7 +284,9 @@ export class ConversationManager {
 
         // selectedFiles에서 파일 내용 읽기
         let selectedFilesContent = '';
+        console.log('[ConversationManager] Selected files:', options.selectedFiles);
         if (options.selectedFiles && options.selectedFiles.length > 0) {
+            console.log(`[ConversationManager] Reading ${options.selectedFiles.length} selected files...`);
             const fileContents: string[] = [];
             for (const filePath of options.selectedFiles) {
                 try {
@@ -298,6 +300,7 @@ export class ConversationManager {
                 }
             }
             selectedFilesContent = fileContents.join('\n\n');
+            console.log(`[ConversationManager] Selected files content length: ${selectedFilesContent.length} chars`);
         }
 
         // 터미널 컨텍스트 (사용자가 @terminal로 선택한 터미널 히스토리)
@@ -759,6 +762,26 @@ export class ConversationManager {
                     allowedTools // 도구 제한 전달
                 };
                 activeSystemPrompt = investigationPrompt + '\n\n' + this.promptBuilder.generateSystemPrompt(promptOptions);
+
+                // 🔥 핵심 수정: analysis 인텐트에서는 plan JSON 대신 자연어 응답 유도
+                if (intent && intent.category === 'analysis') {
+                    activeSystemPrompt += `\n\n⚠️ **분석 요청 (Analysis Intent) - 특별 규칙:**
+이 요청은 분석/질문 요청입니다. 코드 수정이나 실행이 필요하지 않습니다.
+
+**필수 행동:**
+1. 필요한 파일을 읽기 위해 조사 도구(read_file, ripgrep_search 등)를 호출하세요.
+2. 충분한 정보를 수집한 후, \`{ "investigation_done": true }\`를 출력하세요.
+3. 그 후 시스템이 자연어 답변을 요청하면, **plan JSON 없이** 직접 한국어로 분석 결과를 설명하세요.
+
+**절대 금지:**
+- ❌ plan JSON 출력 (분석 요청에는 plan이 필요하지 않습니다)
+- ❌ 실행 도구 호출 (create_file, update_file, run_command 등)
+- ❌ 코드 수정 제안 (분석만 요청받았습니다)
+
+**올바른 흐름:**
+1. 조사 도구로 정보 수집 → 2. investigation_done → 3. 자연어 분석 답변
+`;
+                }
 
                 // 🔥 문제 해결: execution-first 작업일 때 investigation item 금지
                 // 공통 함수 사용으로 일관된 판단
@@ -1482,7 +1505,9 @@ export class ConversationManager {
                 /```json[\s\S]*?\{[\s\S]*?"plan"[\s\S]*?\}[\s\S]*?```/i.test(cleanResponse);
 
             // JSON Plan 처리 (function_call 없이 plan만 있는 경우)
-            if (hasJsonPlanInResponse) {
+            // 🔥 핵심 수정: analysis 인텐트에서는 JSON plan을 무시하고 자연어 응답으로 처리
+            const isAnalysisIntent = intent && intent.category === 'analysis';
+            if (hasJsonPlanInResponse && !isAnalysisIntent) {
                 console.log(`[ConversationManager] JSON plan detected`);
                 const planItems = ToolParser.parsePlanItems(cleanResponse);
                 if (planItems.length > 0) {
@@ -1503,6 +1528,8 @@ export class ConversationManager {
                         });
                     }
                 }
+            } else if (hasJsonPlanInResponse && isAnalysisIntent) {
+                console.log(`[ConversationManager] JSON plan detected but ignored for analysis intent - will use natural language response`);
             }
 
             // JSON Function Calling 처리
@@ -1762,7 +1789,8 @@ export class ConversationManager {
                 // ⚠️ 핵심 수정: analysis intent이고 조사가 완료된 경우, 자연어 답변 허용
                 // 🔥 중복 방지: investigation_done 토큰이 있으면 위의 블록(2732 라인)에서 이미 처리되므로 여기서는 처리하지 않음
                 // 🔥 추가 중복 방지: ripgrep_search 결과가 있으면 자동 답변 생성 로직(2732 라인)에서 처리되므로 여기서는 처리하지 않음
-                if (intent && intent.category === 'analysis' && hasInvestigationHistory && !investigationDoneToken) {
+                // 🔥 수정: JSON plan이 있는 경우는 텍스트 응답으로 처리하지 않음
+                if (intent && intent.category === 'analysis' && hasInvestigationHistory && !investigationDoneToken && !hasPlanTag && !hasJsonPlanInResponse) {
                     // ripgrep_search 결과가 있는지 확인
                     let hasRipgrepResults = false;
                     for (const part of accumulatedUserParts) {
@@ -1812,7 +1840,8 @@ export class ConversationManager {
                 // 🔥 핵심 수정: analysis 의도(질문, 설명 요청)일 때는 텍스트 응답 허용
                 // 예: "터미널 내용 알려줘", "파일 내용 설명해줘", "@Terminal 뭐라고 나왔어?"
                 // 길이 체크 제거 - 응답 존재 여부만 확인 (다른 코드 어시스턴트처럼)
-                if (intent && intent.category === 'analysis' && totalResponseText && totalResponseText.trim()) {
+                // 🔥 수정: JSON plan이 있는 경우는 텍스트 응답으로 처리하지 않음
+                if (intent && intent.category === 'analysis' && totalResponseText && totalResponseText.trim() && !hasPlanTag && !hasJsonPlanInResponse) {
                     console.log(`[ConversationManager] INVESTIGATION phase: Analysis intent detected, allowing text response.`);
                     // 응답 정제: thinking 태그 제거
                     let cleanResponse = StringUtils.cleanText(totalResponseText, {
@@ -2435,9 +2464,15 @@ export class ConversationManager {
     }
 
     /**
-     * 에어 핸들링
+     * 에러 핸들링
      */
     private handleError(error: any, webview: vscode.Webview): void {
+        // AbortError는 사용자가 의도적으로 취소한 것이므로 무시
+        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+            console.log('[ConversationManager] Request cancelled by user');
+            return;
+        }
+
         console.error('[ConversationManager] Error:', error);
         const errorMessage = error.message || '알 수 없는 오류가 발생했습니다.';
         WebviewBridge.receiveMessage(webview, 'System', `오류 발생: ${errorMessage}`);
