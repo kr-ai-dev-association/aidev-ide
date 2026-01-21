@@ -178,9 +178,15 @@ export class GemmaAdapter implements ILLMAdapter {
             });
         }
 
-        const fileOperationRegex = /(?:##\s*)?(새 파일|수정 파일|삭제 파일):\s+([^\r\n]+?)(?:\r?\n\s*\r?\n```[^\n]*\r?\n([\s\S]*?)\r?\n```)/g;
+        // 파일 작업 추출 (한국어 + 영어 범용)
+        const fileOperationRegex = /(?:##\s*)?(새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):\s+([^\r\n]+?)(?:\r?\n\s*\r?\n```[^\n]*\r?\n([\s\S]*?)\r?\n```)/gi;
         while ((match = fileOperationRegex.exec(response)) !== null) {
-            const operation = match[1].includes('새') ? 'create' : match[1].includes('수정') ? 'modify' : 'delete';
+            const opKeyword = match[1].toLowerCase();
+            const operation = (opKeyword.includes('새') || opKeyword.includes('new') || opKeyword.includes('create'))
+                ? 'create'
+                : (opKeyword.includes('수정') || opKeyword.includes('modified') || opKeyword.includes('update') || opKeyword.includes('modify'))
+                    ? 'modify'
+                    : 'delete';
             result.fileOperations!.push({
                 operation,
                 path: match[2].trim().replace(/\*\*$/, ''),

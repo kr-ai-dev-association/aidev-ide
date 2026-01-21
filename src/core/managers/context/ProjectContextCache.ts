@@ -231,9 +231,15 @@ export class ProjectContextCache {
         for (const fileName of this.PRIORITY_FILES) {
             const filePath = path.join(projectRoot, fileName);
             preloadPromises.push(
-                this.cacheFile(filePath).catch(() => {
-                    // 파일이 없으면 무시
-                })
+                (async () => {
+                    try {
+                        // 파일 존재 여부 먼저 확인
+                        await fs.access(filePath);
+                        await this.cacheFile(filePath);
+                    } catch {
+                        // 파일이 없으면 조용히 무시
+                    }
+                })()
             );
         }
 

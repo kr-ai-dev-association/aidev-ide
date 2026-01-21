@@ -122,6 +122,7 @@ export class ActionMapper {
    * LLM 출력에서 파일 작업 지시어 라인을 정규화합니다.
    * - 마크다운 볼드/이탤릭으로 둘러싼 지시어를 평문으로 변환
    *   예: "**새 파일: design.md**" → "새 파일: design.md"
+   *   예: "**New file: design.md**" → "New file: design.md"
    * - 목록 기호(-, *) 앞에 붙은 지시어를 제거
    *   예: "- 새 파일: src/App.tsx" → "새 파일: src/App.tsx"
    */
@@ -132,20 +133,19 @@ export class ActionMapper {
 
     let normalized = content;
 
-    // 1) 볼드/이탤릭으로 둘러싸인 지시어 제거
-    //    "**새 파일: design.md**" → "새 파일: design.md"
+    // 1) 볼드/이탤릭으로 둘러싸인 지시어 제거 (한국어 + 영어)
     normalized = normalized.replace(
-      /\*\*(\s*(?:새 파일|수정 파일|삭제 파일):[^\n*]+)\*\*/g,
+      /\*\*(\s*(?:새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):[^\n*]+)\*\*/gi,
       (_, inner: string) => inner.trim(),
     );
     normalized = normalized.replace(
-      /__(\s*(?:새 파일|수정 파일|삭제 파일):[^\n_]+)__/g,
+      /__(\s*(?:새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):[^\n_]+)__/gi,
       (_, inner: string) => inner.trim(),
     );
 
-    // 2) 목록 기호(-, *) 제거: "- 새 파일: ..." → "새 파일: ..."
+    // 2) 목록 기호(-, *) 제거 (한국어 + 영어)
     normalized = normalized.replace(
-      /(^|\n)[\t ]*[-*]\s*((?:새 파일|수정 파일|삭제 파일):\s*[^\n]+)/g,
+      /(^|\n)[\t ]*[-*]\s*((?:새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):\s*[^\n]+)/gi,
       (_, prefix: string, directive: string) => `${prefix}${directive}`,
     );
 
@@ -175,9 +175,9 @@ export class ActionMapper {
       }
     }
 
-    // 마크다운 헤더 형식: "## 새 파일: `package.json`" 또는 "## 새 파일: package.json"
+    // 마크다운 헤더 형식: "## 새 파일: `package.json`" 또는 "## New file: package.json"
     const markdownHeaderPattern =
-      /##\s*(?:새 파일|수정 파일):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
+      /##\s*(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/gi;
     while ((match = markdownHeaderPattern.exec(content)) !== null) {
       let filePath = match[1].trim();
       const code = match[2].trim();
@@ -219,13 +219,13 @@ export class ActionMapper {
       }
     }
 
-    // 한국어 지시어 패턴: "새 파일:" 또는 "수정 파일:" 다음에 파일 경로와 코드 블록
+    // 파일 지시어 패턴: "새 파일:" / "New file:" 다음에 파일 경로와 코드 블록
     // 예: "새 파일: src/example.ts\n```typescript\n...```"
-    // 더 유연한 패턴: 마크다운 헤더, 백틱, 여러 줄 허용
-    // 패턴 1: "새 파일: `package.json`\n\n```json\n..."
-    const koreanCodeBlockPattern1 =
-      /(?:##\s*)?(?:새 파일|수정 파일):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
-    while ((match = koreanCodeBlockPattern1.exec(content)) !== null) {
+    // 예: "New file: src/example.ts\n```typescript\n...```"
+    // 패턴 1: "새 파일: `package.json`\n\n```json\n..." (줄바꿈 2개)
+    const fileDirectiveCodeBlockPattern1 =
+      /(?:##\s*)?(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/gi;
+    while ((match = fileDirectiveCodeBlockPattern1.exec(content)) !== null) {
       let filePath = match[1].trim();
       const code = match[2].trim();
       filePath = this.sanitizeFilePath(filePath);
@@ -241,10 +241,10 @@ export class ActionMapper {
       }
     }
 
-    // 패턴 2: "새 파일: package.json\n```json\n..." (줄바꿈이 하나만)
-    const koreanCodeBlockPattern2 =
-      /(?:##\s*)?(?:새 파일|수정 파일):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
-    while ((match = koreanCodeBlockPattern2.exec(content)) !== null) {
+    // 패턴 2: "새 파일: package.json\n```json\n..." (줄바꿈 1개)
+    const fileDirectiveCodeBlockPattern2 =
+      /(?:##\s*)?(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*[`"]?([^\r\n`"]+?)[`"]?\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/gi;
+    while ((match = fileDirectiveCodeBlockPattern2.exec(content)) !== null) {
       let filePath = match[1].trim();
       const code = match[2].trim();
       filePath = this.sanitizeFilePath(filePath);
@@ -261,9 +261,9 @@ export class ActionMapper {
     }
 
     // 패턴 3: "새 파일: `package.json`" (백틱 포함)
-    const koreanCodeBlockPattern3 =
-      /(?:##\s*)?(?:새 파일|수정 파일):\s*`([^`]+)`\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/g;
-    while ((match = koreanCodeBlockPattern3.exec(content)) !== null) {
+    const fileDirectiveCodeBlockPattern3 =
+      /(?:##\s*)?(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*`([^`]+)`\s*\r?\n\s*\r?\n\s*```[^\n]*\r?\n([\s\S]*?)\r?\n```/gi;
+    while ((match = fileDirectiveCodeBlockPattern3.exec(content)) !== null) {
       const filePath = this.sanitizeFilePath(match[1]);
       const code = match[2].trim();
       if (filePath && code) {
@@ -278,12 +278,12 @@ export class ActionMapper {
       }
     }
 
-    // 한국어 마크다운 파일 패턴: "새 파일:" 또는 "수정 파일:" 다음에 .md 파일과 내용
-    // - 다음 지시어(새 파일/수정 파일/삭제 파일/--- 작업 요약/--- 작업 수행 설명) 직전까지 또는 문자열 끝까지를 본문으로 취급
-    const koreanMarkdownPattern =
-      /(새 파일|수정 파일):\s*([^\r\n]+\.md)\s*\r?\n\s*\r?\n?([\s\S]*?)(?=(?:\r?\n\s*(?:새 파일|수정 파일|삭제 파일|--- 작업 요약|--- 작업 수행 설명))|$)/gs;
+    // 마크다운 파일 패턴: "새 파일:" / "New file:" 다음에 .md 파일과 내용
+    // - 다음 지시어 직전까지 또는 문자열 끝까지를 본문으로 취급
+    const markdownFilePattern =
+      /(새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*([^\r\n]+\.md)\s*\r?\n\s*\r?\n?([\s\S]*?)(?=(?:\r?\n\s*(?:새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file|--- 작업 요약|--- 작업 수행 설명|--- Summary|--- Description))|$)/gis;
 
-    while ((match = koreanMarkdownPattern.exec(content)) !== null) {
+    while ((match = markdownFilePattern.exec(content)) !== null) {
       const directive = match[1].trim();
       let filePath = match[2].trim();
       const mdBody = match[3].trim();
@@ -309,9 +309,10 @@ export class ActionMapper {
 
     // 패턴 5: 코드블록이 없고, 단순히 "새 파일: xxx.ext" 다음에 전체 본문이 오는 경우
     // 예: "새 파일: src/App.css\n\ncss\n6 lines\n...코드...\nCopy"
+    // 예: "New file: src/App.css\n\ncss\n6 lines\n...코드...\nCopy"
     if (actions.length === 0) {
       const plainFilePattern =
-        /(?:^|\n)\s*(?:새 파일|수정 파일):\s*([^\r\n]+)\s*\r?\n([\s\S]*)$/;
+        /(?:^|\n)\s*(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*([^\r\n]+)\s*\r?\n([\s\S]*)$/i;
       const plainMatch = plainFilePattern.exec(content);
       if (plainMatch) {
         const rawPath = plainMatch[1];
@@ -355,7 +356,7 @@ export class ActionMapper {
 
   /**
    * 파일 생성 영역을 감지합니다 (명령어 추출 전에 호출)
-   * "새 파일:" 또는 "수정 파일:" 다음에 오는 모든 내용을 파일 생성 영역으로 간주
+   * "새 파일:" / "New file:" 다음에 오는 모든 내용을 파일 생성 영역으로 간주
    * codepilot-old와 동일하게 오직 bash 코드 블록만 명령어로 처리하므로,
    * 파일 생성 영역 내부의 모든 내용(코드 블록 포함)을 제외해야 함
    */
@@ -364,18 +365,18 @@ export class ActionMapper {
   ): Array<{ start: number; end: number }> {
     const ranges: Array<{ start: number; end: number }> = [];
 
-    // 파일 지시어 패턴: "새 파일:", "수정 파일:" 등
+    // 파일 지시어 패턴 (한국어 + 영어 범용)
     const fileDirectivePattern =
-      /(?:새 파일|수정 파일|Create file|Update file|Modify file):\s*[`"]?([^\r\n`"]+?)[`"]?/gi;
+      /(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):\s*[`"]?([^\r\n`"]+?)[`"]?/gi;
     let match: RegExpExecArray | null = null;
 
     while ((match = fileDirectivePattern.exec(content)) !== null) {
       const startIndex = match.index;
       const afterDirective = content.substring(startIndex + match[0].length);
 
-      // 다음 파일 지시어 찾기
+      // 다음 파일 지시어 찾기 (한국어 + 영어)
       const nextFileDirective = afterDirective.search(
-        /(?:새 파일|수정 파일|Create file|Update file|Modify file):/i,
+        /(?:새 파일|수정 파일|New file|Create file|Modified file|Update file|Modify file):/i,
       );
 
       // 파일 생성 영역의 끝: 다음 파일 지시어 또는 문자열 끝
@@ -487,9 +488,9 @@ export class ActionMapper {
           continue;
         }
 
-        // "새 파일:", "수정 파일:" 같은 파일 지시어는 제외
+        // 파일 지시어는 제외 (한국어 + 영어)
         if (
-          /(?:새 파일|수정 파일|Create file|Update file|Modify file):/i.test(
+          /(?:새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):/i.test(
             cleanCmd,
           )
         ) {
@@ -778,10 +779,10 @@ export class ActionMapper {
       }
     }
 
-    // 한국어 삭제 패턴: "삭제 파일: ..."
-    const koreanDeletePattern = /삭제 파일:\s+(.+?)(?:\r?\n|$)/g;
+    // 삭제 패턴 (한국어 + 영어): "삭제 파일: ..." / "Delete file: ..."
+    const deleteFilePattern = /(?:삭제 파일|Delete file|Remove file):\s+(.+?)(?:\r?\n|$)/gi;
 
-    while ((match = koreanDeletePattern.exec(content)) !== null) {
+    while ((match = deleteFilePattern.exec(content)) !== null) {
       const rawPath = match[1].trim();
       let filePath = this.sanitizeFilePath(rawPath);
 
@@ -833,7 +834,7 @@ export class ActionMapper {
 
       if (sqlKeywords.includes(lowerPath)) {
         console.log(
-          `[ActionMapper] Skipping SQL keyword as file path (Korean): ${filePath}`,
+          `[ActionMapper] Skipping SQL keyword as file path: ${filePath}`,
         );
         continue;
       }
@@ -841,21 +842,21 @@ export class ActionMapper {
       // 단일 대문자 단어 거부
       if (/^[A-Z]+$/.test(filePath.trim()) && filePath.trim().length <= 10) {
         console.log(
-          `[ActionMapper] Skipping single uppercase word as file path (Korean): ${filePath}`,
+          `[ActionMapper] Skipping single uppercase word as file path: ${filePath}`,
         );
         continue;
       }
 
       if (filePath && this.isValidFilePath(filePath)) {
         console.log(
-          `[ActionMapper] Extracted file delete operation (Korean): ${filePath}`,
+          `[ActionMapper] Extracted file delete operation: ${filePath}`,
         );
         actions.push(
           this.createFileOperationAction(FileOperationType.DELETE, filePath),
         );
       } else {
         console.log(
-          `[ActionMapper] Invalid file path filtered (Korean): ${filePath} (raw: ${rawPath})`,
+          `[ActionMapper] Invalid file path filtered: ${filePath} (raw: ${rawPath})`,
         );
       }
     }

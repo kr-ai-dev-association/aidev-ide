@@ -267,16 +267,16 @@ export class LLMManager {
     public extractResponseText(llmResponse: string): string {
         let text = llmResponse;
 
-        // 파일 작업 지시어 제거
-        text = text.replace(/(?:##\s*)?(새 파일|수정 파일|삭제 파일):\s*[^\r\n]+/g, '');
+        // 파일 작업 지시어 제거 (한국어 + 영어 범용)
+        text = text.replace(/(?:##\s*)?(새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):\s*[^\r\n]+/gi, '');
 
         // 코드 블록 제거
         text = text.replace(/```[\s\S]*?```/g, '');
 
-        // 작업 요약/설명 섹션 제거
-        text = text.replace(/---\s*작업 요약\s*---[\s\S]*?---\s*작업 수행 설명\s*---[\s\S]*/g, '');
-        text = text.replace(/---\s*작업 요약\s*---[\s\S]*/g, '');
-        text = text.replace(/---\s*작업 수행 설명\s*---[\s\S]*/g, '');
+        // 작업 요약/설명 섹션 제거 (한국어 + 영어 범용)
+        text = text.replace(/---\s*(?:작업 요약|Summary)\s*---[\s\S]*?---\s*(?:작업 수행 설명|Description)\s*---[\s\S]*/gi, '');
+        text = text.replace(/---\s*(?:작업 요약|Summary)\s*---[\s\S]*/gi, '');
+        text = text.replace(/---\s*(?:작업 수행 설명|Description)\s*---[\s\S]*/gi, '');
 
         // 연속된 빈 줄 정리
         text = text.replace(/\n{3,}/g, '\n\n');
@@ -299,10 +299,10 @@ export class LLMManager {
     }
 
     /**
-     * 파일 작업 지시어를 제거합니다
+     * 파일 작업 지시어를 제거합니다 (한국어 + 영어 범용)
      */
     private removeFileDirectives(response: string): string {
-        return response.replace(/(새 파일|수정 파일|삭제 파일):[\s\S]*?(?=\n{2,}|$)/g, '').trim();
+        return response.replace(/(새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):[\s\S]*?(?=\n{2,}|$)/gi, '').trim();
     }
 
     /**

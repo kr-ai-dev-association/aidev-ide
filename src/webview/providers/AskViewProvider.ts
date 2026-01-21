@@ -315,8 +315,8 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
             cleanedResponse = this.removeBashCommands(cleanedResponse);
         }
 
-        // 파일 작업 지시어 체크
-        if (cleanedResponse.includes("새 파일:") || cleanedResponse.includes("수정 파일:") || cleanedResponse.includes("삭제 파일:")) {
+        // 파일 작업 지시어 체크 (한국어 + 영어 범용)
+        if (this.hasFileDirectives(cleanedResponse)) {
             const warningMsg = "ASK 탭에서는 파일 생성, 수정, 삭제를 할 수 없습니다. CODE 탭을 사용해주세요.";
             safePostMessage(webview, { command: 'receiveMessage', sender: 'CODEPILOT', text: warningMsg });
             this.notificationService.showWarningMessage(`CODEPILOT: ${warningMsg}`);
@@ -346,9 +346,16 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * 파일 작업 지시어를 제거합니다.
+     * 파일 작업 지시어가 포함되어 있는지 확인합니다 (한국어 + 영어 범용).
+     */
+    private hasFileDirectives(response: string): boolean {
+        return /(?:새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):/i.test(response);
+    }
+
+    /**
+     * 파일 작업 지시어를 제거합니다 (한국어 + 영어 범용).
      */
     private removeFileDirectives(response: string): string {
-        return response.replace(/(새 파일|수정 파일|삭제 파일):[\s\S]*?(?=\n{2,}|$)/g, '').trim();
+        return response.replace(/(새 파일|수정 파일|삭제 파일|New file|Create file|Modified file|Update file|Modify file|Delete file|Remove file):[\s\S]*?(?=\n{2,}|$)/gi, '').trim();
     }
 }

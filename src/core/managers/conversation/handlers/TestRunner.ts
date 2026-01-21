@@ -16,6 +16,9 @@ import { AiModelType } from '../../../../services';
 import { AgentConfig } from '../../../config/AgentConfig';
 import { StringUtils } from '../../../utils/StringUtils';
 import { getValidationCommandPrompt } from '../../context/prompts/test/validationCommand';
+import { getCriticPassPrompt, parseCriticPassResult, CriticPassResult } from '../../context/prompts/test/criticPass';
+import * as fsSync from 'fs';
+import { StateManager } from '../../state/StateManager';
 
 export interface TestResult {
     success: boolean;
@@ -23,6 +26,44 @@ export interface TestResult {
 }
 
 export class TestRunner {
+    /**
+     * Critic Pass + 자동 테스트 검증 통합 실행
+     * 순서: Critic Pass (활성화된 경우) → Automated Tests
+     *
+     * @param context - Extension context (Critic Pass 설정 확인용)
+     * @param userRequest - 원래 사용자 요청 (Critic Pass용)
+     */
+    public static async runCriticPassAndTests(
+        webview: vscode.Webview,
+        workspaceRoot: string,
+        createdFiles: string[],
+        modifiedFiles: string[],
+        context: vscode.ExtensionContext,
+        userRequest: string = ''
+    ): Promise<TestResult & { criticPassFixes?: CriticPassResult['fixes'] }> {
+        // 1. Critic Pass 실행 (활성화된 경우)
+        const criticPassResult = await TestRunner.runCriticPass(
+            webview,
+            workspaceRoot,
+            createdFiles,
+            modifiedFiles,
+            userRequest,
+            context
+        );
+
+        // Critic Pass 실패 시 수정 사항 반환
+        if (!criticPassResult.success && criticPassResult.fixes && criticPassResult.fixes.length > 0) {
+            return {
+                success: false,
+                errorMessage: `Critic Pass 검증 실패: ${criticPassResult.result?.summary || '코드에 문제가 발견되었습니다.'}`,
+                criticPassFixes: criticPassResult.fixes
+            };
+        }
+
+        // 2. 자동 테스트 검증 실행
+        return await TestRunner.runAutomatedTests(webview, workspaceRoot, createdFiles, modifiedFiles);
+    }
+
     /**
      * 자동 테스트 검증 (Smoke Test & Lint Check)
      */
@@ -316,6 +357,118 @@ export class TestRunner {
         }
 
         return errors;
+    }
+
+    /**
+     * Critic Pass: LLM이 생성/수정한 코드를 재검증
+     * 자동 검증 테스트(runAutomatedTests) 전에 호출됨
+     */
+    public static async runCriticPass(
+        webview: vscode.Webview,
+        workspaceRoot: string,
+        createdFiles: string[],
+        modifiedFiles: string[],
+        userRequest: string,
+        context: vscode.ExtensionContext
+    ): Promise<{ success: boolean; result: CriticPassResult | null; fixes?: CriticPassResult['fixes'] }> {
+        try {
+            // Critic Pass 설정 확인
+            const stateManager = StateManager.getInstance(context);
+            const criticPassEnabled = await stateManager.getCriticPassEnabled();
+
+            if (!criticPassEnabled) {
+                console.log('[TestRunner] Critic Pass is disabled, skipping...');
+                return { success: true, result: null };
+            }
+
+            // 파일이 없으면 스킵
+            if (createdFiles.length === 0 && modifiedFiles.length === 0) {
+                console.log('[TestRunner] No files to validate, skipping Critic Pass...');
+                return { success: true, result: null };
+            }
+
+            WebviewBridge.sendProcessingStatus(webview, 'executing', 'Critic Pass: 코드 검증 중...');
+            console.log('[TestRunner] Running Critic Pass...');
+
+            // 파일 내용 읽기
+            const createdFilesWithContent: Array<{ path: string; content: string }> = [];
+            const modifiedFilesWithContent: Array<{ path: string; content: string }> = [];
+
+            for (const filePath of createdFiles) {
+                try {
+                    const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+                    const content = fsSync.readFileSync(absolutePath, 'utf-8');
+                    createdFilesWithContent.push({ path: filePath, content });
+                } catch (error) {
+                    console.warn(`[TestRunner] Failed to read created file: ${filePath}`, error);
+                }
+            }
+
+            for (const filePath of modifiedFiles) {
+                try {
+                    const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+                    const content = fsSync.readFileSync(absolutePath, 'utf-8');
+                    modifiedFilesWithContent.push({ path: filePath, content });
+                } catch (error) {
+                    console.warn(`[TestRunner] Failed to read modified file: ${filePath}`, error);
+                }
+            }
+
+            // LLM API 가져오기
+            const llmManager = LLMManager.getInstance();
+            const currentModelType = llmManager.getCurrentModel();
+            const geminiApi = llmManager.getGeminiApi();
+            const ollamaApi = llmManager.getOllamaApi();
+            const llmApi = currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi;
+
+            if (!llmApi) {
+                console.warn('[TestRunner] No LLM API available for Critic Pass');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'Critic Pass: LLM 없음 (건너뜀)');
+                return { success: true, result: null };
+            }
+
+            // Critic Pass 프롬프트 생성
+            const prompt = getCriticPassPrompt({
+                createdFiles: createdFilesWithContent,
+                modifiedFiles: modifiedFilesWithContent,
+                userRequest,
+                projectType: 'auto-detected'
+            });
+
+            // LLM 호출
+            WebviewBridge.sendProcessingStatus(webview, 'executing', 'Critic Pass: LLM 검증 중...');
+            const response = await llmApi.sendMessage(prompt);
+
+            // 결과 파싱
+            const result = parseCriticPassResult(response);
+
+            if (!result) {
+                console.warn('[TestRunner] Failed to parse Critic Pass result');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'Critic Pass: 결과 파싱 실패');
+                return { success: true, result: null }; // 파싱 실패 시 통과로 간주
+            }
+
+            if (result.status === 'pass') {
+                console.log('[TestRunner] Critic Pass: All checks passed');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'Critic Pass: 검증 통과 ✓');
+                return { success: true, result };
+            } else {
+                console.log(`[TestRunner] Critic Pass: Found ${result.issues.length} issues`);
+                WebviewBridge.sendProcessingStatus(webview, 'executing', `Critic Pass: ${result.issues.length}개 문제 발견`);
+
+                // 수정 사항이 있으면 반환
+                if (result.fixes && result.fixes.length > 0) {
+                    return { success: false, result, fixes: result.fixes };
+                }
+
+                return { success: false, result };
+            }
+
+        } catch (error) {
+            console.error('[TestRunner] Error running Critic Pass:', error);
+            WebviewBridge.sendProcessingStatus(webview, 'executing', 'Critic Pass: 오류 발생');
+            return { success: true, result: null }; // 오류 발생 시 통과로 간주
+        }
     }
 
     /**

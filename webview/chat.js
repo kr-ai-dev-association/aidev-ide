@@ -3253,11 +3253,10 @@ function scrollToUserMessage(userMessageElement) {
     attempts++;
     if (userMessageElement && userMessageElement.offsetHeight > 0) {
       // 요소가 실제로 렌더링되었는지 확인
-      userMessageElement.scrollIntoView({
-        behavior: "smooth",
-        block: "center", // 메시지를 화면 중앙에 위치시킴
-        inline: "nearest",
-      });
+      // 사용자 메시지 전송 후 스크롤을 맨 아래로 이동
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
       return true; // 성공
     } else if (attempts < maxAttempts) {
       // 아직 요소가 렌더링되지 않았으면 다시 시도

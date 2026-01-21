@@ -93,10 +93,28 @@ export function getTestRetryExceededMessage(
  */
 export function getInvestigationNudgePrompt(): string {
   return (
-    `\n[System] 설명을 중단하고 즉시 JSON Function Calling으로 도구를 호출하세요.\n` +
-    `- 조사 도구: read_file, list_files, ripgrep_search를 사용하여 정보를 수집하세요.\n` +
-    `- 충분한 정보를 수집했다면 { "plan": [...] } 형식으로 작업 계획을 수립하세요.\n` +
-    `- 설명만 하지 말고 반드시 도구를 호출하거나 계획을 제출하세요.`
+    `\n[System] ⚠️ **JSON FUNCTION CALL REQUIRED - 자연어 응답 금지**\n\n` +
+    `당신의 이전 응답이 자연어로 감지되어 무시되었습니다.\n` +
+    `**반드시 아래 JSON 형식으로만 응답하세요.**\n\n` +
+    `**조사 도구 호출 예시:**\n` +
+    "```json\n" +
+    `{\n` +
+    `  "function_call": {\n` +
+    `    "name": "read_file",\n` +
+    `    "args": { "path": "src/App.tsx" }\n` +
+    `  }\n` +
+    `}\n` +
+    "```\n\n" +
+    `**계획 제출 예시:**\n` +
+    "```json\n" +
+    `{\n` +
+    `  "plan": [\n` +
+    `    { "kind": "execution", "title": "버튼 컴포넌트 추가", "detail": "src/App.tsx에 버튼 추가" }\n` +
+    `  ]\n` +
+    `}\n` +
+    "```\n\n" +
+    `**절대 금지:** 설명, 생각, 분석 텍스트 출력\n` +
+    `**지금 바로 JSON을 출력하세요.**`
   );
 }
 
@@ -105,8 +123,32 @@ export function getInvestigationNudgePrompt(): string {
  */
 export function getExecutionNudgePrompt(): string {
   return (
-    `\n[System] 설명을 중단하고 즉시 JSON Function Calling으로 도구를 호출하세요.\n` +
-    `즉시 JSON Function Calling으로 도구(list_files, read_file 등)를 호출하여 작업을 시작하세요. 생각이나 설명만 하는 것은 허용되지 않습니다.`
+    `\n[System] ⚠️ **JSON FUNCTION CALL REQUIRED - 자연어 응답 금지**\n\n` +
+    `당신의 이전 응답이 자연어로 감지되어 무시되었습니다.\n` +
+    `**반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 출력하지 마세요.**\n\n` +
+    `**올바른 형식 예시:**\n` +
+    "```json\n" +
+    `{\n` +
+    `  "function_call": {\n` +
+    `    "name": "read_file",\n` +
+    `    "args": { "path": "src/App.tsx" }\n` +
+    `  }\n` +
+    `}\n` +
+    "```\n\n" +
+    `**또는 여러 도구 호출:**\n` +
+    "```json\n" +
+    `{\n` +
+    `  "function_calls": [\n` +
+    `    { "name": "read_file", "args": { "path": "src/App.tsx" } },\n` +
+    `    { "name": "list_files", "args": { "path": "src" } }\n` +
+    `  ]\n` +
+    `}\n` +
+    "```\n\n" +
+    `**절대 금지:**\n` +
+    `- "버튼이 추가되었습니다" 같은 설명\n` +
+    `- "해야 합니다", "하겠습니다" 같은 의도 표현\n` +
+    `- 생각, 분석, 계획 텍스트\n\n` +
+    `**지금 바로 JSON function_call을 출력하세요. JSON 외의 모든 텍스트는 무시됩니다.**`
   );
 }
 

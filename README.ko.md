@@ -6,7 +6,27 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
-## v8.9.0 (Banya 멀티 모델 & 프롬프트 아키텍처)
+## v8.9.2 (범용 LLM 지원 & UI 개선)
+- **다국어 파일 작업 키워드 지원**: 한국어와 영어 파일 지시어 모두 지원.
+  - 모든 파일 작업 패턴이 다음을 지원: `새 파일`/`New file`/`Create file`, `수정 파일`/`Update file`/`Modify file`, `삭제 파일`/`Delete file`/`Remove file`
+  - 영어로 응답하는 LLM도 이제 파일 작업을 올바르게 트리거할 수 있음
+  - 수정된 파일: ActionMapper.ts, GptAdapter.ts, GemmaAdapter.ts, LLMManager.ts, AskViewProvider.ts
+- **키워드 추출 단순화**: RelevantFilesFinder에서 하드코딩된 기술 키워드 제거.
+  - `getDevelopmentKeywords()` 및 `prioritizeKeywords()` 함수 제거 (120+ 라인)
+  - 새로운 범용 `extractKeywordsFromQuery()`: 언어/프레임워크 편향 없는 단순 단어 추출
+  - "react", "vue", "spring" 등의 하드코딩된 리스트 제거
+- **메시지 전송 시 자동 스크롤**: 사용자가 메시지를 보내면 채팅이 자동으로 맨 아래로 스크롤.
+  - `scrollToUserMessage()`를 `scrollIntoView({ block: "center" })` 대신 `scrollTop = scrollHeight` 사용하도록 수정
+  - 긴 대화에서 메시지 전송 시 더 나은 UX
+
+## v8.9.1 변경사항 요약
+  - 터미널 컨텍스트 클립보드 방식: Shell Integration API → 클립보드 기반으로 변경
+  - 멘션 컨텍스트 전달 버그 수정: doSendUserMessage()에서 터미널/diagnostics 누락 문제 해결
+  - ASK 모드 프롬프트 강화: 첨부 컨텍스트가 있을 때 강한 지시문 추가
+  - 취소 요청 개선: AbortError 로그 및 알림 제거
+  - 파일 목록 실시간 업데이트: 삭제된 파일이 목록에 남지 않도록 수정
+
+## v8.9.0 (스트리밍 구현, Banya 멀티 모델 & 프롬프트 아키텍처)
 - **Banya Qwen-Coder 모델 지원**: Banya Qwen-Coder:32b 모델 지원을 추가했습니다.
   - 새 모델: `Banya Qwen-Coder:32b` (포트 8081), 기존 `Banya Solar:100b` (포트 8080)
   - API 프록시를 위한 `X-Target-Port` 헤더로 모델 라우팅

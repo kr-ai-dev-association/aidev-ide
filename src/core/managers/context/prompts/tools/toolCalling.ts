@@ -122,14 +122,24 @@ export function getWorkflowGuidelinePrompt(): string {
  */
 export function getImportantRulesPrompt(): string {
     let prompt = '### 중요 규칙\n\n';
-    prompt += '1. **도구 호출은 반드시 JSON 형식으로**: 위 형식을 정확히 따르세요.\n';
-    prompt += '2. **update_file 전에 read_file 필수**: 파일 수정 전 반드시 최신 내용을 읽으세요.\n';
-    prompt += '3. **create_file은 content 필수**: 빈 content는 허용되지 않습니다. 전체 파일 내용을 포함하세요.\n';
-    prompt += '4. **수정 범위가 넓으면 create_file 사용**: update_file 대신 파일 전체를 다시 작성하세요.\n';
-    prompt += '5. **여러 파일로 코드 분할**: 모든 코드를 단일 파일에 넣지 마세요.\n';
-    prompt += '6. **일괄 수정 금지**: sed -i 등 대신 ripgrep_search → read_file → update_file 순서로.\n';
-    prompt += '\n';
-    prompt += '**기억하세요:** 설명만 하지 말고 실제 도구를 호출하세요. "해야 한다"는 말 대신 즉시 JSON function_call을 출력하세요.\n';
+    prompt += '**⚠️ 출력 형식 (절대 준수):**\n';
+    prompt += '- **오직 JSON function_call만 출력하세요**\n';
+    prompt += '- 설명, 생각, 분석, 계획 텍스트는 시스템이 무시합니다\n';
+    prompt += '- "~하겠습니다", "~해야 합니다" 같은 의도 표현 금지\n';
+    prompt += '- JSON 외의 모든 텍스트는 무효 처리됩니다\n\n';
+    prompt += '**파일 작업 규칙:**\n';
+    prompt += '1. **update_file 전에 read_file 필수**: 파일 수정 전 반드시 최신 내용을 읽으세요.\n';
+    prompt += '2. **create_file은 content 필수**: 빈 content는 허용되지 않습니다.\n';
+    prompt += '3. **수정 범위가 넓으면 create_file 사용**: 전체를 다시 작성하세요.\n';
+    prompt += '4. **일괄 수정 금지**: sed -i 대신 read_file → update_file 순서로.\n\n';
+    prompt += '**올바른 응답 예시:**\n';
+    prompt += '```json\n';
+    prompt += '{ "function_call": { "name": "read_file", "args": { "path": "src/App.tsx" } } }\n';
+    prompt += '```\n\n';
+    prompt += '**잘못된 응답 예시 (무시됨):**\n';
+    prompt += '```\n';
+    prompt += '버튼을 추가하겠습니다. 먼저 파일을 읽어보겠습니다.\n';
+    prompt += '```\n';
 
     return prompt;
 }

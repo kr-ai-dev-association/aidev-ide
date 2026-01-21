@@ -4,3 +4,5 @@
  */
 
 export { getValidationCommandPrompt } from './validationCommand';
+export { getCriticPassPrompt, parseCriticPassResult } from './criticPass';
+export type { CriticPassPromptOptions, CriticPassResult } from './criticPass';

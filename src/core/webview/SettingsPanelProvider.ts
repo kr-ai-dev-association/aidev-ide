@@ -99,6 +99,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoExecuteCommandsEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
+            const criticPassEnabled =
+              await stateManager.getCriticPassEnabled();
 
             // duplicate removed
             const messageToSend = {
@@ -117,6 +119,7 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
+              criticPassEnabled: criticPassEnabled || false, // Critic Pass 설정 추가
               outputLogEnabled: outputLogEnabled || false,
               autoUpdateEnabled: autoUpdateEnabled || false,
               errorRetryCount: errorRetryCount || 2,
@@ -974,6 +977,36 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setCriticPassEnabled": // Critic Pass 설정 저장 케이스 추가
+          const criticPassEnabledToSet = data.enabled;
+          if (typeof criticPassEnabledToSet === "boolean") {
+            try {
+              await stateManager.saveCriticPassEnabled(criticPassEnabledToSet);
+              safePostMessage(panel, {
+                command: "criticPassEnabledSet",
+              });
+              console.log(
+                `[PanelManager] Critic Pass 설정 저장됨: ${criticPassEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "criticPassEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Critic Pass: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "criticPassEnabledSetError",
+              error: "Invalid Critic Pass setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Critic Pass setting provided.",
+            );
+          }
+          break;
         case "setStreamingEnabled": // 스트리밍 설정 저장 케이스 추가
           const streamingEnabledToSet = data.enabled;
           if (typeof streamingEnabledToSet === "boolean") {
@@ -1363,6 +1396,8 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
+            const criticPassEnabled =
+              await stateManager.getCriticPassEnabled();
             const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
@@ -1391,6 +1426,7 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
+              criticPassEnabled: criticPassEnabled || false, // Critic Pass 설정 추가
               outputLogEnabled: outputLogEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
@@ -1427,6 +1463,8 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
+            const criticPassEnabled =
+              await stateManager.getCriticPassEnabled();
             const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
@@ -1458,6 +1496,7 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
+              criticPassEnabled: criticPassEnabled || false, // Critic Pass 설정 추가
               outputLogEnabled: outputLogEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",

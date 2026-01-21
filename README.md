@@ -6,6 +6,19 @@
 
 VSCode base code assistant plugin with LLM and LM support.
 
+## v8.9.2 (Universal LLM Support & UI Improvements)
+- **Bilingual File Operation Keywords**: Full support for both Korean and English file directives.
+  - All file operation patterns now support: `New file`/`Create file`, `Update file`/`Modify file`, `Delete file`/`Remove file`
+  - LLMs responding in English can now properly trigger file operations
+  - Updated files: ActionMapper.ts, GptAdapter.ts, GemmaAdapter.ts, LLMManager.ts, AskViewProvider.ts
+- **Simplified Keyword Extraction**: Removed hardcoded technology keywords from RelevantFilesFinder.
+  - Removed `getDevelopmentKeywords()` and `prioritizeKeywords()` functions (120+ lines)
+  - New universal `extractKeywordsFromQuery()`: simple word extraction without language/framework bias
+  - No more hardcoded lists like "react", "vue", "spring", etc.
+- **Auto-scroll on Message Send**: Chat automatically scrolls to bottom when user sends a message.
+  - Fixed `scrollToUserMessage()` to use `scrollTop = scrollHeight` instead of `scrollIntoView({ block: "center" })`
+  - Better UX when sending messages in long conversations
+
 ## v8.9.1 (Terminal Context & Mention System Improvements)
 - **Terminal Context via Clipboard**: Completely redesigned terminal context capture.
   - Changed from Shell Integration API to clipboard-based approach (Continue IDE style)
