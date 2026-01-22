@@ -16,6 +16,7 @@ import { ProjectDetector } from '../project/ProjectDetector';
 import { ProjectType } from '../project/types';
 import { InvestigationManager } from '../investigation/InvestigationManager';
 import { SettingsManager } from '../state/SettingsManager';
+import { StateManager } from '../state/StateManager';
 import { AiModelType, OllamaApi, GeminiApi, BanyaApi } from '../../../services';
 import { AgentStateManager, AgentPhase } from './AgentStateManager';
 import { getSimpleSummaryPrompt } from '../context/prompts/task';
@@ -82,6 +83,7 @@ export class ConversationManager {
     private llmManager: LLMManager;
     private responseProcessor: ResponseProcessor;
     private currentAbortController: AbortController | null = null;
+    private stateManager: StateManager | null = null;
 
     private constructor(userOS: string, geminiApi: GeminiApi, ollamaApi: OllamaApi, banyaApi: BanyaApi) {
         this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA);
@@ -112,6 +114,10 @@ export class ConversationManager {
     public setSessionManager(manager: any): void { }
     public setPromptBuilder(builder: any): void { this.promptBuilder = builder; }
     public setIntentDetector(detector: any): void { }
+    public setStateManager(stateManager: StateManager): void {
+        this.stateManager = stateManager;
+        console.log("[ConversationManager] StateManager configured for model routing");
+    }
     public setExternalApiService(service: any): void { }
     public configurePlanManager(client: any, model: any): void { }
     public setContextHistoryManager(manager: any): void { }
@@ -263,9 +269,15 @@ export class ConversationManager {
 
     /**
      * 사용자 의도 및 작업 타입 감지
+     * Intent 모델이 설정된 경우 해당 모델 사용, 미설정 시 메인 모델 사용
      */
     private async detectIntent(query: string): Promise<any> {
         const detector = new IntentDetector(this.llmManager);
+
+        // StateManager가 있으면 Intent 모델 라우팅 설정
+        if (this.stateManager) {
+            detector.setStateManager(this.stateManager);
+        }
 
         const intent = await detector.detectIntent(query);
 
@@ -394,6 +406,16 @@ export class ConversationManager {
                 ? await SettingsManager.getInstance(options.extensionContext).isStreamingEnabled()
                 : false;
 
+            // 인사/간단한 질문 응답용 시스템 프롬프트 (JSON function call 금지)
+            const greetingSystemPrompt = `당신은 친절한 AI 코딩 어시스턴트입니다.
+사용자의 인사나 간단한 질문에 자연스럽게 한국어로 답변해주세요.
+
+**중요 규칙:**
+- JSON 형식으로 응답하지 마세요
+- function_call이나 도구 호출을 하지 마세요
+- 자연스러운 한국어 문장으로만 답변하세요
+- 짧고 친근하게 응답하세요`;
+
             let greetingResponse: string;
 
             if (isStreamingEnabledForGreeting) {
@@ -411,7 +433,7 @@ export class ConversationManager {
                 };
 
                 greetingResponse = await this.llmManager.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
+                    greetingSystemPrompt,
                     accumulatedUserParts,
                     onGreetingChunk,
                     { signal: abortSignal }
@@ -421,9 +443,9 @@ export class ConversationManager {
                 return; // 스트리밍 완료 후 즉시 종료
             }
 
-            // 비스트리밍 모드: 기존 방식
+            // 비스트리밍 모드: 인사 응답용 시스템 프롬프트 사용
             greetingResponse = await this.llmManager.sendMessageWithSystemPrompt(
-                systemPrompt,
+                greetingSystemPrompt,
                 accumulatedUserParts,
                 { signal: abortSignal }
             );
@@ -487,12 +509,23 @@ export class ConversationManager {
         }
 
         // FSM 초기화
+        // requiresPlan이 false인 경우:
+        // - analysis/documentation 카테고리: INVESTIGATION (조사 후 바로 답변, plan 없이)
+        // - execution 카테고리: EXECUTION (바로 명령어 실행)
+        const isSimpleTask = intent?.requiresPlan === false;
+        const isDirectResponseTask = isSimpleTask && (intent?.category === 'analysis' || intent?.category === 'documentation');
+        const isDirectExecutionTask = isSimpleTask && intent?.category === 'execution';
+
         const initialState = hasActivePlan
             ? AgentPhase.EXECUTION
-            : (isExecutionFirstTask && !hasExistingProject ? AgentPhase.EXECUTION : AgentPhase.INVESTIGATION);
+            : (isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject) ? AgentPhase.EXECUTION : AgentPhase.INVESTIGATION);
         const stateManager = new AgentStateManager(initialState);
 
-        if (isExecutionFirstTask) {
+        if (isDirectResponseTask) {
+            console.log(`[ConversationManager] Direct response task detected (${intent.category}). Starting in INVESTIGATION for immediate response.`);
+        } else if (isDirectExecutionTask) {
+            console.log(`[ConversationManager] Simple execution task detected (requiresPlan: false). Starting directly in EXECUTION phase.`);
+        } else if (isExecutionFirstTask) {
             if (hasExistingProject) {
                 console.log(`[ConversationManager] Execution-first task detected (${intent.category}/${intent.subtype}) but existing project found. Starting in INVESTIGATION for safety.`);
             } else {
@@ -536,6 +569,10 @@ export class ConversationManager {
             // 🔄 컨텍스트 자동 압축 체크 (토큰 임계값 초과 시 트리거)
             try {
                 const compactor = ConversationCompactor.getInstance(this.llmManager);
+                // StateManager 설정 (compactorModel 사용을 위해)
+                if (options.extensionContext) {
+                    compactor.setStateManager(StateManager.getInstance(options.extensionContext));
+                }
                 const currentModelType = options.currentModelType || AiModelType.OLLAMA;
                 const modelLimits = MODEL_TOKEN_LIMITS[currentModelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
                 const maxTokens = modelLimits?.maxInputTokens || 128000;
@@ -720,6 +757,8 @@ export class ConversationManager {
 
                         // ConversationCompactor를 SessionManager에 주입 (lazy injection)
                         const compactor = ConversationCompactor.getInstance(this.llmManager);
+                        // StateManager 설정 (compactorModel 사용을 위해)
+                        compactor.setStateManager(StateManager.getInstance(options.extensionContext));
                         sessionManager.setCompactor(compactor);
 
                         // 토큰 임계값 확인 후 자동 압축
@@ -1073,11 +1112,23 @@ export class ConversationManager {
                             preloadedFilesContext: preloadedFilesContextForExecution
                         });
 
-                        const llmResponseForExecution = await this.llmManager.sendMessageWithSystemPrompt(
-                            activeSystemPrompt + planContextForExecution,
-                            accumulatedUserParts,
-                            { signal: abortSignal }
-                        );
+                        // execution 의도일 때 Command 모델 사용
+                        let llmResponseForExecution: string;
+                        if (intent && intent.category === 'execution' && this.stateManager) {
+                            console.log('[ConversationManager] EXECUTION phase: Using Command model for execution intent');
+                            llmResponseForExecution = await this.llmManager.sendMessageWithCommandModel(
+                                activeSystemPrompt + planContextForExecution,
+                                accumulatedUserParts,
+                                this.stateManager,
+                                { signal: abortSignal }
+                            );
+                        } else {
+                            llmResponseForExecution = await this.llmManager.sendMessageWithSystemPrompt(
+                                activeSystemPrompt + planContextForExecution,
+                                accumulatedUserParts,
+                                { signal: abortSignal }
+                            );
+                        }
 
                         const cleanExecutionResponse = llmResponseForExecution.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                         const toolCallsFromExecution = ToolParser.parseToolCalls(cleanExecutionResponse);
@@ -1338,19 +1389,42 @@ export class ConversationManager {
                     }
                 };
 
-                llmResponse = await this.llmManager.sendMessageWithSystemPromptStreaming(
-                    activeSystemPrompt + planContext,
-                    accumulatedUserParts,
-                    onChunk,
-                    { signal: abortSignal }
-                );
+                // execution 의도일 때 Command 모델 사용 (스트리밍)
+                if (intent && intent.category === 'execution' && this.stateManager) {
+                    console.log('[ConversationManager] Execution intent detected, using Command model (streaming)');
+                    llmResponse = await this.llmManager.sendMessageWithCommandModelStreaming(
+                        activeSystemPrompt + planContext,
+                        accumulatedUserParts,
+                        onChunk,
+                        this.stateManager,
+                        { signal: abortSignal }
+                    );
+                } else {
+                    llmResponse = await this.llmManager.sendMessageWithSystemPromptStreaming(
+                        activeSystemPrompt + planContext,
+                        accumulatedUserParts,
+                        onChunk,
+                        { signal: abortSignal }
+                    );
+                }
             } else {
                 // 비스트리밍 모드: 기존 방식
-                llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
-                    activeSystemPrompt + planContext,
-                    accumulatedUserParts,
-                    { signal: abortSignal }
-                );
+                // execution 의도일 때 Command 모델 사용
+                if (intent && intent.category === 'execution' && this.stateManager) {
+                    console.log('[ConversationManager] Execution intent detected, using Command model');
+                    llmResponse = await this.llmManager.sendMessageWithCommandModel(
+                        activeSystemPrompt + planContext,
+                        accumulatedUserParts,
+                        this.stateManager,
+                        { signal: abortSignal }
+                    );
+                } else {
+                    llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
+                        activeSystemPrompt + planContext,
+                        accumulatedUserParts,
+                        { signal: abortSignal }
+                    );
+                }
             }
 
             console.log(`[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`, llmResponse.length > AgentConfig.MAX_LOG_PREVIEW_LENGTH ? llmResponse.substring(0, AgentConfig.MAX_LOG_PREVIEW_LENGTH) + '...' : llmResponse);
@@ -2403,6 +2477,10 @@ export class ConversationManager {
             try {
                 // ConversationCompactor를 SessionManager에 주입 (lazy injection)
                 const compactor = ConversationCompactor.getInstance(this.llmManager);
+                // StateManager 설정 (compactorModel 사용을 위해)
+                if (options.extensionContext) {
+                    compactor.setStateManager(StateManager.getInstance(options.extensionContext));
+                }
                 sessionManager.setCompactor(compactor);
 
                 // 토큰 임계값 확인 후 자동 압축
@@ -3009,9 +3087,10 @@ export class ConversationManager {
     /**
      * 현재 세션의 대화를 강제로 압축 (슬래시 명령어용)
      * @param userParts - 압축할 대화 메시지 배열
+     * @param extensionContext - ExtensionContext (compactorModel 사용을 위해 선택사항)
      * @returns 압축 결과
      */
-    public async forceCompact(userParts: any[]): Promise<{
+    public async forceCompact(userParts: any[], extensionContext?: vscode.ExtensionContext): Promise<{
         compacted: boolean;
         originalTokens: number;
         compactedTokens: number;
@@ -3020,6 +3099,10 @@ export class ConversationManager {
     }> {
         try {
             const compactor = ConversationCompactor.getInstance(this.llmManager);
+            // StateManager 설정 (compactorModel 사용을 위해)
+            if (extensionContext) {
+                compactor.setStateManager(StateManager.getInstance(extensionContext));
+            }
             const currentModelType = this.llmManager.getCurrentModel();
             const maxTokens = MODEL_TOKEN_LIMITS[currentModelType]?.maxInputTokens || 128000;
 

@@ -348,6 +348,7 @@ export async function activate(context: vscode.ExtensionContext) {
     conversationManager.setIntentDetector(intentDetector);
     conversationManager.setExternalApiService(externalApiService);
     conversationManager.configurePlanManager(llmApiClient, currentAiModel);
+    conversationManager.setStateManager(stateManager);
 
     // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
     const contextHistoryManager = ContextHistoryManager.getInstance(context);
@@ -787,8 +788,11 @@ export async function activate(context: vscode.ExtensionContext) {
             // LLMManager와 ConversationCompactor 가져오기
             const { ConversationCompactor } = await import('./core/managers/conversation/ConversationCompactor');
             const { LLMManager } = await import('./core/managers/model/LLMManager');
+            const { StateManager } = await import('./core/managers/state/StateManager');
             const llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi);
             const compactor = ConversationCompactor.getInstance(llmManager);
+            // StateManager 설정 (compactorModel 사용을 위해)
+            compactor.setStateManager(StateManager.getInstance(context));
 
             // 현재 세션의 대화 히스토리를 userParts 형식으로 변환
             const userParts = currentSession.conversationHistory.map((entry: any) => ({
@@ -830,6 +834,19 @@ export async function activate(context: vscode.ExtensionContext) {
                         `- **압축 후 토큰**: ${result.compactedTokens.toLocaleString()}\n` +
                         `- **절감률**: ${savedPercent}%\n\n` +
                         `최근 ${keepCount}개의 대화만 유지됩니다.`
+                });
+
+                // 토큰 게이지 업데이트
+                chatViewProvider.postMessageToWebview({
+                    command: 'updateContextInfo',
+                    contextInfo: {
+                        messageCount: keepCount,
+                        tokenUsage: {
+                            current: result.compactedTokens,
+                            max: maxTokens,
+                            percentage: (result.compactedTokens / maxTokens) * 100
+                        }
+                    }
                 });
             } else {
                 chatViewProvider.postMessageToWebview({

@@ -1459,11 +1459,11 @@ const slashCommandsByCategory = {
   session: [
     { command: "/sessions", label: "세션 목록", description: "저장된 대화 세션 목록 보기", action: "listSavedSessions" },
     { command: "/restore", label: "세션 복원", description: "저장된 세션 복원하기", action: "restoreSavedSession" },
-    { command: "/compact", label: "대화 압축", description: "현재 대화를 요약하여 토큰 절약", action: "compactConversation" },
   ],
   cache: [
     { command: "/cache", label: "캐시 통계", description: "프로젝트 컨텍스트 캐시 통계 표시", action: "viewCacheStats" },
     { command: "/clear-cache", label: "캐시 초기화", description: "모든 컨텍스트 캐시 삭제", action: "clearCache" },
+    { command: "/compact", label: "대화 압축", description: "현재 대화를 요약하여 토큰 절약", action: "compactConversation" },
   ],
 };
 
@@ -2168,9 +2168,15 @@ if (sendButton && chatInput) {
       } else {
         // 명령어 모드
         const commands = slashCommandsByCategory[selectedSlashCategory] || [];
+        // 입력값에서 카테고리 부분 제거하여 필터 생성 (예: "/git commit" -> "commit")
+        const inputValue = getChatInputValue();
+        const categoryPrefix = `/${selectedSlashCategory} `;
+        const commandFilter = inputValue.startsWith(categoryPrefix)
+          ? inputValue.slice(categoryPrefix.length).trim()
+          : "";
         const filteredCommands = commands.filter((cmd) =>
-          cmd.command.toLowerCase().includes(getChatInputValue().toLowerCase()) ||
-          cmd.label.toLowerCase().includes(getChatInputValue().toLowerCase()),
+          cmd.command.toLowerCase().includes(commandFilter.toLowerCase()) ||
+          cmd.label.toLowerCase().includes(commandFilter.toLowerCase()),
         );
 
         if (e.key === "ArrowDown") {
@@ -2179,12 +2185,12 @@ if (sendButton && chatInput) {
             slashMenuSelectedIndex + 1,
             filteredCommands.length - 1,
           );
-          renderSlashMenu(getChatInputValue().slice(1));
+          renderSlashMenu(commandFilter);
           return;
         } else if (e.key === "ArrowUp") {
           e.preventDefault();
           slashMenuSelectedIndex = Math.max(slashMenuSelectedIndex - 1, 0);
-          renderSlashMenu(getChatInputValue().slice(1));
+          renderSlashMenu(commandFilter);
           return;
         } else if (e.key === "Enter") {
           e.preventDefault();

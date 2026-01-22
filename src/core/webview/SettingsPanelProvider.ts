@@ -100,6 +100,17 @@ export function openSettingsPanel(
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
+            // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
+            const compactorModelType = await stateManager.getCompactorModelType();
+            const compactorModelName = await stateManager.getCompactorModelName();
+            const compactorApiKeySet = await stateManager.hasCompactorApiKey();
+            const commandModelType = await stateManager.getCommandModelType();
+            const commandModelName = await stateManager.getCommandModelName();
+            const commandApiKeySet = await stateManager.hasCommandApiKey();
+            const intentModelType = await stateManager.getIntentModelType();
+            const intentModelName = await stateManager.getIntentModelName();
+            const intentApiKeySet = await stateManager.hasIntentApiKey();
+
             // duplicate removed
             const messageToSend = {
               command: "currentSettings",
@@ -126,8 +137,25 @@ export function openSettingsPanel(
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
+              // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
+              compactorModelType: compactorModelType || "",
+              compactorModelName: compactorModelName || "",
+              compactorApiKeySet: compactorApiKeySet,
+              commandModelType: commandModelType || "",
+              commandModelName: commandModelName || "",
+              commandApiKeySet: commandApiKeySet,
+              intentModelType: intentModelType || "",
+              intentModelName: intentModelName || "",
+              intentApiKeySet: intentApiKeySet,
             };
-            // console.log('Sending currentApiKeys message:', messageToSend);
+            console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
+              compactorModelType,
+              compactorModelName,
+              commandModelType,
+              commandModelName,
+              intentModelType,
+              intentModelName,
+            });
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error getting current settings:", error);
@@ -186,6 +214,33 @@ export function openSettingsPanel(
           }
           break;
         }
+        case "getRoutingOllamaModels": {
+          // 라우팅 모델용 Ollama 모델 목록 요청
+          try {
+            const apiUrl =
+              (await stateManager.getOllamaApiUrl()) ||
+              "http://localhost:11434";
+            const models = await ModelConnectionService.getOllamaModels(apiUrl);
+
+            console.log('[PanelManager] Routing Ollama models retrieved:', models?.length || 0);
+            safePostMessage(panel, {
+              command: "routingOllamaModels",
+              models,
+              apiUrl: apiUrl,
+            });
+          } catch (e: any) {
+            console.error(
+              "[PanelManager] Failed to get routing Ollama models:",
+              e?.message || String(e),
+            );
+            safePostMessage(panel, {
+              command: "routingOllamaModels",
+              models: [],
+              error: e?.message || String(e),
+            });
+          }
+          break;
+        }
         case "saveApiKey": // Gemini API 키 저장 케이스 추가
           const apiKeyToSave = data.apiKey;
           if (apiKeyToSave && typeof apiKeyToSave === "string") {
@@ -222,6 +277,230 @@ export function openSettingsPanel(
               error: "Invalid API key",
             });
             notificationService.showErrorMessage("Invalid API key provided.");
+          }
+          break;
+        case "saveCompactorModel": // Compactor 모델 저장
+          try {
+            const compactorType = data.modelType;
+            const compactorModelName = data.modelName;
+            if (compactorType) {
+              // 모델 타입과 모델명 저장
+              await stateManager.saveCompactorModelType(compactorType);
+              if (compactorModelName) {
+                await stateManager.saveCompactorModelName(compactorModelName);
+              }
+              safePostMessage(panel, { command: "compactorModelSaved" });
+              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[compactorType as string] || compactorType;
+              const modelInfo = compactorModelName ? ` (${compactorModelName})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Compactor 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "compactorModelSaveError",
+                error: "모델 타입을 선택해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "compactorModelSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Compactor 모델 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "saveCompactorApiKey": // Compactor API 키 저장
+          try {
+            const compactorApiKey = data.apiKey;
+            const compactorApiType = data.modelType;
+            if (compactorApiKey) {
+              await stateManager.saveCompactorApiKey(compactorApiKey);
+              safePostMessage(panel, { command: "compactorApiKeySaved" });
+              const typeLabel = { gemini: "Gemini", banya: "Banya" }[compactorApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Compactor ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "compactorApiKeySaveError",
+                error: "API 키를 입력해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "compactorApiKeySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Compactor API 키 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "clearCompactorModel": // Compactor 모델 초기화
+          try {
+            await stateManager.deleteCompactorModelType();
+            await stateManager.deleteCompactorModelName();
+            await stateManager.deleteCompactorApiKey();
+            safePostMessage(panel, { command: "compactorModelCleared" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Compactor 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "compactorModelClearError",
+              error: error.message,
+            });
+          }
+          break;
+        case "saveCommandModel": // Command 모델 저장
+          try {
+            const commandType = data.modelType;
+            const commandModelName = data.modelName;
+            if (commandType) {
+              // 모델 타입과 모델명 저장
+              await stateManager.saveCommandModelType(commandType);
+              if (commandModelName) {
+                await stateManager.saveCommandModelName(commandModelName);
+              }
+              safePostMessage(panel, { command: "commandModelSaved" });
+              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[commandType as string] || commandType;
+              const modelInfo = commandModelName ? ` (${commandModelName})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Command 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "commandModelSaveError",
+                error: "모델 타입을 선택해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "commandModelSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Command 모델 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "saveCommandApiKey": // Command API 키 저장
+          try {
+            const commandApiKey = data.apiKey;
+            const commandApiType = data.modelType;
+            if (commandApiKey) {
+              await stateManager.saveCommandApiKey(commandApiKey);
+              safePostMessage(panel, { command: "commandApiKeySaved" });
+              const typeLabel = { gemini: "Gemini", banya: "Banya" }[commandApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Command ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "commandApiKeySaveError",
+                error: "API 키를 입력해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "commandApiKeySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Command API 키 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "clearCommandModel": // Command 모델 초기화
+          try {
+            await stateManager.deleteCommandModelType();
+            await stateManager.deleteCommandModelName();
+            await stateManager.deleteCommandApiKey();
+            safePostMessage(panel, { command: "commandModelCleared" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Command 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "commandModelClearError",
+              error: error.message,
+            });
+          }
+          break;
+        case "saveIntentModel": // Intent 모델 저장
+          try {
+            const intentType = data.modelType;
+            const intentModelName = data.modelName;
+            if (intentType) {
+              await stateManager.saveIntentModelType(intentType);
+              if (intentModelName) {
+                await stateManager.saveIntentModelName(intentModelName);
+              }
+              safePostMessage(panel, { command: "intentModelSaved" });
+              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[intentType as string] || intentType;
+              const modelInfo = intentModelName ? ` (${intentModelName})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Intent 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "intentModelSaveError",
+                error: "모델 타입을 선택해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "intentModelSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Intent 모델 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "saveIntentApiKey": // Intent API 키 저장
+          try {
+            const intentApiKey = data.apiKey;
+            const intentApiType = data.modelType;
+            if (intentApiKey) {
+              await stateManager.saveIntentApiKey(intentApiKey);
+              safePostMessage(panel, { command: "intentApiKeySaved" });
+              const typeLabel = { gemini: "Gemini", banya: "Banya" }[intentApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Intent ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "intentApiKeySaveError",
+                error: "API 키를 입력해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "intentApiKeySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Intent API 키 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "clearIntentModel": // Intent 모델 초기화
+          try {
+            await stateManager.deleteIntentModelType();
+            await stateManager.deleteIntentModelName();
+            await stateManager.deleteIntentApiKey();
+            safePostMessage(panel, { command: "intentModelCleared" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Intent 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "intentModelClearError",
+              error: error.message,
+            });
           }
           break;
         case "saveGeminiModel": // Gemini 모델 저장 케이스 추가

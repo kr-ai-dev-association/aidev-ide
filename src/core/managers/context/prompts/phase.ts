@@ -15,7 +15,7 @@ import {
 // ==================== Intent Phase ====================
 export function getIntentPrompt(userQuery: string): string {
   return `
-다음 사용자 요청을 분석하여 의도(Subtype)를 분류하세요.
+다음 사용자 요청을 분석하여 의도(Subtype)와 계획 필요 여부를 판단하세요.
 
 **분류 기준:**
 1. 코드 작성/수정/삭제 (code_generate, code_modify, code_remove)
@@ -24,11 +24,29 @@ export function getIntentPrompt(userQuery: string): string {
 4. 문서 작성 (documentation_general)
 5. 터미널 오류 해결 (terminal_error_fix)
 
+**계획 필요 여부 (requiresPlan) 판단 기준:**
+- **true**: 새로운 기능 개발, 여러 파일 수정, 복잡한 리팩토링 등 여러 단계의 작업이 필요한 경우
+- **false**:
+  - 간단한 질문, 설명 요청, 코드 분석, 요약 등 바로 답변 가능한 경우
+  - 단순 명령어 실행 (npm install, npm run build, git status 등 한 줄 명령어)
+  - 단일 파일의 간단한 수정
+
+예시:
+- "이 함수 뭐하는 거야?" → requiresPlan: false (바로 설명 가능)
+- "로그인 기능 만들어줘" → requiresPlan: true (여러 파일 생성 필요)
+- "프로젝트 구조 알려줘" → requiresPlan: false (분석 후 바로 답변)
+- "npm install 해줘" → requiresPlan: false (단순 명령어 실행)
+- "npm run build 실행해" → requiresPlan: false (단순 명령어 실행)
+- "git status 확인해줘" → requiresPlan: false (단순 명령어 실행)
+- "이 코드 리팩토링해줘" → requiresPlan: true (여러 파일 수정 가능성)
+- "인증 시스템 구현해줘" → requiresPlan: true (복잡한 기능 개발)
+
 출력 형식 (JSON):
 {
-  "subtype": "code_modify",
+  "subtype": "analysis_function",
   "confidence": 0.9,
-  "reasoning": "요청의 구체적인 이유"
+  "reasoning": "요청의 구체적인 이유",
+  "requiresPlan": false
 }
 
 사용자 요청: "${userQuery}"`;

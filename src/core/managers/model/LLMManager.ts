@@ -41,7 +41,7 @@ export class LLMManager {
         geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
         banyaApi: BanyaApi,
-        initialModelType: AiModelType = AiModelType.GEMINI
+        initialModelType: AiModelType = AiModelType.OLLAMA
     ) {
         this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
@@ -335,6 +335,501 @@ export class LLMManager {
             ? '\n\n최근 로그 (최대 10줄):\n' + evt.recentLogs.slice(-10).map((l: any) => `- ${l.message || l.rawOutput || ''}`).join('\n')
             : '';
         return header + tail;
+    }
+
+    /**
+     * 특정 모델로 시스템 프롬프트와 함께 메시지를 전송합니다
+     * Compactor나 Command 모델 등 메인 모델이 아닌 다른 모델을 사용할 때 호출
+     * @param modelType 사용할 모델 타입 (gemini, ollama, banya)
+     * @param modelName 사용할 모델 이름 (선택사항, 지정하지 않으면 해당 타입의 기본 모델 사용)
+     * @param systemPrompt 시스템 프롬프트
+     * @param userParts 사용자 메시지 파트
+     * @param options 요청 옵션
+     */
+    public async sendMessageWithSpecificModel(
+        modelType: AiModelType,
+        modelName: string | undefined,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        this.currentCallController = new AbortController();
+        const signal = options?.signal || this.currentCallController.signal;
+
+        try {
+            let response: string;
+
+            if (modelType === AiModelType.GEMINI) {
+                // Gemini API 형식으로 변환
+                const parts: any[] = userParts.map(part => {
+                    if (part.inlineData) {
+                        return { inlineData: part.inlineData };
+                    }
+                    if (part.imageData && part.imageMimeType) {
+                        return {
+                            inlineData: {
+                                data: part.imageData,
+                                mimeType: part.imageMimeType
+                            }
+                        };
+                    }
+                    return { text: part.text || '' };
+                });
+
+                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
+                const originalModel = this.geminiApi.getModelName();
+                if (modelName && modelName !== originalModel) {
+                    this.geminiApi.updateModelName(modelName);
+                }
+
+                try {
+                    response = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                } finally {
+                    // 원래 모델로 복원
+                    if (modelName && modelName !== originalModel) {
+                        this.geminiApi.updateModelName(originalModel);
+                    }
+                }
+            } else if (modelType === AiModelType.BANYA) {
+                try {
+                    await this.banyaApi.loadSettingsFromStorage();
+                } catch { }
+
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+
+                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
+                const originalModel = this.banyaApi.getModel?.() || '';
+                if (modelName && this.banyaApi.setModel) {
+                    this.banyaApi.setModel(modelName);
+                }
+
+                try {
+                    response = await this.banyaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                } finally {
+                    // 원래 모델로 복원
+                    if (modelName && originalModel && this.banyaApi.setModel) {
+                        this.banyaApi.setModel(originalModel);
+                    }
+                }
+            } else {
+                // Ollama
+                try {
+                    await this.ollamaApi.loadSettingsFromStorage();
+                } catch { }
+
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+
+                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
+                const originalModel = this.ollamaApi.getModel?.() || '';
+                if (modelName && this.ollamaApi.setModel) {
+                    this.ollamaApi.setModel(modelName);
+                }
+
+                try {
+                    response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                } finally {
+                    // 원래 모델로 복원
+                    if (modelName && originalModel && this.ollamaApi.setModel) {
+                        this.ollamaApi.setModel(originalModel);
+                    }
+                }
+            }
+
+            return response;
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                console.log('[LLMManager] Request cancelled (specific model)');
+                throw error;
+            }
+            console.error('[LLMManager] Failed to send message with specific model:', error);
+            throw error;
+        } finally {
+            if (this.currentCallController && !options?.signal) {
+                this.currentCallController = null;
+            }
+        }
+    }
+
+    /**
+     * Compactor 모델용 StateManager 인터페이스
+     */
+    private compactorStateInterface = {
+        getCompactorModelType: () => Promise.resolve<string | undefined>(undefined),
+        getCompactorModelName: () => Promise.resolve<string | undefined>(undefined),
+        getCompactorApiKey: () => Promise.resolve<string | undefined>(undefined),
+    };
+
+    /**
+     * Command 모델용 StateManager 인터페이스
+     */
+    private commandStateInterface = {
+        getCommandModelType: () => Promise.resolve<string | undefined>(undefined),
+        getCommandModelName: () => Promise.resolve<string | undefined>(undefined),
+        getCommandApiKey: () => Promise.resolve<string | undefined>(undefined),
+    };
+
+    /**
+     * Compactor 모델로 메시지를 전송합니다
+     * StateManager에서 compactor 모델 타입, 모델명, API 키를 가져와 해당 모델로 호출
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithCompactorModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getCompactorModelType: () => Promise<string | undefined>;
+            getCompactorModelName?: () => Promise<string | undefined>;
+            getCompactorApiKey?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCompactorModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            console.log('[LLMManager] Compactor model not configured, using main model');
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // 모델명과 API 키 가져오기
+        const modelName = stateManager.getCompactorModelName
+            ? await stateManager.getCompactorModelName()
+            : undefined;
+        const apiKey = stateManager.getCompactorApiKey
+            ? await stateManager.getCompactorApiKey()
+            : undefined;
+
+        console.log(`[LLMManager] Using compactor model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
+
+        // API 키가 설정된 경우 해당 API로 직접 호출
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * Command 모델로 메시지를 전송합니다
+     * StateManager에서 command 모델 타입, 모델명, API 키를 가져와 해당 모델로 호출
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithCommandModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getCommandModelType: () => Promise<string | undefined>;
+            getCommandModelName?: () => Promise<string | undefined>;
+            getCommandApiKey?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCommandModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            console.log('[LLMManager] Command model not configured, using main model');
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // 모델명과 API 키 가져오기
+        const modelName = stateManager.getCommandModelName
+            ? await stateManager.getCommandModelName()
+            : undefined;
+        const apiKey = stateManager.getCommandApiKey
+            ? await stateManager.getCommandApiKey()
+            : undefined;
+
+        console.log(`[LLMManager] Using command model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
+
+        // API 키가 설정된 경우 해당 API로 직접 호출
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * Command 모델로 스트리밍 메시지를 전송합니다
+     * StateManager에서 command 모델 타입, 모델명, API 키를 가져와 해당 모델로 호출
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithCommandModelStreaming(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        stateManager: {
+            getCommandModelType: () => Promise<string | undefined>;
+            getCommandModelName?: () => Promise<string | undefined>;
+            getCommandApiKey?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCommandModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용 (스트리밍)
+        if (!modelType) {
+            console.log('[LLMManager] Command model not configured, using main model (streaming)');
+            return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
+        }
+
+        // 모델명과 API 키 가져오기
+        const modelName = stateManager.getCommandModelName
+            ? await stateManager.getCommandModelName()
+            : undefined;
+        const apiKey = stateManager.getCommandApiKey
+            ? await stateManager.getCommandApiKey()
+            : undefined;
+
+        console.log(`[LLMManager] Using command model (streaming) - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
+
+        // API 키가 설정된 경우 해당 API로 직접 호출 (스트리밍)
+        return this.sendMessageWithSpecificModelAndApiKeyStreaming(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            onChunk,
+            options
+        );
+    }
+
+    /**
+     * Intent 모델로 메시지를 전송합니다
+     * StateManager에서 intent 모델 타입, 모델명, API 키를 가져와 해당 모델로 호출
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithIntentModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getIntentModelType: () => Promise<string | undefined>;
+            getIntentModelName?: () => Promise<string | undefined>;
+            getIntentApiKey?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getIntentModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            console.log('[LLMManager] Intent model not configured, using main model');
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // 모델명과 API 키 가져오기
+        const modelName = stateManager.getIntentModelName
+            ? await stateManager.getIntentModelName()
+            : undefined;
+        const apiKey = stateManager.getIntentApiKey
+            ? await stateManager.getIntentApiKey()
+            : undefined;
+
+        console.log(`[LLMManager] Using intent model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
+
+        // API 키가 설정된 경우 해당 API로 직접 호출
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * 특정 모델 타입과 API 키로 메시지를 전송합니다
+     * API 키가 제공되면 임시로 해당 키를 사용하고, 없으면 기존 설정 사용
+     */
+    private async sendMessageWithSpecificModelAndApiKey(
+        modelType: AiModelType,
+        modelName: string | undefined,
+        apiKey: string | undefined,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        // Gemini의 경우 API 키와 모델명 임시 변경
+        if (modelType === AiModelType.GEMINI && apiKey) {
+            const originalApiKey = this.geminiApi.getApiKey();
+            const originalModelName = this.geminiApi.getModelName();
+
+            try {
+                // 임시로 API 키와 모델명 변경
+                this.geminiApi.updateApiKey(apiKey);
+                if (modelName) {
+                    this.geminiApi.updateModelName(modelName);
+                }
+
+                const response = await this.sendMessageWithSpecificModel(
+                    modelType,
+                    modelName,
+                    systemPrompt,
+                    userParts,
+                    options
+                );
+
+                return response;
+            } finally {
+                // 원래 설정으로 복원
+                this.geminiApi.updateApiKey(originalApiKey);
+                this.geminiApi.updateModelName(originalModelName);
+            }
+        }
+
+        // Banya의 경우도 API 키 임시 변경
+        if (modelType === AiModelType.BANYA && apiKey) {
+            const originalApiKey = this.banyaApi.getApiKey();
+            const originalModelName = this.banyaApi.getModel?.() || '';
+
+            try {
+                // 임시로 API 키와 모델명 변경
+                this.banyaApi.setApiKey(apiKey);
+                if (modelName && this.banyaApi.setModel) {
+                    this.banyaApi.setModel(modelName);
+                }
+
+                const response = await this.sendMessageWithSpecificModel(
+                    modelType,
+                    modelName,
+                    systemPrompt,
+                    userParts,
+                    options
+                );
+
+                return response;
+            } finally {
+                // 원래 설정으로 복원
+                this.banyaApi.setApiKey(originalApiKey);
+                if (originalModelName && this.banyaApi.setModel) {
+                    this.banyaApi.setModel(originalModelName);
+                }
+            }
+        }
+
+        // 기본: 기존 설정으로 호출
+        return this.sendMessageWithSpecificModel(
+            modelType,
+            modelName,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * 특정 모델 타입과 API 키로 스트리밍 메시지를 전송합니다
+     * API 키가 제공되면 임시로 해당 키를 사용하고, 없으면 기존 설정 사용
+     */
+    private async sendMessageWithSpecificModelAndApiKeyStreaming(
+        modelType: AiModelType,
+        modelName: string | undefined,
+        apiKey: string | undefined,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        // Gemini의 경우 API 키와 모델명 임시 변경
+        if (modelType === AiModelType.GEMINI && apiKey) {
+            const originalApiKey = this.geminiApi.getApiKey();
+            const originalModelName = this.geminiApi.getModelName();
+
+            try {
+                // 임시로 API 키와 모델명 변경
+                this.geminiApi.updateApiKey(apiKey);
+                if (modelName) {
+                    this.geminiApi.updateModelName(modelName);
+                }
+
+                const parts: any[] = userParts.map(part => {
+                    if (part.inlineData) {
+                        return { inlineData: part.inlineData };
+                    }
+                    if (part.imageData && part.imageMimeType) {
+                        return {
+                            inlineData: {
+                                data: part.imageData,
+                                mimeType: part.imageMimeType
+                            }
+                        };
+                    }
+                    return { text: part.text || '' };
+                });
+
+                const response = await this.geminiApi.sendMessageWithSystemPromptStreaming(
+                    systemPrompt,
+                    parts,
+                    onChunk,
+                    { signal: options?.signal }
+                );
+
+                return response;
+            } finally {
+                // 원래 설정으로 복원
+                this.geminiApi.updateApiKey(originalApiKey);
+                this.geminiApi.updateModelName(originalModelName);
+            }
+        }
+
+        // Banya의 경우도 API 키 임시 변경
+        if (modelType === AiModelType.BANYA && apiKey) {
+            const originalApiKey = this.banyaApi.getApiKey();
+            const originalModelName = this.banyaApi.getModel?.() || '';
+
+            try {
+                // 임시로 API 키와 모델명 변경
+                this.banyaApi.setApiKey(apiKey);
+                if (modelName && this.banyaApi.setModel) {
+                    this.banyaApi.setModel(modelName);
+                }
+
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+
+                const response = await this.banyaApi.sendMessageWithSystemPromptStreaming(
+                    systemPrompt,
+                    parts,
+                    onChunk,
+                    { signal: options?.signal }
+                );
+
+                return response;
+            } finally {
+                // 원래 설정으로 복원
+                this.banyaApi.setApiKey(originalApiKey);
+                if (originalModelName && this.banyaApi.setModel) {
+                    this.banyaApi.setModel(originalModelName);
+                }
+            }
+        }
+
+        // Ollama의 경우 (기본)
+        if (modelType === AiModelType.OLLAMA) {
+            try {
+                await this.ollamaApi.loadSettingsFromStorage();
+            } catch { }
+
+            const parts = userParts.map(part => ({ text: part.text || '' }));
+
+            return this.ollamaApi.sendMessageWithSystemPromptStreaming(
+                systemPrompt,
+                parts,
+                onChunk,
+                { signal: options?.signal }
+            );
+        }
+
+        // 기본: 메인 모델 스트리밍
+        return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
     }
 
     /**

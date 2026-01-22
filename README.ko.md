@@ -6,6 +6,23 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v8.9.6 (명령어 실행 및 라우팅 모델 개선)
+- **중복 명령어 실행 수정**: npm install 등 명령어가 여러 번 실행되던 문제를 수정했습니다.
+  - `RunCommandToolHandler`에서 초기 실행이 완료되면 즉시 반환하도록 수정
+  - 타임아웃 후 재실행되던 로직 제거로 중복 실행 방지
+- **간단한 명령어 계획 불필요 처리**: 단순 실행 명령어에 대해 불필요한 계획 단계를 건너뛰도록 개선했습니다.
+  - Intent 프롬프트 업데이트: `npm install`, `npm run dev` 등 단순 명령어는 `requiresPlan: false`로 판별
+  - `isDirectExecutionTask` 로직 추가로 단순 실행 작업은 INVESTIGATION 단계 없이 바로 EXECUTION 단계로 진입
+- **설정 화면 라우팅 모델 로딩 수정**: 설정 화면에서 저장된 라우팅 모델 설정이 로드되지 않던 문제를 수정했습니다.
+  - settings.js의 JavaScript 에러(`projectRootPathDisplay is not defined`) 수정
+  - 설정 화면 재진입 시 Compactor/Command/Intent 모델 설정이 올바르게 표시됨
+- **메인 모델 사용 선택 시 설정 초기화**: 라우팅 모델을 "메인 모델 사용"으로 변경 시 저장된 설정이 삭제되도록 수정했습니다.
+  - `handleModelTypeChange`에서 `clearXxxModel` 메시지 전송
+  - `SettingsPanelProvider`에 `clearIntentModel` 케이스 추가
+- **Intent 실패 시 JSON 표시 방지**: Intent 감지 실패 시 JSON function_call이 채팅 패널에 표시되던 문제를 수정했습니다.
+  - 인사말이나 간단한 질문에 대해 전용 `greetingSystemPrompt` 사용
+  - JSON/function_call 형식이 아닌 자연스러운 한국어 응답 생성
+
 ## v8.9.5 (Git 슬래시 명령어 메뉴)
 - **Git 슬래시 명령어 추가**: '/' 메뉴에 Git 관련 명령어를 카테고리 기반으로 추가했습니다.
   - 카테고리 기반 메뉴: '@' 파일 참조 메뉴처럼 카테고리 → 하위 명령어 구조로 구현

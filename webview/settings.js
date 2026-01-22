@@ -1906,6 +1906,40 @@ window.addEventListener("message", (event) => {
 
       break;
     }
+    case "routingOllamaModels": {
+      // 라우팅 모델용 Ollama 모델 리스트 수신
+      console.log('[Settings] Received routingOllamaModels message:', message.models?.length || 0, '개');
+      if (Array.isArray(message.models)) {
+        // 캐시 업데이트 (window scope에서 접근 가능하도록)
+        window.routingOllamaModelsCache = message.models;
+
+        // 현재 ollama가 선택된 모든 라우팅 모델 셀렉트 업데이트
+        const prefixes = ["compactor", "command", "intent"];
+        prefixes.forEach(prefix => {
+          const typeSelect = document.getElementById(`${prefix}-model-type-select`);
+          const submodelSelect = document.getElementById(`${prefix}-submodel-select`);
+          if (typeSelect && typeSelect.value === "ollama" && submodelSelect) {
+            // 현재 선택된 값 저장
+            const currentValue = submodelSelect.value;
+
+            // 옵션 업데이트
+            submodelSelect.innerHTML = "";
+            message.models.forEach(name => {
+              const option = document.createElement("option");
+              option.value = name;
+              option.textContent = name;
+              submodelSelect.appendChild(option);
+            });
+
+            // 이전 선택값 복원 (있으면)
+            if (currentValue && message.models.includes(currentValue)) {
+              submodelSelect.value = currentValue;
+            }
+          }
+        });
+      }
+      break;
+    }
     case "currentSettings":
       // console.log('[Settings] Received currentSettings message:', message);
 
@@ -2074,15 +2108,13 @@ window.addEventListener("message", (event) => {
           testRetryStatus.textContent = statusText;
         }
       }
-      if (typeof message.projectRoot === "string") {
-        updateProjectRootDisplay(message.projectRoot);
-        const projectRootLoadedText =
-          languageData["projectRootLoaded"] || "프로젝트 Root 로드 완료.";
-        showStatus(projectRootStatus, projectRootLoadedText, "success");
-      } else {
-        // 프로젝트 Root가 설정되지 않은 경우에도 업데이트
-        updateProjectRootDisplay(null);
-      }
+      // projectRoot 표시 기능은 현재 사용하지 않음 (HTML 요소 없음)
+      // if (typeof message.projectRoot === "string") {
+      //   updateProjectRootDisplay(message.projectRoot);
+      //   const projectRootLoadedText =
+      //     languageData["projectRootLoaded"] || "프로젝트 Root 로드 완료.";
+      //   showStatus(projectRootStatus, projectRootLoadedText, "success");
+      // }
 
       // ===== AI 모델 설정 적용 =====
       if (aiModelSelect && typeof message.aiModel === "string") {
@@ -2263,8 +2295,374 @@ window.addEventListener("message", (event) => {
         }
       }
 
+      // 모델 라우팅 설정 적용
+      console.log('[Settings] Received routing model settings:', {
+        compactorModelType: message.compactorModelType,
+        compactorModelName: message.compactorModelName,
+        commandModelType: message.commandModelType,
+        commandModelName: message.commandModelName,
+        intentModelType: message.intentModelType,
+        intentModelName: message.intentModelName,
+      });
+      {
+        const compactorTypeSelect = document.getElementById("compactor-model-type-select");
+        const compactorSubmodelContainer = document.getElementById("compactor-submodel-container");
+        const compactorApikeyContainer = document.getElementById("compactor-apikey-container");
+        const compactorSubmodelSelect = document.getElementById("compactor-submodel-select");
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+
+        console.log('[Settings] compactorTypeSelect element:', compactorTypeSelect);
+        console.log('[Settings] compactorTypeSelect options:', compactorTypeSelect ? Array.from(compactorTypeSelect.options).map(o => o.value) : 'N/A');
+        if (compactorTypeSelect) {
+          compactorTypeSelect.value = message.compactorModelType || "";
+          console.log('[Settings] compactorTypeSelect.value after set:', compactorTypeSelect.value);
+        }
+
+        // 하위 UI 표시 및 값 설정
+        if (message.compactorModelType) {
+          // 타입 선택 시 하위 모델 표시
+          if (compactorSubmodelContainer) compactorSubmodelContainer.style.display = "block";
+          if (compactorApikeyContainer) {
+            compactorApikeyContainer.style.display = (message.compactorModelType === "gemini" || message.compactorModelType === "banya") ? "block" : "none";
+          }
+          // 하위 모델 셀렉트 채우기 (ollama는 동적으로 가져옴)
+          if (compactorSubmodelSelect && message.compactorModelType) {
+            const submodelOptionsForLoad = {
+              gemini: [
+                { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview (권장)" },
+                { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" }
+              ],
+              banya: [
+                { value: "Banya Solar:100b", label: "Banya Solar:100b" },
+                { value: "Banya Qwen-Coder:32b", label: "Banya Qwen-Coder:32b" }
+              ],
+              ollama: (window.routingOllamaModelsCache || []).map(name => ({ value: name, label: name }))
+            };
+            compactorSubmodelSelect.innerHTML = "";
+            let options = submodelOptionsForLoad[message.compactorModelType] || [];
+
+            // ollama인데 캐시가 비어있으면 모델 리스트 요청
+            if (message.compactorModelType === "ollama" && options.length === 0) {
+              vscode.postMessage({ command: "getRoutingOllamaModels" });
+              // 저장된 모델명이 있으면 일단 추가
+              if (message.compactorModelName) {
+                const customOption = document.createElement("option");
+                customOption.value = message.compactorModelName;
+                customOption.textContent = message.compactorModelName;
+                compactorSubmodelSelect.appendChild(customOption);
+                compactorSubmodelSelect.value = message.compactorModelName;
+              } else {
+                const loadingOption = document.createElement("option");
+                loadingOption.value = "";
+                loadingOption.textContent = "모델 로딩 중...";
+                compactorSubmodelSelect.appendChild(loadingOption);
+              }
+            } else {
+              options.forEach(opt => {
+                const option = document.createElement("option");
+                option.value = opt.value;
+                option.textContent = opt.label;
+                compactorSubmodelSelect.appendChild(option);
+              });
+              // 저장된 모델명 선택 (목록에 없으면 추가)
+              if (message.compactorModelName) {
+                const exists = options.some(opt => opt.value === message.compactorModelName);
+                if (!exists) {
+                  const customOption = document.createElement("option");
+                  customOption.value = message.compactorModelName;
+                  customOption.textContent = message.compactorModelName + " (저장됨)";
+                  compactorSubmodelSelect.appendChild(customOption);
+                }
+                compactorSubmodelSelect.value = message.compactorModelName;
+              }
+            }
+          }
+        } else {
+          if (compactorSubmodelContainer) compactorSubmodelContainer.style.display = "none";
+          if (compactorApikeyContainer) compactorApikeyContainer.style.display = "none";
+        }
+
+        if (compactorModelStatus) {
+          if (message.compactorModelType) {
+            const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[message.compactorModelType] || message.compactorModelType;
+            const modelInfo = message.compactorModelName ? ` (${message.compactorModelName})` : "";
+            const apiKeyInfo = message.compactorApiKeySet ? " | API 키 설정됨" : "";
+            compactorModelStatus.textContent = `현재: ${typeLabel}${modelInfo}${apiKeyInfo}`;
+            compactorModelStatus.className = "info-message success-message";
+          } else {
+            compactorModelStatus.textContent = "현재: 메인 모델 사용";
+            compactorModelStatus.className = "info-message";
+          }
+        }
+      }
+      {
+        const commandTypeSelect = document.getElementById("command-model-type-select");
+        const commandSubmodelContainer = document.getElementById("command-submodel-container");
+        const commandApikeyContainer = document.getElementById("command-apikey-container");
+        const commandSubmodelSelect = document.getElementById("command-submodel-select");
+        const commandModelStatus = document.getElementById("command-model-status");
+
+        if (commandTypeSelect) commandTypeSelect.value = message.commandModelType || "";
+
+        // 하위 UI 표시 및 값 설정
+        if (message.commandModelType) {
+          if (commandSubmodelContainer) commandSubmodelContainer.style.display = "block";
+          if (commandApikeyContainer) {
+            commandApikeyContainer.style.display = (message.commandModelType === "gemini" || message.commandModelType === "banya") ? "block" : "none";
+          }
+          // 하위 모델 셀렉트 채우기 (ollama는 동적으로 가져옴)
+          if (commandSubmodelSelect && message.commandModelType) {
+            const submodelOptionsForLoad = {
+              gemini: [
+                { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview (권장)" },
+                { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" }
+              ],
+              banya: [
+                { value: "Banya Solar:100b", label: "Banya Solar:100b" },
+                { value: "Banya Qwen-Coder:32b", label: "Banya Qwen-Coder:32b" }
+              ],
+              ollama: (window.routingOllamaModelsCache || []).map(name => ({ value: name, label: name }))
+            };
+            commandSubmodelSelect.innerHTML = "";
+            let options = submodelOptionsForLoad[message.commandModelType] || [];
+
+            // ollama인데 캐시가 비어있으면 모델 리스트 요청
+            if (message.commandModelType === "ollama" && options.length === 0) {
+              vscode.postMessage({ command: "getRoutingOllamaModels" });
+              // 저장된 모델명이 있으면 일단 추가
+              if (message.commandModelName) {
+                const customOption = document.createElement("option");
+                customOption.value = message.commandModelName;
+                customOption.textContent = message.commandModelName;
+                commandSubmodelSelect.appendChild(customOption);
+                commandSubmodelSelect.value = message.commandModelName;
+              } else {
+                const loadingOption = document.createElement("option");
+                loadingOption.value = "";
+                loadingOption.textContent = "모델 로딩 중...";
+                commandSubmodelSelect.appendChild(loadingOption);
+              }
+            } else {
+              options.forEach(opt => {
+                const option = document.createElement("option");
+                option.value = opt.value;
+                option.textContent = opt.label;
+                commandSubmodelSelect.appendChild(option);
+              });
+              // 저장된 모델명 선택 (목록에 없으면 추가)
+              if (message.commandModelName) {
+                const exists = options.some(opt => opt.value === message.commandModelName);
+                if (!exists) {
+                  const customOption = document.createElement("option");
+                  customOption.value = message.commandModelName;
+                  customOption.textContent = message.commandModelName + " (저장됨)";
+                  commandSubmodelSelect.appendChild(customOption);
+                }
+                commandSubmodelSelect.value = message.commandModelName;
+              }
+            }
+          }
+        } else {
+          if (commandSubmodelContainer) commandSubmodelContainer.style.display = "none";
+          if (commandApikeyContainer) commandApikeyContainer.style.display = "none";
+        }
+
+        if (commandModelStatus) {
+          if (message.commandModelType) {
+            const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[message.commandModelType] || message.commandModelType;
+            const modelInfo = message.commandModelName ? ` (${message.commandModelName})` : "";
+            const apiKeyInfo = message.commandApiKeySet ? " | API 키 설정됨" : "";
+            commandModelStatus.textContent = `현재: ${typeLabel}${modelInfo}${apiKeyInfo}`;
+            commandModelStatus.className = "info-message success-message";
+          } else {
+            commandModelStatus.textContent = "현재: 메인 모델 사용";
+            commandModelStatus.className = "info-message";
+          }
+        }
+      }
+      // Intent 모델 설정 적용
+      {
+        const intentTypeSelect = document.getElementById("intent-model-type-select");
+        const intentSubmodelContainer = document.getElementById("intent-submodel-container");
+        const intentApikeyContainer = document.getElementById("intent-apikey-container");
+        const intentSubmodelSelect = document.getElementById("intent-submodel-select");
+        const intentModelStatus = document.getElementById("intent-model-status");
+
+        if (intentTypeSelect) intentTypeSelect.value = message.intentModelType || "";
+
+        // 하위 UI 표시 및 값 설정
+        if (message.intentModelType) {
+          if (intentSubmodelContainer) intentSubmodelContainer.style.display = "block";
+          if (intentApikeyContainer) {
+            intentApikeyContainer.style.display = (message.intentModelType === "gemini" || message.intentModelType === "banya") ? "block" : "none";
+          }
+          // 하위 모델 셀렉트 채우기 (ollama는 동적으로 가져옴)
+          if (intentSubmodelSelect && message.intentModelType) {
+            const submodelOptionsForLoad = {
+              gemini: [
+                { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview (권장)" },
+                { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" }
+              ],
+              banya: [
+                { value: "Banya Solar:100b", label: "Banya Solar:100b" },
+                { value: "Banya Qwen-Coder:32b", label: "Banya Qwen-Coder:32b" }
+              ],
+              ollama: (window.routingOllamaModelsCache || []).map(name => ({ value: name, label: name }))
+            };
+            intentSubmodelSelect.innerHTML = "";
+            let options = submodelOptionsForLoad[message.intentModelType] || [];
+
+            // ollama인데 캐시가 비어있으면 모델 리스트 요청
+            if (message.intentModelType === "ollama" && options.length === 0) {
+              vscode.postMessage({ command: "getRoutingOllamaModels" });
+              // 저장된 모델명이 있으면 일단 추가
+              if (message.intentModelName) {
+                const customOption = document.createElement("option");
+                customOption.value = message.intentModelName;
+                customOption.textContent = message.intentModelName;
+                intentSubmodelSelect.appendChild(customOption);
+                intentSubmodelSelect.value = message.intentModelName;
+              } else {
+                const loadingOption = document.createElement("option");
+                loadingOption.value = "";
+                loadingOption.textContent = "모델 로딩 중...";
+                intentSubmodelSelect.appendChild(loadingOption);
+              }
+            } else {
+              options.forEach(opt => {
+                const option = document.createElement("option");
+                option.value = opt.value;
+                option.textContent = opt.label;
+                intentSubmodelSelect.appendChild(option);
+              });
+              // 저장된 모델명 선택 (목록에 없으면 추가)
+              if (message.intentModelName) {
+                const exists = options.some(opt => opt.value === message.intentModelName);
+                if (!exists) {
+                  const customOption = document.createElement("option");
+                  customOption.value = message.intentModelName;
+                  customOption.textContent = message.intentModelName + " (저장됨)";
+                  intentSubmodelSelect.appendChild(customOption);
+                }
+                intentSubmodelSelect.value = message.intentModelName;
+              }
+            }
+          }
+        } else {
+          if (intentSubmodelContainer) intentSubmodelContainer.style.display = "none";
+          if (intentApikeyContainer) intentApikeyContainer.style.display = "none";
+        }
+
+        if (intentModelStatus) {
+          if (message.intentModelType) {
+            const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[message.intentModelType] || message.intentModelType;
+            const modelInfo = message.intentModelName ? ` (${message.intentModelName})` : "";
+            const apiKeyInfo = message.intentApiKeySet ? " | API 키 설정됨" : "";
+            intentModelStatus.textContent = `현재: ${typeLabel}${modelInfo}${apiKeyInfo}`;
+            intentModelStatus.className = "info-message success-message";
+          } else {
+            intentModelStatus.textContent = "현재: 메인 모델 사용";
+            intentModelStatus.className = "info-message";
+          }
+        }
+      }
+
       // 설정 로드 완료 - 자동 저장 다시 활성화
       isLoadingSettings = false;
+      break;
+    case "compactorModelSaved":
+      {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = "Compactor 모델이 저장되었습니다.";
+          compactorModelStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "compactorModelSaveError":
+      {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = `Compactor 모델 저장 오류: ${message.error}`;
+          compactorModelStatus.className = "info-message error-message";
+        }
+      }
+      break;
+    case "compactorModelCleared":
+      {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        const compactorTypeSelect = document.getElementById("compactor-model-type-select");
+        if (compactorTypeSelect) compactorTypeSelect.value = "";
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = "Compactor 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          compactorModelStatus.className = "info-message";
+        }
+      }
+      break;
+    case "commandModelSaved":
+      {
+        const commandModelStatus = document.getElementById("command-model-status");
+        if (commandModelStatus) {
+          commandModelStatus.textContent = "Command 모델이 저장되었습니다.";
+          commandModelStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "commandModelSaveError":
+      {
+        const commandModelStatus = document.getElementById("command-model-status");
+        if (commandModelStatus) {
+          commandModelStatus.textContent = `Command 모델 저장 오류: ${message.error}`;
+          commandModelStatus.className = "info-message error-message";
+        }
+      }
+      break;
+    case "commandModelCleared":
+      {
+        const commandModelStatus = document.getElementById("command-model-status");
+        const commandTypeSelect = document.getElementById("command-model-type-select");
+        if (commandTypeSelect) commandTypeSelect.value = "";
+        if (commandModelStatus) {
+          commandModelStatus.textContent = "Command 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          commandModelStatus.className = "info-message";
+        }
+      }
+      break;
+    case "compactorApiKeySaved":
+      {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = "Compactor API 키가 저장되었습니다.";
+          compactorModelStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "compactorApiKeySaveError":
+      {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = `Compactor API 키 저장 오류: ${message.error}`;
+          compactorModelStatus.className = "info-message error-message";
+        }
+      }
+      break;
+    case "commandApiKeySaved":
+      {
+        const commandModelStatus = document.getElementById("command-model-status");
+        if (commandModelStatus) {
+          commandModelStatus.textContent = "Command API 키가 저장되었습니다.";
+          commandModelStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "commandApiKeySaveError":
+      {
+        const commandModelStatus = document.getElementById("command-model-status");
+        if (commandModelStatus) {
+          commandModelStatus.textContent = `Command API 키 저장 오류: ${message.error}`;
+          commandModelStatus.className = "info-message error-message";
+        }
+      }
       break;
     case "aiModelSaved":
       if (aiModelStatus) {
@@ -2990,11 +3388,11 @@ window.addEventListener("message", (event) => {
           applyLanguage();
         }, 1000);
 
-        // 디버깅: 프로젝트 Root 표시 업데이트 확인
-        if (projectRootPathDisplay) {
-          // console.log('Project root display current text:', projectRootPathDisplay.textContent);
-          // console.log('No project root set translation:', languageData['noProjectRootSet']);
-        }
+        // 디버깅: 프로젝트 Root 표시 업데이트 확인 (현재 사용하지 않음)
+        // if (projectRootPathDisplay) {
+        //   console.log('Project root display current text:', projectRootPathDisplay.textContent);
+        //   console.log('No project root set translation:', languageData['noProjectRootSet']);
+        // }
 
         // 언어 변경 후 즉시 모든 상태 메시지 업데이트
         if (sourcePathStatus && sourcePathStatus.textContent) {
@@ -3171,6 +3569,294 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // AgentPolicy XML 파일 로드
   loadAgentPolicyFiles();
+
+  // ===== 모델 라우팅 설정 버튼 이벤트 리스너 =====
+
+  // 하위 모델 옵션 정의 (gemini, banya는 고정, ollama는 동적으로 가져옴)
+  const submodelOptions = {
+    gemini: [
+      { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview (권장)" },
+      { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" }
+    ],
+    banya: [
+      { value: "Banya Solar:100b", label: "Banya Solar:100b" },
+      { value: "Banya Qwen-Coder:32b", label: "Banya Qwen-Coder:32b" }
+    ],
+    ollama: [] // 동적으로 채워짐
+  };
+
+  // 라우팅 모델용 Ollama 모델 리스트 캐시 (window scope 사용)
+  window.routingOllamaModelsCache = window.routingOllamaModelsCache || [];
+
+  // 라우팅 모델용 Ollama 모델 리스트 요청
+  function loadRoutingOllamaModels() {
+    console.log('[Settings] Requesting routing Ollama models');
+    vscode.postMessage({ command: "getRoutingOllamaModels" });
+  }
+
+  // 하위 모델 셀렉트 업데이트 함수
+  function updateSubmodelSelect(submodelSelect, modelType) {
+    submodelSelect.innerHTML = "";
+    const options = submodelOptions[modelType] || [];
+
+    if (modelType === "ollama" && options.length === 0) {
+      // Ollama 모델 리스트가 비어있으면 로딩 표시
+      const loadingOption = document.createElement("option");
+      loadingOption.value = "";
+      loadingOption.textContent = "모델 로딩 중...";
+      submodelSelect.appendChild(loadingOption);
+    } else {
+      options.forEach(opt => {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label;
+        submodelSelect.appendChild(option);
+      });
+    }
+  }
+
+  // 모델 타입 변경 시 하위 UI 표시/숨김 함수
+  function handleModelTypeChange(prefix, modelType) {
+    const submodelContainer = document.getElementById(`${prefix}-submodel-container`);
+    const apikeyContainer = document.getElementById(`${prefix}-apikey-container`);
+    const submodelSelect = document.getElementById(`${prefix}-submodel-select`);
+    const modelStatus = document.getElementById(`${prefix}-model-status`);
+
+    if (!modelType) {
+      // 메인 모델 사용 선택 시 저장된 설정 삭제 및 UI 숨김
+      if (submodelContainer) submodelContainer.style.display = "none";
+      if (apikeyContainer) apikeyContainer.style.display = "none";
+
+      // 저장된 라우팅 모델 설정 삭제
+      const commandMap = {
+        compactor: "clearCompactorModel",
+        command: "clearCommandModel",
+        intent: "clearIntentModel"
+      };
+      const deleteCommand = commandMap[prefix];
+      if (deleteCommand) {
+        console.log(`[Settings] Deleting ${prefix} model settings (switching to main model)`);
+        vscode.postMessage({ command: deleteCommand });
+        if (modelStatus) {
+          modelStatus.textContent = "메인 모델 사용으로 변경되었습니다.";
+          modelStatus.className = "info-message success-message";
+        }
+      }
+      return;
+    }
+
+    // ollama 선택 시 동적으로 모델 리스트 가져오기
+    if (modelType === "ollama") {
+      if (window.routingOllamaModelsCache && window.routingOllamaModelsCache.length > 0) {
+        // 캐시된 리스트가 있으면 사용
+        submodelOptions.ollama = window.routingOllamaModelsCache.map(name => ({ value: name, label: name }));
+      } else {
+        // 캐시가 없으면 서버에서 가져오기
+        loadRoutingOllamaModels();
+      }
+    }
+
+    // 하위 모델 셀렉트 업데이트 및 표시
+    if (submodelSelect) {
+      updateSubmodelSelect(submodelSelect, modelType);
+    }
+    if (submodelContainer) submodelContainer.style.display = "block";
+
+    // API 키 입력은 gemini, banya만 표시 (ollama는 로컬이므로 필요 없음)
+    if (apikeyContainer) {
+      apikeyContainer.style.display = (modelType === "gemini" || modelType === "banya") ? "block" : "none";
+    }
+  }
+
+  // Compactor 모델 타입 선택 변경 이벤트
+  const compactorTypeSelect = document.getElementById("compactor-model-type-select");
+  if (compactorTypeSelect) {
+    compactorTypeSelect.addEventListener("change", (e) => {
+      handleModelTypeChange("compactor", e.target.value);
+    });
+  }
+
+  // Command 모델 타입 선택 변경 이벤트
+  const commandTypeSelect = document.getElementById("command-model-type-select");
+  if (commandTypeSelect) {
+    commandTypeSelect.addEventListener("change", (e) => {
+      handleModelTypeChange("command", e.target.value);
+    });
+  }
+
+  // Compactor 모델 저장 버튼
+  const saveCompactorModelButton = document.getElementById("save-compactor-model-button");
+  if (saveCompactorModelButton) {
+    saveCompactorModelButton.addEventListener("click", () => {
+      const compactorTypeSelect = document.getElementById("compactor-model-type-select");
+      const compactorSubmodelSelect = document.getElementById("compactor-submodel-select");
+      const modelType = compactorTypeSelect ? compactorTypeSelect.value : "";
+      const modelName = compactorSubmodelSelect ? compactorSubmodelSelect.value : "";
+
+      if (!modelType) {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = "모델 타입을 선택해주세요.";
+          compactorModelStatus.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({
+        command: "saveCompactorModel",
+        modelType: modelType,
+        modelName: modelName
+      });
+    });
+  }
+
+  // Compactor API 키 저장 버튼
+  const saveCompactorApiKeyButton = document.getElementById("save-compactor-api-key-button");
+  if (saveCompactorApiKeyButton) {
+    saveCompactorApiKeyButton.addEventListener("click", () => {
+      const compactorTypeSelect = document.getElementById("compactor-model-type-select");
+      const compactorApiKeyInput = document.getElementById("compactor-api-key-input");
+      const modelType = compactorTypeSelect ? compactorTypeSelect.value : "";
+      const apiKey = compactorApiKeyInput ? compactorApiKeyInput.value : "";
+
+      if (!apiKey) {
+        const compactorModelStatus = document.getElementById("compactor-model-status");
+        if (compactorModelStatus) {
+          compactorModelStatus.textContent = "API 키를 입력해주세요.";
+          compactorModelStatus.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({
+        command: "saveCompactorApiKey",
+        modelType: modelType,
+        apiKey: apiKey
+      });
+
+      // 입력 필드 초기화
+      if (compactorApiKeyInput) compactorApiKeyInput.value = "";
+    });
+  }
+
+  // Command 모델 저장 버튼
+  const saveCommandModelButton = document.getElementById("save-command-model-button");
+  if (saveCommandModelButton) {
+    saveCommandModelButton.addEventListener("click", () => {
+      const commandTypeSelect = document.getElementById("command-model-type-select");
+      const commandSubmodelSelect = document.getElementById("command-submodel-select");
+      const modelType = commandTypeSelect ? commandTypeSelect.value : "";
+      const modelName = commandSubmodelSelect ? commandSubmodelSelect.value : "";
+
+      if (!modelType) {
+        const commandModelStatus = document.getElementById("command-model-status");
+        if (commandModelStatus) {
+          commandModelStatus.textContent = "모델 타입을 선택해주세요.";
+          commandModelStatus.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({
+        command: "saveCommandModel",
+        modelType: modelType,
+        modelName: modelName
+      });
+    });
+  }
+
+  // Command API 키 저장 버튼
+  const saveCommandApiKeyButton = document.getElementById("save-command-api-key-button");
+  if (saveCommandApiKeyButton) {
+    saveCommandApiKeyButton.addEventListener("click", () => {
+      const commandTypeSelect = document.getElementById("command-model-type-select");
+      const commandApiKeyInput = document.getElementById("command-api-key-input");
+      const modelType = commandTypeSelect ? commandTypeSelect.value : "";
+      const apiKey = commandApiKeyInput ? commandApiKeyInput.value : "";
+
+      if (!apiKey) {
+        const commandModelStatus = document.getElementById("command-model-status");
+        if (commandModelStatus) {
+          commandModelStatus.textContent = "API 키를 입력해주세요.";
+          commandModelStatus.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({
+        command: "saveCommandApiKey",
+        modelType: modelType,
+        apiKey: apiKey
+      });
+
+      // 입력 필드 초기화
+      if (commandApiKeyInput) commandApiKeyInput.value = "";
+    });
+  }
+
+  // Intent 모델 타입 선택 변경 이벤트
+  const intentTypeSelect = document.getElementById("intent-model-type-select");
+  if (intentTypeSelect) {
+    intentTypeSelect.addEventListener("change", (e) => {
+      handleModelTypeChange("intent", e.target.value);
+    });
+  }
+
+  // Intent 모델 저장 버튼
+  const saveIntentModelButton = document.getElementById("save-intent-model-button");
+  if (saveIntentModelButton) {
+    saveIntentModelButton.addEventListener("click", () => {
+      const intentTypeSelect = document.getElementById("intent-model-type-select");
+      const intentSubmodelSelect = document.getElementById("intent-submodel-select");
+      const modelType = intentTypeSelect ? intentTypeSelect.value : "";
+      const modelName = intentSubmodelSelect ? intentSubmodelSelect.value : "";
+
+      if (!modelType) {
+        const intentModelStatus = document.getElementById("intent-model-status");
+        if (intentModelStatus) {
+          intentModelStatus.textContent = "모델 타입을 선택해주세요.";
+          intentModelStatus.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({
+        command: "saveIntentModel",
+        modelType: modelType,
+        modelName: modelName
+      });
+    });
+  }
+
+  // Intent API 키 저장 버튼
+  const saveIntentApiKeyButton = document.getElementById("save-intent-api-key-button");
+  if (saveIntentApiKeyButton) {
+    saveIntentApiKeyButton.addEventListener("click", () => {
+      const intentTypeSelect = document.getElementById("intent-model-type-select");
+      const intentApiKeyInput = document.getElementById("intent-api-key-input");
+      const modelType = intentTypeSelect ? intentTypeSelect.value : "";
+      const apiKey = intentApiKeyInput ? intentApiKeyInput.value : "";
+
+      if (!apiKey) {
+        const intentModelStatus = document.getElementById("intent-model-status");
+        if (intentModelStatus) {
+          intentModelStatus.textContent = "API 키를 입력해주세요.";
+          intentModelStatus.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({
+        command: "saveIntentApiKey",
+        modelType: modelType,
+        apiKey: apiKey
+      });
+
+      // 입력 필드 초기화
+      if (intentApiKeyInput) intentApiKeyInput.value = "";
+    });
+  }
+
 });
 
 // ===== AgentPolicy 관련 함수들 =====
