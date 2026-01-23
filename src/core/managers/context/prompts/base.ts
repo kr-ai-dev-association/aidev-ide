@@ -75,7 +75,9 @@ export function getPlanFormatRules(): string {
 export function getMultiFileReadRules(): string {
   return `**다중 파일 읽기 (중요):**
 - 필요한 파일이 여러 개라면 반드시 한 번의 응답에 모든 read_file을 호출하세요
-- 예: \`{ "function_calls": [{ "name": "read_file", "args": { "path": "design.md" } }, { "name": "read_file", "args": { "path": "src/App.tsx" } }] }\`
+- 예:
+  { "tool": "read_file", "path": "design.md" }
+  { "tool": "read_file", "path": "src/App.tsx" }
 - 파일을 하나씩 읽는 것은 비효율적입니다
 - 여러 파일을 동시에 읽는 것은 안전합니다`;
 }
@@ -107,23 +109,24 @@ export function getNoThinkingLeakageRules(): string {
 - ❌ 내부 사고 과정을 설명하는 모든 텍스트
 
 **올바른 응답:**
-- ✅ JSON function_call 형식으로 도구 호출
+- ✅ { "tool": "..." } 형식으로 도구 호출
+- ✅ 파일 내용은 <<<<<<<CODE ... >>>>>>>END 블록 사용
 - ✅ 최종 결과나 요약만 한국어로 간결하게 출력
 - ✅ 사고 과정은 thinking 필드에만 포함 (시스템이 자동 처리)
-- ✅ 규칙을 논의하거나 해석하지 말고, 규칙을 따르기만 하세요
 
 **예시:**
 ❌ 잘못된 응답:
 "I think we need to create a new file. Let me check the structure first..."
 
 ✅ 올바른 응답:
-\`\`\`json
-{
-  "function_calls": [
-    { "name": "read_file", "args": { "path": "src/App.tsx" } },
-    { "name": "create_file", "args": { "path": "src/components/Button.tsx", "content": "// Button component" } }
-  ]
-}
+\`\`\`
+{ "tool": "read_file", "path": "src/App.tsx" }
+
+{ "tool": "create_file", "path": "src/components/Button.tsx" }
+<<<<<<<CODE
+// Button component
+export const Button = () => <button>Click</button>;
+>>>>>>>END
 \`\`\`
 
 **⚠️ 중요:** 모든 thinking, reasoning, explanation은 시스템의 thinking 필드에만 있어야 하며, 최종 response에는 절대 포함되지 않아야 합니다.`;
@@ -148,7 +151,7 @@ export function getBaseRules(): string {
 
 3. **행동 우선**:
    - "해야 한다", "조사하겠다" 같은 설명만 하지 말 것
-   - 즉시 JSON function_call 형식으로 도구 호출
+   - 즉시 { "tool": "..." } 형식으로 도구 호출
    - 규칙 충돌로 멈추지 마세요. 의심스러우면 파일을 읽고 실행하세요.
 
 4. **실행 중심**:
@@ -168,13 +171,13 @@ export function getBaseRules(): string {
 
 **예시 (SQL 파일 생성):**
 ✅ 올바른 흐름:
-\`\`\`json
-{
-  "function_calls": [
-    { "name": "read_file", "args": { "path": "backend/src/index.ts" } },
-    { "name": "create_file", "args": { "path": "backend/schema.sql", "content": "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));" } }
-  ]
-}
+\`\`\`
+{ "tool": "read_file", "path": "backend/src/index.ts" }
+
+{ "tool": "create_file", "path": "backend/schema.sql" }
+<<<<<<<CODE
+CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));
+>>>>>>>END
 \`\`\`
 
 ❌ 잘못된 흐름:
@@ -184,11 +187,16 @@ export function getBaseRules(): string {
 
 // ==================== File Operations ====================
 export function getFileOperationsRules(): string {
-  return `파일 작업 형식 (JSON Function Calling):
+  return `파일 작업 형식:
 
-**JSON function_call 형식 사용**
-- TOOLS 섹션에 정의된 JSON 형식으로만 파일 작업을 지시하세요.
-- 예시: \`{ "function_call": { "name": "create_file", "args": { "path": "src/App.tsx", "content": "..." } } }\`
+**{ "tool": "..." } 형식 사용**
+- 파일 생성/수정 시 <<<<<<<CODE ... >>>>>>>END 블록으로 내용 지정
+- 예시:
+  { "tool": "create_file", "path": "src/App.tsx" }
+  <<<<<<<CODE
+  import React from 'react';
+  export default function App() { return <div>Hello</div>; }
+  >>>>>>>END
 
 **프레임워크 인식 규칙 (중요)**
 - 작업 전 프로젝트 설정 파일을 먼저 확인하세요:
@@ -214,9 +222,9 @@ export function getFileOperationsRules(): string {
 export function getCodeVsScriptRules(): string {
   return `**코드 작성 vs 쉘 스크립트 작업 구별:**
 - **code_work**: 소스 코드 파일만 생성/수정. 쉘 스크립트나 터미널 명령 블록 생성 금지.
-  - 프로젝트 생성 시: JSON function_call로 파일만 생성 (package.json, pom.xml, 소스 코드 등)
+  - 프로젝트 생성 시: { "tool": "create_file" } + <<<<<<<CODE 블록으로 파일 생성
   - 쉘 명령(\`\`\`bash, cat <<EOF, mkdir, brew install 등) 절대 사용 금지
-- **execution_work**: 터미널 명령 실행만. 반드시 run_command 도구 사용 (마크다운 코드 블록 금지)
+- **execution_work**: 터미널 명령 실행만. 반드시 { "tool": "run_command" } 사용 (마크다운 코드 블록 금지)
 - **taskType 확인 필수**: 사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.`;
 }
 
@@ -268,8 +276,7 @@ export function getTerminalCommandRules(shellType?: string): string {
   const shellInfo = shellType ? `- 명령어는 **${shellType}** 문법으로 작성하세요.\n` : '';
 
   return `**터미널 명령 실행 규칙:**
-${shellInfo}- 반드시 run_command 도구 사용 (마크다운 코드 블록 금지)
-- 직접 JSON function_call 형식으로 도구 호출 (실행 계획 형식 응답 금지)
+${shellInfo}- 반드시 { "tool": "run_command" } 형식 사용 (마크다운 코드 블록 금지)
 - 명령 내 주석(#, //)이나 플레이스홀더 경로 절대 금지
 - 최대 4개 이하 명령만 반환
 - 버전 확인은 1회만
@@ -287,18 +294,13 @@ export function getCommandExecutionGuide(): string {
 }
 
 export function buildShellSpecificPrompt(shellType: string): string {
-  return `**⚠️ 중요: execution_work에서는 JSON function_call을 사용하세요!**
+  return `**⚠️ 중요: execution_work에서는 { "tool": "..." } 형식을 사용하세요!**
 - 명령어는 **${shellType}** 문법으로 작성하세요.
-- **반드시 run_command 도구를 JSON 형식으로 호출하세요.**
+- **반드시 run_command 도구를 호출하세요.**
 - **마크다운 코드 블록(\\\`\\\`\\\`bash 등)은 사용하지 마세요.**
 
 **올바른 형식:**
-\`\`\`json
-{
-  "function_call": {
-    "name": "run_command",
-    "args": { "command": "${shellType} 명령어" }
-  }
-}
+\`\`\`
+{ "tool": "run_command", "command": "${shellType} 명령어" }
 \`\`\``;
 }

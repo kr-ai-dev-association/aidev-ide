@@ -50,17 +50,25 @@ export class ToolExecutor {
     
     /**
      * 여러 툴 순차 실행
+     * @param onToolComplete 각 도구 실행 완료 시 호출되는 콜백 (실시간 UI 업데이트용)
      */
     async executeTools(
         toolUses: ToolUse[],
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        onToolComplete?: (toolUse: ToolUse, result: ToolResponse, index: number) => void
     ): Promise<ToolResponse[]> {
         const results: ToolResponse[] = [];
-        
-        for (const toolUse of toolUses) {
+
+        for (let i = 0; i < toolUses.length; i++) {
+            const toolUse = toolUses[i];
             const result = await this.executeTool(toolUse, context);
             results.push(result);
-            
+
+            // 🔥 도구 실행 완료 시 콜백 호출 (실시간 UI 업데이트)
+            if (onToolComplete) {
+                onToolComplete(toolUse, result, i);
+            }
+
             // 실패 시 중단 여부 결정 (필요에 따라)
             if (!result.success && toolUse.name === Tool.RUN_COMMAND) {
                 // 명령어 실패 시 중단
@@ -68,7 +76,7 @@ export class ToolExecutor {
                 break;
             }
         }
-        
+
         return results;
     }
 }

@@ -34,14 +34,11 @@ export class WebviewBridge {
      */
     public static receiveMessage(webview: vscode.Webview | undefined, sender: string, text: string): void {
         if (webview) {
-            console.log(`[WebviewBridge] receiveMessage: sender="${sender}", textLength=${text?.length || 0}, hasCodeBlock=${text?.includes('\`\`\`') || false}`);
             safePostMessage(webview, {
                 command: 'receiveMessage',
                 sender,
                 text
             });
-        } else {
-            console.warn(`[WebviewBridge] receiveMessage SKIPPED: webview is undefined, sender="${sender}"`);
         }
     }
 
@@ -145,7 +142,6 @@ export class WebviewBridge {
      */
     public static startStreamingMessage(webview: vscode.Webview | undefined, sender: string): void {
         if (webview) {
-            console.log(`[WebviewBridge] startStreamingMessage: sender="${sender}"`);
             safePostMessage(webview, {
                 command: 'startStreamingMessage',
                 sender
@@ -158,7 +154,7 @@ export class WebviewBridge {
      * 스트리밍 응답의 일부분을 전송합니다
      */
     public static streamMessageChunk(webview: vscode.Webview | undefined, chunk: string): void {
-        if (webview) {
+        if (webview && chunk) {
             safePostMessage(webview, {
                 command: 'streamMessageChunk',
                 chunk
@@ -172,11 +168,44 @@ export class WebviewBridge {
      */
     public static endStreamingMessage(webview: vscode.Webview | undefined): void {
         if (webview) {
-            console.log(`[WebviewBridge] endStreamingMessage`);
             safePostMessage(webview, {
                 command: 'endStreamingMessage'
             });
         }
+    }
+
+    /**
+     * 🔥 텍스트를 스트리밍 효과로 전송 (타이핑 효과)
+     * receiveMessage 대신 사용하여 한 번에 보이지 않고 점진적으로 표시
+     */
+    public static async streamText(
+        webview: vscode.Webview | undefined,
+        sender: string,
+        text: string,
+        charsPerTick: number = 30,
+        tickIntervalMs: number = 10
+    ): Promise<void> {
+        if (!webview || !text) {
+            return;
+        }
+
+        return new Promise((resolve) => {
+            WebviewBridge.startStreamingMessage(webview, sender);
+
+            let index = 0;
+            const interval = setInterval(() => {
+                if (index >= text.length) {
+                    clearInterval(interval);
+                    WebviewBridge.endStreamingMessage(webview);
+                    resolve();
+                    return;
+                }
+
+                const chunk = text.substring(index, index + charsPerTick);
+                WebviewBridge.streamMessageChunk(webview, chunk);
+                index += charsPerTick;
+            }, tickIntervalMs);
+        });
     }
 
     /**

@@ -1,6 +1,6 @@
 /**
  * Diff CodeLens Provider
- * 커서 IDE 방식의 인라인 Accept/Reject 버튼 제공
+ * 커서 IDE 방식의 인라인 Keep/Undo 버튼 제공
  */
 
 import * as vscode from 'vscode';
@@ -24,7 +24,7 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     /**
-     * CodeLens 제공 (각 변경사항마다 Accept/Reject 버튼)
+     * CodeLens 제공 (각 변경사항마다 Keep/Undo 버튼)
      * 각 변경사항마다 하나의 CodeLens만 반환 (중복 방지)
      */
     public provideCodeLenses(
@@ -67,34 +67,34 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
             // ✅ 삭제된 코드는 decoration.before로 표시되므로 CodeLens에서는 제외
             // CodeLens는 Accept/Reject 버튼만 표시
 
-            // ✅ 핵심: Accept/Reject 버튼을 같은 라인에 나란히 표시
-            // Accept 버튼 (변경사항의 첫 번째 라인에, 왼쪽)
-            const acceptRange = new vscode.Range(
+            // ✅ 핵심: Keep/Undo 버튼을 같은 라인에 나란히 표시
+            // Keep 버튼 (변경사항의 첫 번째 라인에, 왼쪽)
+            const keepRange = new vscode.Range(
                 startLine,
                 0,
                 startLine,
                 0
             );
-            const acceptCommand: vscode.Command = {
-                title: `$(check) Accept`,
+            const keepCommand: vscode.Command = {
+                title: `$(check) Keep`,
                 command: 'codepilot.acceptChange',
                 arguments: [filePath, change.id], // ✅ 고유한 change.id 전달
             };
-            lenses.push(new vscode.CodeLens(acceptRange, acceptCommand));
+            lenses.push(new vscode.CodeLens(keepRange, keepCommand));
 
-            // Reject 버튼 (같은 라인에, Accept 옆에 표시)
-            const rejectRange = new vscode.Range(
+            // Undo 버튼 (같은 라인에, Keep 옆에 표시)
+            const undoRange = new vscode.Range(
                 startLine,
                 0,
                 startLine,
                 0
             );
-            const rejectCommand: vscode.Command = {
-                title: `$(close) Reject`,
+            const undoCommand: vscode.Command = {
+                title: `$(close) Undo`,
                 command: 'codepilot.rejectChange',
                 arguments: [filePath, change.id], // ✅ 고유한 change.id 전달
             };
-            lenses.push(new vscode.CodeLens(rejectRange, rejectCommand));
+            lenses.push(new vscode.CodeLens(undoRange, undoCommand));
 
             // ✅ 변경 타입 표시 (선택적, 정보 제공용)
             if (change.type === 'modify') {

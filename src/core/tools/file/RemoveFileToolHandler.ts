@@ -7,6 +7,7 @@ import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { ActionType, FileOperationType } from '../../managers/action/types';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export class RemoveFileToolHandler implements IToolHandler {
     readonly name = Tool.REMOVE_FILE;
@@ -19,6 +20,20 @@ export class RemoveFileToolHandler implements IToolHandler {
                 success: false,
                 message: 'Path parameter is required',
                 error: { code: 'MISSING_PARAM', message: 'path is required' }
+            };
+        }
+
+        // 파일 존재 여부 확인
+        const absolutePath = path.isAbsolute(filePath)
+            ? filePath
+            : path.join(context.projectRoot, filePath);
+
+        if (!fs.existsSync(absolutePath)) {
+            console.log(`[RemoveFileToolHandler] File does not exist, skipping: ${absolutePath}`);
+            return {
+                success: true, // 이미 없는 파일은 성공으로 처리 (idempotent)
+                message: `File does not exist (already deleted or never existed): ${filePath}`,
+                data: { filePath, skipped: true }
             };
         }
 

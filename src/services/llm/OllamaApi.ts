@@ -105,15 +105,15 @@ export class OllamaApi {
                     break;
                 }
 
-                // XML 형식이 필요하지만 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
+                // 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
                 if (attempt < maxRetries) {
                     if (error.message.includes("생각만 수행")) {
                         currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field.
-If you are NOT DONE, you MUST output actual JSON function calls (e.g., { "function_call": { "name": "list_files", "args": {...} } }) in your FINAL RESPONSE.
+If you are NOT DONE, you MUST output actual tool calls (e.g., { "tool": "list_files", "path": "..." }) in your FINAL RESPONSE.
 If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE.
 Do NOT leave the response field empty. Every turn must produce a non-empty response.`;
                     } else if (!currentOptions.xmlRetry) {
-                        currentMessage = `${message}\n\nCRITICAL: Output ONLY JSON function calls in \`\`\`json { "function_call": {...} } \`\`\` format. Do NOT put tool calls in thinking.`;
+                        currentMessage = `${message}\n\nCRITICAL: Output ONLY tool calls in { "tool": "...", "path": "..." } format. Do NOT put tool calls in thinking.`;
                         currentOptions.xmlRetry = true;
                     }
                 }
@@ -152,13 +152,12 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
 
         // [수정] thinking 데이터를 함부로 response로 사용하지 않음
         // 1. responseContent가 시스템 에코나 Junk(예: "Wait...", "We need result")인 경우 필터링
-        // 🔥 핵심: JSON Function Call이 포함된 응답은 junk가 아님 (자연어와 섞여있어도 유효)
-        const hasJsonFunctionCall = responseContent && (
-            /\{\s*"function_call(?:s)?"\s*:/.test(responseContent) ||
-            /```json[\s\S]*?\{[\s\S]*?"function_call(?:s)?"[\s\S]*?\}[\s\S]*?```/i.test(responseContent)
+        // 🔥 핵심: 도구 호출이 포함된 응답은 junk가 아님 (자연어와 섞여있어도 유효)
+        const hasToolCall = responseContent && (
+            /\{\s*["']tool["']\s*:\s*["']/.test(responseContent)
         );
 
-        const isJunkResponse = responseContent && !hasJsonFunctionCall && (
+        const isJunkResponse = responseContent && !hasToolCall && (
             responseContent.includes('=== Tool Execution Results') ||
             responseContent.includes('Wait: We should produce') ||
             responseContent.match(/^We need result\./i) ||

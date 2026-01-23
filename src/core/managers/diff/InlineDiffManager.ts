@@ -76,6 +76,21 @@ export class InlineDiffManager {
     private formatterRunning: Set<string> = new Set(); // filePath -> formatter 실행 중 플래그 (diff 보호용)
     private formatterJustFinished: Set<string> = new Set(); // filePath -> formatter 방금 종료됨 플래그 (다음 document 변경 1회만 무시)
     private lastAppliedChanges: Map<string, InlineChange[]> = new Map(); // filePath -> 마지막으로 적용된 changes (ToolExecutionCoordinator용 캐시)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ✅ Shadow Document Pattern
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // shadow: 작업 중인 가상 문서 상태 (LLM에게 보여줄 누적 상태)
+    // disk: 실제 디스크에 저장된 내용 (Accept 전 상태)
+    //
+    // 흐름:
+    // 1. LLM 요청 시: getContentForEditing() → shadow 반환 (없으면 disk)
+    // 2. LLM 응답 적용 시: shadow 업데이트 + decoration 표시
+    // 3. Accept 시: disk = shadow, checkpoint 정리
+    // 4. Reject 시: shadow = checkpoint.beforeContent (해당 변경 전 상태로 복원)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private shadow: Map<string, string> = new Map(); // filePath -> 작업 중인 가상 문서 (누적 상태)
+    private disk: Map<string, string> = new Map(); // filePath -> 마지막 Accept된 상태 (또는 원본)
     private addedDecoration: vscode.TextEditorDecorationType;
     private deletedDecoration: vscode.TextEditorDecorationType;
     private editorChangeDisposable: vscode.Disposable | undefined;
@@ -170,10 +185,32 @@ export class InlineDiffManager {
     }
 
     /**
+     * 텍스트 정규화 (의미적 비교용)
+     * - whitespace 정규화 (연속 공백 → 단일 공백)
+     * - 앞뒤 공백 제거
+     * - 빈 줄 제거
+     *
+     * 🔥 Solution 2: 다른 코드 어시스턴트처럼 indentation 차이를 무시하고 의미적 동일성 판단
+     */
+    private normalizeTextForComparison(text: string): string {
+        return text
+            .split('\n')
+            .map(line => line.trim())  // 각 줄의 앞뒤 공백 제거 (indentation 무시)
+            .filter(line => line.length > 0)  // 빈 줄 제거
+            .join('\n')
+            .replace(/\s+/g, ' ')  // 연속 whitespace → 단일 공백
+            .trim();
+    }
+
+    /**
      * 중복 change 확인 (더 강력한 로직)
      * 1. Offset 기반 비교
-     * 2. 텍스트 내용 비교
-     * 3. Range 중복 확인 (90% 이상 겹침)
+     * 2. 텍스트 내용 비교 (정확히 일치)
+     * 3. 🔥 의미적 텍스트 비교 (whitespace 무시) - Solution 2
+     * 4. Range 중복 확인 (90% 이상 겹침)
+     *
+     * 🔥 Solution 2: 다른 코드 어시스턴트처럼 semantic duplicate 감지
+     * 예: "    </div>" vs "      </div>" → 같은 코드로 판단
      */
     private isDuplicateChange(
         newChange: InlineChange,
@@ -187,13 +224,31 @@ export class InlineDiffManager {
                 return true;
             }
 
-            // 2. 텍스트 내용 비교
+            // 2. 텍스트 내용 비교 (정확히 일치)
             if (newChange.oldText === existing.oldText &&
                 newChange.newText === existing.newText) {
                 return true;
             }
 
-            // 3. Range 중복 확인 (90% 이상 겹침)
+            // 🔥 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
+            // 다른 코드 어시스턴트(Cursor, Copilot)처럼 indentation 차이 무시
+            const normalizedNewOld = this.normalizeTextForComparison(newChange.oldText);
+            const normalizedNewNew = this.normalizeTextForComparison(newChange.newText);
+            const normalizedExistingOld = this.normalizeTextForComparison(existing.oldText);
+            const normalizedExistingNew = this.normalizeTextForComparison(existing.newText);
+
+            if (normalizedNewOld === normalizedExistingOld &&
+                normalizedNewNew === normalizedExistingNew) {
+                return true;
+            }
+
+            // 🔥 3-1. newText만 의미적으로 같은 경우도 중복으로 간주 (같은 코드 추가 시도)
+            if (normalizedNewNew === normalizedExistingNew &&
+                normalizedNewNew.length > 10) {  // 너무 짧은 코드는 제외 (false positive 방지)
+                return true;
+            }
+
+            // 4. Range 중복 확인 (90% 이상 겹침)
             const newRange = this.getCurrentRange(newChange, document);
             const existingRange = this.getCurrentRange(existing, document);
             const overlap = this.calculateOverlapPercentage(newRange, existingRange);
@@ -323,8 +378,7 @@ export class InlineDiffManager {
                 timestamp: Date.now()
             });
             return document;
-        } catch (error) {
-            console.warn(`[InlineDiffManager] Could not open document: ${filePath}`, error);
+        } catch {
             return null;
         }
     }
@@ -346,7 +400,6 @@ export class InlineDiffManager {
             // Document 가져오기 (캐싱 포함)
             const document = await this.getDocument(filePath);
             if (!document) {
-                console.warn(`[InlineDiffManager] Could not get document for reconciliation: ${filePath}`);
                 return;
             }
 
@@ -360,7 +413,6 @@ export class InlineDiffManager {
 
                 // Change가 여전히 살아있는지 확인
                 if (!this.isChangeAlive(change, document)) {
-                    console.log(`[InlineDiffManager] Change ${change.id} is no longer alive, marking as dirty`);
                     change.status = 'dirty';
                     hasDirtyChanges = true;
                 }
@@ -380,12 +432,9 @@ export class InlineDiffManager {
                 const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
                 DiffCodeLensProvider.getInstance().refresh();
 
-                const remainingPending = changes.filter(c => c.status === 'pending').length;
-                console.log(`[InlineDiffManager] Reconciled changes for ${filePath}, remaining pending: ${remainingPending}`);
             }
-        } catch (error) {
+        } catch {
             // 파일이 삭제되었거나 접근할 수 없는 경우
-            console.log(`[InlineDiffManager] File ${filePath} is no longer accessible during reconciliation`);
             // 파일이 삭제된 경우에만 invalidate
             this.invalidateFile(filePath, {
                 reason: 'file-inaccessible',
@@ -412,7 +461,6 @@ export class InlineDiffManager {
             if (this.formatterJustFinished.has(filePath)) {
                 this.formatterJustFinished.delete(filePath);
                 this.documentVersions.set(filePath, e.document.version);
-                console.log(`[InlineDiffManager] Ignored first change after formatter for ${filePath}, version updated to ${e.document.version}`);
 
                 // decoration 재적용
                 const changes = this.pendingChanges.get(filePath);
@@ -440,7 +488,6 @@ export class InlineDiffManager {
                 e.reason === vscode.TextDocumentChangeReason.Undo ||
                 e.reason === vscode.TextDocumentChangeReason.Redo
             ) {
-                console.warn(`[InlineDiffManager] Undo/Redo detected for ${filePath}, invalidating pending diffs`);
                 this.invalidateFile(filePath, {
                     reason: 'undo-redo',
                     source: 'document-change',
@@ -467,7 +514,6 @@ export class InlineDiffManager {
                 let hasDirtyChanges = false;
 
                 if (actualVersion < expectedVersion) {
-                    console.warn(`[InlineDiffManager] Document version mismatch for ${filePath}: expected ${expectedVersion}, got ${actualVersion}. Marking all pending changes as dirty.`);
                     // version mismatch 시 모든 pending change를 dirty로 표시
                     for (const aiChange of currentChanges) {
                         if (aiChange.status === 'pending') {
@@ -573,11 +619,9 @@ export class InlineDiffManager {
                                 aiChange.endOffset = docText.length;
                                 aiChange.range = new vscode.Range(0, 0, lastLine, lastLineLen);
                                 isDirty = false;
-                                console.log(`[InlineDiffManager] Synced full-file add change after external edit (likely formatter): ${filePath}`);
                             }
 
                             if (isDirty) {
-                                console.log(`[InlineDiffManager] User edit semantically overlaps with AI change ${aiChange.id} (${aiChange.type}), marking as dirty`);
                                 aiChange.status = 'dirty';
                                 hasDirtyChanges = true;
                             }
@@ -599,8 +643,6 @@ export class InlineDiffManager {
                     // CodeLens 새로고침 (dirty change는 CodeLens 생성 안 함)
                     const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
                     DiffCodeLensProvider.getInstance().refresh();
-
-                    console.log(`[InlineDiffManager] Marked overlapping changes as dirty for ${filePath}, remaining pending changes: ${currentChanges.filter(c => c.status === 'pending').length}`);
                 }
             }, 100);
         });
@@ -642,7 +684,6 @@ export class InlineDiffManager {
 
                     // ✅ Formatter 실행 중인 파일은 무시 (diff 보호)
                     if (this.formatterRunning.has(filePath)) {
-                        console.log(`[InlineDiffManager] Ignoring external change for ${filePath} (formatter running)`);
                         // document version만 업데이트 (reconciliation 스킵)
                         this.documentVersions.set(filePath, currentVersion);
                         return;
@@ -656,12 +697,10 @@ export class InlineDiffManager {
                     }
 
                     // ✅ 외부 변경 감지: change 단위로 판단 (무조건 invalidate 금지)
-                    console.log(`[InlineDiffManager] External modification detected for ${filePath} (version: ${lastVersion} -> ${currentVersion}), reconciling changes`);
                     this.documentVersions.set(filePath, currentVersion);
                     await this.reconcileChanges(filePath);
-                } catch (error) {
+                } catch {
                     // 파일이 삭제되었거나 접근할 수 없는 경우에만 invalidate
-                    console.log(`[InlineDiffManager] File ${filePath} is no longer accessible, invalidating pending diffs`);
                     this.invalidateFile(filePath, {
                         reason: 'file-inaccessible',
                         source: 'file-system-watcher'
@@ -685,8 +724,6 @@ export class InlineDiffManager {
             return;
         }
 
-        console.log(`[InlineDiffManager] Invalidating file ${filePath} (reason: ${options?.reason || 'unknown'}, source: ${options?.source || 'unknown'})`);
-
         // 1. decoration 제거
         this.clearAllDecorationsForFile(filePath);
 
@@ -703,7 +740,11 @@ export class InlineDiffManager {
         this.documentVersions.delete(filePath);
         this.lastAppliedChanges.delete(filePath); // ✅ 캐시도 정리
 
-        console.log(`[InlineDiffManager] Invalidated all pending diffs for ${filePath}`);
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ Shadow Document Pattern: invalidate 시 shadow/disk 정리
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        this.shadow.delete(filePath);
+        this.disk.delete(filePath);
     }
 
     public static getInstance(): InlineDiffManager {
@@ -744,7 +785,6 @@ export class InlineDiffManager {
      */
     public markFormatterRunning(filePath: string): void {
         this.formatterRunning.add(filePath);
-        console.log(`[InlineDiffManager] Marked formatter as running for ${filePath}`);
     }
 
     /**
@@ -756,8 +796,6 @@ export class InlineDiffManager {
 
         // ✅ formatter 방금 종료됨 플래그 설정 (다음 document 변경 1회만 무시)
         this.formatterJustFinished.add(filePath);
-
-        console.log(`[InlineDiffManager] Marked formatter as finished for ${filePath}, will ignore next document change`);
     }
 
     public getCheckpointBeforeContent(filePath: string): string | undefined {
@@ -789,13 +827,6 @@ export class InlineDiffManager {
         // ✅ 새 파일 여부를 명확히 판단
         const isNewFile = !originalContent || originalContent.trim() === '';
 
-        console.log(`[InlineDiffManager] showInlineDiff called:
-        File: ${filePath}
-        Is New File: ${isNewFile}
-        Original length: ${originalContent?.length || 0}
-        New length: ${newContent.length}
-    `);
-
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✅ STEP 0: 새 파일이면 먼저 생성
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -809,8 +840,6 @@ export class InlineDiffManager {
 
                 // ✅ 빈 파일이 아니라 newContent로 생성
                 await fs.writeFile(filePath, newContent, 'utf8');
-
-                console.log(`[InlineDiffManager] Created new file: ${filePath}`);
 
                 // 파일 생성 후 약간의 대기 (파일 시스템 동기화)
                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -849,16 +878,17 @@ export class InlineDiffManager {
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ✅ STEP 2: Checkpoint 생성
+        // ✅ STEP 2: Shadow Document + Checkpoint 설정
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const currentEditorContent = editor.document.getText();
         let existingChanges = this.pendingChanges.get(filePath);
 
         // ✅ 새 파일 생성 시: 기존 pending change 정리 (중복 방지)
         if (isNewFile && existingChanges && existingChanges.length > 0) {
-            console.log(`[InlineDiffManager] New file detected but existing changes found, clearing them to prevent duplicates`);
             this.pendingChanges.delete(filePath);
             this.checkpoints.delete(filePath);
+            this.shadow.delete(filePath);
+            this.disk.delete(filePath);
             existingChanges = [];
         }
 
@@ -867,15 +897,22 @@ export class InlineDiffManager {
         if (isNewFile) {
             // ✅ 새 파일인 경우: 무조건 빈 문자열
             checkpointBeforeContent = '';
-            console.log('[InlineDiffManager] New file - checkpoint is empty string');
+            // ✅ Shadow Document: disk = 빈 문자열 (새 파일)
+            if (!this.disk.has(filePath)) {
+                this.disk.set(filePath, '');
+            }
         } else if (existingChanges && existingChanges.length > 0) {
-            // ✅ 기존 pending change가 있는 경우: 현재 document 상태
-            checkpointBeforeContent = currentEditorContent;
-            console.log(`[InlineDiffManager] Existing changes - checkpoint is current content (${currentEditorContent.length} chars)`);
+            // ✅ 기존 pending change가 있는 경우: 현재 shadow 상태 사용
+            // (연속 수정 시 shadow가 이미 있음)
+            const existingShadow = this.shadow.get(filePath);
+            checkpointBeforeContent = existingShadow || currentEditorContent;
         } else {
-            // ✅ 기존 파일 수정의 경우: originalContent 사용
+            // ✅ 기존 파일 첫 수정의 경우: originalContent 사용
             checkpointBeforeContent = originalContent;
-            console.log(`[InlineDiffManager] Existing file - checkpoint is original content (${originalContent.length} chars)`);
+            // ✅ Shadow Document: disk = 원본 (첫 수정 시)
+            if (!this.disk.has(filePath)) {
+                this.disk.set(filePath, originalContent);
+            }
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -883,7 +920,6 @@ export class InlineDiffManager {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if (isNewFile) {
             // ✅ 새 파일은 이미 newContent로 생성되었으므로 skip
-            console.log('[InlineDiffManager] New file already created with content, skipping WorkspaceEdit');
         } else {
             // ✅ 기존 파일만 replace
             const edit = new vscode.WorkspaceEdit();
@@ -899,13 +935,10 @@ export class InlineDiffManager {
             try {
                 const document = editor.document;
                 if (document.isDirty) {
-                    console.log(`[InlineDiffManager] Saving document after WorkspaceEdit...`);
                     await document.save();
-                    console.log(`[InlineDiffManager] Document saved successfully`);
                 }
-            } catch (error) {
+            } catch {
                 // 저장 실패는 치명적이지 않음 (formatter나 다른 도구가 이미 저장했을 수 있음)
-                console.warn(`[InlineDiffManager] Failed to save document (non-fatal):`, error);
             }
 
             // 문서 적용 후 대기
@@ -915,22 +948,13 @@ export class InlineDiffManager {
         // 적용 후 현재 문서 내용 가져오기
         const afterContent = editor.document.getText();
 
-        console.log(`[InlineDiffManager] After apply:
-        Checkpoint length: ${checkpointBeforeContent.length}
-        After length: ${afterContent.length}
-        Match: ${checkpointBeforeContent === afterContent}
-    `);
-
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✅ STEP 4: Diff 계산
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const newChanges = this.analyzeChanges(checkpointBeforeContent, afterContent);
 
-        console.log(`[InlineDiffManager] Diff analysis result: ${newChanges.length} changes`);
-
         // ✅ 새 파일인데 change가 없으면 강제로 생성
         if (isNewFile && newChanges.length === 0 && afterContent.trim() !== '') {
-            console.warn('[InlineDiffManager] New file but no changes detected, creating manual change');
 
             const lines = afterContent.split('\n');
             newChanges.push({
@@ -959,7 +983,6 @@ export class InlineDiffManager {
                     // 이미 존재하는지 더 정확히 확인 (중복 삽입 방지)
                     const existingCount = (afterContent.match(new RegExp(newTextTrimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
                     if (existingCount > 1) {
-                        console.log(`[InlineDiffManager] Skipping duplicate change: ${change.id} (content already exists in document)`);
                         continue; // 중복이면 skip
                     }
                 }
@@ -986,8 +1009,8 @@ export class InlineDiffManager {
             } else {
                 currentDocument = await vscode.workspace.openTextDocument(uri);
             }
-        } catch (error) {
-            console.warn(`[InlineDiffManager] Could not get document for duplicate check: ${error}`);
+        } catch {
+            // Could not get document for duplicate check
         }
 
         for (const newChange of contentFilteredChanges) {
@@ -1007,9 +1030,7 @@ export class InlineDiffManager {
                 }
             }
 
-            if (isDuplicate) {
-                console.log(`[InlineDiffManager] Skipping duplicate change: ${newChange.id}`);
-            } else {
+            if (!isDuplicate) {
                 finalNewChanges.push(newChange);
             }
         }
@@ -1077,17 +1098,21 @@ export class InlineDiffManager {
         this.pendingChanges.set(filePath, allChanges);
         this.checkpoints.set(filePath, checkpoint);
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ Shadow Document Pattern: shadow 업데이트
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // afterContent = 실제 editor에 적용된 내용 (누적 상태)
+        // 이제 LLM이 getContentForEditing()을 호출하면 이 shadow를 반환
+        this.shadow.set(filePath, afterContent);
+
         // ✅ 마지막 적용된 changes 캐시 (ToolExecutionCoordinator에서 라인 수 계산용)
         // showInlineDiff에서 계산한 finalNewChanges를 저장 (올바른 시점의 계산 결과)
         this.lastAppliedChanges.set(filePath, [...finalNewChanges]);
-        console.log(`[InlineDiffManager] Cached ${finalNewChanges.length} changes for ${filePath} (for line count calculation)`);
 
         // ✅ document version 업데이트 (외부 변경 감지용)
         if (editor && editor.document) {
             this.documentVersions.set(filePath, editor.document.version);
         }
-
-        console.log(`[InlineDiffManager] Applied AI changes to ${filePath}: ${finalNewChanges.length} new changes (${newChanges.length - finalNewChanges.length} duplicates skipped), ${allChanges.length} total changes (${existingPendingChanges.length} existing pending, ${existingProcessedChanges.length} processed)`);
 
         // ✅ STEP 5: Decoration 적용
         // 새 파일인 경우 document가 완전히 로드될 때까지 대기
@@ -1104,13 +1129,6 @@ export class InlineDiffManager {
      * ✅ public으로 변경: ToolExecutionCoordinator에서 직접 호출 가능하도록
      */
     public analyzeChanges(originalContent: string, newContent: string): InlineChange[] {
-        console.log(`[InlineDiffManager] analyzeChanges called:
-        Original content: "${originalContent.substring(0, 50)}..." (${originalContent.length} chars)
-        New content: "${newContent.substring(0, 50)}..." (${newContent.length} chars)
-        Original is empty: ${!originalContent || originalContent.trim() === ''}
-        New is empty: ${!newContent || newContent.trim() === ''}
-    `);
-
         const changes: InlineChange[] = [];
         const newLines = newContent.split('\n');
 
@@ -1126,8 +1144,6 @@ export class InlineDiffManager {
         const isNewFile = !originalContent || originalContent.trim() === '';
 
         if (isNewFile) {
-            console.log('[InlineDiffManager] Analyzing NEW FILE');
-
             // ✅ 새 파일이고 내용이 있으면 무조건 change 생성
             if (newContent && newContent.trim() !== '') {
                 const startOffset = 0;
@@ -1153,16 +1169,7 @@ export class InlineDiffManager {
                     checkpointId: '', // 나중에 showInlineDiff에서 설정됨
                     createdAt: Date.now(),
                 });
-
-                console.log(`[InlineDiffManager] Created NEW FILE change: ${lineCount} lines, ${newContent.length} chars`);
-            } else {
-                console.warn('[InlineDiffManager] New file but no content, skipping change creation');
             }
-
-            console.log(`[InlineDiffManager] analyzeChanges result: ${changes.length} changes created`);
-            changes.forEach((change, index) => {
-                console.log(`  Change ${index}: type=${change.type}, lines=${change.range.start.line}-${change.range.end.line}, oldLen=${change.oldText.length}, newLen=${change.newText.length}`);
-            });
 
             return changes;
         }
@@ -1284,11 +1291,6 @@ export class InlineDiffManager {
             });
         }
 
-        console.log(`[InlineDiffManager] analyzeChanges result: ${changes.length} changes created`);
-        changes.forEach((change, index) => {
-            console.log(`  Change ${index}: type=${change.type}, lines=${change.range.start.line}-${change.range.end.line}, oldLen=${change.oldText.length}, newLen=${change.newText.length}`);
-        });
-
         return changes;
     }
 
@@ -1311,9 +1313,8 @@ export class InlineDiffManager {
             const start = document.positionAt(change.startOffset);
             const end = document.positionAt(change.endOffset);
             return new vscode.Range(start, end);
-        } catch (error) {
+        } catch {
             // offset 계산 실패 시 range 사용 (fallback)
-            console.warn(`[InlineDiffManager] Failed to calculate range from offset for change ${change.id}, using range fallback`);
             return change.range;
         }
     }
@@ -1397,7 +1398,6 @@ export class InlineDiffManager {
 
                 // ✅ decoration 생성 가능 여부 확인
                 if (currentRange.start.line < 0 || currentRange.end.line >= editor.document.lineCount) {
-                    console.warn(`[InlineDiffManager] Skipping decoration for change ${change.id}: range out of bounds (start: ${currentRange.start.line}, end: ${currentRange.end.line}, doc lines: ${editor.document.lineCount})`);
                     continue;
                 }
 
@@ -1436,8 +1436,7 @@ export class InlineDiffManager {
                         }
                     }
                 }
-            } catch (error) {
-                console.warn(`[InlineDiffManager] Failed to apply decoration for change ${change.id}:`, error);
+            } catch {
                 continue;
             }
         }
@@ -1445,16 +1444,6 @@ export class InlineDiffManager {
         // Decoration 적용 (추가된 코드: 초록색, 삭제된 코드: decoration.before)
         editor.setDecorations(this.addedDecoration, addedRanges);
         editor.setDecorations(this.deletedDecoration, deletedDecorations);
-
-        const filePath = editor.document.uri.fsPath;
-        const appliedCount = addedRanges.length + deletedDecorations.length;
-        const skippedCount = pendingChanges.length - appliedCount;
-
-        if (skippedCount > 0) {
-            console.warn(`[InlineDiffManager] Applied decorations for ${filePath}: ${addedRanges.length} added, ${deletedDecorations.length} deleted (before), ${skippedCount} skipped (total changes: ${changes.length}, pending: ${pendingChanges.length}, editor lines: ${editor.document.lineCount})`);
-        } else {
-            console.log(`[InlineDiffManager] Applied decorations for ${filePath}: ${addedRanges.length} added, ${deletedDecorations.length} deleted (before) (total changes: ${changes.length}, pending: ${pendingChanges.length}, editor lines: ${editor.document.lineCount})`);
-        }
     }
 
     /**
@@ -1489,16 +1478,9 @@ export class InlineDiffManager {
             (isNewFile && currentContent.trim() === expectedContent.trim());
 
         if (!contentMatches && retryCount < maxRetries) {
-            console.log(`[InlineDiffManager] Document content mismatch (attempt ${retryCount + 1}/${maxRetries}), retrying...`);
-            console.log(`[InlineDiffManager] Expected length: ${expectedContent.length}, Current length: ${currentContent.length}`);
-
             // 재시도
             await new Promise(resolve => setTimeout(resolve, retryDelay));
             return this.applyDecorationsWithRetry(filePath, allChanges, expectedContent, isNewFile, retryCount + 1);
-        }
-
-        if (!contentMatches) {
-            console.warn(`[InlineDiffManager] Document content still doesn't match after ${maxRetries} retries, applying decorations anyway`);
         }
 
         // ✅ Decoration 적용 (applyDecorationsToEditor 내부에서 기존 decoration 제거됨)
@@ -1562,18 +1544,14 @@ export class InlineDiffManager {
     public async acceptChange(filePath: string, changeId: string): Promise<void> {
         const changes = this.pendingChanges.get(filePath);
         if (!changes) {
-            console.warn(`[InlineDiffManager] acceptChange: No changes found for ${filePath}`);
             return;
         }
 
         // ✅ 핵심: 정확한 change ID 매칭 (고유 ID 사용)
         const change = changes.find(c => c.id === changeId);
         if (!change) {
-            console.warn(`[InlineDiffManager] acceptChange: Change ${changeId} not found in ${filePath}. Available changes: ${changes.map(c => `${c.id}(${c.type})`).join(', ')}`);
             return;
         }
-
-        console.log(`[InlineDiffManager] Accepting change ${changeId} in ${filePath} (type: ${change.type}, range: ${change.range.start.line}-${change.range.end.line})`);
 
         // 현재 visible editors에서 해당 파일 찾기
         const editors = vscode.window.visibleTextEditors.filter(
@@ -1622,7 +1600,6 @@ export class InlineDiffManager {
                 if (allProcessed) {
                     // checkpoint의 모든 change가 처리되었으므로 checkpoint advance
                     checkpoint.status = 'accepted';
-                    console.log(`[InlineDiffManager] Checkpoint ${checkpoint.id} advanced (all changes processed)`);
                 }
             }
         }
@@ -1635,6 +1612,15 @@ export class InlineDiffManager {
             this.pendingChanges.delete(filePath);
             this.originalContents.delete(filePath);
             this.lastAppliedChanges.delete(filePath); // ✅ 캐시도 정리
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // ✅ Shadow Document Pattern: Accept 완료 시 disk = shadow
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            const shadowContent = this.shadow.get(filePath);
+            if (shadowContent !== undefined) {
+                this.disk.set(filePath, shadowContent);
+            }
+            // shadow는 유지 (다음 수정을 위해)
 
             // 모든 에디터에서 decoration 제거
             for (const editor of editors) {
@@ -1668,20 +1654,25 @@ export class InlineDiffManager {
             // 남은 pending changes 확인
             const remainingPending = currentChanges.filter(c => c.status === 'pending');
 
-            console.log(`[InlineDiffManager] After accept ${changeId}: ${remainingPending.length} pending changes remaining out of ${currentChanges.length} total`);
-
             if (remainingPending.length === 0) {
                 // 모든 변경사항이 처리되었으므로 정리
                 this.pendingChanges.delete(filePath);
                 this.originalContents.delete(filePath);
                 this.lastAppliedChanges.delete(filePath); // ✅ 캐시도 정리
 
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // ✅ Shadow Document Pattern: Accept 완료 시 disk = shadow
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                const shadowContent = this.shadow.get(filePath);
+                if (shadowContent !== undefined) {
+                    this.disk.set(filePath, shadowContent);
+                }
+
                 for (const editor of currentEditors) {
                     this.clearAllDecorationsForEditor(editor);
                 }
             } else {
                 // 남은 pending changes에 대해 decoration 재적용
-                console.log(`[InlineDiffManager] Reapplying decorations for ${remainingPending.length} pending changes`);
                 for (const editor of currentEditors) {
                     this.applyDecorationsToEditor(editor, currentChanges);
                 }
@@ -1720,18 +1711,14 @@ export class InlineDiffManager {
     public async rejectChange(filePath: string, changeId: string): Promise<void> {
         const changes = this.pendingChanges.get(filePath);
         if (!changes) {
-            console.warn(`[InlineDiffManager] rejectChange: No changes found for ${filePath}`);
             return;
         }
 
         // ✅ 핵심: 정확한 change ID 매칭 (고유 ID 사용)
         const change = changes.find(c => c.id === changeId);
         if (!change) {
-            console.warn(`[InlineDiffManager] rejectChange: Change ${changeId} not found in ${filePath}. Available changes: ${changes.map(c => `${c.id}(${c.type})`).join(', ')}`);
             return;
         }
-
-        console.log(`[InlineDiffManager] Rejecting change ${changeId} in ${filePath} (type: ${change.type}, range: ${change.range.start.line}-${change.range.end.line})`);
 
         // 현재 visible editors에서 해당 파일 찾기
         const editors = vscode.window.visibleTextEditors.filter(
@@ -1766,6 +1753,13 @@ export class InlineDiffManager {
 
         await vscode.workspace.applyEdit(edit);
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ Shadow Document Pattern: Reject 시 shadow 업데이트
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // Reject 후 editor 내용이 변경되었으므로 shadow 동기화
+        const updatedContent = editor.document.getText();
+        this.shadow.set(filePath, updatedContent);
+
         // change 상태 업데이트
         change.status = 'rejected';
 
@@ -1794,8 +1788,6 @@ export class InlineDiffManager {
             // ✅ 나머지 pending changes는 그대로 유지
             const pendingChanges = currentChanges.filter(c => c.status === 'pending');
 
-            console.log(`[InlineDiffManager] After reject ${changeId}: ${pendingChanges.length} pending changes remaining out of ${currentChanges.length} total`);
-
             if (pendingChanges.length === 0) {
                 // 모든 변경사항이 처리되었으므로 정리
                 this.pendingChanges.delete(filePath);
@@ -1809,8 +1801,23 @@ export class InlineDiffManager {
                     const allRejected = currentChanges.every(c => c.status === 'rejected');
                     if (allAccepted) {
                         checkpoint.status = 'accepted';
+                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        // ✅ Shadow Document Pattern: Accept 완료 시 disk = shadow
+                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        const shadowContent = this.shadow.get(filePath);
+                        if (shadowContent !== undefined) {
+                            this.disk.set(filePath, shadowContent);
+                        }
                     } else if (allRejected) {
                         checkpoint.status = 'rejected';
+                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        // ✅ Shadow Document Pattern: Reject 완료 시 shadow = editor (이미 복원됨)
+                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        // Reject 시점에 이미 shadow가 업데이트되었으므로 disk도 동기화
+                        const shadowContent = this.shadow.get(filePath);
+                        if (shadowContent !== undefined) {
+                            this.disk.set(filePath, shadowContent);
+                        }
                     }
                 }
 
@@ -1844,28 +1851,18 @@ export class InlineDiffManager {
      * 모든 변경사항 승인
      */
     public async acceptAllChanges(filePath: string): Promise<void> {
-        console.log(`[InlineDiffManager] acceptAllChanges called for: ${filePath}`);
-
         // ✅ 상대 경로를 절대 경로로 변환
         const absolutePath = this.resolveFilePath(filePath);
-        console.log(`[InlineDiffManager] Resolved path: ${absolutePath} (original: ${filePath})`);
-
-        // ✅ pendingChanges의 모든 키 확인 (디버깅용)
-        const pendingKeys = Array.from(this.pendingChanges.keys());
-        console.log(`[InlineDiffManager] Pending changes keys:`, pendingKeys);
 
         const changes = this.pendingChanges.get(absolutePath);
         if (!changes) {
-            console.warn(`[InlineDiffManager] No pending changes found for: ${absolutePath}`);
             // ✅ 상대 경로로도 시도
             const relativeChanges = this.pendingChanges.get(filePath);
             if (relativeChanges) {
-                console.log(`[InlineDiffManager] Found changes with relative path, using that instead`);
                 return this.acceptAllChanges(absolutePath); // 재귀 호출로 절대 경로 사용
             }
             return;
         }
-        console.log(`[InlineDiffManager] Found ${changes.length} pending changes for: ${absolutePath}`);
 
         // 파일이 열려있지 않으면 먼저 열기
         let editors = vscode.window.visibleTextEditors.filter(
@@ -1873,7 +1870,6 @@ export class InlineDiffManager {
         );
 
         if (editors.length === 0) {
-            console.log(`[InlineDiffManager] File not open, opening: ${absolutePath}`);
             try {
                 const uri = vscode.Uri.file(absolutePath);
                 const document = await vscode.workspace.openTextDocument(uri);
@@ -1884,23 +1880,16 @@ export class InlineDiffManager {
                 editors = [editor];
                 // 에디터가 열릴 때까지 대기
                 await new Promise(resolve => setTimeout(resolve, 100));
-                console.log(`[InlineDiffManager] File opened successfully: ${absolutePath}`);
-            } catch (error) {
-                console.error(`[InlineDiffManager] Failed to open file ${absolutePath}:`, error);
+            } catch {
                 return;
             }
-        } else {
-            console.log(`[InlineDiffManager] File already open: ${absolutePath}`);
         }
 
         // 각 change를 개별적으로 accept (codelens 클릭과 동일한 방식)
         const pendingChanges = changes.filter(c => c.status === 'pending');
-        console.log(`[InlineDiffManager] Accepting ${pendingChanges.length} pending changes`);
         for (const change of pendingChanges) {
-            console.log(`[InlineDiffManager] Accepting change ${change.id} (type: ${change.type})`);
             await this.acceptChange(absolutePath, change.id);
         }
-        console.log(`[InlineDiffManager] acceptAllChanges completed for: ${absolutePath}`);
     }
 
     /**
@@ -1909,28 +1898,18 @@ export class InlineDiffManager {
      * ⚠️ VS Code Undo 스택과 분리: WorkspaceEdit 사용
      */
     public async rejectAllChanges(filePath: string): Promise<void> {
-        console.log(`[InlineDiffManager] rejectAllChanges called for: ${filePath}`);
-
         // ✅ 상대 경로를 절대 경로로 변환
         const absolutePath = this.resolveFilePath(filePath);
-        console.log(`[InlineDiffManager] Resolved path: ${absolutePath} (original: ${filePath})`);
-
-        // ✅ pendingChanges의 모든 키 확인 (디버깅용)
-        const pendingKeys = Array.from(this.pendingChanges.keys());
-        console.log(`[InlineDiffManager] Pending changes keys:`, pendingKeys);
 
         const changes = this.pendingChanges.get(absolutePath);
         if (!changes) {
-            console.warn(`[InlineDiffManager] No pending changes found for: ${absolutePath}`);
             // ✅ 상대 경로로도 시도
             const relativeChanges = this.pendingChanges.get(filePath);
             if (relativeChanges) {
-                console.log(`[InlineDiffManager] Found changes with relative path, using that instead`);
                 return this.rejectAllChanges(absolutePath); // 재귀 호출로 절대 경로 사용
             }
             return;
         }
-        console.log(`[InlineDiffManager] Found ${changes.length} pending changes for: ${absolutePath}`);
 
         // 파일이 열려있지 않으면 먼저 열기
         let editors = vscode.window.visibleTextEditors.filter(
@@ -1938,7 +1917,6 @@ export class InlineDiffManager {
         );
 
         if (editors.length === 0) {
-            console.log(`[InlineDiffManager] File not open, opening: ${absolutePath}`);
             try {
                 const uri = vscode.Uri.file(absolutePath);
                 const document = await vscode.workspace.openTextDocument(uri);
@@ -1949,20 +1927,14 @@ export class InlineDiffManager {
                 editors = [editor];
                 // 에디터가 열릴 때까지 대기
                 await new Promise(resolve => setTimeout(resolve, 100));
-                console.log(`[InlineDiffManager] File opened successfully: ${absolutePath}`);
-            } catch (error) {
-                console.error(`[InlineDiffManager] Failed to open file ${absolutePath}:`, error);
+            } catch {
                 return;
             }
-        } else {
-            console.log(`[InlineDiffManager] File already open: ${absolutePath}`);
         }
 
         // 각 change를 개별적으로 reject (codelens 클릭과 동일한 방식)
         const pendingChanges = changes.filter(c => c.status === 'pending');
-        console.log(`[InlineDiffManager] Rejecting ${pendingChanges.length} pending changes`);
         for (const change of pendingChanges) {
-            console.log(`[InlineDiffManager] Rejecting change ${change.id} (type: ${change.type})`);
             await this.rejectChange(absolutePath, change.id);
         }
 
@@ -1970,7 +1942,6 @@ export class InlineDiffManager {
         this.pendingChanges.delete(absolutePath);
         this.originalContents.delete(absolutePath);
         this.lastAppliedChanges.delete(absolutePath); // ✅ 캐시도 정리
-        console.log(`[InlineDiffManager] rejectAllChanges completed for: ${absolutePath}`);
     }
 
     /**
@@ -2011,82 +1982,79 @@ export class InlineDiffManager {
     }
 
     /**
-     * 현재 문서 내용 가져오기 (LLM 프롬프트용)
-     * 
-     * - pending change가 있으면 checkpoint.beforeContent + accepted changes만 사용
-     * - 이렇게 해야 LLM이 자기 자신을 다시 생성하지 않음
-     * 
-     * 
-     * 핵심: checkpoint는 "텍스트"가 아니라 "상태 의미"
-     * - LLM은 checkpoint의 존재를 모름
-     * - LLM은 현재 파일 상태만 봄 (pending change 제외)
-     * - Checkpoint는 IDE 내부 상태 관리용 (사용자 액션 추적)
-     * 
-     * "This is the CURRENT file content (excluding pending AI suggestions).
-     *  This is the ONLY source of truth.
-     *  Previous AI suggestions may have been rejected or edited."
+     * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     * ✅ Shadow Document Pattern - Core Method
+     * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     * LLM에게 보여줄 파일 내용 반환 (누적 수정 포함)
+     *
+     * Shadow Document 패턴:
+     * - LLM은 항상 shadow(누적된 수정 상태)를 봄
+     * - Accept 전까지 disk에는 반영되지 않음
+     * - 이렇게 해야 "버튼 1개 추가 → 2개 추가되는 문제" 해결
+     *
+     * 이전 문제:
+     * - getCurrentDocumentContent()가 pending changes를 제외한 "원본"을 반환
+     * - LLM이 항상 원본을 기준으로 수정 → 누적 수정 불가능
+     *
+     * 해결:
+     * - shadow가 있으면 shadow 반환 (누적된 상태)
+     * - shadow가 없으면 disk 반환 (원본 또는 마지막 Accept 상태)
+     * - disk도 없으면 현재 editor content 반환
      */
-    public getCurrentDocumentContent(filePath: string): string | undefined {
+    public getContentForEditing(filePath: string): string | undefined {
+        // 1. Shadow가 있으면 shadow 반환 (누적된 수정 상태)
+        const shadowContent = this.shadow.get(filePath);
+        if (shadowContent !== undefined) {
+            return shadowContent;
+        }
+
+        // 2. Disk가 있으면 disk 반환 (마지막 Accept 상태 또는 원본)
+        const diskContent = this.disk.get(filePath);
+        if (diskContent !== undefined) {
+            return diskContent;
+        }
+
+        // 3. 둘 다 없으면 editor에서 현재 내용 가져오기
         const editor = vscode.window.visibleTextEditors.find(
             e => e.document.uri.fsPath === filePath
         );
 
-        if (!editor) {
-            return undefined;
+        if (editor) {
+            return editor.document.getText();
         }
 
-        const changes = this.pendingChanges.get(filePath);
-        const pendingChanges = changes?.filter(c => c.status === 'pending') || [];
+        return undefined;
+    }
 
-        // ✅ pending change가 있으면 제외한 내용만 반환
-        if (pendingChanges.length > 0) {
-            const checkpoint = this.checkpoints.get(filePath);
-            if (checkpoint) {
-                // checkpoint.beforeContent를 기준으로 시작
-                let stableContent = checkpoint.beforeContent;
+    /**
+     * 현재 문서 내용 가져오기 (LLM 프롬프트용)
+     *
+     * ✅ Shadow Document Pattern 적용:
+     * - 이제 getContentForEditing()을 호출하여 shadow(누적 상태) 반환
+     * - 이전: pending changes 제외 → 원본 반환 → 중복 수정 문제
+     * - 이후: shadow 반환 → 누적 상태 → 올바른 연속 수정
+     *
+     * @deprecated getContentForEditing() 사용 권장
+     */
+    public getCurrentDocumentContent(filePath: string): string | undefined {
+        // ✅ Shadow Document Pattern: getContentForEditing() 호출
+        return this.getContentForEditing(filePath);
+    }
 
-                // accepted changes만 적용
-                const acceptedChanges = changes?.filter(c => c.status === 'accepted') || [];
-                const currentContent = editor.document.getText();
+    /**
+     * 원본(disk) 상태만 가져오기 (Accept/Reject 비교용)
+     * - Shadow가 아닌 실제 disk 상태 반환
+     * - Accept 전 상태 확인용
+     */
+    public getDiskContent(filePath: string): string | undefined {
+        return this.disk.get(filePath);
+    }
 
-                // 더 정확한 방법: currentContent에서 pending change의 newText 제거
-                // 역순으로 처리하여 offset 유지
-                const sortedPendingChanges = [...pendingChanges].sort((a, b) => b.startOffset - a.startOffset);
-                let content = currentContent;
-
-                for (const change of sortedPendingChanges) {
-                    try {
-                        const changeRange = this.getCurrentRange(change, editor.document);
-                        const changeText = editor.document.getText(changeRange);
-                        if (changeText === change.newText) {
-                            // pending change의 newText를 oldText로 교체 (또는 제거)
-                            if (change.type === 'add') {
-                                // 추가된 부분 제거
-                                const startOffset = editor.document.offsetAt(changeRange.start);
-                                const endOffset = editor.document.offsetAt(changeRange.end);
-                                content = content.substring(0, startOffset) + content.substring(endOffset);
-                            } else if (change.type === 'modify') {
-                                // 수정된 부분을 oldText로 복원
-                                const startOffset = editor.document.offsetAt(changeRange.start);
-                                const endOffset = editor.document.offsetAt(changeRange.end);
-                                content = content.substring(0, startOffset) + change.oldText + content.substring(endOffset);
-                            }
-                            // delete 타입은 이미 없으므로 그대로
-                        }
-                    } catch (error) {
-                        // range 계산 실패 시 무시하고 전체 내용 사용
-                        console.warn(`[InlineDiffManager] Failed to exclude pending change from content, using full content`);
-                        return editor.document.getText();
-                    }
-                }
-
-                console.log(`[InlineDiffManager] Returning stable content (${pendingChanges.length} pending changes excluded)`);
-                return content;
-            }
-        }
-
-        // pending change가 없으면 전체 내용 반환
-        return editor.document.getText();
+    /**
+     * Shadow 상태만 가져오기 (디버깅/비교용)
+     */
+    public getShadowContent(filePath: string): string | undefined {
+        return this.shadow.get(filePath);
     }
 
 
@@ -2099,18 +2067,15 @@ export class InlineDiffManager {
     public getLastAppliedChanges(filePath: string): InlineChange[] {
         const changes = this.lastAppliedChanges.get(filePath);
         if (changes && changes.length > 0) {
-            console.log(`[InlineDiffManager] Returning ${changes.length} cached changes for ${filePath}`);
             return changes;
         }
 
         // Fallback: pending changes에서 가져오기 (하위 호환성)
         const pending = this.pendingChanges.get(filePath);
         if (pending && pending.length > 0) {
-            console.log(`[InlineDiffManager] No cached changes, using pending changes for ${filePath}`);
             return pending.filter(c => c.status === 'pending');
         }
 
-        console.warn(`[InlineDiffManager] No changes found for ${filePath}`);
         return [];
     }
 
@@ -2226,5 +2191,8 @@ export class InlineDiffManager {
         this.originalContents.clear();
         this.checkpoints.clear();
         this.documentVersions.clear();
+        // ✅ Shadow Document Pattern: dispose 시 shadow/disk 정리
+        this.shadow.clear();
+        this.disk.clear();
     }
 }

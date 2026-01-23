@@ -6,6 +6,31 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.0.0 (LLM 호출 최적화 및 실시간 UI 업데이트)
+- **LLM 호출 횟수 최적화**: 불필요한 "완료 확인" 호출을 제거하여 LLM 호출 횟수를 감소시켰습니다.
+  - 이전: Intent (1) → Plan + Tool (2) → 완료 확인 (3) → Summary (4) = **4회 호출**
+  - 이후: Intent (1) → Plan + Tool (2) → Summary (3) = **3회 호출**
+  - 도구 실행이 성공하고 남은 plan item이 없으면 LLM 호출 없이 바로 REVIEW로 전환
+  - `lastTurnHadSuccessfulToolExecution` 기반의 조기 REVIEW 전환 로직 추가
+- **실시간 도구 실행 UI 업데이트**: 도구 실행 결과가 하나씩 실시간으로 패널에 표시됩니다.
+  - `ToolExecutor.executeTools()`에 `onToolComplete` 콜백 추가
+  - 각 도구 실행 완료 시 즉시 UI에 결과 전송 (기존: 모든 도구 완료 후 한 번에 전송)
+  - Pending Changes 버튼도 파일 생성/수정 시 즉시 업데이트
+- **코드 블록 헤더 아이콘 정렬 수정**: Diff/파일 열기 아이콘이 왼쪽에 붙어서 표시되도록 수정
+  - `headerRight` 컨테이너로 아이콘들을 그룹화하여 CSS `space-between` 레이아웃 문제 해결
+
+## v8.9.7 (새로운 도구 호출 형식 - CODE 블록)
+- **CODE 블록 형식 도입**: 기존 `function_call` 형식을 완전히 대체하는 새로운 도구 호출 형식입니다.
+  - 새 형식: `{ "tool": "create_file", "path": "..." }` + `<<<<<<<CODE ... >>>>>>>END`
+  - 기존 SEARCH/REPLACE 패턴과 일관된 마커 사용
+  - JSON 이스케이프 지옥 해결: 코드 내 `"`, `\n` 등을 이스케이프할 필요 없음
+  - 코드 내 ` ``` ` 충돌 없음
+  - 스트리밍 지원: JSON 메타데이터가 먼저 오므로 빠른 도구 감지 가능
+- **모든 프롬프트 업데이트**: `function_call` 형식 제거, 새 형식만 사용하도록 변경
+  - toolCalling.ts, phase.ts, rules.ts, base.ts 등 모든 프롬프트 파일 업데이트
+  - LLM별 프롬프트(Banya, GPT-OSS, Gemini, CodeLlama, Gemma) 업데이트
+- **파서 업데이트**: ToolParser, StreamingToolParser 모두 새 형식 지원 (기존 형식도 호환)
+
 ## v8.9.6 (명령어 실행 및 라우팅 모델 개선)
 - **중복 명령어 실행 수정**: npm install 등 명령어가 여러 번 실행되던 문제를 수정했습니다.
   - `RunCommandToolHandler`에서 초기 실행이 완료되면 즉시 반환하도록 수정

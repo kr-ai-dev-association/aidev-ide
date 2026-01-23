@@ -996,17 +996,21 @@
       <div class="api-key-section" id="model-routing-section">
         <h3 id="model-routing-label">모델 라우팅 설정</h3>
         <p class="info-message">
-          특정 작업에 다른 모델을 사용할 수 있습니다. 설정하지 않으면 메인 모델이 사용됩니다.
+          특정 작업에 다른 모델을 사용할 수 있습니다. 설정하지 않으면 메인
+          모델이 사용됩니다.
         </p>
 
         <!-- Compactor 모델 설정 -->
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 5px;"><b>Compactor 모델</b> (대화 압축용)</label>
-          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px;">
-            대화가 길어질 때 컨텍스트를 요약하는 데 사용됩니다. 빠르고 저렴한 모델 권장.
+        <div style="margin-bottom: 20px">
+          <label style="display: block; margin-bottom: 5px"
+            ><b>Compactor 모델</b> (대화 압축용)</label
+          >
+          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+            대화가 길어질 때 컨텍스트를 요약하는 데 사용됩니다. 빠르고 저렴한
+            모델 권장.
           </p>
           <!-- 모델 타입 선택 -->
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
+          <div class="api-key-input-group" style="margin-bottom: 10px">
             <select id="compactor-model-type-select">
               <option value="">메인 모델 사용</option>
               <option value="ollama">Ollama (Local/Remote)</option>
@@ -1015,7 +1019,10 @@
             </select>
           </div>
           <!-- 하위 모델 선택 (타입 선택 시 표시) -->
-          <div id="compactor-submodel-container" style="display: none; margin-bottom: 10px;">
+          <div
+            id="compactor-submodel-container"
+            style="display: none; margin-bottom: 10px"
+          >
             <div class="api-key-input-group">
               <select id="compactor-submodel-select">
                 <!-- 동적으로 채워짐 -->
@@ -1024,7 +1031,7 @@
             </div>
           </div>
           <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
-          <div id="compactor-apikey-container" style="display: none;">
+          <div id="compactor-apikey-container" style="display: none">
             <div class="api-key-input-group">
               <input
                 type="password"
@@ -1039,12 +1046,15 @@
 
         <!-- Command 모델 설정 -->
         <div>
-          <label style="display: block; margin-bottom: 5px;"><b>Command 모델</b> (명령어 생성용)</label>
-          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px;">
-            터미널 명령어를 생성하는 데 사용됩니다. 코드 생성에 특화된 모델 권장.
+          <label style="display: block; margin-bottom: 5px"
+            ><b>Command 모델</b> (명령어 생성용)</label
+          >
+          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+            터미널 명령어를 생성하는 데 사용됩니다. 코드 생성에 특화된 모델
+            권장.
           </p>
           <!-- 모델 타입 선택 -->
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
+          <div class="api-key-input-group" style="margin-bottom: 10px">
             <select id="command-model-type-select">
               <option value="">메인 모델 사용</option>
               <option value="ollama">Ollama (Local/Remote)</option>
@@ -1053,7 +1063,10 @@
             </select>
           </div>
           <!-- 하위 모델 선택 (타입 선택 시 표시) -->
-          <div id="command-submodel-container" style="display: none; margin-bottom: 10px;">
+          <div
+            id="command-submodel-container"
+            style="display: none; margin-bottom: 10px"
+          >
             <div class="api-key-input-group">
               <select id="command-submodel-select">
                 <!-- 동적으로 채워짐 -->
@@ -1062,7 +1075,7 @@
             </div>
           </div>
           <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
-          <div id="command-apikey-container" style="display: none;">
+          <div id="command-apikey-container" style="display: none">
             <div class="api-key-input-group">
               <input
                 type="password"
@@ -1076,13 +1089,16 @@
         </div>
 
         <!-- Intent 모델 설정 -->
-        <div style="margin-top: 20px;">
-          <label style="display: block; margin-bottom: 5px;"><b>Intent 모델</b> (의도 분석용)</label>
-          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px;">
-            사용자 쿼리의 의도를 분석하는 데 사용됩니다. 빠르고 저렴한 모델 권장.
+        <div style="margin-top: 20px">
+          <label style="display: block; margin-bottom: 5px"
+            ><b>Intent 모델</b> (의도 분석용)</label
+          >
+          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+            사용자 쿼리의 의도를 분석하는 데 사용됩니다. 빠르고 저렴한 모델
+            권장.
           </p>
           <!-- 모델 타입 선택 -->
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
+          <div class="api-key-input-group" style="margin-bottom: 10px">
             <select id="intent-model-type-select">
               <option value="">메인 모델 사용</option>
               <option value="ollama">Ollama (Local/Remote)</option>
@@ -1091,7 +1107,10 @@
             </select>
           </div>
           <!-- 하위 모델 선택 (타입 선택 시 표시) -->
-          <div id="intent-submodel-container" style="display: none; margin-bottom: 10px;">
+          <div
+            id="intent-submodel-container"
+            style="display: none; margin-bottom: 10px"
+          >
             <div class="api-key-input-group">
               <select id="intent-submodel-select">
                 <!-- 동적으로 채워짐 -->
@@ -1100,7 +1119,7 @@
             </div>
           </div>
           <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
-          <div id="intent-apikey-container" style="display: none;">
+          <div id="intent-apikey-container" style="display: none">
             <div class="api-key-input-group">
               <input
                 type="password"
@@ -1304,11 +1323,10 @@
 
     <!-- 버전 정보 -->
     <div class="version-footer">
-      <p id="version-info">CODEPILOT v<span id="version-number">8.9.5</span></p>
+      <p id="version-info">CODEPILOT v<span id="version-number">9.0.0</span></p>
     </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
   </body>
 </html>
-

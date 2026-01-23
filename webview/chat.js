@@ -228,14 +228,16 @@ function startStreamingMessage(sender) {
     endStreamingMessage();
   }
 
-  // 새 메시지 요소 생성
-  streamingMessageElement = document.createElement("div");
-  streamingMessageElement.classList.add("codepilot-message", "streaming");
-  streamingMessageElement.innerHTML = `
-        <div class="message-content">
-            <span class="streaming-cursor"></span>
-        </div>
-    `;
+  // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
+  const messageContainer = document.createElement("div");
+  messageContainer.classList.add("codepilot-message-container", "streaming");
+
+  const bubbleElement = document.createElement("div");
+  bubbleElement.classList.add("message-bubble");
+  bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
+
+  messageContainer.appendChild(bubbleElement);
+  streamingMessageElement = messageContainer;
 
   chatMessages.appendChild(streamingMessageElement);
   streamingTextContent = "";
@@ -340,16 +342,36 @@ function renderStreamingContent() {
             </div>`;
     }
 
-    // 실제 응답 텍스트 렌더링
+    // 실제 응답 텍스트 렌더링 (displayCodePilotMessage와 동일한 처리)
     if (cleanText) {
-      if (typeof md !== "undefined" && md.render) {
-        html += md.render(cleanText);
-      } else {
-        html += escapeHtml(cleanText);
+      // 1. sanitizeLastResort 적용
+      let processedText = cleanText;
+      if (typeof sanitizeLastResort === "function") {
+        processedText = sanitizeLastResort(processedText);
+      }
+      // 2. removeToolTags 적용
+      if (typeof removeToolTags === "function") {
+        processedText = removeToolTags(processedText);
+      }
+
+      if (typeof md !== "undefined" && md.render && processedText) {
+        // 3. 마크다운 렌더링
+        const renderedHtml = md.render(processedText);
+        // 4. sanitizeHtml 적용
+        if (typeof sanitizeHtml === "function" && typeof sanitizeOptions !== "undefined") {
+          html += sanitizeHtml(renderedHtml, sanitizeOptions);
+        } else {
+          html += renderedHtml;
+        }
+      } else if (processedText) {
+        html += escapeHtml(processedText);
       }
     }
 
     contentElement.innerHTML = html + '<span class="streaming-cursor"></span>';
+
+    // 🔥 스트리밍 중에도 완성된 코드 블록 UI 개선 (접기/펼치기, 언어 라벨)
+    enhanceCodeBlocks(contentElement);
 
     // 코드 블록에 복사 버튼 추가
     if (typeof addCopyButtonsToCodeBlocks === "function") {
@@ -396,12 +418,35 @@ function endStreamingMessage() {
       thinkBubble.remove();
     }
 
-    // 최종 마크다운 렌더링 (think 태그 제거 후)
+    // 최종 마크다운 렌더링 (displayCodePilotMessage와 동일한 처리 적용)
     try {
-      const cleanText = removeThinkTags(streamingTextContent);
-      if (typeof md !== "undefined" && md.render && cleanText) {
-        contentElement.innerHTML = md.render(cleanText);
+      // 1. think 태그 제거
+      let cleanText = removeThinkTags(streamingTextContent);
+
+      // 2. sanitizeLastResort 적용 (tool 태그 완전 차단)
+      if (typeof sanitizeLastResort === "function") {
+        cleanText = sanitizeLastResort(cleanText);
       }
+
+      // 3. removeToolTags 적용 (추가 tool 태그 제거)
+      if (typeof removeToolTags === "function") {
+        cleanText = removeToolTags(cleanText);
+      }
+
+      if (typeof md !== "undefined" && md.render && cleanText) {
+        // 4. 마크다운 렌더링
+        const renderedHtml = md.render(cleanText);
+
+        // 5. HTML 새니타이징 적용 (XSS 방지)
+        if (typeof sanitizeHtml === "function" && typeof sanitizeOptions !== "undefined") {
+          contentElement.innerHTML = sanitizeHtml(renderedHtml, sanitizeOptions);
+        } else {
+          contentElement.innerHTML = renderedHtml;
+        }
+      }
+
+      // 🔥 코드 블록 UI 개선 (접기/펼치기, 언어 라벨, 아이콘)
+      enhanceCodeBlocks(contentElement);
 
       // 코드 블록에 복사 버튼 추가
       if (typeof addCopyButtonsToCodeBlocks === "function") {
@@ -435,6 +480,114 @@ function escapeHtml(text) {
 }
 
 // ===== 스트리밍 메시지 처리 함수들 끝 =====
+
+/**
+ * 🔥 스트리밍 완료 후 코드 블록 UI 개선
+ * displayCodePilotMessage()와 동일한 UI로 코드 블록을 재렌더링
+ * - 접기/펼치기 버튼
+ * - 복사 버튼
+ * - 언어 라벨
+ * - 파일 아이콘
+ * (Keep/Undo 버튼은 제외 - 요약의 예시 코드에는 필요 없음)
+ */
+function enhanceCodeBlocks(contentElement) {
+  // 마크다운 렌더링된 코드 블록 찾기 (<pre><code>)
+  const preElements = contentElement.querySelectorAll("pre");
+
+  preElements.forEach((preElement) => {
+    // 이미 처리된 코드 블록은 스킵 (code-block-container로 감싸진 경우)
+    if (preElement.parentElement?.classList.contains("code-container")) {
+      return;
+    }
+
+    const codeElement = preElement.querySelector("code");
+    if (!codeElement) return;
+
+    // 언어 추출 (class="language-xxx" 또는 hljs의 data-highlighted)
+    let lang = "";
+    const classNames = codeElement.className.split(" ");
+    for (const className of classNames) {
+      if (className.startsWith("language-")) {
+        lang = className.replace("language-", "");
+        break;
+      } else if (className.startsWith("hljs-")) {
+        continue; // hljs 스타일 클래스는 스킵
+      } else if (className && className !== "hljs") {
+        lang = className;
+        break;
+      }
+    }
+
+    // 코드 내용
+    const codeContent = codeElement.textContent || "";
+
+    // 코드 블록 컨테이너 생성
+    const codeBlockContainer = document.createElement("div");
+    codeBlockContainer.classList.add("code-block-container");
+
+    // 코드 블록 헤더 생성
+    const codeHeader = document.createElement("div");
+    codeHeader.classList.add("code-block-header");
+
+    // 접기/펼치기 버튼
+    const toggleButton = document.createElement("span");
+    toggleButton.classList.add("code-toggle-button");
+    toggleButton.textContent = "▾";
+
+    // 언어 라벨
+    const languageLabel = document.createElement("span");
+    languageLabel.classList.add("code-language");
+
+    const displayLang = lang || "text";
+    const headerDisplayText = displayLang.toUpperCase();
+    const iconFilename = `file.${displayLang}`;
+
+    // 파일 아이콘 로드
+    loadFileIcon(iconFilename, languageLabel, headerDisplayText, 14);
+
+    // 왼쪽 그룹 (토글 버튼 + 언어 라벨)
+    const headerLeft = document.createElement("a");
+    headerLeft.classList.add("code-header-left");
+    headerLeft.title = "접기/펼치기";
+    headerLeft.appendChild(toggleButton);
+    headerLeft.appendChild(languageLabel);
+
+    codeHeader.appendChild(headerLeft);
+
+    // 코드 컨테이너 생성
+    const codeContainer = document.createElement("div");
+    codeContainer.classList.add("code-container");
+
+    // 고유 ID 생성 (토글용)
+    const blockId = `code-block-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    codeBlockContainer.setAttribute("data-block-id", blockId);
+    codeContainer.setAttribute("data-container-for", blockId);
+
+    // 토글 링크 설정
+    headerLeft.href = `codepilot://toggle?id=${blockId}`;
+
+    // 커서 스타일
+    codeHeader.style.cursor = "pointer";
+
+    // 새 pre/code 요소 생성 (기존 것 복제)
+    const newPreElement = document.createElement("pre");
+    const newCodeElement = document.createElement("code");
+    newCodeElement.textContent = codeContent;
+
+    // 동적 구문 강조 적용
+    highlightCodeBlock(newCodeElement, lang || null);
+
+    newPreElement.appendChild(newCodeElement);
+    codeContainer.appendChild(newPreElement);
+
+    // 코드 블록 컨테이너에 헤더와 코드 추가
+    codeBlockContainer.appendChild(codeHeader);
+    codeBlockContainer.appendChild(codeContainer);
+
+    // 기존 pre 요소를 새 컨테이너로 교체
+    preElement.parentNode.replaceChild(codeBlockContainer, preElement);
+  });
+}
 
 // Auto Correcting Indicator Functions
 function showAutoCorrectingIndicator() {
@@ -3983,7 +4136,14 @@ function displayCodePilotMessage(markdownText) {
       console.log();
     } else if (filePath) {
       // ✅ 라인 수 정보가 없어도 filePath가 있으면 아이콘만 표시
-      console.log();
+      // 🔥 headerRight 컨테이너로 감싸서 왼쪽 정렬 유지
+      const headerRight = document.createElement("span");
+      headerRight.classList.add("code-header-right");
+      headerRight.style.cssText = `
+                display: inline-flex;
+                align-items: center;
+                gap: 0;
+            `;
 
       // ✅ Diff 아이콘 추가
       const diffIcon = document.createElement("a");
@@ -4021,7 +4181,7 @@ function displayCodePilotMessage(markdownText) {
         { passive: true },
       );
 
-      codeHeader.appendChild(diffIcon);
+      headerRight.appendChild(diffIcon);
 
       // 🔥 anchor 태그 방식으로 변경 - Webview 컨텍스트 문제 해결
       const openFileIcon = document.createElement("a");
@@ -4060,8 +4220,8 @@ function displayCodePilotMessage(markdownText) {
         { passive: true },
       );
 
-      codeHeader.appendChild(openFileIcon);
-      console.log();
+      headerRight.appendChild(openFileIcon);
+      codeHeader.appendChild(headerRight);
     }
 
     // 코드 컨테이너 생성

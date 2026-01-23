@@ -1,7 +1,7 @@
 /**
  * Phase Prompt Components
  * 단계별 프롬프트 컴포넌트 통합 파일
- * v8.9.2: JSON Function Calling 형식으로 변경
+ * v8.9.7: CODE 블록 형식으로 변경 ({ "tool": "..." } + <<<<<<<CODE ... >>>>>>>END)
  */
 
 import {
@@ -91,7 +91,7 @@ export function getInvestigationPrompt(userQuery: string): string {
 
 ${noThinkingLeakage}
 
-✅ **올바른 응답 형식 (JSON Function Calling):**
+✅ **올바른 응답 형식:**
 
 **Plan 제출:**
 \`\`\`json
@@ -104,13 +104,9 @@ ${noThinkingLeakage}
 \`\`\`
 
 **조사 도구 호출:**
-\`\`\`json
-{
-  "function_calls": [
-    { "name": "read_file", "args": { "path": "src/App.tsx" } },
-    { "name": "list_files", "args": { "path": "src" } }
-  ]
-}
+\`\`\`
+{ "tool": "read_file", "path": "src/App.tsx" }
+{ "tool": "list_files", "path": "src" }
 \`\`\`
 
 **조사 완료 선언:**
@@ -119,12 +115,8 @@ ${noThinkingLeakage}
 \`\`\`
 
 ❌ **잘못된 예시 (절대 금지):**
-\`\`\`json
-{
-  "plan": [...],
-  "function_call": { "name": "create_file", ... }  // 조사 단계에서 실행 도구 금지!
-}
-\`\`\`
+- XML 태그 형식 사용
+- 조사 단계에서 실행 도구(create_file, update_file 등) 호출
 
 ## Constraints (지침)
 1. **Investigation 단계 규칙**:
@@ -167,7 +159,7 @@ ${planFormatRules}
 
 **조사 단계와 실행 단계 역할 분리:**
 - **조사 단계 (Investigation)**: 필요한 정보 수집, 최소 LLM 호출
-  - 조사 도구(\`read_file\`, \`list_files\`, \`search_files\`, \`ripgrep_search\`)를 JSON function_call로 호출
+  - 조사 도구(\`read_file\`, \`list_files\`, \`search_files\`, \`ripgrep_search\`)를 \`{ "tool": "..." }\` 형식으로 호출
   - ${getNoDuplicateReadRules().split("\n").slice(1).join("\n  - ")}
 
 - **실행 단계 (Execution)**: 실제 코드 생성/수정 → LLM 호출
@@ -175,7 +167,7 @@ ${planFormatRules}
   - 실행 도구(\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\`) 사용
 
 **효율적인 조사 패턴:**
-1. **한 번에 여러 파일 조사**: function_calls 배열로 여러 read_file을 한 번에 호출
+1. **한 번에 여러 파일 조사**: 여러 \`{ "tool": "read_file" }\`을 연속으로 작성
 2. **Pre-load 활용**: 이미 읽은 파일은 다시 읽지 않고 대화 기록에서 확인
 3. **Investigation Item 통합**: 여러 조사 작업을 하나의 Item으로 병합하여 LLM 호출 최소화
 `;
@@ -194,22 +186,29 @@ export function getExecutionPhasePrompt(): string {
     `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
     `- ❌ 파일 탐색 금지 (조사는 이미 완료되었습니다)\n` +
     `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
+    `- ❌ XML 태그 형식 사용 금지\n` +
     `- ${noMonologueRules.split("\n").slice(1).join("\n- ")}\n\n` +
-    `**필수 출력 형식 (JSON Function Calling):**\n` +
-    `- ✅ 실행 가능한 JSON function_call만 출력\n` +
-    `- ✅ 도구 호출 전후에 텍스트 출력 금지\n` +
-    `- ✅ 도구 호출이 필요 없으면 아무것도 출력하지 않음 (빈 응답)\n\n` +
+    `**필수 출력 형식:**\n` +
+    `- ✅ \`{ "tool": "..." }\` 형식만 사용\n` +
+    `- ✅ 파일 내용은 \`<<<<<<<CODE ... >>>>>>>END\` 블록 사용\n` +
+    `- ✅ 도구 호출 전후에 텍스트 출력 금지\n\n` +
     `**예시:**\n` +
-    `\`\`\`json\n` +
+    `\`\`\`\n` +
+    `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
+    `<<<<<<<CODE\n` +
+    `import React from 'react';\n` +
+    `export default function App() { return <div>Hello</div>; }\n` +
+    `>>>>>>>END\n` +
+    `\n` +
+    `{ "tool": "create_file", "path": "package.json" }\n` +
+    `<<<<<<<CODE\n` +
     `{\n` +
-    `  "function_calls": [\n` +
-    `    { "name": "create_file", "args": { "path": "src/App.tsx", "content": "..." } },\n` +
-    `    { "name": "create_file", "args": { "path": "package.json", "content": "..." } }\n` +
-    `  ]\n` +
+    `  "name": "my-app",\n` +
+    `  "version": "1.0.0"\n` +
     `}\n` +
+    `>>>>>>>END\n` +
     `\`\`\`\n\n` +
     `**⚠️ 중요:** 모든 자연어 텍스트(사고, 설명, 추론)는 무시됩니다.\n` +
-    `오직 JSON function_call만 실행됩니다. 이미 필요한 모든 정보를 가지고 있습니다.\n` +
-    `설명 없이 즉시 실행을 시작하세요.\n`
+    `오직 \`{ "tool": "..." }\` 형식만 실행됩니다. 설명 없이 즉시 실행을 시작하세요.\n`
   );
 }
