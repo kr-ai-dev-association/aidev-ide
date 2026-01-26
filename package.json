@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "9.0.0",
+  "version": "9.0.1",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -300,6 +300,17 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
+          "scope": "resource"
+        },
+        "codepilot.chatTheme": {
+          "type": "string",
+          "default": "dark",
+          "enum": [
+            "dark",
+            "light",
+            "auto"
+          ],
+          "description": "채팅 패널의 색상 테마를 설정합니다. (dark: 다크, light: 라이트, auto: VS Code)",
           "scope": "resource"
         }
       }

@@ -100,6 +100,10 @@ export function openSettingsPanel(
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
+            // 채팅 테마 설정 로드
+            const config = vscode.workspace.getConfiguration('codepilot');
+            const chatTheme = config.get<string>('chatTheme') || 'dark';
+
             // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
             const compactorModelType = await stateManager.getCompactorModelType();
             const compactorModelName = await stateManager.getCompactorModelName();
@@ -147,6 +151,7 @@ export function openSettingsPanel(
               intentModelType: intentModelType || "",
               intentModelName: intentModelName || "",
               intentApiKeySet: intentApiKeySet,
+              chatTheme: chatTheme,
             };
             console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
               compactorModelType,
@@ -2258,6 +2263,42 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(`Error deleting DB Policy Markdown: ${error.message}`);
+          }
+          break;
+        case "saveChatTheme": // 채팅 테마 저장
+          try {
+            const theme = data.theme;
+            if (theme && ['dark', 'light', 'auto'].includes(theme)) {
+              const config = vscode.workspace.getConfiguration('codepilot');
+              await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
+              console.log(`[SettingsPanel] Chat theme saved: ${theme}`);
+              safePostMessage(panel, {
+                command: 'chatThemeSaved',
+                theme: theme
+              });
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to save chat theme:', error);
+            safePostMessage(panel, {
+              command: 'chatThemeSaveError',
+              error: error.message
+            });
+          }
+          break;
+        case "getChatTheme": // 채팅 테마 로드
+          try {
+            const config = vscode.workspace.getConfiguration('codepilot');
+            const theme = config.get<string>('chatTheme') || 'dark';
+            safePostMessage(panel, {
+              command: 'chatTheme',
+              theme: theme
+            });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to get chat theme:', error);
+            safePostMessage(panel, {
+              command: 'chatTheme',
+              theme: 'dark'
+            });
           }
           break;
         default:

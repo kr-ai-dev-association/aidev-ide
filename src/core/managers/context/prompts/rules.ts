@@ -56,15 +56,21 @@ export function getExecutionFirstRulePrompt(): string {
 export function getErrorRetryPrompt(errorMessage: string): string {
   return (
     `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
-    `**🔥 중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
+    `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
     `**오류 유형별 수정 방법:**\n` +
     `- TypeScript 오류 ("Cannot find module", "Property does not exist") → update_file로 파일 수정\n` +
     `- 의존성 누락 ("Cannot find module 'xxx'") → run_command로 npm install\n` +
     `- 빌드 오류 ("Command failed") → 설정 파일 수정\n\n` +
-    `**⚠️ 절대 금지:**\n` +
+    `**빌드/테스트 도구 설치 절대 금지:**\n` +
+    `- "tsc not found", "gradle not found", "mvn not found" 등 빌드 도구가 없는 경우\n` +
+    `- 절대 npm install -g typescript, brew install gradle 등 도구 설치 명령을 실행하지 마세요\n` +
+    `- 대신 사용자에게 설치를 권유하는 메시지만 출력하세요\n` +
+    `- 예: "TypeScript 컴파일러(tsc)가 설치되어 있지 않습니다. npm install -g typescript 로 설치해주세요."\n\n` +
+    `**절대 금지:**\n` +
     `- 자연어 응답 (설명, 분석, "We need to..." 등)\n` +
-    `- XML 태그 형식\n\n` +
-    `**✅ 필수 출력 형식:**\n` +
+    `- XML 태그 형식\n` +
+    `- 빌드 도구 자동 설치 (tsc, gradle, mvn, cargo, go 등)\n\n` +
+    `**필수 출력 형식:**\n` +
     "```\n" +
     `{ "tool": "read_file", "path": "오류_파일_경로" }\n` +
     "```\n" +
@@ -86,7 +92,10 @@ export function getErrorRetryPrompt(errorMessage: string): string {
 export function getSimpleErrorRetryPrompt(errorMessage: string): string {
   return (
     `\n[System] ⚠️ 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${errorMessage || "알 수 없는 오류"}\n\n${getFileCreationContext()}\n\n` +
-    `필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+    `**의존성 설치 (허용):** npm install, pip install -r requirements.txt 등 프로젝트 의존성 설치는 가능합니다.\n\n` +
+    `**빌드/테스트 도구 설치 금지:**\n` +
+    `- "tsc not found", "gradle not found" 등 빌드 도구가 없는 경우 자동 설치하지 마세요\n` +
+    `- 대신 사용자에게 설치를 권유하세요 (예: "tsc가 없습니다. npm install -g typescript 로 설치해주세요.")\n`
   );
 }
 

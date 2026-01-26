@@ -1116,7 +1116,8 @@ export class InlineDiffManager {
 
         // ✅ STEP 5: Decoration 적용
         // 새 파일인 경우 document가 완전히 로드될 때까지 대기
-        await this.applyDecorationsWithRetry(filePath, allChanges, afterContent, isNewFile);
+        // ✅ editor를 직접 전달하여 VSCode 재시작 후에도 decoration이 적용되도록 함
+        await this.applyDecorationsWithRetry(filePath, allChanges, afterContent, isNewFile, 0, editor);
     }
 
     /**
@@ -1449,24 +1450,34 @@ export class InlineDiffManager {
     /**
      * Decoration 적용 (재시도 로직 포함)
      * 새 파일 생성 시 document가 완전히 로드될 때까지 대기
+     *
+     * @param providedEditor - showInlineDiff에서 이미 열린 editor (optional)
      */
     private async applyDecorationsWithRetry(
         filePath: string,
         allChanges: InlineChange[],
         expectedContent: string,
         isNewFile: boolean,
-        retryCount: number = 0
+        retryCount: number = 0,
+        providedEditor?: vscode.TextEditor
     ): Promise<void> {
-        const maxRetries = isNewFile ? 10 : 3; // 새 파일은 더 많은 재시도
-        const retryDelay = isNewFile ? 200 : 100; // 새 파일은 더 긴 대기 시간
+        const maxRetries = isNewFile ? 10 : 5; // 재시도 횟수 증가
+        const retryDelay = isNewFile ? 200 : 150; // 재시도 간격 증가
 
-        // 현재 visible editors에서 해당 파일 찾기
-        let currentEditor = vscode.window.visibleTextEditors.find(
+        // 현재 visible editors에서 해당 파일 찾기 (providedEditor 우선 사용)
+        let currentEditor = providedEditor || vscode.window.visibleTextEditors.find(
             e => e.document.uri.fsPath === filePath
         );
 
         if (!currentEditor) {
-            // Editor가 없어도 CodeLens는 새로고침
+            // ✅ Editor가 없으면 재시도 (VSCode 재시작 후 첫 호출 시 필요)
+            if (retryCount < maxRetries) {
+                console.log(`[InlineDiffManager] Editor not ready for ${filePath}, retrying (${retryCount + 1}/${maxRetries})...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+                return this.applyDecorationsWithRetry(filePath, allChanges, expectedContent, isNewFile, retryCount + 1);
+            }
+            // 최대 재시도 후에도 editor가 없으면 CodeLens만 새로고침
+            console.warn(`[InlineDiffManager] Editor not available after ${maxRetries} retries for ${filePath}`);
             const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
             DiffCodeLensProvider.getInstance().refresh();
             return;
@@ -1478,9 +1489,9 @@ export class InlineDiffManager {
             (isNewFile && currentContent.trim() === expectedContent.trim());
 
         if (!contentMatches && retryCount < maxRetries) {
-            // 재시도
+            // 재시도 (현재 editor를 계속 사용)
             await new Promise(resolve => setTimeout(resolve, retryDelay));
-            return this.applyDecorationsWithRetry(filePath, allChanges, expectedContent, isNewFile, retryCount + 1);
+            return this.applyDecorationsWithRetry(filePath, allChanges, expectedContent, isNewFile, retryCount + 1, currentEditor);
         }
 
         // ✅ Decoration 적용 (applyDecorationsToEditor 내부에서 기존 decoration 제거됨)

@@ -20,6 +20,25 @@ const vscode = window.vscode || null;
 // 설정 로드 중 플래그 (자동 저장 방지용)
 let isLoadingSettings = false;
 
+// 테마를 body에 적용하는 함수
+function applyThemeToBody(theme) {
+  if (theme === "auto") {
+    // VS Code 테마 감지
+    const isDark = document.body.classList.contains("vscode-dark") || window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.body.setAttribute("data-theme", isDark ? "dark" : "light");
+  } else {
+    document.body.setAttribute("data-theme", theme);
+  }
+  console.log("[Settings] Theme applied to body:", theme);
+}
+
+// 초기 테마 요청
+if (vscode) {
+  vscode.postMessage({
+    command: "getChatTheme"
+  });
+}
+
 // DOM 요소 참조
 
 const autoUpdateToggle = document.getElementById("auto-update-toggle");
@@ -43,10 +62,6 @@ const streamingStatus = document.getElementById("streaming-status");
 if (streamingToggle) {
   streamingToggle.addEventListener("change", () => {
     const enabled = streamingToggle.checked;
-    if (streamingStatus) {
-      streamingStatus.textContent = enabled ? "스트리밍 응답: 켜짐" : "스트리밍 응답: 꺼짐";
-      streamingStatus.className = enabled ? "info-message success-message" : "info-message";
-    }
     if (vscode) {
       vscode.postMessage({
         command: "setStreamingEnabled",
@@ -60,13 +75,6 @@ if (streamingToggle) {
 if (autoTestRetryToggle) {
   autoTestRetryToggle.addEventListener("change", () => {
     const enabled = autoTestRetryToggle.checked;
-    if (autoTestRetryStatus) {
-      autoTestRetryStatus.textContent = enabled ? languageData["autoTestRetryOn"] || "자동 테스트 재시도: 켜짐" : languageData["autoTestRetryOff"] || "자동 테스트 재시도: 꺼짐";
-    }
-    if (testRetrySpinner) {
-      testRetrySpinner.disabled = !enabled;
-      testRetrySpinner.style.opacity = enabled ? "1" : "0.5";
-    }
     if (vscode) {
       vscode.postMessage({
         command: "setAutoTestRetryEnabled",
@@ -80,14 +88,6 @@ if (autoTestRetryToggle) {
 if (autoCorrectionToggle) {
   autoCorrectionToggle.addEventListener("change", () => {
     const enabled = autoCorrectionToggle.checked;
-    // console.log('[Settings] autoCorrectionToggle changed ->', enabled);
-    if (autoCorrectionStatus) {
-      autoCorrectionStatus.textContent = enabled ? languageData["autoCorrectionOn"] || "자동 오류 수정: 켜짐" : languageData["autoCorrectionOff"] || "자동 오류 수정: 꺼짐";
-    }
-    if (errorRetrySpinner) {
-      errorRetrySpinner.disabled = !enabled;
-      errorRetrySpinner.style.opacity = enabled ? "1" : "0.5";
-    }
     if (vscode) {
       vscode.postMessage({
         command: "setAutoCorrectionEnabled",
@@ -101,10 +101,6 @@ if (autoCorrectionToggle) {
 if (autoExecuteToggle) {
   autoExecuteToggle.addEventListener("change", () => {
     const enabled = autoExecuteToggle.checked;
-    // console.log('[Settings] autoExecuteToggle changed ->', enabled);
-    if (autoExecuteStatus) {
-      autoExecuteStatus.textContent = enabled ? languageData["autoExecuteOn"] || "명령어 자동 실행: 켜짐" : languageData["autoExecuteOff"] || "명령어 자동 실행: 꺼짐";
-    }
     if (vscode) {
       vscode.postMessage({
         command: "setAutoExecuteCommandsEnabled",
@@ -208,12 +204,10 @@ function updateSaveButtonsState() {
         button.disabled = false;
         button.style.opacity = "1";
         button.style.cursor = "pointer";
-        // console.log('Button enabled (license required):', button.id);
       } else {
         button.disabled = true;
         button.style.opacity = "0.5";
         button.style.cursor = "not-allowed";
-        // console.log('Button disabled (license required):', button.id);
       }
     }
   });
@@ -224,7 +218,6 @@ function updateSaveButtonsState() {
       button.disabled = false;
       button.style.opacity = "1";
       button.style.cursor = "pointer";
-      // console.log('Button enabled (always enabled):', button.id);
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
     try {
@@ -291,7 +284,6 @@ let currentLanguage = "ko"; // 기본값
 let languageData = {};
 async function loadLanguage(lang) {
   try {
-    // console.log('Requesting language data from extension:', lang);
     // 확장 프로그램에 언어 데이터 요청
     vscode.postMessage({
       command: "getLanguageData",
@@ -302,34 +294,28 @@ async function loadLanguage(lang) {
   }
 }
 function applyLanguage() {
-  // console.log('Applying language:', currentLanguage, languageData);
-
   // 타이틀
   const settingsTitle = document.getElementById("settings-title");
   if (settingsTitle && languageData["settingsTitle"]) {
     settingsTitle.textContent = languageData["settingsTitle"];
-    // console.log('Updated settings title:', languageData['settingsTitle']);
   }
 
   // 언어 라벨
   const languageLabel = document.getElementById("language-label");
   if (languageLabel && languageData["languageLabel"]) {
     languageLabel.textContent = languageData["languageLabel"];
-    // console.log('Updated language label:', languageData['languageLabel']);
   }
 
   // 언어 저장 버튼
   const saveLanguageButton = document.getElementById("save-language-button");
   if (saveLanguageButton && languageData["saveButton"]) {
     saveLanguageButton.textContent = languageData["saveButton"];
-    // console.log('Updated save language button:', languageData['saveButton']);
   }
 
   // API 키 섹션 타이틀
   const apiKeySectionTitle = document.getElementById("api-key-section-title");
   if (apiKeySectionTitle && languageData["apiKeySectionTitle"]) {
     apiKeySectionTitle.textContent = languageData["apiKeySectionTitle"];
-    // console.log('Updated API key section title:', languageData['apiKeySectionTitle']);
   }
 
   // AI 모델 설정 설명
@@ -342,20 +328,17 @@ function applyLanguage() {
   const geminiApiKeyLabel = document.getElementById("gemini-api-key-label");
   if (geminiApiKeyLabel && languageData["geminiApiKeyLabel"]) {
     geminiApiKeyLabel.textContent = languageData["geminiApiKeyLabel"];
-    // console.log('Updated Gemini API key label:', languageData['geminiApiKeyLabel']);
   }
 
   // Gemini API 설명 (기존 변수 사용)
   const geminiApiDescriptionForLabel = document.querySelector("#gemini-api-key-label + p");
   if (geminiApiDescriptionForLabel && languageData["geminiApiDescription"]) {
     geminiApiDescriptionForLabel.textContent = languageData["geminiApiDescription"];
-    // console.log('Updated Gemini API description:', languageData['geminiApiDescription']);
   }
 
   // Gemini API 등록 방법 (기존 변수 사용)
   const geminiApiRegistrationMethodForLabel = document.querySelector("#gemini-api-key-label + p + p");
   if (geminiApiRegistrationMethodForLabel && languageData["geminiApiRegistrationMethod"]) {
-    // 링크는 유지하면서 텍스트만 업데이트
     const linkMatch = geminiApiRegistrationMethodForLabel.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
     if (linkMatch) {
       const linkText = linkMatch[1];
@@ -364,14 +347,12 @@ function applyLanguage() {
     } else {
       geminiApiRegistrationMethodForLabel.textContent = languageData["geminiApiRegistrationMethod"];
     }
-    // console.log('Updated Gemini API registration method:', languageData['geminiApiRegistrationMethod']);
   }
 
   // Gemini 저장 버튼
   const saveGeminiApiKeyButton = document.getElementById("save-gemini-api-key-button");
   if (saveGeminiApiKeyButton && languageData["saveGeminiApiKeyButton"]) {
     saveGeminiApiKeyButton.textContent = languageData["saveGeminiApiKeyButton"];
-    // console.log('Updated Gemini save button:', languageData['saveGeminiApiKeyButton']);
   }
 
   // Gemini 저장 상태 - 현재 상태에 따라 업데이트
@@ -389,7 +370,6 @@ function applyLanguage() {
   document.querySelectorAll(".save-button").forEach(btn => {
     if (languageData["saveButton"]) {
       btn.textContent = languageData["saveButton"];
-      // console.log('Updated save button:', languageData['saveButton']);
     }
   });
 
@@ -397,40 +377,34 @@ function applyLanguage() {
   const sourcePathLabel = document.getElementById("source-path-label");
   if (sourcePathLabel && languageData["sourcePathLabel"]) {
     sourcePathLabel.textContent = languageData["sourcePathLabel"];
-    // console.log('Updated source path label:', languageData['sourcePathLabel']);
   }
 
   // 소스 경로 추가 버튼
   const addSourcePathButton = document.getElementById("add-source-path-button");
   if (addSourcePathButton && languageData["addSourcePathButton"]) {
     addSourcePathButton.textContent = languageData["addSourcePathButton"];
-    // console.log('Updated add source path button:', languageData['addSourcePathButton']);
   }
 
   // 자동 파일 업데이트 라벨
   const autoUpdateLabel = document.getElementById("auto-update-label");
   if (autoUpdateLabel && languageData["autoUpdateLabel"]) {
     autoUpdateLabel.textContent = languageData["autoUpdateLabel"];
-    // console.log('Updated auto update label:', languageData['autoUpdateLabel']);
   }
 
   // 자동 파일 업데이트 on/off
   const autoUpdateOn = document.getElementById("auto-update-on");
   if (autoUpdateOn && languageData["autoUpdateOn"]) {
     autoUpdateOn.textContent = languageData["autoUpdateOn"];
-    // console.log('Updated auto update on:', languageData['autoUpdateOn']);
   }
   const autoUpdateOff = document.getElementById("auto-update-off");
   if (autoUpdateOff && languageData["autoUpdateOff"]) {
     autoUpdateOff.textContent = languageData["autoUpdateOff"];
-    // console.log('Updated auto update off:', languageData['autoUpdateOff']);
   }
 
   // 자동 파일 업데이트 활성화 텍스트
   const autoUpdateEnabledText = document.getElementById("auto-update-enabled-text");
   if (autoUpdateEnabledText && languageData["autoUpdateEnabled"]) {
     autoUpdateEnabledText.textContent = languageData["autoUpdateEnabled"];
-    // console.log('Updated auto update enabled text:', languageData['autoUpdateEnabled']);
   }
 
   // 기타 설명 텍스트들 (p 태그들) - 더 정확한 매칭으로 개선
@@ -477,12 +451,6 @@ function applyLanguage() {
       sourcePathStatus.textContent = languageData["settingsLoading"];
     }
   }
-  if (languageData["autoUpdateLoading"] && autoUpdateStatus) {
-    const currentText = autoUpdateStatus.textContent;
-    if (currentText === "자동 업데이트 설정 로드 중..." || currentText === "Loading auto update settings..." || currentText === "Cargando configuración de actualización automática..." || currentText === "Chargement des paramètres de mise à jour automatique..." || currentText === "正在加载自动更新设置..." || currentText === "自動更新設定を読み込み中..." || currentText === "Lade automatische Aktualisierungseinstellungen...") {
-      autoUpdateStatus.textContent = languageData["autoUpdateLoading"];
-    }
-  }
 
   // 소스 경로 리스트 업데이트 (언어 데이터가 로드된 후)
   if (sourcePathsList) {
@@ -500,7 +468,6 @@ function applyLanguage() {
   const geminiApiDescription = document.querySelector("#api-key-section-title + p");
   if (geminiApiDescription && languageData["geminiApiDescription"]) {
     geminiApiDescription.textContent = languageData["geminiApiDescription"];
-    // console.log('Updated Gemini API description:', languageData['geminiApiDescription']);
   }
 
   // Gemini API 등록 방법
@@ -515,98 +482,84 @@ function applyLanguage() {
     } else {
       geminiApiRegistrationMethod.textContent = languageData["geminiApiRegistrationMethod"];
     }
-    // console.log('Updated Gemini API registration method:', languageData['geminiApiRegistrationMethod']);
   }
 
   // AI 모델 설정 제목
   const aiModelSettingsTitle = document.getElementById("api-key-section-title");
   if (aiModelSettingsTitle && languageData["aiModelSettingsTitle"]) {
     aiModelSettingsTitle.textContent = languageData["aiModelSettingsTitle"];
-    // console.log('Updated AI model settings title:', languageData['aiModelSettingsTitle']);
   }
 
   // Ollama API 라벨
   const ollamaApiLabel = document.getElementById("ollama-api-label");
   if (ollamaApiLabel && languageData["ollamaApiLabel"]) {
     ollamaApiLabel.textContent = languageData["ollamaApiLabel"];
-    // console.log('Updated Ollama API label:', languageData['ollamaApiLabel']);
   }
 
   // Ollama API 설명
   const ollamaApiDescription = document.querySelector("#ollama-api-label + p");
   if (ollamaApiDescription && languageData["ollamaApiDescription"]) {
     ollamaApiDescription.textContent = languageData["ollamaApiDescription"];
-    // console.log('Updated Ollama API description:', languageData['ollamaApiDescription']);
   }
 
   // Ollama API 설정 방법
   const ollamaApiSetupMethod = document.querySelector("#ollama-api-label + p + p");
   if (ollamaApiSetupMethod && languageData["ollamaApiSetupMethod"]) {
     ollamaApiSetupMethod.textContent = languageData["ollamaApiSetupMethod"];
-    // console.log('Updated Ollama API setup method:', languageData['ollamaApiSetupMethod']);
   }
 
   // Ollama 저장 버튼
   const saveOllamaApiUrlButton = document.getElementById("save-ollama-api-url-button");
   if (saveOllamaApiUrlButton && languageData["saveOllamaApiUrlButton"]) {
     saveOllamaApiUrlButton.textContent = languageData["saveOllamaApiUrlButton"];
-    // console.log('Updated Ollama save button:', languageData['saveOllamaApiUrlButton']);
   }
 
   // Banya 라이센스 제목
   const banyaLicenseTitle = document.getElementById("banya-license-title");
   if (banyaLicenseTitle && languageData["banyaLicenseTitle"]) {
     banyaLicenseTitle.textContent = languageData["banyaLicenseTitle"];
-    // console.log('Updated Banya license title:', languageData['banyaLicenseTitle']);
   }
 
   // Banya 라이센스 설명
   const banyaLicenseDescription = document.querySelector("#banya-license-title + p");
   if (banyaLicenseDescription && languageData["banyaLicenseDescription"]) {
     banyaLicenseDescription.textContent = languageData["banyaLicenseDescription"];
-    // console.log('Updated Banya license description:', languageData['banyaLicenseDescription']);
   }
 
   // Banya 라이센스 라벨
   const banyaLicenseLabel = document.getElementById("banya-license-label");
   if (banyaLicenseLabel && languageData["banyaLicenseLabel"]) {
     banyaLicenseLabel.textContent = languageData["banyaLicenseLabel"];
-    // console.log('Updated Banya license label:', languageData['banyaLicenseLabel']);
   }
 
   // Banya 라이센스 설명 (섹션 내)
   const banyaLicenseSectionDescription = document.querySelector("#banya-license-label + p");
   if (banyaLicenseSectionDescription && languageData["banyaLicenseSectionDescription"]) {
     banyaLicenseSectionDescription.textContent = languageData["banyaLicenseSectionDescription"];
-    // console.log('Updated Banya license section description:', languageData['banyaLicenseSectionDescription']);
   }
 
   // Banya 라이센스 저장 버튼
   const saveBanyaLicenseButton = document.getElementById("save-banya-license-button");
   if (saveBanyaLicenseButton && languageData["saveBanyaLicenseButton"]) {
     saveBanyaLicenseButton.textContent = languageData["saveBanyaLicenseButton"];
-    // console.log('Updated Banya license save button:', languageData['saveBanyaLicenseButton']);
   }
 
   // Banya 라이센스 검증 버튼
   const verifyBanyaLicenseButton = document.getElementById("verify-banya-license-button");
   if (verifyBanyaLicenseButton && languageData["verifyButton"]) {
     verifyBanyaLicenseButton.textContent = languageData["verifyButton"];
-    // console.log('Updated Banya license verify button:', languageData['verifyButton']);
   }
 
   // Banya 라이센스 삭제 버튼
   const deleteBanyaLicenseButton = document.getElementById("delete-banya-license-button");
   if (deleteBanyaLicenseButton && languageData["deleteBanyaLicenseButton"]) {
     deleteBanyaLicenseButton.textContent = languageData["deleteBanyaLicenseButton"];
-    // console.log('Updated Banya license delete button:', languageData['deleteBanyaLicenseButton']);
   }
 
   // Banya 라이센스 입력 필드 placeholder
   const banyaLicenseSerialInput = document.getElementById("banya-license-serial-input");
   if (banyaLicenseSerialInput && languageData["pleaseEnterBanyaLicense"]) {
     banyaLicenseSerialInput.placeholder = languageData["pleaseEnterBanyaLicense"];
-    // console.log('Updated Banya license input placeholder:', languageData['pleaseEnterBanyaLicense']);
   }
 
   // Banya 라이센스 상태 메시지 업데이트
@@ -624,7 +577,6 @@ function applyLanguage() {
   const aiModelSelectLabel = document.getElementById("ai-model-select-label");
   if (aiModelSelectLabel && languageData["aiModelSelectLabel"]) {
     aiModelSelectLabel.innerHTML = `<b>${languageData["aiModelSelectLabel"]}</b>`;
-    // console.log('Updated AI model select label:', languageData['aiModelSelectLabel']);
   }
 
   // AI 모델 선택 옵션들
@@ -651,25 +603,21 @@ function applyLanguage() {
   // Ollama API URL 라벨 (기존 변수 사용)
   if (ollamaApiLabel && languageData["ollamaApiLabel"]) {
     ollamaApiLabel.textContent = languageData["ollamaApiLabel"];
-    // console.log('Updated Ollama API label:', languageData['ollamaApiLabel']);
   }
 
   // Ollama API 설명 (기존 변수 사용)
   if (ollamaApiDescription && languageData["ollamaApiDescription"]) {
     ollamaApiDescription.textContent = languageData["ollamaApiDescription"];
-    // console.log('Updated Ollama API description:', languageData['ollamaApiDescription']);
   }
 
   // Ollama API 설정 방법 (기존 변수 사용)
   if (ollamaApiSetupMethod && languageData["ollamaApiSetupMethod"]) {
     ollamaApiSetupMethod.textContent = languageData["ollamaApiSetupMethod"];
-    // console.log('Updated Ollama API setup method:', languageData['ollamaApiSetupMethod']);
   }
 
   // Ollama API URL 저장 버튼 (기존 변수 사용)
   if (saveOllamaApiUrlButton && languageData["saveOllamaApiUrlButton"]) {
     saveOllamaApiUrlButton.textContent = languageData["saveOllamaApiUrlButton"];
-    // console.log('Updated Ollama API URL save button:', languageData['saveOllamaApiUrlButton']);
   }
 
   // 모든 placeholder 업데이트
@@ -784,7 +732,33 @@ if (saveLanguageButton) {
   });
 }
 
-// 페이지 로드 시 기본 언어 적용 (제거 - 중복 방지)
+// 테마 저장 버튼 이벤트 리스너
+const themeSelect = document.getElementById("theme-select");
+const saveThemeButton = document.getElementById("save-theme-button");
+const themeStatus = document.getElementById("theme-status");
+if (saveThemeButton && themeSelect) {
+  saveThemeButton.addEventListener("click", () => {
+    const selectedTheme = themeSelect.value;
+    console.log("Theme save requested:", selectedTheme);
+
+    // 확장에 테마 저장 요청
+    vscode.postMessage({
+      command: "saveChatTheme",
+      theme: selectedTheme
+    });
+
+    // 상태 표시
+    if (themeStatus) {
+      const themeLabels = {
+        dark: "다크",
+        light: "라이트",
+        auto: "자동"
+      };
+      themeStatus.textContent = `테마가 ${themeLabels[selectedTheme] || selectedTheme}(으)로 저장되었습니다.`;
+      themeStatus.className = "info-message success-message";
+    }
+  });
+}
 
 // 상태 메시지 표시
 function showStatus(element, message, type = "info", duration = 3000) {
@@ -809,10 +783,6 @@ if (autoUpdateToggle) {
       command: "setAutoUpdate",
       autoUpdateEnabled: isChecked
     });
-    const settingChangeText = languageData["settingChangeInProgress"] || "설정 변경 중...";
-    const enabledText = languageData["settingChangeEnabled"] || "(활성화)";
-    const disabledText = languageData["settingChangeDisabled"] || "(비활성화)";
-    autoUpdateStatus.textContent = `${settingChangeText} ${isChecked ? enabledText : disabledText}`;
   });
 }
 
@@ -824,12 +794,6 @@ if (outputLogToggle) {
       command: "setOutputLog",
       outputLogEnabled: isChecked
     });
-    const settingChangeText = languageData["settingChangeInProgress"] || "설정 변경 중...";
-    const enabledText = languageData["settingChangeEnabled"] || "(활성화)";
-    const disabledText = languageData["settingChangeDisabled"] || "(비활성화)";
-    if (outputLogStatus) {
-      outputLogStatus.textContent = `${settingChangeText} ${isChecked ? enabledText : disabledText}`;
-    }
   });
 }
 
@@ -842,10 +806,6 @@ if (testRetrySpinner) {
         command: "setTestRetryCount",
         count: count
       });
-      const settingChangeText = languageData["settingChangeInProgress"] || "설정 변경 중...";
-      if (testRetryStatus) {
-        testRetryStatus.textContent = `${settingChangeText} ${count}회`;
-      }
     } else {
       // 범위를 벗어나면 기본값으로 되돌림
       testRetrySpinner.value = 3;
@@ -860,10 +820,6 @@ if (errorRetrySpinner) {
         command: "saveErrorRetryCount",
         errorRetryCount: count
       });
-      const settingChangeText = languageData["settingChangeInProgress"] || "설정 변경 중...";
-      if (errorRetryStatus) {
-        errorRetryStatus.textContent = `${settingChangeText} ${count}회`;
-      }
     } else {
       // 범위를 벗어나면 기본값으로 되돌림
       errorRetrySpinner.value = 3;
@@ -1016,9 +972,7 @@ if (saveOllamaServerTypeButton) {
 if (saveOllamaModelButton) {
   saveOllamaModelButton.addEventListener("click", () => {
     const model = ollamaModelSelect.value;
-    // console.log('Ollama model save button clicked, selected model:', model);
     if (model) {
-      // console.log('Sending saveOllamaModel command to extension with model:', model);
       vscode.postMessage({
         command: "saveOllamaModel",
         model: model
@@ -1511,19 +1465,11 @@ window.addEventListener("message", event => {
               sel.appendChild(opt);
             });
           }
-          // console.log('Ollama 모델 목록 수신:', message.models?.length || 0, '개 from', message.apiUrl || 'unknown');
-
-          // 저장된 모델 값이 있으면 우선 적용, 없으면 기존 모델 유지
-          // console.log('[Settings] Applying Ollama model - storedOllamaModel:', storedOllamaModel, 'currentSettingsOllamaModel:', currentSettingsOllamaModel, 'currentModel:', currentModel);
-
-          // currentSettings에서 받은 모델을 우선적으로 사용
           const modelToApply = currentSettingsOllamaModel || storedOllamaModel;
           if (modelToApply && modelToApply !== "") {
             const options = Array.from(sel.options).map(o => o.value);
-            // console.log('[Settings] Available options:', options);
             if (options.includes(modelToApply)) {
               sel.value = modelToApply;
-              // console.log('[Settings] Applied model:', modelToApply);
             } else {
               // 목록에 없다면 앞에 추가
               const opt = document.createElement("option");
@@ -1531,14 +1477,12 @@ window.addEventListener("message", event => {
               opt.textContent = modelToApply;
               sel.insertBefore(opt, sel.firstChild);
               sel.value = modelToApply;
-              // console.log('[Settings] Added and applied model:', modelToApply);
             }
             // 적용 후 저장된 값 초기화
             storedOllamaModel = null;
             currentSettingsOllamaModel = null;
           } else if (currentModel && currentModel !== "") {
             sel.value = currentModel;
-            // console.log('[Settings] Applied current model:', currentModel);
           }
         }
         break;
@@ -1546,7 +1490,7 @@ window.addEventListener("message", event => {
     case "routingOllamaModels":
       {
         // 라우팅 모델용 Ollama 모델 리스트 수신
-        console.log('[Settings] Received routingOllamaModels message:', message.models?.length || 0, '개');
+        console.log("[Settings] Received routingOllamaModels message:", message.models?.length || 0, "개");
         if (Array.isArray(message.models)) {
           // 캐시 업데이트 (window scope에서 접근 가능하도록)
           window.routingOllamaModelsCache = message.models;
@@ -1579,8 +1523,6 @@ window.addEventListener("message", event => {
         break;
       }
     case "currentSettings":
-      // console.log('[Settings] Received currentSettings message:', message);
-
       // 설정 로드 시작 - 자동 저장 방지
       isLoadingSettings = true;
 
@@ -1609,9 +1551,18 @@ window.addEventListener("message", event => {
         loadLanguage(message.language);
       }
 
+      // 테마 설정 처리
+      if (message.chatTheme) {
+        const themeSelect = document.getElementById("theme-select");
+        if (themeSelect) {
+          themeSelect.value = message.chatTheme;
+        }
+        // body에 테마 적용
+        applyThemeToBody(message.chatTheme);
+      }
+
       // Ollama 모델 설정 처리
       if (message.ollamaModel && message.ollamaModel !== "") {
-        // console.log('[Settings] Storing Ollama model from currentSettings:', message.ollamaModel);
         storedOllamaModel = message.ollamaModel;
         currentSettingsOllamaModel = message.ollamaModel;
 
@@ -1623,7 +1574,6 @@ window.addEventListener("message", event => {
           const options = Array.from(sel.options).map(o => o.value);
           if (options.includes(message.ollamaModel)) {
             sel.value = message.ollamaModel;
-            // console.log('[Settings] Applied stored model immediately:', message.ollamaModel);
           } else {
             // 목록에 없다면 앞에 추가
             const opt = document.createElement("option");
@@ -1631,7 +1581,6 @@ window.addEventListener("message", event => {
             opt.textContent = message.ollamaModel;
             sel.insertBefore(opt, sel.firstChild);
             sel.value = message.ollamaModel;
-            // console.log('[Settings] Added and applied stored model immediately:', message.ollamaModel);
           }
           // 적용 후 저장된 값 초기화
           storedOllamaModel = null;
@@ -1640,82 +1589,28 @@ window.addEventListener("message", event => {
       }
       if (typeof message.autoUpdateEnabled === "boolean" && autoUpdateToggle) {
         autoUpdateToggle.checked = message.autoUpdateEnabled;
-        const autoUpdateChangedText = languageData["autoUpdateChanged"] || "자동 업데이트";
-        const enabledText = languageData["autoUpdateEnabledStatus"] || "활성화됨";
-        const disabledText = languageData["autoUpdateDisabledStatus"] || "비활성화됨";
-        const currentText = languageData["current"] || "현재:";
-        const statusText = `${autoUpdateChangedText} ${message.autoUpdateEnabled ? enabledText : disabledText}.`;
-        showStatus(autoUpdateStatus, statusText, "success");
-        autoUpdateStatus.textContent = `${currentText} ${statusText}`;
       }
       if (typeof message.outputLogEnabled === "boolean" && outputLogToggle) {
         outputLogToggle.checked = message.outputLogEnabled;
-        const outputLogEnabledText = languageData["outputLogEnabled"] || "OUTPUT 로그 활성화";
-        const enabledText = languageData["outputLogStatusEnabled"] || "현재: OUTPUT 로그 활성화됨";
-        const disabledText = languageData["outputLogStatusDisabled"] || "현재: OUTPUT 로그 비활성화됨";
-        const statusText = message.outputLogEnabled ? enabledText : disabledText;
-        showStatus(outputLogStatus, statusText, "success");
-        outputLogStatus.textContent = statusText;
       }
       if (typeof message.errorRetryCount === "number" && errorRetrySpinner) {
         errorRetrySpinner.value = message.errorRetryCount;
-        const errorRetryStatusText = languageData["errorRetryStatus"] || "현재: 최대 오류 수정 횟수";
-        const timesText = languageData["errorRetryTimes"] || "회";
-        const statusText = `${errorRetryStatusText} ${message.errorRetryCount}${timesText}`;
-        showStatus(errorRetryStatus, statusText, "success");
-        errorRetryStatus.textContent = statusText;
       }
       if (typeof message.autoExecuteCommandsEnabled === "boolean" && autoExecuteToggle) {
         autoExecuteToggle.checked = message.autoExecuteCommandsEnabled;
-        const autoExecuteOnText = languageData["autoExecuteOn"] || "명령어 자동 실행: 켜짐";
-        const autoExecuteOffText = languageData["autoExecuteOff"] || "명령어 자동 실행: 꺼짐";
-        const statusText = message.autoExecuteCommandsEnabled ? autoExecuteOnText : autoExecuteOffText;
-        showStatus(autoExecuteStatus, statusText, "success");
-        autoExecuteStatus.textContent = statusText;
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
-        const statusText = message.streamingEnabled ? "스트리밍 응답: 켜짐" : "스트리밍 응답: 꺼짐";
-        streamingStatus.textContent = statusText;
-        streamingStatus.className = message.streamingEnabled ? "info-message success-message" : "info-message";
       }
       if (typeof message.autoCorrectionEnabled === "boolean" && autoCorrectionToggle) {
         autoCorrectionToggle.checked = message.autoCorrectionEnabled;
-        if (autoCorrectionStatus) {
-          autoCorrectionStatus.textContent = message.autoCorrectionEnabled ? languageData["autoCorrectionOn"] || "자동 오류 수정: 켜짐" : languageData["autoCorrectionOff"] || "자동 오류 수정: 꺼짐";
-        }
-        if (errorRetrySpinner) {
-          errorRetrySpinner.disabled = !message.autoCorrectionEnabled;
-          errorRetrySpinner.style.opacity = message.autoCorrectionEnabled ? "1" : "0.5";
-        }
       }
       if (typeof message.autoTestRetryEnabled === "boolean" && autoTestRetryToggle) {
         autoTestRetryToggle.checked = message.autoTestRetryEnabled;
-        if (autoTestRetryStatus) {
-          autoTestRetryStatus.textContent = message.autoTestRetryEnabled ? languageData["autoTestRetryOn"] || "자동 테스트 재시도: 켜짐" : languageData["autoTestRetryOff"] || "자동 테스트 재시도: 꺼짐";
-        }
-        if (testRetrySpinner) {
-          testRetrySpinner.disabled = !message.autoTestRetryEnabled;
-          testRetrySpinner.style.opacity = message.autoTestRetryEnabled ? "1" : "0.5";
-        }
       }
       if (typeof message.testRetryCount === "number" && testRetrySpinner) {
         testRetrySpinner.value = message.testRetryCount;
-        const testRetryStatusText = languageData["testRetryStatus"] || "현재: 최대 테스트 재시도 횟수";
-        const timesText = languageData["testRetryTimes"] || "회";
-        const statusText = `${testRetryStatusText} ${message.testRetryCount}${timesText}`;
-        if (testRetryStatus) {
-          showStatus(testRetryStatus, statusText, "success");
-          testRetryStatus.textContent = statusText;
-        }
       }
-      // projectRoot 표시 기능은 현재 사용하지 않음 (HTML 요소 없음)
-      // if (typeof message.projectRoot === "string") {
-      //   updateProjectRootDisplay(message.projectRoot);
-      //   const projectRootLoadedText =
-      //     languageData["projectRootLoaded"] || "프로젝트 Root 로드 완료.";
-      //   showStatus(projectRootStatus, projectRootLoadedText, "success");
-      // }
 
       // ===== AI 모델 설정 적용 =====
       if (aiModelSelect && typeof message.aiModel === "string") {
@@ -1831,7 +1726,7 @@ window.addEventListener("message", event => {
       }
 
       // 모델 라우팅 설정 적용
-      console.log('[Settings] Received routing model settings:', {
+      console.log("[Settings] Received routing model settings:", {
         compactorModelType: message.compactorModelType,
         compactorModelName: message.compactorModelName,
         commandModelType: message.commandModelType,
@@ -1845,17 +1740,19 @@ window.addEventListener("message", event => {
         const compactorApikeyContainer = document.getElementById("compactor-apikey-container");
         const compactorSubmodelSelect = document.getElementById("compactor-submodel-select");
         const compactorModelStatus = document.getElementById("compactor-model-status");
-        console.log('[Settings] compactorTypeSelect element:', compactorTypeSelect);
-        console.log('[Settings] compactorTypeSelect options:', compactorTypeSelect ? Array.from(compactorTypeSelect.options).map(o => o.value) : 'N/A');
+        console.log("[Settings] compactorTypeSelect element:", compactorTypeSelect);
+        console.log("[Settings] compactorTypeSelect options:", compactorTypeSelect ? Array.from(compactorTypeSelect.options).map(o => o.value) : "N/A");
         if (compactorTypeSelect) {
           compactorTypeSelect.value = message.compactorModelType || "";
-          console.log('[Settings] compactorTypeSelect.value after set:', compactorTypeSelect.value);
+          console.log("[Settings] compactorTypeSelect.value after set:", compactorTypeSelect.value);
         }
 
         // 하위 UI 표시 및 값 설정
         if (message.compactorModelType) {
           // 타입 선택 시 하위 모델 표시
-          if (compactorSubmodelContainer) compactorSubmodelContainer.style.display = "block";
+          if (compactorSubmodelContainer) {
+            compactorSubmodelContainer.style.display = "block";
+          }
           if (compactorApikeyContainer) {
             compactorApikeyContainer.style.display = message.compactorModelType === "gemini" || message.compactorModelType === "banya" ? "block" : "none";
           }
@@ -1923,8 +1820,12 @@ window.addEventListener("message", event => {
             }
           }
         } else {
-          if (compactorSubmodelContainer) compactorSubmodelContainer.style.display = "none";
-          if (compactorApikeyContainer) compactorApikeyContainer.style.display = "none";
+          if (compactorSubmodelContainer) {
+            compactorSubmodelContainer.style.display = "none";
+          }
+          if (compactorApikeyContainer) {
+            compactorApikeyContainer.style.display = "none";
+          }
         }
         if (compactorModelStatus) {
           if (message.compactorModelType) {
@@ -1949,11 +1850,15 @@ window.addEventListener("message", event => {
         const commandApikeyContainer = document.getElementById("command-apikey-container");
         const commandSubmodelSelect = document.getElementById("command-submodel-select");
         const commandModelStatus = document.getElementById("command-model-status");
-        if (commandTypeSelect) commandTypeSelect.value = message.commandModelType || "";
+        if (commandTypeSelect) {
+          commandTypeSelect.value = message.commandModelType || "";
+        }
 
         // 하위 UI 표시 및 값 설정
         if (message.commandModelType) {
-          if (commandSubmodelContainer) commandSubmodelContainer.style.display = "block";
+          if (commandSubmodelContainer) {
+            commandSubmodelContainer.style.display = "block";
+          }
           if (commandApikeyContainer) {
             commandApikeyContainer.style.display = message.commandModelType === "gemini" || message.commandModelType === "banya" ? "block" : "none";
           }
@@ -2021,8 +1926,12 @@ window.addEventListener("message", event => {
             }
           }
         } else {
-          if (commandSubmodelContainer) commandSubmodelContainer.style.display = "none";
-          if (commandApikeyContainer) commandApikeyContainer.style.display = "none";
+          if (commandSubmodelContainer) {
+            commandSubmodelContainer.style.display = "none";
+          }
+          if (commandApikeyContainer) {
+            commandApikeyContainer.style.display = "none";
+          }
         }
         if (commandModelStatus) {
           if (message.commandModelType) {
@@ -2048,11 +1957,15 @@ window.addEventListener("message", event => {
         const intentApikeyContainer = document.getElementById("intent-apikey-container");
         const intentSubmodelSelect = document.getElementById("intent-submodel-select");
         const intentModelStatus = document.getElementById("intent-model-status");
-        if (intentTypeSelect) intentTypeSelect.value = message.intentModelType || "";
+        if (intentTypeSelect) {
+          intentTypeSelect.value = message.intentModelType || "";
+        }
 
         // 하위 UI 표시 및 값 설정
         if (message.intentModelType) {
-          if (intentSubmodelContainer) intentSubmodelContainer.style.display = "block";
+          if (intentSubmodelContainer) {
+            intentSubmodelContainer.style.display = "block";
+          }
           if (intentApikeyContainer) {
             intentApikeyContainer.style.display = message.intentModelType === "gemini" || message.intentModelType === "banya" ? "block" : "none";
           }
@@ -2061,7 +1974,7 @@ window.addEventListener("message", event => {
             const submodelOptionsForLoad = {
               gemini: [{
                 value: "gemini-3-flash-preview",
-                label: "Gemini 3 Flash Preview (권장)"
+                label: "Gemini 3 Flash Preview"
               }, {
                 value: "gemini-3-pro-preview",
                 label: "Gemini 3 Pro Preview"
@@ -2120,8 +2033,12 @@ window.addEventListener("message", event => {
             }
           }
         } else {
-          if (intentSubmodelContainer) intentSubmodelContainer.style.display = "none";
-          if (intentApikeyContainer) intentApikeyContainer.style.display = "none";
+          if (intentSubmodelContainer) {
+            intentSubmodelContainer.style.display = "none";
+          }
+          if (intentApikeyContainer) {
+            intentApikeyContainer.style.display = "none";
+          }
         }
         if (intentModelStatus) {
           if (message.intentModelType) {
@@ -2166,7 +2083,9 @@ window.addEventListener("message", event => {
       {
         const compactorModelStatus = document.getElementById("compactor-model-status");
         const compactorTypeSelect = document.getElementById("compactor-model-type-select");
-        if (compactorTypeSelect) compactorTypeSelect.value = "";
+        if (compactorTypeSelect) {
+          compactorTypeSelect.value = "";
+        }
         if (compactorModelStatus) {
           compactorModelStatus.textContent = "Compactor 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
           compactorModelStatus.className = "info-message";
@@ -2195,7 +2114,9 @@ window.addEventListener("message", event => {
       {
         const commandModelStatus = document.getElementById("command-model-status");
         const commandTypeSelect = document.getElementById("command-model-type-select");
-        if (commandTypeSelect) commandTypeSelect.value = "";
+        if (commandTypeSelect) {
+          commandTypeSelect.value = "";
+        }
         if (commandModelStatus) {
           commandModelStatus.textContent = "Command 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
           commandModelStatus.className = "info-message";
@@ -2289,69 +2210,27 @@ window.addEventListener("message", event => {
     case "autoUpdateStatusChanged":
       if (typeof message.enabled === "boolean" && autoUpdateToggle) {
         autoUpdateToggle.checked = message.enabled;
-        const autoUpdateChangedText = languageData["autoUpdateChanged"] || "자동 업데이트";
-        const enabledText = languageData["autoUpdateEnabledStatus"] || "활성화됨";
-        const disabledText = languageData["autoUpdateDisabledStatus"] || "비활성화됨";
-        const currentText = languageData["current"] || "현재:";
-        const statusText = `${autoUpdateChangedText} ${message.enabled ? enabledText : disabledText}.`;
-        showStatus(autoUpdateStatus, statusText, "success");
-        autoUpdateStatus.textContent = `${currentText} ${statusText}`;
       }
       break;
     case "outputLogStatusChanged":
       if (typeof message.enabled === "boolean" && outputLogToggle) {
         outputLogToggle.checked = message.enabled;
-        const outputLogEnabledText = languageData["outputLogEnabled"] || "OUTPUT 로그 활성화";
-        const enabledText = languageData["outputLogStatusEnabled"] || "현재: OUTPUT 로그 활성화됨";
-        const disabledText = languageData["outputLogStatusDisabled"] || "현재: OUTPUT 로그 비활성화됨";
-        const statusText = message.enabled ? enabledText : disabledText;
-        showStatus(outputLogStatus, statusText, "success");
-        outputLogStatus.textContent = statusText;
       }
       break;
     case "errorRetryCountChanged":
       if (typeof message.count === "number" && errorRetrySpinner) {
         errorRetrySpinner.value = message.count;
-        const errorRetryStatusText = languageData["errorRetryStatus"] || "현재: 최대 오류 수정 횟수";
-        const timesText = languageData["errorRetryTimes"] || "회";
-        const statusText = `${errorRetryStatusText} ${message.count}${timesText}`;
-        showStatus(errorRetryStatus, statusText, "success");
-        errorRetryStatus.textContent = statusText;
       }
       break;
     case "autoTestRetryEnabledSet":
-      if (typeof message.enabled === "boolean" && autoTestRetryToggle) {
-        autoTestRetryToggle.checked = message.enabled;
-        if (autoTestRetryStatus) {
-          autoTestRetryStatus.textContent = message.enabled ? languageData["autoTestRetryOn"] || "자동 테스트 재시도: 켜짐" : languageData["autoTestRetryOff"] || "자동 테스트 재시도: 꺼짐";
-        }
-        if (testRetrySpinner) {
-          testRetrySpinner.disabled = !message.enabled;
-          testRetrySpinner.style.opacity = message.enabled ? "1" : "0.5";
-        }
-      }
+      if (typeof message.enabled === "boolean" && autoTestRetryToggle) {}
       break;
     case "testRetryCountSet":
-      if (typeof message.count === "number" && testRetrySpinner) {
-        testRetrySpinner.value = message.count;
-        const testRetryStatusText = languageData["testRetryStatus"] || "현재: 최대 테스트 재시도 횟수";
-        const timesText = languageData["testRetryTimes"] || "회";
-        const statusText = `${testRetryStatusText} ${message.count}${timesText}`;
-        if (testRetryStatus) {
-          testRetryStatus.textContent = statusText;
-        }
-      }
+      if (typeof message.count === "number" && testRetrySpinner) {}
       break;
     case "autoCorrectionStatusChanged":
       if (typeof message.enabled === "boolean" && autoCorrectionToggle) {
         autoCorrectionToggle.checked = message.enabled;
-        if (autoCorrectionStatus) {
-          autoCorrectionStatus.textContent = message.enabled ? languageData["autoCorrectionOn"] || "자동 오류 수정: 켜짐" : languageData["autoCorrectionOff"] || "자동 오류 수정: 꺼짐";
-        }
-        if (errorRetrySpinner) {
-          errorRetrySpinner.disabled = !message.enabled;
-          errorRetrySpinner.style.opacity = message.enabled ? "1" : "0.5";
-        }
       }
       break;
     case "currentApiKeys":
@@ -2648,6 +2527,35 @@ window.addEventListener("message", event => {
       const languageChangedToText = languageData["languageChangedTo"] || "로 변경되었습니다.";
       showStatus(sourcePathStatus, `${languageChangedText} ${message.language} ${languageChangedToText}`, "success");
       break;
+    case "chatThemeSaved":
+      console.log("Chat theme saved successfully:", message.theme);
+      const themeSelectEl = document.getElementById("theme-select");
+      const themeStatusEl = document.getElementById("theme-status");
+      if (themeSelectEl) {
+        themeSelectEl.value = message.theme;
+      }
+      if (themeStatusEl) {
+        const themeLabels = {
+          dark: "다크",
+          light: "라이트",
+          auto: "자동"
+        };
+        themeStatusEl.textContent = `테마가 ${themeLabels[message.theme] || message.theme}(으)로 저장되었습니다.`;
+        themeStatusEl.className = "info-message success-message";
+      }
+      // body에 테마 적용
+      applyThemeToBody(message.theme);
+      break;
+    case "chatTheme":
+      // 테마 변경 메시지 수신 시 body에 적용
+      if (message.theme) {
+        applyThemeToBody(message.theme);
+        const themeSelectForUpdate = document.getElementById("theme-select");
+        if (themeSelectForUpdate) {
+          themeSelectForUpdate.value = message.theme;
+        }
+      }
+      break;
     case "languageSaveError":
       const languageSaveErrorText = languageData["languageSaveError"] || "언어 저장 실패:";
       showStatus(sourcePathStatus, `${languageSaveErrorText} ${message.error}`, "error");
@@ -2727,19 +2635,8 @@ window.addEventListener("message", event => {
             projectRootStatus.textContent = languageData["projectRootLoaded"] || "프로젝트 Root 로드 완료.";
           }
         }
-        if (autoUpdateStatus && autoUpdateStatus.textContent) {
-          const currentText = autoUpdateStatus.textContent;
-          if (currentText.includes("활성화됨") || currentText.includes("enabled") || currentText.includes("habilitada") || currentText.includes("activée") || currentText.includes("已启用") || currentText.includes("有効") || currentText.includes("비활성화됨") || currentText.includes("disabled") || currentText.includes("deshabilitada") || currentText.includes("désactivée") || currentText.includes("已禁用") || currentText.includes("無効")) {
-            // 자동 업데이트 상태 텍스트 업데이트
-            const autoUpdateChangedText = languageData["autoUpdateChanged"] || "자동 업데이트";
-            const enabledText = languageData["autoUpdateEnabledStatus"] || "활성화됨";
-            const disabledText = languageData["autoUpdateDisabledStatus"] || "비활성화됨";
-            const currentText = languageData["current"] || "현재:";
-            const isEnabled = autoUpdateToggle ? autoUpdateToggle.checked : false;
-            const statusText = `${autoUpdateChangedText} ${isEnabled ? enabledText : disabledText}.`;
-            autoUpdateStatus.textContent = `${currentText} ${statusText}`;
-          }
-        }
+
+        // autoUpdateStatus 텍스트 업데이트 제거 - 스위치 버튼으로 상태 표시
       }
       break;
   }
@@ -2892,7 +2789,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 라우팅 모델용 Ollama 모델 리스트 요청
   function loadRoutingOllamaModels() {
-    console.log('[Settings] Requesting routing Ollama models');
+    console.log("[Settings] Requesting routing Ollama models");
     vscode.postMessage({
       command: "getRoutingOllamaModels"
     });
@@ -2926,8 +2823,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const modelStatus = document.getElementById(`${prefix}-model-status`);
     if (!modelType) {
       // 메인 모델 사용 선택 시 저장된 설정 삭제 및 UI 숨김
-      if (submodelContainer) submodelContainer.style.display = "none";
-      if (apikeyContainer) apikeyContainer.style.display = "none";
+      if (submodelContainer) {
+        submodelContainer.style.display = "none";
+      }
+      if (apikeyContainer) {
+        apikeyContainer.style.display = "none";
+      }
 
       // 저장된 라우팅 모델 설정 삭제
       const commandMap = {
@@ -2967,7 +2868,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (submodelSelect) {
       updateSubmodelSelect(submodelSelect, modelType);
     }
-    if (submodelContainer) submodelContainer.style.display = "block";
+    if (submodelContainer) {
+      submodelContainer.style.display = "block";
+    }
 
     // API 키 입력은 gemini, banya만 표시 (ollama는 로컬이므로 필요 없음)
     if (apikeyContainer) {
@@ -3038,7 +2941,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       // 입력 필드 초기화
-      if (compactorApiKeyInput) compactorApiKeyInput.value = "";
+      if (compactorApiKeyInput) {
+        compactorApiKeyInput.value = "";
+      }
     });
   }
 
@@ -3089,7 +2994,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       // 입력 필드 초기화
-      if (commandApiKeyInput) commandApiKeyInput.value = "";
+      if (commandApiKeyInput) {
+        commandApiKeyInput.value = "";
+      }
     });
   }
 
@@ -3148,7 +3055,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       // 입력 필드 초기화
-      if (intentApiKeyInput) intentApiKeyInput.value = "";
+      if (intentApiKeyInput) {
+        intentApiKeyInput.value = "";
+      }
     });
   }
 });

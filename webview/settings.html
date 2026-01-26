@@ -10,6 +10,103 @@
     <link rel="stylesheet" type="text/css" href="{{commonStylesUri}}" />
     <link rel="stylesheet" type="text/css" href="{{settingsStylesUri}}" />
     <style>
+      /* ========== 라이트 테마 ========== */
+      body[data-theme="light"] {
+        --vscode-foreground: #374151 !important;
+        --vscode-editor-background: #f3f4f6 !important;
+        --vscode-panel-background: #f3f4f6 !important;
+        --vscode-input-background: #ffffff !important;
+        --vscode-input-foreground: #111827 !important;
+        --vscode-input-border: #d1d5db !important;
+        --vscode-button-background: #0e639c !important;
+        --vscode-button-foreground: #ffffff !important;
+        --vscode-button-hoverBackground: #1177bb !important;
+        --vscode-textLink-foreground: #2563eb !important;
+        --vscode-panel-border: #e5e7eb !important;
+        --vscode-descriptionForeground: #6b7280 !important;
+        --vscode-focusBorder: #2563eb !important;
+        background-color: #f3f4f6 !important;
+        color: #374151 !important;
+      }
+      /* 버튼 스타일 - 라이트 테마 (다크 테마와 동일한 색상) */
+      body[data-theme="light"] button,
+      body[data-theme="light"] .save-button,
+      body[data-theme="light"] #add-directory-button,
+      body[data-theme="light"] #verify-banya-license-button,
+      body[data-theme="light"] .license-button-group button {
+        background-color: #0e639c !important;
+        color: #ffffff !important;
+      }
+      body[data-theme="light"] button:hover,
+      body[data-theme="light"] .save-button:hover,
+      body[data-theme="light"] #add-directory-button:hover,
+      body[data-theme="light"] #verify-banya-license-button:hover,
+      body[data-theme="light"] .license-button-group button:hover {
+        background-color: #1177bb !important;
+      }
+      body[data-theme="light"] h1,
+      body[data-theme="light"] h2,
+      body[data-theme="light"] h3 {
+        color: #2563eb !important;
+      }
+      body[data-theme="light"] .api-key-section {
+        background-color: #ffffff !important;
+        border-color: #e5e7eb !important;
+      }
+      body[data-theme="light"] select,
+      body[data-theme="light"] input[type="text"],
+      body[data-theme="light"] input[type="password"],
+      body[data-theme="light"] input[type="number"] {
+        background-color: #ffffff !important;
+        color: #111827 !important;
+        border-color: #d1d5db !important;
+      }
+      body[data-theme="light"] .spinner-container label,
+      body[data-theme="light"] .spinner-container span {
+        color: #374151 !important;
+      }
+      body[data-theme="light"] .toggle-switch-container label {
+        background: #9ca3af !important;
+      }
+      body[data-theme="light"] .toggle-switch-container input:checked + label {
+        background: #2563eb !important;
+      }
+      body[data-theme="light"] .info-message {
+        color: #6b7280 !important;
+      }
+      body[data-theme="light"] .info-message.success-message {
+        color: #16a34a !important;
+      }
+      body[data-theme="light"] .info-message.error-message {
+        color: #dc2626 !important;
+      }
+      body[data-theme="light"] .model-card {
+        background-color: #ffffff !important;
+        border-color: #e5e7eb !important;
+      }
+      body[data-theme="light"] .model-card:hover {
+        border-color: #2563eb !important;
+      }
+      body[data-theme="light"] .model-card.selected {
+        border-color: #2563eb !important;
+        background-color: #eff6ff !important;
+      }
+      body[data-theme="light"] .model-name {
+        color: #111827 !important;
+      }
+      body[data-theme="light"] .model-description {
+        color: #6b7280 !important;
+      }
+      body[data-theme="light"] ::-webkit-scrollbar-track {
+        background: #f3f4f6 !important;
+      }
+      body[data-theme="light"] ::-webkit-scrollbar-thumb {
+        background: #9ca3af !important;
+      }
+      body[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+        background: #6b7280 !important;
+      }
+
       /* settings.html 고유 스타일 및 license.html과 동기화된 스타일 */
       body {
         font-family: var(--vscode-font-family);
@@ -567,9 +664,7 @@
 
     <!-- 언어 설정 드롭다운 추가 -->
     <div class="settings-section">
-      <label id="language-label" for="language-select"
-        ><b>언어 (Language)</b></label
-      >
+      <label id="language-label" for="language-select"><b>언어</b></label>
       <div style="display: flex; align-items: center; gap: 10px">
         <select id="language-select">
           <option value="ko">한국어</option>
@@ -582,6 +677,21 @@
         </select>
         <button id="save-language-button" class="save-button">언어 저장</button>
       </div>
+    </div>
+
+    <!-- 테마 설정 -->
+    <div class="settings-section" style="margin-top: 20px">
+      <label id="theme-label" for="theme-select"><b>테마</b></label>
+      <p class="info-message">색상 테마를 선택합니다.</p>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <select id="theme-select">
+          <option value="dark">다크</option>
+          <option value="light">라이트</option>
+          <option value="auto">VS Code 테마</option>
+        </select>
+        <button id="save-theme-button" class="save-button">테마 저장</button>
+      </div>
+      <p id="theme-status" class="info-message" style="margin-top: 5px"></p>
     </div>
 
     <div class="section-container">
@@ -618,18 +728,12 @@
       <div class="toggle-switch-container">
         <input type="checkbox" id="auto-update-toggle" />
         <label for="auto-update-toggle">Toggle</label>
-        <!-- 스위치 핸들 -->
-        <span class="toggle-label-text" id="auto-update-enabled-text"
-          >파일 자동 업데이트 활성화</span
-        >
       </div>
       <p
         id="auto-update-status"
         class="info-message"
         style="margin-top: 5px"
       ></p>
-      <span id="auto-update-on">켜기</span>
-      <span id="auto-update-off">끄기</span>
     </div>
 
     <div class="section-container">
@@ -648,8 +752,6 @@
         class="info-message"
         style="margin-top: 5px"
       ></p>
-      <span id="output-log-on" data-i18n="outputLogOn">켜기</span>
-      <span id="output-log-off" data-i18n="outputLogOff">끄기</span>
     </div>
 
     <div class="section-container">
@@ -762,13 +864,6 @@
         <label for="streaming-toggle"></label>
         <span style="margin-left: 10px"><b>스트리밍 응답 활성화</b></span>
       </div>
-      <p
-        id="streaming-status"
-        class="info-message"
-        style="margin-top: 5px; margin-bottom: 15px"
-      >
-        스트리밍 응답: 꺼짐
-      </p>
 
       <!-- Gemini API 키 설정 -->
       <div class="api-key-section" id="gemini-settings-section">
@@ -846,8 +941,8 @@
             ><b>Ollama 서버 타입</b></label
           >
           <select id="ollama-server-type-select">
-            <option value="local">로컬 머신 (Localhost)</option>
-            <option value="remote">원격 서버 (Remote Server)</option>
+            <option value="local">로컬 머신</option>
+            <option value="remote">원격 서버</option>
           </select>
           <button id="save-ollama-server-type-button">서버 타입 저장</button>
         </div>
@@ -1003,7 +1098,7 @@
         <!-- Compactor 모델 설정 -->
         <div style="margin-bottom: 20px">
           <label style="display: block; margin-bottom: 5px"
-            ><b>Compactor 모델</b> (대화 압축용)</label
+            ><b>대화 압축용 모델</b></label
           >
           <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
             대화가 길어질 때 컨텍스트를 요약하는 데 사용됩니다. 빠르고 저렴한
@@ -1013,7 +1108,7 @@
           <div class="api-key-input-group" style="margin-bottom: 10px">
             <select id="compactor-model-type-select">
               <option value="">메인 모델 사용</option>
-              <option value="ollama">Ollama (Local/Remote)</option>
+              <option value="ollama">Ollama</option>
               <option value="gemini">Google Gemini</option>
               <option value="banya">Banya</option>
             </select>
@@ -1047,8 +1142,8 @@
         <!-- Command 모델 설정 -->
         <div>
           <label style="display: block; margin-bottom: 5px"
-            ><b>Command 모델</b> (명령어 생성용)</label
-          >
+            ><b>명령어 생성용 모델</b>
+          </label>
           <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
             터미널 명령어를 생성하는 데 사용됩니다. 코드 생성에 특화된 모델
             권장.
@@ -1057,7 +1152,7 @@
           <div class="api-key-input-group" style="margin-bottom: 10px">
             <select id="command-model-type-select">
               <option value="">메인 모델 사용</option>
-              <option value="ollama">Ollama (Local/Remote)</option>
+              <option value="ollama">Ollama</option>
               <option value="gemini">Google Gemini</option>
               <option value="banya">Banya</option>
             </select>
@@ -1091,8 +1186,8 @@
         <!-- Intent 모델 설정 -->
         <div style="margin-top: 20px">
           <label style="display: block; margin-bottom: 5px"
-            ><b>Intent 모델</b> (의도 분석용)</label
-          >
+            ><b>의도 분석용 모델</b>
+          </label>
           <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
             사용자 쿼리의 의도를 분석하는 데 사용됩니다. 빠르고 저렴한 모델
             권장.
@@ -1101,7 +1196,7 @@
           <div class="api-key-input-group" style="margin-bottom: 10px">
             <select id="intent-model-type-select">
               <option value="">메인 모델 사용</option>
-              <option value="ollama">Ollama (Local/Remote)</option>
+              <option value="ollama">Ollama</option>
               <option value="gemini">Google Gemini</option>
               <option value="banya">Banya</option>
             </select>
@@ -1323,7 +1418,7 @@
 
     <!-- 버전 정보 -->
     <div class="version-footer">
-      <p id="version-info">CODEPILOT v<span id="version-number">9.0.0</span></p>
+      <p id="version-info">CODEPILOT v<span id="version-number">9.0.1</span></p>
     </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->

@@ -739,16 +739,16 @@ export class ConversationManager {
                     }
                 }
 
-                // CODE 모드 사용 토큰을 세션에 누적
+                // CODE 모드 사용 토큰을 세션에 설정 (누적이 아닌 현재 값으로 설정 - 재시작 후에도 정확한 게이지 표시)
                 if (options.extensionContext) {
                     try {
                         const { SessionManager } = await import('../state/SessionManager');
                         const sessionManager = SessionManager.getInstance(options.extensionContext);
                         const compactor = ConversationCompactor.getInstance(this.llmManager);
-                        const loopTokens = compactor.calculateTotalTokens(accumulatedUserParts, systemPrompt);
-                        sessionManager.addTokensUsed(loopTokens);
+                        const currentTokens = compactor.calculateTotalTokens(accumulatedUserParts, systemPrompt);
+                        sessionManager.setTotalTokensUsed(currentTokens);
                     } catch (e) {
-                        console.warn('[ConversationManager] Failed to add tokens to session:', e);
+                        console.warn('[ConversationManager] Failed to set tokens in session:', e);
                     }
                 }
 

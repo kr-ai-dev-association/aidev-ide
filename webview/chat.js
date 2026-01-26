@@ -358,7 +358,10 @@ function renderStreamingContent() {
         // 3. 마크다운 렌더링
         const renderedHtml = md.render(processedText);
         // 4. sanitizeHtml 적용
-        if (typeof sanitizeHtml === "function" && typeof sanitizeOptions !== "undefined") {
+        if (
+          typeof sanitizeHtml === "function" &&
+          typeof sanitizeOptions !== "undefined"
+        ) {
           html += sanitizeHtml(renderedHtml, sanitizeOptions);
         } else {
           html += renderedHtml;
@@ -438,8 +441,14 @@ function endStreamingMessage() {
         const renderedHtml = md.render(cleanText);
 
         // 5. HTML 새니타이징 적용 (XSS 방지)
-        if (typeof sanitizeHtml === "function" && typeof sanitizeOptions !== "undefined") {
-          contentElement.innerHTML = sanitizeHtml(renderedHtml, sanitizeOptions);
+        if (
+          typeof sanitizeHtml === "function" &&
+          typeof sanitizeOptions !== "undefined"
+        ) {
+          contentElement.innerHTML = sanitizeHtml(
+            renderedHtml,
+            sanitizeOptions,
+          );
         } else {
           contentElement.innerHTML = renderedHtml;
         }
@@ -501,7 +510,9 @@ function enhanceCodeBlocks(contentElement) {
     }
 
     const codeElement = preElement.querySelector("code");
-    if (!codeElement) return;
+    if (!codeElement) {
+      return;
+    }
 
     // 언어 추출 (class="language-xxx" 또는 hljs의 data-highlighted)
     let lang = "";
@@ -834,16 +845,24 @@ function getChatInputDisplayContent() {
         const fileName =
           node.getAttribute("data-file-name") || node.textContent || "";
         result.push("@" + fileName);
-      } else if (node.classList && node.classList.contains("terminal-mention")) {
+      } else if (
+        node.classList &&
+        node.classList.contains("terminal-mention")
+      ) {
         // 터미널 멘션을 "Terminal: 터미널이름"으로 변환
         const terminalName =
           node.getAttribute("data-terminal-name") || node.textContent || "";
         result.push("Terminal: " + terminalName);
-      } else if (node.classList && node.classList.contains("diagnostics-mention")) {
+      } else if (
+        node.classList &&
+        node.classList.contains("diagnostics-mention")
+      ) {
         // Diagnostics 멘션을 "Diagnostics: N errors, M warnings"로 변환
         const errorCount = node.getAttribute("data-error-count") || "0";
         const warningCount = node.getAttribute("data-warning-count") || "0";
-        result.push(`Diagnostics: ${errorCount} errors, ${warningCount} warnings`);
+        result.push(
+          `Diagnostics: ${errorCount} errors, ${warningCount} warnings`,
+        );
       } else {
         // <div>나 다른 블록 요소 앞에 공백 추가 (줄바꿈 대신)
         if (tagName === "div" && result.length > 0) {
@@ -864,14 +883,6 @@ function getChatInputDisplayContent() {
   return result.join("").replace(/\s+/g, " ").trim();
 }
 
-// contenteditable div에 텍스트 설정
-function setChatInputText(text) {
-  if (!chatInput) {
-    return;
-  }
-  chatInput.textContent = text;
-}
-
 // contenteditable div에서 현재 커서 위치의 텍스트 가져오기
 function getChatInputValue() {
   if (!chatInput) {
@@ -889,21 +900,32 @@ function getChatInputValue() {
  * 텍스트로 변환하는 문제를 해결합니다.
  */
 function restoreMentionsFromText() {
-  if (!chatInput || selectedFiles.length === 0 || isRestoringMentions) return;
+  if (!chatInput || selectedFiles.length === 0 || isRestoringMentions) {
+    return;
+  }
 
   // 현재 DOM에서 멘션 스팬으로 존재하는 파일 경로들
   const existingMentions = new Set();
-  chatInput.querySelectorAll('.file-mention').forEach(span => {
-    const path = span.getAttribute('data-file-path');
-    if (path) existingMentions.add(path);
+  chatInput.querySelectorAll(".file-mention").forEach((span) => {
+    const path = span.getAttribute("data-file-path");
+    if (path) {
+      existingMentions.add(path);
+    }
   });
 
   // selectedFiles 중 DOM에 스팬으로 없는 파일들 (텍스트로 변환되었을 수 있음)
-  const missingFiles = selectedFiles.filter(file => !existingMentions.has(file.path));
+  const missingFiles = selectedFiles.filter(
+    (file) => !existingMentions.has(file.path),
+  );
 
-  if (missingFiles.length === 0) return;
+  if (missingFiles.length === 0) {
+    return;
+  }
 
-  console.log("[restoreMentionsFromText] Missing files to restore:", missingFiles.map(f => f.name));
+  console.log(
+    "[restoreMentionsFromText] Missing files to restore:",
+    missingFiles.map((f) => f.name),
+  );
 
   // 복원 중 플래그 설정 (MutationObserver 무한 루프 방지)
   isRestoringMentions = true;
@@ -922,7 +944,7 @@ function restoreMentionsFromText() {
         chatInput,
         NodeFilter.SHOW_TEXT,
         null,
-        false
+        false,
       );
 
       const nodesToProcess = [];
@@ -935,7 +957,9 @@ function restoreMentionsFromText() {
 
       // 각 텍스트 노드에서 누락된 파일명 찾아서 복원
       for (const textNode of nodesToProcess) {
-        if (!textNode.parentNode) continue;
+        if (!textNode.parentNode) {
+          continue;
+        }
 
         const text = textNode.textContent;
 
@@ -945,7 +969,7 @@ function restoreMentionsFromText() {
 
           // '@파일명' 또는 '파일명' 형태로 검색
           // '@'가 앞에 있으면 함께 제거
-          const atFileName = '@' + fileName;
+          const atFileName = "@" + fileName;
           let index = text.indexOf(atFileName);
           let matchLength = atFileName.length;
 
@@ -994,15 +1018,22 @@ function restoreMentionsFromText() {
           }
         }
 
-        if (restoredAny) break; // 외부 for 루프도 중단하고 while 루프로 돌아감
+        if (restoredAny) {
+          break;
+        } // 외부 for 루프도 중단하고 while 루프로 돌아감
       }
 
       // 이번 반복에서 아무것도 복원하지 못했으면 종료
-      if (!restoredAny) break;
+      if (!restoredAny) {
+        break;
+      }
     }
 
     if (remainingFiles.length > 0) {
-      console.log("[restoreMentionsFromText] Could not restore:", remainingFiles.map(f => f.name));
+      console.log(
+        "[restoreMentionsFromText] Could not restore:",
+        remainingFiles.map((f) => f.name),
+      );
     }
   } finally {
     isRestoringMentions = false;
@@ -1013,25 +1044,33 @@ function restoreMentionsFromText() {
  * chatInput에 MutationObserver를 설정하여 멘션 스팬이 텍스트로 변환될 때 즉시 복원합니다.
  */
 function setupMentionObserver() {
-  if (!chatInput || mentionObserver) return;
+  if (!chatInput || mentionObserver) {
+    return;
+  }
 
   mentionObserver = new MutationObserver((mutations) => {
-    if (isRestoringMentions || selectedFiles.length === 0) return;
+    if (isRestoringMentions || selectedFiles.length === 0) {
+      return;
+    }
 
     // 멘션 스팬이 제거되었는지 확인
     let mentionRemoved = false;
     for (const mutation of mutations) {
-      if (mutation.type === 'childList') {
+      if (mutation.type === "childList") {
         for (const removedNode of mutation.removedNodes) {
-          if (removedNode.nodeType === Node.ELEMENT_NODE &&
-              removedNode.classList &&
-              removedNode.classList.contains('file-mention')) {
+          if (
+            removedNode.nodeType === Node.ELEMENT_NODE &&
+            removedNode.classList &&
+            removedNode.classList.contains("file-mention")
+          ) {
             mentionRemoved = true;
             break;
           }
         }
       }
-      if (mentionRemoved) break;
+      if (mentionRemoved) {
+        break;
+      }
     }
 
     // 멘션이 제거되었으면 복원 시도
@@ -1045,21 +1084,23 @@ function setupMentionObserver() {
 
   mentionObserver.observe(chatInput, {
     childList: true,
-    subtree: true
+    subtree: true,
   });
 
   console.log("[setupMentionObserver] MutationObserver initialized");
 }
 
 function removeAtSymbolFromInput() {
-  if (!chatInput) return null;
+  if (!chatInput) {
+    return null;
+  }
 
   // TreeWalker로 텍스트 노드만 순회하며 마지막 '@'가 포함된 노드 찾기
   const walker = document.createTreeWalker(
     chatInput,
     NodeFilter.SHOW_TEXT,
     null,
-    false
+    false,
   );
 
   let lastAtNode = null;
@@ -1077,7 +1118,7 @@ function removeAtSymbolFromInput() {
   console.log("[removeAtSymbolFromInput] Found '@' at:", {
     nodeText: lastAtNode?.textContent,
     atIndex: lastAtIndex,
-    chatInputHTML: chatInput.innerHTML
+    chatInputHTML: chatInput.innerHTML,
   });
 
   if (lastAtNode && lastAtIndex !== -1) {
@@ -1086,7 +1127,7 @@ function removeAtSymbolFromInput() {
     // '@검색어' 패턴에서 '@검색어' 부분만 제거
     let endIndex = textContent.length;
     for (let i = lastAtIndex + 1; i < textContent.length; i++) {
-      if (textContent[i] === ' ' || textContent[i] === '\n') {
+      if (textContent[i] === " " || textContent[i] === "\n") {
         endIndex = i;
         break;
       }
@@ -1101,7 +1142,7 @@ function removeAtSymbolFromInput() {
       afterSearch,
       newNodeText: lastAtNode.textContent,
       offset: beforeAt.length,
-      chatInputHTML: chatInput.innerHTML
+      chatInputHTML: chatInput.innerHTML,
     });
 
     // 삽입 위치 반환 (beforeAt의 끝 위치)
@@ -1116,7 +1157,10 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
     return;
   }
 
-  console.log("[insertFileMention] Before removal, chatInput.innerHTML:", chatInput.innerHTML);
+  console.log(
+    "[insertFileMention] Before removal, chatInput.innerHTML:",
+    chatInput.innerHTML,
+  );
 
   // '@' 제거 (기존 멘션 span은 유지) 및 삽입 위치 가져오기
   let insertPosition = null;
@@ -1125,7 +1169,10 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   }
 
   console.log("[insertFileMention] insertPosition:", insertPosition);
-  console.log("[insertFileMention] After removal, chatInput.innerHTML:", chatInput.innerHTML);
+  console.log(
+    "[insertFileMention] After removal, chatInput.innerHTML:",
+    chatInput.innerHTML,
+  );
 
   // 파일 멘션 블록 생성
   const mentionSpan = document.createElement("span");
@@ -1140,7 +1187,11 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
   const range = document.createRange();
 
   try {
-    if (insertPosition && insertPosition.node && insertPosition.node.parentNode) {
+    if (
+      insertPosition &&
+      insertPosition.node &&
+      insertPosition.node.parentNode
+    ) {
       // '@'가 있던 위치에 멘션 삽입
       const textNode = insertPosition.node;
       const offset = insertPosition.offset;
@@ -1162,7 +1213,10 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
         const afterNode = document.createTextNode(afterText);
         if (textNode.nextSibling) {
           textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
-          mentionSpan.parentNode.insertBefore(afterNode, mentionSpan.nextSibling);
+          mentionSpan.parentNode.insertBefore(
+            afterNode,
+            mentionSpan.nextSibling,
+          );
         } else {
           textNode.parentNode.appendChild(mentionSpan);
           textNode.parentNode.appendChild(afterNode);
@@ -1208,8 +1262,18 @@ function insertFileMention(fileName, filePath, removeAtSymbol = true) {
     selection.addRange(range);
   }
 
-  console.log("[insertFileMention] Final chatInput.innerHTML:", chatInput.innerHTML);
-  console.log("[insertFileMention] Final chatInput.childNodes:", Array.from(chatInput.childNodes).map(n => ({type: n.nodeType, text: n.textContent, className: n.className})));
+  console.log(
+    "[insertFileMention] Final chatInput.innerHTML:",
+    chatInput.innerHTML,
+  );
+  console.log(
+    "[insertFileMention] Final chatInput.childNodes:",
+    Array.from(chatInput.childNodes).map((n) => ({
+      type: n.nodeType,
+      text: n.textContent,
+      className: n.className,
+    })),
+  );
   autoResizeTextarea();
 }
 
@@ -1234,7 +1298,11 @@ function insertTerminalMention(terminalName) {
   const range = document.createRange();
 
   try {
-    if (insertPosition && insertPosition.node && insertPosition.node.parentNode) {
+    if (
+      insertPosition &&
+      insertPosition.node &&
+      insertPosition.node.parentNode
+    ) {
       // '@'가 있던 위치에 멘션 삽입
       const textNode = insertPosition.node;
       const offset = insertPosition.offset;
@@ -1253,7 +1321,10 @@ function insertTerminalMention(terminalName) {
         const afterNode = document.createTextNode(afterText);
         if (textNode.nextSibling) {
           textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
-          mentionSpan.parentNode.insertBefore(afterNode, mentionSpan.nextSibling);
+          mentionSpan.parentNode.insertBefore(
+            afterNode,
+            mentionSpan.nextSibling,
+          );
         } else {
           textNode.parentNode.appendChild(mentionSpan);
           textNode.parentNode.appendChild(afterNode);
@@ -1318,7 +1389,11 @@ function insertDiagnosticsMention(errorCount, warningCount) {
   const range = document.createRange();
 
   try {
-    if (insertPosition && insertPosition.node && insertPosition.node.parentNode) {
+    if (
+      insertPosition &&
+      insertPosition.node &&
+      insertPosition.node.parentNode
+    ) {
       // '@'가 있던 위치에 멘션 삽입
       const textNode = insertPosition.node;
       const offset = insertPosition.offset;
@@ -1337,7 +1412,10 @@ function insertDiagnosticsMention(errorCount, warningCount) {
         const afterNode = document.createTextNode(afterText);
         if (textNode.nextSibling) {
           textNode.parentNode.insertBefore(mentionSpan, textNode.nextSibling);
-          mentionSpan.parentNode.insertBefore(afterNode, mentionSpan.nextSibling);
+          mentionSpan.parentNode.insertBefore(
+            afterNode,
+            mentionSpan.nextSibling,
+          );
         } else {
           textNode.parentNode.appendChild(mentionSpan);
           textNode.parentNode.appendChild(afterNode);
@@ -1601,22 +1679,82 @@ const slashCategories = [
 // 카테고리별 슬래시 명령어
 const slashCommandsByCategory = {
   git: [
-    { command: "/git status", label: "상태 보기", description: "현재 Git 리포지토리 상태 표시", action: "gitStatus" },
-    { command: "/git diff", label: "변경사항", description: "스테이징 안된 변경사항 보기", action: "gitDiff" },
-    { command: "/git log", label: "히스토리", description: "최근 커밋 히스토리 보기", action: "gitLog" },
-    { command: "/git branch", label: "브랜치 목록", description: "로컬/원격 브랜치 목록 보기", action: "gitBranch" },
-    { command: "/git info", label: "리포지토리 정보", description: "GitHub 리포지토리 정보 표시", action: "gitInfo" },
-    { command: "/git staged", label: "스테이징 변경사항", description: "스테이징된 변경사항 보기", action: "gitStaged" },
-    { command: "/git stash", label: "Stash 목록", description: "저장된 stash 목록 보기", action: "gitStash" },
+    {
+      command: "/git status",
+      label: "상태 보기",
+      description: "현재 Git 리포지토리 상태 표시",
+      action: "gitStatus",
+    },
+    {
+      command: "/git diff",
+      label: "변경사항",
+      description: "스테이징 안된 변경사항 보기",
+      action: "gitDiff",
+    },
+    {
+      command: "/git log",
+      label: "히스토리",
+      description: "최근 커밋 히스토리 보기",
+      action: "gitLog",
+    },
+    {
+      command: "/git branch",
+      label: "브랜치 목록",
+      description: "로컬/원격 브랜치 목록 보기",
+      action: "gitBranch",
+    },
+    {
+      command: "/git info",
+      label: "리포지토리 정보",
+      description: "GitHub 리포지토리 정보 표시",
+      action: "gitInfo",
+    },
+    {
+      command: "/git staged",
+      label: "스테이징 변경사항",
+      description: "스테이징된 변경사항 보기",
+      action: "gitStaged",
+    },
+    {
+      command: "/git stash",
+      label: "Stash 목록",
+      description: "저장된 stash 목록 보기",
+      action: "gitStash",
+    },
   ],
   session: [
-    { command: "/sessions", label: "세션 목록", description: "저장된 대화 세션 목록 보기", action: "listSavedSessions" },
-    { command: "/restore", label: "세션 복원", description: "저장된 세션 복원하기", action: "restoreSavedSession" },
+    {
+      command: "/sessions",
+      label: "세션 목록",
+      description: "저장된 대화 세션 목록 보기",
+      action: "listSavedSessions",
+    },
+    {
+      command: "/restore",
+      label: "세션 복원",
+      description: "저장된 세션 복원하기",
+      action: "restoreSavedSession",
+    },
   ],
   cache: [
-    { command: "/cache", label: "캐시 통계", description: "프로젝트 컨텍스트 캐시 통계 표시", action: "viewCacheStats" },
-    { command: "/clear-cache", label: "캐시 초기화", description: "모든 컨텍스트 캐시 삭제", action: "clearCache" },
-    { command: "/compact", label: "대화 압축", description: "현재 대화를 요약하여 토큰 절약", action: "compactConversation" },
+    {
+      command: "/cache",
+      label: "캐시 통계",
+      description: "프로젝트 컨텍스트 캐시 통계 표시",
+      action: "viewCacheStats",
+    },
+    {
+      command: "/clear-cache",
+      label: "캐시 초기화",
+      description: "모든 컨텍스트 캐시 삭제",
+      action: "clearCache",
+    },
+    {
+      command: "/compact",
+      label: "대화 압축",
+      description: "현재 대화를 요약하여 토큰 절약",
+      action: "compactConversation",
+    },
   ],
 };
 
@@ -1774,13 +1912,15 @@ function renderSlashMenu(filter = "") {
       <div class="slash-back-item"
            style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background);">
           <span style="font-size: 12px;">←</span>
-          <span style="font-size: 10px; color: var(--vscode-descriptionForeground);">뒤로 (카테고리 선택)</span>
+          <span style="font-size: 10px; color: var(--vscode-descriptionForeground);">뒤로</span>
       </div>
     `;
 
-    menu.innerHTML = backButton + filteredCommands
-      .map(
-        (cmd, index) => `
+    menu.innerHTML =
+      backButton +
+      filteredCommands
+        .map(
+          (cmd, index) => `
           <div class="slash-command-item ${index === slashMenuSelectedIndex ? "selected" : ""}"
                data-index="${index}" data-action="${cmd.action}"
                style="padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border); ${index === slashMenuSelectedIndex ? "background: rgba(128,128,128,0.2);" : ""}">
@@ -1791,8 +1931,8 @@ function renderSlashMenu(filter = "") {
               <div style="font-size: 9px; color: var(--vscode-descriptionForeground);">${cmd.description}</div>
           </div>
       `,
-      )
-      .join("");
+        )
+        .join("");
 
     // 뒤로가기 버튼 이벤트
     const backBtn = menu.querySelector(".slash-back-item");
@@ -2290,8 +2430,12 @@ if (sendButton && chatInput) {
       if (slashMenuMode === "categories") {
         const filteredCategories = slashCategories.filter(
           (cat) =>
-            cat.label.toLowerCase().includes(getChatInputValue().slice(1).toLowerCase()) ||
-            cat.id.toLowerCase().includes(getChatInputValue().slice(1).toLowerCase()),
+            cat.label
+              .toLowerCase()
+              .includes(getChatInputValue().slice(1).toLowerCase()) ||
+            cat.id
+              .toLowerCase()
+              .includes(getChatInputValue().slice(1).toLowerCase()),
         );
 
         if (e.key === "ArrowDown") {
@@ -2327,9 +2471,10 @@ if (sendButton && chatInput) {
         const commandFilter = inputValue.startsWith(categoryPrefix)
           ? inputValue.slice(categoryPrefix.length).trim()
           : "";
-        const filteredCommands = commands.filter((cmd) =>
-          cmd.command.toLowerCase().includes(commandFilter.toLowerCase()) ||
-          cmd.label.toLowerCase().includes(commandFilter.toLowerCase()),
+        const filteredCommands = commands.filter(
+          (cmd) =>
+            cmd.command.toLowerCase().includes(commandFilter.toLowerCase()) ||
+            cmd.label.toLowerCase().includes(commandFilter.toLowerCase()),
         );
 
         if (e.key === "ArrowDown") {
@@ -2348,7 +2493,9 @@ if (sendButton && chatInput) {
         } else if (e.key === "Enter") {
           e.preventDefault();
           if (filteredCommands[slashMenuSelectedIndex]) {
-            executeSlashCommand(filteredCommands[slashMenuSelectedIndex].action);
+            executeSlashCommand(
+              filteredCommands[slashMenuSelectedIndex].action,
+            );
           }
           return;
         } else if (e.key === "Escape") {
@@ -2684,7 +2831,9 @@ function handleSendMessage() {
       imageData: selectedImageBase64,
       imageMimeType: selectedImageMimeType,
       selectedFiles: selectedFiles.map((file) => file.path),
-      terminalContext: selectedTerminalContext ? selectedTerminalContext.contextString : null,
+      terminalContext: selectedTerminalContext
+        ? selectedTerminalContext.contextString
+        : null,
       diagnosticsContext: selectedDiagnosticsContext
         ? selectedDiagnosticsContext.contextString
         : null,
@@ -2984,6 +3133,8 @@ function bindModelDropdownEvents() {
 // 모드 변경 이벤트 수신
 window.addEventListener("chat-mode-changed", () => {
   currentMode = window.chatMode || "CODE";
+  // 모드 변경 시 보내기 버튼 스타일 업데이트
+  updateSendButtonStyle();
 });
 
 // 하단 고정 영역의 높이를 계산하고 채팅 컨테이너의 패딩을 조정하는 함수
@@ -3028,6 +3179,83 @@ function updateChatContainerPadding() {
   // console.log(`Bottom area height: ${totalBottomHeight}px (pending: ${pendingHeight}px, file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
 }
 
+// 현재 테마 저장 (전역)
+let currentTheme = "dark";
+
+// 테마 적용 함수
+function applyTheme(theme) {
+  console.log("[Chat] applyTheme called with:", theme);
+  let effectiveTheme = theme;
+
+  if (theme === "auto") {
+    // VS Code 테마 감지 - body의 data-vscode-theme-kind 속성 확인
+    const vscodeThemeKind = document.body.getAttribute(
+      "data-vscode-theme-kind",
+    );
+    console.log("[Chat] VSCode theme kind:", vscodeThemeKind);
+    if (vscodeThemeKind && vscodeThemeKind.includes("light")) {
+      effectiveTheme = "light";
+    } else {
+      effectiveTheme = "dark";
+    }
+  }
+
+  // 현재 테마 저장
+  currentTheme = effectiveTheme;
+
+  // html 요소에 data-theme 속성 설정
+  document.documentElement.setAttribute("data-theme", effectiveTheme);
+  // body에도 설정 (일부 스타일이 body를 기준으로 할 수 있음)
+  document.body.setAttribute("data-theme", effectiveTheme);
+
+  // ASK 모드 보내기 버튼 색상 업데이트
+  updateSendButtonStyle();
+
+  console.log(
+    "[Chat] Theme applied:",
+    effectiveTheme,
+    "html data-theme:",
+    document.documentElement.getAttribute("data-theme"),
+  );
+}
+
+// ASK 모드 보내기 버튼 스타일 업데이트
+function updateSendButtonStyle() {
+  const sendBtn = document.getElementById("send-button");
+  const modeSelector = document.getElementById("mode-selector");
+  if (!sendBtn) {
+    return;
+  }
+
+  const isAskMode = currentMode === "ASK";
+  const iconImg = sendBtn.querySelector(".icon-img");
+
+  if (isAskMode) {
+    // ASK 모드: 테마에 따라 색상 변경
+    sendBtn.classList.add("ask-mode");
+    if (currentTheme === "light") {
+      // 라이트 테마: 블루 계열
+      sendBtn.style.backgroundColor = "#2563EB";
+      sendBtn.style.borderRadius = "50%";
+    } else {
+      // 다크 테마: 그린 계열
+      sendBtn.style.backgroundColor = "#10B981";
+      sendBtn.style.borderRadius = "50%";
+    }
+    if (iconImg) {
+      iconImg.style.filter = "brightness(0) invert(1)";
+    }
+  } else {
+    // CODE 모드: 기본 스타일 복원
+    sendBtn.classList.remove("ask-mode");
+    sendBtn.style.backgroundColor = "transparent";
+    sendBtn.style.borderRadius = "6px";
+    if (iconImg) {
+      iconImg.style.filter = ""; // CSS가 처리하도록 인라인 스타일 제거
+    }
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (chatInput) {
     autoResizeTextarea();
@@ -3056,6 +3284,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // 모델 목록 요청 및 드롭다운 초기화
   bindModelDropdownEvents();
   requestOllamaModels();
+
+  // 테마 설정 요청
+  if (vscode) {
+    vscode.postMessage({ command: "getChatTheme" });
+  }
 });
 
 window.addEventListener("message", (event) => {
@@ -3285,7 +3518,7 @@ window.addEventListener("message", (event) => {
       if (message.terminalContext) {
         // 기존 터미널 멘션이 있으면 제거
         if (selectedTerminalContext) {
-          const existingMention = chatInput.querySelector('.terminal-mention');
+          const existingMention = chatInput.querySelector(".terminal-mention");
           if (existingMention) {
             existingMention.remove();
           }
@@ -3321,6 +3554,12 @@ window.addEventListener("message", (event) => {
     case "languageChanged":
       console.log(`Language changed to: ${message.language}`);
       loadLanguage(message.language);
+      break;
+    case "chatTheme":
+      // 테마 설정 수신
+      if (message.theme) {
+        applyTheme(message.theme);
+      }
       break;
     case "currentLanguage":
       if (message.language) {
@@ -3409,7 +3648,8 @@ function displayUserMessage(text, imageData = null) {
     // 파일 멘션: @로 시작하고 파일명 문자만 매칭 (공백에서 종료)
     // 터미널 멘션: "Terminal: 터미널이름" 형식 (공백 전까지)
     // 진단 멘션: "Diagnostics: N errors, M warnings" 형식
-    const mentionRegex = /(@[a-zA-Z0-9\.\-\_\/\\]+)|(Terminal:\s*[^\s]+)|(Diagnostics:\s*\d+\s*errors?,\s*\d+\s*warnings?)/g;
+    const mentionRegex =
+      /(@[a-zA-Z0-9\.\-\_\/\\]+)|(Terminal:\s*[^\s]+)|(Diagnostics:\s*\d+\s*errors?,\s*\d+\s*warnings?)/g;
 
     let lastIndex = 0;
     let match;
@@ -3417,7 +3657,9 @@ function displayUserMessage(text, imageData = null) {
     while ((match = mentionRegex.exec(text)) !== null) {
       // 멘션 이전의 일반 텍스트 추가
       if (match.index > lastIndex) {
-        const textBefore = document.createTextNode(text.substring(lastIndex, match.index));
+        const textBefore = document.createTextNode(
+          text.substring(lastIndex, match.index),
+        );
         userMessageElement.appendChild(textBefore);
       }
 
@@ -3470,6 +3712,9 @@ function displaySystemMessage(text) {
   systemMessageElement.classList.add("system-message");
 
   // 이모지에 따라 색상 다르게 표시
+  // 라이트 테마 여부 확인
+  const isLightTheme = document.body.getAttribute("data-theme") === "light";
+
   let color = "var(--vscode-descriptionForeground)";
   if (
     text.includes("✅") ||
@@ -3477,17 +3722,15 @@ function displaySystemMessage(text) {
     text.includes("📖") ||
     text.includes("📂")
   ) {
-    color = "var(--vscode-testing-iconPassed)";
+    color = isLightTheme ? "#16a34a" : "var(--vscode-testing-iconPassed)"; // 라이트: 진한 초록
   } else if (text.includes("❌") || text.includes("Failed")) {
-    color = "var(--vscode-testing-iconFailed)";
+    color = isLightTheme ? "#dc2626" : "var(--vscode-testing-iconFailed)"; // 라이트: 진한 빨강
   } else if (text.includes("🚀") || text.includes("Executed")) {
-    color = "var(--vscode-terminal-ansiCyan)";
-  } else if (
-    text.includes("📝") ||
-    text.includes("Updated") ||
-    text.includes("Created")
-  ) {
-    color = "var(--vscode-terminal-ansiYellow)";
+    color = isLightTheme ? "#0891b2" : "var(--vscode-terminal-ansiCyan)"; // 라이트: 진한 시안
+  } else if (text.includes("📝") || text.includes("Updated")) {
+    color = isLightTheme ? "#ca8a04" : "var(--vscode-terminal-ansiYellow)"; // 라이트: 노랑 (yellow-600)
+  } else if (text.includes("Created")) {
+    color = isLightTheme ? "#16a34a" : "var(--vscode-testing-iconPassed)"; // Created는 초록색
   }
 
   systemMessageElement.style.cssText = `
@@ -3500,6 +3743,7 @@ function displaySystemMessage(text) {
         border-radius: 4px;
         border-left: 2px solid ${color};
         word-break: break-all;
+        white-space: pre-line;
     `;
 
   systemMessageElement.innerHTML = sanitizeHtml(text, sanitizeOptions);
@@ -4369,7 +4613,7 @@ function syncMentionsWithDOM() {
     const terminalMention = chatInput.querySelector(".terminal-mention");
     if (!terminalMention) {
       console.log(
-        "[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext"
+        "[chat.js] Terminal mention removed from DOM, clearing selectedTerminalContext",
       );
       selectedTerminalContext = null;
     }
@@ -4397,24 +4641,6 @@ function removeSelectedFile(filePath) {
     mentions.forEach((mention) => mention.remove());
     autoResizeTextarea();
   }
-}
-
-// 모든 선택된 파일 제거
-function clearAllSelectedFiles() {
-  selectedFiles = [];
-  // 입력창에서 모든 파일 멘션 블록 제거
-  if (chatInput) {
-    const mentions = chatInput.querySelectorAll(".file-mention");
-    mentions.forEach((mention) => mention.remove());
-    autoResizeTextarea();
-  }
-}
-
-// 파일 선택 영역 UI 업데이트 (더 이상 사용하지 않음 - 입력창에 블록으로 표시)
-function updateFileSelectionDisplay() {
-  // 상단 파일 선택 영역은 더 이상 사용하지 않음
-  // 파일은 입력창에 @filename 블록으로 표시됨
-  // 이 함수는 호환성을 위해 유지하지만 아무 작업도 하지 않음
 }
 
 // 언어별 텍스트 로딩 및 적용
