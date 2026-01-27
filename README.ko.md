@@ -6,6 +6,24 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.0.2 (프로젝트 컨텍스트 캐싱 및 Tool Output 필터링)
+- **프로젝트 컨텍스트 캐싱 시스템 활성화**: LLM이 파일을 읽을 때 캐시를 우선 사용하도록 개선했습니다.
+  - `ReadFileToolHandler`: LLM의 `read_file` 도구에서 캐시 사용
+  - `FileContext`: 파일 컨텍스트 수집 시 캐시 사용
+  - `RelevantFilesFinder`: 관련 파일 검색 시 캐시 사용
+  - 캐시 히트 시 디스크 I/O 없이 메모리에서 즉시 반환
+  - `/캐시통계` 명령어로 히트/미스 확인 가능
+- **프리로드 파일 목록 확장**: 프로젝트 시작 시 자동 캐싱되는 파일 목록을 확장했습니다.
+  - 린트/포맷팅: `.eslintrc`, `.eslintrc.json`, `.prettierrc` 등
+  - 무시 설정: `.gitignore`, `.dockerignore`
+  - 빌드 설정: `next.config.js`, `vite.config.ts`, `tailwind.config.js` 등
+  - 인프라: `Dockerfile`, `docker-compose.yml`, `Makefile`
+  - ⚠️ Lock 파일 및 webpack.config.* 제외 (파일 크기 문제)
+- **Tool Output 필터링 강화**: 채팅 패널에 raw tool output이 표시되던 문제를 수정했습니다.
+  - `<<<<<<<CODE...>>>>>>>END` 블록 제거
+  - `<<<<<<< SEARCH...>>>>>>> REPLACE` diff 패턴 제거
+  - 단독 `<<<<`, `>>>>`, `====` 라인 제거
+
 ## v9.0.1 (라이트 테마 지원)
 - **라이트 테마 추가**: 채팅 패널과 설정 화면에 라이트 테마를 추가했습니다.
   - 채팅 패널: 블루 계열 액센트 색상, 흰색 배경의 코드 블록

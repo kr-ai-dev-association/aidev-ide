@@ -4089,6 +4089,12 @@ function sanitizeLastResort(text) {
     .replace(/<run_command[\s\S]*?<\/run_command>/gi, "")
     .replace(/<plan[\s\S]*?<\/plan>/gi, "")
     .replace(/<task_progress[\s\S]*?<\/task_progress>/gi, "")
+    // CODE 블록 및 SEARCH/REPLACE diff 패턴 제거
+    .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, "")
+    .replace(/<{3,}\s*SEARCH[\s\S]*?>{3,}\s*REPLACE/gi, "")
+    .replace(/^<{3,}.*$/gm, "")
+    .replace(/^>{3,}.*$/gm, "")
+    .replace(/^={3,}$/gm, "")
     .trim();
 }
 

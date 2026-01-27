@@ -75,7 +75,9 @@ export class ProjectContextCache {
     private fileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
     // 자주 참조되는 파일 목록 (우선순위 높음)
+    // ⚠️ Lock 파일(package-lock.json, yarn.lock 등)은 절대 추가 금지 (수천~수만 줄)
     private readonly PRIORITY_FILES = [
+        // 프로젝트 설정
         'package.json',
         'tsconfig.json',
         'jsconfig.json',
@@ -86,7 +88,34 @@ export class ProjectContextCache {
         'build.gradle',
         'Cargo.toml',
         '.env',
-        'README.md'
+        'README.md',
+
+        // 린트 및 포맷팅 (코드 스타일)
+        '.eslintrc',
+        '.eslintrc.json',
+        '.eslintrc.js',
+        'eslint.config.js',
+        '.prettierrc',
+        '.prettierrc.json',
+
+        // 무시할 파일 설정
+        '.gitignore',
+        '.dockerignore',
+
+        // 프레임워크 및 빌드 설정 (webpack.config.*는 300~1000줄 흔하므로 제외)
+        'next.config.js',
+        'next.config.mjs',
+        'next.config.ts',
+        'vite.config.ts',
+        'vite.config.js',
+        'tailwind.config.js',
+        'tailwind.config.ts',
+
+        // 인프라 및 실행 스크립트
+        'Dockerfile',
+        'docker-compose.yml',
+        'docker-compose.yaml',
+        'Makefile'
     ];
 
     private constructor(context: vscode.ExtensionContext) {

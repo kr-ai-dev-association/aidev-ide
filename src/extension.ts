@@ -846,7 +846,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "### 캐시 초기화 완료\n\n모든 컨텍스트 캐시가 초기화되었습니다.",
+            text: "\n캐시 초기화 완료\n\n모든 컨텍스트 캐시가 초기화되었습니다.\n\n",
           });
         }
       } catch (error) {

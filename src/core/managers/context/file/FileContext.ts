@@ -10,6 +10,7 @@ import {
     FileContext,
     RelatedFilesContext
 } from '../types';
+import { ProjectContextCache } from '../ProjectContextCache';
 
 export class FileContextCollector {
     /**
@@ -54,7 +55,17 @@ export class FileContextCollector {
                 isDirty = document.isDirty;
             } else {
                 // 파일 시스템에서 읽기 (pending change 고려 불필요)
-                content = fs.readFileSync(filePath, 'utf8');
+                // ✅ 캐시 우선 사용
+                const cache = ProjectContextCache.getInstance();
+                const cachedContent = await cache.getFile(filePath);
+                if (cachedContent) {
+                    content = cachedContent;
+                    console.log(`[FileContext] Using cached content: ${filePath}`);
+                } else {
+                    content = fs.readFileSync(filePath, 'utf8');
+                    // 캐시에 저장 (백그라운드)
+                    cache.cacheFile(filePath).catch(() => {});
+                }
             }
 
             // 파일 정보

@@ -4,12 +4,14 @@
  */
 
 import * as path from "path";
+import * as fs from "fs/promises";
 import { glob } from "glob";
 import { ProjectManager } from "../../project/ProjectManager";
 import { estimateTokens } from "../../../../utils";
 import { LLMManager } from "../../model/LLMManager";
 import { FileSearcher } from "./FileSearcher";
 import { getBatchScoringPrompt } from "../prompts/analysis/generalAnalysis";
+import { ProjectContextCache } from "../ProjectContextCache";
 
 export interface RelevantFilesResult {
   fileContentsContext: string;
@@ -30,6 +32,22 @@ export class RelevantFilesFinder {
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
     this.fileSearcher = FileSearcher.getInstance();
+  }
+
+  /**
+   * 캐시를 우선 사용하여 파일 내용 읽기
+   */
+  private async readFileWithCache(filePath: string): Promise<string> {
+    const cache = ProjectContextCache.getInstance();
+    const cachedContent = await cache.getFile(filePath);
+    if (cachedContent) {
+      console.log(`[RelevantFilesFinder] Using cached content: ${filePath}`);
+      return cachedContent;
+    }
+    const content = await fs.readFile(filePath, "utf8");
+    // 캐시에 저장 (백그라운드)
+    cache.cacheFile(filePath).catch(() => {});
+    return content;
   }
 
   /**
@@ -92,9 +110,8 @@ export class RelevantFilesFinder {
         }
 
         try {
-          const fs = await import("fs/promises");
           console.log(`[RelevantFilesFinder] 파일 읽기 시도: ${filePath}`);
-          const content = await fs.readFile(filePath, "utf8");
+          const content = await this.readFileWithCache(filePath);
           const relativePath = path.relative(projectRoot, filePath);
           const fileExtension = path.extname(filePath).substring(1) || "text";
 
@@ -232,8 +249,7 @@ export class RelevantFilesFinder {
         }
 
         try {
-          const fs = await import("fs/promises");
-          const content = await fs.readFile(filePath, "utf8");
+          const content = await this.readFileWithCache(filePath);
           const relativePath = path.relative(projectRoot, filePath);
           const fileExtension = path.extname(filePath).substring(1) || "text";
 
@@ -785,7 +801,7 @@ export class RelevantFilesFinder {
         }> = [];
         for (const filePath of batch) {
           try {
-            const content = await fs.readFile(filePath, "utf8");
+            const content = await this.readFileWithCache(filePath);
             const relativePath = path.relative(projectRoot, filePath);
 
             // 파일 내용 요약 (큰 파일 처리)

@@ -9,6 +9,7 @@ import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
 
 export class ReadFileToolHandler implements IToolHandler {
     readonly name = Tool.READ_FILE;
@@ -70,7 +71,16 @@ export class ReadFileToolHandler implements IToolHandler {
             }
 
             try {
-                const fullContent = await fs.readFile(absolutePath, 'utf8');
+                // ✅ 캐시 우선 사용
+                const cache = ProjectContextCache.getInstance();
+                let fullContent = await cache.getFile(absolutePath);
+                if (fullContent) {
+                    console.log(`[ReadFileToolHandler] Using cached content: ${absolutePath}`);
+                } else {
+                    fullContent = await fs.readFile(absolutePath, 'utf8');
+                    // 캐시에 저장 (백그라운드)
+                    cache.cacheFile(absolutePath).catch(() => {});
+                }
                 const lines = fullContent.split('\n');
                 const totalLines = lines.length;
 

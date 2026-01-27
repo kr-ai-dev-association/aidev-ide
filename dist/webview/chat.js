@@ -24950,7 +24950,9 @@ function sanitizeLastResort(text) {
   if (!text) {
     return "";
   }
-  return text.replace(/<read_file[\s\S]*?<\/read_file>/gi, "").replace(/<update_file[\s\S]*?<\/update_file>/gi, "").replace(/<create_file[\s\S]*?<\/create_file>/gi, "").replace(/<remove_file[\s\S]*?<\/remove_file>/gi, "").replace(/<list_files[\s\S]*?<\/list_files>/gi, "").replace(/<search_files[\s\S]*?<\/search_files>/gi, "").replace(/<ripgrep_search[\s\S]*?<\/ripgrep_search>/gi, "").replace(/<run_command[\s\S]*?<\/run_command>/gi, "").replace(/<plan[\s\S]*?<\/plan>/gi, "").replace(/<task_progress[\s\S]*?<\/task_progress>/gi, "").trim();
+  return text.replace(/<read_file[\s\S]*?<\/read_file>/gi, "").replace(/<update_file[\s\S]*?<\/update_file>/gi, "").replace(/<create_file[\s\S]*?<\/create_file>/gi, "").replace(/<remove_file[\s\S]*?<\/remove_file>/gi, "").replace(/<list_files[\s\S]*?<\/list_files>/gi, "").replace(/<search_files[\s\S]*?<\/search_files>/gi, "").replace(/<ripgrep_search[\s\S]*?<\/ripgrep_search>/gi, "").replace(/<run_command[\s\S]*?<\/run_command>/gi, "").replace(/<plan[\s\S]*?<\/plan>/gi, "").replace(/<task_progress[\s\S]*?<\/task_progress>/gi, "")
+  // CODE 블록 및 SEARCH/REPLACE diff 패턴 제거
+  .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, "").replace(/<{3,}\s*SEARCH[\s\S]*?>{3,}\s*REPLACE/gi, "").replace(/^<{3,}.*$/gm, "").replace(/^>{3,}.*$/gm, "").replace(/^={3,}$/gm, "").trim();
 }
 
 // CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
