@@ -6,6 +6,19 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.0.4 (Webview 코드 모듈화)
+- **chat.js 모듈화**: 4,000줄 이상의 chat.js 파일을 기능별 모듈로 분리했습니다.
+  - `streaming.js`: 스트리밍 메시지 처리 (시작, 청크 추가, 완료, think 태그 처리)
+  - `processing-steps.js`: thinking bubble 및 처리 단계 표시 (타자기 효과, 스크롤 처리)
+  - `mention-handler.js`: 파일/터미널/진단 멘션 삽입 및 복원 (MutationObserver 기반)
+  - `message-queue.js`: 대기 중 사용자 질문 큐 관리 (로딩 중 질문 큐잉)
+- **settings.js 모듈화 준비**: settings.js를 위한 추가 모듈을 생성했습니다.
+  - `ollama-settings.js`: Ollama 서버 설정 (로컬/원격 서버, 모델 선택)
+  - `license-settings.js`: 라이센스/시리얼 번호 관리 (검증, 저장, 삭제)
+  - `language-settings.js`: 다국어 지원 (i18n 텍스트 로드 및 적용)
+  - `agent-policy.js`: 에이전트 정책 파일 업로드 (Markdown 파일 지원)
+- **코드 유지보수성 향상**: 의존성 주입 패턴을 사용하여 모듈 간 결합도를 낮추고 테스트 용이성을 높였습니다.
+
 ## v9.0.3 (도구 호출 파싱 안정성 개선)
 - **도구 호출 파싱 버그 수정**: LLM 응답에서 도구 호출이 파싱되었지만 실행되지 않던 문제를 수정했습니다.
   - 원인: `StringUtils.cleanText()`의 자연어 필터링이 JSON 도구 호출 형식을 손상시킴

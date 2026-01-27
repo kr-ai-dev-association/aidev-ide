@@ -23161,6 +23161,596 @@ function updateContextInfo(contextInfo) {
   `;
 }
 
+/***/ }),
+/* 153 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   appendStreamingChunk: () => (/* binding */ appendStreamingChunk),
+/* harmony export */   endStreamingMessage: () => (/* binding */ endStreamingMessage),
+/* harmony export */   getStreamingMessageElement: () => (/* binding */ getStreamingMessageElement),
+/* harmony export */   getStreamingState: () => (/* binding */ getStreamingState),
+/* harmony export */   initStreaming: () => (/* binding */ initStreaming),
+/* harmony export */   setThinkingBubbleElement: () => (/* binding */ setThinkingBubbleElement),
+/* harmony export */   startStreamingMessage: () => (/* binding */ startStreamingMessage)
+/* harmony export */ });
+/* harmony import */ var _utils_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(68);
+/* harmony import */ var _codeBlock_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(69);
+/**
+ * Streaming Module
+ * 스트리밍 메시지 처리 관련 기능
+ */
+
+
+
+
+// 스트리밍 메시지 처리 변수들
+let streamingMessageElement = null;
+let streamingTextContent = "";
+let streamingRenderTimeout = null;
+
+// 외부 의존성 (초기화 시 주입)
+let chatMessages = null;
+let thinkingBubbleElement = null;
+let md = null;
+let sanitizeHtml = null;
+let addCopyButtonsToCodeBlocks = null;
+
+/**
+ * 스트리밍 모듈 초기화
+ * @param {Object} deps - 의존성 객체
+ */
+function initStreaming(deps) {
+  chatMessages = deps.chatMessages;
+  thinkingBubbleElement = deps.thinkingBubbleElement;
+  md = deps.md;
+  sanitizeHtml = deps.sanitizeHtml;
+  addCopyButtonsToCodeBlocks = deps.addCopyButtonsToCodeBlocks;
+}
+
+/**
+ * thinking bubble 요소 업데이트 (외부에서 변경 시)
+ * @param {HTMLElement} element
+ */
+function setThinkingBubbleElement(element) {
+  thinkingBubbleElement = element;
+}
+
+/**
+ * 스트리밍 메시지 시작
+ * 새로운 스트리밍 응답을 위한 메시지 요소 생성
+ * @param {string} sender - 발신자
+ */
+function startStreamingMessage(sender) {
+  if (!chatMessages) {
+    console.warn("[Streaming] chatMessages element not found");
+    return;
+  }
+
+  // thinking bubble 숨기기
+  if (thinkingBubbleElement) {
+    thinkingBubbleElement.style.display = "none";
+  }
+
+  // 기존 스트리밍 요소가 있으면 먼저 완료 처리
+  if (streamingMessageElement) {
+    endStreamingMessage();
+  }
+
+  // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
+  const messageContainer = document.createElement("div");
+  messageContainer.classList.add("codepilot-message-container", "streaming");
+  const bubbleElement = document.createElement("div");
+  bubbleElement.classList.add("message-bubble");
+  bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
+  messageContainer.appendChild(bubbleElement);
+  streamingMessageElement = messageContainer;
+  chatMessages.appendChild(streamingMessageElement);
+  streamingTextContent = "";
+
+  // 스크롤을 하단으로
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+/**
+ * 스트리밍 청크 추가
+ * 수신된 텍스트 청크를 메시지에 추가
+ * @param {string} chunk - 텍스트 청크
+ */
+function appendStreamingChunk(chunk) {
+  if (!streamingMessageElement) {
+    // 스트리밍이 시작되지 않았으면 시작
+    startStreamingMessage("assistant");
+  }
+  streamingTextContent += chunk;
+
+  // 디바운싱: 빠른 청크 수신 시 렌더링 최적화
+  if (streamingRenderTimeout) {
+    clearTimeout(streamingRenderTimeout);
+  }
+  streamingRenderTimeout = setTimeout(() => {
+    renderStreamingContent();
+  }, 16); // 약 60fps
+}
+
+/**
+ * 스트리밍 콘텐츠 렌더링
+ * 누적된 텍스트를 마크다운으로 렌더링
+ * think 태그는 실시간으로 표시하고 완료되면 제거
+ */
+function renderStreamingContent() {
+  if (!streamingMessageElement) {
+    return;
+  }
+  const contentElement = streamingMessageElement.querySelector(".message-content");
+  if (!contentElement) {
+    return;
+  }
+  try {
+    // 현재 진행 중인 think 내용 추출
+    const {
+      thinkContent,
+      isThinking
+    } = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.extractCurrentThink)(streamingTextContent);
+
+    // think 태그가 제거된 실제 응답 텍스트
+    const cleanText = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.removeThinkTags)(streamingTextContent);
+    let html = "";
+
+    // think 내용이 있고 현재 사고 중이면 상단에 표시
+    if (thinkContent && isThinking) {
+      html += `<div class="think-bubble">
+                <span class="think-icon">💭</span>
+                <span class="think-text">${(0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.escapeHtml)(thinkContent)}</span>
+                <span class="think-cursor">▌</span>
+            </div>`;
+    }
+
+    // 실제 응답 텍스트 렌더링 (displayCodePilotMessage와 동일한 처리)
+    if (cleanText) {
+      // 1. sanitizeLastResort 적용
+      let processedText = cleanText;
+      if (typeof _utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeLastResort === "function") {
+        processedText = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeLastResort)(processedText);
+      }
+      // 2. removeToolTags 적용
+      if (typeof _utils_js__WEBPACK_IMPORTED_MODULE_0__.removeToolTags === "function") {
+        processedText = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.removeToolTags)(processedText);
+      }
+      if (md && md.render && processedText) {
+        // 3. 마크다운 렌더링
+        const renderedHtml = md.render(processedText);
+        // 4. sanitizeHtml 적용
+        if (typeof sanitizeHtml === "function" && _utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeOptions) {
+          html += sanitizeHtml(renderedHtml, _utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeOptions);
+        } else {
+          html += renderedHtml;
+        }
+      } else if (processedText) {
+        html += (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.escapeHtml)(processedText);
+      }
+    }
+    contentElement.innerHTML = html + '<span class="streaming-cursor"></span>';
+
+    // 스트리밍 중에도 완성된 코드 블록 UI 개선 (접기/펼치기, 언어 라벨)
+    (0,_codeBlock_js__WEBPACK_IMPORTED_MODULE_1__.enhanceCodeBlocks)(contentElement);
+
+    // 코드 블록에 복사 버튼 추가
+    if (typeof addCopyButtonsToCodeBlocks === "function") {
+      addCopyButtonsToCodeBlocks(contentElement);
+    }
+  } catch (e) {
+    console.error("[Streaming] Render error:", e);
+    contentElement.textContent = streamingTextContent;
+  }
+
+  // 스크롤을 하단으로
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * 스트리밍 메시지 완료
+ * 스트리밍 응답 완료 후 최종 처리
+ * think 태그는 완전히 제거됨
+ */
+function endStreamingMessage() {
+  if (streamingRenderTimeout) {
+    clearTimeout(streamingRenderTimeout);
+    streamingRenderTimeout = null;
+  }
+  if (!streamingMessageElement) {
+    return;
+  }
+
+  // 커서 제거 및 최종 렌더링
+  const contentElement = streamingMessageElement.querySelector(".message-content");
+  if (contentElement) {
+    const cursor = contentElement.querySelector(".streaming-cursor");
+    if (cursor) {
+      cursor.remove();
+    }
+
+    // think 버블 제거
+    const thinkBubble = contentElement.querySelector(".think-bubble");
+    if (thinkBubble) {
+      thinkBubble.remove();
+    }
+
+    // 최종 마크다운 렌더링 (displayCodePilotMessage와 동일한 처리 적용)
+    try {
+      // 1. think 태그 제거
+      let cleanText = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.removeThinkTags)(streamingTextContent);
+
+      // 2. sanitizeLastResort 적용 (tool 태그 완전 차단)
+      if (typeof _utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeLastResort === "function") {
+        cleanText = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeLastResort)(cleanText);
+      }
+
+      // 3. removeToolTags 적용 (추가 tool 태그 제거)
+      if (typeof _utils_js__WEBPACK_IMPORTED_MODULE_0__.removeToolTags === "function") {
+        cleanText = (0,_utils_js__WEBPACK_IMPORTED_MODULE_0__.removeToolTags)(cleanText);
+      }
+      if (md && md.render && cleanText) {
+        // 4. 마크다운 렌더링
+        const renderedHtml = md.render(cleanText);
+
+        // 5. HTML 새니타이징 적용 (XSS 방지)
+        if (typeof sanitizeHtml === "function" && _utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeOptions) {
+          contentElement.innerHTML = sanitizeHtml(renderedHtml, _utils_js__WEBPACK_IMPORTED_MODULE_0__.sanitizeOptions);
+        } else {
+          contentElement.innerHTML = renderedHtml;
+        }
+      }
+
+      // 코드 블록 UI 개선 (접기/펼치기, 언어 라벨, 아이콘)
+      (0,_codeBlock_js__WEBPACK_IMPORTED_MODULE_1__.enhanceCodeBlocks)(contentElement);
+
+      // 코드 블록에 복사 버튼 추가
+      if (typeof addCopyButtonsToCodeBlocks === "function") {
+        addCopyButtonsToCodeBlocks(contentElement);
+      }
+    } catch (e) {
+      console.error("[Streaming] Final render error:", e);
+    }
+  }
+
+  // 스트리밍 클래스 제거
+  streamingMessageElement.classList.remove("streaming");
+
+  // 상태 초기화
+  streamingMessageElement = null;
+  streamingTextContent = "";
+
+  // 스크롤을 하단으로
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * 스트리밍 상태 가져오기
+ */
+function getStreamingState() {
+  return {
+    isStreaming: streamingMessageElement !== null,
+    textContent: streamingTextContent
+  };
+}
+
+/**
+ * 스트리밍 메시지 요소 가져오기 (외부에서 필요 시)
+ */
+function getStreamingMessageElement() {
+  return streamingMessageElement;
+}
+
+/***/ }),
+/* 154 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   getProcessingStepsArray: () => (/* binding */ getProcessingStepsArray),
+/* harmony export */   getThinkingBubbleElement: () => (/* binding */ getThinkingBubbleElement),
+/* harmony export */   handleScroll: () => (/* binding */ handleScroll),
+/* harmony export */   hideAutoCorrectingIndicator: () => (/* binding */ hideAutoCorrectingIndicator),
+/* harmony export */   initProcessingSteps: () => (/* binding */ initProcessingSteps),
+/* harmony export */   resetProcessingStatuses: () => (/* binding */ resetProcessingStatuses),
+/* harmony export */   setProcessingStep: () => (/* binding */ setProcessingStep),
+/* harmony export */   setThinkingBubbleElement: () => (/* binding */ setThinkingBubbleElement),
+/* harmony export */   showAutoCorrectingIndicator: () => (/* binding */ showAutoCorrectingIndicator),
+/* harmony export */   showErrorCorrection: () => (/* binding */ showErrorCorrection),
+/* harmony export */   updateProcessingStatus: () => (/* binding */ updateProcessingStatus),
+/* harmony export */   updateThinkingBubbleText: () => (/* binding */ updateThinkingBubbleText)
+/* harmony export */ });
+/**
+ * Processing Steps Module
+ * thinking bubble 및 처리 단계 표시 관련 기능
+ */
+
+// 처리 단계 제어 변수들
+let processingStepsArray = [];
+let typingInterval = null;
+let lastFullText = "";
+
+// 외부 의존성 (초기화 시 주입)
+let thinkingBubbleElement = null;
+let chatMessages = null;
+let chatContainer = null;
+
+/**
+ * Processing Steps 모듈 초기화
+ * @param {Object} deps - 의존성 객체
+ */
+function initProcessingSteps(deps) {
+  chatMessages = deps.chatMessages;
+  chatContainer = deps.chatContainer;
+}
+
+/**
+ * thinking bubble 요소 설정
+ * @param {HTMLElement} element
+ */
+function setThinkingBubbleElement(element) {
+  thinkingBubbleElement = element;
+}
+
+/**
+ * thinking bubble 요소 가져오기
+ * @returns {HTMLElement|null}
+ */
+function getThinkingBubbleElement() {
+  return thinkingBubbleElement;
+}
+
+/**
+ * 처리 단계 배열 가져오기
+ * @returns {Array}
+ */
+function getProcessingStepsArray() {
+  return processingStepsArray;
+}
+
+/**
+ * 단계 라벨 매핑
+ */
+const stepLabels = {
+  intent: "의도 분석",
+  assembling: "컨텍스트 수집",
+  thinking: "분석 및 생각",
+  plan: "작업 계획 수립",
+  executing: "도구 실행",
+  done: "작업 완료"
+};
+
+/**
+ * thinking bubble 텍스트 업데이트
+ */
+function updateThinkingBubbleText() {
+  if (!thinkingBubbleElement) {
+    return;
+  }
+
+  // 모든 단계를 '|'로 이어 붙이는 대신, 현재 진행 중인 최신 단계 하나만 표시합니다.
+  const lastStep = processingStepsArray[processingStepsArray.length - 1];
+  if (!lastStep) {
+    return;
+  }
+  const status = lastStep.status || "";
+  const stepName = lastStep.step || "";
+
+  // 'processing'이나 'Waiting...' 같은 기본값보다는 실제 의미 있는 상태 메시지(status)를 우선 사용합니다.
+  let displayMsg = status && status !== "processing" && status !== "Waiting..." ? status : stepLabels[stepName] || stepName;
+
+  // 터미널 느낌을 주기 위해 '>' 기호를 접두어로 사용합니다.
+  const newFullText = `> ${displayMsg}`;
+
+  // 이미 같은 텍스트면 중단
+  if (newFullText === lastFullText) {
+    return;
+  }
+  lastFullText = newFullText;
+
+  // 이전 타이핑 인터벌 중지
+  if (typingInterval) {
+    clearInterval(typingInterval);
+  }
+  const textElement = thinkingBubbleElement.querySelector(".thinking-text");
+  if (!textElement) {
+    return;
+  }
+
+  // 타자기 효과 시작
+  let index = 0;
+  textElement.textContent = "";
+  typingInterval = setInterval(() => {
+    if (index < newFullText.length) {
+      textElement.textContent += newFullText[index];
+      index++;
+      // 스크롤 유지
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    } else {
+      clearInterval(typingInterval);
+      typingInterval = null;
+    }
+  }, 20); // 타자기 속도
+}
+
+/**
+ * 처리 단계 설정
+ * @param {string} stepName - 단계 이름
+ */
+function setProcessingStep(stepName) {
+  // global array update
+  const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
+  if (existingStepIndex === -1) {
+    processingStepsArray.push({
+      step: stepName,
+      status: "processing"
+    });
+  } else {
+    processingStepsArray[existingStepIndex].status = "processing";
+  }
+  updateThinkingBubbleText();
+  const processingSteps = document.getElementById("processing-steps");
+  if (!processingSteps) {
+    return;
+  }
+
+  // 모든 단계를 비활성화
+  const allSteps = processingSteps.querySelectorAll(".processing-step");
+  allSteps.forEach(step => {
+    step.classList.remove("active", "completed");
+  });
+
+  // 현재 단계를 활성화
+  const currentStep = processingSteps.querySelector(`[data-step="${stepName}"]`);
+  if (currentStep) {
+    currentStep.classList.add("active");
+  }
+
+  // 이전 단계들을 완료로 표시
+  const stepOrder = ["systems", "intent", "plan", "thinking", "analyzing", "assembling", "executing", "parsing", "file_processing", "printing"];
+  const currentIndex = stepOrder.indexOf(stepName);
+  for (let i = 0; i < currentIndex; i++) {
+    const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);
+    if (prevStep) {
+      prevStep.classList.add("completed");
+    }
+  }
+}
+
+/**
+ * 처리 상태 업데이트
+ * @param {string} stepName - 단계 이름
+ * @param {string} status - 상태 메시지
+ * @param {Function} handleScrollFn - 스크롤 핸들러 함수 (optional)
+ */
+function updateProcessingStatus(stepName, status, handleScrollFn) {
+  // global array update
+  const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
+  if (existingStepIndex !== -1) {
+    processingStepsArray[existingStepIndex].status = status;
+  } else {
+    processingStepsArray.push({
+      step: stepName,
+      status: status
+    });
+  }
+  updateThinkingBubbleText();
+
+  // 상태 업데이트 시 위치 체크
+  if (handleScrollFn) {
+    handleScrollFn();
+  }
+  const statusElement = document.getElementById(`${stepName}-status`);
+  if (statusElement) {
+    statusElement.textContent = status;
+  }
+}
+
+/**
+ * 스크롤 감지하여 버블 고정/해제 처리
+ */
+function handleScroll() {
+  if (!thinkingBubbleElement || !chatContainer) {
+    return;
+  }
+  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+  const containerRect = chatContainer.getBoundingClientRect();
+
+  // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
+  const bottomFixedArea = document.querySelector(".bottom-fixed-area");
+  const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
+  const visibleBottom = containerRect.bottom - bottomHeight;
+
+  // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
+  if (bubbleRect.top > visibleBottom - 20) {
+    thinkingBubbleElement.classList.add("is-forced-top");
+  } else {
+    // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
+    const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 100;
+    if (isAtBottom) {
+      thinkingBubbleElement.classList.remove("is-forced-top");
+    }
+  }
+}
+
+/**
+ * 처리 상태들 초기화
+ */
+function resetProcessingStatuses() {
+  processingStepsArray = [];
+  lastFullText = "";
+  const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
+  statuses.forEach(step => {
+    const statusElement = document.getElementById(`${step}-status`);
+    if (statusElement) {
+      if (step === "intent") {
+        statusElement.textContent = "Initializing...";
+      } else {
+        statusElement.textContent = "Waiting...";
+      }
+    }
+  });
+}
+
+/**
+ * Auto Correcting Indicator 표시
+ */
+function showAutoCorrectingIndicator() {
+  const indicator = document.getElementById("auto-correcting-indicator");
+  if (indicator) {
+    indicator.classList.remove("hidden");
+  }
+}
+
+/**
+ * Auto Correcting Indicator 숨기기
+ */
+function hideAutoCorrectingIndicator() {
+  const indicator = document.getElementById("auto-correcting-indicator");
+  if (indicator) {
+    indicator.classList.add("hidden");
+  }
+}
+
+/**
+ * 에러 수정 메시지 표시
+ * @param {string} originalCommand - 원래 명령어
+ * @param {string} correctedCommand - 수정된 명령어
+ * @param {number} retryCount - 재시도 횟수
+ */
+function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
+  if (!chatMessages) {
+    return;
+  }
+  const errorCorrectionDiv = document.createElement("div");
+  errorCorrectionDiv.className = "error-correction-message";
+  errorCorrectionDiv.innerHTML = `
+    <div class="error-correction-header">
+      🔧 명령어 오류 수정 (시도 ${retryCount}/3)
+    </div>
+    <div class="error-correction-content">
+      <div class="original-command">
+        <strong>실패한 명령어:</strong> <code>${originalCommand}</code>
+      </div>
+      <div class="corrected-command">
+        <strong>수정된 명령어:</strong> <code>${correctedCommand}</code>
+      </div>
+    </div>
+  `;
+  chatMessages.appendChild(errorCorrectionDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 /***/ })
 /******/ 	]);
 /************************************************************************/
@@ -23247,11 +23837,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _chat_at_mentions_js__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(150);
 /* harmony import */ var _chat_input_handler_js__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(151);
 /* harmony import */ var _chat_message_display_js__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(152);
+/* harmony import */ var _chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(153);
+/* harmony import */ var _chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(154);
 
 
 
 
 
+// extractCurrentThink, enhanceCodeBlocks는 streaming.js 모듈 내부에서 사용됨
 
 
 // streaming.js 모듈은 현재 chat.js 내부 구현 사용 (로컬 변수 의존성)
@@ -23259,6 +23852,16 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+// 새로 분리된 모듈들
+
+
+// mention-handler.js 모듈은 chat.js 내부 변수(chatInput, selectedFiles)에 의존하여
+// 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
+// import { initMentionHandler, ... } from "./chat/mention-handler.js";
+
+// message-queue.js 모듈은 chat.js 내부 변수(pendingQueueArea, loadingDepth)에 의존하여
+// 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
+// import { initMessageQueue, ... } from "./chat/message-queue.js";
 
 // console.log("✅ chat.js loaded");
 
@@ -23278,435 +23881,51 @@ if (typeof window.vscode === "undefined" && typeof acquireVsCodeApi !== "undefin
 }
 const vscode = window.vscode || null;
 
-// 처리 단계 제어 변수들
-let processingStepsArray = [];
-let typingInterval = null;
-let lastFullText = "";
+// ===== 처리 단계 및 스크롤 관련 함수들 (모듈 래퍼) =====
+// 실제 구현은 ./chat/processing-steps.js 모듈에 있음
 
-// 스트리밍 메시지 처리 변수들 -> streaming.js 모듈로 이동
-// 로컬 캐시 (모듈 함수 호출 최소화를 위해)
-let streamingMessageElement = null;
-let streamingTextContent = "";
-let streamingRenderTimeout = null;
-
-// showProcessingSteps(), hideProcessingSteps() - 상단 고정 UI 삭제됨 (하단 타자기 효과로 통합)
-
-function updateThinkingBubbleText() {
-  if (!thinkingBubbleElement) {
-    return;
-  }
-
-  // 모든 단계를 '|'로 이어 붙이는 대신, 현재 진행 중인 최신 단계 하나만 표시합니다.
-  // (사용자 피드백: 히스토리를 다 보여주지 말고 현재 상태만 깔끔하게 출력 요청 반영)
-  const lastStep = processingStepsArray[processingStepsArray.length - 1];
-  if (!lastStep) {
-    return;
-  }
-  const status = lastStep.status || "";
-  const stepName = lastStep.step || "";
-
-  // 'processing'이나 'Waiting...' 같은 기본값보다는 실제 의미 있는 상태 메시지(status)를 우선 사용합니다.
-  const stepLabels = {
-    intent: "의도 분석",
-    assembling: "컨텍스트 수집",
-    thinking: "분석 및 생각",
-    plan: "작업 계획 수립",
-    executing: "도구 실행",
-    done: "작업 완료"
-  };
-  let displayMsg = status && status !== "processing" && status !== "Waiting..." ? status : stepLabels[stepName] || stepName;
-
-  // 터미널 느낌을 주기 위해 '>' 기호를 접두어로 사용합니다.
-  const newFullText = `> ${displayMsg}`;
-
-  // 이미 같은 텍스트면 중단
-  if (newFullText === lastFullText) {
-    return;
-  }
-  lastFullText = newFullText;
-
-  // 이전 타이핑 인터벌 중지
-  if (typingInterval) {
-    clearInterval(typingInterval);
-  }
-  const textElement = thinkingBubbleElement.querySelector(".thinking-text");
-  if (!textElement) {
-    return;
-  }
-
-  // 타자기 효과 시작
-  let index = 0;
-  textElement.textContent = "";
-  typingInterval = setInterval(() => {
-    if (index < newFullText.length) {
-      textElement.textContent += newFullText[index];
-      index++;
-      // 스크롤 유지
-      if (chatMessages) {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      }
-    } else {
-      clearInterval(typingInterval);
-      typingInterval = null;
-    }
-  }, 20); // 타자기 속도
-}
 function setProcessingStep(stepName) {
-  // global array update
-  const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
-  if (existingStepIndex === -1) {
-    processingStepsArray.push({
-      step: stepName,
-      status: "processing"
-    });
-  } else {
-    processingStepsArray[existingStepIndex].status = "processing";
-  }
-  updateThinkingBubbleText();
-  const processingSteps = document.getElementById("processing-steps");
-  if (!processingSteps) {
-    return;
-  }
-
-  // 모든 단계를 비활성화
-  const allSteps = processingSteps.querySelectorAll(".processing-step");
-  allSteps.forEach(step => {
-    step.classList.remove("active", "completed");
-  });
-
-  // 현재 단계를 활성화
-  const currentStep = processingSteps.querySelector(`[data-step="${stepName}"]`);
-  if (currentStep) {
-    currentStep.classList.add("active");
-  }
-
-  // 이전 단계들을 완료로 표시
-  const stepOrder = ["systems", "intent", "plan", "thinking", "analyzing", "assembling", "executing", "parsing", "file_processing", "printing"];
-  const currentIndex = stepOrder.indexOf(stepName);
-  for (let i = 0; i < currentIndex; i++) {
-    const prevStep = processingSteps.querySelector(`[data-step="${stepOrder[i]}"]`);
-    if (prevStep) {
-      prevStep.classList.add("completed");
-    }
-  }
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.setProcessingStep)(stepName);
 }
 function updateProcessingStatus(stepName, status) {
-  // global array update
-  const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
-  if (existingStepIndex !== -1) {
-    processingStepsArray[existingStepIndex].status = status;
-  } else {
-    processingStepsArray.push({
-      step: stepName,
-      status: status
-    });
-  }
-  updateThinkingBubbleText();
-  handleScroll(); // 상태 업데이트 시 위치 체크
-
-  const statusElement = document.getElementById(`${stepName}-status`);
-  if (statusElement) {
-    statusElement.textContent = status;
-  }
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.updateProcessingStatus)(stepName, status, handleScroll);
 }
-
-// 스크롤 감지하여 버블 고정/해제 처리
 function handleScroll() {
-  if (!thinkingBubbleElement || !chatContainer) {
-    return;
-  }
-  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
-  const containerRect = chatContainer.getBoundingClientRect();
-
-  // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
-  const bottomFixedArea = document.querySelector(".bottom-fixed-area");
-  const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
-  const visibleBottom = containerRect.bottom - bottomHeight;
-
-  // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
-  if (bubbleRect.top > visibleBottom - 20) {
-    thinkingBubbleElement.classList.add("is-forced-top");
-  } else {
-    // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
-    const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 100;
-    if (isAtBottom) {
-      thinkingBubbleElement.classList.remove("is-forced-top");
-    }
-  }
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.handleScroll)();
+}
+function resetProcessingStatuses() {
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.resetProcessingStatuses)();
+}
+function showAutoCorrectingIndicator() {
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.showAutoCorrectingIndicator)();
+}
+function hideAutoCorrectingIndicator() {
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.hideAutoCorrectingIndicator)();
+}
+function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.showErrorCorrection)(originalCommand, correctedCommand, retryCount);
 }
 
-// ===== 스트리밍 메시지 처리 함수들 =====
+// ===== 스트리밍 메시지 처리 함수들 (모듈 래퍼) =====
+// 실제 구현은 ./chat/streaming.js 모듈에 있음
 
-/**
- * 스트리밍 메시지 시작
- * 새로운 스트리밍 응답을 위한 메시지 요소 생성
- */
 function startStreamingMessage(sender) {
-  if (!chatMessages) {
-    console.warn("[Streaming] chatMessages element not found");
-    return;
-  }
-
-  // thinking bubble 숨기기
-  if (thinkingBubbleElement) {
-    thinkingBubbleElement.style.display = "none";
-  }
-
-  // 기존 스트리밍 요소가 있으면 먼저 완료 처리
-  if (streamingMessageElement) {
-    endStreamingMessage();
-  }
-
-  // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
-  const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container", "streaming");
-  const bubbleElement = document.createElement("div");
-  bubbleElement.classList.add("message-bubble");
-  bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
-  messageContainer.appendChild(bubbleElement);
-  streamingMessageElement = messageContainer;
-  chatMessages.appendChild(streamingMessageElement);
-  streamingTextContent = "";
-
-  // 스크롤을 하단으로
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.startStreamingMessage)(sender);
 }
-
-/**
- * 스트리밍 청크 추가
- * 수신된 텍스트 청크를 메시지에 추가
- */
 function appendStreamingChunk(chunk) {
-  if (!streamingMessageElement) {
-    // 스트리밍이 시작되지 않았으면 시작
-    startStreamingMessage("assistant");
-  }
-  streamingTextContent += chunk;
-
-  // 디바운싱: 빠른 청크 수신 시 렌더링 최적화
-  if (streamingRenderTimeout) {
-    clearTimeout(streamingRenderTimeout);
-  }
-  streamingRenderTimeout = setTimeout(() => {
-    renderStreamingContent();
-  }, 16); // 약 60fps
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.appendStreamingChunk)(chunk);
 }
-
-// extractCurrentThink, removeThinkTags -> ./chat/utils.js로 이동
-
-/**
- * 스트리밍 콘텐츠 렌더링
- * 누적된 텍스트를 마크다운으로 렌더링
- * think 태그는 실시간으로 표시하고 완료되면 제거
- */
-function renderStreamingContent() {
-  if (!streamingMessageElement) {
-    return;
-  }
-  const contentElement = streamingMessageElement.querySelector(".message-content");
-  if (!contentElement) {
-    return;
-  }
-  try {
-    // 현재 진행 중인 think 내용 추출
-    const {
-      thinkContent,
-      isThinking
-    } = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.extractCurrentThink)(streamingTextContent);
-
-    // think 태그가 제거된 실제 응답 텍스트
-    const cleanText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeThinkTags)(streamingTextContent);
-    let html = "";
-
-    // think 내용이 있고 현재 사고 중이면 상단에 표시
-    if (thinkContent && isThinking) {
-      html += `<div class="think-bubble">
-                <span class="think-icon">💭</span>
-                <span class="think-text">${(0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.escapeHtml)(thinkContent)}</span>
-                <span class="think-cursor">▌</span>
-            </div>`;
-    }
-
-    // 실제 응답 텍스트 렌더링 (displayCodePilotMessage와 동일한 처리)
-    if (cleanText) {
-      // 1. sanitizeLastResort 적용
-      let processedText = cleanText;
-      if (typeof _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeLastResort === "function") {
-        processedText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeLastResort)(processedText);
-      }
-      // 2. removeToolTags 적용
-      if (typeof _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeToolTags === "function") {
-        processedText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeToolTags)(processedText);
-      }
-      if (typeof md !== "undefined" && md.render && processedText) {
-        // 3. 마크다운 렌더링
-        const renderedHtml = md.render(processedText);
-        // 4. sanitizeHtml 적용
-        if (typeof (sanitize_html__WEBPACK_IMPORTED_MODULE_0___default()) === "function" && typeof _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeOptions !== "undefined") {
-          html += sanitize_html__WEBPACK_IMPORTED_MODULE_0___default()(renderedHtml, _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeOptions);
-        } else {
-          html += renderedHtml;
-        }
-      } else if (processedText) {
-        html += (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.escapeHtml)(processedText);
-      }
-    }
-    contentElement.innerHTML = html + '<span class="streaming-cursor"></span>';
-
-    // 🔥 스트리밍 중에도 완성된 코드 블록 UI 개선 (접기/펼치기, 언어 라벨)
-    (0,_chat_codeBlock_js__WEBPACK_IMPORTED_MODULE_4__.enhanceCodeBlocks)(contentElement);
-
-    // 코드 블록에 복사 버튼 추가
-    if (typeof _codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks === "function") {
-      (0,_codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks)(contentElement);
-    }
-  } catch (e) {
-    console.error("[Streaming] Render error:", e);
-    contentElement.textContent = streamingTextContent;
-  }
-
-  // 스크롤을 하단으로
-  if (chatMessages) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-}
-
-/**
- * 스트리밍 메시지 완료
- * 스트리밍 응답 완료 후 최종 처리
- * think 태그는 완전히 제거됨
- */
 function endStreamingMessage() {
-  if (streamingRenderTimeout) {
-    clearTimeout(streamingRenderTimeout);
-    streamingRenderTimeout = null;
-  }
-  if (!streamingMessageElement) {
-    return;
-  }
-
-  // 커서 제거 및 최종 렌더링
-  const contentElement = streamingMessageElement.querySelector(".message-content");
-  if (contentElement) {
-    const cursor = contentElement.querySelector(".streaming-cursor");
-    if (cursor) {
-      cursor.remove();
-    }
-
-    // think 버블 제거
-    const thinkBubble = contentElement.querySelector(".think-bubble");
-    if (thinkBubble) {
-      thinkBubble.remove();
-    }
-
-    // 최종 마크다운 렌더링 (displayCodePilotMessage와 동일한 처리 적용)
-    try {
-      // 1. think 태그 제거
-      let cleanText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeThinkTags)(streamingTextContent);
-
-      // 2. sanitizeLastResort 적용 (tool 태그 완전 차단)
-      if (typeof _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeLastResort === "function") {
-        cleanText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeLastResort)(cleanText);
-      }
-
-      // 3. removeToolTags 적용 (추가 tool 태그 제거)
-      if (typeof _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeToolTags === "function") {
-        cleanText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeToolTags)(cleanText);
-      }
-      if (typeof md !== "undefined" && md.render && cleanText) {
-        // 4. 마크다운 렌더링
-        const renderedHtml = md.render(cleanText);
-
-        // 5. HTML 새니타이징 적용 (XSS 방지)
-        if (typeof (sanitize_html__WEBPACK_IMPORTED_MODULE_0___default()) === "function" && typeof _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeOptions !== "undefined") {
-          contentElement.innerHTML = sanitize_html__WEBPACK_IMPORTED_MODULE_0___default()(renderedHtml, _chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeOptions);
-        } else {
-          contentElement.innerHTML = renderedHtml;
-        }
-      }
-
-      // 🔥 코드 블록 UI 개선 (접기/펼치기, 언어 라벨, 아이콘)
-      (0,_chat_codeBlock_js__WEBPACK_IMPORTED_MODULE_4__.enhanceCodeBlocks)(contentElement);
-
-      // 코드 블록에 복사 버튼 추가
-      if (typeof _codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks === "function") {
-        (0,_codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks)(contentElement);
-      }
-    } catch (e) {
-      console.error("[Streaming] Final render error:", e);
-    }
-  }
-
-  // 스트리밍 클래스 제거
-  streamingMessageElement.classList.remove("streaming");
-
-  // 상태 초기화
-  streamingMessageElement = null;
-  streamingTextContent = "";
-
-  // 스크롤을 하단으로
-  if (chatMessages) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.endStreamingMessage)();
 }
-
-// escapeHtml -> ./chat/utils.js로 이동
 
 // ===== 스트리밍 메시지 처리 함수들 끝 =====
 
+// sanitizeOptions -> ./chat/utils.js로 이동
 // enhanceCodeBlocks -> ./chat/codeBlock.js로 이동
-
-// Auto Correcting Indicator Functions
-function showAutoCorrectingIndicator() {
-  const indicator = document.getElementById("auto-correcting-indicator");
-  if (indicator) {
-    indicator.classList.remove("hidden");
-  }
-}
-function hideAutoCorrectingIndicator() {
-  const indicator = document.getElementById("auto-correcting-indicator");
-  if (indicator) {
-    indicator.classList.add("hidden");
-  }
-}
-function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
-  const chatMessages = document.getElementById("chatMessages");
-  if (!chatMessages) {
-    return;
-  }
-  const errorCorrectionDiv = document.createElement("div");
-  errorCorrectionDiv.className = "error-correction-message";
-  errorCorrectionDiv.innerHTML = `
-        <div class="error-correction-header">
-            🔧 명령어 오류 수정 (시도 ${retryCount}/3)
-        </div>
-        <div class="error-correction-content">
-            <div class="original-command">
-                <strong>실패한 명령어:</strong> <code>${originalCommand}</code>
-            </div>
-            <div class="corrected-command">
-                <strong>수정된 명령어:</strong> <code>${correctedCommand}</code>
-            </div>
-        </div>
-    `;
-  chatMessages.appendChild(errorCorrectionDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-function resetProcessingStatuses() {
-  processingStepsArray = [];
-  const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
-  statuses.forEach(step => {
-    const statusElement = document.getElementById(`${step}-status`);
-    if (statusElement) {
-      if (step === "intent") {
-        statusElement.textContent = "Initializing...";
-      } else {
-        statusElement.textContent = "Waiting...";
-      }
-    }
-  });
-}
-
+// escapeHtml -> ./chat/utils.js로 이동
+// showAutoCorrectingIndicator, hideAutoCorrectingIndicator, showErrorCorrection -> ./chat/processing-steps.js로 이동
+// resetProcessingStatuses -> ./chat/processing-steps.js로 이동
 // sanitizeOptions -> ./chat/utils.js로 이동
 
 const sendButton = document.getElementById("send-button");
@@ -25398,6 +25617,19 @@ function updateSendButtonStyle() {
   }
 }
 document.addEventListener("DOMContentLoaded", () => {
+  // 모듈 초기화
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.initStreaming)({
+    chatMessages,
+    thinkingBubbleElement: null,
+    // 동적으로 설정됨
+    md,
+    sanitizeHtml: (sanitize_html__WEBPACK_IMPORTED_MODULE_0___default()),
+    addCopyButtonsToCodeBlocks: _codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks
+  });
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.initProcessingSteps)({
+    chatMessages,
+    chatContainer
+  });
   if (chatInput) {
     autoResizeTextarea();
     // MutationObserver 설정 (멘션 복원용)
@@ -25734,11 +25966,9 @@ function showLoading() {
   }
   thinkingBubbleElement = (0,_chat_message_display_js__WEBPACK_IMPORTED_MODULE_10__.showLoading)(chatMessages);
 
-  // 상태 초기화
-  lastFullText = "";
-
-  // 현재 진행 중인 상태가 있다면 즉시 업데이트
-  updateThinkingBubbleText();
+  // 모듈에 thinkingBubbleElement 전달
+  (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.setThinkingBubbleElement)(thinkingBubbleElement);
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.setThinkingBubbleElement)(thinkingBubbleElement);
 
   // 로딩 애니메이션이 보일 때 Clear 버튼 비활성화, Cancel 버튼 활성화
   if (clearHistoryButton) {
@@ -25795,10 +26025,14 @@ function hideLoading() {
   if (thinkingBubbleElement && chatMessages) {
     chatMessages.removeChild(thinkingBubbleElement);
     thinkingBubbleElement = null;
+
+    // 모듈에 thinkingBubbleElement null 전달
+    (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.setThinkingBubbleElement)(null);
+    (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.setThinkingBubbleElement)(null);
   }
 
-  // 상태 배열 초기화
-  processingStepsArray = [];
+  // 상태 배열 초기화 (모듈 함수 호출)
+  resetProcessingStatuses();
 
   // 로딩 애니메이션이 사라질 때 Clear 버튼 활성화, Cancel 버튼 비활성화
   if (clearHistoryButton) {
@@ -25911,6 +26145,9 @@ function handleClearHistory() {
         chatMessages.removeChild(chatMessages.firstChild);
       }
       thinkingBubbleElement = null; // 로딩 애니메이션 참조도 초기화
+      // 모듈에도 알림
+      (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.setThinkingBubbleElement)(null);
+      (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.setThinkingBubbleElement)(null);
       console.log("Chat history cleared.");
     }
 

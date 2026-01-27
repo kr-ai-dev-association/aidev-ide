@@ -9,10 +9,10 @@ import {
   removeToolTags,
   sanitizeLastResort,
   removeThinkTags,
-  extractCurrentThink,
   sanitizeOptions,
 } from "./chat/utils.js";
-import { loadFileIcon, enhanceCodeBlocks } from "./chat/codeBlock.js";
+import { loadFileIcon } from "./chat/codeBlock.js";
+// extractCurrentThink, enhanceCodeBlocks는 streaming.js 모듈 내부에서 사용됨
 import { createMarkdownRenderer } from "./chat/markdown.js";
 import {
   slashCategories,
@@ -51,6 +51,33 @@ import {
   scrollToUserMessage as scrollToUserMessageModule,
   showLoading as showLoadingModule,
 } from "./chat/message-display.js";
+// 새로 분리된 모듈들
+import {
+  initStreaming,
+  startStreamingMessage as startStreamingMessageModule,
+  appendStreamingChunk as appendStreamingChunkModule,
+  endStreamingMessage as endStreamingMessageModule,
+  setThinkingBubbleElement as setStreamingThinkingBubble,
+} from "./chat/streaming.js";
+import {
+  initProcessingSteps,
+  setProcessingStep as setProcessingStepModule,
+  updateProcessingStatus as updateProcessingStatusModule,
+  handleScroll as handleScrollModule,
+  resetProcessingStatuses as resetProcessingStatusesModule,
+  showAutoCorrectingIndicator as showAutoCorrectingIndicatorModule,
+  hideAutoCorrectingIndicator as hideAutoCorrectingIndicatorModule,
+  showErrorCorrection as showErrorCorrectionModule,
+  setThinkingBubbleElement as setProcessingThinkingBubble,
+  getThinkingBubbleElement,
+} from "./chat/processing-steps.js";
+// mention-handler.js 모듈은 chat.js 내부 변수(chatInput, selectedFiles)에 의존하여
+// 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
+// import { initMentionHandler, ... } from "./chat/mention-handler.js";
+
+// message-queue.js 모듈은 chat.js 내부 변수(pendingQueueArea, loadingDepth)에 의존하여
+// 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
+// import { initMessageQueue, ... } from "./chat/message-queue.js";
 
 // console.log("✅ chat.js loaded");
 
@@ -73,486 +100,59 @@ if (
 }
 const vscode = window.vscode || null;
 
-// 처리 단계 제어 변수들
-let processingStepsArray = [];
-let typingInterval = null;
-let lastFullText = "";
-
-// 스트리밍 메시지 처리 변수들 -> streaming.js 모듈로 이동
-// 로컬 캐시 (모듈 함수 호출 최소화를 위해)
-let streamingMessageElement = null;
-let streamingTextContent = "";
-let streamingRenderTimeout = null;
-
-// showProcessingSteps(), hideProcessingSteps() - 상단 고정 UI 삭제됨 (하단 타자기 효과로 통합)
-
-function updateThinkingBubbleText() {
-  if (!thinkingBubbleElement) {
-    return;
-  }
-
-  // 모든 단계를 '|'로 이어 붙이는 대신, 현재 진행 중인 최신 단계 하나만 표시합니다.
-  // (사용자 피드백: 히스토리를 다 보여주지 말고 현재 상태만 깔끔하게 출력 요청 반영)
-  const lastStep = processingStepsArray[processingStepsArray.length - 1];
-  if (!lastStep) {
-    return;
-  }
-
-  const status = lastStep.status || "";
-  const stepName = lastStep.step || "";
-
-  // 'processing'이나 'Waiting...' 같은 기본값보다는 실제 의미 있는 상태 메시지(status)를 우선 사용합니다.
-  const stepLabels = {
-    intent: "의도 분석",
-    assembling: "컨텍스트 수집",
-    thinking: "분석 및 생각",
-    plan: "작업 계획 수립",
-    executing: "도구 실행",
-    done: "작업 완료",
-  };
-
-  let displayMsg =
-    status && status !== "processing" && status !== "Waiting..."
-      ? status
-      : stepLabels[stepName] || stepName;
-
-  // 터미널 느낌을 주기 위해 '>' 기호를 접두어로 사용합니다.
-  const newFullText = `> ${displayMsg}`;
-
-  // 이미 같은 텍스트면 중단
-  if (newFullText === lastFullText) {
-    return;
-  }
-  lastFullText = newFullText;
-
-  // 이전 타이핑 인터벌 중지
-  if (typingInterval) {
-    clearInterval(typingInterval);
-  }
-
-  const textElement = thinkingBubbleElement.querySelector(".thinking-text");
-  if (!textElement) {
-    return;
-  }
-
-  // 타자기 효과 시작
-  let index = 0;
-  textElement.textContent = "";
-  typingInterval = setInterval(() => {
-    if (index < newFullText.length) {
-      textElement.textContent += newFullText[index];
-      index++;
-      // 스크롤 유지
-      if (chatMessages) {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      }
-    } else {
-      clearInterval(typingInterval);
-      typingInterval = null;
-    }
-  }, 20); // 타자기 속도
-}
+// ===== 처리 단계 및 스크롤 관련 함수들 (모듈 래퍼) =====
+// 실제 구현은 ./chat/processing-steps.js 모듈에 있음
 
 function setProcessingStep(stepName) {
-  // global array update
-  const existingStepIndex = processingStepsArray.findIndex(
-    (s) => s.step === stepName,
-  );
-  if (existingStepIndex === -1) {
-    processingStepsArray.push({ step: stepName, status: "processing" });
-  } else {
-    processingStepsArray[existingStepIndex].status = "processing";
-  }
-  updateThinkingBubbleText();
-
-  const processingSteps = document.getElementById("processing-steps");
-  if (!processingSteps) {
-    return;
-  }
-
-  // 모든 단계를 비활성화
-  const allSteps = processingSteps.querySelectorAll(".processing-step");
-  allSteps.forEach((step) => {
-    step.classList.remove("active", "completed");
-  });
-
-  // 현재 단계를 활성화
-  const currentStep = processingSteps.querySelector(
-    `[data-step="${stepName}"]`,
-  );
-  if (currentStep) {
-    currentStep.classList.add("active");
-  }
-
-  // 이전 단계들을 완료로 표시
-  const stepOrder = [
-    "systems",
-    "intent",
-    "plan",
-    "thinking",
-    "analyzing",
-    "assembling",
-    "executing",
-    "parsing",
-    "file_processing",
-    "printing",
-  ];
-  const currentIndex = stepOrder.indexOf(stepName);
-  for (let i = 0; i < currentIndex; i++) {
-    const prevStep = processingSteps.querySelector(
-      `[data-step="${stepOrder[i]}"]`,
-    );
-    if (prevStep) {
-      prevStep.classList.add("completed");
-    }
-  }
+  setProcessingStepModule(stepName);
 }
 
 function updateProcessingStatus(stepName, status) {
-  // global array update
-  const existingStepIndex = processingStepsArray.findIndex(
-    (s) => s.step === stepName,
-  );
-  if (existingStepIndex !== -1) {
-    processingStepsArray[existingStepIndex].status = status;
-  } else {
-    processingStepsArray.push({ step: stepName, status: status });
-  }
-  updateThinkingBubbleText();
-  handleScroll(); // 상태 업데이트 시 위치 체크
-
-  const statusElement = document.getElementById(`${stepName}-status`);
-  if (statusElement) {
-    statusElement.textContent = status;
-  }
+  updateProcessingStatusModule(stepName, status, handleScroll);
 }
 
-// 스크롤 감지하여 버블 고정/해제 처리
 function handleScroll() {
-  if (!thinkingBubbleElement || !chatContainer) {
-    return;
-  }
-
-  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
-  const containerRect = chatContainer.getBoundingClientRect();
-
-  // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
-  const bottomFixedArea = document.querySelector(".bottom-fixed-area");
-  const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
-  const visibleBottom = containerRect.bottom - bottomHeight;
-
-  // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
-  if (bubbleRect.top > visibleBottom - 20) {
-    thinkingBubbleElement.classList.add("is-forced-top");
-  } else {
-    // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
-    const isAtBottom =
-      chatContainer.scrollHeight - chatContainer.scrollTop <=
-      chatContainer.clientHeight + 100;
-    if (isAtBottom) {
-      thinkingBubbleElement.classList.remove("is-forced-top");
-    }
-  }
-}
-
-// ===== 스트리밍 메시지 처리 함수들 =====
-
-/**
- * 스트리밍 메시지 시작
- * 새로운 스트리밍 응답을 위한 메시지 요소 생성
- */
-function startStreamingMessage(sender) {
-  if (!chatMessages) {
-    console.warn("[Streaming] chatMessages element not found");
-    return;
-  }
-
-  // thinking bubble 숨기기
-  if (thinkingBubbleElement) {
-    thinkingBubbleElement.style.display = "none";
-  }
-
-  // 기존 스트리밍 요소가 있으면 먼저 완료 처리
-  if (streamingMessageElement) {
-    endStreamingMessage();
-  }
-
-  // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
-  const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container", "streaming");
-
-  const bubbleElement = document.createElement("div");
-  bubbleElement.classList.add("message-bubble");
-  bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
-
-  messageContainer.appendChild(bubbleElement);
-  streamingMessageElement = messageContainer;
-
-  chatMessages.appendChild(streamingMessageElement);
-  streamingTextContent = "";
-
-  // 스크롤을 하단으로
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-/**
- * 스트리밍 청크 추가
- * 수신된 텍스트 청크를 메시지에 추가
- */
-function appendStreamingChunk(chunk) {
-  if (!streamingMessageElement) {
-    // 스트리밍이 시작되지 않았으면 시작
-    startStreamingMessage("assistant");
-  }
-
-  streamingTextContent += chunk;
-
-  // 디바운싱: 빠른 청크 수신 시 렌더링 최적화
-  if (streamingRenderTimeout) {
-    clearTimeout(streamingRenderTimeout);
-  }
-
-  streamingRenderTimeout = setTimeout(() => {
-    renderStreamingContent();
-  }, 16); // 약 60fps
-}
-
-// extractCurrentThink, removeThinkTags -> ./chat/utils.js로 이동
-
-/**
- * 스트리밍 콘텐츠 렌더링
- * 누적된 텍스트를 마크다운으로 렌더링
- * think 태그는 실시간으로 표시하고 완료되면 제거
- */
-function renderStreamingContent() {
-  if (!streamingMessageElement) {
-    return;
-  }
-
-  const contentElement =
-    streamingMessageElement.querySelector(".message-content");
-  if (!contentElement) {
-    return;
-  }
-
-  try {
-    // 현재 진행 중인 think 내용 추출
-    const { thinkContent, isThinking } =
-      extractCurrentThink(streamingTextContent);
-
-    // think 태그가 제거된 실제 응답 텍스트
-    const cleanText = removeThinkTags(streamingTextContent);
-
-    let html = "";
-
-    // think 내용이 있고 현재 사고 중이면 상단에 표시
-    if (thinkContent && isThinking) {
-      html += `<div class="think-bubble">
-                <span class="think-icon">💭</span>
-                <span class="think-text">${escapeHtml(thinkContent)}</span>
-                <span class="think-cursor">▌</span>
-            </div>`;
-    }
-
-    // 실제 응답 텍스트 렌더링 (displayCodePilotMessage와 동일한 처리)
-    if (cleanText) {
-      // 1. sanitizeLastResort 적용
-      let processedText = cleanText;
-      if (typeof sanitizeLastResort === "function") {
-        processedText = sanitizeLastResort(processedText);
-      }
-      // 2. removeToolTags 적용
-      if (typeof removeToolTags === "function") {
-        processedText = removeToolTags(processedText);
-      }
-
-      if (typeof md !== "undefined" && md.render && processedText) {
-        // 3. 마크다운 렌더링
-        const renderedHtml = md.render(processedText);
-        // 4. sanitizeHtml 적용
-        if (
-          typeof sanitizeHtml === "function" &&
-          typeof sanitizeOptions !== "undefined"
-        ) {
-          html += sanitizeHtml(renderedHtml, sanitizeOptions);
-        } else {
-          html += renderedHtml;
-        }
-      } else if (processedText) {
-        html += escapeHtml(processedText);
-      }
-    }
-
-    contentElement.innerHTML = html + '<span class="streaming-cursor"></span>';
-
-    // 🔥 스트리밍 중에도 완성된 코드 블록 UI 개선 (접기/펼치기, 언어 라벨)
-    enhanceCodeBlocks(contentElement);
-
-    // 코드 블록에 복사 버튼 추가
-    if (typeof addCopyButtonsToCodeBlocks === "function") {
-      addCopyButtonsToCodeBlocks(contentElement);
-    }
-  } catch (e) {
-    console.error("[Streaming] Render error:", e);
-    contentElement.textContent = streamingTextContent;
-  }
-
-  // 스크롤을 하단으로
-  if (chatMessages) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-}
-
-/**
- * 스트리밍 메시지 완료
- * 스트리밍 응답 완료 후 최종 처리
- * think 태그는 완전히 제거됨
- */
-function endStreamingMessage() {
-  if (streamingRenderTimeout) {
-    clearTimeout(streamingRenderTimeout);
-    streamingRenderTimeout = null;
-  }
-
-  if (!streamingMessageElement) {
-    return;
-  }
-
-  // 커서 제거 및 최종 렌더링
-  const contentElement =
-    streamingMessageElement.querySelector(".message-content");
-  if (contentElement) {
-    const cursor = contentElement.querySelector(".streaming-cursor");
-    if (cursor) {
-      cursor.remove();
-    }
-
-    // think 버블 제거
-    const thinkBubble = contentElement.querySelector(".think-bubble");
-    if (thinkBubble) {
-      thinkBubble.remove();
-    }
-
-    // 최종 마크다운 렌더링 (displayCodePilotMessage와 동일한 처리 적용)
-    try {
-      // 1. think 태그 제거
-      let cleanText = removeThinkTags(streamingTextContent);
-
-      // 2. sanitizeLastResort 적용 (tool 태그 완전 차단)
-      if (typeof sanitizeLastResort === "function") {
-        cleanText = sanitizeLastResort(cleanText);
-      }
-
-      // 3. removeToolTags 적용 (추가 tool 태그 제거)
-      if (typeof removeToolTags === "function") {
-        cleanText = removeToolTags(cleanText);
-      }
-
-      if (typeof md !== "undefined" && md.render && cleanText) {
-        // 4. 마크다운 렌더링
-        const renderedHtml = md.render(cleanText);
-
-        // 5. HTML 새니타이징 적용 (XSS 방지)
-        if (
-          typeof sanitizeHtml === "function" &&
-          typeof sanitizeOptions !== "undefined"
-        ) {
-          contentElement.innerHTML = sanitizeHtml(
-            renderedHtml,
-            sanitizeOptions,
-          );
-        } else {
-          contentElement.innerHTML = renderedHtml;
-        }
-      }
-
-      // 🔥 코드 블록 UI 개선 (접기/펼치기, 언어 라벨, 아이콘)
-      enhanceCodeBlocks(contentElement);
-
-      // 코드 블록에 복사 버튼 추가
-      if (typeof addCopyButtonsToCodeBlocks === "function") {
-        addCopyButtonsToCodeBlocks(contentElement);
-      }
-    } catch (e) {
-      console.error("[Streaming] Final render error:", e);
-    }
-  }
-
-  // 스트리밍 클래스 제거
-  streamingMessageElement.classList.remove("streaming");
-
-  // 상태 초기화
-  streamingMessageElement = null;
-  streamingTextContent = "";
-
-  // 스크롤을 하단으로
-  if (chatMessages) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-}
-
-// escapeHtml -> ./chat/utils.js로 이동
-
-// ===== 스트리밍 메시지 처리 함수들 끝 =====
-
-// enhanceCodeBlocks -> ./chat/codeBlock.js로 이동
-
-// Auto Correcting Indicator Functions
-function showAutoCorrectingIndicator() {
-  const indicator = document.getElementById("auto-correcting-indicator");
-  if (indicator) {
-    indicator.classList.remove("hidden");
-  }
-}
-
-function hideAutoCorrectingIndicator() {
-  const indicator = document.getElementById("auto-correcting-indicator");
-  if (indicator) {
-    indicator.classList.add("hidden");
-  }
-}
-
-function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
-  const chatMessages = document.getElementById("chatMessages");
-  if (!chatMessages) {
-    return;
-  }
-
-  const errorCorrectionDiv = document.createElement("div");
-  errorCorrectionDiv.className = "error-correction-message";
-  errorCorrectionDiv.innerHTML = `
-        <div class="error-correction-header">
-            🔧 명령어 오류 수정 (시도 ${retryCount}/3)
-        </div>
-        <div class="error-correction-content">
-            <div class="original-command">
-                <strong>실패한 명령어:</strong> <code>${originalCommand}</code>
-            </div>
-            <div class="corrected-command">
-                <strong>수정된 명령어:</strong> <code>${correctedCommand}</code>
-            </div>
-        </div>
-    `;
-
-  chatMessages.appendChild(errorCorrectionDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  handleScrollModule();
 }
 
 function resetProcessingStatuses() {
-  processingStepsArray = [];
-  const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
-  statuses.forEach((step) => {
-    const statusElement = document.getElementById(`${step}-status`);
-    if (statusElement) {
-      if (step === "intent") {
-        statusElement.textContent = "Initializing...";
-      } else {
-        statusElement.textContent = "Waiting...";
-      }
-    }
-  });
+  resetProcessingStatusesModule();
 }
 
+function showAutoCorrectingIndicator() {
+  showAutoCorrectingIndicatorModule();
+}
+
+function hideAutoCorrectingIndicator() {
+  hideAutoCorrectingIndicatorModule();
+}
+
+function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
+  showErrorCorrectionModule(originalCommand, correctedCommand, retryCount);
+}
+
+// ===== 스트리밍 메시지 처리 함수들 (모듈 래퍼) =====
+// 실제 구현은 ./chat/streaming.js 모듈에 있음
+
+function startStreamingMessage(sender) {
+  startStreamingMessageModule(sender);
+}
+
+function appendStreamingChunk(chunk) {
+  appendStreamingChunkModule(chunk);
+}
+
+function endStreamingMessage() {
+  endStreamingMessageModule();
+}
+
+// ===== 스트리밍 메시지 처리 함수들 끝 =====
+
+// sanitizeOptions -> ./chat/utils.js로 이동
+// enhanceCodeBlocks -> ./chat/codeBlock.js로 이동
+// escapeHtml -> ./chat/utils.js로 이동
+// showAutoCorrectingIndicator, hideAutoCorrectingIndicator, showErrorCorrection -> ./chat/processing-steps.js로 이동
+// resetProcessingStatuses -> ./chat/processing-steps.js로 이동
 // sanitizeOptions -> ./chat/utils.js로 이동
 
 const sendButton = document.getElementById("send-button");
@@ -2451,6 +2051,20 @@ function updateSendButtonStyle() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  // 모듈 초기화
+  initStreaming({
+    chatMessages,
+    thinkingBubbleElement: null, // 동적으로 설정됨
+    md,
+    sanitizeHtml,
+    addCopyButtonsToCodeBlocks,
+  });
+
+  initProcessingSteps({
+    chatMessages,
+    chatContainer,
+  });
+
   if (chatInput) {
     autoResizeTextarea();
     // MutationObserver 설정 (멘션 복원용)
@@ -2838,11 +2452,9 @@ function showLoading() {
   }
   thinkingBubbleElement = showLoadingModule(chatMessages);
 
-  // 상태 초기화
-  lastFullText = "";
-
-  // 현재 진행 중인 상태가 있다면 즉시 업데이트
-  updateThinkingBubbleText();
+  // 모듈에 thinkingBubbleElement 전달
+  setProcessingThinkingBubble(thinkingBubbleElement);
+  setStreamingThinkingBubble(thinkingBubbleElement);
 
   // 로딩 애니메이션이 보일 때 Clear 버튼 비활성화, Cancel 버튼 활성화
   if (clearHistoryButton) {
@@ -2899,10 +2511,14 @@ function hideLoading() {
   if (thinkingBubbleElement && chatMessages) {
     chatMessages.removeChild(thinkingBubbleElement);
     thinkingBubbleElement = null;
+
+    // 모듈에 thinkingBubbleElement null 전달
+    setProcessingThinkingBubble(null);
+    setStreamingThinkingBubble(null);
   }
 
-  // 상태 배열 초기화
-  processingStepsArray = [];
+  // 상태 배열 초기화 (모듈 함수 호출)
+  resetProcessingStatuses();
 
   // 로딩 애니메이션이 사라질 때 Clear 버튼 활성화, Cancel 버튼 비활성화
   if (clearHistoryButton) {
@@ -3018,6 +2634,9 @@ function handleClearHistory() {
         chatMessages.removeChild(chatMessages.firstChild);
       }
       thinkingBubbleElement = null; // 로딩 애니메이션 참조도 초기화
+      // 모듈에도 알림
+      setProcessingThinkingBubble(null);
+      setStreamingThinkingBubble(null);
       console.log("Chat history cleared.");
     }
 
