@@ -68,6 +68,13 @@ export class StreamingToolParser {
     private parseAndStream(): void {
         const buffer = this.buffer;
 
+        // 🔥 핵심: 도구 호출 패턴이 버퍼에 있으면 스트리밍 중에도 텍스트 출력 차단
+        // LLM이 "We need to..." 같은 텍스트 후에 도구 호출을 반환하는 경우 방지
+        if (/\{\s*["']tool["']\s*:/.test(buffer)) {
+            // 도구 호출이 감지되면 아무것도 출력하지 않음 (complete()에서 최종 처리)
+            return;
+        }
+
         // JSON 블록 시작 감지: ```json
         const jsonStartPattern = /```json\s*/g;
         const jsonEndPattern = /```/g;
@@ -240,10 +247,23 @@ export class StreamingToolParser {
             .replace(/```json[\s\S]*/g, '');
 
         // CODE 블록 형식 제거: { "tool": ... } <<<<<<<CODE ... >>>>>>>END
+        // 1. 완전한 CODE 블록 제거 (file_path 속성 포함)
         segment = segment
-            .replace(/\{\s*["']tool["'][^}]*\}\s*<<<<<<<CODE[\s\S]*?>>>>>>>END/g, '')
-            .replace(/\{\s*["']tool["'][^}]*\}\s*<<<<<<<CODE[\s\S]*/g, '')
-            .replace(/\{\s*["']tool["'][^}]*\}/g, ''); // JSON만 있는 도구 호출도 제거
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<{3,}CODE[\s\S]*?>{3,}END/gi, '')
+            // 2. 부분 CODE 블록 제거 (스트리밍 중)
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<{3,}CODE[\s\S]*/gi, '')
+            // 3. JSON만 있는 도구 호출도 제거
+            .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
+            // 4. 고아 CODE 블록 제거 (JSON 없이 CODE 블록만 있는 경우)
+            .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, '')
+            .replace(/<{3,}CODE[\s\S]*/gi, '');
+
+        // 🔥 핵심: 도구 호출 패턴이 전체 버퍼에 있으면 이 세그먼트의 자연어도 숨김
+        // LLM이 "We need to run..." 같은 텍스트와 함께 도구 호출을 반환하는 경우
+        if (/\{\s*["']tool["']\s*:/.test(this.buffer)) {
+            // 도구 호출이 감지된 응답에서는 자연어 텍스트 비우기
+            segment = '';
+        }
 
         return segment;
     }
@@ -287,9 +307,19 @@ export class StreamingToolParser {
         // 표시용 텍스트 (도구 호출 블록 제거)
         let displayText = this.buffer
             .replace(/```json[\s\S]*?```/g, '')
-            .replace(/\{\s*["']tool["'][^}]*\}\s*<<<<<<<CODE[\s\S]*?>>>>>>>END/g, '')
-            .replace(/\{\s*["']tool["'][^}]*\}/g, '')
+            // 완전한 CODE 블록 제거 (file_path 속성 포함)
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<{3,}CODE[\s\S]*?>{3,}END/gi, '')
+            // JSON만 있는 도구 호출도 제거
+            .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
+            // 고아 CODE 블록 제거
+            .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, '')
             .trim();
+
+        // 🔥 핵심: 도구 호출이 포함된 응답에서는 자연어 텍스트 전체 숨김
+        // LLM이 "We need to run..." 같은 텍스트와 함께 도구 호출을 반환하는 경우
+        if (finalToolCalls.length > 0 || /\{\s*["']tool["']\s*:/.test(this.buffer)) {
+            displayText = '';
+        }
 
         const result: StreamingParseResult = {
             displayText,

@@ -162,6 +162,70 @@ export function getExecutionNudgePrompt(): string {
 }
 
 /**
+ * EXECUTION phase에서 도구 호출 없이 plan만 다시 제출했을 때 강제 프롬프트
+ * 파일 생성/수정 없이 완료 처리되는 것을 방지
+ */
+export function getExecutionNoToolCallWarningPrompt(planItemTitle: string): string {
+  return (
+    `\n[System] ⚠️ **실행 도구 호출 필수 - plan 재제출 금지**\n\n` +
+    `당신은 현재 실행(EXECUTION) 단계에 있습니다.\n` +
+    `작업 "${planItemTitle}"을(를) 완료하려면 **반드시 파일 도구를 호출**해야 합니다.\n\n` +
+    `**❌ 금지된 응답:**\n` +
+    `- { "plan": [...] } ← plan은 이미 수립되었습니다. 다시 제출하지 마세요.\n` +
+    `- 자연어 설명, 분석 텍스트\n\n` +
+    `**✅ 필수 응답 형식:**\n` +
+    `파일 생성:\n` +
+    "```\n" +
+    `{ "tool": "create_file", "path": "파일경로" }\n` +
+    `<<<<<<<CODE\n` +
+    `파일 내용\n` +
+    `>>>>>>>END\n` +
+    "```\n\n" +
+    `파일 수정:\n` +
+    "```\n" +
+    `{ "tool": "update_file", "path": "파일경로" }\n` +
+    `<<<<<<<CODE\n` +
+    `<<<<<<< SEARCH\n` +
+    `기존 코드\n` +
+    `=======\n` +
+    `새 코드\n` +
+    `>>>>>>> REPLACE\n` +
+    `>>>>>>>END\n` +
+    "```\n\n" +
+    `**지금 바로 create_file 또는 update_file 도구를 호출하세요.**`
+  );
+}
+
+/**
+ * 테스트 실패 시 수정 강제 프롬프트
+ * EXECUTION 단계에서 테스트 실패 시 update_file 도구 사용을 강제
+ */
+export function getTestFailureFixPrompt(errorMessage: string): string {
+  return (
+    `\n[System] ⚠️ **테스트 실패 - 즉시 코드 수정 필요**\n\n` +
+    `**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+    `**❌ 금지된 행동 (위반 시 재시도 실패):**\n` +
+    `- read_file, list_files, search_files 등 조사 도구 호출 금지\n` +
+    `- 자연어 설명, 분석 텍스트 출력 금지\n` +
+    `- { "plan": [...] } 재제출 금지\n\n` +
+    `**✅ 필수 행동:**\n` +
+    `오류를 분석하고 **즉시 update_file 또는 create_file 도구로 코드를 수정**하세요.\n\n` +
+    `**예시 (update_file로 오류 수정):**\n` +
+    "```\n" +
+    `{ "tool": "update_file", "path": "오류가_발생한_파일.tsx" }\n` +
+    `<<<<<<<CODE\n` +
+    `<<<<<<< SEARCH\n` +
+    `// 오류가 있는 기존 코드\n` +
+    `=======\n` +
+    `// 수정된 코드\n` +
+    `>>>>>>> REPLACE\n` +
+    `>>>>>>>END\n` +
+    "```\n\n" +
+    `**지금 바로 update_file 도구로 오류를 수정하세요. 파일을 다시 읽지 마세요.**`
+  );
+}
+
+/**
  * Investigation 텍스트만 출력 시 경고 메시지
  */
 export function getInvestigationTextOnlyWarningPrompt(): string {
@@ -171,6 +235,21 @@ export function getInvestigationTextOnlyWarningPrompt(): string {
     `1. 조사 도구 호출: { "tool": "read_file", "path": "..." } 형식으로 정보를 수집하세요.\n` +
     `2. 계획 수립: 충분한 정보를 수집했다면 { "plan": [...] } JSON 형식으로 작업 계획을 수립하세요.\n\n` +
     `텍스트 설명만 출력하지 마세요. 반드시 도구를 호출하거나 계획을 제출해야 합니다.`
+  );
+}
+
+/**
+ * Investigation 단계에서 도구 실행 후 다음 턴 지시
+ * 도구 결과를 받고 다음에 무엇을 해야 하는지 명확히 안내
+ */
+export function getInvestigationToolResultFollowupPrompt(): string {
+  return (
+    `\n[System] 도구 실행 결과를 받았습니다. 다음 단계를 진행하세요:\n\n` +
+    `**필수 출력 형식 중 하나를 선택하세요:**\n` +
+    `1. **추가 조사 필요**: { "tool": "read_file", "path": "..." } 또는 { "tool": "search_files", "pattern": "..." }\n` +
+    `2. **조사 완료, 계획 수립**: { "plan": [{ "kind": "execution", "title": "...", "detail": "..." }] }\n\n` +
+    `**절대 금지:** 자연어 설명, 분석 텍스트 출력\n` +
+    `**반드시 위 JSON 형식 중 하나로만 응답하세요.**`
   );
 }
 

@@ -4,6 +4,44 @@
  */
 
 /**
+ * sanitize-html 옵션 설정 (codepilot:// 스킴 허용)
+ */
+export const sanitizeOptions = {
+  allowedTags: [
+    "b",
+    "i",
+    "em",
+    "strong",
+    "a",
+    "p",
+    "br",
+    "ul",
+    "ol",
+    "li",
+    "code",
+    "pre",
+    "span",
+    "div",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "hr",
+  ],
+  allowedAttributes: {
+    a: ["href", "title"],
+    "*": ["class", "id", "style"],
+  },
+  allowedSchemes: ["http", "https", "mailto", "codepilot"],
+  allowedSchemesByTag: {
+    a: ["http", "https", "mailto", "codepilot"],
+  },
+};
+
+/**
  * 현재 진행 중인 think 태그 추출
  * @param {string} text - 전체 텍스트
  * @returns {{thinkContent: string|null, isThinking: boolean, justCompleted?: boolean}}
@@ -138,7 +176,8 @@ export function sanitizeLastResort(text) {
     return "";
   }
 
-  return text
+  let result = text
+    // Tool 태그 제거
     .replace(/<read_file[\s\S]*?<\/read_file>/gi, "")
     .replace(/<update_file[\s\S]*?<\/update_file>/gi, "")
     .replace(/<create_file[\s\S]*?<\/create_file>/gi, "")
@@ -149,11 +188,144 @@ export function sanitizeLastResort(text) {
     .replace(/<run_command[\s\S]*?<\/run_command>/gi, "")
     .replace(/<plan[\s\S]*?<\/plan>/gi, "")
     .replace(/<task_progress[\s\S]*?<\/task_progress>/gi, "")
-    // CODE 블록 및 SEARCH/REPLACE diff 패턴 제거
+    // CODE 블록 완성된 패턴: <<<<<<<CODE ... >>>>>>>END
     .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, "")
+    // SEARCH/REPLACE 완성된 패턴: <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE
     .replace(/<{3,}\s*SEARCH[\s\S]*?>{3,}\s*REPLACE/gi, "")
+    // file_path 속성이 있는 CODE 패턴: <<<<<<<CODE file_path="..." ... >>>>>>>END
+    .replace(/<{3,}CODE\s+file_path=["'][^"']*["'][\s\S]*?>{3,}END/gi, "")
+    // 줄 시작 기준 부분 패턴 제거
     .replace(/^<{3,}.*$/gm, "")
     .replace(/^>{3,}.*$/gm, "")
-    .replace(/^={3,}$/gm, "")
-    .trim();
+    .replace(/^={3,}$/gm, "");
+
+  // 스트리밍 중 닫히지 않은 diff 패턴 제거 (끝부분에 있는 경우)
+  // <<<<<<<CODE 또는 <<<<<<< SEARCH로 시작하고 끝나지 않은 패턴
+  result = result.replace(/<{3,}CODE[\s\S]*$/gi, "");
+  result = result.replace(/<{3,}\s*SEARCH[\s\S]*$/gi, "");
+
+  // 추가: 중간에 있는 CODE/SEARCH 블록도 제거 (멀티라인 diff 블록)
+  // <<<<<<< 로 시작하는 라인부터 >>>>>>> 로 시작하는 라인까지
+  result = result.replace(/^<{3,}[^\n]*\n[\s\S]*?^>{3,}[^\n]*$/gm, "");
+
+  // 🔥 핵심: 도구 호출 JSON 패턴이 포함된 응답에서 전체 텍스트 제거
+  // LLM이 "We need to run..." 같은 자연어와 함께 { "tool": ... }을 반환하는 경우
+  // 예: "We need to run read_file for src/App.tsx.{ \"tool\": \"read_file\", ... }"
+  if (/\{\s*["']tool["']\s*:/.test(result)) {
+    // 도구 호출이 감지되면 전체 응답 비우기 (도구 결과는 UI에 별도로 표시됨)
+    result = "";
+  }
+
+  return result.trim();
+}
+
+/**
+ * 언어명 정규화 (일반적인 별칭을 표준 언어명으로 변환)
+ * @param {string} lang - 언어 식별자
+ * @returns {string|null} 정규화된 언어명
+ */
+export function normalizeLanguage(lang) {
+  if (!lang) {
+    return null;
+  }
+
+  const langMap = {
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    py: "python",
+    rb: "ruby",
+    sh: "bash",
+    yml: "yaml",
+    md: "markdown",
+    json: "json",
+    html: "html",
+    css: "css",
+    scss: "scss",
+    sass: "sass",
+    less: "less",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+    cxx: "cpp",
+    cc: "cpp",
+    cs: "csharp",
+    php: "php",
+    go: "go",
+    rs: "rust",
+    swift: "swift",
+    kt: "kotlin",
+    scala: "scala",
+    clj: "clojure",
+    hs: "haskell",
+    ml: "ocaml",
+    fs: "fsharp",
+    sql: "sql",
+    xml: "xml",
+    dockerfile: "dockerfile",
+    makefile: "makefile",
+    ini: "ini",
+    toml: "toml",
+    diff: "diff",
+    patch: "diff",
+    vue: "vue",
+    svelte: "svelte",
+    dart: "dart",
+    r: "r",
+    lua: "lua",
+    perl: "perl",
+    elixir: "elixir",
+    erlang: "erlang",
+    julia: "julia",
+    matlab: "matlab",
+    powershell: "powershell",
+    ps1: "powershell",
+    pwsh: "powershell",
+    vb: "vbnet",
+    vba: "vba",
+    graphql: "graphql",
+    protobuf: "protobuf",
+    proto: "protobuf",
+    thrift: "thrift",
+    solidity: "solidity",
+    sol: "solidity",
+    terraform: "terraform",
+    tf: "terraform",
+  };
+
+  const lowerLang = lang.toLowerCase();
+  return langMap[lowerLang] || lowerLang;
+}
+
+/**
+ * 동적 코드 하이라이팅
+ * @param {HTMLElement} codeElement - 코드 요소
+ * @param {string} language - 언어 식별자
+ */
+export function highlightCodeBlock(codeElement, language) {
+  if (!window.hljs) {
+    // highlight.js가 로드되지 않았으면 일반 텍스트로 표시
+    return;
+  }
+
+  const normalizedLang = normalizeLanguage(language);
+
+  if (normalizedLang && window.hljs.getLanguage(normalizedLang)) {
+    // 언어를 인식한 경우
+    codeElement.className = `language-${normalizedLang}`;
+    try {
+      window.hljs.highlightElement(codeElement);
+    } catch (err) {
+      console.warn("Syntax highlighting failed:", err);
+    }
+  } else {
+    // 언어를 모르면 자동 감지
+    codeElement.className = "";
+    try {
+      window.hljs.highlightElement(codeElement);
+    } catch (err) {
+      console.warn("Auto-detection highlighting failed:", err);
+    }
+  }
 }

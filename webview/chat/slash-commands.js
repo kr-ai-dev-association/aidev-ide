@@ -3,49 +3,13 @@
  * 슬래시 명령어 메뉴 관련 기능
  */
 
+import { slashCategories, slashCommandsByCategory } from "./commands.js";
+
 // 슬래시 메뉴 상태
 let slashMenuVisible = false;
 let slashMenuSelectedIndex = 0;
 let slashMenuMode = "categories"; // 'categories' 또는 'commands'
 let selectedSlashCategory = null;
-
-// 슬래시 명령어 카테고리 정의
-export const slashCategories = [
-  { id: "context", label: "컨텍스트", description: "프로젝트 컨텍스트 관련 명령" },
-  { id: "code", label: "코드", description: "코드 생성 및 수정 관련 명령" },
-  { id: "terminal", label: "터미널", description: "터미널 명령어 관련" },
-  { id: "git", label: "Git", description: "Git 관련 명령" },
-  { id: "session", label: "세션", description: "세션 관리 명령" },
-];
-
-// 카테고리별 슬래시 명령어 정의
-export const slashCommandsByCategory = {
-  context: [
-    { command: "/context refresh", label: "컨텍스트 새로고침", description: "프로젝트 컨텍스트를 다시 로드합니다", action: "context_refresh" },
-    { command: "/context clear", label: "컨텍스트 초기화", description: "캐시된 컨텍스트를 초기화합니다", action: "context_clear" },
-    { command: "/context stats", label: "컨텍스트 통계", description: "현재 컨텍스트 캐시 상태를 확인합니다", action: "context_stats" },
-  ],
-  code: [
-    { command: "/code explain", label: "코드 설명", description: "선택한 코드를 설명합니다", action: "code_explain" },
-    { command: "/code refactor", label: "리팩토링", description: "선택한 코드를 리팩토링합니다", action: "code_refactor" },
-    { command: "/code test", label: "테스트 생성", description: "선택한 코드의 테스트를 생성합니다", action: "code_test" },
-    { command: "/code review", label: "코드 리뷰", description: "선택한 코드를 리뷰합니다", action: "code_review" },
-  ],
-  terminal: [
-    { command: "/terminal run", label: "명령 실행", description: "터미널 명령어를 실행합니다", action: "terminal_run" },
-    { command: "/terminal history", label: "히스토리", description: "최근 터미널 히스토리를 확인합니다", action: "terminal_history" },
-  ],
-  git: [
-    { command: "/git status", label: "Git 상태", description: "Git 상태를 확인합니다", action: "git_status" },
-    { command: "/git diff", label: "변경사항", description: "변경된 파일 목록을 확인합니다", action: "git_diff" },
-    { command: "/git commit", label: "커밋", description: "변경사항을 커밋합니다", action: "git_commit" },
-  ],
-  session: [
-    { command: "/session save", label: "세션 저장", description: "현재 세션을 저장합니다", action: "session_save" },
-    { command: "/session list", label: "세션 목록", description: "저장된 세션 목록을 확인합니다", action: "session_list" },
-    { command: "/session clear", label: "세션 초기화", description: "현재 세션을 초기화합니다", action: "session_clear" },
-  ],
-};
 
 /**
  * 슬래시 메뉴 생성
@@ -86,8 +50,10 @@ export function createSlashMenu() {
  * @param {string} filter - 필터 문자열
  * @param {HTMLElement} chatInput - 채팅 입력 요소
  * @param {Function} setCursorToEnd - 커서를 끝으로 이동하는 함수
+ * @param {Object} vscode - VS Code API
+ * @param {Function} autoResizeTextarea - textarea 크기 조절 함수
  */
-export function renderSlashMenu(filter = "", chatInput, setCursorToEnd) {
+export function renderSlashMenu(filter = "", chatInput, setCursorToEnd, vscode, autoResizeTextarea) {
   const menu = createSlashMenu();
 
   // 카테고리 모드
@@ -124,11 +90,11 @@ export function renderSlashMenu(filter = "", chatInput, setCursorToEnd) {
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
         const categoryId = item.getAttribute("data-category");
-        selectSlashCategory(categoryId, chatInput, setCursorToEnd);
+        selectSlashCategory(categoryId, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
       });
       item.addEventListener("mouseenter", () => {
         slashMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
-        renderSlashMenu(filter, chatInput, setCursorToEnd);
+        renderSlashMenu(filter, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
       });
     });
   } else {
@@ -180,7 +146,7 @@ export function renderSlashMenu(filter = "", chatInput, setCursorToEnd) {
         slashMenuMode = "categories";
         selectedSlashCategory = null;
         slashMenuSelectedIndex = 0;
-        renderSlashMenu("", chatInput, setCursorToEnd);
+        renderSlashMenu("", chatInput, setCursorToEnd, vscode, autoResizeTextarea);
         if (chatInput) {
           chatInput.textContent = "/";
           setCursorToEnd(chatInput);
@@ -192,11 +158,11 @@ export function renderSlashMenu(filter = "", chatInput, setCursorToEnd) {
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
         const action = item.getAttribute("data-action");
-        executeSlashCommand(action, chatInput);
+        executeSlashCommand(action, chatInput, vscode, autoResizeTextarea);
       });
       item.addEventListener("mouseenter", () => {
         slashMenuSelectedIndex = parseInt(item.getAttribute("data-index"));
-        renderSlashMenu(filter, chatInput, setCursorToEnd);
+        renderSlashMenu(filter, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
       });
     });
   }
@@ -216,12 +182,14 @@ export function renderSlashMenu(filter = "", chatInput, setCursorToEnd) {
  * @param {string} categoryId - 카테고리 ID
  * @param {HTMLElement} chatInput - 채팅 입력 요소
  * @param {Function} setCursorToEnd - 커서를 끝으로 이동하는 함수
+ * @param {Object} vscode - VS Code API
+ * @param {Function} autoResizeTextarea - textarea 크기 조절 함수
  */
-export function selectSlashCategory(categoryId, chatInput, setCursorToEnd) {
+export function selectSlashCategory(categoryId, chatInput, setCursorToEnd, vscode, autoResizeTextarea) {
   selectedSlashCategory = categoryId;
   slashMenuMode = "commands";
   slashMenuSelectedIndex = 0;
-  renderSlashMenu("", chatInput, setCursorToEnd);
+  renderSlashMenu("", chatInput, setCursorToEnd, vscode, autoResizeTextarea);
 
   if (chatInput) {
     chatInput.textContent = `/${categoryId} `;

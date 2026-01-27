@@ -1,4 +1,7 @@
 // settings.js
+import { showStatus, bindGeminiApiKeyEvents, bindBanyaApiKeyEvents } from "./settings/api-keys.js";
+import { bindToggleEvents, bindSpinnerEvents, updateToggleState, updateSpinnerValue } from "./settings/toggles.js";
+
 // VS Code API를 전역으로 획득
 if (
   typeof window.vscode === "undefined" &&
@@ -53,46 +56,23 @@ const autoExecuteStatus = document.getElementById("auto-execute-status");
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
-// 스트리밍 토글
-if (streamingToggle) {
-  streamingToggle.addEventListener("change", () => {
-    const enabled = streamingToggle.checked;
+// 토글 이벤트 바인딩 (모듈 함수 사용)
+bindToggleEvents({
+  autoUpdateToggle,
+  outputLogToggle,
+  streamingToggle,
+  autoTestRetryToggle,
+  autoCorrectionToggle,
+  autoExecuteToggle,
+  vscode,
+});
 
-    if (vscode) {
-      vscode.postMessage({ command: "setStreamingEnabled", enabled });
-    }
-  });
-}
-
-// 자동 테스트 재시도 토글
-if (autoTestRetryToggle) {
-  autoTestRetryToggle.addEventListener("change", () => {
-    const enabled = autoTestRetryToggle.checked;
-    if (vscode) {
-      vscode.postMessage({ command: "setAutoTestRetryEnabled", enabled });
-    }
-  });
-}
-
-// 자동 오류 수정 토글
-if (autoCorrectionToggle) {
-  autoCorrectionToggle.addEventListener("change", () => {
-    const enabled = autoCorrectionToggle.checked;
-    if (vscode) {
-      vscode.postMessage({ command: "setAutoCorrectionEnabled", enabled });
-    }
-  });
-}
-
-// 명령어 자동 실행 토글
-if (autoExecuteToggle) {
-  autoExecuteToggle.addEventListener("change", () => {
-    const enabled = autoExecuteToggle.checked;
-    if (vscode) {
-      vscode.postMessage({ command: "setAutoExecuteCommandsEnabled", enabled });
-    }
-  });
-}
+// 스피너 이벤트 바인딩 (모듈 함수 사용)
+bindSpinnerEvents({
+  testRetrySpinner,
+  errorRetrySpinner,
+  vscode,
+});
 
 // API 키 관련 요소들
 
@@ -1084,70 +1064,9 @@ if (saveThemeButton && themeSelect) {
   });
 }
 
-// 상태 메시지 표시
-function showStatus(element, message, type = "info", duration = 3000) {
-  if (!element) {
-    return;
-  }
-  element.textContent = message;
-  element.className = `info-message ${type}-message`;
-  if (type === "success" || type === "error") {
-    setTimeout(() => {
-      element.textContent = "";
-      element.className = "info-message";
-    }, duration);
-  }
-}
+// showStatus -> ./settings/api-keys.js로 이동 (import로 사용)
 
-// 이벤트 리스너: 자동 업데이트 토글
-if (autoUpdateToggle) {
-  autoUpdateToggle.addEventListener("change", () => {
-    const isChecked = autoUpdateToggle.checked;
-    vscode.postMessage({
-      command: "setAutoUpdate",
-      autoUpdateEnabled: isChecked,
-    });
-  });
-}
-
-// 이벤트 리스너: OUTPUT 로그 토글
-if (outputLogToggle) {
-  outputLogToggle.addEventListener("change", () => {
-    const isChecked = outputLogToggle.checked;
-    vscode.postMessage({
-      command: "setOutputLog",
-      outputLogEnabled: isChecked,
-    });
-  });
-}
-
-// 이벤트 리스너: 오류 수정 횟수 스피너
-if (testRetrySpinner) {
-  testRetrySpinner.addEventListener("change", () => {
-    const count = parseInt(testRetrySpinner.value);
-    if (count >= 1 && count <= 10) {
-      vscode.postMessage({ command: "setTestRetryCount", count: count });
-    } else {
-      // 범위를 벗어나면 기본값으로 되돌림
-      testRetrySpinner.value = 3;
-    }
-  });
-}
-
-if (errorRetrySpinner) {
-  errorRetrySpinner.addEventListener("change", () => {
-    const count = parseInt(errorRetrySpinner.value);
-    if (count >= 1 && count <= 10) {
-      vscode.postMessage({
-        command: "saveErrorRetryCount",
-        errorRetryCount: count,
-      });
-    } else {
-      // 범위를 벗어나면 기본값으로 되돌림
-      errorRetrySpinner.value = 3;
-    }
-  });
-}
+// 토글 및 스피너 이벤트 리스너 -> 상단 bindToggleEvents, bindSpinnerEvents로 이동
 
 // Ollama 서버 타입 선택 이벤트 리스너
 if (ollamaServerTypeSelect) {

@@ -4,132 +4,219 @@
  */
 
 /**
- * 사용자 메시지 표시
+ * 사용자 메시지 표시 (멘션 파싱 포함)
  * @param {string} text - 메시지 텍스트
  * @param {string|null} imageData - 이미지 데이터 (Base64)
  * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
  * @param {Function} scrollToUserMessageFn - 스크롤 함수
  */
 export function displayUserMessage(text, imageData, chatMessages, scrollToUserMessageFn) {
-  if (!chatMessages) return;
+  if (!chatMessages) return null;
 
-  const userMessageDiv = document.createElement("div");
-  userMessageDiv.className = "user-message-container";
+  // 사용자 메시지 컨테이너 생성
+  const containerElement = document.createElement("div");
+  containerElement.classList.add("user-message-container");
 
-  const contentDiv = document.createElement("div");
-  contentDiv.className = "user-message";
+  // 메시지 내용
+  const userMessageElement = document.createElement("div");
+  userMessageElement.classList.add("user-plain-message");
 
-  // 텍스트 내용 추가
-  if (text) {
-    const textSpan = document.createElement("span");
-    textSpan.textContent = text;
-    contentDiv.appendChild(textSpan);
-  }
-
-  // 이미지 추가
+  // 이미지 데이터가 있으면 이미지 표시
   if (imageData) {
     const imgElement = document.createElement("img");
+    imgElement.classList.add("user-message-image");
     imgElement.src = `data:image/png;base64,${imageData}`;
-    imgElement.className = "user-message-image";
-    imgElement.style.cssText = `
-      max-width: 200px;
-      max-height: 150px;
-      border-radius: 8px;
-      margin-top: 8px;
-    `;
-    contentDiv.appendChild(imgElement);
+    userMessageElement.appendChild(imgElement);
   }
 
-  userMessageDiv.appendChild(contentDiv);
-  chatMessages.appendChild(userMessageDiv);
+  // 텍스트가 있으면 멘션 패턴을 파싱하여 스타일링 적용
+  if (text) {
+    // 파일 멘션: @로 시작하고 파일명 문자만 매칭 (공백에서 종료)
+    // 터미널 멘션: "Terminal: 터미널이름" 형식 (공백 전까지)
+    // 진단 멘션: "Diagnostics: N errors, M warnings" 형식
+    const mentionRegex =
+      /(@[a-zA-Z0-9\.\-\_\/\\]+)|(Terminal:\s*[^\s]+)|(Diagnostics:\s*\d+\s*errors?,\s*\d+\s*warnings?)/g;
 
-  // 스크롤
+    let lastIndex = 0;
+    let match;
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      // 멘션 이전의 일반 텍스트 추가
+      if (match.index > lastIndex) {
+        const textBefore = document.createTextNode(
+          text.substring(lastIndex, match.index)
+        );
+        userMessageElement.appendChild(textBefore);
+      }
+
+      const matchedText = match[0];
+      const mentionSpan = document.createElement("span");
+
+      if (match[1]) {
+        // 파일 멘션 (@파일명)
+        mentionSpan.className = "file-mention";
+        mentionSpan.textContent = match[1].substring(1); // @ 제거 (CSS ::before로 추가됨)
+      } else if (match[2]) {
+        // 터미널 멘션 (Terminal: 터미널이름)
+        mentionSpan.className = "terminal-mention";
+        mentionSpan.textContent = match[2].replace("Terminal:", "").trim();
+      } else if (match[3]) {
+        // 진단 멘션 (Diagnostics: N errors, M warnings)
+        mentionSpan.className = "diagnostics-mention";
+        mentionSpan.textContent = match[3].replace("Diagnostics:", "").trim();
+      }
+
+      userMessageElement.appendChild(mentionSpan);
+      lastIndex = match.index + matchedText.length;
+    }
+
+    // 마지막 멘션 이후의 텍스트 추가
+    if (lastIndex < text.length) {
+      const textAfter = document.createTextNode(text.substring(lastIndex));
+      userMessageElement.appendChild(textAfter);
+    }
+  }
+
+  containerElement.appendChild(userMessageElement);
+
+  const separatorElement = document.createElement("hr");
+  separatorElement.classList.add("message-separator");
+
+  chatMessages.appendChild(containerElement);
+  chatMessages.appendChild(separatorElement);
+
+  // 사용자 메시지가 추가된 후 즉시 스크롤을 해당 메시지로 이동
   if (scrollToUserMessageFn) {
-    scrollToUserMessageFn(userMessageDiv);
+    scrollToUserMessageFn(containerElement);
   } else {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
 
-  return userMessageDiv;
+  return containerElement;
 }
 
 /**
- * 시스템 메시지 표시
+ * 시스템 메시지 표시 (파일 내용 필터링 및 색상 적용)
  * @param {string} text - 메시지 텍스트
  * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
  * @param {boolean} isLightTheme - 라이트 테마 여부
+ * @param {Function} sanitizeHtmlFn - HTML 살균 함수
+ * @param {Object} sanitizeOptions - 살균 옵션
  */
-export function displaySystemMessage(text, chatMessages, isLightTheme = false) {
-  if (!chatMessages) return;
+export function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitizeHtmlFn = null, sanitizeOptions = null) {
+  if (!chatMessages) return null;
 
-  const systemMessageDiv = document.createElement("div");
-  systemMessageDiv.className = "system-message";
-
-  // 아이콘 및 색상 결정
-  let icon = "ℹ️";
-  let color = "var(--vscode-terminal-ansiBrightBlue)";
-
-  if (text.includes("[Created]") || text.includes("[New]")) {
-    icon = "✨";
-    color = isLightTheme ? "#16a34a" : "var(--vscode-terminal-ansiGreen)";
-  } else if (text.includes("[Updated]") || text.includes("[Modified]")) {
-    icon = "📝";
-    color = isLightTheme ? "#ca8a04" : "var(--vscode-terminal-ansiYellow)";
-  } else if (text.includes("[Deleted]") || text.includes("[Removed]")) {
-    icon = "🗑️";
-    color = isLightTheme ? "#dc2626" : "var(--vscode-terminal-ansiRed)";
-  } else if (text.includes("[Error]") || text.includes("[Failed]")) {
-    icon = "❌";
-    color = isLightTheme ? "#dc2626" : "var(--vscode-terminal-ansiRed)";
-  } else if (text.includes("[Warning]")) {
-    icon = "⚠️";
-    color = isLightTheme ? "#ca8a04" : "var(--vscode-terminal-ansiYellow)";
-  } else if (text.includes("[Success]") || text.includes("[Done]")) {
-    icon = "✅";
-    color = isLightTheme ? "#16a34a" : "var(--vscode-terminal-ansiGreen)";
-  } else if (text.includes("[Info]")) {
-    icon = "ℹ️";
-    color = isLightTheme ? "#2563eb" : "var(--vscode-terminal-ansiBrightBlue)";
+  // 🔥 파일 내용이 포함된 긴 메시지 필터링
+  let displayText = text;
+  if (text.includes("[Updated]") || text.includes("[Created]") || text.includes("[Modified]")) {
+    const firstLine = text.split("\n")[0];
+    displayText = firstLine.length > 200 ? firstLine.substring(0, 200) + "..." : firstLine;
   }
 
-  systemMessageDiv.innerHTML = `<span style="color: ${color};">${icon} ${text}</span>`;
-  chatMessages.appendChild(systemMessageDiv);
+  // 너무 긴 메시지는 자르기 (방어적 처리)
+  if (displayText.length > 500) {
+    displayText = displayText.substring(0, 500) + "...";
+  }
+
+  const systemMessageElement = document.createElement("div");
+  systemMessageElement.classList.add("system-message");
+
+  // 이모지에 따라 색상 다르게 표시
+  let color = "var(--vscode-descriptionForeground)";
+  if (
+    text.includes("✅") ||
+    text.includes("✔️") ||
+    text.includes("📖") ||
+    text.includes("📂")
+  ) {
+    color = isLightTheme ? "#16a34a" : "var(--vscode-testing-iconPassed)";
+  } else if (text.includes("❌") || text.includes("Failed")) {
+    color = isLightTheme ? "#dc2626" : "var(--vscode-testing-iconFailed)";
+  } else if (text.includes("🚀") || text.includes("Executed")) {
+    color = isLightTheme ? "#0891b2" : "var(--vscode-terminal-ansiCyan)";
+  } else if (text.includes("📝") || text.includes("Updated")) {
+    color = isLightTheme ? "#ca8a04" : "var(--vscode-terminal-ansiYellow)";
+  } else if (text.includes("Created")) {
+    color = isLightTheme ? "#16a34a" : "var(--vscode-testing-iconPassed)";
+  }
+
+  systemMessageElement.style.cssText = `
+    padding: 4px 8px;
+    margin: 2px 0;
+    font-size: 12px;
+    font-family: var(--vscode-editor-font-family);
+    color: ${color};
+    background: rgba(128, 128, 128, 0.05);
+    border-radius: 4px;
+    border-left: 2px solid ${color};
+    word-break: break-all;
+    white-space: pre-line;
+  `;
+
+  // HTML 살균 함수가 제공되면 사용, 아니면 텍스트 그대로
+  if (sanitizeHtmlFn && sanitizeOptions) {
+    systemMessageElement.innerHTML = sanitizeHtmlFn(displayText, sanitizeOptions);
+  } else {
+    systemMessageElement.textContent = displayText;
+  }
+
+  chatMessages.appendChild(systemMessageElement);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 
-  return systemMessageDiv;
+  return systemMessageElement;
 }
 
 /**
- * 로딩 표시
+ * 사용자 메시지로 스크롤하는 함수 (여러 번 시도)
+ * @param {HTMLElement} userMessageElement - 사용자 메시지 요소
  * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
- * @param {Function} createThinkingBubbleFn - thinking 버블 생성 함수
+ */
+export function scrollToUserMessage(userMessageElement, chatMessages) {
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  const attemptScroll = () => {
+    attempts++;
+    if (userMessageElement && userMessageElement.offsetHeight > 0) {
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      return true;
+    } else if (attempts < maxAttempts) {
+      setTimeout(attemptScroll, 20);
+      return false;
+    } else {
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      return false;
+    }
+  };
+
+  if (!attemptScroll()) {
+    setTimeout(attemptScroll, 20);
+  }
+}
+
+/**
+ * 로딩 버블 생성 및 표시
+ * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
  * @returns {HTMLElement} thinking 버블 요소
  */
-export function showLoading(chatMessages, createThinkingBubbleFn) {
+export function showLoading(chatMessages) {
   if (!chatMessages) return null;
 
-  let thinkingBubbleElement = null;
+  const messageContainer = document.createElement("div");
+  messageContainer.classList.add("thinking-bubble");
 
-  if (createThinkingBubbleFn) {
-    thinkingBubbleElement = createThinkingBubbleFn();
-  } else {
-    // 기본 thinking 버블 생성
-    thinkingBubbleElement = document.createElement("div");
-    thinkingBubbleElement.className = "thinking-bubble";
-    thinkingBubbleElement.innerHTML = `
-      <div class="thinking-animation">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div>
-      <span class="thinking-text"></span>
-    `;
-  }
+  // 타자기 효과를 위한 구조
+  messageContainer.innerHTML =
+    '<span class="thinking-text"></span><span class="thinking-cursor">|</span>';
 
-  chatMessages.appendChild(thinkingBubbleElement);
+  chatMessages.appendChild(messageContainer);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 
-  return thinkingBubbleElement;
+  return messageContainer;
 }
 
 /**
@@ -170,26 +257,6 @@ export function showErrorCorrection(originalCommand, correctedCommand, retryCoun
 
   chatMessages.appendChild(errorCorrectionDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-/**
- * 자동 수정 인디케이터 표시
- */
-export function showAutoCorrectingIndicator() {
-  const indicator = document.getElementById("auto-correcting-indicator");
-  if (indicator) {
-    indicator.classList.remove("hidden");
-  }
-}
-
-/**
- * 자동 수정 인디케이터 숨기기
- */
-export function hideAutoCorrectingIndicator() {
-  const indicator = document.getElementById("auto-correcting-indicator");
-  if (indicator) {
-    indicator.classList.add("hidden");
-  }
 }
 
 /**

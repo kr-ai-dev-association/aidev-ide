@@ -46,7 +46,10 @@ import {
     getValidationCommandInferencePrompt,
     getSimpleTestFailurePrompt,
     getExecutionPhaseContextPrompt,
-    getErrorRetryPrompt
+    getErrorRetryPrompt,
+    getInvestigationToolResultFollowupPrompt,
+    getExecutionNoToolCallWarningPrompt,
+    getTestFailureFixPrompt
 } from '../context/prompts/rules';
 import { getGeneralAnalysisPrompt } from '../context/prompts/analysis/generalAnalysis';
 import { ConversationCompactor } from './ConversationCompactor';
@@ -352,6 +355,8 @@ export class ConversationManager {
         let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
         const maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount(); // 설정에서 최대 시도 횟수 가져오기
         const isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled(); // 자동 테스트 재시도 설정 확인
+        let executionNoToolRetryCount = 0; // EXECUTION phase에서 도구 호출 없이 응답 시 재시도 횟수
+        const maxExecutionNoToolRetries = 2; // 최대 재시도 횟수
         let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
 
         // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
@@ -993,8 +998,9 @@ export class ConversationManager {
                                 if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
                                     testFixAttempts++;
                                     console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                    // 테스트 실패 시 수정 강제 프롬프트 사용 (read_file 금지)
                                     accumulatedUserParts.push({
-                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n\n**중요:** 이미 존재하는 파일은 생성하지 마세요. 파일이 이미 존재하는 경우 update_file 도구를 사용하여 수정하세요.\n`
+                                        text: getTestFailureFixPrompt(testResult.errorMessage || '알 수 없는 오류')
                                     });
                                     turnCount++;
                                     continue; // EXECUTION 단계 유지하여 수정 시도
@@ -1070,8 +1076,9 @@ export class ConversationManager {
                                         if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
                                             testFixAttempts++;
                                             console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                            // 테스트 실패 시 수정 강제 프롬프트 사용 (read_file 금지)
                                             accumulatedUserParts.push({
-                                                text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(update_file)으로 해결하세요.\n- create_file을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 update_file 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                                text: getTestFailureFixPrompt(testResult.errorMessage || '알 수 없는 오류')
                                             });
                                             turnCount++;
                                             continue;
@@ -1293,8 +1300,9 @@ export class ConversationManager {
                                     if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
                                         testFixAttempts++;
                                         console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                        // 테스트 실패 시 수정 강제 프롬프트 사용 (read_file 금지)
                                         accumulatedUserParts.push({
-                                            text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(update_file)으로 해결하세요.\n- create_file을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 update_file 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                            text: getTestFailureFixPrompt(testResult.errorMessage || '알 수 없는 오류')
                                         });
                                         turnCount++;
                                         continue; // EXECUTION 단계 유지하여 수정 시도
@@ -1314,29 +1322,40 @@ export class ConversationManager {
                                 }
                             }
                         } else {
-                            // LLM을 호출했지만 여전히 도구 호출이 없다면, 해당 plan item을 완료로 간주하고 다음으로 이동
-                            console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
-
-                            // ⚠️ 핵심 수정: 텍스트 응답이 있으면 패널에 표시
-                            // 단, 사용자가 첨부한 컨텍스트(터미널, 파일, Diagnostics)가 있을 때는 분석 응답이므로 표시해야 함
+                            // LLM을 호출했지만 도구 호출이 없음
                             const textResponse = this.responseProcessor.extractResponseText(cleanExecutionResponse);
                             const hasAttachedContext = options.terminalContext || (options.selectedFiles && options.selectedFiles.length > 0) || options.diagnosticsContext;
 
+                            // 🔥 핵심 수정: 파일 변경이 없고 재시도 횟수가 남아있으면 도구 호출 강제
+                            const hasFileChanges = createdFiles.length > 0 || modifiedFiles.length > 0;
+
+                            if (!hasFileChanges && executionNoToolRetryCount < maxExecutionNoToolRetries) {
+                                // 파일 변경 없이 도구 호출도 없음 → LLM에게 도구 호출 강제 프롬프트 추가 후 재시도
+                                executionNoToolRetryCount++;
+                                console.log(`[ConversationManager] EXECUTION phase: No tool calls and no file changes. Forcing tool call (retry ${executionNoToolRetryCount}/${maxExecutionNoToolRetries}).`);
+
+                                const planItemTitle = currentPlanItem?.title || '현재 작업';
+                                accumulatedUserParts.push({ text: llmResponseForExecution });
+                                accumulatedUserParts.push({ text: getExecutionNoToolCallWarningPrompt(planItemTitle) });
+                                turnCount++;
+                                continue;
+                            }
+
+                            // 첨부 컨텍스트가 있을 때는 분석 응답이므로 사용자에게 표시
                             if (textResponse && textResponse.trim().length > 0) {
                                 if (hasAttachedContext) {
-                                    // ✅ 첨부 컨텍스트가 있을 때는 분석 응답이므로 사용자에게 표시 (🔥 스트리밍)
                                     console.log(`[ConversationManager] EXECUTION phase: Text response with attached context (length: ${textResponse.length}). Displaying to user.`);
                                     await WebviewBridge.streamText(webviewToRespond, 'CODEPILOT', textResponse);
-                                    // 분석 완료 후 REVIEW로 전환
                                     stateManager.transitionTo(AgentPhase.REVIEW);
                                     break;
                                 } else {
                                     console.log(`[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Skipping display (EXECUTION phase blocks CODEPILOT text).`);
-                                    // EXECUTION phase에서는 CODEPILOT 텍스트를 보내지 않음 (내부 사고로 간주)
-                                    // 텍스트 응답을 accumulatedUserParts에 추가하여 다음 턴에서 참조 가능하도록 함
                                     accumulatedUserParts.push({ text: llmResponseForExecution });
                                 }
                             }
+
+                            // 재시도 횟수 초과 또는 파일 변경이 있는 경우 → plan item 완료 처리
+                            console.log('[ConversationManager] No tool calls returned for plan item execution. Marking current plan item as done and moving to next.');
 
                             if (currentPlanItem) {
                                 taskManager.updatePlanItemStatus(currentPlanItem.id, 'done');
@@ -1345,6 +1364,7 @@ export class ConversationManager {
 
                             const nextItem = taskManager.getNextPendingItem();
                             if (nextItem) {
+                                executionNoToolRetryCount = 0; // 다음 plan item으로 이동 시 카운터 리셋
                                 turnCount++;
                                 continue;
                             } else {
@@ -1362,8 +1382,9 @@ export class ConversationManager {
                                     if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
                                         testFixAttempts++;
                                         console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                        // 테스트 실패 시 수정 강제 프롬프트 사용 (read_file 금지)
                                         accumulatedUserParts.push({
-                                            text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(update_file)으로 해결하세요.\n- create_file을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 update_file 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                            text: getTestFailureFixPrompt(testResult.errorMessage || '알 수 없는 오류')
                                         });
                                         turnCount++;
                                         continue;
@@ -1413,8 +1434,9 @@ export class ConversationManager {
                                 if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
                                     testFixAttempts++;
                                     console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                    // 테스트 실패 시 수정 강제 프롬프트 사용 (read_file 금지)
                                     accumulatedUserParts.push({
-                                        text: `\n[System] 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${testResult.errorMessage || '알 수 없는 오류'}\n\n⚠️ **중요 컨텍스트:**\n- 이미 대부분의 파일은 생성되어 있습니다.\n- 실패 원인만 최소 수정(update_file)으로 해결하세요.\n- create_file을 사용하여 파일을 다시 만들지 마세요.\n- 파일이 이미 존재하는 경우 반드시 update_file 도구를 사용하여 수정하세요.\n\n필요하다면 run_command 도구를 사용하여 의존성을 설치하세요 (예: npm install, pip install -r requirements.txt, mvn install 등).\n`
+                                        text: getTestFailureFixPrompt(testResult.errorMessage || '알 수 없는 오류')
                                     });
                                     turnCount++;
                                     continue; // EXECUTION 단계 유지하여 수정 시도
@@ -1558,7 +1580,8 @@ export class ConversationManager {
             // 🔥 핵심: EXECUTION phase에서는 "생각", "설명" → 전부 무시, tool call만 추출
             if (currentPhase === AgentPhase.EXECUTION) {
                 // 새 형식: { "tool": "..." } 패턴 확인
-                const hasToolCallPattern = /\{\s*["']tool["']\s*:\s*["']/.test(cleanResponse);
+                // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+                const hasToolCallPattern = /\{\s*["']tool["']\s*:\s*["']/.test(llmResponse);
 
                 if (hasToolCallPattern) {
                     // 도구 호출 형식 감지됨 - 원본 유지 (ToolParser에서 처리)
@@ -1609,11 +1632,13 @@ export class ConversationManager {
             // ⚠️ JSON Function Calling도 지원
             if (currentPhase === AgentPhase.INVESTIGATION) {
                 // JSON plan 확인
-                const hasPlan = /\{\s*"plan"\s*:/.test(cleanResponse) ||
-                    /```json[\s\S]*?"plan"[\s\S]*?```/i.test(cleanResponse);
+                // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+                const hasPlan = /\{\s*"plan"\s*:/.test(llmResponse) ||
+                    /```json[\s\S]*?"plan"[\s\S]*?```/i.test(llmResponse);
 
                 // 도구 호출에서 실행 도구 확인
-                const parsedToolCalls = ToolParser.parseToolCalls(cleanResponse);
+                // ⚠️ llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+                const parsedToolCalls = ToolParser.parseToolCalls(llmResponse);
                 const executionTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
                 const hasExecutionTool = parsedToolCalls.some(call => executionTools.includes(call.name as Tool));
 
@@ -1645,11 +1670,12 @@ export class ConversationManager {
             cleanResponse = cleanResponse.replace(/<investigation_done\s*\/>/gi, '').trim();
 
             // 🔥 EXECUTION phase에서 텍스트만 나오면 즉시 재요청 (핵심 개선)
-            if (currentPhase === AgentPhase.EXECUTION && cleanResponse.trim()) {
+            if (currentPhase === AgentPhase.EXECUTION && llmResponse.trim()) {
                 // 도구 호출이 있는지 확인 (새 형식: { "tool": "..." })
-                const hasToolCall = /\{\s*["']tool["']\s*:\s*["']/.test(cleanResponse);
+                // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+                const hasToolCallInExecution = /\{\s*["']tool["']\s*:\s*["']/.test(llmResponse);
 
-                if (!hasToolCall) {
+                if (!hasToolCallInExecution) {
                     // 텍스트만 있고 도구 호출이 없으면 자연어 응답으로 간주
                     console.warn(`[ConversationManager] EXECUTION phase: LLM provided natural language text instead of tool calls. Rejecting and requesting again.`);
                     accumulatedUserParts.push({ text: getExecutionOutputContractViolationPrompt() });
@@ -1658,8 +1684,9 @@ export class ConversationManager {
                 }
             }
 
-            // 🔥 중복 실행 방지: 전체 cleanResponse에서 모든 tool call을 한 번만 파싱
-            const allToolCallsFromResponse = ToolParser.parseToolCalls(cleanResponse);
+            // 🔥 중복 실행 방지: 전체 llmResponse에서 모든 tool call을 한 번만 파싱
+            // ⚠️ llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+            const allToolCallsFromResponse = ToolParser.parseToolCalls(llmResponse);
             const parsedToolCallsMap = new Map<string, any>();
             allToolCallsFromResponse.forEach(call => {
                 const key = `${call.name}:${JSON.stringify(call.params)}`;
@@ -1676,16 +1703,18 @@ export class ConversationManager {
             const toolParseWarnings: string[] = [];
 
             // 🔥 도구 호출 처리 (새 형식: { "tool": "..." })
-            const hasToolCall = /\{\s*["']tool["']\s*:\s*["']/.test(cleanResponse);
-            const hasJsonPlanInResponse = /\{\s*"plan"\s*:/.test(cleanResponse) ||
-                /```json[\s\S]*?\{[\s\S]*?"plan"[\s\S]*?\}[\s\S]*?```/i.test(cleanResponse);
+            // ⚠️ 핵심 수정: llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+            const hasToolCall = /\{\s*["']tool["']\s*:\s*["']/.test(llmResponse);
+            const hasJsonPlanInResponse = /\{\s*"plan"\s*:/.test(llmResponse) ||
+                /```json[\s\S]*?\{[\s\S]*?"plan"[\s\S]*?\}[\s\S]*?```/i.test(llmResponse);
 
             // JSON Plan 처리 (도구 호출 없이 plan만 있는 경우)
             // 🔥 핵심 수정: analysis/documentation 인텐트에서는 JSON plan을 무시하고 자연어 응답으로 처리
             const isTextOnlyIntent = intent && (intent.category === 'analysis' || intent.category === 'documentation');
             if (hasJsonPlanInResponse && !isTextOnlyIntent) {
                 console.log(`[ConversationManager] JSON plan detected`);
-                const planItems = ToolParser.parsePlanItems(cleanResponse);
+                // ⚠️ 핵심 수정: llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+                const planItems = ToolParser.parsePlanItems(llmResponse);
                 if (planItems.length > 0) {
                     WebviewBridge.sendProcessingStep(webviewToRespond, 'plan');
                     WebviewBridge.sendProcessingStatus(webviewToRespond, 'plan', '작업 계획 분석 및 파싱 중...');
@@ -1713,7 +1742,8 @@ export class ConversationManager {
                 console.log(`[ConversationManager] Tool call detected, processing tool calls`);
 
                 // 도구 실행 처리
-                const toolCallsFromJson = ToolParser.parseToolCalls(cleanResponse, toolParseWarnings);
+                // ⚠️ 핵심 수정: llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+                const toolCallsFromJson = ToolParser.parseToolCalls(llmResponse, toolParseWarnings);
                 console.log(`[ConversationManager] Tool calls: parsed ${toolCallsFromJson.length} tool calls`);
 
                 if (toolCallsFromJson.length > 0) {
@@ -1761,6 +1791,27 @@ export class ConversationManager {
 
                         // blockedCalls가 없거나 비워졌으면 도구 실행
                         if (blockedCalls.length === 0) {
+                            // 🔥 EXECUTION 단계에서 조사 도구만 호출하는 경우 경고 및 수정 도구 강제
+                            const investigationTools = [Tool.READ_FILE, Tool.LIST_FILES, Tool.SEARCH_FILES, Tool.RIPGREP_SEARCH];
+                            const onlyInvestigationTools = toolCalls.every(call => investigationTools.includes(call.name as Tool));
+
+                            if (currentPhase === AgentPhase.EXECUTION && onlyInvestigationTools) {
+                                console.warn(`[ConversationManager] EXECUTION phase: Only investigation tools detected (${toolCalls.map(c => c.name).join(', ')}). LLM should use update_file/create_file instead.`);
+                                // 테스트 실패 후 재시도 중인 경우, 조사 도구 실행 대신 수정 도구 사용 강제
+                                if (testFixAttempts > 0) {
+                                    console.log(`[ConversationManager] Test fix attempt ${testFixAttempts}: Blocking investigation tools, requesting modification tools.`);
+                                    accumulatedUserParts.push({
+                                        text: `\n[System] ⚠️ **조사 도구 사용 금지**\n\n` +
+                                            `현재 EXECUTION 단계에서 테스트 오류를 수정 중입니다.\n` +
+                                            `${toolCalls.map(c => c.name).join(', ')} 도구는 조사용이며, 이 단계에서는 사용할 수 없습니다.\n\n` +
+                                            `**즉시 update_file 도구로 오류를 수정하세요.**\n` +
+                                            `파일을 다시 읽지 마세요. 이미 충분한 정보가 있습니다.`
+                                    });
+                                    turnCount++;
+                                    continue; // 도구 실행 건너뛰고 재요청
+                                }
+                            }
+
                             // 중복 방지를 위해 executedInTurn에 추가
                             toolCalls.forEach(call => {
                                 const key = `${call.name}:${JSON.stringify(call.params)}`;
@@ -1834,8 +1885,9 @@ export class ConversationManager {
             }
 
             // 3. 루프 종료 조건 확인 및 턴 관리
-            const totalToolCalls = ToolParser.parseToolCalls(cleanResponse, toolParseWarnings);
-            const totalResponseText = this.responseProcessor.extractResponseText(cleanResponse);
+            // ⚠️ 핵심 수정: llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
+            const totalToolCalls = ToolParser.parseToolCalls(llmResponse, toolParseWarnings);
+            const totalResponseText = this.responseProcessor.extractResponseText(llmResponse);
 
             // create_file content 누락 등 툴 파싱 경고를 사용자 컨텍스트에 추가
             if (toolParseWarnings.length > 0) {
@@ -1862,6 +1914,8 @@ export class ConversationManager {
                     // 조사 단계에서는 계획이 없어도 계속 진행 (조사 후 계획 수립 또는 작업 진행)
                     if (currentPhase === AgentPhase.INVESTIGATION) {
                         console.log('[ConversationManager] Investigation phase: continuing to allow plan creation or work execution.');
+                        // 🔥 핵심 수정: 도구 실행 후 후속 지시 추가 (빈 응답 방지)
+                        accumulatedUserParts.push({ text: getInvestigationToolResultFollowupPrompt() });
                         turnCount++;
                         continue;
                     }

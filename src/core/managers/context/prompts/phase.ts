@@ -181,31 +181,29 @@ export function getExecutionPhasePrompt(): string {
     `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
     `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
     `${noThinkingLeakage}\n\n` +
-    `**절대 금지 사항:**\n` +
+    `**절대 금지 사항 (위반 시 작업 실패):**\n` +
+    `- ❌ \`{ "plan": [...] }\` 출력 절대 금지 - plan은 이미 수립 완료됨. 다시 제출하면 무시됨.\n` +
+    `- ❌ CODE 블록 내부에 자연어 삽입 절대 금지 - "We need to...", "Let me..." 등 삽입 시 파일 깨짐\n` +
     `- ❌ 사고, 추론, 설명 출력 금지\n` +
     `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
     `- ❌ 파일 탐색 금지 (조사는 이미 완료되었습니다)\n` +
     `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
     `- ❌ XML 태그 형식 사용 금지\n` +
     `- ${noMonologueRules.split("\n").slice(1).join("\n- ")}\n\n` +
-    `**필수 출력 형식:**\n` +
-    `- ✅ \`{ "tool": "..." }\` 형식만 사용\n` +
+    `**필수 출력 형식 (이것만 허용됨):**\n` +
+    `- ✅ \`{ "tool": "create_file" }\` 또는 \`{ "tool": "update_file" }\` 형식만 사용\n` +
     `- ✅ 파일 내용은 \`<<<<<<<CODE ... >>>>>>>END\` 블록 사용\n` +
+    `- ✅ CODE 블록 내부는 순수 소스코드만 (자연어, 설명 문구 절대 금지)\n` +
     `- ✅ 도구 호출 전후에 텍스트 출력 금지\n\n` +
+    `**⚠️ 치명적 오류 방지:**\n` +
+    `CODE 블록 내부에 영어/한국어 문장을 삽입하면 파일이 깨집니다.\n` +
+    `CODE 블록 = 순수 프로그래밍 코드만. 생각, 설명, 주석 형태의 자연어 모두 금지.\n\n` +
     `**예시:**\n` +
     `\`\`\`\n` +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
     `<<<<<<<CODE\n` +
     `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
-    `>>>>>>>END\n` +
-    `\n` +
-    `{ "tool": "create_file", "path": "package.json" }\n` +
-    `<<<<<<<CODE\n` +
-    `{\n` +
-    `  "name": "my-app",\n` +
-    `  "version": "1.0.0"\n` +
-    `}\n` +
     `>>>>>>>END\n` +
     `\`\`\`\n\n` +
     `**⚠️ 중요:** 모든 자연어 텍스트(사고, 설명, 추론)는 무시됩니다.\n` +
