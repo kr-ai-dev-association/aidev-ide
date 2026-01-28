@@ -193,6 +193,15 @@ export class ToolParser {
             }
         }
 
+        // fetch_url은 url 필수
+        if (toolName === Tool.FETCH_URL) {
+            if (!params.url || params.url.trim().length === 0) {
+                return { valid: false, message: `fetch_url에 url이 없습니다` };
+            }
+        }
+
+        // git_diff, read_active_file은 파라미터 없어도 됨
+
         return { valid: true };
     }
 

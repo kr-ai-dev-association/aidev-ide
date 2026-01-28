@@ -57,6 +57,9 @@ import {
   StatFileToolHandler,
 } from "./core/tools/file";
 import { RunCommandToolHandler } from "./core/tools/terminal";
+import { GitDiffToolHandler } from "./core/tools/git";
+import { ReadActiveFileToolHandler } from "./core/tools/ide";
+import { FetchUrlToolHandler } from "./core/tools/web";
 
 // 전역 변수
 let geminiApi: GeminiApi;
@@ -546,6 +549,10 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new ExpandAroundLineToolHandler());
   toolRegistry.register(new ListImportsToolHandler());
   toolRegistry.register(new StatFileToolHandler());
+  // Git, IDE, Web 도구들
+  toolRegistry.register(new GitDiffToolHandler());
+  toolRegistry.register(new ReadActiveFileToolHandler());
+  toolRegistry.register(new FetchUrlToolHandler());
   console.log(
     "[Extension] Tool handlers registered:",
     toolRegistry.getRegisteredTools(),
