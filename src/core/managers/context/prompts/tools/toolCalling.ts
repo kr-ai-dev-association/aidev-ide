@@ -19,7 +19,6 @@ export function getToolCallingFormatPrompt(): string {
     prompt += '{ "tool": "create_file", "path": "src/example.py" }\n';
     prompt += '<<<<<<<CODE\n';
     prompt += 'def example():\n';
-    prompt += '    """docstring with ```python code```"""\n';
     prompt += '    print("hello")\n';
     prompt += '>>>>>>>END\n';
     prompt += '```\n\n';
@@ -93,7 +92,7 @@ export function getToolSpecPrompt(spec: ToolSpec): string {
     }
     prompt += '\n';
 
-    // 예시 - 새 CODE 블록 형식으로 표시
+    // 예시 - 백틱 코드블럭 형식으로 표시
     prompt += '**사용 예시:**\n';
 
     // create_file과 update_file은 CODE 블록 형식으로
@@ -144,11 +143,39 @@ export function getToolSpecPrompt(spec: ToolSpec): string {
 export function getWorkflowGuidelinePrompt(): string {
     let prompt = '### 작업 흐름 가이드라인\n\n';
 
+    // 파일 읽기 전략 (핵심!)
+    prompt += '**⚠️ 파일 읽기 전략 (필수!):**\n';
+    prompt += '파일을 읽기 전에 **반드시** `stat_file`로 파일 크기를 먼저 확인하세요.\n';
+    prompt += '큰 파일을 전체 읽으면 컨텍스트가 낭비됩니다.\n\n';
+
+    prompt += '| 라인 수 | 권장 방법 |\n';
+    prompt += '|---------|----------|\n';
+    prompt += '| ~200줄 | `read_file` 전체 읽기 |\n';
+    prompt += '| 200~500줄 | `list_imports` + `read_file` 부분 읽기 |\n';
+    prompt += '| 500줄+ | `stat_file` → `list_imports` → 필요한 범위만 읽기 |\n\n';
+
+    prompt += '**파일 읽기 워크플로우 (권장):**\n';
+    prompt += '```\n';
+    prompt += '// 1단계: 파일 정보 확인\n';
+    prompt += '{ "tool": "stat_file", "path": "src/chat.js" }\n';
+    prompt += '// 2단계: 큰 파일이면 구조 파악\n';
+    prompt += '{ "tool": "list_imports", "path": "src/chat.js" }\n';
+    prompt += '// 3단계: 필요한 부분만 읽기\n';
+    prompt += '{ "tool": "read_file", "path": "src/chat.js", "startLine": "200", "endLine": "350" }\n';
+    prompt += '```\n\n';
+
+    prompt += '**검색 후 컨텍스트 확인:**\n';
+    prompt += '```\n';
+    prompt += '{ "tool": "ripgrep_search", "pattern": "handleSubmit" }\n';
+    prompt += '// 결과: src/chat.js:245에서 발견\n';
+    prompt += '{ "tool": "expand_around_line", "path": "src/chat.js", "line": "245", "before": "15", "after": "15" }\n';
+    prompt += '```\n\n';
+
     prompt += '**파일 수정 워크플로우:**\n';
     prompt += '```\n';
     prompt += '// 1단계: 먼저 파일 읽기 (필수!)\n';
     prompt += '{ "tool": "read_file", "path": "src/App.tsx" }\n';
-    prompt += '\n// 2단계: 읽은 내용을 기반으로 수정\n';
+    prompt += '// 2단계: 읽은 내용을 기반으로 수정\n';
     prompt += '{ "tool": "update_file", "path": "src/App.tsx" }\n';
     prompt += '<<<<<<<CODE\n';
     prompt += '<<<<<<< SEARCH\n';
@@ -156,18 +183,6 @@ export function getWorkflowGuidelinePrompt(): string {
     prompt += '=======\n';
     prompt += '새 코드\n';
     prompt += '>>>>>>> REPLACE\n';
-    prompt += '>>>>>>>END\n';
-    prompt += '```\n\n';
-
-    prompt += '**기능 추가 워크플로우:**\n';
-    prompt += '```\n';
-    prompt += '{ "tool": "list_files", "path": "src", "recursive": "true" }\n';
-    prompt += '{ "tool": "read_file", "path": "src/App.tsx" }\n';
-    prompt += '\n';
-    prompt += '{ "tool": "create_file", "path": "src/components/Button.tsx" }\n';
-    prompt += '<<<<<<<CODE\n';
-    prompt += '// Button component\n';
-    prompt += 'export const Button = () => <button>Click</button>;\n';
     prompt += '>>>>>>>END\n';
     prompt += '```\n\n';
 
@@ -179,6 +194,25 @@ export function getWorkflowGuidelinePrompt(): string {
  */
 export function getImportantRulesPrompt(): string {
     let prompt = '### 중요 규칙\n\n';
+
+    // 🔥 도구 호출 전후 텍스트 금지 (가장 중요!)
+    prompt += '**도구 호출 전후 텍스트 절대 금지:**\n';
+    prompt += '- 도구 호출 전에 설명, 생각, 계획, 분석을 출력하지 마세요\n';
+    prompt += '- 도구 호출 후에도 추가 설명을 출력하지 마세요\n';
+    prompt += '- **오직 `{ "tool": ... }` JSON만 출력하세요**\n';
+    prompt += '- 텍스트 출력은 UI 오류를 발생시킵니다\n\n';
+
+    prompt += '❌ **잘못된 예시 (절대 금지):**\n';
+    prompt += '```\n';
+    prompt += '파일을 먼저 읽어보겠습니다.\n';
+    prompt += '{ "tool": "read_file", "path": "src/app.ts" }\n';
+    prompt += '```\n\n';
+
+    prompt += '✅ **올바른 예시:**\n';
+    prompt += '```\n';
+    prompt += '{ "tool": "read_file", "path": "src/app.ts" }\n';
+    prompt += '```\n\n';
+
     prompt += '**⚠️ 출력 형식 (절대 준수):**\n';
     prompt += '- **오직 `{ "tool": "..." }` 형식만 사용하세요**\n';
     prompt += '- XML 태그 형식은 **사용 금지**\n';
@@ -189,7 +223,7 @@ export function getImportantRulesPrompt(): string {
     prompt += '2. **create_file은 <<<<<<<CODE 필수**: 빈 코드 블록은 허용되지 않습니다.\n';
     prompt += '3. **수정 범위가 넓으면 create_file 사용**: 전체를 다시 작성하세요.\n';
     prompt += '4. **일괄 수정 금지**: sed -i 대신 read_file → update_file 순서로.\n\n';
-    prompt += '**⛔ 파일 삭제 규칙 (절대 금지):**\n';
+    prompt += '** 파일 삭제 규칙 (절대 금지):**\n';
     prompt += '- **테스트/빌드/검증 실패 시 파일 삭제 금지**: 에러 해결을 위해 기존 파일을 삭제하지 마세요.\n';
     prompt += '- **remove_file은 사용자가 명시적으로 요청한 경우에만 사용**\n';
     prompt += '- **에러 해결 방법**: 파일을 삭제하는 대신 코드를 수정하거나 설정을 변경하세요.\n\n';

@@ -52,6 +52,9 @@ import {
   ListFilesToolHandler,
   SearchFilesToolHandler,
   RipgrepSearchToolHandler,
+  ExpandAroundLineToolHandler,
+  ListImportsToolHandler,
+  StatFileToolHandler,
 } from "./core/tools/file";
 import { RunCommandToolHandler } from "./core/tools/terminal";
 
@@ -539,6 +542,10 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new SearchFilesToolHandler());
   toolRegistry.register(new RipgrepSearchToolHandler());
   toolRegistry.register(new RunCommandToolHandler());
+  // 새로운 파일 읽기 도구들
+  toolRegistry.register(new ExpandAroundLineToolHandler());
+  toolRegistry.register(new ListImportsToolHandler());
+  toolRegistry.register(new StatFileToolHandler());
   console.log(
     "[Extension] Tool handlers registered:",
     toolRegistry.getRegisteredTools(),
@@ -1059,7 +1066,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 `- 원본 토큰: ${result.originalTokens.toLocaleString()}\n` +
                 `- 압축 후 토큰: ${result.compactedTokens.toLocaleString()}\n` +
                 `- 절감률: ${savedPercent}%\n\n` +
-                `최근 ${keepCount}개의 대화만 유지됩니다.\n`,
+                `최근 ${keepCount}개의 대화만 유지됩니다.\n\n`,
             });
 
             // 토큰 게이지 업데이트

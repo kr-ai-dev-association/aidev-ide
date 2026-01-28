@@ -145,6 +145,43 @@ export class ToolSpecBuilder {
             });
         }
 
+        // expand_around_line - 특정 라인 주변 컨텍스트 읽기
+        if (!allowedTools || allowedTools.includes(Tool.EXPAND_AROUND_LINE)) {
+            specs.push({
+                name: Tool.EXPAND_AROUND_LINE,
+                description: '특정 라인 번호를 중심으로 주변 컨텍스트를 읽습니다. ripgrep_search 결과에서 찾은 라인의 주변 코드를 확인할 때 유용합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '읽을 파일 경로', type: 'string' },
+                    { name: 'line', required: true, description: '중심 라인 번호 (1부터 시작)', type: 'number' },
+                    { name: 'before', required: false, description: '중심 라인 위로 읽을 라인 수 (기본값: 20)', type: 'number' },
+                    { name: 'after', required: false, description: '중심 라인 아래로 읽을 라인 수 (기본값: 20)', type: 'number' }
+                ]
+            });
+        }
+
+        // list_imports - 파일의 import/export 문 추출
+        if (!allowedTools || allowedTools.includes(Tool.LIST_IMPORTS)) {
+            specs.push({
+                name: Tool.LIST_IMPORTS,
+                description: '파일의 import/export 문을 추출합니다. 파일의 의존성과 내보내기를 빠르게 파악할 때 유용합니다. JS/TS, Python, Java, Go, Rust, C/C++ 등 다양한 언어를 지원합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '분석할 파일 경로', type: 'string' }
+                ]
+            });
+        }
+
+        // stat_file - 파일 메타데이터 조회
+        if (!allowedTools || allowedTools.includes(Tool.STAT_FILE)) {
+            specs.push({
+                name: Tool.STAT_FILE,
+                description: '파일의 메타데이터와 구조 요약을 조회합니다. 파일 크기, 라인 수, 수정 시간, 그리고 클래스/함수/인터페이스 등의 심볼 목록을 반환합니다. 파일 내용을 읽지 않고 구조만 파악할 때 유용합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '조회할 파일 경로', type: 'string' },
+                    { name: 'symbols', required: false, description: '심볼(클래스, 함수 등) 추출 여부 (기본값: true)', type: 'string' }
+                ]
+            });
+        }
+
         return specs;
     }
 

@@ -2696,8 +2696,10 @@ function displayCodePilotMessage(markdownText) {
   bubbleElement.classList.add("message-bubble");
 
   // --- Markdown 텍스트를 코드 블록 기준으로 분할 및 조합 ---
-  // ✅ 수정: \S*?는 공백을 포함하지 않으므로 [^\n]*?로 변경 (공백 포함 언어 라벨 지원)
-  const codeBlockRegex = /```([^\n]*?)\n([\s\S]*?)```/g;
+  // ✅ 수정: 닫는 ```는 줄 시작 위치에서만 매칭 (코드 내부의 백틱과 구분)
+  // - ^```는 멀티라인 모드(m)에서 줄 시작에 있는 ```만 매칭
+  // - 코드 내용에 ``` 포함된 경우 (예: const match = str.match(/```/)) 잘못 종료되지 않음
+  const codeBlockRegex = /```([^\n]*?)\n([\s\S]*?)^```/gm;
   let lastIndex = 0;
   const tempHtmlElements = document.createElement("div"); // 임시 컨테이너
 

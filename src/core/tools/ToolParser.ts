@@ -169,6 +169,30 @@ export class ToolParser {
             // 빈 문자열 ""은 프로젝트 루트를 의미하므로 유효함
         }
 
+        // expand_around_line은 path와 line 필수
+        if (toolName === Tool.EXPAND_AROUND_LINE) {
+            if (!params.path || params.path.trim().length === 0) {
+                return { valid: false, message: `expand_around_line에 path가 없습니다` };
+            }
+            if (!params.line || params.line.trim().length === 0) {
+                return { valid: false, message: `expand_around_line에 line이 없습니다` };
+            }
+        }
+
+        // list_imports는 path 필수
+        if (toolName === Tool.LIST_IMPORTS) {
+            if (!params.path || params.path.trim().length === 0) {
+                return { valid: false, message: `list_imports에 path가 없습니다` };
+            }
+        }
+
+        // stat_file은 path 필수
+        if (toolName === Tool.STAT_FILE) {
+            if (!params.path || params.path.trim().length === 0) {
+                return { valid: false, message: `stat_file에 path가 없습니다` };
+            }
+        }
+
         return { valid: true };
     }
 
