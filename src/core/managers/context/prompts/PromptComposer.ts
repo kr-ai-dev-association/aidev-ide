@@ -25,6 +25,7 @@ export interface PromptComposerOptions {
     terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
     diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics (에러/경고)
     allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
+    hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
 }
 
 export class PromptComposer {
@@ -126,7 +127,7 @@ ${rules.join('\n\n---\n\n')}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools } = options;
+        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, hotLoadPrompt } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -208,9 +209,10 @@ ${diagnosticsContextContent}
         // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
         const agentRules = this.loadAgentRules();
 
-        // 조합 (첨부 컨텍스트 경고를 최상단에 배치)
+        // 조합 (Hot Load와 첨부 컨텍스트 경고를 최상단에 배치)
         const parts = [
-            attachedContextWarning, // 첨부 컨텍스트 경고 (최상단)
+            hotLoadPrompt, // Hot Load 프롬프트 (최우선 규칙)
+            attachedContextWarning, // 첨부 컨텍스트 경고
             osContextInfo,
             basePrompt,
             agentRules, // 개발 규칙을 강력하게 포함

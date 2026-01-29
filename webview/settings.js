@@ -4179,5 +4179,191 @@ window.addEventListener("message", (event) => {
     case "agentPolicyDbPolicyDeleteError":
       console.error("AgentPolicy 에러:", message.error);
       break;
+
+    // ========== Hot Load 관련 메시지 핸들러 ==========
+    case "hotLoads":
+      renderHotLoadList(message.hotLoads);
+      break;
+
+    case "hotLoadAdded":
+    case "hotLoadUpdated":
+    case "hotLoadDeleted":
+      // 폼 초기화
+      clearHotLoadForm();
+      showStatus(
+        document.getElementById("hotload-add-status"),
+        "성공적으로 처리되었습니다.",
+        "success"
+      );
+      // 목록 새로고침
+      vscode.postMessage({ command: "getHotLoads" });
+      break;
+
+    case "hotLoadsError":
+    case "hotLoadAddError":
+    case "hotLoadUpdateError":
+    case "hotLoadDeleteError":
+      showStatus(
+        document.getElementById("hotload-add-status"),
+        message.error || "오류가 발생했습니다.",
+        "error"
+      );
+      break;
   }
 });
+
+// ========== Hot Load 관련 함수 ==========
+
+/**
+ * Hot Load 폼 초기화
+ */
+function clearHotLoadForm() {
+  const keywordsInput = document.getElementById("hotload-keywords-input");
+  const descriptionInput = document.getElementById("hotload-description-input");
+  const commandInput = document.getElementById("hotload-command-input");
+  const addButton = document.getElementById("add-hotload-button");
+
+  if (keywordsInput) keywordsInput.value = "";
+  if (descriptionInput) descriptionInput.value = "";
+  if (commandInput) commandInput.value = "";
+  if (addButton) {
+    addButton.textContent = "Hot Load 추가";
+    delete addButton.dataset.editId;
+  }
+}
+
+/**
+ * Hot Load 목록 렌더링
+ */
+function renderHotLoadList(hotLoads) {
+  const listContainer = document.getElementById("hotload-list");
+  const emptyMessage = document.getElementById("hotload-list-empty");
+
+  if (!listContainer) return;
+
+  if (!hotLoads || hotLoads.length === 0) {
+    listContainer.innerHTML = "";
+    if (emptyMessage) emptyMessage.style.display = "block";
+    return;
+  }
+
+  if (emptyMessage) emptyMessage.style.display = "none";
+
+  listContainer.innerHTML = hotLoads
+    .map(
+      (item) => `
+    <div class="policy-file-item" data-id="${item.id}" style="flex-direction: column; align-items: stretch;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
+        <div style="flex: 1;">
+          <strong style="color: var(--vscode-foreground);">${escapeHtml(item.keywords)}</strong>
+          <p style="margin: 4px 0; font-size: 0.9em; color: var(--vscode-descriptionForeground);">${escapeHtml(item.description)}</p>
+          <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">${escapeHtml(item.command)}</code>
+        </div>
+        <div style="display: flex; gap: 5px; margin-left: 10px;">
+          <button class="edit-hotload-btn delete-file-btn" data-id="${item.id}" style="background-color: var(--vscode-button-secondaryBackground);">편집</button>
+          <button class="delete-hotload-btn delete-file-btn" data-id="${item.id}">삭제</button>
+        </div>
+      </div>
+    </div>
+  `
+    )
+    .join("");
+
+  // 삭제 버튼 이벤트 바인딩
+  listContainer.querySelectorAll(".delete-hotload-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const id = parseInt(e.target.dataset.id);
+      if (confirm("이 Hot Load를 삭제하시겠습니까?")) {
+        vscode.postMessage({ command: "deleteHotLoad", id: id });
+      }
+    });
+  });
+
+  // 편집 버튼 이벤트 바인딩
+  listContainer.querySelectorAll(".edit-hotload-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const id = parseInt(e.target.dataset.id);
+      const item = hotLoads.find((h) => h.id === id);
+      if (item) {
+        const keywordsInput = document.getElementById("hotload-keywords-input");
+        const descriptionInput = document.getElementById("hotload-description-input");
+        const commandInput = document.getElementById("hotload-command-input");
+        const addButton = document.getElementById("add-hotload-button");
+
+        if (keywordsInput) keywordsInput.value = item.keywords;
+        if (descriptionInput) descriptionInput.value = item.description;
+        if (commandInput) commandInput.value = item.command;
+        if (addButton) {
+          addButton.textContent = "Hot Load 수정";
+          addButton.dataset.editId = id;
+        }
+
+        // 폼으로 스크롤
+        keywordsInput?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  });
+}
+
+/**
+ * HTML 이스케이프
+ */
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Hot Load 초기화
+ */
+function initializeHotLoad() {
+  const addButton = document.getElementById("add-hotload-button");
+
+  if (addButton) {
+    addButton.addEventListener("click", () => {
+      const keywordsInput = document.getElementById("hotload-keywords-input");
+      const descriptionInput = document.getElementById("hotload-description-input");
+      const commandInput = document.getElementById("hotload-command-input");
+
+      const keywords = keywordsInput?.value.trim();
+      const description = descriptionInput?.value.trim();
+      const command = commandInput?.value.trim();
+
+      if (!keywords || !description || !command) {
+        showStatus(
+          document.getElementById("hotload-add-status"),
+          "모든 필드를 입력해주세요.",
+          "error"
+        );
+        return;
+      }
+
+      const editId = addButton.dataset.editId;
+      if (editId) {
+        // 수정 모드
+        vscode.postMessage({
+          command: "updateHotLoad",
+          id: parseInt(editId),
+          keywords: keywords,
+          description: description,
+          commandStr: command,
+        });
+      } else {
+        // 추가 모드
+        vscode.postMessage({
+          command: "addHotLoad",
+          keywords: keywords,
+          description: description,
+          commandStr: command,
+        });
+      }
+    });
+  }
+
+  // 초기 Hot Load 목록 요청
+  vscode.postMessage({ command: "getHotLoads" });
+}
+
+// Hot Load 초기화 실행
+initializeHotLoad();

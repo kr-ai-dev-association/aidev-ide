@@ -30,6 +30,7 @@ import { ToolExecutionCoordinator } from './handlers/ToolExecutionCoordinator';
 // OutputValidator는 handlers/OutputValidator.ts에서 독립적으로 사용 가능
 import { AgentConfig } from '../../config/AgentConfig';
 import { InlineDiffManager } from '../diff/InlineDiffManager';
+import { HotLoadManager } from '../hotload';
 import { StringUtils } from '../../utils/StringUtils';
 import { getExecutionPhasePrompt } from '../context/prompts/phase';
 import {
@@ -190,10 +191,20 @@ export class ConversationManager {
             const context = await this.gatherContext(optionsWithAbort, intent);
 
             // 4. 시스템 프롬프트 생성
+            // Hot Load 프롬프트 로드 (최우선 규칙)
+            let hotLoadPrompt = '';
+            try {
+                const hotLoadManager = HotLoadManager.getInstance();
+                hotLoadPrompt = await hotLoadManager.getPromptSection();
+            } catch (error) {
+                console.warn('[ConversationManager] Failed to load Hot Load prompt:', error);
+            }
+
             const promptOptions: PromptBuilderOptions = {
                 userOS: optionsWithAbort.userOS || process.platform,
                 modelType: optionsWithAbort.currentModelType || AiModelType.OLLAMA,
                 promptType: optionsWithAbort.promptType,
+                hotLoadPrompt, // Hot Load 프롬프트 추가
                 ...context
             };
             const systemPrompt = this.promptBuilder.generateSystemPrompt(promptOptions);
@@ -806,11 +817,21 @@ export class ConversationManager {
 
                 // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
                 // 🔥 핵심 수정: gatheredContext의 첨부 컨텍스트(selectedFilesContent 등)를 포함해야 함
+                // Hot Load 프롬프트 로드
+                let hotLoadPromptForInvestigation = '';
+                try {
+                    const hotLoadManager = HotLoadManager.getInstance();
+                    hotLoadPromptForInvestigation = await hotLoadManager.getPromptSection();
+                } catch (error) {
+                    console.warn('[ConversationManager] Failed to load Hot Load prompt for investigation:', error);
+                }
+
                 const promptOptions: PromptBuilderOptions = {
                     userOS: options.userOS || process.platform,
                     modelType: options.currentModelType || AiModelType.OLLAMA,
                     promptType: options.promptType,
                     allowedTools, // 도구 제한 전달
+                    hotLoadPrompt: hotLoadPromptForInvestigation, // Hot Load 프롬프트 추가
                     // 사용자가 첨부한 컨텍스트 포함 (gatheredContext에서 가져옴)
                     selectedFilesContent: gatheredContext?.selectedFilesContent,
                     terminalContextContent: gatheredContext?.terminalContextContent,

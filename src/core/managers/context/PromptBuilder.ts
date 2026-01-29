@@ -30,6 +30,7 @@ export interface PromptBuilderOptions {
   taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
   userQuery?: string; // 사용자 쿼리 (프레임워크 추출용)
   allowedTools?: Tool[]; // 사용 가능한 도구 목록
+  hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
 }
 
 export class PromptBuilder {
@@ -75,6 +76,7 @@ export class PromptBuilder {
       terminalContextContent: options.terminalContextContent, // 사용자가 선택한 터미널 히스토리 포함
       diagnosticsContextContent: options.diagnosticsContextContent, // 사용자가 선택한 Diagnostics 포함
       allowedTools: options.allowedTools, // 허용된 도구 전달
+      hotLoadPrompt: options.hotLoadPrompt, // Hot Load 프롬프트
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

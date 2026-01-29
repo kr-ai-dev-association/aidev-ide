@@ -14,6 +14,7 @@ import { TerminalManager } from "../managers/terminal/TerminalManager";
 import { TaskManager } from "../managers/task/TaskManager";
 import { ModelConnectionService } from "../managers/model/ModelConnectionService";
 import { LocaleService } from "../../webview/services";
+import { HotLoadManager } from "../managers/hotload";
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -2519,6 +2520,87 @@ export function openSettingsPanel(
           } catch (error: any) {
             safePostMessage(panel, {
               command: "allAgentPolicyFilesListError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // ========== Hot Load 관련 메시지 핸들러 ==========
+        case "getHotLoads":
+          try {
+            const hotLoadManager = HotLoadManager.getInstance(context);
+            const hotLoads = await hotLoadManager.getAllHotLoads();
+            safePostMessage(panel, {
+              command: "hotLoads",
+              hotLoads: hotLoads,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getHotLoads error:", error);
+            safePostMessage(panel, {
+              command: "hotLoadsError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addHotLoad":
+          try {
+            const hotLoadManager = HotLoadManager.getInstance(context);
+            const id = await hotLoadManager.addHotLoad(
+              data.keywords,
+              data.description,
+              data.commandStr
+            );
+            safePostMessage(panel, {
+              command: "hotLoadAdded",
+              id: id,
+            });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Hot Load 항목이 추가되었습니다."
+            );
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addHotLoad error:", error);
+            safePostMessage(panel, {
+              command: "hotLoadAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "updateHotLoad":
+          try {
+            const hotLoadManager = HotLoadManager.getInstance(context);
+            await hotLoadManager.updateHotLoad(
+              data.id,
+              data.keywords,
+              data.description,
+              data.commandStr
+            );
+            safePostMessage(panel, { command: "hotLoadUpdated" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Hot Load 항목이 수정되었습니다."
+            );
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] updateHotLoad error:", error);
+            safePostMessage(panel, {
+              command: "hotLoadUpdateError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteHotLoad":
+          try {
+            const hotLoadManager = HotLoadManager.getInstance(context);
+            await hotLoadManager.deleteHotLoad(data.id);
+            safePostMessage(panel, { command: "hotLoadDeleted" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Hot Load 항목이 삭제되었습니다."
+            );
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteHotLoad error:", error);
+            safePostMessage(panel, {
+              command: "hotLoadDeleteError",
               error: error.message,
             });
           }
