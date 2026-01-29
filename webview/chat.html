@@ -3887,9 +3887,8 @@
         useEffect(() => {
           const handleMessage = (event) => {
             const data = event.data;
-            if (data.command === "clearHistory") {
-              setMessages([]);
-            } else if (data.command === "showCalloutExecuting") {
+            // clearHistory는 chat.js에서 DOM으로 처리됨
+            if (data.command === "showCalloutExecuting") {
               // 모든 callout 박스에 executing 상태 표시
               showAllCalloutExecuting();
             } else if (data.command === "hideCalloutExecuting") {

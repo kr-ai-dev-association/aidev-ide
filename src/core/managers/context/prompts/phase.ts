@@ -12,11 +12,36 @@ import {
   getNoThinkingLeakageRules,
 } from "./base";
 
+// ==================== Hot Load Item Interface ====================
+export interface HotLoadItemForIntent {
+  id: number;
+  keywords: string;
+  description: string;
+  command: string;
+}
+
 // ==================== Intent Phase ====================
-export function getIntentPrompt(userQuery: string): string {
+export function getIntentPrompt(userQuery: string, hotLoadItems?: HotLoadItemForIntent[]): string {
+  // Hot Load 섹션 생성
+  const hotLoadSection = hotLoadItems && hotLoadItems.length > 0
+    ? `
+**⚡ HOT LOAD (최우선 확인):**
+다음 Hot Load 항목들이 사용자 요청과 의미적으로 매칭되는지 먼저 확인하세요.
+매칭되면 해당 항목의 ID를 "hotLoadMatchId"에 포함하세요.
+
+등록된 Hot Load 항목:
+${hotLoadItems.map(item => `- [ID: ${item.id}] 키워드: "${item.keywords}" | 설명: "${item.description}" | 명령어: \`${item.command}\``).join('\n')}
+
+**Hot Load 매칭 기준:**
+- 사용자 요청의 **의도**가 Hot Load 키워드/설명과 유사하면 매칭
+- 정확한 키워드 일치가 아닌 **의미론적 유사성**으로 판단
+- 예: "에이전트 만들어줘" → "에이전트 생성" Hot Load와 매칭
+`
+    : '';
+
   return `
 다음 사용자 요청을 분석하여 의도(Subtype)와 계획 필요 여부를 판단하세요.
-
+${hotLoadSection}
 **분류 기준:**
 1. 코드 작성/수정/삭제 (code_generate, code_modify, code_remove)
 2. 프로젝트 실행 환경 설정/빌드/실행/배포 (execution_install, execution_build, execution_run, execution_deploy)
@@ -25,6 +50,7 @@ export function getIntentPrompt(userQuery: string): string {
 5. 터미널 오류 해결 (terminal_error_fix)
 
 **계획 필요 여부 (requiresPlan) 판단 기준:**
+- **Hot Load 매칭 시**: requiresPlan은 항상 **false** (Hot Load는 즉시 실행)
 - **true**: 새로운 기능 개발, 여러 파일 수정, 복잡한 리팩토링 등 여러 단계의 작업이 필요한 경우
 - **false**:
   - 간단한 질문, 설명 요청, 코드 분석, 요약 등 바로 답변 가능한 경우
@@ -36,18 +62,18 @@ export function getIntentPrompt(userQuery: string): string {
 - "로그인 기능 만들어줘" → requiresPlan: true (여러 파일 생성 필요)
 - "프로젝트 구조 알려줘" → requiresPlan: false (분석 후 바로 답변)
 - "npm install 해줘" → requiresPlan: false (단순 명령어 실행)
-- "npm run build 실행해" → requiresPlan: false (단순 명령어 실행)
-- "git status 확인해줘" → requiresPlan: false (단순 명령어 실행)
-- "이 코드 리팩토링해줘" → requiresPlan: true (여러 파일 수정 가능성)
-- "인증 시스템 구현해줘" → requiresPlan: true (복잡한 기능 개발)
+- "에이전트 생성해줘" (Hot Load 매칭) → hotLoadMatchId: 1, subtype: "execution_run", requiresPlan: false
 
 출력 형식 (JSON):
 {
   "subtype": "analysis_function",
   "confidence": 0.9,
   "reasoning": "요청의 구체적인 이유",
-  "requiresPlan": false
+  "requiresPlan": false,
+  "hotLoadMatchId": null
 }
+
+**중요:** Hot Load가 매칭되면 반드시 hotLoadMatchId에 해당 ID를 포함하세요.
 
 사용자 요청: "${userQuery}"`;
 }

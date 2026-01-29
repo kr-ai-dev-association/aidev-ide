@@ -52,19 +52,7 @@ export class GitRepositoryService {
         try {
             // 글로벌 상태에서 조회
             const gitInfo = this.context.globalState.get<GitRepositoryInfo>(GitRepositoryService.GIT_REPO_KEY);
-
-            if (gitInfo) {
-                return gitInfo;
-            }
-
-            // 워크스페이스 설정에서 조회
-            const workspaceGitInfo = vscode.workspace.getConfiguration('aidev').get<GitRepositoryInfo>('gitRepositoryInfo');
-
-            if (workspaceGitInfo) {
-                return workspaceGitInfo;
-            }
-
-            return null;
+            return gitInfo || null;
         } catch (error) {
             console.error('[GitRepositoryService] Git 리포지토리 정보 조회 실패:', error);
             return null;
@@ -73,14 +61,11 @@ export class GitRepositoryService {
 
     /**
      * Git 리포지토리 정보를 VS Code 설정에 저장
+     * Note: globalState에만 저장 (workspace config는 등록 필요)
      */
-    private async saveRepositoryInfo(gitInfo: GitRepositoryInfo): Promise<void> {
-        try {
-            const config = vscode.workspace.getConfiguration('aidev');
-            await config.update('gitRepositoryInfo', gitInfo, vscode.ConfigurationTarget.Workspace);
-        } catch (error) {
-            console.error('[GitRepositoryService] Git 리포지토리 정보 저장 실패:', error);
-        }
+    private async saveRepositoryInfo(_gitInfo: GitRepositoryInfo): Promise<void> {
+        // globalState에서 이미 저장되므로 workspace config 저장은 생략
+        // workspace config 사용 시 package.json에 configuration 등록 필요
     }
 
     /**
@@ -231,10 +216,6 @@ export class GitRepositoryService {
     async clearRepositoryInfo(): Promise<void> {
         try {
             await this.context.globalState.update(GitRepositoryService.GIT_REPO_KEY, undefined);
-
-            const config = vscode.workspace.getConfiguration('aidev');
-            await config.update('gitRepositoryInfo', undefined, vscode.ConfigurationTarget.Workspace);
-
             console.log('[GitRepositoryService] Git 리포지토리 정보 초기화됨');
         } catch (error) {
             console.error('[GitRepositoryService] Git 리포지토리 정보 초기화 실패:', error);

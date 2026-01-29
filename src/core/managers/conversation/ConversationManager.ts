@@ -183,24 +183,38 @@ export class ConversationManager {
                 console.log(`[ConversationManager] LLM model updated to: ${options.currentModelType}`);
             }
 
-            // 2. 의도 파악 및 프로젝트 분석
-            // 현재 선택된 모델 타입을 사용하여 의도 파악 수행
-            const intent = await this.detectIntent(userQuery);
-
-            // 3. 컨텍스트 수집
-            const context = await this.gatherContext(optionsWithAbort, intent);
-
-            // 4. 시스템 프롬프트 생성
-            // Hot Load 프롬프트 로드 (최우선 규칙)
-            let hotLoadPrompt = '';
+            // 2. Hot Load 항목 로드 (Intent Detection에 전달)
+            let hotLoadItems: any[] = [];
             try {
                 const hotLoadManager = HotLoadManager.getInstance();
-                hotLoadPrompt = await hotLoadManager.getPromptSection();
-                if (hotLoadPrompt) {
-                    console.log(`[ConversationManager] 🔥 Hot Load prompt loaded (${hotLoadPrompt.length} chars)`);
+                hotLoadItems = await hotLoadManager.getAllHotLoads();
+                console.log(`[ConversationManager] 🔥 Hot Load items loaded: ${hotLoadItems.length} items, keywords: ${hotLoadItems.map(i => i.keywords).join(', ') || 'none'}`);
+            } catch (error: any) {
+                console.warn(`[ConversationManager] ⚠️ Failed to load Hot Load items: ${error?.message || error}`);
+            }
+
+            // 3. 의도 파악 (Hot Load 항목 포함하여 LLM이 의미론적 매칭)
+            const intent = await this.detectIntent(userQuery, { hotLoadItems });
+
+            // Hot Load 매칭 결과 로깅
+            if (intent.hotLoadMatch) {
+                console.log(`[ConversationManager] 🔥 Hot Load matched by LLM: ${intent.hotLoadMatch.keywords} → ${intent.hotLoadMatch.command}`);
+            }
+
+            // 4. 컨텍스트 수집
+            const context = await this.gatherContext(optionsWithAbort, intent);
+
+            // 5. 시스템 프롬프트 생성
+            // Hot Load 프롬프트: Intent Detection에서 매칭된 경우에만 주입
+            let hotLoadPrompt = '';
+            if (intent.hotLoadMatch) {
+                try {
+                    const hotLoadManager = HotLoadManager.getInstance();
+                    hotLoadPrompt = hotLoadManager.getMatchedPromptSection(intent.hotLoadMatch as any, userQuery);
+                    console.log(`[ConversationManager] 🔥 Hot Load prompt injected for matched item: ${intent.hotLoadMatch.keywords}`);
+                } catch (error) {
+                    console.warn('[ConversationManager] Failed to generate Hot Load prompt:', error);
                 }
-            } catch (error) {
-                console.warn('[ConversationManager] Failed to load Hot Load prompt:', error);
             }
 
             const promptOptions: PromptBuilderOptions = {
@@ -289,7 +303,7 @@ export class ConversationManager {
      * 사용자 의도 및 작업 타입 감지
      * Intent 모델이 설정된 경우 해당 모델 사용, 미설정 시 메인 모델 사용
      */
-    private async detectIntent(query: string): Promise<any> {
+    private async detectIntent(query: string, options?: { hotLoadItems?: any[] }): Promise<any> {
         const detector = new IntentDetector(this.llmManager);
 
         // StateManager가 있으면 Intent 모델 라우팅 설정
@@ -297,9 +311,12 @@ export class ConversationManager {
             detector.setStateManager(this.stateManager);
         }
 
-        const intent = await detector.detectIntent(query);
+        const intent = await detector.detectIntent(query, { hotLoadItems: options?.hotLoadItems });
 
         console.log(`[ConversationManager] Intent detected: ${intent.category}/${intent.subtype} (confidence: ${intent.confidence})`);
+        if (intent.hotLoadMatch) {
+            console.log(`[ConversationManager] 🔥 Hot Load matched: ${intent.hotLoadMatch.keywords}`);
+        }
         return intent;
     }
 
@@ -820,13 +837,15 @@ export class ConversationManager {
 
                 // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
                 // 🔥 핵심 수정: gatheredContext의 첨부 컨텍스트(selectedFilesContent 등)를 포함해야 함
-                // Hot Load 프롬프트 로드
+                // Hot Load 프롬프트: 매칭된 경우에만 해당 항목 주입
                 let hotLoadPromptForInvestigation = '';
-                try {
-                    const hotLoadManager = HotLoadManager.getInstance();
-                    hotLoadPromptForInvestigation = await hotLoadManager.getPromptSection();
-                } catch (error) {
-                    console.warn('[ConversationManager] Failed to load Hot Load prompt for investigation:', error);
+                if (intent?.hotLoadMatch) {
+                    try {
+                        const hotLoadManager = HotLoadManager.getInstance();
+                        hotLoadPromptForInvestigation = hotLoadManager.getMatchedPromptSection(intent.hotLoadMatch, options.userQuery);
+                    } catch (error) {
+                        console.warn('[ConversationManager] Failed to generate Hot Load prompt for investigation:', error);
+                    }
                 }
 
                 const promptOptions: PromptBuilderOptions = {

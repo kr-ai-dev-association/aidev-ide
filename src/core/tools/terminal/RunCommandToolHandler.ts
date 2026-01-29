@@ -32,7 +32,7 @@ export class RunCommandToolHandler implements IToolHandler {
                 // 타임아웃 없음 - 완료까지 대기
             });
 
-            console.log(`[RunCommandToolHandler] 🔥 DEBUG wait=true stdout: "${result.stdout?.substring(0, 500)}..." (${result.stdout?.length || 0} chars)`);
+            // console.log(`[RunCommandToolHandler] 🔥 DEBUG wait=true stdout: "${result.stdout?.substring(0, 500)}..." (${result.stdout?.length || 0} chars)`);
 
             return {
                 success: result.success,
@@ -77,7 +77,7 @@ export class RunCommandToolHandler implements IToolHandler {
                 const bufferedStdout = buffer?.stdout || initialResult.stdout || '';
                 const bufferedStderr = buffer?.stderr || initialResult.stderr || '';
 
-                console.log(`[RunCommandToolHandler] 🔥 DEBUG buffered stdout: "${bufferedStdout?.substring(0, 200)}..." (${bufferedStdout?.length || 0} chars)`);
+                // console.log(`[RunCommandToolHandler] 🔥 DEBUG buffered stdout: "${bufferedStdout?.substring(0, 200)}..." (${bufferedStdout?.length || 0} chars)`);
 
                 // continue() 호출하여 백그라운드에서 계속 실행
                 context.executionManager.continueProcess(pid);
@@ -104,8 +104,8 @@ export class RunCommandToolHandler implements IToolHandler {
         // 이렇게 하면 중복 실행을 방지할 수 있음
         if (initialResult.exitCode !== undefined && !initialResult.error) {
             console.log(`[RunCommandToolHandler] Command completed in initial execution: ${command}`);
-            console.log(`[RunCommandToolHandler] 🔥 DEBUG stdout: "${initialResult.stdout?.substring(0, 200)}..." (${initialResult.stdout?.length || 0} chars)`);
-            console.log(`[RunCommandToolHandler] 🔥 DEBUG stderr: "${initialResult.stderr?.substring(0, 200)}..."`);
+            // console.log(`[RunCommandToolHandler] 🔥 DEBUG stdout: "${initialResult.stdout?.substring(0, 200)}..." (${initialResult.stdout?.length || 0} chars)`);
+            // console.log(`[RunCommandToolHandler] 🔥 DEBUG stderr: "${initialResult.stderr?.substring(0, 200)}..."`);
             return {
                 success: initialResult.success,
                 message: initialResult.success

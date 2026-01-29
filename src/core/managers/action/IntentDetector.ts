@@ -6,7 +6,7 @@
 import { OllamaApi, AiModelType } from "../../../services";
 import { LLMManager } from "../model/LLMManager";
 import { StateManager } from "../state/StateManager";
-import { getIntentPrompt } from "../context/prompts/phase";
+import { getIntentPrompt, HotLoadItemForIntent } from "../context/prompts/phase";
 
 export type IntentCategory =
   | "code"
@@ -45,6 +45,10 @@ export interface IntentDetectionResult {
   reasoning: string;
   /** 계획 수립이 필요한지 여부 (analysis, documentation은 false) */
   requiresPlan: boolean;
+  /** Hot Load 매칭된 항목 ID (매칭 없으면 null) */
+  hotLoadMatchId?: number | null;
+  /** Hot Load 매칭된 항목 전체 정보 */
+  hotLoadMatch?: HotLoadItemForIntent | null;
 }
 
 export class IntentDetector {
@@ -133,37 +137,62 @@ export class IntentDetector {
 
   /**
    * 사용자 쿼리에서 의도를 감지합니다.
+   * @param userQuery 사용자 쿼리
+   * @param options 옵션 (modelName, hotLoadItems)
    */
   public async detectIntent(
     userQuery: string,
-    options?: { modelName?: string },
+    options?: { modelName?: string; hotLoadItems?: HotLoadItemForIntent[] },
   ): Promise<IntentDetectionResult> {
     // 멘션 텍스트 제거 후 의도 판별
     const cleanedQuery = this.removeMentionsFromQuery(userQuery);
     console.log('[IntentDetector] Cleaned query for intent:', cleanedQuery);
+    if (options?.hotLoadItems && options.hotLoadItems.length > 0) {
+      console.log(`[IntentDetector] Hot Load items provided: ${options.hotLoadItems.map(i => i.keywords).join(', ')}`);
+    }
 
-    // 1. LLM을 통한 의도 판별 (Only)
+    // 1. LLM을 통한 의도 판별 (Hot Load 포함)
     try {
       // 현재 활성화된 모델을 사용하여 의도 파악
-      const llmRaw = await this.queryLLMForIntent(cleanedQuery);
+      const llmRaw = await this.queryLLMForIntent(cleanedQuery, options?.hotLoadItems);
       if (llmRaw) {
         const subtype = llmRaw.subtype;
         const category = this.subtypeToCategory[subtype] || "analysis";
         const taskType = this.subtypeToTaskType[subtype] || "analysis";
-        // LLM이 반환한 requiresPlan 우선 사용, 없으면 카테고리 기반 기본값
-        const requiresPlan = llmRaw.requiresPlan !== undefined
-          ? llmRaw.requiresPlan
-          : (this.categoryRequiresPlan[category] ?? true);
+
+        // Hot Load 매칭 시 execution_run으로 강제 및 requiresPlan false
+        const isHotLoadMatch = llmRaw.hotLoadMatchId !== undefined && llmRaw.hotLoadMatchId !== null;
+        const finalSubtype = isHotLoadMatch ? "execution_run" as IntentSubtype : subtype;
+        const finalCategory = isHotLoadMatch ? "execution" as IntentCategory : category;
+        const finalTaskType = isHotLoadMatch ? "execution_work" as TaskType : taskType;
+
+        // LLM이 반환한 requiresPlan 우선 사용, Hot Load 매칭 시 false
+        const requiresPlan = isHotLoadMatch
+          ? false
+          : (llmRaw.requiresPlan !== undefined
+            ? llmRaw.requiresPlan
+            : (this.categoryRequiresPlan[category] ?? true));
+
+        // Hot Load 매칭된 항목 찾기
+        let hotLoadMatch: HotLoadItemForIntent | null = null;
+        if (isHotLoadMatch && options?.hotLoadItems) {
+          hotLoadMatch = options.hotLoadItems.find(item => item.id === llmRaw.hotLoadMatchId) || null;
+        }
 
         const result: IntentDetectionResult = {
-          category: category,
-          subtype: subtype,
-          taskType: taskType,
+          category: finalCategory,
+          subtype: finalSubtype,
+          taskType: finalTaskType,
           confidence: llmRaw.confidence,
           reasoning: llmRaw.reasoning,
           requiresPlan: requiresPlan,
+          hotLoadMatchId: llmRaw.hotLoadMatchId,
+          hotLoadMatch: hotLoadMatch,
         };
 
+        if (isHotLoadMatch) {
+          console.log(`[IntentDetector] 🔥 Hot Load matched! ID: ${llmRaw.hotLoadMatchId}, command: ${hotLoadMatch?.command}`);
+        }
         console.log("[IntentDetector] LLM intent result:", result);
         return result;
       }
@@ -179,6 +208,8 @@ export class IntentDetector {
       confidence: 0.1,
       reasoning: "LLM 의도 판별 실패로 인한 기본값 사용.",
       requiresPlan: false,
+      hotLoadMatchId: null,
+      hotLoadMatch: null,
     };
   }
 
@@ -186,13 +217,14 @@ export class IntentDetector {
    * LLM을 사용한 의도 분류
    * StateManager가 설정된 경우 Intent 모델 사용, 아니면 메인 모델 사용
    */
-  private async queryLLMForIntent(userQuery: string): Promise<{
+  private async queryLLMForIntent(userQuery: string, hotLoadItems?: HotLoadItemForIntent[]): Promise<{
     subtype: IntentSubtype;
     confidence: number;
     reasoning: string;
     requiresPlan?: boolean;
+    hotLoadMatchId?: number | null;
   } | null> {
-    const prompt = getIntentPrompt(userQuery);
+    const prompt = getIntentPrompt(userQuery, hotLoadItems);
 
     try {
       let response: string;
@@ -221,7 +253,7 @@ export class IntentDetector {
    */
   private safeParseIntentResponse(
     response: string,
-  ): { subtype: IntentSubtype; confidence: number; reasoning: string; requiresPlan?: boolean } | null {
+  ): { subtype: IntentSubtype; confidence: number; reasoning: string; requiresPlan?: boolean; hotLoadMatchId?: number | null } | null {
     try {
       const match = response.match(/\{[\s\S]*\}/);
       if (!match) {
@@ -233,12 +265,18 @@ export class IntentDetector {
         parsed.subtype &&
         this.subtypeToCategory[parsed.subtype as IntentSubtype]
       ) {
+        // Hot Load 매칭 ID 파싱
+        const hotLoadMatchId = typeof parsed.hotLoadMatchId === "number"
+          ? parsed.hotLoadMatchId
+          : (parsed.hotLoadMatchId === null ? null : undefined);
+
         return {
           subtype: parsed.subtype as IntentSubtype,
           confidence:
             typeof parsed.confidence === "number" ? parsed.confidence : 0.6,
           reasoning: parsed.reasoning || "LLM 기반 분류",
           requiresPlan: typeof parsed.requiresPlan === "boolean" ? parsed.requiresPlan : undefined,
+          hotLoadMatchId: hotLoadMatchId,
         };
       }
     } catch (error) {
