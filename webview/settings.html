@@ -1229,6 +1229,83 @@
       </div>
     </div>
 
+    <!-- MCP 서버 설정 섹션 -->
+    <div class="section-container" id="mcp-settings-section">
+      <h2 id="mcp-section-title">MCP 서버 설정</h2>
+      <p class="info-message">
+        Model Context Protocol (MCP) 서버를 연결하여 LLM이 외부 도구들을 사용할 수 있도록 합니다.
+        예: 날씨 API, 데이터베이스 조회, 외부 서비스 연동 등
+      </p>
+
+      <!-- MCP 서버 목록 -->
+      <div id="mcp-server-list">
+        <!-- 동적으로 서버 카드가 추가됨 -->
+      </div>
+
+      <!-- 서버 추가 버튼 -->
+      <button id="add-mcp-server-button" type="button" style="margin-top: 10px;">
+        + MCP 서버 추가
+      </button>
+
+      <!-- 서버 추가/편집 폼 -->
+      <div id="mcp-server-form" class="api-key-section" style="display: none; margin-top: 15px;">
+        <h3 id="mcp-form-title">MCP 서버 추가</h3>
+        <input type="hidden" id="mcp-server-id" />
+
+        <div class="api-key-input-group" style="margin-bottom: 10px;">
+          <label for="mcp-server-name" style="display: block; margin-bottom: 5px;">서버 이름</label>
+          <input type="text" id="mcp-server-name" placeholder="예: Weather Server" style="width: 100%;" />
+        </div>
+
+        <div class="api-key-input-group" style="margin-bottom: 10px;">
+          <label for="mcp-server-type" style="display: block; margin-bottom: 5px;">연결 타입</label>
+          <select id="mcp-server-type" style="width: 100%;">
+            <option value="stdio">로컬 (stdio) - npx, node 등 로컬 명령어</option>
+            <option value="http">원격 (HTTP) - 외부 MCP 서버 URL</option>
+          </select>
+        </div>
+
+        <!-- stdio 설정 -->
+        <div id="mcp-stdio-settings">
+          <div class="api-key-input-group" style="margin-bottom: 10px;">
+            <label for="mcp-command" style="display: block; margin-bottom: 5px;">명령어</label>
+            <input type="text" id="mcp-command" placeholder="예: npx" style="width: 100%;" />
+          </div>
+          <div class="api-key-input-group" style="margin-bottom: 10px;">
+            <label for="mcp-args" style="display: block; margin-bottom: 5px;">인자 (쉼표로 구분)</label>
+            <input type="text" id="mcp-args" placeholder="예: -y, @anthropic/mcp-server-weather" style="width: 100%;" />
+          </div>
+        </div>
+
+        <!-- http 설정 -->
+        <div id="mcp-http-settings" style="display: none;">
+          <div class="api-key-input-group" style="margin-bottom: 10px;">
+            <label for="mcp-url" style="display: block; margin-bottom: 5px;">서버 URL</label>
+            <input type="text" id="mcp-url" placeholder="예: http://localhost:3000/mcp" style="width: 100%;" />
+          </div>
+          <div class="api-key-input-group" style="margin-bottom: 10px;">
+            <label for="mcp-api-key" style="display: block; margin-bottom: 5px;">API 키 (선택)</label>
+            <input type="password" id="mcp-api-key" placeholder="인증이 필요한 경우 API 키 입력" style="width: 100%;" />
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button id="save-mcp-server-button" type="button">저장</button>
+          <button id="cancel-mcp-server-button" type="button" style="background-color: #6b7280;">취소</button>
+        </div>
+        <p id="mcp-form-status" class="info-message"></p>
+      </div>
+
+      <!-- MCP 서버 상세 정보 (도구 목록) -->
+      <div id="mcp-server-details" class="api-key-section" style="display: none; margin-top: 15px;">
+        <h3 id="mcp-details-title">서버 도구 목록</h3>
+        <div id="mcp-tools-list">
+          <!-- 동적으로 도구 목록이 추가됨 -->
+        </div>
+        <button id="close-mcp-details-button" type="button" style="margin-top: 10px;">닫기</button>
+      </div>
+    </div>
+
     <div class="section-container">
       <h2 id="agent-policy-section-title">개발 규칙</h2>
       <p class="info-message">
@@ -1418,7 +1495,7 @@
 
     <!-- 버전 정보 -->
     <div class="version-footer">
-      <p id="version-info">CODEPILOT v<span id="version-number">9.0.1</span></p>
+      <p id="version-info">CODEPILOT v<span id="version-number">9.2.0</span></p>
     </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->

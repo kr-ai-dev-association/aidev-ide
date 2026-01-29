@@ -1,7 +1,7 @@
 /**
  * Phase Prompt Components
  * 단계별 프롬프트 컴포넌트 통합 파일
- * v8.9.7: CODE 블록 형식으로 변경 ({ "tool": "..." } + <<<<<<<CODE ... >>>>>>>END)
+ * v9.2.0: XML 스타일 file_content 태그로 변경 ({ "tool": "..." } + <file_content> ... </file_content>)
  */
 
 import {
@@ -127,10 +127,10 @@ ${noThinkingLeakage}
      - \`search_files\`: 정규식으로 파일 검색
      - \`ripgrep_search\`: 고성능 키워드 검색
    - ${multiFileRules
-     .split("\n")
-     .slice(1)
-     .map((line) => "     " + line)
-     .join("\n")}
+      .split("\n")
+      .slice(1)
+      .map((line) => "     " + line)
+      .join("\n")}
    - 실행 도구 호출(\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\` 등)은 **절대 금지**됩니다.
 
 2. **Planning (필수)**: **작업을 시작하기 전에 반드시 plan JSON을 사용하여 단계별 계획을 수립해야 합니다.**
@@ -138,10 +138,10 @@ ${noThinkingLeakage}
    - **절대 금지**: plan과 함께 실행 도구를 같은 응답에 포함하는 것
    - **Investigation Item 병합 (중요)**: 여러 조사 작업을 가능한 한 한 번의 Investigation Item으로 병합하세요.
    - ${noDuplicateRules
-     .split("\n")
-     .slice(1)
-     .map((line) => "     " + line)
-     .join("\n")}
+      .split("\n")
+      .slice(1)
+      .map((line) => "     " + line)
+      .join("\n")}
    - **조사 완료 선언**: 조사를 완료했다고 판단되면 \`{ "investigation_done": true }\`를 사용하여 명시적으로 선언하세요.
 
 3. **Execution 단계와 조사 단계 역할 분리 명확화**:
@@ -181,18 +181,28 @@ export function getExecutionPhasePrompt(): string {
     `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
     `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
     `${noThinkingLeakage}\n\n` +
+    `** 파일 생성 Fallback 규칙 (중요!):**\n` +
+    `- 필요한 파일이 프로젝트에 없으면 **새로 생성**하세요.\n` +
+    `- 진입점 파일이 없으면 기본 구조를 생성하세요:\n` +
+    `  - Android: MainActivity.kt + activity_main.xml + AndroidManifest 등록\n` +
+    `  - React: App.tsx 또는 index.tsx\n` +
+    `  - Flutter: main.dart\n` +
+    `  - Spring: Application.kt/java + @SpringBootApplication\n` +
+    `  - Python: main.py 또는 app.py\n` +
+    `- **"파일을 찾을 수 없다"는 이유로 작업을 중단하지 마세요.**\n` +
+    `- 없으면 만들면 됩니다. 탐색만 반복하지 말고 **즉시 생성**하세요.\n\n` +
     `**절대 금지 사항 (위반 시 작업 실패):**\n` +
     `- ❌ \`{ "plan": [...] }\` 출력 절대 금지 - plan은 이미 수립 완료됨. 다시 제출하면 무시됨.\n` +
     `- ❌ CODE 블록 내부에 자연어 삽입 절대 금지 - "We need to...", "Let me..." 등 삽입 시 파일 깨짐\n` +
     `- ❌ 사고, 추론, 설명 출력 금지\n` +
     `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
-    `- ❌ 파일 탐색 금지 (조사는 이미 완료되었습니다)\n` +
+    `- ❌ 파일 탐색만 반복하는 것 금지 (조사는 이미 완료됨 - 없으면 생성하세요)\n` +
     `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
     `- ❌ XML 태그 형식 사용 금지\n` +
     `- ${noMonologueRules.split("\n").slice(1).join("\n- ")}\n\n` +
     `**필수 출력 형식 (이것만 허용됨):**\n` +
     `- ✅ \`{ "tool": "create_file" }\` 또는 \`{ "tool": "update_file" }\` 형식만 사용\n` +
-    `- ✅ 파일 내용은 \`<<<<<<<CODE ... >>>>>>>END\` 블록 사용\n` +
+    `- ✅ 파일 내용은 \`<file_content> ... </file_content>\` 블록 사용\n` +
     `- ✅ CODE 블록 내부는 순수 소스코드만 (자연어, 설명 문구 절대 금지)\n` +
     `- ✅ 도구 호출 전후에 텍스트 출력 금지\n\n` +
     `**⚠️ 치명적 오류 방지:**\n` +
@@ -201,10 +211,10 @@ export function getExecutionPhasePrompt(): string {
     `**예시:**\n` +
     `\`\`\`\n` +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
-    `>>>>>>>END\n` +
+    `</file_content>\n` +
     `\`\`\`\n\n` +
     `**⚠️ 중요:** 모든 자연어 텍스트(사고, 설명, 추론)는 무시됩니다.\n` +
     `오직 \`{ "tool": "..." }\` 형식만 실행됩니다. 설명 없이 즉시 실행을 시작하세요.\n`

@@ -51,11 +51,37 @@ export function getExecutionFirstRulePrompt(): string {
 // ==================== Error Retry ====================
 
 /**
- * 자동 테스트 실패 시 오류 분석 및 수정 안내 프롬프트
+ * 수정된 파일 컨텍스트 정보 타입
  */
-export function getErrorRetryPrompt(errorMessage: string): string {
-  return (
-    `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+export interface ModifiedFileContext {
+  path: string;
+  content: string;
+}
+
+/**
+ * 자동 테스트 실패 시 오류 분석 및 수정 안내 프롬프트
+ * 🔥 v9.2.2: 수정된 파일 내용을 포함하여 LLM이 최신 상태 기반으로 수정 가능
+ * @param errorMessage 오류 메시지
+ * @param modifiedFilesContext 이번 턴에 수정된 파일들의 최신 내용 (optional)
+ */
+export function getErrorRetryPrompt(errorMessage: string, modifiedFilesContext?: ModifiedFileContext[]): string {
+  let prompt = `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n`;
+
+  // 🔥 수정된 파일의 최신 내용 포함 (코드 중복 방지)
+  if (modifiedFilesContext && modifiedFilesContext.length > 0) {
+    prompt += `**⚠️ 중요: 아래는 이번 턴에 수정된 파일들의 최신 내용입니다.**\n`;
+    prompt += `**SEARCH 블록 작성 시 반드시 아래 내용을 기준으로 작성하세요.**\n\n`;
+
+    for (const file of modifiedFilesContext) {
+      const lines = file.content.split('\n');
+      const preview = lines.slice(0, 150).join('\n'); // 최대 150줄
+      const isTruncated = lines.length > 150;
+
+      prompt += `**[${file.path}] 현재 내용:**\n\`\`\`\n${preview}${isTruncated ? '\n... (생략됨)' : ''}\n\`\`\`\n\n`;
+    }
+  }
+
+  prompt +=
     `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
     `**오류 유형별 수정 방법:**\n` +
     `- TypeScript 오류 ("Cannot find module", "Property does not exist") → update_file로 파일 수정\n` +
@@ -72,21 +98,18 @@ export function getErrorRetryPrompt(errorMessage: string): string {
     `- 빌드 도구 자동 설치 (tsc, gradle, mvn, cargo, go 등)\n\n` +
     `**필수 출력 형식:**\n` +
     "```\n" +
-    `{ "tool": "read_file", "path": "오류_파일_경로" }\n` +
-    "```\n" +
-    `또는:\n` +
-    "```\n" +
     `{ "tool": "update_file", "path": "..." }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `<<<<<<< SEARCH\n` +
-    `기존 코드\n` +
+    `기존 코드 (위에 제공된 최신 파일 내용 기준)\n` +
     `=======\n` +
     `수정된 코드\n` +
     `>>>>>>> REPLACE\n` +
-    `>>>>>>>END\n` +
+    `</file_content>\n` +
     "```\n\n" +
-    `**지금 바로 도구 호출을 출력하세요. 자연어 텍스트는 무시됩니다.**\n`
-  );
+    `**지금 바로 도구 호출을 출력하세요. 자연어 텍스트는 무시됩니다.**\n`;
+
+  return prompt;
 }
 
 export function getSimpleErrorRetryPrompt(errorMessage: string): string {
@@ -148,10 +171,10 @@ export function getExecutionNudgePrompt(): string {
     `**파일 생성 예시:**\n` +
     "```\n" +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
-    `>>>>>>>END\n` +
+    `</file_content>\n` +
     "```\n\n" +
     `**절대 금지:**\n` +
     `- "버튼이 추가되었습니다" 같은 설명\n` +
@@ -177,20 +200,20 @@ export function getExecutionNoToolCallWarningPrompt(planItemTitle: string): stri
     `파일 생성:\n` +
     "```\n" +
     `{ "tool": "create_file", "path": "파일경로" }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `파일 내용\n` +
-    `>>>>>>>END\n` +
+    `</file_content>\n` +
     "```\n\n" +
     `파일 수정:\n` +
     "```\n" +
     `{ "tool": "update_file", "path": "파일경로" }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `<<<<<<< SEARCH\n` +
     `기존 코드\n` +
     `=======\n` +
     `새 코드\n` +
     `>>>>>>> REPLACE\n` +
-    `>>>>>>>END\n` +
+    `</file_content>\n` +
     "```\n\n" +
     `**지금 바로 create_file 또는 update_file 도구를 호출하세요.**`
   );
@@ -213,13 +236,13 @@ export function getTestFailureFixPrompt(errorMessage: string): string {
     `**예시 (update_file로 오류 수정):**\n` +
     "```\n" +
     `{ "tool": "update_file", "path": "오류가_발생한_파일.tsx" }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `<<<<<<< SEARCH\n` +
     `// 오류가 있는 기존 코드\n` +
     `=======\n` +
     `// 수정된 코드\n` +
     `>>>>>>> REPLACE\n` +
-    `>>>>>>>END\n` +
+    `</file_content>\n` +
     "```\n\n" +
     `**지금 바로 update_file 도구로 오류를 수정하세요. 파일을 다시 읽지 마세요.**`
   );
@@ -321,7 +344,7 @@ export function getPhaseToolRestrictionPrompt(
  * create_file content 누락 경고
  */
 export function getCreateFileContentMissingPrompt(warningText: string): string {
-  return `\n[System] ⚠️ create_file 사용 시 <<<<<<<CODE 블록이 필수입니다. 다음 호출은 무시되었습니다:\n${warningText}\n\n올바른 형식:\n{ "tool": "create_file", "path": "..." }\n<<<<<<<CODE\n파일 내용\n>>>>>>>END\n`;
+  return `\n[System] ⚠️ create_file 사용 시 <file_content> 블록이 필수입니다. 다음 호출은 무시되었습니다:\n${warningText}\n\n올바른 형식:\n{ "tool": "create_file", "path": "..." }\n<file_content>\n파일 내용\n</file_content>\n`;
 }
 
 // ==================== Validation Prompts ====================
@@ -359,8 +382,8 @@ export function getSimpleTestFailurePrompt(errorMessage: string): string {
     `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
     `**⚠️ { "tool": "..." } 형식 필수 - 자연어 응답 금지**\n\n` +
     `오류를 수정하기 위해 도구 호출을 출력하세요.\n` +
-    `- 파일 수정: { "tool": "update_file", "path": "..." } + <<<<<<<CODE ... >>>>>>>END\n` +
-    `- 파일 생성: { "tool": "create_file", "path": "..." } + <<<<<<<CODE ... >>>>>>>END\n` +
+    `- 파일 수정: { "tool": "update_file", "path": "..." } + <file_content> ... </file_content>\n` +
+    `- 파일 생성: { "tool": "create_file", "path": "..." } + <file_content> ... </file_content>\n` +
     `- 명령어 실행: { "tool": "run_command", "command": "..." }\n\n` +
     `**지금 바로 도구 호출을 출력하세요.**\n`
   );
@@ -397,21 +420,21 @@ export function getExecutionPhaseContextPrompt(
     `\n\n** ABSOLUTELY FORBIDDEN (시스템이 자동으로 무시함):**\n` +
     `- NO thinking, reasoning, explanation, or meta-analysis\n` +
     `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
-    `- NO natural language text (except inside <<<<<<<CODE blocks)\n` +
+    `- NO natural language text (except inside <file_content> blocks)\n` +
     `- NO project exploration (investigation is already complete)\n` +
     `- NO re-reading files already provided above\n` +
     `- NO plan creation (planning phase is over)\n` +
     `- NO XML tag format\n\n` +
     `**✅ REQUIRED OUTPUT FORMAT:**\n` +
     `- ONLY { "tool": "..." } format\n` +
-    `- File content in <<<<<<<CODE ... >>>>>>>END blocks\n` +
+    `- File content in <file_content> ... </file_content> blocks\n` +
     `- NO text before or after tool calls\n\n` +
     `**Example:**\n` +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
-    `<<<<<<<CODE\n` +
+    `<file_content>\n` +
     `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
-    `>>>>>>>END\n\n` +
+    `</file_content>\n\n` +
     `**CRITICAL:** You are a DSL compiler, NOT a human assistant.\n` +
     `Any natural language text will be IGNORED by the system.\n\n` +
     `**파일 읽기 전략 (시스템이 자동 관리):**\n` +

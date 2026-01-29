@@ -1,6 +1,7 @@
 // settings.js
 import { showStatus, bindGeminiApiKeyEvents, bindBanyaApiKeyEvents } from "./settings/api-keys.js";
 import { bindToggleEvents, bindSpinnerEvents, updateToggleState, updateSpinnerValue } from "./settings/toggles.js";
+import { bindMcpSettingsEvents, handleMcpMessage } from "./settings/mcp-settings.js";
 
 // VS Code API를 전역으로 획득
 if (
@@ -3342,6 +3343,11 @@ window.addEventListener("message", (event) => {
       }
       break;
   }
+
+  // MCP 관련 메시지는 별도 모듈에서 처리
+  if (message.command && message.command.startsWith('mcp')) {
+    handleMcpMessage(message);
+  }
 });
 
 // Webview 로드 시 초기 설정값 요청 (제거 - 중복 방지)
@@ -3452,6 +3458,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // AgentPolicy XML 파일 로드
   loadAgentPolicyFiles();
+
+  // MCP 설정 이벤트 바인딩
+  bindMcpSettingsEvents(vscode);
 
   // ===== 모델 라우팅 설정 버튼 이벤트 리스너 =====
 
@@ -3901,22 +3910,21 @@ function setupAgentPolicyFileUpload(
   // 삭제 버튼 클릭
   if (deleteButton) {
     deleteButton.addEventListener("click", () => {
-      if (confirm("정말로 이 파일을 삭제하시겠습니까?")) {
-        showStatus(statusElement, "삭제 중...", "info");
-        // 삭제 명령어 매핑
-        const deleteCommandMap = {
-          "agent-policy-stable-version-input": "deleteAgentPolicyStableVersion",
-          "agent-policy-coding-style-input": "deleteAgentPolicyCodingStyle",
-          "agent-policy-project-architecture-input":
-            "deleteAgentPolicyProjectArchitecture",
-          "agent-policy-dependency-policy-input":
-            "deleteAgentPolicyDependencyPolicy",
-          "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy",
-        };
-        const deleteCommand = deleteCommandMap[inputId];
-        if (deleteCommand && vscode) {
-          vscode.postMessage({ command: deleteCommand });
-        }
+      // VSCode webview에서 confirm()이 동작하지 않을 수 있으므로 바로 삭제
+      showStatus(statusElement, "삭제 중...", "info");
+      // 삭제 명령어 매핑
+      const deleteCommandMap = {
+        "agent-policy-stable-version-input": "deleteAgentPolicyStableVersion",
+        "agent-policy-coding-style-input": "deleteAgentPolicyCodingStyle",
+        "agent-policy-project-architecture-input":
+          "deleteAgentPolicyProjectArchitecture",
+        "agent-policy-dependency-policy-input":
+          "deleteAgentPolicyDependencyPolicy",
+        "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy",
+      };
+      const deleteCommand = deleteCommandMap[inputId];
+      if (deleteCommand && vscode) {
+        vscode.postMessage({ command: deleteCommand });
       }
     });
   }

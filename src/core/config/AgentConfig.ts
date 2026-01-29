@@ -57,9 +57,6 @@ export class AgentConfig {
         TOOLING: 0.75  // 빌드 도구 등
     };
 
-    // ===== 파일 매칭 =====
-    static readonly MIN_FUZZY_MATCH_THRESHOLD = 0.8;
-
     // ===== 토큰 모니터링 =====
     static readonly TOKEN_USAGE_WARNING_THRESHOLD = 80; // 퍼센트
 
@@ -68,7 +65,6 @@ export class AgentConfig {
         LLM_PROVIDED: 0.95,      // LLM이 구조화 응답 제공
         FILE_CREATE: 0.9,        // 파일 생성
         FILE_MODIFY_EXACT: 0.85, // 정확한 매칭으로 파일 수정
-        FILE_MODIFY_FUZZY: 0.75, // 퍼지 매칭으로 파일 수정
         TERMINAL_SAFE: 0.85,     // 안전한 터미널 명령
         TERMINAL_RISKY: 0.7,     // 위험한 터미널 명령
         FILE_OPERATION: 0.8,     // 일반 파일 작업

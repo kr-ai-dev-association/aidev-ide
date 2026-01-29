@@ -17,22 +17,22 @@ export function getToolCallingFormatPrompt(): string {
     prompt += '**파일 생성 (create_file):**\n';
     prompt += '```\n';
     prompt += '{ "tool": "create_file", "path": "src/example.py" }\n';
-    prompt += '<<<<<<<CODE\n';
+    prompt += '<file_content>\n';
     prompt += 'def example():\n';
     prompt += '    print("hello")\n';
-    prompt += '>>>>>>>END\n';
+    prompt += '</file_content>\n';
     prompt += '```\n\n';
 
     prompt += '**파일 수정 (update_file):**\n';
     prompt += '```\n';
     prompt += '{ "tool": "update_file", "path": "src/App.tsx" }\n';
-    prompt += '<<<<<<<CODE\n';
+    prompt += '<file_content>\n';
     prompt += '<<<<<<< SEARCH\n';
     prompt += '기존 코드\n';
     prompt += '=======\n';
     prompt += '새 코드\n';
     prompt += '>>>>>>> REPLACE\n';
-    prompt += '>>>>>>>END\n';
+    prompt += '</file_content>\n';
     prompt += '```\n\n';
 
     prompt += '**코드 없는 도구 (read_file, list_files, run_command 등):**\n';
@@ -99,23 +99,23 @@ export function getToolSpecPrompt(spec: ToolSpec): string {
     if (spec.name === Tool.CREATE_FILE) {
         prompt += '```\n';
         prompt += '{ "tool": "create_file", "path": "src/example.ts" }\n';
-        prompt += '<<<<<<<CODE\n';
+        prompt += '<file_content>\n';
         prompt += '// 파일 내용\n';
         prompt += 'export function example() {\n';
         prompt += '    return "hello";\n';
         prompt += '}\n';
-        prompt += '>>>>>>>END\n';
+        prompt += '</file_content>\n';
         prompt += '```\n\n';
     } else if (spec.name === Tool.UPDATE_FILE) {
         prompt += '```\n';
         prompt += '{ "tool": "update_file", "path": "src/App.tsx" }\n';
-        prompt += '<<<<<<<CODE\n';
+        prompt += '<file_content>\n';
         prompt += '<<<<<<< SEARCH\n';
         prompt += '기존 코드\n';
         prompt += '=======\n';
         prompt += '새 코드\n';
         prompt += '>>>>>>> REPLACE\n';
-        prompt += '>>>>>>>END\n';
+        prompt += '</file_content>\n';
         prompt += '```\n\n';
     } else {
         // 다른 도구들은 간단한 JSON 형식
@@ -177,13 +177,13 @@ export function getWorkflowGuidelinePrompt(): string {
     prompt += '{ "tool": "read_file", "path": "src/App.tsx" }\n';
     prompt += '// 2단계: 읽은 내용을 기반으로 수정\n';
     prompt += '{ "tool": "update_file", "path": "src/App.tsx" }\n';
-    prompt += '<<<<<<<CODE\n';
+    prompt += '<file_content>\n';
     prompt += '<<<<<<< SEARCH\n';
     prompt += '기존 코드\n';
     prompt += '=======\n';
     prompt += '새 코드\n';
     prompt += '>>>>>>> REPLACE\n';
-    prompt += '>>>>>>>END\n';
+    prompt += '</file_content>\n';
     prompt += '```\n\n';
 
     return prompt;
@@ -220,7 +220,7 @@ export function getImportantRulesPrompt(): string {
     prompt += '- 도구 호출 외의 모든 텍스트는 무효 처리됩니다\n\n';
     prompt += '**파일 작업 규칙:**\n';
     prompt += '1. **update_file 전에 read_file 필수**: 파일 수정 전 반드시 최신 내용을 읽으세요.\n';
-    prompt += '2. **create_file은 <<<<<<<CODE 필수**: 빈 코드 블록은 허용되지 않습니다.\n';
+    prompt += '2. **create_file은 <file_content> 필수**: 빈 코드 블록은 허용되지 않습니다.\n';
     prompt += '3. **수정 범위가 넓으면 create_file 사용**: 전체를 다시 작성하세요.\n';
     prompt += '4. **일괄 수정 금지**: sed -i 대신 read_file → update_file 순서로.\n\n';
     prompt += '** 파일 삭제 규칙 (절대 금지):**\n';

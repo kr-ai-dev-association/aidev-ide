@@ -49,7 +49,8 @@ import {
     getErrorRetryPrompt,
     getInvestigationToolResultFollowupPrompt,
     getExecutionNoToolCallWarningPrompt,
-    getTestFailureFixPrompt
+    getTestFailureFixPrompt,
+    ModifiedFileContext
 } from '../context/prompts/rules';
 import { getGeneralAnalysisPrompt } from '../context/prompts/analysis/generalAnalysis';
 import { ConversationCompactor } from './ConversationCompactor';
@@ -331,6 +332,17 @@ export class ConversationManager {
             console.log('[ConversationManager] Diagnostics context included in system prompt');
         }
 
+        // v9.2.1: 프레임워크 세부 스택 규칙 생성
+        let frameworkRulesPrompt = '';
+        try {
+            frameworkRulesPrompt = await this.contextManager.getFrameworkRulesPrompt();
+            if (frameworkRulesPrompt) {
+                console.log('[ConversationManager] Framework rules prompt generated');
+            }
+        } catch (error) {
+            console.warn('[ConversationManager] Failed to generate framework rules:', error);
+        }
+
         // ContextData의 속성들을 PromptBuilderOptions 형식에 맞게 변환
         return {
             codebaseContext: contextData.file?.content,
@@ -341,7 +353,8 @@ export class ConversationManager {
             languageInstruction: '반드시 한국어로 답변하세요.',
             selectedFilesContent: selectedFilesContent,
             terminalContextContent: terminalContextContent,
-            diagnosticsContextContent: diagnosticsContextContent
+            diagnosticsContextContent: diagnosticsContextContent,
+            frameworkRulesPrompt: frameworkRulesPrompt // v9.2.1: 동적 프레임워크 규칙
         };
     }
 
@@ -815,7 +828,8 @@ export class ConversationManager {
                     selectedFilesContent: gatheredContext?.selectedFilesContent,
                     terminalContextContent: gatheredContext?.terminalContextContent,
                     diagnosticsContextContent: gatheredContext?.diagnosticsContextContent,
-                    codebaseContext: gatheredContext?.codebaseContext
+                    codebaseContext: gatheredContext?.codebaseContext,
+                    frameworkRulesPrompt: gatheredContext?.frameworkRulesPrompt // v9.2.1
                 };
                 activeSystemPrompt = investigationPrompt + '\n\n' + this.promptBuilder.generateSystemPrompt(promptOptions);
 
@@ -862,6 +876,10 @@ export class ConversationManager {
                     console.log(`[ConversationManager] EXECUTION phase: Tool execution succeeded with file changes and no remaining plan items. Skipping LLM call and transitioning directly to REVIEW.`);
                     lastTurnHadSuccessfulToolExecution = false; // 리셋
 
+                    // 🔥 UI 상태 업데이트: 테스트 실행 전
+                    WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
+                    WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `[실행][단계 ${turnCount + 1}] 자동 테스트 실행 중...`);
+
                     // 자동 테스트 실행
                     const currentProject = ProjectManager.getInstance().getCurrentProject();
                     const workspaceRoot = currentProject?.root || '';
@@ -869,6 +887,9 @@ export class ConversationManager {
 
                     if (testResult.success) {
                         console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                        // 🔥 UI 상태 업데이트: 테스트 성공
+                        WebviewBridge.sendProcessingStep(webviewToRespond, 'review');
+                        WebviewBridge.sendProcessingStatus(webviewToRespond, 'review', `[검토] 테스트 통과 - 결과 검토 중...`);
                         stateManager.transitionTo(AgentPhase.REVIEW);
                         turnCount++;
                         continue; // 다음 루프에서 REVIEW 처리 (LLM 호출 없이)
@@ -877,13 +898,36 @@ export class ConversationManager {
                         if (isAutoTestRetryEnabled && testFixAttempts < maxTestFixAttempts) {
                             testFixAttempts++;
                             console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). LLM에게 수정 요청.`);
+
+                            // 🔥 UI에 테스트 실패 및 수정 중 상태 표시
+                            WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `테스트 실패 - 자동 수정 중 (${testFixAttempts}/${maxTestFixAttempts})...`);
+
+                            // 🔥 v9.2.2: 수정된 파일들의 최신 내용을 읽어서 LLM에 전달 (코드 중복 방지)
+                            const modifiedFilesContext: ModifiedFileContext[] = [];
+                            const allModifiedPaths = [...new Set([...createdFiles, ...modifiedFiles])];
+
+                            for (const filePath of allModifiedPaths) {
+                                try {
+                                    const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+                                    const content = await fs.readFile(absolutePath, 'utf-8');
+                                    modifiedFilesContext.push({ path: filePath, content });
+                                    console.log(`[ConversationManager] 수정된 파일 컨텍스트 추가: ${filePath}`);
+                                } catch (err) {
+                                    console.warn(`[ConversationManager] 수정된 파일 읽기 실패 (무시): ${filePath}`, err);
+                                }
+                            }
+
                             accumulatedUserParts.push({
-                                text: getErrorRetryPrompt(testResult.errorMessage || '알 수 없는 오류')
+                                text: getErrorRetryPrompt(testResult.errorMessage || '알 수 없는 오류', modifiedFilesContext)
                             });
                             // 테스트 실패 시에는 LLM 호출 필요 (수정 요청)
                         } else {
                             // 재시도 초과 또는 비활성화 - REVIEW로 전환
                             console.log(`[ConversationManager] 테스트 실패, 재시도 ${isAutoTestRetryEnabled ? '초과' : '비활성화'}. REVIEW로 전환.`);
+                            // 🔥 UI 상태 업데이트: 테스트 실패 후 검토로 전환
+                            WebviewBridge.sendProcessingStep(webviewToRespond, 'review');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'review', `[검토] 테스트 실패 - 결과 검토 중...`);
                             if (testResult.errorMessage) {
                                 WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 실패: ${testResult.errorMessage}`);
                             }
@@ -896,6 +940,9 @@ export class ConversationManager {
                     // 파일 변경 없이 도구만 실행된 경우 (예: read_file만 실행)
                     console.log(`[ConversationManager] EXECUTION phase: Tool execution succeeded but no file changes. Transitioning to REVIEW.`);
                     lastTurnHadSuccessfulToolExecution = false;
+                    // 🔥 UI 상태 업데이트: 파일 변경 없이 검토로 전환
+                    WebviewBridge.sendProcessingStep(webviewToRespond, 'review');
+                    WebviewBridge.sendProcessingStatus(webviewToRespond, 'review', `[검토] 작업 완료 - 결과 검토 중...`);
                     stateManager.transitionTo(AgentPhase.REVIEW);
                     turnCount++;
                     continue;
@@ -1470,6 +1517,10 @@ export class ConversationManager {
 
             console.log(`[ConversationManager] Calling LLM for Turn ${turnCount + 1} (Phase: ${currentPhase})`);
 
+            // 🔥 LLM 호출 전 UI 상태 업데이트
+            WebviewBridge.sendProcessingStep(webviewToRespond, 'thinking');
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'thinking', `LLM 응답 대기 중...`);
+
             // 스트리밍 설정 확인
             const isStreamingEnabled = options.extensionContext
                 ? await SettingsManager.getInstance(options.extensionContext).isStreamingEnabled()
@@ -1940,6 +1991,13 @@ export class ConversationManager {
 
                     if (hasFileChanges) {
                         console.log('[ConversationManager] All tasks completed after tool execution. Running automated tests before transitioning to REVIEW.');
+
+                        // 🔥 UI 상태 업데이트: 테스트 실행 전
+                        console.log(`[ConversationManager] 🔥 UI Update: webviewToRespond exists = ${!!webviewToRespond}`);
+                        WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
+                        WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `[실행][단계 ${turnCount + 1}] 자동 테스트 실행 중...`);
+                        console.log(`[ConversationManager] 🔥 UI Update sent: executing, 자동 테스트 실행 중`);
+
                         const currentProjectForTest = ProjectManager.getInstance().getCurrentProject();
                         const workspaceRootForTest = currentProjectForTest?.root || '';
                         const testResult = await TestRunner.runAutomatedTests(webviewToRespond, workspaceRootForTest, createdFiles, modifiedFiles);
@@ -1947,6 +2005,9 @@ export class ConversationManager {
                         if (testResult.success) {
                             // 테스트 통과 → REVIEW로 전환
                             console.log('[ConversationManager] Tests passed. Transitioning to REVIEW phase.');
+                            // 🔥 UI 상태 업데이트: 테스트 성공
+                            WebviewBridge.sendProcessingStep(webviewToRespond, 'review');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'review', `[검토] 테스트 통과 - 결과 검토 중...`);
                             stateManager.transitionTo(AgentPhase.REVIEW);
                             turnCount++;
                             continue; // 다음 루프에서 REVIEW 처리
@@ -1976,6 +2037,9 @@ export class ConversationManager {
                                 }
 
                                 console.log(`[ConversationManager] 테스트 실패 (${testFixAttempts}/${maxTestFixAttempts}). 에러 메시지를 컨텍스트에 추가하고 계속 진행합니다.`);
+                                // 🔥 UI 상태 업데이트: 테스트 실패 후 재시도
+                                WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
+                                WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `테스트 실패 - 자동 수정 중 (${testFixAttempts}/${maxTestFixAttempts})...`);
                                 accumulatedUserParts.push({
                                     text: getErrorRetryPrompt(errorMessage)
                                 });
@@ -1983,6 +2047,9 @@ export class ConversationManager {
                                 continue;
                             } else {
                                 console.log(`[ConversationManager] 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). REVIEW로 전환합니다.`);
+                                // 🔥 UI 상태 업데이트: 테스트 실패 후 검토로 전환
+                                WebviewBridge.sendProcessingStep(webviewToRespond, 'review');
+                                WebviewBridge.sendProcessingStatus(webviewToRespond, 'review', `[검토] 테스트 실패 - 결과 검토 중...`);
                                 WebviewBridge.receiveMessage(webviewToRespond, 'System', `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${testResult.errorMessage || '알 수 없는 오류'}`);
                                 // 실패해도 REVIEW로 전환하여 요약 생성
                                 stateManager.transitionTo(AgentPhase.REVIEW);
@@ -1991,8 +2058,30 @@ export class ConversationManager {
                             }
                         }
                     } else {
-                        // 파일 변경이 없으면 바로 REVIEW로 전환
+                        // 파일 변경이 없는 경우
+                        // ⚠️ execution_run intent일 때는 run_command가 실행될 때까지 계속 진행
+                        const isExecutionRunIntent = intent && intent.subtype === 'execution_run';
+                        const hasRunCommandInHistory = totalToolCalls.some(call => call.name === Tool.RUN_COMMAND);
+
+                        if (isExecutionRunIntent && !hasRunCommandInHistory) {
+                            console.log('[ConversationManager] EXECUTION phase: execution_run intent requires run_command, but no run_command was executed. Continuing to next turn.');
+                            // 🔥 UI 상태 업데이트: 명령 실행 대기 중
+                            WebviewBridge.sendProcessingStep(webviewToRespond, 'executing');
+                            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `[실행] 명령 실행 준비 중...`);
+                            accumulatedUserParts.push({
+                                text: `\n[System] ⚠️ 명령 실행이 필요합니다.\n\n` +
+                                    `사용자가 명령 실행을 요청했습니다. run_command 도구를 사용하여 적절한 명령을 실행하세요.\n` +
+                                    `프로젝트 구조를 파악했다면, 이제 실제 명령을 실행하세요.`
+                            });
+                            turnCount++;
+                            continue;
+                        }
+
+                        // 그 외의 경우 바로 REVIEW로 전환
                         console.log('[ConversationManager] All tasks completed. No file changes detected. Transitioning to REVIEW phase.');
+                        // 🔥 UI 상태 업데이트: 파일 변경 없이 검토로 전환
+                        WebviewBridge.sendProcessingStep(webviewToRespond, 'review');
+                        WebviewBridge.sendProcessingStatus(webviewToRespond, 'review', `[검토] 작업 완료 - 결과 검토 중...`);
                         stateManager.transitionTo(AgentPhase.REVIEW);
                         turnCount++;
                         continue;
@@ -2855,8 +2944,8 @@ export class ConversationManager {
                 // 직접 JSON 객체 제거 (tool/plan)
                 summaryText = summaryText.replace(/\{\s*["']tool["'][\s\S]*?\}/gi, '');
                 summaryText = summaryText.replace(/\{\s*"plan"[\s\S]*?\}/gi, '');
-                // <<<<<<<CODE ... >>>>>>>END 블록 제거
-                summaryText = summaryText.replace(/<<<<<<<CODE[\s\S]*?>>>>>>>END/gi, '');
+                // <file_content> ... </file_content> 블록 제거 (XML 스타일)
+                summaryText = summaryText.replace(/<file_content>[\s\S]*?<\/file_content>/gi, '');
 
                 // thinking/reasoning 패턴 추가 제거 (LLM의 내부 사고 과정)
                 summaryText = summaryText.replace(/We need to[^.]*\./gi, '');

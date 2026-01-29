@@ -47,7 +47,21 @@ export class ProjectDetector {
         confidence: number;
         detector?: (projectRoot: string) => boolean;
     }> = [
-        // Java/Kotlin - Gradle
+        // ⚠️ Android 프로젝트 (Gradle 기반) - Spring Boot보다 먼저 체크해야 함
+        {
+            files: ['build.gradle', 'build.gradle.kts'],
+            type: ProjectType.ANDROID,
+            buildTool: BuildTool.GRADLE,
+            confidence: 0.95,
+            detector: (projectRoot: string) => {
+                // Android 프로젝트 특징: app/build.gradle 또는 AndroidManifest.xml 존재
+                return fs.existsSync(path.join(projectRoot, 'app', 'build.gradle')) ||
+                       fs.existsSync(path.join(projectRoot, 'app', 'build.gradle.kts')) ||
+                       fs.existsSync(path.join(projectRoot, 'app', 'src', 'main', 'AndroidManifest.xml')) ||
+                       fs.existsSync(path.join(projectRoot, 'AndroidManifest.xml'));
+            }
+        },
+        // Java/Kotlin - Gradle (Spring Boot 등, Android가 아닌 경우)
         {
             files: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'],
             type: ProjectType.SPRING_BOOT,
@@ -533,6 +547,19 @@ export class ProjectDetector {
                 // JavaScript만 있는 경우 npm run build 시도 (package.json에 build 스크립트가 있는 경우)
                 return { command: 'npm run build --dry-run 2>/dev/null || echo "No build script"', description: 'Node.js 빌드 검사' };
 
+            case ProjectType.ANDROID:
+                // Android 프로젝트 검증 (Gradle 기반)
+                const isWinAndroid = process.platform === 'win32';
+                const gradlewAndroid = isWinAndroid ? 'gradlew.bat' : './gradlew';
+
+                // Gradle wrapper 우선 (Android Studio가 생성)
+                if (fs.existsSync(path.join(projectRoot, 'gradlew')) || fs.existsSync(path.join(projectRoot, 'gradlew.bat'))) {
+                    return { command: `${gradlewAndroid} assembleDebug`, description: 'Android 디버그 빌드' };
+                }
+
+                // Gradle wrapper가 없으면 gradle 직접 사용
+                return { command: 'gradle assembleDebug', description: 'Android 디버그 빌드 (Gradle)' };
+
             case ProjectType.SPRING_BOOT:
                 // Java/Kotlin 확장 검증 옵션
                 const isWin = process.platform === 'win32';
@@ -942,6 +969,30 @@ export class ProjectDetector {
                 }
                 break;
 
+            case ProjectType.ANDROID:
+                // Android 프로젝트 필수 파일
+                if (fs.existsSync(path.join(projectRoot, 'build.gradle'))) {
+                    criticalFiles.push('build.gradle');
+                } else if (fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
+                    criticalFiles.push('build.gradle.kts');
+                }
+                if (fs.existsSync(path.join(projectRoot, 'settings.gradle'))) {
+                    criticalFiles.push('settings.gradle');
+                } else if (fs.existsSync(path.join(projectRoot, 'settings.gradle.kts'))) {
+                    criticalFiles.push('settings.gradle.kts');
+                }
+                // app 모듈 필수 파일
+                if (fs.existsSync(path.join(projectRoot, 'app', 'build.gradle'))) {
+                    criticalFiles.push('app/build.gradle');
+                } else if (fs.existsSync(path.join(projectRoot, 'app', 'build.gradle.kts'))) {
+                    criticalFiles.push('app/build.gradle.kts');
+                }
+                // AndroidManifest.xml
+                if (fs.existsSync(path.join(projectRoot, 'app', 'src', 'main', 'AndroidManifest.xml'))) {
+                    criticalFiles.push('app/src/main/AndroidManifest.xml');
+                }
+                break;
+
             case ProjectType.SPRING_BOOT:
                 if (fs.existsSync(path.join(projectRoot, 'pom.xml'))) {
                     criticalFiles.push('pom.xml');
@@ -1060,27 +1111,30 @@ export class ProjectDetector {
 파일 목록: ${fileList}
 
 지원하는 프로젝트 타입 (우선순위 순서대로):
-1. java-gradle: build.gradle, build.gradle.kts, settings.gradle, gradlew 존재 (Android 포함)
-2. java-maven: pom.xml 존재
-3. nodejs: package.json 존재
-4. python: requirements.txt, pyproject.toml, 또는 Pipfile 존재 (단, __pycache__나 .pytest_cache 폴더만 있는 경우는 python이 아닐 수 있음)
-5. go: go.mod 존재
-6. rust: Cargo.toml 존재
-7. php: composer.json 존재
-8. dart/flutter: pubspec.yaml 존재
-9. csharp: *.csproj, *.sln 존재
-10. ruby: Gemfile, Rakefile 존재
-11. swift: Package.swift 또는 *.xcodeproj 존재 (Mac OS만)
-12. c-cpp: CMakeLists.txt 존재
+1. android: build.gradle + (app 폴더 또는 AndroidManifest.xml 존재) - Android 프로젝트
+2. java-gradle: build.gradle, build.gradle.kts, settings.gradle, gradlew 존재 (Android가 아닌 경우)
+3. java-maven: pom.xml 존재
+4. nodejs: package.json 존재
+5. python: requirements.txt, pyproject.toml, 또는 Pipfile 존재 (단, __pycache__나 .pytest_cache 폴더만 있는 경우는 python이 아닐 수 있음)
+6. go: go.mod 존재
+7. rust: Cargo.toml 존재
+8. php: composer.json 존재
+9. dart/flutter: pubspec.yaml 존재
+10. csharp: *.csproj, *.sln 존재
+11. ruby: Gemfile, Rakefile 존재
+12. swift: Package.swift 또는 *.xcodeproj 존재 (Mac OS만)
+13. c-cpp: CMakeLists.txt 존재
 
-중요: __pycache__, .pytest_cache 같은 캐시 디렉토리만으로 Python 프로젝트라고 판단하지 마세요.
-build.gradle이나 settings.gradle이 있으면 반드시 java-gradle로 판단하세요.
+중요:
+- __pycache__, .pytest_cache 같은 캐시 디렉토리만으로 Python 프로젝트라고 판단하지 마세요.
+- build.gradle이 있고 app 폴더나 AndroidManifest.xml이 있으면 android로 판단하세요.
+- build.gradle이 있지만 Android 특징이 없으면 java-gradle로 판단하세요.
 
 JSON 형식으로 응답하세요:
 {
-  "projectType": "java-gradle",
-  "confidence": 0.9,
-  "reasoning": "build.gradle 파일이 존재하므로 Gradle 기반 Java/Android 프로젝트입니다."
+  "projectType": "android",
+  "confidence": 0.95,
+  "reasoning": "build.gradle과 app 폴더가 존재하므로 Android 프로젝트입니다."
 }`;
 
             // LLM 호출
@@ -1100,6 +1154,10 @@ JSON 형식으로 응답하세요:
                     case 'nodejs':
                         projectType = ProjectType.NODE;
                         buildTool = BuildTool.NPM;
+                        break;
+                    case 'android':
+                        projectType = ProjectType.ANDROID;
+                        buildTool = BuildTool.GRADLE;
                         break;
                     case 'java-maven':
                         projectType = ProjectType.SPRING_BOOT;

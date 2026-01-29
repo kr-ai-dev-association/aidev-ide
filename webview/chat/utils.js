@@ -188,25 +188,20 @@ export function sanitizeLastResort(text) {
     .replace(/<run_command[\s\S]*?<\/run_command>/gi, "")
     .replace(/<plan[\s\S]*?<\/plan>/gi, "")
     .replace(/<task_progress[\s\S]*?<\/task_progress>/gi, "")
-    // CODE 블록 완성된 패턴: <<<<<<<CODE ... >>>>>>>END
-    .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, "")
+    // CODE 블록 완성된 패턴 (XML 스타일): <file_content> ... </file_content>
+    .replace(/<file_content>[\s\S]*?<\/file_content>/gi, "")
     // SEARCH/REPLACE 완성된 패턴: <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE
     .replace(/<{3,}\s*SEARCH[\s\S]*?>{3,}\s*REPLACE/gi, "")
-    // file_path 속성이 있는 CODE 패턴: <<<<<<<CODE file_path="..." ... >>>>>>>END
-    .replace(/<{3,}CODE\s+file_path=["'][^"']*["'][\s\S]*?>{3,}END/gi, "")
-    // 줄 시작 기준 부분 패턴 제거
-    .replace(/^<{3,}.*$/gm, "")
-    .replace(/^>{3,}.*$/gm, "")
+    // 줄 시작 기준 부분 패턴 제거 (SEARCH/REPLACE용)
+    .replace(/^<{3,}\s*SEARCH.*$/gm, "")
+    .replace(/^>{3,}\s*REPLACE.*$/gm, "")
     .replace(/^={3,}$/gm, "");
 
-  // 스트리밍 중 닫히지 않은 diff 패턴 제거 (끝부분에 있는 경우)
-  // <<<<<<<CODE 또는 <<<<<<< SEARCH로 시작하고 끝나지 않은 패턴
-  result = result.replace(/<{3,}CODE[\s\S]*$/gi, "");
+  // 스트리밍 중 닫히지 않은 패턴 제거 (끝부분에 있는 경우)
+  // <file_content> 로 시작하고 끝나지 않은 패턴
+  result = result.replace(/<file_content>[\s\S]*$/gi, "");
+  // <<<<<<< SEARCH로 시작하고 끝나지 않은 패턴
   result = result.replace(/<{3,}\s*SEARCH[\s\S]*$/gi, "");
-
-  // 추가: 중간에 있는 CODE/SEARCH 블록도 제거 (멀티라인 diff 블록)
-  // <<<<<<< 로 시작하는 라인부터 >>>>>>> 로 시작하는 라인까지
-  result = result.replace(/^<{3,}[^\n]*\n[\s\S]*?^>{3,}[^\n]*$/gm, "");
 
   // 🔥 핵심: 도구 호출 JSON 패턴이 포함된 응답에서 전체 텍스트 제거
   // LLM이 "We need to run..." 같은 자연어와 함께 { "tool": ... }을 반환하는 경우

@@ -110,7 +110,7 @@ export function getNoThinkingLeakageRules(): string {
 
 **올바른 응답:**
 - ✅ { "tool": "..." } 형식으로 도구 호출
-- ✅ 파일 내용은 <<<<<<<CODE ... >>>>>>>END 블록 사용
+- ✅ 파일 내용은 <file_content> ... </file_content> 블록 사용
 - ✅ 최종 결과나 요약만 한국어로 간결하게 출력
 - ✅ 사고 과정은 thinking 필드에만 포함 (시스템이 자동 처리)
 
@@ -123,10 +123,10 @@ export function getNoThinkingLeakageRules(): string {
 { "tool": "read_file", "path": "src/App.tsx" }
 
 { "tool": "create_file", "path": "src/components/Button.tsx" }
-<<<<<<<CODE
+<file_content>
 // Button component
 export const Button = () => <button>Click</button>;
->>>>>>>END
+</file_content>
 \`\`\`
 
 **⚠️ 중요:** 모든 thinking, reasoning, explanation은 시스템의 thinking 필드에만 있어야 하며, 최종 response에는 절대 포함되지 않아야 합니다.`;
@@ -175,9 +175,9 @@ export function getBaseRules(): string {
 { "tool": "read_file", "path": "backend/src/index.ts" }
 
 { "tool": "create_file", "path": "backend/schema.sql" }
-<<<<<<<CODE
+<file_content>
 CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));
->>>>>>>END
+</file_content>
 \`\`\`
 
 ❌ 잘못된 흐름:
@@ -190,13 +190,13 @@ export function getFileOperationsRules(): string {
   return `파일 작업 형식:
 
 **{ "tool": "..." } 형식 사용**
-- 파일 생성/수정 시 <<<<<<<CODE ... >>>>>>>END 블록으로 내용 지정
+- 파일 생성/수정 시 <file_content> ... </file_content> 블록으로 내용 지정
 - 예시:
   { "tool": "create_file", "path": "src/App.tsx" }
-  <<<<<<<CODE
+  <file_content>
   import React from 'react';
   export default function App() { return <div>Hello</div>; }
-  >>>>>>>END
+  </file_content>
 
 **프레임워크 인식 규칙 (중요)**
 - 작업 전 프로젝트 설정 파일을 먼저 확인하세요:
@@ -222,7 +222,7 @@ export function getFileOperationsRules(): string {
 export function getCodeVsScriptRules(): string {
   return `**코드 작성 vs 쉘 스크립트 작업 구별:**
 - **code_work**: 소스 코드 파일만 생성/수정. 쉘 스크립트나 터미널 명령 블록 생성 금지.
-  - 프로젝트 생성 시: { "tool": "create_file" } + <<<<<<<CODE 블록으로 파일 생성
+  - 프로젝트 생성 시: { "tool": "create_file" } + <file_content> 블록으로 파일 생성
   - 쉘 명령(\`\`\`bash, cat <<EOF, mkdir, brew install 등) 절대 사용 금지
 - **execution_work**: 터미널 명령 실행만. 반드시 { "tool": "run_command" } 사용 (마크다운 코드 블록 금지)
 - **taskType 확인 필수**: 사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.`;

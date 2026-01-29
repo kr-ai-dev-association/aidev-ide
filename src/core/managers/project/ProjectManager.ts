@@ -21,6 +21,8 @@ import {
 import { ProjectDetector } from './ProjectDetector';
 import { ProjectIndexer } from './ProjectIndexer';
 import { ConfigParser } from './ConfigParser';
+import { StackDetector } from './StackDetector';
+import { DetailedStack } from './stackTypes';
 import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
@@ -33,14 +35,18 @@ export class ProjectManager {
     private detector: ProjectDetector;
     private indexer: ProjectIndexer;
     private parser: ConfigParser;
+    private stackDetector: StackDetector;
     private currentProject?: ProjectInfo;
     private projectRoot?: string;
     private codeParserAdapter: ICodeParserAdapter;
+    private cachedDetailedStack?: DetailedStack;
+    private lastStackDetectionTime: number = 0;
 
     private constructor() {
         this.detector = new ProjectDetector();
         this.indexer = new ProjectIndexer();
         this.parser = new ConfigParser();
+        this.stackDetector = new StackDetector();
         // 코드 파서 초기화
         this.codeParserAdapter = new TreeSitterAdapter();
     }
@@ -657,6 +663,7 @@ export class ProjectManager {
             [ProjectType.VUE]: 'TypeScript/JavaScript',
             [ProjectType.ANGULAR]: 'TypeScript',
             [ProjectType.NODE]: 'JavaScript',
+            [ProjectType.ANDROID]: 'Kotlin/Java',
             [ProjectType.SPRING_BOOT]: 'Java',
             [ProjectType.JAVA]: 'Java',
             [ProjectType.PYTHON]: 'Python',
@@ -1152,6 +1159,108 @@ export class ProjectManager {
         } catch {
             return '';
         }
+    }
+
+    // ==================== Stack Detection Methods ====================
+
+    /**
+     * 프로젝트의 세부 기술 스택을 감지합니다
+     * 캐시를 사용하여 5분 이내 재호출 시 캐시된 결과 반환
+     */
+    public async detectDetailedStack(forceRefresh: boolean = false): Promise<DetailedStack | null> {
+        if (!this.currentProject || !this.projectRoot) {
+            console.warn('[ProjectManager] No project detected');
+            return null;
+        }
+
+        // 캐시 확인 (5분 유효)
+        const CACHE_DURATION = 5 * 60 * 1000; // 5분
+        const now = Date.now();
+        if (!forceRefresh && this.cachedDetailedStack && (now - this.lastStackDetectionTime) < CACHE_DURATION) {
+            console.log('[ProjectManager] Using cached detailed stack');
+            return this.cachedDetailedStack;
+        }
+
+        console.log(`[ProjectManager] Detecting detailed stack for ${this.currentProject.type}...`);
+
+        try {
+            const detailedStack = await this.stackDetector.detectDetailedStack(
+                this.projectRoot,
+                this.currentProject.type
+            );
+
+            // 캐시 저장
+            this.cachedDetailedStack = detailedStack;
+            this.lastStackDetectionTime = now;
+
+            console.log(`[ProjectManager] Detected ${detailedStack.stacks.length} stacks:`,
+                detailedStack.stacks.map(s => s.name).join(', '));
+
+            return detailedStack;
+        } catch (error) {
+            console.error('[ProjectManager] Stack detection failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 캐시된 세부 스택 반환 (동기)
+     */
+    public getCachedDetailedStack(): DetailedStack | undefined {
+        return this.cachedDetailedStack;
+    }
+
+    /**
+     * 스택 캐시 초기화
+     */
+    public clearStackCache(): void {
+        this.cachedDetailedStack = undefined;
+        this.lastStackDetectionTime = 0;
+        console.log('[ProjectManager] Stack cache cleared');
+    }
+
+    /**
+     * 스택 정보를 요약 문자열로 변환 (LLM 컨텍스트용)
+     */
+    public getStackSummary(): string {
+        if (!this.cachedDetailedStack) {
+            return '';
+        }
+        return this.stackDetector.formatStackSummary(this.cachedDetailedStack);
+    }
+
+    /**
+     * 프로젝트 컨텍스트 전체를 빌드합니다 (프로필 + 스택 정보)
+     */
+    public async buildFullProjectContext(profile?: ProjectProfile, projectType?: string): Promise<string> {
+        const lines: string[] = [];
+
+        // 프로필 컨텍스트
+        if (profile) {
+            lines.push(this.buildProfileContext(profile, projectType));
+        }
+
+        // 스택 정보 추가
+        const stackSummary = this.getStackSummary();
+        if (stackSummary) {
+            lines.push('');
+            lines.push('--- 감지된 기술 스택 ---');
+            lines.push(stackSummary);
+        }
+
+        // 호환성 이슈가 있으면 추가
+        if (this.cachedDetailedStack?.potentialIssues && this.cachedDetailedStack.potentialIssues.length > 0) {
+            lines.push('');
+            lines.push('--- 잠재적 호환성 이슈 ---');
+            for (const issue of this.cachedDetailedStack.potentialIssues) {
+                lines.push(`[${issue.severity.toUpperCase()}] ${issue.description}`);
+                if (issue.recommendation) {
+                    lines.push(`  권장: ${issue.recommendation}`);
+                }
+            }
+        }
+
+        return lines.join('\n');
     }
 }
 

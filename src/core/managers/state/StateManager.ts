@@ -985,4 +985,117 @@ export class StateManager {
         ]);
         console.log('[StateManager] Intent model config cleared (will use main model)');
     }
+
+    // ===== MCP 서버 관련 메서드들 =====
+    private readonly MCP_SERVERS_KEY = 'codepilot.mcpServers';
+    private readonly MCP_APPROVED_TOOLS_KEY = 'codepilot.mcpApprovedTools';
+
+    /**
+     * MCP 서버 목록을 저장합니다
+     */
+    public async saveMcpServers(servers: any[]): Promise<void> {
+        await this.context.workspaceState.update(this.MCP_SERVERS_KEY, servers);
+        console.log('[StateManager] MCP servers saved:', servers.length);
+    }
+
+    /**
+     * MCP 서버 목록을 가져옵니다
+     */
+    public async getMcpServers(): Promise<any[]> {
+        return this.context.workspaceState.get<any[]>(this.MCP_SERVERS_KEY) ?? [];
+    }
+
+    /**
+     * MCP 서버를 추가합니다
+     */
+    public async addMcpServer(server: any): Promise<void> {
+        const servers = await this.getMcpServers();
+        servers.push(server);
+        await this.saveMcpServers(servers);
+    }
+
+    /**
+     * MCP 서버를 삭제합니다
+     */
+    public async removeMcpServer(serverId: string): Promise<boolean> {
+        const servers = await this.getMcpServers();
+        const index = servers.findIndex(s => s.id === serverId);
+        if (index !== -1) {
+            servers.splice(index, 1);
+            await this.saveMcpServers(servers);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * MCP 서버를 업데이트합니다
+     */
+    public async updateMcpServer(serverId: string, updates: Partial<any>): Promise<boolean> {
+        const servers = await this.getMcpServers();
+        const index = servers.findIndex(s => s.id === serverId);
+        if (index !== -1) {
+            servers[index] = { ...servers[index], ...updates };
+            await this.saveMcpServers(servers);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 승인된 MCP 도구 목록을 저장합니다
+     */
+    public async saveMcpApprovedTools(approvedTools: any[]): Promise<void> {
+        await this.context.workspaceState.update(this.MCP_APPROVED_TOOLS_KEY, approvedTools);
+        console.log('[StateManager] MCP approved tools saved:', approvedTools.length);
+    }
+
+    /**
+     * 승인된 MCP 도구 목록을 가져옵니다
+     */
+    public async getMcpApprovedTools(): Promise<any[]> {
+        return this.context.workspaceState.get<any[]>(this.MCP_APPROVED_TOOLS_KEY) ?? [];
+    }
+
+    /**
+     * MCP 도구 승인 여부를 확인합니다
+     */
+    public async isMcpToolApproved(serverId: string, toolName: string): Promise<boolean> {
+        const approvedTools = await this.getMcpApprovedTools();
+        return approvedTools.some(t => t.serverId === serverId && t.toolName === toolName);
+    }
+
+    /**
+     * MCP 도구를 승인 목록에 추가합니다
+     */
+    public async approveMcpTool(serverId: string, toolName: string): Promise<void> {
+        const approvedTools = await this.getMcpApprovedTools();
+        if (!approvedTools.some(t => t.serverId === serverId && t.toolName === toolName)) {
+            approvedTools.push({
+                serverId,
+                toolName,
+                approvedAt: Date.now()
+            });
+            await this.saveMcpApprovedTools(approvedTools);
+            console.log('[StateManager] MCP tool approved:', serverId, toolName);
+        }
+    }
+
+    /**
+     * MCP 도구 승인을 취소합니다
+     */
+    public async revokeMcpToolApproval(serverId: string, toolName: string): Promise<void> {
+        const approvedTools = await this.getMcpApprovedTools();
+        const filtered = approvedTools.filter(t => !(t.serverId === serverId && t.toolName === toolName));
+        await this.saveMcpApprovedTools(filtered);
+    }
+
+    /**
+     * 특정 서버의 모든 도구 승인을 취소합니다
+     */
+    public async revokeAllMcpToolsForServer(serverId: string): Promise<void> {
+        const approvedTools = await this.getMcpApprovedTools();
+        const filtered = approvedTools.filter(t => t.serverId !== serverId);
+        await this.saveMcpApprovedTools(filtered);
+    }
 }

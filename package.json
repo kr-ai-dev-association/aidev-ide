@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "9.0.6",
+  "version": "9.2.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -328,6 +328,7 @@
     "test": "vscode-test"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@peoplesgrocers/seti-ui-file-icons": "^1.11.3",
     "@tensorflow/tfjs-node": "^4.22.0",
     "diff": "^8.0.2",
@@ -336,7 +337,8 @@
     "korean-text-analytics": "^0.0.7",
     "markdown-it-container": "^4.0.0",
     "tree-sitter-wasms": "^0.1.11",
-    "web-tree-sitter": "^0.20.8"
+    "web-tree-sitter": "^0.20.8",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@babel/core": "^7.27.3",

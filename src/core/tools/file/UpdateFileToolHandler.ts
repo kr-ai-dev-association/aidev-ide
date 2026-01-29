@@ -12,7 +12,6 @@ import {
 import { FileMutationManager, PatchStrategy } from "../../managers/file/FileMutationManager";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { AgentConfig } from "../../config/AgentConfig";
 
 export class UpdateFileToolHandler implements IToolHandler {
   readonly name = Tool.UPDATE_FILE;
@@ -170,17 +169,6 @@ export class UpdateFileToolHandler implements IToolHandler {
           matchResult = structuralMatch;
           console.log(
             `[UpdateFileToolHandler] Structural match found for ${filePath}`,
-          );
-        }
-      }
-
-      // 매칭 전략 5: 퍼지 매칭 (유사도 기반)
-      if (!matchResult) {
-        const fuzzyMatch = mutationManager.fuzzyMatch(fileContent, replacement.search, AgentConfig.MIN_FUZZY_MATCH_THRESHOLD);
-        if (fuzzyMatch) {
-          matchResult = fuzzyMatch;
-          console.log(
-            `[UpdateFileToolHandler] Fuzzy match found for ${filePath} (threshold: ${AgentConfig.MIN_FUZZY_MATCH_THRESHOLD})`,
           );
         }
       }

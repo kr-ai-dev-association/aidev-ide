@@ -1,0 +1,225 @@
+/**
+ * MCP Client 래퍼
+ * @modelcontextprotocol/sdk를 래핑하여 MCP 서버와 통신
+ */
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {
+    MCPServerConfig,
+    MCPToolInfo,
+    MCPToolResult,
+    MCPToolContent,
+    MCPServerStatus
+} from './types';
+
+export class MCPClient {
+    private client: Client | null = null;
+    private transport: StdioClientTransport | StreamableHTTPClientTransport | null = null;
+    private config: MCPServerConfig;
+    private _status: MCPServerStatus = 'disconnected';
+    private _tools: MCPToolInfo[] = [];
+
+    constructor(config: MCPServerConfig) {
+        this.config = config;
+    }
+
+    get status(): MCPServerStatus {
+        return this._status;
+    }
+
+    get tools(): MCPToolInfo[] {
+        return this._tools;
+    }
+
+    get serverId(): string {
+        return this.config.id;
+    }
+
+    get serverName(): string {
+        return this.config.name;
+    }
+
+    /**
+     * MCP 서버에 연결
+     */
+    async connect(): Promise<void> {
+        if (this._status === 'connected') {
+            console.log(`[MCPClient] Already connected to ${this.config.name}`);
+            return;
+        }
+
+        this._status = 'connecting';
+        console.log(`[MCPClient] Connecting to ${this.config.name} (${this.config.type})...`);
+
+        try {
+            // Transport 생성
+            if (this.config.type === 'stdio') {
+                if (!this.config.command) {
+                    throw new Error('stdio transport requires command');
+                }
+                this.transport = new StdioClientTransport({
+                    command: this.config.command,
+                    args: this.config.args || []
+                });
+            } else if (this.config.type === 'http') {
+                if (!this.config.url) {
+                    throw new Error('http transport requires url');
+                }
+                const headers: Record<string, string> = {};
+                if (this.config.apiKey) {
+                    headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+                }
+                this.transport = new StreamableHTTPClientTransport(
+                    new URL(this.config.url),
+                    { requestInit: { headers } }
+                );
+            } else {
+                throw new Error(`Unknown transport type: ${this.config.type}`);
+            }
+
+            // Client 생성 및 연결
+            this.client = new Client(
+                { name: 'codepilot-mcp-client', version: '1.0.0' },
+                { capabilities: {} }
+            );
+
+            await this.client.connect(this.transport);
+            this._status = 'connected';
+            console.log(`[MCPClient] Connected to ${this.config.name}`);
+
+            // 도구 목록 조회
+            await this.refreshTools();
+
+        } catch (error) {
+            this._status = 'error';
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[MCPClient] Connection failed: ${errorMessage}`);
+            throw error;
+        }
+    }
+
+    /**
+     * MCP 서버 연결 해제
+     */
+    async disconnect(): Promise<void> {
+        if (this._status === 'disconnected') {
+            return;
+        }
+
+        console.log(`[MCPClient] Disconnecting from ${this.config.name}...`);
+
+        try {
+            if (this.client) {
+                await this.client.close();
+                this.client = null;
+            }
+            if (this.transport) {
+                // Transport 정리
+                this.transport = null;
+            }
+            this._status = 'disconnected';
+            this._tools = [];
+            console.log(`[MCPClient] Disconnected from ${this.config.name}`);
+        } catch (error) {
+            console.error(`[MCPClient] Disconnect error:`, error);
+            this._status = 'disconnected';
+            this._tools = [];
+        }
+    }
+
+    /**
+     * 도구 목록 새로고침
+     */
+    async refreshTools(): Promise<MCPToolInfo[]> {
+        if (!this.client || this._status !== 'connected') {
+            throw new Error('Not connected to MCP server');
+        }
+
+        try {
+            console.log(`[MCPClient] Fetching tools from ${this.config.name}...`);
+            const response = await this.client.listTools();
+
+            this._tools = (response.tools || []).map(tool => ({
+                name: tool.name,
+                description: tool.description || '',
+                inputSchema: tool.inputSchema as any || { type: 'object' }
+            }));
+
+            console.log(`[MCPClient] Found ${this._tools.length} tools from ${this.config.name}`);
+            return this._tools;
+        } catch (error) {
+            console.error(`[MCPClient] Failed to list tools:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * 도구 호출
+     */
+    async callTool(toolName: string, args: Record<string, any>): Promise<MCPToolResult> {
+        if (!this.client || this._status !== 'connected') {
+            return {
+                success: false,
+                content: [],
+                error: 'Not connected to MCP server'
+            };
+        }
+
+        try {
+            console.log(`[MCPClient] Calling tool ${toolName} on ${this.config.name}...`);
+
+            const response = await this.client.callTool({
+                name: toolName,
+                arguments: args
+            });
+
+            // 결과 변환
+            const responseContent = Array.isArray(response.content) ? response.content : [];
+            const content: MCPToolContent[] = responseContent.map((item: any) => {
+                if (item.type === 'text') {
+                    return { type: 'text' as const, text: item.text };
+                } else if (item.type === 'image') {
+                    return {
+                        type: 'image' as const,
+                        data: item.data,
+                        mimeType: item.mimeType
+                    };
+                } else {
+                    return { type: 'resource' as const, text: JSON.stringify(item) };
+                }
+            });
+
+            console.log(`[MCPClient] Tool ${toolName} completed successfully`);
+            return {
+                success: !response.isError,
+                content,
+                error: response.isError ? 'Tool execution failed' : undefined
+            };
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[MCPClient] Tool call failed: ${errorMessage}`);
+            return {
+                success: false,
+                content: [],
+                error: errorMessage
+            };
+        }
+    }
+
+    /**
+     * 연결 테스트
+     */
+    async testConnection(): Promise<{ success: boolean; error?: string; tools?: MCPToolInfo[] }> {
+        try {
+            await this.connect();
+            const tools = await this.refreshTools();
+            return { success: true, tools };
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            return { success: false, error: errorMessage };
+        }
+    }
+}

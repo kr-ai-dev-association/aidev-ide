@@ -2301,6 +2301,161 @@ export function openSettingsPanel(
             });
           }
           break;
+        // ===== MCP 서버 설정 =====
+        case "getMcpServers": // MCP 서버 목록 로드
+          try {
+            const servers = await stateManager.getMcpServers();
+            safePostMessage(panel, {
+              command: 'mcpServers',
+              servers: servers
+            });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to get MCP servers:', error);
+            safePostMessage(panel, {
+              command: 'mcpServers',
+              servers: [],
+              error: error.message
+            });
+          }
+          break;
+        case "addMcpServer": // MCP 서버 추가
+          try {
+            const server = data.server;
+            if (server && server.name) {
+              await stateManager.addMcpServer(server);
+              safePostMessage(panel, {
+                command: 'mcpServerAdded',
+                server: server
+              });
+              notificationService.showInfoMessage(`CODEPILOT: MCP 서버 "${server.name}" 추가됨`);
+            } else {
+              throw new Error('서버 정보가 올바르지 않습니다.');
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to add MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerAddError',
+              error: error.message
+            });
+          }
+          break;
+        case "updateMcpServer": // MCP 서버 업데이트
+          try {
+            const server = data.server;
+            if (server && server.id) {
+              await stateManager.updateMcpServer(server.id, server);
+              safePostMessage(panel, {
+                command: 'mcpServerUpdated',
+                server: server
+              });
+              notificationService.showInfoMessage(`CODEPILOT: MCP 서버 "${server.name}" 업데이트됨`);
+            } else {
+              throw new Error('서버 정보가 올바르지 않습니다.');
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to update MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerUpdateError',
+              error: error.message
+            });
+          }
+          break;
+        case "removeMcpServer": // MCP 서버 삭제
+          try {
+            const serverId = data.serverId;
+            if (serverId) {
+              const removed = await stateManager.removeMcpServer(serverId);
+              if (removed) {
+                // 해당 서버의 승인된 도구도 삭제
+                await stateManager.revokeAllMcpToolsForServer(serverId);
+                safePostMessage(panel, {
+                  command: 'mcpServerRemoved',
+                  serverId: serverId
+                });
+                notificationService.showInfoMessage('CODEPILOT: MCP 서버 삭제됨');
+              } else {
+                throw new Error('서버를 찾을 수 없습니다.');
+              }
+            } else {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to remove MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerRemoveError',
+              error: error.message
+            });
+          }
+          break;
+        case "testMcpServer": // MCP 서버 연결 테스트
+          try {
+            const serverId = data.serverId;
+            if (!serverId) {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+
+            const servers = await stateManager.getMcpServers();
+            const server = servers.find((s: any) => s.id === serverId);
+            if (!server) {
+              throw new Error('서버를 찾을 수 없습니다.');
+            }
+
+            // MCPManager를 통한 연결 테스트
+            const { MCPManager } = await import('../mcp/MCPManager');
+            const mcpManager = MCPManager.getInstance();
+
+            // MCPManager 초기화 (아직 안 되어 있으면)
+            await mcpManager.initialize(context);
+
+            // 서버가 아직 등록되지 않았으면 추가
+            const existingServers = mcpManager.getServers();
+            const existingServer = existingServers.find(s => s.id === serverId);
+            if (!existingServer) {
+              await mcpManager.addServer(server);
+            }
+
+            // 연결 및 도구 목록 가져오기
+            await mcpManager.connectToServer(serverId);
+
+            // 업데이트된 서버에서 도구 가져오기
+            const updatedServers = mcpManager.getServers();
+            const connectedServer = updatedServers.find(s => s.id === serverId);
+            const tools = connectedServer?.tools || [];
+
+            // 서버 상태 업데이트
+            await stateManager.updateMcpServer(serverId, {
+              status: 'connected',
+              tools: tools,
+              lastConnected: Date.now()
+            });
+
+            safePostMessage(panel, {
+              command: 'mcpTestResult',
+              serverId: serverId,
+              success: true,
+              toolCount: tools.length,
+              tools: tools
+            });
+            notificationService.showInfoMessage(`CODEPILOT: MCP 서버 연결 성공 (${tools.length}개 도구)`);
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to test MCP server:', error);
+
+            // 서버 상태 업데이트
+            if (data.serverId) {
+              await stateManager.updateMcpServer(data.serverId, {
+                status: 'error'
+              });
+            }
+
+            safePostMessage(panel, {
+              command: 'mcpTestResult',
+              serverId: data.serverId,
+              success: false,
+              error: error.message
+            });
+            notificationService.showErrorMessage(`CODEPILOT: MCP 서버 연결 실패 - ${error.message}`);
+          }
+          break;
         default:
           console.log("Unknown command:", data.command);
       }

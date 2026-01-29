@@ -6,6 +6,44 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.2.0 (코드 중복 방지 및 LLM 응답 파싱 개선)
+- **Fuzzy Match 완전 제거**: update_file 도구에서 Fuzzy Match 기능을 완전히 제거했습니다.
+  - `FileMutationManager`에서 `fuzzyMatch()`, `getStringSimilarity()` 메서드 삭제
+  - `AgentConfig`에서 `MIN_FUZZY_MATCH_THRESHOLD`, `FILE_MODIFY_FUZZY` 설정 삭제
+  - 코드 중복 삽입 문제를 원천적으로 방지
+  - Fuzzy Match는 나중에 검색/자동완성 등 다른 용도로 재구현 가능
+- **오류 재시도 시 파일 컨텍스트 제공**: 자동 테스트 실패 시 수정된 파일의 최신 내용을 LLM에 전달합니다.
+  - `getErrorRetryPrompt()`에 `modifiedFilesContext` 파라미터 추가
+  - SEARCH 블록 작성 시 최신 파일 내용 기준으로 작성하도록 안내
+- **LLM 응답 파싱 개선**: `paths` (복수형) 파라미터 지원으로 여러 파일을 한 번에 읽을 수 있습니다.
+  - LLM이 `{ "tool": "read_file", "paths": "file1.ts, file2.ts" }` 형식으로 응답 시
+  - 자동으로 여러 개의 `read_file` 호출로 분할하여 실행
+- **프레임워크별 규칙 시스템 제거**: 동적 프롬프트 주입 기능을 임시 비활성화했습니다.
+  - `FrameworkRuleProvider` 클래스 및 rules 디렉토리 삭제
+  - Android, React, Flutter, Spring, Python 등 프레임워크별 규칙 제거
+  - 필요시 나중에 다시 추가 예정
+
+## v9.1.0 (MCP - Model Context Protocol 지원)
+- **MCP 클라이언트 통합**: Anthropic의 Model Context Protocol을 지원하여 외부 도구 연동이 가능해졌습니다.
+  - **Settings UI**: MCP 서버 추가/편집/삭제 UI 제공
+  - **stdio 지원**: 로컬 MCP 서버 실행 (`npx`, `node` 등)
+  - **HTTP 지원**: 원격 MCP 서버 연결 (API 키 인증 지원)
+  - **도구 자동 등록**: 연결된 MCP 서버의 도구가 LLM에 자동으로 노출
+  - **승인 시스템**: 새 MCP 도구는 첫 호출 시 사용자 확인 후 승인 목록에 추가
+- **사용 방법**:
+  1. Settings → "MCP 서버 설정" 섹션에서 "+ MCP 서버 추가" 클릭
+  2. 서버 이름, 타입(stdio/HTTP), 명령어 또는 URL 입력
+  3. "저장" 후 "🔌" 버튼으로 연결 테스트
+  4. 연결 성공 시 도구 목록이 표시되며, LLM이 해당 도구를 호출 가능
+- **예제 MCP 서버**:
+  ```bash
+  # 날씨 MCP 서버 (Anthropic 공식)
+  npx -y @anthropic/mcp-server-weather
+
+  # 파일시스템 MCP 서버
+  npx -y @anthropic/mcp-server-filesystem
+  ```
+
 ## v9.0.6 (새로운 도구 추가 - Git/IDE/Web)
 - **git_diff 도구 추가**: Git 저장소의 현재 변경사항을 조회합니다.
   - working changes와 staged changes 모두 확인 가능
@@ -71,7 +109,7 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
   - 인프라: `Dockerfile`, `docker-compose.yml`, `Makefile`
   - ⚠️ Lock 파일 및 webpack.config.* 제외 (파일 크기 문제)
 - **Tool Output 필터링 강화**: 채팅 패널에 raw tool output이 표시되던 문제를 수정했습니다.
-  - `<<<<<<<CODE...>>>>>>>END` 블록 제거
+  - `<file_content>...</file_content>` 블록 제거
   - `<<<<<<< SEARCH...>>>>>>> REPLACE` diff 패턴 제거
   - 단독 `<<<<`, `>>>>`, `====` 라인 제거
 
@@ -104,10 +142,10 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **코드 블록 헤더 아이콘 정렬 수정**: Diff/파일 열기 아이콘이 왼쪽에 붙어서 표시되도록 수정
   - `headerRight` 컨테이너로 아이콘들을 그룹화하여 CSS `space-between` 레이아웃 문제 해결
 
-## v8.9.7 (새로운 도구 호출 형식 - CODE 블록)
-- **CODE 블록 형식 도입**: 기존 `function_call` 형식을 완전히 대체하는 새로운 도구 호출 형식입니다.
-  - 새 형식: `{ "tool": "create_file", "path": "..." }` + `<<<<<<<CODE ... >>>>>>>END`
-  - 기존 SEARCH/REPLACE 패턴과 일관된 마커 사용
+## v8.9.7 (새로운 도구 호출 형식 - XML 스타일)
+- **XML 스타일 file_content 태그 도입**: 기존 `function_call` 형식을 완전히 대체하는 새로운 도구 호출 형식입니다.
+  - 새 형식: `{ "tool": "create_file", "path": "..." }` + `<file_content> ... </file_content>`
+  - Git merge conflict 마커(`<<<<<<<`, `=======`, `>>>>>>>`)와 혼동 방지
   - JSON 이스케이프 지옥 해결: 코드 내 `"`, `\n` 등을 이스케이프할 필요 없음
   - 코드 내 ` ``` ` 충돌 없음
   - 스트리밍 지원: JSON 메타데이터가 먼저 오므로 빠른 도구 감지 가능

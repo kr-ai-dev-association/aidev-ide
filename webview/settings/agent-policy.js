@@ -84,22 +84,21 @@ export function setupAgentPolicyFileUpload(config, vscode) {
   // 삭제 버튼 클릭
   if (deleteButton) {
     deleteButton.addEventListener("click", () => {
-      if (confirm("정말로 이 파일을 삭제하시겠습니까?")) {
-        showStatus(statusElement, "삭제 중...", "info");
-        // 삭제 명령어 매핑
-        const deleteCommandMap = {
-          "agent-policy-stable-version-input": "deleteAgentPolicyStableVersion",
-          "agent-policy-coding-style-input": "deleteAgentPolicyCodingStyle",
-          "agent-policy-project-architecture-input":
-            "deleteAgentPolicyProjectArchitecture",
-          "agent-policy-dependency-policy-input":
-            "deleteAgentPolicyDependencyPolicy",
-          "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy",
-        };
-        const deleteCommand = deleteCommandMap[inputId];
-        if (deleteCommand && vscode) {
-          vscode.postMessage({ command: deleteCommand });
-        }
+      // VSCode webview에서 confirm()이 동작하지 않을 수 있으므로 바로 삭제
+      showStatus(statusElement, "삭제 중...", "info");
+      // 삭제 명령어 매핑
+      const deleteCommandMap = {
+        "agent-policy-stable-version-input": "deleteAgentPolicyStableVersion",
+        "agent-policy-coding-style-input": "deleteAgentPolicyCodingStyle",
+        "agent-policy-project-architecture-input":
+          "deleteAgentPolicyProjectArchitecture",
+        "agent-policy-dependency-policy-input":
+          "deleteAgentPolicyDependencyPolicy",
+        "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy",
+      };
+      const deleteCommand = deleteCommandMap[inputId];
+      if (deleteCommand && vscode) {
+        vscode.postMessage({ command: deleteCommand });
       }
     });
   }

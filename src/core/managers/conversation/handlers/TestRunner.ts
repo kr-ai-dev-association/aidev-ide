@@ -111,14 +111,21 @@ export class TestRunner {
             : path.join(workspaceRoot, file);
           await fs.access(filePath);
         } catch {
-          // build.gradle와 build.gradle.kts는 둘 중 하나만 있으면 됨
+          // build.gradle와 build.gradle.kts는 둘 중 하나만 있으면 됨 (Android, Spring Boot)
           if (
-            projectInfo.type === ProjectType.SPRING_BOOT &&
+            (projectInfo.type === ProjectType.SPRING_BOOT ||
+              projectInfo.type === ProjectType.ANDROID) &&
             projectInfo.buildTool.toString().includes("gradle") &&
-            (file === "build.gradle" || file === "build.gradle.kts")
+            (file === "build.gradle" ||
+              file === "build.gradle.kts" ||
+              file === "app/build.gradle" ||
+              file === "app/build.gradle.kts" ||
+              file === "settings.gradle" ||
+              file === "settings.gradle.kts")
           ) {
-            const otherFile =
-              file === "build.gradle" ? "build.gradle.kts" : "build.gradle";
+            const otherFile = file.includes(".kts")
+              ? file.replace(".kts", "")
+              : file + ".kts";
             try {
               await fs.access(path.join(workspaceRoot, otherFile));
               continue; // 다른 파일이 있으면 통과

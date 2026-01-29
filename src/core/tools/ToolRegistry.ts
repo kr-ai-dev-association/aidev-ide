@@ -46,5 +46,53 @@ export class ToolRegistry {
     getAllHandlers(): IToolHandler[] {
         return Array.from(this.handlers.values());
     }
+
+    /**
+     * 툴 핸들러 해제 (MCP 도구 동적 해제용)
+     */
+    unregister(toolName: string): boolean {
+        const existed = this.handlers.has(toolName);
+        if (existed) {
+            this.handlers.delete(toolName);
+            console.log(`[ToolRegistry] Unregistered tool: ${toolName}`);
+        }
+        return existed;
+    }
+
+    /**
+     * 특정 prefix로 시작하는 모든 도구 해제 (MCP 서버 연결 해제 시)
+     */
+    unregisterByPrefix(prefix: string): number {
+        let count = 0;
+        for (const toolName of this.handlers.keys()) {
+            if (toolName.startsWith(prefix)) {
+                this.handlers.delete(toolName);
+                console.log(`[ToolRegistry] Unregistered tool: ${toolName}`);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 도구 존재 여부 확인
+     */
+    hasHandler(toolName: string): boolean {
+        return this.handlers.has(toolName);
+    }
+
+    /**
+     * MCP 도구인지 확인
+     */
+    isMCPTool(toolName: string): boolean {
+        return toolName.startsWith('mcp_');
+    }
+
+    /**
+     * MCP 도구 목록만 반환
+     */
+    getMCPTools(): IToolHandler[] {
+        return Array.from(this.handlers.values()).filter(h => h.name.startsWith('mcp_'));
+    }
 }
 

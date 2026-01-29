@@ -2,16 +2,16 @@
  * Tool Parser
  * LLM 응답에서 도구 호출을 파싱하는 클래스
  *
- * v8.9.7: 새로운 CODE 블록 형식 전용
- *   - JSON + <<<<<<<CODE / >>>>>>>END 형식
+ * v9.2.0: XML 스타일 file_content 태그 형식
+ *   - JSON + <file_content> / </file_content> 형식
+ *   - Git merge conflict 마커 혼동 방지
  *   - 스트리밍 지원 및 코드 내 ``` 충돌 방지
- *   - function_call/function_calls 형식 제거
  *
  * 지원 형식:
  *    { "tool": "create_file", "path": "..." }
- *    <<<<<<<CODE
+ *    <file_content>
  *    코드 내용
- *    >>>>>>>END
+ *    </file_content>
  *
  *    { "tool": "read_file", "path": "src/file.ts" }
  */
@@ -19,18 +19,18 @@
 import { ToolUse, Tool } from './types';
 
 export class ToolParser {
-    // CODE 블록 마커 상수
-    private static readonly CODE_START_MARKER = '<<<<<<<CODE';
-    private static readonly CODE_END_MARKER = '>>>>>>>END';
+    // CODE 블록 마커 상수 (XML 스타일)
+    private static readonly CODE_START_MARKER = '<file_content>';
+    private static readonly CODE_END_MARKER = '</file_content>';
 
     /**
-     * LLM 응답에서 새로운 CODE 블록 형식 파싱
+     * LLM 응답에서 XML 스타일 file_content 태그 형식 파싱
      *
      * 형식:
      * { "tool": "create_file", "path": "src/example.py", "lang": "python" }
-     * <<<<<<<CODE
+     * <file_content>
      * 코드 내용
-     * >>>>>>>END
+     * </file_content>
      *
      * 또는 코드가 필요 없는 도구:
      * { "tool": "read_file", "path": "src/file.ts" }
@@ -39,7 +39,7 @@ export class ToolParser {
         const toolCalls: ToolUse[] = [];
 
         // JSON + CODE 블록 패턴 찾기
-        // { "tool": "..." ... }로 시작하고, 선택적으로 <<<<<<<CODE ... >>>>>>>END가 따라옴
+        // { "tool": "..." ... }로 시작하고, 선택적으로 <file_content> ... </file_content>가 따라옴
         const toolJsonPattern = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*\}/g;
         let match;
 
@@ -78,8 +78,26 @@ export class ToolParser {
                 const params: Record<string, string> = {};
 
                 // path 파라미터 처리
+                // 🔥 v9.2.3: paths (복수) 지원 - 쉼표로 구분된 여러 파일을 여러 read_file 호출로 변환
                 if (parsed.path) {
                     params.path = String(parsed.path);
+                } else if (parsed.paths && toolName === Tool.READ_FILE) {
+                    // paths가 있고 read_file인 경우, 첫 번째 파일만 현재 호출에 사용
+                    // 나머지는 별도 ToolUse로 추가됨 (아래 처리)
+                    const pathsStr = String(parsed.paths);
+                    const pathList = pathsStr.split(',').map(p => p.trim()).filter(p => p.length > 0);
+                    if (pathList.length > 0) {
+                        params.path = pathList[0];
+                        // 추가 파일들은 별도 ToolUse로 생성
+                        for (let i = 1; i < pathList.length; i++) {
+                            toolCalls.push({
+                                name: Tool.READ_FILE,
+                                params: { path: pathList[i] },
+                                partial: false
+                            });
+                        }
+                        console.log(`[ToolParser] read_file paths expanded: ${pathList.length} files`);
+                    }
                 }
 
                 // content/code 파라미터 처리
@@ -202,13 +220,23 @@ export class ToolParser {
 
         // git_diff, read_active_file은 파라미터 없어도 됨
 
+        // MCP 도구는 별도 검증 없이 통과 (MCP 서버에서 검증)
+        if (toolName.startsWith('mcp_')) {
+            return { valid: true };
+        }
+
         return { valid: true };
     }
 
     /**
      * 도구 이름이 유효한지 확인
+     * MCP 도구 (mcp_ prefix)도 유효한 것으로 처리
      */
     private static isValidToolName(name: string): boolean {
+        // MCP 도구는 mcp_ prefix로 시작
+        if (name.startsWith('mcp_')) {
+            return true;
+        }
         return Object.values(Tool).includes(name as Tool);
     }
 

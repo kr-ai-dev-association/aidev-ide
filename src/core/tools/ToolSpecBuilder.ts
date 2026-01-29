@@ -9,6 +9,8 @@
 
 import { ToolSpec, Tool } from './types';
 import { buildToolPromptSection } from '../managers/context/prompts/tools';
+import { ToolRegistry } from './ToolRegistry';
+import { MCPToolHandler } from './mcp/MCPToolHandler';
 
 /**
  * JSON Schema 형식의 Function Declaration (Gemini/OpenAI 호환)
@@ -213,7 +215,30 @@ export class ToolSpecBuilder {
             });
         }
 
+        // MCP 도구 추가
+        const mcpSpecs = this.buildMCPToolSpecs();
+        specs.push(...mcpSpecs);
+
         return specs;
+    }
+
+    /**
+     * MCP 도구 스펙 생성
+     */
+    static buildMCPToolSpecs(): ToolSpec[] {
+        const registry = ToolRegistry.getInstance();
+        const mcpHandlers = registry.getMCPTools();
+
+        return mcpHandlers
+            .filter((h): h is MCPToolHandler => h instanceof MCPToolHandler)
+            .map(handler => {
+                const spec = handler.toToolSpec();
+                return {
+                    name: spec.name as Tool,
+                    description: spec.description,
+                    parameters: spec.parameters
+                };
+            });
     }
 
     /**

@@ -35,6 +35,7 @@ export enum ProjectType {
     VUE = 'vue',
     ANGULAR = 'angular',
     NODE = 'node',
+    ANDROID = 'android',          // Android (Gradle 기반)
     SPRING_BOOT = 'spring-boot',
     JAVA = 'java',
     PYTHON = 'python',
