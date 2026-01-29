@@ -100,6 +100,21 @@ export function openSettingsPanel(
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
+            // 채팅 테마 설정 로드
+            const config = vscode.workspace.getConfiguration('codepilot');
+            const chatTheme = config.get<string>('chatTheme') || 'dark';
+
+            // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
+            const compactorModelType = await stateManager.getCompactorModelType();
+            const compactorModelName = await stateManager.getCompactorModelName();
+            const compactorApiKeySet = await stateManager.hasCompactorApiKey();
+            const commandModelType = await stateManager.getCommandModelType();
+            const commandModelName = await stateManager.getCommandModelName();
+            const commandApiKeySet = await stateManager.hasCommandApiKey();
+            const intentModelType = await stateManager.getIntentModelType();
+            const intentModelName = await stateManager.getIntentModelName();
+            const intentApiKeySet = await stateManager.hasIntentApiKey();
+
             // duplicate removed
             const messageToSend = {
               command: "currentSettings",
@@ -126,8 +141,26 @@ export function openSettingsPanel(
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
+              // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
+              compactorModelType: compactorModelType || "",
+              compactorModelName: compactorModelName || "",
+              compactorApiKeySet: compactorApiKeySet,
+              commandModelType: commandModelType || "",
+              commandModelName: commandModelName || "",
+              commandApiKeySet: commandApiKeySet,
+              intentModelType: intentModelType || "",
+              intentModelName: intentModelName || "",
+              intentApiKeySet: intentApiKeySet,
+              chatTheme: chatTheme,
             };
-            // console.log('Sending currentApiKeys message:', messageToSend);
+            console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
+              compactorModelType,
+              compactorModelName,
+              commandModelType,
+              commandModelName,
+              intentModelType,
+              intentModelName,
+            });
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error getting current settings:", error);
@@ -186,6 +219,33 @@ export function openSettingsPanel(
           }
           break;
         }
+        case "getRoutingOllamaModels": {
+          // 라우팅 모델용 Ollama 모델 목록 요청
+          try {
+            const apiUrl =
+              (await stateManager.getOllamaApiUrl()) ||
+              "http://localhost:11434";
+            const models = await ModelConnectionService.getOllamaModels(apiUrl);
+
+            console.log('[PanelManager] Routing Ollama models retrieved:', models?.length || 0);
+            safePostMessage(panel, {
+              command: "routingOllamaModels",
+              models,
+              apiUrl: apiUrl,
+            });
+          } catch (e: any) {
+            console.error(
+              "[PanelManager] Failed to get routing Ollama models:",
+              e?.message || String(e),
+            );
+            safePostMessage(panel, {
+              command: "routingOllamaModels",
+              models: [],
+              error: e?.message || String(e),
+            });
+          }
+          break;
+        }
         case "saveApiKey": // Gemini API 키 저장 케이스 추가
           const apiKeyToSave = data.apiKey;
           if (apiKeyToSave && typeof apiKeyToSave === "string") {
@@ -222,6 +282,230 @@ export function openSettingsPanel(
               error: "Invalid API key",
             });
             notificationService.showErrorMessage("Invalid API key provided.");
+          }
+          break;
+        case "saveCompactorModel": // Compactor 모델 저장
+          try {
+            const compactorType = data.modelType;
+            const compactorModelName = data.modelName;
+            if (compactorType) {
+              // 모델 타입과 모델명 저장
+              await stateManager.saveCompactorModelType(compactorType);
+              if (compactorModelName) {
+                await stateManager.saveCompactorModelName(compactorModelName);
+              }
+              safePostMessage(panel, { command: "compactorModelSaved" });
+              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[compactorType as string] || compactorType;
+              const modelInfo = compactorModelName ? ` (${compactorModelName})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Compactor 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "compactorModelSaveError",
+                error: "모델 타입을 선택해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "compactorModelSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Compactor 모델 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "saveCompactorApiKey": // Compactor API 키 저장
+          try {
+            const compactorApiKey = data.apiKey;
+            const compactorApiType = data.modelType;
+            if (compactorApiKey) {
+              await stateManager.saveCompactorApiKey(compactorApiKey);
+              safePostMessage(panel, { command: "compactorApiKeySaved" });
+              const typeLabel = { gemini: "Gemini", banya: "Banya" }[compactorApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Compactor ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "compactorApiKeySaveError",
+                error: "API 키를 입력해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "compactorApiKeySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Compactor API 키 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "clearCompactorModel": // Compactor 모델 초기화
+          try {
+            await stateManager.deleteCompactorModelType();
+            await stateManager.deleteCompactorModelName();
+            await stateManager.deleteCompactorApiKey();
+            safePostMessage(panel, { command: "compactorModelCleared" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Compactor 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "compactorModelClearError",
+              error: error.message,
+            });
+          }
+          break;
+        case "saveCommandModel": // Command 모델 저장
+          try {
+            const commandType = data.modelType;
+            const commandModelName = data.modelName;
+            if (commandType) {
+              // 모델 타입과 모델명 저장
+              await stateManager.saveCommandModelType(commandType);
+              if (commandModelName) {
+                await stateManager.saveCommandModelName(commandModelName);
+              }
+              safePostMessage(panel, { command: "commandModelSaved" });
+              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[commandType as string] || commandType;
+              const modelInfo = commandModelName ? ` (${commandModelName})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Command 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "commandModelSaveError",
+                error: "모델 타입을 선택해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "commandModelSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Command 모델 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "saveCommandApiKey": // Command API 키 저장
+          try {
+            const commandApiKey = data.apiKey;
+            const commandApiType = data.modelType;
+            if (commandApiKey) {
+              await stateManager.saveCommandApiKey(commandApiKey);
+              safePostMessage(panel, { command: "commandApiKeySaved" });
+              const typeLabel = { gemini: "Gemini", banya: "Banya" }[commandApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Command ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "commandApiKeySaveError",
+                error: "API 키를 입력해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "commandApiKeySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Command API 키 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "clearCommandModel": // Command 모델 초기화
+          try {
+            await stateManager.deleteCommandModelType();
+            await stateManager.deleteCommandModelName();
+            await stateManager.deleteCommandApiKey();
+            safePostMessage(panel, { command: "commandModelCleared" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Command 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "commandModelClearError",
+              error: error.message,
+            });
+          }
+          break;
+        case "saveIntentModel": // Intent 모델 저장
+          try {
+            const intentType = data.modelType;
+            const intentModelName = data.modelName;
+            if (intentType) {
+              await stateManager.saveIntentModelType(intentType);
+              if (intentModelName) {
+                await stateManager.saveIntentModelName(intentModelName);
+              }
+              safePostMessage(panel, { command: "intentModelSaved" });
+              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[intentType as string] || intentType;
+              const modelInfo = intentModelName ? ` (${intentModelName})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Intent 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "intentModelSaveError",
+                error: "모델 타입을 선택해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "intentModelSaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Intent 모델 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "saveIntentApiKey": // Intent API 키 저장
+          try {
+            const intentApiKey = data.apiKey;
+            const intentApiType = data.modelType;
+            if (intentApiKey) {
+              await stateManager.saveIntentApiKey(intentApiKey);
+              safePostMessage(panel, { command: "intentApiKeySaved" });
+              const typeLabel = { gemini: "Gemini", banya: "Banya" }[intentApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: Intent ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, {
+                command: "intentApiKeySaveError",
+                error: "API 키를 입력해주세요.",
+              });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "intentApiKeySaveError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Intent API 키 저장 오류: ${error.message}`,
+            );
+          }
+          break;
+        case "clearIntentModel": // Intent 모델 초기화
+          try {
+            await stateManager.deleteIntentModelType();
+            await stateManager.deleteIntentModelName();
+            await stateManager.deleteIntentApiKey();
+            safePostMessage(panel, { command: "intentModelCleared" });
+            notificationService.showInfoMessage(
+              "CODEPILOT: Intent 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "intentModelClearError",
+              error: error.message,
+            });
           }
           break;
         case "saveGeminiModel": // Gemini 모델 저장 케이스 추가
@@ -1981,6 +2265,265 @@ export function openSettingsPanel(
             notificationService.showErrorMessage(`Error deleting DB Policy Markdown: ${error.message}`);
           }
           break;
+        case "saveChatTheme": // 채팅 테마 저장
+          try {
+            const theme = data.theme;
+            if (theme && ['dark', 'light', 'auto'].includes(theme)) {
+              const config = vscode.workspace.getConfiguration('codepilot');
+              await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
+              console.log(`[SettingsPanel] Chat theme saved: ${theme}`);
+              safePostMessage(panel, {
+                command: 'chatThemeSaved',
+                theme: theme
+              });
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to save chat theme:', error);
+            safePostMessage(panel, {
+              command: 'chatThemeSaveError',
+              error: error.message
+            });
+          }
+          break;
+        case "getChatTheme": // 채팅 테마 로드
+          try {
+            const config = vscode.workspace.getConfiguration('codepilot');
+            const theme = config.get<string>('chatTheme') || 'dark';
+            safePostMessage(panel, {
+              command: 'chatTheme',
+              theme: theme
+            });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to get chat theme:', error);
+            safePostMessage(panel, {
+              command: 'chatTheme',
+              theme: 'dark'
+            });
+          }
+          break;
+
+        // ===== 새로운 다중 파일 Agent Policy API =====
+        case "addAgentPolicyFile": // 카테고리에 파일 추가
+          try {
+            const { category, fileName, content } = data;
+            if (!category || !fileName || !content) {
+              throw new Error("카테고리, 파일명, 내용이 필요합니다.");
+            }
+
+            // 카테고리 검증
+            const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+            if (!validCategories.includes(category)) {
+              throw new Error(`유효하지 않은 카테고리: ${category}`);
+            }
+
+            // 워크스페이스 루트 가져오기
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+              throw new Error("워크스페이스가 열려있지 않습니다.");
+            }
+
+            // ./.agent/rules/{category} 디렉토리 생성
+            const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+            const categoryDirUri = vscode.Uri.file(categoryDir);
+            await vscode.workspace.fs.createDirectory(categoryDirUri);
+
+            // 파일명 정리 (확장자 추가)
+            let safeFileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
+            if (!safeFileName.endsWith('.md') && !safeFileName.endsWith('.markdown')) {
+              safeFileName += '.md';
+            }
+
+            // 파일 저장
+            const filePath = path.join(categoryDir, safeFileName);
+            const fileUri = vscode.Uri.file(filePath);
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, "utf8"));
+
+            safePostMessage(panel, {
+              command: "agentPolicyFileAdded",
+              category,
+              fileName: safeFileName
+            });
+            notificationService.showInfoMessage(
+              `CODEPILOT: ${safeFileName} saved to .agent/rules/${category}/`,
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyFileAddError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error adding Agent Policy file: ${error.message}`,
+            );
+          }
+          break;
+
+        case "deleteAgentPolicyFile": // 카테고리에서 특정 파일 삭제
+          try {
+            const { category, fileName } = data;
+            if (!category || !fileName) {
+              throw new Error("카테고리와 파일명이 필요합니다.");
+            }
+
+            // 워크스페이스 루트 가져오기
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+              throw new Error("워크스페이스가 열려있지 않습니다.");
+            }
+
+            // 파일 삭제
+            const filePath = path.join(workspaceRoot, ".agent", "rules", category, fileName);
+            const fileUri = vscode.Uri.file(filePath);
+
+            try {
+              await vscode.workspace.fs.delete(fileUri);
+            } catch (e: any) {
+              if (e.code !== "FileNotFound") throw e;
+            }
+
+            safePostMessage(panel, {
+              command: "agentPolicyFileDeleted",
+              category,
+              fileName
+            });
+            notificationService.showInfoMessage(
+              `CODEPILOT: ${fileName} deleted from .agent/rules/${category}/`,
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyFileDeleteError",
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error deleting Agent Policy file: ${error.message}`,
+            );
+          }
+          break;
+
+        case "listAgentPolicyFiles": // 카테고리의 파일 목록 조회
+          try {
+            const { category } = data;
+            if (!category) {
+              throw new Error("카테고리가 필요합니다.");
+            }
+
+            // 워크스페이스 루트 가져오기
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+              safePostMessage(panel, {
+                command: "agentPolicyFilesList",
+                category,
+                files: []
+              });
+              break;
+            }
+
+            const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+            const files: string[] = [];
+
+            // 디렉토리가 존재하면 파일 목록 조회
+            try {
+              const categoryDirUri = vscode.Uri.file(categoryDir);
+              const entries = await vscode.workspace.fs.readDirectory(categoryDirUri);
+
+              for (const [name, type] of entries) {
+                if (type === vscode.FileType.File && (name.endsWith('.md') || name.endsWith('.markdown'))) {
+                  files.push(name);
+                }
+              }
+            } catch (e: any) {
+              // 디렉토리가 없으면 레거시 단일 파일 확인
+              if (e.code === 'FileNotFound' || e.code === 'ENOENT') {
+                const legacyFileMap: Record<string, string> = {
+                  'stable-version': 'stable-version.md',
+                  'coding-style': 'coding-style.md',
+                  'project-architecture': 'project-architecture.md',
+                  'dependency-policy': 'dependency-policy.md',
+                  'db-policy': 'db-policy.md'
+                };
+                const legacyFile = legacyFileMap[category];
+                if (legacyFile) {
+                  const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
+                  try {
+                    await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
+                    files.push(legacyFile + ' (레거시)');
+                  } catch {
+                    // 레거시 파일도 없음
+                  }
+                }
+              }
+            }
+
+            safePostMessage(panel, {
+              command: "agentPolicyFilesList",
+              category,
+              files: files.sort()
+            });
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyFilesListError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "listAllAgentPolicyFiles": // 모든 카테고리의 파일 목록 조회
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+            const result: Record<string, string[]> = {};
+
+            for (const category of categories) {
+              result[category] = [];
+
+              if (!workspaceRoot) continue;
+
+              const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+
+              try {
+                const categoryDirUri = vscode.Uri.file(categoryDir);
+                const entries = await vscode.workspace.fs.readDirectory(categoryDirUri);
+
+                for (const [name, type] of entries) {
+                  if (type === vscode.FileType.File && (name.endsWith('.md') || name.endsWith('.markdown'))) {
+                    result[category].push(name);
+                  }
+                }
+              } catch (e: any) {
+                // 디렉토리가 없으면 레거시 파일 확인
+                const legacyFileMap: Record<string, string> = {
+                  'stable-version': 'stable-version.md',
+                  'coding-style': 'coding-style.md',
+                  'project-architecture': 'project-architecture.md',
+                  'dependency-policy': 'dependency-policy.md',
+                  'db-policy': 'db-policy.md'
+                };
+                const legacyFile = legacyFileMap[category];
+                if (legacyFile) {
+                  const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
+                  try {
+                    await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
+                    result[category].push(legacyFile + ' (레거시)');
+                  } catch {
+                    // 레거시 파일도 없음
+                  }
+                }
+              }
+
+              result[category].sort();
+            }
+
+            safePostMessage(panel, {
+              command: "allAgentPolicyFilesList",
+              files: result
+            });
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "allAgentPolicyFilesListError",
+              error: error.message,
+            });
+          }
+          break;
+
         default:
           console.log("Unknown command:", data.command);
       }

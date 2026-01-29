@@ -30,6 +30,8 @@ export interface PromptComposerOptions {
 export class PromptComposer {
     /**
      * .agent/rules 디렉토리의 개발 규칙 파일들을 읽어서 반환합니다.
+     * 각 카테고리는 디렉토리로 구성되며, 디렉토리 내 모든 .md 파일을 읽습니다.
+     * 기존 단일 파일 형식(stable-version.md)도 하위 호환성을 위해 지원합니다.
      */
     private static loadAgentRules(): string {
         try {
@@ -46,33 +48,63 @@ export class PromptComposer {
                 return '';
             }
 
-            const ruleFiles = [
-                { name: 'stable-version.md', title: '버전 관리 규칙' },
-                { name: 'coding-style.md', title: '코딩 스타일 규칙' },
-                { name: 'project-architecture.md', title: '프로젝트 아키텍처 규칙' },
-                { name: 'dependency-policy.md', title: '의존성 정책 규칙' },
-                { name: 'db-policy.md', title: '데이터베이스 정책 규칙' }
+            const ruleCategories = [
+                { dir: 'stable-version', legacyFile: 'stable-version.md', title: '버전 관리 규칙' },
+                { dir: 'coding-style', legacyFile: 'coding-style.md', title: '코딩 스타일 규칙' },
+                { dir: 'project-architecture', legacyFile: 'project-architecture.md', title: '프로젝트 아키텍처 규칙' },
+                { dir: 'dependency-policy', legacyFile: 'dependency-policy.md', title: '의존성 정책 규칙' },
+                { dir: 'db-policy', legacyFile: 'db-policy.md', title: '데이터베이스 정책 규칙' }
             ];
 
             const rules: string[] = [];
 
-            // 각 규칙 파일이 존재하는지 확인하고, 존재하는 파일만 읽어서 추가
-            // 파일이 일부만 있어도 문제없이 동작 (예: coding-style.md만 있어도 OK)
-            for (const ruleFile of ruleFiles) {
-                const filePath = path.join(agentRulesDir, ruleFile.name);
-                if (fs.existsSync(filePath)) {
+            for (const category of ruleCategories) {
+                const categoryRules: string[] = [];
+
+                // 1. 새 구조: 디렉토리 내 모든 .md 파일 읽기
+                const categoryDir = path.join(agentRulesDir, category.dir);
+                if (fs.existsSync(categoryDir) && fs.statSync(categoryDir).isDirectory()) {
                     try {
-                        const content = fs.readFileSync(filePath, 'utf8').trim();
-                        // 파일이 존재하고 내용이 있을 때만 추가
-                        if (content) {
-                            rules.push(`**${ruleFile.title} (강제 규칙):**
-${content}`);
+                        const files = fs.readdirSync(categoryDir)
+                            .filter(f => f.endsWith('.md') || f.endsWith('.markdown'))
+                            .sort(); // 알파벳 순서로 정렬
+
+                        for (const file of files) {
+                            const filePath = path.join(categoryDir, file);
+                            try {
+                                const content = fs.readFileSync(filePath, 'utf8').trim();
+                                if (content) {
+                                    categoryRules.push(`[${file}]\n${content}`);
+                                }
+                            } catch (error) {
+                                console.warn(`[PromptComposer] Failed to read ${filePath}:`, error);
+                            }
                         }
                     } catch (error) {
-                        console.warn(`[PromptComposer] Failed to read ${ruleFile.name}:`, error);
+                        console.warn(`[PromptComposer] Failed to read directory ${categoryDir}:`, error);
                     }
                 }
-                // 파일이 존재하지 않으면 그냥 건너뜀 (에러 없음)
+
+                // 2. 레거시 구조: 단일 파일 (하위 호환성)
+                // 디렉토리가 없거나 비어있을 때만 레거시 파일 확인
+                if (categoryRules.length === 0) {
+                    const legacyFilePath = path.join(agentRulesDir, category.legacyFile);
+                    if (fs.existsSync(legacyFilePath) && fs.statSync(legacyFilePath).isFile()) {
+                        try {
+                            const content = fs.readFileSync(legacyFilePath, 'utf8').trim();
+                            if (content) {
+                                categoryRules.push(content);
+                            }
+                        } catch (error) {
+                            console.warn(`[PromptComposer] Failed to read ${category.legacyFile}:`, error);
+                        }
+                    }
+                }
+
+                // 카테고리에 규칙이 있으면 추가
+                if (categoryRules.length > 0) {
+                    rules.push(`**${category.title} (강제 규칙):**\n${categoryRules.join('\n\n')}`);
+                }
             }
 
             // 규칙이 하나도 없으면 빈 문자열 반환 (프롬프트에 포함하지 않음)
