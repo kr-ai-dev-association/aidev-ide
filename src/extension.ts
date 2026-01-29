@@ -60,6 +60,7 @@ import { RunCommandToolHandler } from "./core/tools/terminal";
 import { GitDiffToolHandler } from "./core/tools/git";
 import { ReadActiveFileToolHandler } from "./core/tools/ide";
 import { FetchUrlToolHandler } from "./core/tools/web";
+import { HotLoadManager } from "./core/managers/hotload";
 
 // 전역 변수
 let geminiApi: GeminiApi;
@@ -317,6 +318,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // State/Session Manager 초기화 (Extension Context 필요)
   // stateManager와 settingsManager는 이미 위에서 초기화됨
   const sessionManager = SessionManager.getInstance(context);
+
+  // HotLoadManager 초기화 (Hot Load 기능 사용을 위해)
+  HotLoadManager.getInstance(context);
 
   // Project Manager는 이미 위에서 초기화됨
   if (workspacePath) {
