@@ -2266,6 +2266,196 @@ export function openSettingsPanel(
             notificationService.showErrorMessage(`Error deleting DB Policy Markdown: ${error.message}`);
           }
           break;
+        // ===== AgentPolicy 다중 파일 관리 =====
+        case "addAgentPolicyFile": // 카테고리에 파일 추가
+          try {
+            const { category, fileName, content } = data;
+            if (!category || !fileName || !content) {
+              throw new Error("카테고리, 파일명, 내용이 필요합니다.");
+            }
+
+            // 카테고리 검증
+            const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+            if (!validCategories.includes(category)) {
+              throw new Error(`유효하지 않은 카테고리: ${category}`);
+            }
+
+            // 워크스페이스 루트 가져오기
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+              throw new Error("워크스페이스가 열려있지 않습니다.");
+            }
+
+            // ./.agent/rules/{category} 디렉토리 생성
+            const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+            const categoryDirUri = vscode.Uri.file(categoryDir);
+            await vscode.workspace.fs.createDirectory(categoryDirUri);
+
+            // 파일명 정리 (확장자 추가)
+            let safeFileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
+            if (!safeFileName.endsWith('.md') && !safeFileName.endsWith('.markdown')) {
+              safeFileName += '.md';
+            }
+
+            // 파일 저장
+            const filePath = path.join(categoryDir, safeFileName);
+            const fileUri = vscode.Uri.file(filePath);
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, "utf8"));
+
+            safePostMessage(panel, {
+              command: "agentPolicyFileAdded",
+              category,
+              fileName: safeFileName
+            });
+            notificationService.showInfoMessage(
+              `CODEPILOT: ${safeFileName} saved to .agent/rules/${category}/`,
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyFileAddError",
+              category: data.category,
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error adding Agent Policy file: ${error.message}`,
+            );
+          }
+          break;
+
+        case "deleteAgentPolicyFile": // 카테고리에서 특정 파일 삭제
+          try {
+            const { category, fileName, isLegacy } = data;
+            console.log(`[SettingsPanel] deleteAgentPolicyFile received - category: ${category}, fileName: ${fileName}, isLegacy: ${isLegacy}`);
+
+            if (!category || !fileName) {
+              throw new Error("카테고리와 파일명이 필요합니다.");
+            }
+
+            // 워크스페이스 루트 가져오기
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+              throw new Error("워크스페이스가 열려있지 않습니다.");
+            }
+
+            // 파일명에 확장자가 없으면 .md 추가
+            let targetFileName = fileName;
+            if (!targetFileName.endsWith('.md') && !targetFileName.endsWith('.markdown')) {
+              targetFileName += '.md';
+            }
+
+            let deleted = false;
+
+            if (isLegacy) {
+              // 레거시 파일: .agent/rules/{fileName}
+              const legacyPath = path.join(workspaceRoot, ".agent", "rules", targetFileName);
+              console.log(`[SettingsPanel] Trying legacy path: ${legacyPath}`);
+              try {
+                const legacyUri = vscode.Uri.file(legacyPath);
+                await vscode.workspace.fs.stat(legacyUri);
+                await vscode.workspace.fs.delete(legacyUri);
+                deleted = true;
+                console.log(`[SettingsPanel] Deleted legacy file: ${legacyPath}`);
+              } catch (e: any) {
+                console.warn(`[SettingsPanel] Legacy file not found: ${legacyPath}`, e.message);
+              }
+            } else {
+              // 새 구조 파일: .agent/rules/{category}/{fileName}
+              const newStructurePath = path.join(workspaceRoot, ".agent", "rules", category, targetFileName);
+              console.log(`[SettingsPanel] Trying new structure path: ${newStructurePath}`);
+              try {
+                const newUri = vscode.Uri.file(newStructurePath);
+                await vscode.workspace.fs.stat(newUri);
+                await vscode.workspace.fs.delete(newUri);
+                deleted = true;
+                console.log(`[SettingsPanel] Deleted file from new structure: ${newStructurePath}`);
+              } catch (e: any) {
+                console.warn(`[SettingsPanel] New structure file not found: ${newStructurePath}`, e.message);
+              }
+            }
+
+            if (!deleted) {
+              throw new Error(`파일을 찾을 수 없습니다: ${targetFileName}`);
+            }
+
+            safePostMessage(panel, {
+              command: "agentPolicyFileDeleted",
+              category,
+              fileName: targetFileName
+            });
+            notificationService.showInfoMessage(
+              `CODEPILOT: ${targetFileName} deleted`,
+            );
+          } catch (error: any) {
+            console.error(`[SettingsPanel] deleteAgentPolicyFile error:`, error);
+            safePostMessage(panel, {
+              command: "agentPolicyFileDeleteError",
+              category: data.category,
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error deleting Agent Policy file: ${error.message}`,
+            );
+          }
+          break;
+
+        case "listAllAgentPolicyFiles": // 모든 카테고리의 파일 목록 조회
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+            const allFiles: Record<string, string[]> = {};
+
+            for (const category of categories) {
+              allFiles[category] = [];
+
+              if (!workspaceRoot) continue;
+
+              const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+
+              // 디렉토리가 존재하면 파일 목록 조회
+              try {
+                const categoryDirUri = vscode.Uri.file(categoryDir);
+                const entries = await vscode.workspace.fs.readDirectory(categoryDirUri);
+
+                for (const [name, type] of entries) {
+                  if (type === vscode.FileType.File && (name.endsWith('.md') || name.endsWith('.markdown'))) {
+                    allFiles[category].push(name);
+                  }
+                }
+              } catch (e: any) {
+                // 디렉토리가 없으면 레거시 단일 파일 확인
+                if (e.code === 'FileNotFound' || e.code === 'ENOENT') {
+                  const legacyFileMap: Record<string, string> = {
+                    'stable-version': 'stable-version.md',
+                    'coding-style': 'coding-style.md',
+                    'project-architecture': 'project-architecture.md',
+                    'dependency-policy': 'dependency-policy.md',
+                    'db-policy': 'db-policy.md'
+                  };
+                  const legacyFile = legacyFileMap[category];
+                  if (legacyFile) {
+                    const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
+                    try {
+                      await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
+                      allFiles[category].push(legacyFile + ' (레거시)');
+                    } catch {
+                      // 레거시 파일도 없음
+                    }
+                  }
+                }
+              }
+            }
+
+            safePostMessage(panel, {
+              command: "allAgentPolicyFilesList",
+              files: allFiles
+            });
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "allAgentPolicyFilesListError",
+              error: error.message
+            });
+          }
+          break;
         case "saveChatTheme": // 채팅 테마 저장
           try {
             const theme = data.theme;

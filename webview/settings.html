@@ -617,6 +617,64 @@
         background-color: var(--vscode-disabledForeground);
       }
 
+      /* 파일 목록 스타일 (다중 파일 지원) */
+      .policy-file-list {
+        margin-top: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 3px;
+        background-color: var(--vscode-editor-background);
+      }
+      .policy-file-list:empty {
+        display: none;
+      }
+      .policy-file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+      .policy-file-item:last-child {
+        border-bottom: none;
+      }
+      .policy-file-item .file-name {
+        flex: 1;
+        font-size: 0.9em;
+        color: var(--vscode-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .policy-file-item .file-name.legacy {
+        color: var(--vscode-descriptionForeground);
+        font-style: italic;
+      }
+      .policy-file-item .delete-file-btn {
+        padding: 4px 8px;
+        background-color: var(--vscode-button-secondaryBackground, #5a5a5a);
+        color: var(--vscode-button-secondaryForeground, #fff);
+        border: none;
+        cursor: pointer;
+        border-radius: 3px;
+        font-size: 0.8em;
+        margin-left: 8px;
+      }
+      .policy-file-item .delete-file-btn:hover {
+        background-color: var(--vscode-inputValidation-errorBackground, #be1100);
+      }
+      body[data-theme="light"] .policy-file-list {
+        background-color: #ffffff !important;
+        border-color: #e5e7eb !important;
+      }
+      body[data-theme="light"] .policy-file-item {
+        border-color: #e5e7eb !important;
+      }
+      body[data-theme="light"] .policy-file-item .file-name {
+        color: #374151 !important;
+      }
+
       /* 버전 정보 푸터 스타일 */
       .version-footer {
         margin-top: 40px;
@@ -1319,26 +1377,21 @@
         <h3>버전 관리 규칙</h3>
         <p class="info-message">
           프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
         </p>
         <div class="api-key-input-group">
           <input
             type="file"
             id="agent-policy-stable-version-input"
             accept=".md,.markdown,text/markdown"
+            multiple
             style="display: none"
           />
           <button id="select-stable-version-button" type="button">
-            파일 선택
+            파일 추가
           </button>
           <button id="upload-stable-version-button" type="button" disabled>
             저장
-          </button>
-          <button
-            id="delete-stable-version-button"
-            type="button"
-            style="display: none"
-          >
-            삭제
           </button>
         </div>
         <p id="stable-version-status" class="info-message"></p>
@@ -1347,6 +1400,7 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
+        <div id="stable-version-file-list" class="policy-file-list" data-category="stable-version"></div>
       </div>
 
       <!-- Coding Style Markdown -->
@@ -1354,26 +1408,21 @@
         <h3>코딩 스타일 규칙</h3>
         <p class="info-message">
           프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
         </p>
         <div class="api-key-input-group">
           <input
             type="file"
             id="agent-policy-coding-style-input"
             accept=".md,.markdown,text/markdown"
+            multiple
             style="display: none"
           />
           <button id="select-coding-style-button" type="button">
-            파일 선택
+            파일 추가
           </button>
           <button id="upload-coding-style-button" type="button" disabled>
             저장
-          </button>
-          <button
-            id="delete-coding-style-button"
-            type="button"
-            style="display: none"
-          >
-            삭제
           </button>
         </div>
         <p id="coding-style-status" class="info-message"></p>
@@ -1382,6 +1431,7 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
+        <div id="coding-style-file-list" class="policy-file-list" data-category="coding-style"></div>
       </div>
 
       <!-- Project Architecture Markdown -->
@@ -1389,17 +1439,18 @@
         <h3>프로젝트 아키텍처 규칙</h3>
         <p class="info-message">
           프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을
-          저장하세요.
+          저장하세요. 여러 파일을 추가할 수 있습니다.
         </p>
         <div class="api-key-input-group">
           <input
             type="file"
             id="agent-policy-project-architecture-input"
             accept=".md,.markdown,text/markdown"
+            multiple
             style="display: none"
           />
           <button id="select-project-architecture-button" type="button">
-            파일 선택
+            파일 추가
           </button>
           <button
             id="upload-project-architecture-button"
@@ -1408,13 +1459,6 @@
           >
             저장
           </button>
-          <button
-            id="delete-project-architecture-button"
-            type="button"
-            style="display: none"
-          >
-            삭제
-          </button>
         </div>
         <p id="project-architecture-status" class="info-message"></p>
         <p
@@ -1422,6 +1466,7 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
+        <div id="project-architecture-file-list" class="policy-file-list" data-category="project-architecture"></div>
       </div>
 
       <!-- Dependency Policy Markdown -->
@@ -1429,26 +1474,21 @@
         <h3>의존성 정책 규칙</h3>
         <p class="info-message">
           프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
         </p>
         <div class="api-key-input-group">
           <input
             type="file"
             id="agent-policy-dependency-policy-input"
             accept=".md,.markdown,text/markdown"
+            multiple
             style="display: none"
           />
           <button id="select-dependency-policy-button" type="button">
-            파일 선택
+            파일 추가
           </button>
           <button id="upload-dependency-policy-button" type="button" disabled>
             저장
-          </button>
-          <button
-            id="delete-dependency-policy-button"
-            type="button"
-            style="display: none"
-          >
-            삭제
           </button>
         </div>
         <p id="dependency-policy-status" class="info-message"></p>
@@ -1457,6 +1497,7 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
+        <div id="dependency-policy-file-list" class="policy-file-list" data-category="dependency-policy"></div>
       </div>
 
       <!-- DB Policy Markdown -->
@@ -1464,24 +1505,19 @@
         <h3>DB 규칙</h3>
         <p class="info-message">
           프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
         </p>
         <div class="api-key-input-group">
           <input
             type="file"
             id="agent-policy-db-policy-input"
             accept=".md,.markdown,text/markdown"
+            multiple
             style="display: none"
           />
-          <button id="select-db-policy-button" type="button">파일 선택</button>
+          <button id="select-db-policy-button" type="button">파일 추가</button>
           <button id="upload-db-policy-button" type="button" disabled>
             저장
-          </button>
-          <button
-            id="delete-db-policy-button"
-            type="button"
-            style="display: none"
-          >
-            삭제
           </button>
         </div>
         <p id="db-policy-status" class="info-message"></p>
@@ -1490,6 +1526,7 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
+        <div id="db-policy-file-list" class="policy-file-list" data-category="db-policy"></div>
       </div>
     </div>
 
