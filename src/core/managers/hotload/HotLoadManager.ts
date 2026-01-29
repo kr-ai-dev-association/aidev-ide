@@ -1,6 +1,6 @@
 /**
  * Hot Load Manager
- * sql.js를 사용한 SQLite DB 기반 Hot Load 관리
+ * JSON 파일 기반 Hot Load 관리
  *
  * Hot Load는 사용자가 정의한 키워드/설명과 자연어 입력을
  * LLM이 비교하여 매칭되면 미리 정의된 명령어를 자동 실행하는 기능
@@ -18,17 +18,22 @@ export interface HotLoadItem {
     createdAt: string;
 }
 
+interface HotLoadData {
+    nextId: number;
+    items: HotLoadItem[];
+}
+
 export class HotLoadManager {
     private static instance: HotLoadManager;
-    private db: any = null;
-    private dbPath: string;
+    private dataPath: string;
+    private data: HotLoadData = { nextId: 1, items: [] };
     private initialized: boolean = false;
     private context: vscode.ExtensionContext;
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
-        // globalStorageUri에 DB 저장 (확장 데이터 디렉토리)
-        this.dbPath = path.join(context.globalStorageUri.fsPath, 'hotload.db');
+        // globalStorageUri에 데이터 저장 (확장 데이터 디렉토리)
+        this.dataPath = path.join(context.globalStorageUri.fsPath, 'hotload.json');
     }
 
     public static getInstance(context?: vscode.ExtensionContext): HotLoadManager {
@@ -42,66 +47,46 @@ export class HotLoadManager {
     }
 
     /**
-     * DB 초기화
+     * 데이터 초기화 및 로드
      */
-    public async initialize(): Promise<void> {
+    private async initialize(): Promise<void> {
         if (this.initialized) return;
 
         try {
-            // sql.js 동적 import
-            const initSqlJs = (await import('sql.js')).default;
-
-            // sql.js 초기화
-            const SQL = await initSqlJs({
-                // WASM 파일 로드 (CDN 사용)
-                locateFile: (file: string) => `https://sql.js.org/dist/${file}`
-            });
-
             // 디렉토리 생성
-            const dbDir = path.dirname(this.dbPath);
-            if (!fs.existsSync(dbDir)) {
-                fs.mkdirSync(dbDir, { recursive: true });
+            const dataDir = path.dirname(this.dataPath);
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
             }
 
-            // 기존 DB 파일이 있으면 로드
-            if (fs.existsSync(this.dbPath)) {
-                const fileBuffer = fs.readFileSync(this.dbPath);
-                this.db = new SQL.Database(fileBuffer);
-            } else {
-                this.db = new SQL.Database();
+            // 기존 데이터 파일이 있으면 로드
+            if (fs.existsSync(this.dataPath)) {
+                const fileContent = fs.readFileSync(this.dataPath, 'utf-8');
+                this.data = JSON.parse(fileContent);
             }
 
-            // 테이블 생성
-            this.db.run(`
-                CREATE TABLE IF NOT EXISTS hot_loads (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    keywords TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    command TEXT NOT NULL,
-                    created_at TEXT DEFAULT (datetime('now'))
-                )
-            `);
-
-            this.saveDatabase();
             this.initialized = true;
-            console.log('[HotLoadManager] Database initialized at:', this.dbPath);
+            console.log('[HotLoadManager] Data initialized at:', this.dataPath);
         } catch (error) {
-            console.error('[HotLoadManager] Failed to initialize database:', error);
-            throw error;
+            console.error('[HotLoadManager] Failed to initialize:', error);
+            // 오류 시 빈 데이터로 초기화
+            this.data = { nextId: 1, items: [] };
+            this.initialized = true;
         }
     }
 
     /**
-     * DB를 파일에 저장
+     * 데이터를 파일에 저장
      */
-    private saveDatabase(): void {
-        if (!this.db) return;
+    private saveData(): void {
         try {
-            const data = this.db.export();
-            const buffer = Buffer.from(data);
-            fs.writeFileSync(this.dbPath, buffer);
+            const dataDir = path.dirname(this.dataPath);
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+            fs.writeFileSync(this.dataPath, JSON.stringify(this.data, null, 2), 'utf-8');
         } catch (error) {
-            console.error('[HotLoadManager] Failed to save database:', error);
+            console.error('[HotLoadManager] Failed to save data:', error);
         }
     }
 
@@ -110,18 +95,20 @@ export class HotLoadManager {
      */
     public async addHotLoad(keywords: string, description: string, command: string): Promise<number> {
         await this.initialize();
-        if (!this.db) throw new Error('Database not initialized');
 
-        this.db.run(
-            'INSERT INTO hot_loads (keywords, description, command) VALUES (?, ?, ?)',
-            [keywords, description, command]
-        );
-        this.saveDatabase();
+        const newItem: HotLoadItem = {
+            id: this.data.nextId++,
+            keywords,
+            description,
+            command,
+            createdAt: new Date().toISOString()
+        };
 
-        const result = this.db.exec('SELECT last_insert_rowid() as id');
-        const id = result[0]?.values[0]?.[0] as number || 0;
-        console.log('[HotLoadManager] Added Hot Load:', id);
-        return id;
+        this.data.items.push(newItem);
+        this.saveData();
+
+        console.log('[HotLoadManager] Added Hot Load:', newItem.id);
+        return newItem.id;
     }
 
     /**
@@ -129,13 +116,20 @@ export class HotLoadManager {
      */
     public async updateHotLoad(id: number, keywords: string, description: string, command: string): Promise<void> {
         await this.initialize();
-        if (!this.db) throw new Error('Database not initialized');
 
-        this.db.run(
-            'UPDATE hot_loads SET keywords = ?, description = ?, command = ? WHERE id = ?',
-            [keywords, description, command, id]
-        );
-        this.saveDatabase();
+        const index = this.data.items.findIndex(item => item.id === id);
+        if (index === -1) {
+            throw new Error(`Hot Load item with id ${id} not found`);
+        }
+
+        this.data.items[index] = {
+            ...this.data.items[index],
+            keywords,
+            description,
+            command
+        };
+
+        this.saveData();
         console.log('[HotLoadManager] Updated Hot Load:', id);
     }
 
@@ -144,11 +138,13 @@ export class HotLoadManager {
      */
     public async deleteHotLoad(id: number): Promise<void> {
         await this.initialize();
-        if (!this.db) throw new Error('Database not initialized');
 
-        this.db.run('DELETE FROM hot_loads WHERE id = ?', [id]);
-        this.saveDatabase();
-        console.log('[HotLoadManager] Deleted Hot Load:', id);
+        const index = this.data.items.findIndex(item => item.id === id);
+        if (index !== -1) {
+            this.data.items.splice(index, 1);
+            this.saveData();
+            console.log('[HotLoadManager] Deleted Hot Load:', id);
+        }
     }
 
     /**
@@ -156,23 +152,7 @@ export class HotLoadManager {
      */
     public async getHotLoad(id: number): Promise<HotLoadItem | null> {
         await this.initialize();
-        if (!this.db) throw new Error('Database not initialized');
-
-        const result = this.db.exec(
-            'SELECT id, keywords, description, command, created_at FROM hot_loads WHERE id = ?',
-            [id]
-        );
-
-        if (!result.length || !result[0].values.length) return null;
-
-        const row = result[0].values[0];
-        return {
-            id: row[0] as number,
-            keywords: row[1] as string,
-            description: row[2] as string,
-            command: row[3] as string,
-            createdAt: row[4] as string
-        };
+        return this.data.items.find(item => item.id === id) || null;
     }
 
     /**
@@ -180,18 +160,7 @@ export class HotLoadManager {
      */
     public async getAllHotLoads(): Promise<HotLoadItem[]> {
         await this.initialize();
-        if (!this.db) throw new Error('Database not initialized');
-
-        const result = this.db.exec('SELECT id, keywords, description, command, created_at FROM hot_loads ORDER BY id');
-        if (!result.length) return [];
-
-        return result[0].values.map((row: any[]) => ({
-            id: row[0] as number,
-            keywords: row[1] as string,
-            description: row[2] as string,
-            command: row[3] as string,
-            createdAt: row[4] as string
-        }));
+        return [...this.data.items];
     }
 
     /**
@@ -200,10 +169,11 @@ export class HotLoadManager {
      */
     public async getPromptSection(): Promise<string> {
         try {
-            const hotLoads = await this.getAllHotLoads();
-            if (hotLoads.length === 0) return '';
+            await this.initialize();
 
-            const itemsText = hotLoads.map((item, idx) =>
+            if (this.data.items.length === 0) return '';
+
+            const itemsText = this.data.items.map((item, idx) =>
                 `[${idx + 1}] 키워드: ${item.keywords}
    설명: ${item.description}
    명령어: ${item.command}`
@@ -233,10 +203,6 @@ ${itemsText}
      * 리소스 정리
      */
     public dispose(): void {
-        if (this.db) {
-            this.db.close();
-            this.db = null;
-        }
         this.initialized = false;
         console.log('[HotLoadManager] Disposed');
     }
