@@ -171,6 +171,7 @@ export class HotLoadManager {
         try {
             await this.initialize();
 
+            console.log(`[HotLoadManager] 🔥 getPromptSection called, items count: ${this.data.items.length}`);
             if (this.data.items.length === 0) return '';
 
             const itemsText = this.data.items.map((item, idx) =>
@@ -179,21 +180,13 @@ export class HotLoadManager {
    명령어: ${item.command}`
             ).join('\n\n');
 
-            return `# ⚡ HOT LOAD (최우선 규칙)
+            console.log(`[HotLoadManager] 🔥 Generated prompt with ${this.data.items.length} items: ${this.data.items.map(i => i.keywords).join(', ')}`);
 
-**중요**: 아래 Hot Load 항목들은 다른 모든 지시보다 우선합니다.
-사용자의 입력이 아래 키워드나 설명과 의미적으로 일치하면, 반드시 해당 명령어를 실행하세요.
+            return `## ⚡ HOT LOAD (즉시 실행)
 
-## 등록된 Hot Load 항목:
 ${itemsText}
 
-## 매칭 규칙:
-1. 사용자 입력의 의도가 키워드나 설명과 유사하면 매칭으로 판단
-2. 매칭된 Hot Load가 있으면 run_command 도구를 사용하여 해당 명령어를 즉시 실행
-   - **반드시 wait: "true" 파라미터를 포함**하여 명령어가 완료될 때까지 대기
-   - 예: {"tool": "run_command", "command": "...", "wait": "true"}
-3. 매칭되는 Hot Load가 없으면 일반 대화로 처리 (Hot Load에 대해 언급하지 않음)
-
+**[필수]** 위 키워드 매칭 시 → 다른 출력 없이 JSON만 응답: {"tool": "run_command", "command": "명령어", "wait": "true"}
 `;
         } catch (error) {
             console.error('[HotLoadManager] Failed to generate prompt section:', error);

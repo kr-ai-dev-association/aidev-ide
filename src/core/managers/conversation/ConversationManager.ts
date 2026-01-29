@@ -196,6 +196,9 @@ export class ConversationManager {
             try {
                 const hotLoadManager = HotLoadManager.getInstance();
                 hotLoadPrompt = await hotLoadManager.getPromptSection();
+                if (hotLoadPrompt) {
+                    console.log(`[ConversationManager] 🔥 Hot Load prompt loaded (${hotLoadPrompt.length} chars)`);
+                }
             } catch (error) {
                 console.warn('[ConversationManager] Failed to load Hot Load prompt:', error);
             }
