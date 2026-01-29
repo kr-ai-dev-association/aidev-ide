@@ -47,28 +47,23 @@ export class GitRepositoryService {
 
     /**
      * 저장된 Git 리포지토리 정보 조회
-     * 현재 워크스페이스의 Git 정보만 사용 (저장된 정보는 사용하지 않음)
      */
     async getRepositoryInfo(): Promise<GitRepositoryInfo | null> {
         try {
-            // 현재 워크스페이스의 Git 정보만 확인 (실시간)
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                console.log('[GitRepositoryService] 워크스페이스가 없습니다.');
-                return null;
+            // 글로벌 상태에서 조회
+            const gitInfo = this.context.globalState.get<GitRepositoryInfo>(GitRepositoryService.GIT_REPO_KEY);
+
+            if (gitInfo) {
+                return gitInfo;
             }
 
-            const currentWorkspaceGitInfo = await this.getGitRepositoryInfo(workspaceFolder.uri.fsPath);
-            if (currentWorkspaceGitInfo) {
-                // 현재 워크스페이스의 Git 정보가 있으면 저장하고 반환
-                await this.saveRepositoryInfo(currentWorkspaceGitInfo);
-                await this.context.globalState.update(GitRepositoryService.GIT_REPO_KEY, currentWorkspaceGitInfo);
-                console.log(`[GitRepositoryService] 현재 워크스페이스 Git 정보 사용: ${currentWorkspaceGitInfo.owner}/${currentWorkspaceGitInfo.repo}`);
-                return currentWorkspaceGitInfo;
+            // 워크스페이스 설정에서 조회
+            const workspaceGitInfo = vscode.workspace.getConfiguration('aidev').get<GitRepositoryInfo>('gitRepositoryInfo');
+
+            if (workspaceGitInfo) {
+                return workspaceGitInfo;
             }
 
-            // 현재 워크스페이스에 Git이 없으면 null 반환 (저장된 정보 사용하지 않음)
-            console.log('[GitRepositoryService] 현재 워크스페이스에 Git 리포지토리가 없습니다.');
             return null;
         } catch (error) {
             console.error('[GitRepositoryService] Git 리포지토리 정보 조회 실패:', error);

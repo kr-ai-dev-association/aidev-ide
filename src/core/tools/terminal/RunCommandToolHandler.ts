@@ -69,7 +69,24 @@ export class RunCommandToolHandler implements IToolHandler {
             }
         }
 
-        // 일반 명령어는 기존대로 처리하되, 타임아웃이 있으면 continue() 패턴 사용
+        // 초기 실행이 성공적으로 완료된 경우 (exitCode가 있고 에러가 없음) 바로 반환
+        // 이렇게 하면 중복 실행을 방지할 수 있음
+        if (initialResult.exitCode !== undefined && !initialResult.error) {
+            console.log(`[RunCommandToolHandler] Command completed in initial execution: ${command}`);
+            return {
+                success: initialResult.success,
+                message: initialResult.success
+                    ? `Command executed: ${command}`
+                    : `Command failed: ${command}`,
+                data: {
+                    output: initialResult.stdout,
+                    error: initialResult.stderr,
+                    exitCode: initialResult.exitCode
+                }
+            };
+        }
+
+        // 사용자가 명시적으로 타임아웃을 지정한 경우
         if (timeoutSeconds && timeoutSeconds > 0) {
             try {
                 // 타임아웃으로 Promise.race 사용
@@ -123,7 +140,8 @@ export class RunCommandToolHandler implements IToolHandler {
             }
         }
 
-        // 타임아웃이 없는 일반 명령어는 기존대로 처리
+        // 초기 실행에서 타임아웃이 발생했지만 장기 실행이 아닌 경우
+        // 완료될 때까지 대기 (타임아웃 없이)
         const finalResult = await context.executionManager.executeCommand(command, {
             cwd: context.projectRoot
         });

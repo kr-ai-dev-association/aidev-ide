@@ -1,7 +1,7 @@
 /**
  * Phase Prompt Components
  * 단계별 프롬프트 컴포넌트 통합 파일
- * v8.9.2: JSON Function Calling 형식으로 변경
+ * v8.9.7: CODE 블록 형식으로 변경 ({ "tool": "..." } + <<<<<<<CODE ... >>>>>>>END)
  */
 
 import {
@@ -15,7 +15,7 @@ import {
 // ==================== Intent Phase ====================
 export function getIntentPrompt(userQuery: string): string {
   return `
-다음 사용자 요청을 분석하여 의도(Subtype)를 분류하세요.
+다음 사용자 요청을 분석하여 의도(Subtype)와 계획 필요 여부를 판단하세요.
 
 **분류 기준:**
 1. 코드 작성/수정/삭제 (code_generate, code_modify, code_remove)
@@ -24,11 +24,29 @@ export function getIntentPrompt(userQuery: string): string {
 4. 문서 작성 (documentation_general)
 5. 터미널 오류 해결 (terminal_error_fix)
 
+**계획 필요 여부 (requiresPlan) 판단 기준:**
+- **true**: 새로운 기능 개발, 여러 파일 수정, 복잡한 리팩토링 등 여러 단계의 작업이 필요한 경우
+- **false**:
+  - 간단한 질문, 설명 요청, 코드 분석, 요약 등 바로 답변 가능한 경우
+  - 단순 명령어 실행 (npm install, npm run build, git status 등 한 줄 명령어)
+  - 단일 파일의 간단한 수정
+
+예시:
+- "이 함수 뭐하는 거야?" → requiresPlan: false (바로 설명 가능)
+- "로그인 기능 만들어줘" → requiresPlan: true (여러 파일 생성 필요)
+- "프로젝트 구조 알려줘" → requiresPlan: false (분석 후 바로 답변)
+- "npm install 해줘" → requiresPlan: false (단순 명령어 실행)
+- "npm run build 실행해" → requiresPlan: false (단순 명령어 실행)
+- "git status 확인해줘" → requiresPlan: false (단순 명령어 실행)
+- "이 코드 리팩토링해줘" → requiresPlan: true (여러 파일 수정 가능성)
+- "인증 시스템 구현해줘" → requiresPlan: true (복잡한 기능 개발)
+
 출력 형식 (JSON):
 {
-  "subtype": "code_modify",
+  "subtype": "analysis_function",
   "confidence": 0.9,
-  "reasoning": "요청의 구체적인 이유"
+  "reasoning": "요청의 구체적인 이유",
+  "requiresPlan": false
 }
 
 사용자 요청: "${userQuery}"`;
@@ -73,7 +91,7 @@ export function getInvestigationPrompt(userQuery: string): string {
 
 ${noThinkingLeakage}
 
-✅ **올바른 응답 형식 (JSON Function Calling):**
+✅ **올바른 응답 형식:**
 
 **Plan 제출:**
 \`\`\`json
@@ -86,13 +104,9 @@ ${noThinkingLeakage}
 \`\`\`
 
 **조사 도구 호출:**
-\`\`\`json
-{
-  "function_calls": [
-    { "name": "read_file", "args": { "path": "src/App.tsx" } },
-    { "name": "list_files", "args": { "path": "src" } }
-  ]
-}
+\`\`\`
+{ "tool": "read_file", "path": "src/App.tsx" }
+{ "tool": "list_files", "path": "src" }
 \`\`\`
 
 **조사 완료 선언:**
@@ -101,12 +115,8 @@ ${noThinkingLeakage}
 \`\`\`
 
 ❌ **잘못된 예시 (절대 금지):**
-\`\`\`json
-{
-  "plan": [...],
-  "function_call": { "name": "create_file", ... }  // 조사 단계에서 실행 도구 금지!
-}
-\`\`\`
+- XML 태그 형식 사용
+- 조사 단계에서 실행 도구(create_file, update_file 등) 호출
 
 ## Constraints (지침)
 1. **Investigation 단계 규칙**:
@@ -149,7 +159,7 @@ ${planFormatRules}
 
 **조사 단계와 실행 단계 역할 분리:**
 - **조사 단계 (Investigation)**: 필요한 정보 수집, 최소 LLM 호출
-  - 조사 도구(\`read_file\`, \`list_files\`, \`search_files\`, \`ripgrep_search\`)를 JSON function_call로 호출
+  - 조사 도구(\`read_file\`, \`list_files\`, \`search_files\`, \`ripgrep_search\`)를 \`{ "tool": "..." }\` 형식으로 호출
   - ${getNoDuplicateReadRules().split("\n").slice(1).join("\n  - ")}
 
 - **실행 단계 (Execution)**: 실제 코드 생성/수정 → LLM 호출
@@ -157,7 +167,7 @@ ${planFormatRules}
   - 실행 도구(\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\`) 사용
 
 **효율적인 조사 패턴:**
-1. **한 번에 여러 파일 조사**: function_calls 배열로 여러 read_file을 한 번에 호출
+1. **한 번에 여러 파일 조사**: 여러 \`{ "tool": "read_file" }\`을 연속으로 작성
 2. **Pre-load 활용**: 이미 읽은 파일은 다시 읽지 않고 대화 기록에서 확인
 3. **Investigation Item 통합**: 여러 조사 작업을 하나의 Item으로 병합하여 LLM 호출 최소화
 `;
@@ -171,27 +181,32 @@ export function getExecutionPhasePrompt(): string {
     `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
     `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
     `${noThinkingLeakage}\n\n` +
-    `**절대 금지 사항:**\n` +
+    `**절대 금지 사항 (위반 시 작업 실패):**\n` +
+    `- ❌ \`{ "plan": [...] }\` 출력 절대 금지 - plan은 이미 수립 완료됨. 다시 제출하면 무시됨.\n` +
+    `- ❌ CODE 블록 내부에 자연어 삽입 절대 금지 - "We need to...", "Let me..." 등 삽입 시 파일 깨짐\n` +
     `- ❌ 사고, 추론, 설명 출력 금지\n` +
     `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
     `- ❌ 파일 탐색 금지 (조사는 이미 완료되었습니다)\n` +
     `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
+    `- ❌ XML 태그 형식 사용 금지\n` +
     `- ${noMonologueRules.split("\n").slice(1).join("\n- ")}\n\n` +
-    `**필수 출력 형식 (JSON Function Calling):**\n` +
-    `- ✅ 실행 가능한 JSON function_call만 출력\n` +
-    `- ✅ 도구 호출 전후에 텍스트 출력 금지\n` +
-    `- ✅ 도구 호출이 필요 없으면 아무것도 출력하지 않음 (빈 응답)\n\n` +
+    `**필수 출력 형식 (이것만 허용됨):**\n` +
+    `- ✅ \`{ "tool": "create_file" }\` 또는 \`{ "tool": "update_file" }\` 형식만 사용\n` +
+    `- ✅ 파일 내용은 \`<<<<<<<CODE ... >>>>>>>END\` 블록 사용\n` +
+    `- ✅ CODE 블록 내부는 순수 소스코드만 (자연어, 설명 문구 절대 금지)\n` +
+    `- ✅ 도구 호출 전후에 텍스트 출력 금지\n\n` +
+    `**⚠️ 치명적 오류 방지:**\n` +
+    `CODE 블록 내부에 영어/한국어 문장을 삽입하면 파일이 깨집니다.\n` +
+    `CODE 블록 = 순수 프로그래밍 코드만. 생각, 설명, 주석 형태의 자연어 모두 금지.\n\n` +
     `**예시:**\n` +
-    `\`\`\`json\n` +
-    `{\n` +
-    `  "function_calls": [\n` +
-    `    { "name": "create_file", "args": { "path": "src/App.tsx", "content": "..." } },\n` +
-    `    { "name": "create_file", "args": { "path": "package.json", "content": "..." } }\n` +
-    `  ]\n` +
-    `}\n` +
+    `\`\`\`\n` +
+    `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
+    `<<<<<<<CODE\n` +
+    `import React from 'react';\n` +
+    `export default function App() { return <div>Hello</div>; }\n` +
+    `>>>>>>>END\n` +
     `\`\`\`\n\n` +
     `**⚠️ 중요:** 모든 자연어 텍스트(사고, 설명, 추론)는 무시됩니다.\n` +
-    `오직 JSON function_call만 실행됩니다. 이미 필요한 모든 정보를 가지고 있습니다.\n` +
-    `설명 없이 즉시 실행을 시작하세요.\n`
+    `오직 \`{ "tool": "..." }\` 형식만 실행됩니다. 설명 없이 즉시 실행을 시작하세요.\n`
   );
 }

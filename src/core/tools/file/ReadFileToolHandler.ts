@@ -1,7 +1,8 @@
 /**
  * Read File Tool Handler
  * 파일 읽기 툴 핸들러
- * - 전체 파일 읽기
+ * - 전체 파일 읽기 (작은 파일)
+ * - 자동 truncate (큰 파일) - 시스템 강제
  * - 부분 읽기 (startLine, endLine 지원)
  */
 
@@ -9,6 +10,30 @@ import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
+
+// 파일 크기 임계값 (라인 수)
+const MAX_FULL_READ_LINES = 300;  // 이 이하면 전체 읽기
+const PREVIEW_HEAD_LINES = 50;    // 큰 파일의 처음 N줄
+const PREVIEW_TAIL_LINES = 30;    // 큰 파일의 마지막 N줄
+
+interface FileReadResult {
+    path: string;
+    content: string;
+    error?: string;
+    totalLines?: number;
+    readLines?: string;
+    status?: 'full' | 'partial';
+    isTruncated?: boolean;
+    structure?: SymbolInfo[];
+}
+
+interface SymbolInfo {
+    name: string;
+    type: 'class' | 'function' | 'method' | 'interface' | 'type' | 'const' | 'variable' | 'enum';
+    line: number;
+    exported: boolean;
+}
 
 export class ReadFileToolHandler implements IToolHandler {
     readonly name = Tool.READ_FILE;
@@ -49,7 +74,7 @@ export class ReadFileToolHandler implements IToolHandler {
         }
 
         // 여러 파일 읽기
-        const results: Array<{ path: string; content: string; error?: string; totalLines?: number; readLines?: string }> = [];
+        const results: FileReadResult[] = [];
         let hasError = false;
 
         for (const filePath of pathsToRead) {
@@ -70,34 +95,93 @@ export class ReadFileToolHandler implements IToolHandler {
             }
 
             try {
-                const fullContent = await fs.readFile(absolutePath, 'utf8');
+                // ✅ 캐시 우선 사용
+                const cache = ProjectContextCache.getInstance();
+                let fullContent = await cache.getFile(absolutePath);
+                if (fullContent) {
+                    console.log(`[ReadFileToolHandler] Using cached content: ${absolutePath}`);
+                } else {
+                    fullContent = await fs.readFile(absolutePath, 'utf8');
+                    // 캐시에 저장 (백그라운드)
+                    cache.cacheFile(absolutePath).catch(() => {});
+                }
                 const lines = fullContent.split('\n');
                 const totalLines = lines.length;
+                const ext = path.extname(absolutePath).toLowerCase();
 
-                // 부분 읽기 지원
-                let content: string;
-                let readLinesInfo: string | undefined;
-
+                // 부분 읽기 (명시적 범위 지정)
                 if (startLine !== undefined || endLine !== undefined) {
                     // 1-based line numbers (사용자 친화적)
                     const start = Math.max(1, startLine || 1) - 1; // 0-based index
                     const end = Math.min(totalLines, endLine || totalLines); // endLine은 포함
 
                     const selectedLines = lines.slice(start, end);
-                    content = selectedLines.map((line, idx) => `${start + idx + 1}: ${line}`).join('\n');
-                    readLinesInfo = `Lines ${start + 1}-${end} of ${totalLines}`;
+                    const content = selectedLines.map((line, idx) => `${start + idx + 1}: ${line}`).join('\n');
+                    const readLinesInfo = `Lines ${start + 1}-${end} of ${totalLines}`;
 
                     console.log(`[ReadFileToolHandler] Partial read: ${filePath} (${readLinesInfo})`);
-                } else {
-                    content = fullContent;
-                }
 
-                results.push({
-                    path: filePath,
-                    content,
-                    totalLines,
-                    readLines: readLinesInfo
-                });
+                    results.push({
+                        path: filePath,
+                        content,
+                        totalLines,
+                        readLines: readLinesInfo,
+                        status: 'partial',
+                        isTruncated: false
+                    });
+                }
+                // 작은 파일: 전체 읽기
+                else if (totalLines <= MAX_FULL_READ_LINES) {
+                    console.log(`[ReadFileToolHandler] Full read: ${filePath} (${totalLines} lines)`);
+
+                    results.push({
+                        path: filePath,
+                        content: fullContent,
+                        totalLines,
+                        status: 'full',
+                        isTruncated: false
+                    });
+                }
+                // 큰 파일: 자동 truncate + 구조 정보
+                else {
+                    console.log(`[ReadFileToolHandler] Auto-truncate: ${filePath} (${totalLines} lines > ${MAX_FULL_READ_LINES})`);
+
+                    // head + tail 미리보기
+                    const headLines = lines.slice(0, PREVIEW_HEAD_LINES);
+                    const tailLines = lines.slice(-PREVIEW_TAIL_LINES);
+
+                    let previewContent = `=== FILE INFO ===\n`;
+                    previewContent += `Path: ${filePath}\n`;
+                    previewContent += `Total Lines: ${totalLines}\n`;
+                    previewContent += `Status: TRUNCATED (file too large for full read)\n`;
+                    previewContent += `Showing: first ${PREVIEW_HEAD_LINES} + last ${PREVIEW_TAIL_LINES} lines\n`;
+                    previewContent += `\nTo read specific range, use: { "tool": "read_file", "path": "${filePath}", "startLine": "X", "endLine": "Y" }\n`;
+                    previewContent += `\n=== HEAD (lines 1-${PREVIEW_HEAD_LINES}) ===\n`;
+                    previewContent += headLines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
+                    previewContent += `\n\n... [${totalLines - PREVIEW_HEAD_LINES - PREVIEW_TAIL_LINES} lines omitted] ...\n\n`;
+                    previewContent += `=== TAIL (lines ${totalLines - PREVIEW_TAIL_LINES + 1}-${totalLines}) ===\n`;
+                    previewContent += tailLines.map((line, idx) => `${totalLines - PREVIEW_TAIL_LINES + idx + 1}: ${line}`).join('\n');
+
+                    // 심볼 추출 (구조 파악용)
+                    const symbols = this.extractSymbols(lines, ext);
+                    if (symbols.length > 0) {
+                        previewContent += `\n\n=== STRUCTURE (${symbols.length} symbols) ===\n`;
+                        symbols.forEach(sym => {
+                            const exportMarker = sym.exported ? '[E]' : '   ';
+                            previewContent += `${exportMarker} ${sym.type.padEnd(10)} ${sym.name} (line ${sym.line})\n`;
+                        });
+                    }
+
+                    results.push({
+                        path: filePath,
+                        content: previewContent,
+                        totalLines,
+                        readLines: `Lines 1-${PREVIEW_HEAD_LINES}, ${totalLines - PREVIEW_TAIL_LINES + 1}-${totalLines} of ${totalLines}`,
+                        status: 'partial',
+                        isTruncated: true,
+                        structure: symbols
+                    });
+                }
             } catch (error) {
                 results.push({
                     path: filePath,
@@ -121,9 +205,13 @@ export class ReadFileToolHandler implements IToolHandler {
                     }
                 };
             }
-            const message = result.readLines
-                ? `File read: ${result.path} (${result.readLines})`
-                : `File read: ${result.path}`;
+
+            let message = result.isTruncated
+                ? `File truncated: ${result.path} (${result.totalLines} lines - too large)`
+                : result.readLines
+                    ? `File read: ${result.path} (${result.readLines})`
+                    : `File read: ${result.path}`;
+
             return {
                 success: true,
                 message,
@@ -131,7 +219,10 @@ export class ReadFileToolHandler implements IToolHandler {
                     path: result.path,
                     content: result.content,
                     totalLines: result.totalLines,
-                    readLines: result.readLines
+                    readLines: result.readLines,
+                    status: result.status,
+                    isTruncated: result.isTruncated,
+                    structure: result.structure
                 }
             };
         }
@@ -146,10 +237,161 @@ export class ReadFileToolHandler implements IToolHandler {
                     content: r.content,
                     totalLines: r.totalLines,
                     readLines: r.readLines,
+                    status: r.status,
+                    isTruncated: r.isTruncated,
+                    structure: r.structure,
                     error: r.error
                 }))
             }
         };
+    }
+
+    /**
+     * 파일에서 심볼(클래스, 함수 등) 추출
+     */
+    private extractSymbols(lines: string[], ext: string): SymbolInfo[] {
+        const symbols: SymbolInfo[] = [];
+
+        // 지원하는 확장자 확인
+        const supportedExts = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.java', '.kt', '.go', '.rs'];
+        if (!supportedExts.includes(ext)) {
+            return symbols;
+        }
+
+        lines.forEach((line, idx) => {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('*') || trimmedLine.startsWith('#')) {
+                return;
+            }
+
+            // TypeScript/JavaScript 패턴
+            if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
+                // 클래스
+                let match = trimmedLine.match(/^(export\s+)?(abstract\s+)?class\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[3], type: 'class', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                // 인터페이스
+                match = trimmedLine.match(/^(export\s+)?interface\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[2], type: 'interface', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                // 타입
+                match = trimmedLine.match(/^(export\s+)?type\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[2], type: 'type', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                // enum
+                match = trimmedLine.match(/^(export\s+)?(const\s+)?enum\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[3], type: 'enum', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                // 함수 (function 키워드)
+                match = trimmedLine.match(/^(export\s+)?(async\s+)?function\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[3], type: 'function', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                // 화살표 함수 또는 const/let 함수
+                match = trimmedLine.match(/^(export\s+)?(const|let|var)\s+(\w+)\s*[=:]/);
+                if (match) {
+                    // 함수인지 변수인지 판별
+                    if (line.includes('=>') || line.includes('function')) {
+                        symbols.push({ name: match[3], type: 'function', line: idx + 1, exported: !!match[1] });
+                    } else {
+                        symbols.push({ name: match[3], type: 'const', line: idx + 1, exported: !!match[1] });
+                    }
+                    return;
+                }
+            }
+
+            // Python 패턴
+            if (ext === '.py') {
+                let match = trimmedLine.match(/^class\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[1], type: 'class', line: idx + 1, exported: !match[1].startsWith('_') });
+                    return;
+                }
+
+                match = trimmedLine.match(/^(async\s+)?def\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[2], type: 'function', line: idx + 1, exported: !match[2].startsWith('_') });
+                    return;
+                }
+            }
+
+            // Java/Kotlin 패턴
+            if (['.java', '.kt'].includes(ext)) {
+                let match = trimmedLine.match(/^(public|private|protected)?\s*(static\s+)?(abstract\s+)?(class|interface|enum)\s+(\w+)/);
+                if (match) {
+                    const symType = match[4] === 'interface' ? 'interface' : match[4] === 'enum' ? 'enum' : 'class';
+                    symbols.push({ name: match[5], type: symType, line: idx + 1, exported: match[1] === 'public' });
+                    return;
+                }
+
+                match = trimmedLine.match(/^(public|private|protected)?\s*(static\s+)?(abstract\s+)?(\w+)\s+(\w+)\s*\(/);
+                if (match && !['if', 'for', 'while', 'switch', 'catch'].includes(match[4])) {
+                    symbols.push({ name: match[5], type: 'method', line: idx + 1, exported: match[1] === 'public' });
+                    return;
+                }
+            }
+
+            // Go 패턴
+            if (ext === '.go') {
+                let match = trimmedLine.match(/^type\s+(\w+)\s+(struct|interface)/);
+                if (match) {
+                    const symType = match[2] === 'interface' ? 'interface' : 'class';
+                    symbols.push({ name: match[1], type: symType, line: idx + 1, exported: match[1][0] === match[1][0].toUpperCase() });
+                    return;
+                }
+
+                match = trimmedLine.match(/^func\s+(\([^)]+\)\s+)?(\w+)\s*\(/);
+                if (match) {
+                    const funcName = match[2];
+                    const type = match[1] ? 'method' : 'function';
+                    symbols.push({ name: funcName, type, line: idx + 1, exported: funcName[0] === funcName[0].toUpperCase() });
+                    return;
+                }
+            }
+
+            // Rust 패턴
+            if (ext === '.rs') {
+                let match = trimmedLine.match(/^(pub\s+)?struct\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[2], type: 'class', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                match = trimmedLine.match(/^(pub\s+)?trait\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[2], type: 'interface', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                match = trimmedLine.match(/^(pub\s+)?enum\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[2], type: 'enum', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+
+                match = trimmedLine.match(/^(pub\s+)?(async\s+)?fn\s+(\w+)/);
+                if (match) {
+                    symbols.push({ name: match[3], type: 'function', line: idx + 1, exported: !!match[1] });
+                    return;
+                }
+            }
+        });
+
+        return symbols;
     }
 
     getDescription(toolUse: ToolUse): string {
@@ -161,5 +403,3 @@ export class ReadFileToolHandler implements IToolHandler {
         return `[read_file: ${toolUse.params.path}]`;
     }
 }
-
-

@@ -9,6 +9,7 @@
  */
 
 import { LLMManager } from "../model/LLMManager";
+import { StateManager } from "../state/StateManager";
 import { estimateTokens } from "../../../utils";
 import { getSummarizationPrompt } from "../context/prompts/task";
 import { SummarizationOptions } from "../context/types/contextHistory";
@@ -57,6 +58,7 @@ const DEFAULT_CONFIG: CompactorConfig = {
 export class ConversationCompactor {
   private static instance: ConversationCompactor;
   private llmManager: LLMManager;
+  private stateManager: StateManager | null = null;
   private config: CompactorConfig;
   private lastSummary: string | null = null;
   private compactionHistory: Array<{
@@ -84,6 +86,14 @@ export class ConversationCompactor {
       );
     }
     return ConversationCompactor.instance!;
+  }
+
+  /**
+   * StateManager 설정 (모델 라우팅에 사용)
+   */
+  public setStateManager(stateManager: StateManager): void {
+    this.stateManager = stateManager;
+    console.log("[ConversationCompactor] StateManager configured for model routing");
   }
 
   /**
@@ -306,6 +316,7 @@ export class ConversationCompactor {
 
   /**
    * LLM을 사용해 대화 요약 생성
+   * StateManager가 설정된 경우 compactorModel 사용, 아니면 메인 모델 사용
    */
   private async generateSummary(
     messagesToSummarize: any[],
@@ -338,11 +349,22 @@ export class ConversationCompactor {
       },
     ];
 
-    const response = await this.llmManager.sendMessageWithSystemPrompt(
-      summarizationPrompt,
-      userParts,
-      { signal: abortSignal },
-    );
+    // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
+    let response: string;
+    if (this.stateManager) {
+      response = await this.llmManager.sendMessageWithCompactorModel(
+        summarizationPrompt,
+        userParts,
+        this.stateManager,
+        { signal: abortSignal },
+      );
+    } else {
+      response = await this.llmManager.sendMessageWithSystemPrompt(
+        summarizationPrompt,
+        userParts,
+        { signal: abortSignal },
+      );
+    }
 
     const summary = this.extractSummaryFromResponse(response);
     const outputTokens = estimateTokens(summary);
@@ -507,6 +529,7 @@ export class ConversationCompactor {
 
   /**
    * 텍스트로부터 직접 요약 생성 (SessionManager 통합용)
+   * StateManager가 설정된 경우 compactorModel 사용
    */
   public async generateSummaryFromText(
     conversationText: string,
@@ -517,11 +540,22 @@ export class ConversationCompactor {
       { text: `다음 대화를 요약해주세요:\n\n${conversationText}` },
     ];
 
-    const response = await this.llmManager.sendMessageWithSystemPrompt(
-      summarizationPrompt,
-      userParts,
-      { signal: abortSignal },
-    );
+    // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
+    let response: string;
+    if (this.stateManager) {
+      response = await this.llmManager.sendMessageWithCompactorModel(
+        summarizationPrompt,
+        userParts,
+        this.stateManager,
+        { signal: abortSignal },
+      );
+    } else {
+      response = await this.llmManager.sendMessageWithSystemPrompt(
+        summarizationPrompt,
+        userParts,
+        { signal: abortSignal },
+      );
+    }
 
     return this.extractSummaryFromResponse(response);
   }
@@ -614,11 +648,22 @@ export class ConversationCompactor {
         { text: `다음 대화를 요약해주세요:\n\n${conversationText}` },
       ];
 
-      const response = await this.llmManager.sendMessageWithSystemPrompt(
-        summarizationPrompt,
-        userParts,
-        { signal: abortSignal },
-      );
+      // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
+      let response: string;
+      if (this.stateManager) {
+        response = await this.llmManager.sendMessageWithCompactorModel(
+          summarizationPrompt,
+          userParts,
+          this.stateManager,
+          { signal: abortSignal },
+        );
+      } else {
+        response = await this.llmManager.sendMessageWithSystemPrompt(
+          summarizationPrompt,
+          userParts,
+          { signal: abortSignal },
+        );
+      }
 
       const summary = this.extractSummaryFromResponse(response);
       const summaryTokens = estimateTokens(summary);

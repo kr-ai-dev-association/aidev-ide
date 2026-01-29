@@ -15,7 +15,6 @@ export class StreamManager {
      * 프로세스의 스트림을 캡처합니다
      */
     public captureStream(pid: number, childProcess: ChildProcess): void {
-        console.log(`[StreamManager] Capturing streams for PID=${pid}`);
 
         // 버퍼 초기화
         this.buffers.set(pid, { stdout: '', stderr: '' });
@@ -50,7 +49,6 @@ export class StreamManager {
             this.handlers.set(pid, new Set());
         }
         this.handlers.get(pid)!.add(handler);
-        console.log(`[StreamManager] Registered handler for PID=${pid}`);
     }
 
     /**
@@ -63,7 +61,6 @@ export class StreamManager {
             if (handlers.size === 0) {
                 this.handlers.delete(pid);
             }
-            console.log(`[StreamManager] Unregistered handler for PID=${pid}`);
         }
     }
 
@@ -72,7 +69,6 @@ export class StreamManager {
      */
     public unregisterAllHandlers(pid: number): void {
         this.handlers.delete(pid);
-        console.log(`[StreamManager] Unregistered all handlers for PID=${pid}`);
     }
 
     /**
@@ -90,7 +86,6 @@ export class StreamManager {
         if (buffer) {
             buffer.stdout = '';
             buffer.stderr = '';
-            console.log(`[StreamManager] Cleared buffer for PID=${pid}`);
         }
     }
 
@@ -99,7 +94,6 @@ export class StreamManager {
      */
     public setMaxBufferSize(size: number): void {
         this.maxBufferSize = size;
-        console.log(`[StreamManager] Max buffer size set to ${size} bytes`);
     }
 
     /**
@@ -115,7 +109,6 @@ export class StreamManager {
             if (buffer[type].length > this.maxBufferSize) {
                 const excess = buffer[type].length - this.maxBufferSize;
                 buffer[type] = buffer[type].substring(excess);
-                console.warn(`[StreamManager] Buffer for PID=${pid} ${type} exceeded max size, truncated`);
             }
         }
 
@@ -132,8 +125,8 @@ export class StreamManager {
             handlers.forEach(handler => {
                 try {
                     handler(streamData);
-                } catch (error) {
-                    console.error(`[StreamManager] Handler error for PID=${pid}:`, error);
+                } catch {
+                    // Handler error ignored
                 }
             });
         }
@@ -146,9 +139,8 @@ export class StreamManager {
         try {
             // UTF-8 디코딩 시도
             return data.toString('utf8');
-        } catch (error) {
+        } catch {
             // 실패 시 Latin1로 디코딩
-            console.warn('[StreamManager] UTF-8 decoding failed, using latin1');
             return data.toString('latin1');
         }
     }
@@ -157,7 +149,6 @@ export class StreamManager {
      * 특정 프로세스의 리소스를 정리합니다
      */
     private cleanup(pid: number): void {
-        console.log(`[StreamManager] Cleaning up streams for PID=${pid}`);
         this.handlers.delete(pid);
 
         // 버퍼는 유지 (히스토리 목적)
@@ -168,7 +159,6 @@ export class StreamManager {
      * 모든 리소스를 정리합니다
      */
     public cleanupAll(): void {
-        console.log('[StreamManager] Cleaning up all streams');
         this.handlers.clear();
         this.buffers.clear();
     }

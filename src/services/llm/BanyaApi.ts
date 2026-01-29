@@ -59,6 +59,10 @@ export class BanyaApi {
         this.apiKey = apiKey;
     }
 
+    public getApiKey(): string {
+        return this.apiKey;
+    }
+
     /**
      * 저장된 설정을 로드합니다
      */

@@ -402,6 +402,21 @@ export class SessionManager {
     }
 
     /**
+     * 현재 세션의 누적 토큰을 특정 값으로 설정합니다 (압축 후 사용)
+     */
+    public setTotalTokensUsed(tokens: number): void {
+        const session = this.getCurrentSession();
+        if (!session) {
+            return;
+        }
+
+        const previousTokens = session.totalTokensUsed || 0;
+        session.totalTokensUsed = tokens;
+        this.saveSessions();
+        console.log(`[SessionManager] Token usage set: ${previousTokens} -> ${tokens}`);
+    }
+
+    /**
      * 세션 히스토리 정리 (토큰 임계값 초과 시 오래된 항목 제거)
      * LLM 요약 없이 구조화된 메타데이터만 유지
      */
@@ -608,8 +623,16 @@ export class SessionManager {
                 entry.compactedSummaryId = summaryEntry.id;
             });
 
+            // 압축 후 토큰 재계산 및 업데이트 (중요: 재시작 후에도 정확한 게이지 표시)
+            let compactedTokens = estimateTokens(summaryResult); // 요약 토큰
+            for (const entry of recentEntries) {
+                const content = entry.userRequest + (entry.assistantResponse || '');
+                compactedTokens += estimateTokens(content);
+            }
+            session.totalTokensUsed = compactedTokens;
+
             this.saveSessions();
-            console.log(`[SessionManager] Session compacted. ${oldEntries.length} entries summarized, ${keepRecentCount} kept.`);
+            console.log(`[SessionManager] Session compacted. ${oldEntries.length} entries summarized, ${keepRecentCount} kept. Tokens: ${compactedTokens}`);
         } catch (error) {
             console.error('[SessionManager] Failed to compact session history:', error);
             // 압축 실패 시 fallback: 단순 trim

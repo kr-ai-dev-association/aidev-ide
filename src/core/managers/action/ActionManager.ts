@@ -852,7 +852,7 @@ export class ActionManager {
                             createBeforeContent,
                             content,
                             {
-                                taskId: undefined,
+                                taskId: action.metadata?.taskId,
                                 message: `File created: ${sourcePath}`,
                                 source: 'ai',
                             }
@@ -896,7 +896,7 @@ export class ActionManager {
                             updateBeforeContent,
                             content,
                             {
-                                taskId: undefined,
+                                taskId: action.metadata?.taskId,
                                 message: `File updated: ${sourcePath}`,
                                 source: 'ai',
                             }
@@ -929,7 +929,7 @@ export class ActionManager {
                             deleteBeforeContent,
                             undefined,
                             {
-                                taskId: undefined,
+                                taskId: action.metadata?.taskId,
                                 message: `File deleted: ${sourcePath}`,
                                 source: 'ai',
                             }

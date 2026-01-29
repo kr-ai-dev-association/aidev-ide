@@ -26,6 +26,7 @@ import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
 import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
 import { AgentConfig } from '../../config/AgentConfig';
+import { EXCLUDED_LIBRARY_PATHS } from '../../utils/FileExclusionConstants';
 
 export class ProjectManager {
     private static instance: ProjectManager;
@@ -1115,14 +1116,8 @@ export class ProjectManager {
                 return norm.startsWith(rootNorm) ? norm.substring(rootNorm.length + (rootNorm.endsWith('/') ? 0 : 1)) : norm;
             };
 
-            // 제외할 디렉토리 목록
-            const excludeDirs = new Set([
-                'node_modules', '.git', 'dist', 'out', 'target', 'build', '.gradle', 'gradle',
-                '__pycache__', 'venv', '.venv', 'vendor', 'bin', 'obj', 'packages', '.nuget',
-                'pkg', 'coverage', '.next', '.nuxt', '.output', '.cache', '.turbo',
-                '.idea', '.vscode', '.vs', '.sass-cache', '.parcel-cache', '.yarn',
-                'bower_components', '.pnp', '.pnp.js', '.yarn-integrity'
-            ]);
+            // 제외할 디렉토리 목록 (FileExclusionConstants 활용)
+            const excludeDirs = new Set(EXCLUDED_LIBRARY_PATHS);
 
             const walk = async (dir: vscode.Uri, depth: number) => {
                 if (items.length >= maxEntries) return;

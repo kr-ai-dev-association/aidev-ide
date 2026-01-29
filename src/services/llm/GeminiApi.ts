@@ -94,6 +94,10 @@ export class GeminiApi {
         return this.modelName;
     }
 
+    public getApiKey(): string | undefined {
+        return this.apiKey;
+    }
+
     public isInitialized(): boolean {
         return !!this.apiKey;
     }

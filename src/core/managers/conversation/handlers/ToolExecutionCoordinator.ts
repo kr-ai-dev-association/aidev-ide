@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
 import * as pathModule from 'path';
 import { Tool } from '../../../tools/types';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
-import { TaskManager } from '../../task/TaskManager';
 import { InlineDiffManager } from '../../diff/InlineDiffManager';
 
 export class ToolExecutionCoordinator {
@@ -120,18 +119,129 @@ export class ToolExecutionCoordinator {
     }
 
     /**
-     * Tool 실행 결과를 UI에 전송
-     * @returns UI에 보낸 메시지 배열 (세션 히스토리 저장용)
+     * 🔥 단일 Tool 실행 결과를 즉시 UI에 전송 (실시간 업데이트용)
+     * executeTools의 onToolComplete 콜백에서 호출
      */
-    public static sendToolExecutionResultsToUI(
+    public static sendSingleToolResultToUI(
+        webview: vscode.Webview | undefined,
+        call: any,
+        result: any
+    ): { sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }[] {
+        if (!webview) return [];
+
+        // sendToolExecutionResultsToUI의 단일 결과 처리 로직을 재사용
+        return ToolExecutionCoordinator.sendToolExecutionResultsToUISync(webview, [call], [result]);
+    }
+
+    /**
+     * Tool 실행 결과를 UI에 전송 (동기 버전 - 단일 도구용)
+     */
+    private static sendToolExecutionResultsToUISync(
         webview: vscode.Webview,
         calls: any[],
         results: any[]
     ): Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> {
+        const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];
+
+        for (let i = 0; i < results.length; i++) {
+            const res = results[i];
+            const toolName = calls[i].name;
+            const params = calls[i].params || {};
+            const path = params.path || params.file_path || params.target_file || '';
+            const command = params.command || '';
+
+            if (res.success) {
+                // CREATE_FILE, UPDATE_FILE 처리
+                if (toolName === Tool.CREATE_FILE || toolName === Tool.UPDATE_FILE) {
+                    const icon = toolName === Tool.CREATE_FILE ? '✅' : '📝';
+                    const action = toolName === Tool.CREATE_FILE ? 'Created' : 'Updated';
+                    const content = res.data?.fileContent || res.fileContent || params.content || '';
+                    const ext = path.split('.').pop()?.toLowerCase() || 'txt';
+
+                    // 라인 수 계산
+                    let deletedLines = 0;
+                    let addedLines = 0;
+                    const cachedChanges = InlineDiffManager.getInstance().getChanges(path);
+                    if (cachedChanges && cachedChanges.length > 0) {
+                        for (const change of cachedChanges) {
+                            if (change.type === 'delete') {
+                                deletedLines += change.oldText?.split('\n').length || 0;
+                            } else if (change.type === 'add') {
+                                addedLines += change.newText?.split('\n').length || 0;
+                            } else if (change.type === 'modify') {
+                                deletedLines += change.oldText?.split('\n').length || 0;
+                                addedLines += change.newText?.split('\n').length || 0;
+                            }
+                        }
+                    }
+
+                    // 헤더 전송
+                    const headerMsg = `${icon} [${action}] ${path}`;
+                    WebviewBridge.receiveMessage(webview, 'System', headerMsg);
+                    collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
+
+                    // 코드 블록 전송
+                    if (content) {
+                        let langLabel = ext;
+                        if (deletedLines > 0 || addedLines > 0) {
+                            const parts: string[] = [];
+                            if (deletedLines > 0) parts.push(`-${deletedLines} lines`);
+                            if (addedLines > 0) parts.push(`+${addedLines} lines`);
+                            langLabel = `${ext} ${parts.join(' ')}`;
+                        }
+                        const langLabelWithPath = path ? `${langLabel} [file:${path}]` : langLabel;
+                        const codeMarkdown = `\`\`\`${langLabelWithPath}\n${content}\n\`\`\``;
+                        WebviewBridge.receiveMessage(webview, 'CODEPILOT', codeMarkdown);
+                        collectedMessages.push({ sender: 'CODEPILOT', text: codeMarkdown, type: 'code' });
+                    }
+                } else if (toolName === Tool.REMOVE_FILE || toolName === 'remove_file') {
+                    const displayMsg = `🗑️ [Removed] ${path}`;
+                    WebviewBridge.receiveMessage(webview, 'System', displayMsg);
+                    collectedMessages.push({ sender: 'System', text: displayMsg, type: 'action' });
+                } else if (toolName === Tool.RUN_COMMAND || toolName === 'run_terminal') {
+                    const displayMsg = `🚀 [Executed] ${command}`;
+                    WebviewBridge.receiveMessage(webview, 'System', displayMsg);
+                    collectedMessages.push({ sender: 'System', text: displayMsg, type: 'action' });
+
+                    const output = res.data?.output || '';
+                    if (output) {
+                        const terminalMarkdown = `\`\`\`bash\n${output}\n\`\`\``;
+                        WebviewBridge.receiveMessage(webview, 'CODEPILOT', terminalMarkdown);
+                        collectedMessages.push({ sender: 'CODEPILOT', text: terminalMarkdown, type: 'code' });
+                    }
+                }
+                // read_file, list_files 등은 UI에 표시하지 않음
+            } else {
+                // 실패
+                const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
+                WebviewBridge.receiveMessage(webview, 'System', errorMsg);
+                collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+            }
+        }
+
+        // 🔥 파일 변경 후 pending changes 상태를 webview에 전송 (실시간 버튼 업데이트)
+        ToolExecutionCoordinator.sendPendingChangesUpdate(webview);
+
+        return collectedMessages;
+    }
+
+    /**
+     * Tool 실행 결과를 UI에 전송
+     * @returns UI에 보낸 메시지 배열 (세션 히스토리 저장용)
+     *
+     * 코드 블록은 receiveMessage로 전송 (UI 렌더링 유지 - Keep/Undo 버튼 등)
+     */
+    public static async sendToolExecutionResultsToUI(
+        webview: vscode.Webview,
+        calls: any[],
+        results: any[]
+    ): Promise<Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }>> {
         console.log(`[ToolExecutionCoordinator] sendToolExecutionResultsToUI called with ${results.length} results, webview=${!!webview}`);
         const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];
 
-        results.forEach((res, i) => {
+        // 🔥 forEach → for...of로 변경 (async/await 지원)
+        for (let i = 0; i < results.length; i++) {
+            const res = results[i];
             const toolName = calls[i].name;
             const params = calls[i].params || {};
             const path = params.path || params.file_path || params.target_file || '';
@@ -233,7 +343,7 @@ export class ToolExecutionCoordinator {
                     WebviewBridge.receiveMessage(webview, 'System', headerMsg);
                     collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
 
-                    // 2. 코드 내용 전송 (복사 버튼이 있는 마크다운 스타일)
+                    // 2. 코드 내용 전송 (🔥 스트리밍 효과로 타이핑)
                     // ✅ 라인 수 정보를 언어 라벨에 포함
                     if (content) {
                         let langLabel = ext;
@@ -255,11 +365,13 @@ export class ToolExecutionCoordinator {
                         const codeMarkdown = `\`\`\`${langLabelWithPath}\n${content}\n\`\`\``;
                         console.log(`[ToolExecutionCoordinator] Code markdown with file path: langLabel="${langLabelWithPath}"`);
                         console.log(`[ToolExecutionCoordinator] BEFORE sending code block: webview=${!!webview}, codeMarkdownLength=${codeMarkdown.length}`);
+
+                        // ✅ 코드 블록은 receiveMessage로 전송 (Keep/Undo 버튼 등 특수 UI 유지)
                         WebviewBridge.receiveMessage(webview, 'CODEPILOT', codeMarkdown);
                         collectedMessages.push({ sender: 'CODEPILOT', text: codeMarkdown, type: 'code' });
                         console.log(`[ToolExecutionCoordinator] AFTER sending code block`);
                     }
-                    return;
+                    continue; // 🔥 return → continue (for 루프 내에서)
                 }
 
                 // 나머지 도구들은 기존처럼 System 스타일 메시지로 표시 (테두리/색상 적용)
@@ -319,11 +431,11 @@ export class ToolExecutionCoordinator {
                             // 헤더 먼저 전송
                             WebviewBridge.receiveMessage(webview, 'System', displayMsg);
                             collectedMessages.push({ sender: 'System', text: displayMsg, type: 'action' });
-                            // 실행 결과(터미널 출력)를 마크다운 코드 블록으로 전송
+                            // ✅ 터미널 출력도 receiveMessage로 전송 (코드 블록 UI 유지)
                             const terminalMarkdown = `\`\`\`bash\n${output}\n\`\`\``;
                             WebviewBridge.receiveMessage(webview, 'CODEPILOT', terminalMarkdown);
                             collectedMessages.push({ sender: 'CODEPILOT', text: terminalMarkdown, type: 'code' });
-                            return;
+                            continue;
                         }
                         break;
                     case Tool.ANALYZE_CODE:
@@ -341,7 +453,7 @@ export class ToolExecutionCoordinator {
                 WebviewBridge.receiveMessage(webview, 'System', errorMsg);
                 collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
             }
-        });
+        }
 
         // ✅ 파일 변경 후 pending changes 상태를 webview에 전송
         ToolExecutionCoordinator.sendPendingChangesUpdate(webview);

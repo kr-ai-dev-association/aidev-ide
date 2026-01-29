@@ -5,6 +5,7 @@
 
 import { OllamaApi, AiModelType } from "../../../services";
 import { LLMManager } from "../model/LLMManager";
+import { StateManager } from "../state/StateManager";
 import { getIntentPrompt } from "../context/prompts/phase";
 
 export type IntentCategory =
@@ -42,6 +43,8 @@ export interface IntentDetectionResult {
   taskType: TaskType;
   confidence: number;
   reasoning: string;
+  /** 계획 수립이 필요한지 여부 (analysis, documentation은 false) */
+  requiresPlan: boolean;
 }
 
 export class IntentDetector {
@@ -77,7 +80,26 @@ export class IntentDetector {
     terminal_error_fix: "terminal",
   };
 
+  /** 카테고리별 계획 필요 여부 (analysis, documentation은 계획 불필요) */
+  private categoryRequiresPlan: Record<IntentCategory, boolean> = {
+    code: true,
+    execution: true,
+    analysis: false,
+    documentation: false,
+    terminal: true,
+  };
+
+  private stateManager: StateManager | null = null;
+
   constructor(private llmManager: LLMManager) {}
+
+  /**
+   * StateManager 설정 (Intent 모델 라우팅에 사용)
+   */
+  public setStateManager(stateManager: StateManager): void {
+    this.stateManager = stateManager;
+    console.log("[IntentDetector] StateManager configured for intent model routing");
+  }
 
   /**
    * TaskType을 한글 라벨로 변환합니다.
@@ -126,14 +148,20 @@ export class IntentDetector {
       const llmRaw = await this.queryLLMForIntent(cleanedQuery);
       if (llmRaw) {
         const subtype = llmRaw.subtype;
+        const category = this.subtypeToCategory[subtype] || "analysis";
         const taskType = this.subtypeToTaskType[subtype] || "analysis";
+        // LLM이 반환한 requiresPlan 우선 사용, 없으면 카테고리 기반 기본값
+        const requiresPlan = llmRaw.requiresPlan !== undefined
+          ? llmRaw.requiresPlan
+          : (this.categoryRequiresPlan[category] ?? true);
 
         const result: IntentDetectionResult = {
-          category: this.subtypeToCategory[subtype] || "analysis",
+          category: category,
           subtype: subtype,
           taskType: taskType,
           confidence: llmRaw.confidence,
           reasoning: llmRaw.reasoning,
+          requiresPlan: requiresPlan,
         };
 
         console.log("[IntentDetector] LLM intent result:", result);
@@ -143,29 +171,44 @@ export class IntentDetector {
       console.error("[IntentDetector] LLM 의도 판별 실패:", error);
     }
 
-    // Fallback: LLM 실패 시 기본값 반환
+    // Fallback: LLM 실패 시 기본값 반환 (analysis는 계획 불필요)
     return {
       category: "analysis",
       subtype: "analysis_function",
       taskType: "analysis",
       confidence: 0.1,
       reasoning: "LLM 의도 판별 실패로 인한 기본값 사용.",
+      requiresPlan: false,
     };
   }
 
   /**
    * LLM을 사용한 의도 분류
+   * StateManager가 설정된 경우 Intent 모델 사용, 아니면 메인 모델 사용
    */
   private async queryLLMForIntent(userQuery: string): Promise<{
     subtype: IntentSubtype;
     confidence: number;
     reasoning: string;
+    requiresPlan?: boolean;
   } | null> {
     const prompt = getIntentPrompt(userQuery);
 
     try {
-      // 현재 활성화된 모델로 메시지 전송
-      const response = await this.llmManager.sendMessage(prompt, {});
+      let response: string;
+
+      // StateManager가 있으면 Intent 모델 사용, 없으면 메인 모델 사용
+      if (this.stateManager) {
+        const userParts = [{ text: prompt }];
+        response = await this.llmManager.sendMessageWithIntentModel(
+          "", // 시스템 프롬프트 없음 (프롬프트에 이미 포함)
+          userParts,
+          this.stateManager
+        );
+      } else {
+        response = await this.llmManager.sendMessage(prompt, {});
+      }
+
       return this.safeParseIntentResponse(response);
     } catch (error) {
       console.error("[IntentDetector] queryLLMForIntent failed:", error);
@@ -178,7 +221,7 @@ export class IntentDetector {
    */
   private safeParseIntentResponse(
     response: string,
-  ): { subtype: IntentSubtype; confidence: number; reasoning: string } | null {
+  ): { subtype: IntentSubtype; confidence: number; reasoning: string; requiresPlan?: boolean } | null {
     try {
       const match = response.match(/\{[\s\S]*\}/);
       if (!match) {
@@ -195,6 +238,7 @@ export class IntentDetector {
           confidence:
             typeof parsed.confidence === "number" ? parsed.confidence : 0.6,
           reasoning: parsed.reasoning || "LLM 기반 분류",
+          requiresPlan: typeof parsed.requiresPlan === "boolean" ? parsed.requiresPlan : undefined,
         };
       }
     } catch (error) {

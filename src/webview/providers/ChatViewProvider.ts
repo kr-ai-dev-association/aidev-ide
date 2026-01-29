@@ -95,6 +95,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // 🆕 VSCode 시작 시 세션 자동 복원
         this.restoreSessionOnStartup(webviewView.webview);
 
+        // 🆕 VSCode 설정 변경 감지 (테마 등)
+        const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('codepilot.chatTheme')) {
+                const config = vscode.workspace.getConfiguration('codepilot');
+                const theme = config.get<string>('chatTheme') || 'dark';
+                console.log(`[ChatViewProvider] Theme configuration changed: ${theme}`);
+                webviewView.webview.postMessage({
+                    command: 'chatTheme',
+                    theme: theme
+                });
+            }
+        });
+        this.context.subscriptions.push(configChangeDisposable);
+
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
 
             // ✅ __BOOT_PING__ 테스트 메시지 확인
@@ -439,6 +453,27 @@ ${JSON.stringify(errorContext, null, 2)}
                                 break;
                             case 'compactConversation':
                                 await vscode.commands.executeCommand('codepilot.compactConversation');
+                                break;
+                            case 'gitStatus':
+                                await vscode.commands.executeCommand('codepilot.gitStatus');
+                                break;
+                            case 'gitDiff':
+                                await vscode.commands.executeCommand('codepilot.gitDiff');
+                                break;
+                            case 'gitLog':
+                                await vscode.commands.executeCommand('codepilot.gitLog');
+                                break;
+                            case 'gitBranch':
+                                await vscode.commands.executeCommand('codepilot.gitBranch');
+                                break;
+                            case 'gitInfo':
+                                await vscode.commands.executeCommand('codepilot.gitInfo');
+                                break;
+                            case 'gitStaged':
+                                await vscode.commands.executeCommand('codepilot.gitStaged');
+                                break;
+                            case 'gitStash':
+                                await vscode.commands.executeCommand('codepilot.gitStash');
                                 break;
                             default:
                                 console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
@@ -916,6 +951,42 @@ ${JSON.stringify(errorContext, null, 2)}
                         await this.sendDiagnosticsContext(webviewView.webview);
                     } catch (error: any) {
                         console.error('[ChatViewProvider] Failed to get diagnostics context:', error);
+                    }
+                    break;
+                }
+
+                case 'saveChatTheme': {
+                    try {
+                        const theme = data.theme;
+                        if (theme && ['dark', 'light', 'auto'].includes(theme)) {
+                            const config = vscode.workspace.getConfiguration('codepilot');
+                            await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
+                            console.log(`[ChatViewProvider] Chat theme saved: ${theme}`);
+                            webviewView.webview.postMessage({
+                                command: 'chatThemeSaved',
+                                theme: theme
+                            });
+                        }
+                    } catch (error) {
+                        console.error('[ChatViewProvider] Failed to save chat theme:', error);
+                    }
+                    break;
+                }
+
+                case 'getChatTheme': {
+                    try {
+                        const config = vscode.workspace.getConfiguration('codepilot');
+                        const theme = config.get<string>('chatTheme') || 'dark';
+                        webviewView.webview.postMessage({
+                            command: 'chatTheme',
+                            theme: theme
+                        });
+                    } catch (error) {
+                        console.error('[ChatViewProvider] Failed to get chat theme:', error);
+                        webviewView.webview.postMessage({
+                            command: 'chatTheme',
+                            theme: 'dark'
+                        });
                     }
                     break;
                 }

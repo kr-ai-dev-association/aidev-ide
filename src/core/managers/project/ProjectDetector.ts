@@ -37,7 +37,92 @@ export class ProjectDetector {
     }
 
     /**
+     * 명시적 빌드/설정 파일 목록 (프로젝트 타입 감지에 사용)
+     * 캐시나 부산물 디렉토리(__pycache__, .gradle 등)는 포함하지 않음
+     */
+    private static readonly EXPLICIT_BUILD_FILES: Array<{
+        files: string[];
+        type: ProjectType;
+        buildTool: BuildTool;
+        confidence: number;
+        detector?: (projectRoot: string) => boolean;
+    }> = [
+        // Java/Kotlin - Gradle
+        {
+            files: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'],
+            type: ProjectType.SPRING_BOOT,
+            buildTool: BuildTool.GRADLE,
+            confidence: 0.9
+        },
+        // Java - Maven
+        {
+            files: ['pom.xml'],
+            type: ProjectType.SPRING_BOOT,
+            buildTool: BuildTool.MAVEN,
+            confidence: 0.9
+        },
+        // Go
+        {
+            files: ['go.mod'],
+            type: ProjectType.GO,
+            buildTool: BuildTool.GO_MOD,
+            confidence: 0.9
+        },
+        // Rust
+        {
+            files: ['Cargo.toml'],
+            type: ProjectType.RUST,
+            buildTool: BuildTool.CARGO,
+            confidence: 0.9
+        },
+        // Flutter/Dart
+        {
+            files: ['pubspec.yaml'],
+            type: ProjectType.FLUTTER,
+            buildTool: BuildTool.PUB,
+            confidence: 0.9
+        },
+        // PHP
+        {
+            files: ['composer.json'],
+            type: ProjectType.PHP,
+            buildTool: BuildTool.COMPOSER,
+            confidence: 0.9
+        },
+        // Ruby
+        {
+            files: ['Gemfile', 'Rakefile'],
+            type: ProjectType.RUBY,
+            buildTool: BuildTool.BUNDLER,
+            confidence: 0.9
+        },
+        // C/C++
+        {
+            files: ['CMakeLists.txt'],
+            type: ProjectType.C_CPP,
+            buildTool: BuildTool.CMAKE,
+            confidence: 0.9
+        },
+        // Python (명시적 의존성 파일이 있는 경우만)
+        {
+            files: ['requirements.txt', 'pyproject.toml', 'Pipfile', 'setup.py'],
+            type: ProjectType.PYTHON,
+            buildTool: BuildTool.PIP,
+            confidence: 0.8
+        },
+        // Swift (macOS only)
+        {
+            files: ['Package.swift'],
+            type: ProjectType.SWIFT,
+            buildTool: BuildTool.UNKNOWN,
+            confidence: 0.9,
+            detector: () => process.platform === 'darwin'
+        }
+    ];
+
+    /**
      * 파일을 기반으로 프로젝트 타입을 감지합니다
+     * 범용적인 감지 로직: 명시적 빌드 파일을 순회하며 첫 번째로 발견된 타입 반환
      */
     private detectByFiles(projectRoot: string): {
         type: ProjectType;
@@ -45,7 +130,33 @@ export class ProjectDetector {
         buildTool: BuildTool;
     } | null {
         try {
-            // package.json (Node.js/TypeScript/React)
+            // ============================================================
+            // Step 1: 명시적 빌드/설정 파일 기반 감지 (범용적)
+            // ============================================================
+            for (const rule of ProjectDetector.EXPLICIT_BUILD_FILES) {
+                // 플랫폼 조건 체크 (예: Swift는 macOS만)
+                if (rule.detector && !rule.detector(projectRoot)) {
+                    continue;
+                }
+
+                // 파일 존재 여부 확인
+                const foundFile = rule.files.find(file =>
+                    fs.existsSync(path.join(projectRoot, file))
+                );
+
+                if (foundFile) {
+                    console.log(`[ProjectDetector] Detected ${rule.type} by file: ${foundFile}`);
+                    return {
+                        type: rule.type,
+                        confidence: rule.confidence,
+                        buildTool: rule.buildTool
+                    };
+                }
+            }
+
+            // ============================================================
+            // Step 2: package.json 기반 세부 감지 (React, Vue, Angular 등)
+            // ============================================================
             if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
                 const packageJson = JSON.parse(
                     fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')
@@ -95,26 +206,10 @@ export class ProjectDetector {
                 };
             }
 
-            // pom.xml (Java Maven)
-            if (fs.existsSync(path.join(projectRoot, 'pom.xml'))) {
-                return {
-                    type: ProjectType.SPRING_BOOT,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.MAVEN
-                };
-            }
-
-            // build.gradle 또는 build.gradle.kts (Java Gradle) - 안드로이드 포함
-            if (fs.existsSync(path.join(projectRoot, 'build.gradle')) ||
-                fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
-                return {
-                    type: ProjectType.SPRING_BOOT,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.GRADLE
-                };
-            }
-
-            // requirements.txt, pyproject.toml, Pipfile (Python)
+            // ============================================================
+            // Step 3: Python 프레임워크 세부 감지 (Django, Flask, FastAPI)
+            // Note: 기본 Python은 Step 1의 EXPLICIT_BUILD_FILES에서 처리됨
+            // ============================================================
             if (fs.existsSync(path.join(projectRoot, 'requirements.txt')) ||
                 fs.existsSync(path.join(projectRoot, 'pyproject.toml')) ||
                 fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
@@ -140,61 +235,28 @@ export class ProjectDetector {
 
                 // FastAPI
                 if (fs.existsSync(path.join(projectRoot, 'main.py'))) {
-                    const mainPy = fs.readFileSync(path.join(projectRoot, 'main.py'), 'utf8');
-                    if (mainPy.includes('FastAPI') || mainPy.includes('from fastapi')) {
-                        return {
-                            type: ProjectType.FASTAPI,
-                            confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.FLASK_FASTAPI,
-                            buildTool: BuildTool.PIP
-                        };
+                    try {
+                        const mainPy = fs.readFileSync(path.join(projectRoot, 'main.py'), 'utf8');
+                        if (mainPy.includes('FastAPI') || mainPy.includes('from fastapi')) {
+                            return {
+                                type: ProjectType.FASTAPI,
+                                confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.FLASK_FASTAPI,
+                                buildTool: BuildTool.PIP
+                            };
+                        }
+                    } catch {
+                        // 파일 읽기 실패 시 무시
                     }
                 }
-
-                // 일반 Python
-                return {
-                    type: ProjectType.PYTHON,
-                    confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.GENERAL,
-                    buildTool: BuildTool.PIP
-                };
             }
 
-            // go.mod (Go)
-            if (fs.existsSync(path.join(projectRoot, 'go.mod'))) {
-                return {
-                    type: ProjectType.GO,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.GO_MOD
-                };
-            }
+            // ============================================================
+            // Step 4: 기타 프로젝트 타입
+            // Note: 대부분은 Step 1의 EXPLICIT_BUILD_FILES에서 처리됨
+            // 여기서는 디렉토리 스캔이 필요한 특수 케이스만 처리
+            // ============================================================
 
-            // Cargo.toml (Rust)
-            if (fs.existsSync(path.join(projectRoot, 'Cargo.toml'))) {
-                return {
-                    type: ProjectType.RUST,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.CARGO
-                };
-            }
-
-            // pubspec.yaml (Dart/Flutter)
-            if (fs.existsSync(path.join(projectRoot, 'pubspec.yaml'))) {
-                return {
-                    type: ProjectType.FLUTTER,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.PUB
-                };
-            }
-
-            // composer.json (PHP)
-            if (fs.existsSync(path.join(projectRoot, 'composer.json'))) {
-                return {
-                    type: ProjectType.PHP,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.COMPOSER
-                };
-            }
-
-            // *.csproj, *.sln, *.fsproj (C# / .NET)
+            // *.csproj, *.sln, *.fsproj (C# / .NET) - 파일명이 가변적
             try {
                 const csprojFiles = fs.readdirSync(projectRoot).filter(f =>
                     f.endsWith('.csproj') || f.endsWith('.sln') || f.endsWith('.fsproj')
@@ -206,29 +268,11 @@ export class ProjectDetector {
                         buildTool: BuildTool.DOTNET
                     };
                 }
-            } catch (error) {
+            } catch {
                 // 디렉토리 읽기 실패 시 무시
             }
 
-            // Gemfile, Rakefile (Ruby)
-            if (fs.existsSync(path.join(projectRoot, 'Gemfile')) ||
-                fs.existsSync(path.join(projectRoot, 'Rakefile'))) {
-                return {
-                    type: ProjectType.RUBY,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.BUNDLER
-                };
-            }
-
-            // Package.swift (Swift) - Mac OS 환경일 때만
-            if (process.platform === 'darwin' && fs.existsSync(path.join(projectRoot, 'Package.swift'))) {
-                return {
-                    type: ProjectType.SWIFT,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                    buildTool: BuildTool.UNKNOWN
-                };
-            }
-            // *.xcodeproj (iOS/macOS)
+            // *.xcodeproj (iOS/macOS) - 파일명이 가변적, macOS만
             if (process.platform === 'darwin') {
                 try {
                     const xcodeprojFiles = fs.readdirSync(projectRoot).filter(f => f.endsWith('.xcodeproj'));
@@ -239,18 +283,9 @@ export class ProjectDetector {
                             buildTool: BuildTool.UNKNOWN
                         };
                     }
-                } catch (error) {
+                } catch {
                     // 디렉토리 읽기 실패 시 무시
                 }
-            }
-
-            // CMakeLists.txt (C/C++)
-            if (fs.existsSync(path.join(projectRoot, 'CMakeLists.txt'))) {
-                return {
-                    type: ProjectType.C_CPP,
-                    confidence: 0.9,
-                    buildTool: BuildTool.CMAKE
-                };
             }
 
             return null;
@@ -1024,11 +1059,11 @@ export class ProjectDetector {
 
 파일 목록: ${fileList}
 
-지원하는 프로젝트 타입:
-1. nodejs: package.json 존재
+지원하는 프로젝트 타입 (우선순위 순서대로):
+1. java-gradle: build.gradle, build.gradle.kts, settings.gradle, gradlew 존재 (Android 포함)
 2. java-maven: pom.xml 존재
-3. java-gradle: build.gradle 또는 build.gradle.kts 존재
-4. python: requirements.txt, pyproject.toml, 또는 Pipfile 존재
+3. nodejs: package.json 존재
+4. python: requirements.txt, pyproject.toml, 또는 Pipfile 존재 (단, __pycache__나 .pytest_cache 폴더만 있는 경우는 python이 아닐 수 있음)
 5. go: go.mod 존재
 6. rust: Cargo.toml 존재
 7. php: composer.json 존재
@@ -1038,11 +1073,14 @@ export class ProjectDetector {
 11. swift: Package.swift 또는 *.xcodeproj 존재 (Mac OS만)
 12. c-cpp: CMakeLists.txt 존재
 
+중요: __pycache__, .pytest_cache 같은 캐시 디렉토리만으로 Python 프로젝트라고 판단하지 마세요.
+build.gradle이나 settings.gradle이 있으면 반드시 java-gradle로 판단하세요.
+
 JSON 형식으로 응답하세요:
 {
-  "projectType": "nodejs",
+  "projectType": "java-gradle",
   "confidence": 0.9,
-  "reasoning": "package.json 파일이 존재하므로 Node.js 프로젝트입니다."
+  "reasoning": "build.gradle 파일이 존재하므로 Gradle 기반 Java/Android 프로젝트입니다."
 }`;
 
             // LLM 호출

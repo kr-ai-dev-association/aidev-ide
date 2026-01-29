@@ -51,13 +51,12 @@ export class OutputValidator {
         // 중앙화된 ThinkingPatterns 모듈 사용
         const isThinkingLeak = hasThinkingPattern(response);
 
-        // JSON Function Calling 형식 확인
-        const hasJsonFunctionCall = /\{\s*"function_call(?:s)?"\s*:/.test(response) ||
-            /```json[\s\S]*?\{[\s\S]*?"function_call(?:s)?"[\s\S]*?\}[\s\S]*?```/i.test(response);
+        // 도구 호출 형식 확인 (새 형식: { "tool": "..." })
+        const hasToolCall = /\{\s*["']tool["']\s*:\s*["']/.test(response);
         const hasJsonPlan = /\{\s*"plan"\s*:/.test(response) ||
             /```json[\s\S]*?\{[\s\S]*?"plan"[\s\S]*?\}[\s\S]*?```/i.test(response);
 
-        if (isThinkingLeak && !hasJsonFunctionCall && !hasJsonPlan) {
+        if (isThinkingLeak && !hasToolCall && !hasJsonPlan) {
             return {
                 valid: false,
                 reason: 'THINKING_LEAK',
@@ -66,8 +65,8 @@ export class OutputValidator {
             };
         }
 
-        // 2. 허용된 형식 확인 (JSON Function Calling)
-        const hasAllowedFormat = hasJsonFunctionCall || hasJsonPlan;
+        // 2. 허용된 형식 확인 (도구 호출 또는 plan)
+        const hasAllowedFormat = hasToolCall || hasJsonPlan;
 
         // 2-1. create_file 필수 파라미터(content) 누락 검증
         const validationWarnings: string[] = [];

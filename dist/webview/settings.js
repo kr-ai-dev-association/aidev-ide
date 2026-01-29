@@ -10,10 +10,403 @@
 })(self, () => {
 return /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
-/******/ 	// The require scope
-/******/ 	var __webpack_require__ = {};
+/******/ 	var __webpack_modules__ = ({
+
+/***/ 156:
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   bindBanyaApiKeyEvents: () => (/* binding */ bindBanyaApiKeyEvents),
+/* harmony export */   bindGeminiApiKeyEvents: () => (/* binding */ bindGeminiApiKeyEvents),
+/* harmony export */   showStatus: () => (/* binding */ showStatus)
+/* harmony export */ });
+/**
+ * API Keys Module
+ * Gemini/Banya API 키 관련 기능
+ */
+
+/**
+ * 상태 메시지 표시
+ * @param {HTMLElement} statusElement - 상태 표시 요소
+ * @param {string} message - 메시지
+ * @param {string} type - 메시지 타입 ('info', 'success', 'error')
+ * @param {number} duration - 자동 클리어 시간 (ms), 0이면 클리어 안함
+ */
+function showStatus(statusElement, message, type = "info", duration = 3000) {
+  if (!statusElement) return;
+  statusElement.textContent = message;
+  statusElement.className = `info-message ${type}-message`;
+  if ((type === "success" || type === "error") && duration > 0) {
+    setTimeout(() => {
+      statusElement.textContent = "";
+      statusElement.className = "info-message";
+    }, duration);
+  }
+}
+
+/**
+ * Gemini API 키 이벤트 바인딩
+ * @param {Object} elements - DOM 요소들
+ * @param {Object} languageData - 언어 데이터
+ */
+function bindGeminiApiKeyEvents(elements, languageData) {
+  const {
+    saveGeminiApiKeyButton,
+    geminiApiKeyInput,
+    geminiApiKeyStatus,
+    geminiModelSelect,
+    saveGeminiModelButton,
+    vscode
+  } = elements;
+
+  // Gemini API 키 저장
+  if (saveGeminiApiKeyButton) {
+    saveGeminiApiKeyButton.addEventListener("click", () => {
+      const apiKey = geminiApiKeyInput.value.trim();
+      if (apiKey) {
+        vscode.postMessage({
+          command: "saveGeminiApiKey",
+          apiKey: apiKey
+        });
+        const savingText = languageData["apiKeysLoading"] || "Gemini API 키 저장 중...";
+        showStatus(geminiApiKeyStatus, savingText, "info");
+      } else {
+        const pleaseEnterText = languageData["pleaseEnterApiKey"] || "API 키를 입력해주세요.";
+        showStatus(geminiApiKeyStatus, pleaseEnterText, "error");
+      }
+    });
+  }
+
+  // Gemini 모델 선택 변경
+  if (geminiModelSelect) {
+    geminiModelSelect.addEventListener("change", () => {
+      const selectedGeminiModel = geminiModelSelect.value;
+      try {
+        if (geminiApiKeyStatus) {
+          geminiApiKeyStatus.textContent = "Gemini 모델 자동 저장 중...";
+          geminiApiKeyStatus.className = "info-message";
+        }
+        vscode.postMessage({
+          command: "saveGeminiModel",
+          model: selectedGeminiModel
+        });
+      } catch (e) {
+        console.warn("Failed to autosave Gemini model:", e);
+      }
+    });
+  }
+
+  // Gemini 모델 저장 버튼
+  if (saveGeminiModelButton) {
+    saveGeminiModelButton.addEventListener("click", () => {
+      const selectedGeminiModel = geminiModelSelect.value;
+      if (geminiApiKeyStatus) {
+        geminiApiKeyStatus.textContent = "Gemini 모델 저장 중...";
+        geminiApiKeyStatus.className = "info-message";
+      }
+      vscode.postMessage({
+        command: "saveGeminiModel",
+        model: selectedGeminiModel
+      });
+    });
+  }
+}
+
+/**
+ * Banya API 키 이벤트 바인딩
+ * @param {Object} elements - DOM 요소들
+ * @param {Object} languageData - 언어 데이터
+ */
+function bindBanyaApiKeyEvents(elements, languageData) {
+  const {
+    saveBanyaApiKeyButton,
+    banyaApiKeyInput,
+    banyaApiKeyStatus,
+    banyaModelSelect,
+    saveBanyaModelButton,
+    vscode
+  } = elements;
+
+  // Banya API 키 저장
+  if (saveBanyaApiKeyButton) {
+    saveBanyaApiKeyButton.addEventListener("click", () => {
+      const apiKey = banyaApiKeyInput.value.trim();
+      if (apiKey) {
+        vscode.postMessage({
+          command: "saveBanyaApiKey",
+          apiKey: apiKey
+        });
+        const savingText = languageData["apiKeysLoading"] || "Banya API 키 저장 중...";
+        showStatus(banyaApiKeyStatus, savingText, "info");
+      } else {
+        const pleaseEnterText = languageData["pleaseEnterApiKey"] || "API 키를 입력해주세요.";
+        showStatus(banyaApiKeyStatus, pleaseEnterText, "error");
+      }
+    });
+  }
+
+  // Banya 모델 선택 변경
+  if (banyaModelSelect) {
+    banyaModelSelect.addEventListener("change", () => {
+      const selectedBanyaModel = banyaModelSelect.value;
+      try {
+        if (banyaApiKeyStatus) {
+          banyaApiKeyStatus.textContent = "Banya 모델 자동 저장 중...";
+          banyaApiKeyStatus.className = "info-message";
+        }
+        vscode.postMessage({
+          command: "saveBanyaModel",
+          model: selectedBanyaModel
+        });
+      } catch (e) {
+        console.warn("Failed to autosave Banya model:", e);
+      }
+    });
+  }
+
+  // Banya 모델 저장 버튼
+  if (saveBanyaModelButton) {
+    saveBanyaModelButton.addEventListener("click", () => {
+      const selectedBanyaModel = banyaModelSelect.value;
+      if (banyaApiKeyStatus) {
+        banyaApiKeyStatus.textContent = "Banya 모델 저장 중...";
+        banyaApiKeyStatus.className = "info-message";
+      }
+      vscode.postMessage({
+        command: "saveBanyaModel",
+        model: selectedBanyaModel
+      });
+    });
+  }
+}
+
+/***/ }),
+
+/***/ 157:
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   bindSpinnerEvents: () => (/* binding */ bindSpinnerEvents),
+/* harmony export */   bindToggleEvents: () => (/* binding */ bindToggleEvents),
+/* harmony export */   updateSpinnerValue: () => (/* binding */ updateSpinnerValue),
+/* harmony export */   updateToggleState: () => (/* binding */ updateToggleState)
+/* harmony export */ });
+/**
+ * Toggles Module
+ * 토글 스위치 관련 기능 (자동 업데이트, 스트리밍 등)
+ */
+
+/**
+ * 토글 이벤트 바인딩
+ * @param {Object} elements - DOM 요소들
+ */
+function bindToggleEvents(elements) {
+  const {
+    autoUpdateToggle,
+    outputLogToggle,
+    streamingToggle,
+    autoTestRetryToggle,
+    autoCorrectionToggle,
+    autoExecuteToggle,
+    vscode
+  } = elements;
+
+  // 자동 파일 업데이트 토글
+  if (autoUpdateToggle) {
+    autoUpdateToggle.addEventListener("change", () => {
+      const enabled = autoUpdateToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoUpdateEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 출력 로그 토글
+  if (outputLogToggle) {
+    outputLogToggle.addEventListener("change", () => {
+      const enabled = outputLogToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setOutputLogEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 스트리밍 토글
+  if (streamingToggle) {
+    streamingToggle.addEventListener("change", () => {
+      const enabled = streamingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setStreamingEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 자동 테스트 재시도 토글
+  if (autoTestRetryToggle) {
+    autoTestRetryToggle.addEventListener("change", () => {
+      const enabled = autoTestRetryToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoTestRetryEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 자동 오류 수정 토글
+  if (autoCorrectionToggle) {
+    autoCorrectionToggle.addEventListener("change", () => {
+      const enabled = autoCorrectionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoCorrectionEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 명령어 자동 실행 토글
+  if (autoExecuteToggle) {
+    autoExecuteToggle.addEventListener("change", () => {
+      const enabled = autoExecuteToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoExecuteCommandsEnabled",
+          enabled
+        });
+      }
+    });
+  }
+}
+
+/**
+ * 토글 상태 업데이트
+ * @param {HTMLElement} toggleElement - 토글 요소
+ * @param {HTMLElement} statusElement - 상태 표시 요소
+ * @param {boolean} enabled - 활성화 여부
+ * @param {Object} languageData - 언어 데이터
+ * @param {string} enabledKey - 활성화 텍스트 키
+ * @param {string} disabledKey - 비활성화 텍스트 키
+ */
+function updateToggleState(toggleElement, statusElement, enabled, languageData, enabledKey, disabledKey) {
+  if (toggleElement) {
+    toggleElement.checked = enabled;
+  }
+  if (statusElement) {
+    const text = enabled ? languageData[enabledKey] || "활성화됨" : languageData[disabledKey] || "비활성화됨";
+    statusElement.textContent = text;
+    statusElement.className = enabled ? "success-message" : "info-message";
+  }
+}
+
+/**
+ * 스피너 값 이벤트 바인딩
+ * @param {Object} elements - DOM 요소들
+ */
+function bindSpinnerEvents(elements) {
+  const {
+    testRetrySpinner,
+    errorRetrySpinner,
+    vscode
+  } = elements;
+
+  // 테스트 재시도 횟수 스피너
+  if (testRetrySpinner) {
+    testRetrySpinner.addEventListener("change", () => {
+      const count = parseInt(testRetrySpinner.value, 10);
+      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
+        vscode.postMessage({
+          command: "setTestRetryCount",
+          count
+        });
+      }
+    });
+  }
+
+  // 오류 수정 재시도 횟수 스피너
+  if (errorRetrySpinner) {
+    errorRetrySpinner.addEventListener("change", () => {
+      const count = parseInt(errorRetrySpinner.value, 10);
+      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
+        vscode.postMessage({
+          command: "setErrorRetryCount",
+          count
+        });
+      }
+    });
+  }
+}
+
+/**
+ * 스피너 값 업데이트
+ * @param {HTMLElement} spinnerElement - 스피너 요소
+ * @param {number} value - 값
+ */
+function updateSpinnerValue(spinnerElement, value) {
+  if (spinnerElement && typeof value === "number") {
+    spinnerElement.value = value;
+  }
+}
+
+/***/ })
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
 /******/ 	
 /************************************************************************/
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__webpack_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
 /******/ 	/* webpack/runtime/make namespace object */
 /******/ 	(() => {
 /******/ 		// define __esModule on exports
@@ -27,9 +420,11 @@ return /******/ (() => { // webpackBootstrap
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
+// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
+(() => {
 __webpack_require__.r(__webpack_exports__);
-Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }());
-Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/toggles.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }());
+/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(156);
+/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(157);
 // settings.js
 
 
@@ -82,7 +477,7 @@ const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
 // 토글 이벤트 바인딩 (모듈 함수 사용)
-Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/toggles.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())({
+(0,_settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__.bindToggleEvents)({
   autoUpdateToggle,
   outputLogToggle,
   streamingToggle,
@@ -93,7 +488,7 @@ Object(function webpackMissingModule() { var e = new Error("Cannot find module '
 });
 
 // 스피너 이벤트 바인딩 (모듈 함수 사용)
-Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/toggles.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())({
+(0,_settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__.bindSpinnerEvents)({
   testRetrySpinner,
   errorRetrySpinner,
   vscode
@@ -787,7 +1182,7 @@ if (ollamaServerTypeSelect) {
       ollamaServerType: selectedType
     });
     const savingText = "Ollama 서버 타입 저장 중...";
-    Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, savingText, "info");
+    (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, savingText, "info");
   });
 }
 
@@ -802,10 +1197,10 @@ if (saveGeminiApiKeyButton) {
         apiKey: apiKey
       });
       const savingText = languageData["apiKeysLoading"] || "Gemini API 키 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(geminiApiKeyStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(geminiApiKeyStatus, savingText, "info");
     } else {
       const pleaseEnterText = languageData["pleaseEnterApiKey"] || "API 키를 입력해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(geminiApiKeyStatus, pleaseEnterText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(geminiApiKeyStatus, pleaseEnterText, "error");
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
     try {
@@ -839,14 +1234,14 @@ if (saveLocalOllamaApiUrlButton) {
           apiUrl: apiUrl
         });
         const savingText = languageData["ollamaApiUrlSaving"] || "로컬 Ollama API URL 저장 중...";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, savingText, "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, savingText, "info");
       } catch (error) {
         const invalidUrlText = languageData["invalidUrlFormat"] || "올바른 URL 형식을 입력해주세요. (예: http://localhost:11434)";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, invalidUrlText, "error");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, invalidUrlText, "error");
       }
     } else {
       const pleaseEnterText = languageData["pleaseEnterOllamaApiUrl"] || "로컬 Ollama API URL을 입력해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, pleaseEnterText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, pleaseEnterText, "error");
     }
   });
 }
@@ -864,14 +1259,14 @@ if (saveRemoteOllamaApiUrlButton) {
           apiUrl: apiUrl
         });
         const savingText = languageData["ollamaApiUrlSaving"] || "원격 서버 API URL 저장 중...";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, savingText, "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, savingText, "info");
       } catch (error) {
         const invalidUrlText = languageData["invalidUrlFormat"] || "올바른 URL 형식을 입력해주세요. (예: http://192.168.1.100:11434)";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, invalidUrlText, "error");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, invalidUrlText, "error");
       }
     } else {
       const pleaseEnterText = languageData["pleaseEnterOllamaApiUrl"] || "원격 서버 API URL을 입력해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, pleaseEnterText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, pleaseEnterText, "error");
     }
   });
 }
@@ -886,10 +1281,10 @@ if (saveOllamaServerTypeButton) {
         ollamaServerType: serverType
       });
       const savingText = languageData["ollamaServerTypeSaving"] || "Ollama 서버 타입 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, savingText, "info");
     } else {
       const pleaseSelectText = languageData["pleaseSelectOllamaServerType"] || "Ollama 서버 타입을 선택해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, pleaseSelectText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, pleaseSelectText, "error");
     }
   });
 }
@@ -904,10 +1299,10 @@ if (saveOllamaModelButton) {
         model: model
       });
       const savingText = "Ollama 모델 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaModelStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaModelStatus, savingText, "info");
     } else {
       // console.log('No model selected, showing error');
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaModelStatus, "모델을 선택해주세요.", "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaModelStatus, "모델을 선택해주세요.", "error");
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
     try {
@@ -992,9 +1387,9 @@ if (saveLocalOllamaEndpointButton) {
         endpoint: endpoint
       });
       const savingText = "로컬 Ollama 엔드포인트 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaEndpointStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, savingText, "info");
     } else {
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaEndpointStatus, "엔드포인트를 선택해주세요.", "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, "엔드포인트를 선택해주세요.", "error");
     }
   });
 }
@@ -1009,9 +1404,9 @@ if (saveRemoteOllamaEndpointButton) {
         endpoint: endpoint
       });
       const savingText = "원격 서버 엔드포인트 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaEndpointStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, savingText, "info");
     } else {
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaEndpointStatus, "엔드포인트를 선택해주세요.", "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, "엔드포인트를 선택해주세요.", "error");
     }
   });
 }
@@ -1026,9 +1421,9 @@ if (saveRemoteOllamaModelButton) {
         model: model
       });
       const savingText = "원격 서버 모델명 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaModelStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, savingText, "info");
     } else {
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaModelStatus, "모델명을 입력해주세요.", "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, "모델명을 입력해주세요.", "error");
     }
   });
 }
@@ -1043,10 +1438,10 @@ if (saveBanyaLicenseButton) {
         banyaLicenseSerial: licenseSerial
       });
       const savingText = languageData["banyaLicenseSaving"] || "Banya 라이센스 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, savingText, "info");
     } else {
       const pleaseEnterText = languageData["pleaseEnterBanyaLicense"] || "라이센스 시리얼을 입력해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, pleaseEnterText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, pleaseEnterText, "error");
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
     try {
@@ -1077,10 +1472,10 @@ if (verifyBanyaLicenseButton) {
         licenseSerial: licenseSerial
       });
       const verifyingText = languageData["banyaLicenseVerifying"] || "Banya 라이센스 검증 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, verifyingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, verifyingText, "info");
     } else {
       const pleaseEnterText = languageData["pleaseEnterBanyaLicense"] || "라이센스 시리얼을 입력해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, pleaseEnterText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, pleaseEnterText, "error");
     }
     // 선택 변경 시에도 즉시 저장(자동 저장)
     try {
@@ -1108,7 +1503,7 @@ if (deleteBanyaLicenseButton) {
       command: "deleteBanyaLicense"
     });
     const deletingText = languageData["banyaLicenseDeleting"] || "Banya 라이센스 삭제 중...";
-    Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, deletingText, "info");
+    (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, deletingText, "info");
   });
 }
 
@@ -1240,10 +1635,10 @@ if (saveBanyaApiKeyButton) {
         apiKey: apiKey
       });
       const savingText = languageData["apiKeysLoading"] || "Banya API 키 저장 중...";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaApiKeyStatus, savingText, "info");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaApiKeyStatus, savingText, "info");
     } else {
       const pleaseEnterText = languageData["pleaseEnterApiKey"] || "API 키를 입력해주세요.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaApiKeyStatus, pleaseEnterText, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaApiKeyStatus, pleaseEnterText, "error");
     }
   });
 }
@@ -1584,7 +1979,7 @@ window.addEventListener("message", event => {
       if (ollamaServerTypeSelect && typeof message.ollamaServerType === "string") {
         ollamaServerTypeSelect.value = message.ollamaServerType || "local";
         const setText = message.ollamaServerType === "remote" ? languageData["ollamaServerTypeRemoteSet"] || "Ollama 서버 타입: 원격 서버" : languageData["ollamaServerTypeLocalSet"] || "Ollama 서버 타입: 로컬 머신";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, setText, "success");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, setText, "success");
 
         // AI 모델이 'ollama'인 경우에만 섹션 활성화/비활성화
         const currentAiModel = aiModelSelect ? aiModelSelect.value : "gemini";
@@ -1617,14 +2012,14 @@ window.addEventListener("message", event => {
         localOllamaApiUrlInput.value = message.localOllamaApiUrl || "";
         const txt = message.localOllamaApiUrl ? languageData["ollamaApiUrlSet"] || "Ollama API URL이 설정되어 있습니다." : languageData["ollamaApiUrlNotSet"] || "Ollama API URL이 설정되지 않았습니다.";
         if (localOllamaApiUrlStatus) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, txt, message.localOllamaApiUrl ? "success" : "info");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, txt, message.localOllamaApiUrl ? "success" : "info");
         }
       }
       if (localOllamaEndpointSelect && typeof message.localOllamaEndpoint === "string") {
         localOllamaEndpointSelect.value = message.localOllamaEndpoint || "/api/generate";
         const txt = message.localOllamaEndpoint ? languageData["ollamaEndpointSet"] || `로컬 엔드포인트가 설정되어 있습니다: ${message.localOllamaEndpoint}` : languageData["ollamaEndpointNotSet"] || "로컬 엔드포인트가 설정되지 않았습니다.";
         if (localOllamaEndpointStatus) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaEndpointStatus, txt, message.localOllamaEndpoint ? "success" : "info");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, txt, message.localOllamaEndpoint ? "success" : "info");
         }
       }
 
@@ -1633,21 +2028,21 @@ window.addEventListener("message", event => {
         remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || "";
         const txt = message.remoteOllamaApiUrl ? languageData["ollamaApiUrlSet"] || "Ollama API URL이 설정되어 있습니다." : languageData["ollamaApiUrlNotSet"] || "Ollama API URL이 설정되지 않았습니다.";
         if (remoteOllamaApiUrlStatus) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, txt, message.remoteOllamaApiUrl ? "success" : "info");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, txt, message.remoteOllamaApiUrl ? "success" : "info");
         }
       }
       if (remoteOllamaEndpointSelect && typeof message.remoteOllamaEndpoint === "string") {
         remoteOllamaEndpointSelect.value = message.remoteOllamaEndpoint || "/api/chat";
         const txt = message.remoteOllamaEndpoint ? languageData["ollamaEndpointSet"] || `원격 서버 엔드포인트가 설정되어 있습니다: ${message.remoteOllamaEndpoint}` : languageData["ollamaEndpointNotSet"] || "원격 서버 엔드포인트가 설정되지 않았습니다.";
         if (remoteOllamaEndpointStatus) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaEndpointStatus, txt, message.remoteOllamaEndpoint ? "success" : "info");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, txt, message.remoteOllamaEndpoint ? "success" : "info");
         }
       }
       if (remoteOllamaModelInput && typeof message.remoteOllamaModel === "string") {
         remoteOllamaModelInput.value = message.remoteOllamaModel || "";
         const txt = message.remoteOllamaModel ? languageData["ollamaModelSet"] || `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}` : languageData["ollamaModelNotSet"] || "원격 서버 모델이 설정되지 않았습니다.";
         if (remoteOllamaModelStatus) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaModelStatus, txt, message.remoteOllamaModel ? "success" : "info");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, txt, message.remoteOllamaModel ? "success" : "info");
         }
       }
 
@@ -2165,50 +2560,50 @@ window.addEventListener("message", event => {
       if (geminiApiKeyInput && typeof message.geminiApiKey === "string") {
         geminiApiKeyInput.value = message.geminiApiKey;
         const geminiApiKeySetText = message.geminiApiKey ? languageData["geminiApiKeySet"] || "Gemini API 키가 설정되어 있습니다." : languageData["geminiApiKeyNotSet"] || "Gemini API 키가 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(geminiApiKeyStatus, geminiApiKeySetText, message.geminiApiKey ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(geminiApiKeyStatus, geminiApiKeySetText, message.geminiApiKey ? "success" : "info");
       }
 
       // Banya API 키 로드
       if (banyaApiKeyInput && typeof message.banyaApiKey === "string") {
         banyaApiKeyInput.value = message.banyaApiKey;
         const banyaApiKeySetText = message.banyaApiKey ? "Banya API 키가 설정되어 있습니다." : "Banya API 키가 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaApiKeyStatus, banyaApiKeySetText, message.banyaApiKey ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaApiKeyStatus, banyaApiKeySetText, message.banyaApiKey ? "success" : "info");
       }
       // 로컬 Ollama API URL 상태 로드 (기본값 폴백)
       if (localOllamaApiUrlInput && typeof message.localOllamaApiUrl === "string") {
         localOllamaApiUrlInput.value = message.localOllamaApiUrl || "http://localhost:11434";
         const localOllamaApiUrlSetText = message.localOllamaApiUrl ? languageData["ollamaApiUrlSet"] || "로컬 Ollama API URL이 설정되어 있습니다." : languageData["ollamaApiUrlNotSet"] || "로컬 Ollama API URL이 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, localOllamaApiUrlSetText, message.localOllamaApiUrl ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, localOllamaApiUrlSetText, message.localOllamaApiUrl ? "success" : "info");
       }
       // 로컬 Ollama 엔드포인트 상태 로드 (기본값 폴백)
       if (localOllamaEndpointSelect && typeof message.localOllamaEndpoint === "string") {
         localOllamaEndpointSelect.value = message.localOllamaEndpoint || "/api/generate";
         const localOllamaEndpointSetText = message.localOllamaEndpoint ? `로컬 Ollama 엔드포인트가 설정되어 있습니다: ${message.localOllamaEndpoint}` : "로컬 Ollama 엔드포인트가 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaEndpointStatus, localOllamaEndpointSetText, message.localOllamaEndpoint ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, localOllamaEndpointSetText, message.localOllamaEndpoint ? "success" : "info");
       }
       // 원격 서버 API URL 상태 로드
       if (remoteOllamaApiUrlInput && typeof message.remoteOllamaApiUrl === "string") {
         remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || "";
         const remoteOllamaApiUrlSetText = message.remoteOllamaApiUrl ? "원격 서버 API URL이 설정되어 있습니다." : "원격 서버 API URL이 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, remoteOllamaApiUrlSetText, message.remoteOllamaApiUrl ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, remoteOllamaApiUrlSetText, message.remoteOllamaApiUrl ? "success" : "info");
       }
       // 원격 서버 엔드포인트 상태 로드
       if (remoteOllamaEndpointSelect && typeof message.remoteOllamaEndpoint === "string") {
         remoteOllamaEndpointSelect.value = message.remoteOllamaEndpoint || "/api/generate";
         const remoteOllamaEndpointSetText = message.remoteOllamaEndpoint ? `원격 서버 엔드포인트가 설정되어 있습니다: ${message.remoteOllamaEndpoint}` : "원격 서버 엔드포인트가 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaEndpointStatus, remoteOllamaEndpointSetText, message.remoteOllamaEndpoint ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, remoteOllamaEndpointSetText, message.remoteOllamaEndpoint ? "success" : "info");
       }
       // 원격 서버 모델명 상태 로드
       if (remoteOllamaModelInput && typeof message.remoteOllamaModel === "string") {
         remoteOllamaModelInput.value = message.remoteOllamaModel || "";
         const remoteOllamaModelSetText = message.remoteOllamaModel ? `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}` : "원격 서버 모델이 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaModelStatus, remoteOllamaModelSetText, message.remoteOllamaModel ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, remoteOllamaModelSetText, message.remoteOllamaModel ? "success" : "info");
       }
       // Ollama 서버 타입 상태 로드
       if (ollamaServerTypeSelect && typeof message.ollamaServerType === "string") {
         ollamaServerTypeSelect.value = message.ollamaServerType || "local";
         const ollamaServerTypeSetText = message.ollamaServerType ? `Ollama 서버 타입이 설정되어 있습니다: ${message.ollamaServerType === "local" ? "로컬 머신" : "원격 서버"}` : "Ollama 서버 타입이 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, ollamaServerTypeSetText, message.ollamaServerType ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, ollamaServerTypeSetText, message.ollamaServerType ? "success" : "info");
 
         // 서버 타입에 따라 섹션 표시/숨김
         if (message.ollamaServerType === "local") {
@@ -2254,7 +2649,7 @@ window.addEventListener("message", event => {
           }
         }
         const ollamaModelSetText = message.ollamaModel ? `Ollama 모델이 설정되어 있습니다: ${message.ollamaModel}` : "Ollama 모델이 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaModelStatus, ollamaModelSetText, message.ollamaModel ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaModelStatus, ollamaModelSetText, message.ollamaModel ? "success" : "info");
       } else {
         console.log("[Settings] No valid ollamaModel in currentSettings message");
       }
@@ -2266,12 +2661,12 @@ window.addEventListener("message", event => {
           banyaLicenseSerialInput.value = message.banyaLicenseSerial.trim();
           banyaLicenseSerialInput.readOnly = true; // 저장된 라이센스는 읽기 전용으로 설정
           const banyaLicenseSetText = languageData["banyaLicenseSet"] || "Banya 라이센스가 설정되어 있습니다.";
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, banyaLicenseSetText, "success");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, banyaLicenseSetText, "success");
         } else {
           banyaLicenseSerialInput.value = "";
           banyaLicenseSerialInput.readOnly = false; // 라이센스가 없으면 편집 가능
           const banyaLicenseNotSetText = languageData["banyaLicenseNotSet"] || "Banya 라이센스가 설정되지 않았습니다.";
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, banyaLicenseNotSetText, "info");
+          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, banyaLicenseNotSetText, "info");
         }
       }
 
@@ -2292,74 +2687,74 @@ window.addEventListener("message", event => {
       break;
     case "apiKeySaved":
       const geminiApiKeySavedText = languageData["geminiApiKeySaved"] || "Gemini API 키가 저장되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(geminiApiKeyStatus, geminiApiKeySavedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(geminiApiKeyStatus, geminiApiKeySavedText, "success");
       geminiApiKeyInput.value = "";
       break;
     case "apiKeySaveError":
       const geminiApiKeyErrorText = languageData["geminiApiKeyError"] || "Gemini API 키 저장 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(geminiApiKeyStatus, `${geminiApiKeyErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(geminiApiKeyStatus, `${geminiApiKeyErrorText} ${message.error}`, "error");
       break;
     case "localOllamaApiUrlSaved":
       const localOllamaApiUrlSavedText = languageData["ollamaApiUrlSaved"] || "로컬 Ollama API URL이 저장되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, localOllamaApiUrlSavedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, localOllamaApiUrlSavedText, "success");
       localOllamaApiUrlInput.value = "";
       break;
     case "localOllamaApiUrlError":
       const localOllamaApiUrlErrorText = languageData["ollamaApiUrlError"] || "로컬 Ollama API URL 저장 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, `${localOllamaApiUrlErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, `${localOllamaApiUrlErrorText} ${message.error}`, "error");
       break;
     case "localOllamaEndpointSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaEndpointStatus, "로컬 Ollama 엔드포인트가 저장되었습니다.", "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, "로컬 Ollama 엔드포인트가 저장되었습니다.", "success");
       break;
     case "localOllamaEndpointError":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaEndpointStatus, `로컬 Ollama 엔드포인트 저장 실패: ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, `로컬 Ollama 엔드포인트 저장 실패: ${message.error}`, "error");
       break;
     case "remoteOllamaApiUrlSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, "원격 서버 API URL이 저장되었습니다.", "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, "원격 서버 API URL이 저장되었습니다.", "success");
       remoteOllamaApiUrlInput.value = "";
       break;
     case "remoteOllamaApiUrlError":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, `원격 서버 API URL 저장 실패: ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, `원격 서버 API URL 저장 실패: ${message.error}`, "error");
       break;
     case "remoteOllamaEndpointSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaEndpointStatus, "원격 서버 엔드포인트가 저장되었습니다.", "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, "원격 서버 엔드포인트가 저장되었습니다.", "success");
       break;
     case "remoteOllamaEndpointError":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaEndpointStatus, `원격 서버 엔드포인트 저장 실패: ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, `원격 서버 엔드포인트 저장 실패: ${message.error}`, "error");
       break;
     case "remoteOllamaModelSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaModelStatus, "원격 서버 모델명이 저장되었습니다.", "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, "원격 서버 모델명이 저장되었습니다.", "success");
       remoteOllamaModelInput.value = "";
       break;
     case "remoteOllamaModelError":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaModelStatus, `원격 서버 모델명 저장 실패: ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, `원격 서버 모델명 저장 실패: ${message.error}`, "error");
       break;
     case "ollamaServerTypeSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, "Ollama 서버 타입이 저장되었습니다.", "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, "Ollama 서버 타입이 저장되었습니다.", "success");
       break;
     case "ollamaServerTypeSaveError":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaServerTypeStatus, `Ollama 서버 타입 저장 실패: ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaServerTypeStatus, `Ollama 서버 타입 저장 실패: ${message.error}`, "error");
       break;
     case "banyaLicenseSaved":
       const banyaLicenseSavedText = languageData["banyaLicenseSaved"] || "Banya 라이센스가 저장되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, banyaLicenseSavedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, banyaLicenseSavedText, "success");
       banyaLicenseSerialInput.value = "";
       break;
     case "banyaLicenseError":
       const banyaLicenseErrorText = languageData["banyaLicenseError"] || "Banya 라이센스 저장 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, `${banyaLicenseErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, `${banyaLicenseErrorText} ${message.error}`, "error");
       break;
     case "errorRetryCountSaved":
       const errorRetryCountSavedText = languageData["errorRetryCountSaved"] || "오류 수정 횟수가 저장되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(errorRetryStatus, errorRetryCountSavedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(errorRetryStatus, errorRetryCountSavedText, "success");
       break;
     case "errorRetryCountSaveError":
       const errorRetryCountSaveErrorText = languageData["errorRetryCountSaveError"] || "오류 수정 횟수 저장 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(errorRetryStatus, `${errorRetryCountSaveErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(errorRetryStatus, `${errorRetryCountSaveErrorText} ${message.error}`, "error");
       break;
     case "banyaLicenseVerified":
       const banyaLicenseVerifiedText = languageData["banyaLicenseVerified"] || "Banya 라이센스가 유효합니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, banyaLicenseVerifiedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, banyaLicenseVerifiedText, "success");
       isLicenseVerified = true;
       console.log("License verification successful, enabling save buttons");
       updateSaveButtonsState();
@@ -2367,7 +2762,7 @@ window.addEventListener("message", event => {
       break;
     case "banyaLicenseVerificationFailed":
       const banyaLicenseVerificationFailedText = languageData["banyaLicenseVerificationFailed"] || "Banya 라이센스 검증 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, `${banyaLicenseVerificationFailedText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, `${banyaLicenseVerificationFailedText} ${message.error}`, "error");
       isLicenseVerified = false;
       console.log("License verification failed, disabling save buttons");
       updateSaveButtonsState();
@@ -2375,7 +2770,7 @@ window.addEventListener("message", event => {
       break;
     case "banyaLicenseDeleted":
       const banyaLicenseDeletedText = languageData["banyaLicenseDeleted"] || "Banya 라이센스가 삭제되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, banyaLicenseDeletedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, banyaLicenseDeletedText, "success");
       if (banyaLicenseSerialInput) {
         banyaLicenseSerialInput.value = "";
         banyaLicenseSerialInput.readOnly = false; // 라이센스 삭제 시 편집 가능하게 설정
@@ -2386,22 +2781,22 @@ window.addEventListener("message", event => {
       break;
     case "banyaLicenseDeleteError":
       const banyaLicenseDeleteErrorText = languageData["banyaLicenseDeleteError"] || "Banya 라이센스 삭제 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, `${banyaLicenseDeleteErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, `${banyaLicenseDeleteErrorText} ${message.error}`, "error");
       break;
     case "aiModelSaved":
       const aiModelSavedText = languageData["aiModelSaved"] || "AI 모델이 저장되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(sourcePathStatus, aiModelSavedText, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(sourcePathStatus, aiModelSavedText, "success");
       break;
     case "aiModelSaveError":
       const aiModelSaveErrorText = languageData["aiModelSaveError"] || "AI 모델 저장 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(sourcePathStatus, `${aiModelSaveErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(sourcePathStatus, `${aiModelSaveErrorText} ${message.error}`, "error");
       break;
     case "currentOllamaModel":
       if (message.model && ollamaModelSelect) {
         // console.log('Received current Ollama model:', message.model);
         ollamaModelSelect.value = message.model;
         const ollamaModelSetText = message.model ? `Ollama 모델이 설정되어 있습니다: ${message.model}` : "Ollama 모델이 설정되지 않았습니다.";
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaModelStatus, ollamaModelSetText, message.model ? "success" : "info");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaModelStatus, ollamaModelSetText, message.model ? "success" : "info");
 
         // gpt-oss-120b:cloud 모델인 경우 인증 섹션 표시
         const authSection = document.getElementById("ollama-auth-section");
@@ -2424,16 +2819,16 @@ window.addEventListener("message", event => {
       }
       break;
     case "ollamaModelSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaModelStatus, "Ollama 모델이 저장되었습니다.", "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaModelStatus, "Ollama 모델이 저장되었습니다.", "success");
       break;
     case "ollamaModelError":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaModelStatus, `Ollama 모델 저장 실패: ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaModelStatus, `Ollama 모델 저장 실패: ${message.error}`, "error");
       break;
     case "ollamaAuthResult":
       if (message.success) {
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaAuthStatus, "Ollama 인증이 성공했습니다.", "success");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaAuthStatus, "Ollama 인증이 성공했습니다.", "success");
       } else {
-        Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(ollamaAuthStatus, `Ollama 인증 실패: ${message.message}`, "error");
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(ollamaAuthStatus, `Ollama 인증 실패: ${message.message}`, "error");
       }
       break;
     case "languageDataLoaded":
@@ -2451,7 +2846,7 @@ window.addEventListener("message", event => {
       }
       const languageChangedText = languageData["languageChanged"] || "언어가";
       const languageChangedToText = languageData["languageChangedTo"] || "로 변경되었습니다.";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(sourcePathStatus, `${languageChangedText} ${message.language} ${languageChangedToText}`, "success");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(sourcePathStatus, `${languageChangedText} ${message.language} ${languageChangedToText}`, "success");
       break;
     case "chatThemeSaved":
       console.log("Chat theme saved successfully:", message.theme);
@@ -2484,7 +2879,7 @@ window.addEventListener("message", event => {
       break;
     case "languageSaveError":
       const languageSaveErrorText = languageData["languageSaveError"] || "언어 저장 실패:";
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(sourcePathStatus, `${languageSaveErrorText} ${message.error}`, "error");
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(sourcePathStatus, `${languageSaveErrorText} ${message.error}`, "error");
       break;
     case "currentLanguage":
       // console.log('[Settings] Received currentLanguage message:', message.language);
@@ -2579,14 +2974,14 @@ vscode.postMessage({
   command: "loadOllamaModel"
 });
 const apiKeysLoadingText = languageData["apiKeysLoading"] || "API 키 로드 중...";
-Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(geminiApiKeyStatus, apiKeysLoadingText, "info");
+(0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(geminiApiKeyStatus, apiKeysLoadingText, "info");
 if (localOllamaApiUrlStatus) {
-  Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(localOllamaApiUrlStatus, apiKeysLoadingText, "info");
+  (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, apiKeysLoadingText, "info");
 }
 if (remoteOllamaApiUrlStatus) {
-  Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(remoteOllamaApiUrlStatus, apiKeysLoadingText, "info");
+  (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, apiKeysLoadingText, "info");
 }
-Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(banyaLicenseStatus, apiKeysLoadingText, "info");
+(0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(banyaLicenseStatus, apiKeysLoadingText, "info");
 
 // API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨
 // 여기서는 초기화만 하고, 실제 업데이트는 서버 응답 후에 수행
@@ -2990,290 +3385,313 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // ===== AgentPolicy 관련 함수들 =====
 
-// 카테고리별 파일 목록 캐시
-const agentPolicyFilesCache = {
-  'stable-version': [],
-  'coding-style': [],
-  'project-architecture': [],
-  'dependency-policy': [],
-  'db-policy': []
-};
-
-// 파일 목록 렌더링
-function renderPolicyFileList(category, files) {
-  const listContainer = document.getElementById(`${category}-file-list`);
-  if (!listContainer) return;
-
-  // 캐시 업데이트
-  agentPolicyFilesCache[category] = files;
-
-  // 목록 초기화
-  listContainer.innerHTML = '';
-  if (!files || files.length === 0) {
-    return;
-  }
-  files.forEach(fileName => {
-    const isLegacy = fileName.includes('(레거시)');
-    const displayName = fileName.replace(' (레거시)', '');
-    const item = document.createElement('div');
-    item.className = 'policy-file-item';
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'file-name' + (isLegacy ? ' legacy' : '');
-    nameSpan.textContent = displayName + (isLegacy ? ' (레거시)' : '');
-    item.appendChild(nameSpan);
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'delete-file-btn';
-    deleteBtn.textContent = '삭제';
-    deleteBtn.addEventListener('click', () => {
-      if (confirm(`"${displayName}" 파일을 삭제하시겠습니까?`)) {
-        vscode.postMessage({
-          command: 'deleteAgentPolicyFile',
-          category: category,
-          fileName: displayName
-        });
-      }
-    });
-    item.appendChild(deleteBtn);
-    listContainer.appendChild(item);
-  });
-}
-
-// AgentPolicy 파일 업로드 핸들러 (다중 파일 지원)
-function setupAgentPolicyFileUpload(inputId, selectButtonId, uploadButtonId, statusId, fileNameId, category) {
+// AgentPolicy 파일 업로드 핸들러
+function setupAgentPolicyFileUpload(inputId, selectButtonId, uploadButtonId, deleteButtonId, statusId, fileNameId, uploadCommand) {
   const fileInput = document.getElementById(inputId);
   const selectButton = document.getElementById(selectButtonId);
   const uploadButton = document.getElementById(uploadButtonId);
+  const deleteButton = document.getElementById(deleteButtonId);
   const statusElement = document.getElementById(statusId);
   const fileNameElement = document.getElementById(fileNameId);
   if (!fileInput || !selectButton || !uploadButton || !statusElement) {
     return;
   }
 
-  // 선택된 파일들을 저장할 배열
-  let selectedFiles = [];
-
   // 파일 선택 버튼 클릭
   selectButton.addEventListener("click", () => {
     fileInput.click();
   });
 
-  // 파일 선택 시 (다중 파일 지원)
+  // 파일 선택 시
   fileInput.addEventListener("change", e => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    // MD 파일만 필터링
-    const validFiles = files.filter(f => f.name.endsWith(".md") || f.name.endsWith(".markdown"));
-    if (validFiles.length === 0) {
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(statusElement, "Markdown 파일만 저장할 수 있습니다.", "error");
-      fileInput.value = "";
-      uploadButton.disabled = true;
-      return;
-    }
-    if (validFiles.length < files.length) {
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(statusElement, `${files.length - validFiles.length}개의 비-Markdown 파일이 제외되었습니다.`, "info");
-    }
-    selectedFiles = validFiles;
-    if (fileNameElement) {
-      fileNameElement.textContent = `선택된 파일: ${validFiles.map(f => f.name).join(', ')}`;
-    }
-    uploadButton.disabled = false;
-  });
-
-  // 저장 버튼 클릭 (다중 파일 업로드)
-  uploadButton.addEventListener("click", async () => {
-    if (selectedFiles.length === 0) return;
-    Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(statusElement, "저장 중...", "info");
-    uploadButton.disabled = true;
-    let successCount = 0;
-    let errorCount = 0;
-    for (const file of selectedFiles) {
-      try {
-        const content = await readFileAsText(file);
-        vscode.postMessage({
-          command: 'addAgentPolicyFile',
-          category: category,
-          fileName: file.name,
-          content: content
-        });
-        successCount++;
-      } catch (error) {
-        errorCount++;
-        console.error(`Failed to read file ${file.name}:`, error);
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.name.endsWith(".md") && !file.name.endsWith(".markdown")) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusElement, "Markdown 파일만 저장할 수 있습니다.", "error");
+        fileInput.value = "";
+        uploadButton.disabled = true;
+        return;
       }
-    }
-
-    // 파일 입력 초기화
-    fileInput.value = "";
-    selectedFiles = [];
-    if (fileNameElement) {
-      fileNameElement.textContent = "";
-    }
-    if (errorCount > 0) {
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(statusElement, `${successCount}개 저장됨, ${errorCount}개 실패`, errorCount > 0 ? "error" : "success");
+      const reader = new FileReader();
+      reader.onload = event => {
+        const mdContent = event.target.result;
+        if (fileNameElement) {
+          fileNameElement.textContent = `선택된 파일: ${file.name}`;
+        }
+        uploadButton.disabled = false;
+        uploadButton.dataset.mdContent = mdContent;
+        uploadButton.dataset.xmlContent = mdContent; // 호환성을 위해 xmlContent도 저장
+      };
+      reader.onerror = () => {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusElement, "파일 읽기 실패", "error");
+        uploadButton.disabled = true;
+      };
+      reader.readAsText(file);
     }
   });
-}
 
-// 파일을 텍스트로 읽기 (Promise 반환)
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = event => resolve(event.target.result);
-    reader.onerror = () => reject(new Error("파일 읽기 실패"));
-    reader.readAsText(file);
+  // 저장 버튼 클릭
+  uploadButton.addEventListener("click", () => {
+    const mdContent = uploadButton.dataset.mdContent || uploadButton.dataset.xmlContent;
+    if (mdContent) {
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusElement, "저장 중...", "info");
+      uploadButton.disabled = true;
+      vscode.postMessage({
+        command: uploadCommand,
+        mdContent: mdContent,
+        xmlContent: mdContent // 호환성을 위해 xmlContent도 포함
+      });
+    }
   });
+
+  // 삭제 버튼 클릭
+  if (deleteButton) {
+    deleteButton.addEventListener("click", () => {
+      if (confirm("정말로 이 파일을 삭제하시겠습니까?")) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusElement, "삭제 중...", "info");
+        // 삭제 명령어 매핑
+        const deleteCommandMap = {
+          "agent-policy-stable-version-input": "deleteAgentPolicyStableVersion",
+          "agent-policy-coding-style-input": "deleteAgentPolicyCodingStyle",
+          "agent-policy-project-architecture-input": "deleteAgentPolicyProjectArchitecture",
+          "agent-policy-dependency-policy-input": "deleteAgentPolicyDependencyPolicy",
+          "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy"
+        };
+        const deleteCommand = deleteCommandMap[inputId];
+        if (deleteCommand && vscode) {
+          vscode.postMessage({
+            command: deleteCommand
+          });
+        }
+      }
+    });
+  }
 }
 
-// AgentPolicy 파일 로드 (모든 카테고리의 파일 목록 조회)
+// AgentPolicy 파일 로드
 function loadAgentPolicyFiles() {
   vscode.postMessage({
-    command: "listAllAgentPolicyFiles"
+    command: "getAgentPolicyStableVersion"
+  });
+  vscode.postMessage({
+    command: "getAgentPolicyCodingStyle"
+  });
+  vscode.postMessage({
+    command: "getAgentPolicyProjectArchitecture"
+  });
+  vscode.postMessage({
+    command: "getAgentPolicyDependencyPolicy"
+  });
+  vscode.postMessage({
+    command: "getAgentPolicyDbPolicy"
   });
 }
 
-// AgentPolicy 파일 업로드 설정 (다중 파일 지원)
-setupAgentPolicyFileUpload("agent-policy-stable-version-input", "select-stable-version-button", "upload-stable-version-button", "stable-version-status", "stable-version-file-name", "stable-version");
-setupAgentPolicyFileUpload("agent-policy-coding-style-input", "select-coding-style-button", "upload-coding-style-button", "coding-style-status", "coding-style-file-name", "coding-style");
-setupAgentPolicyFileUpload("agent-policy-project-architecture-input", "select-project-architecture-button", "upload-project-architecture-button", "project-architecture-status", "project-architecture-file-name", "project-architecture");
-setupAgentPolicyFileUpload("agent-policy-dependency-policy-input", "select-dependency-policy-button", "upload-dependency-policy-button", "dependency-policy-status", "dependency-policy-file-name", "dependency-policy");
-setupAgentPolicyFileUpload("agent-policy-db-policy-input", "select-db-policy-button", "upload-db-policy-button", "db-policy-status", "db-policy-file-name", "db-policy");
-
-// 카테고리별 상태 요소 ID 매핑
-const categoryStatusMap = {
-  'stable-version': 'stable-version-status',
-  'coding-style': 'coding-style-status',
-  'project-architecture': 'project-architecture-status',
-  'dependency-policy': 'dependency-policy-status',
-  'db-policy': 'db-policy-status'
-};
+// AgentPolicy 파일 업로드 설정
+setupAgentPolicyFileUpload("agent-policy-stable-version-input", "select-stable-version-button", "upload-stable-version-button", "delete-stable-version-button", "stable-version-status", "stable-version-file-name", "uploadAgentPolicyStableVersion");
+setupAgentPolicyFileUpload("agent-policy-coding-style-input", "select-coding-style-button", "upload-coding-style-button", "delete-coding-style-button", "coding-style-status", "coding-style-file-name", "uploadAgentPolicyCodingStyle");
+setupAgentPolicyFileUpload("agent-policy-project-architecture-input", "select-project-architecture-button", "upload-project-architecture-button", "delete-project-architecture-button", "project-architecture-status", "project-architecture-file-name", "uploadAgentPolicyProjectArchitecture");
+setupAgentPolicyFileUpload("agent-policy-dependency-policy-input", "select-dependency-policy-button", "upload-dependency-policy-button", "delete-dependency-policy-button", "dependency-policy-status", "dependency-policy-file-name", "uploadAgentPolicyDependencyPolicy");
+setupAgentPolicyFileUpload("agent-policy-db-policy-input", "select-db-policy-button", "upload-db-policy-button", "delete-db-policy-button", "db-policy-status", "db-policy-file-name", "uploadAgentPolicyDbPolicy");
 
 // AgentPolicy 관련 메시지 핸들러
 window.addEventListener("message", event => {
   const message = event.data;
   switch (message.command) {
-    // 모든 카테고리 파일 목록 로드 완료
-    case "allAgentPolicyFilesList":
-      if (message.files) {
-        for (const category of Object.keys(message.files)) {
-          renderPolicyFileList(category, message.files[category]);
-        }
-      }
-      break;
-
-    // 파일 목록 로드 에러
-    case "allAgentPolicyFilesListError":
-      console.error("파일 목록 로드 에러:", message.error);
-      break;
-
-    // 파일 추가 완료
-    case "agentPolicyFileAdded":
-      if (message.category && message.fileName) {
-        const statusId = categoryStatusMap[message.category];
-        if (statusId) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById(statusId), `"${message.fileName}" 파일이 저장되었습니다.`, "success");
-        }
-        // 파일 목록 새로고침
-        vscode.postMessage({
-          command: "listAllAgentPolicyFiles"
-        });
-      }
-      break;
-
-    // 파일 추가 에러
-    case "agentPolicyFileAddError":
-      console.error("파일 추가 에러:", message.error);
-      // 어떤 카테고리에서 에러가 났는지 알 수 없으므로 일반 에러 처리
-      break;
-
-    // 파일 삭제 완료
-    case "agentPolicyFileDeleted":
-      if (message.category && message.fileName) {
-        const statusId = categoryStatusMap[message.category];
-        if (statusId) {
-          Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById(statusId), `"${message.fileName}" 파일이 삭제되었습니다.`, "success");
-        }
-        // 파일 목록 새로고침
-        vscode.postMessage({
-          command: "listAllAgentPolicyFiles"
-        });
-      }
-      break;
-
-    // 파일 삭제 에러
-    case "agentPolicyFileDeleteError":
-      console.error("파일 삭제 에러:", message.error);
-      break;
-
-    // === 레거시 호환성을 위한 핸들러 (기존 단일 파일 API 지원) ===
     case "agentPolicyStableVersionSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById("stable-version-status"), "Stable Version Markdown이 저장되었습니다.", "success");
-      document.getElementById("upload-stable-version-button").disabled = true;
-      vscode.postMessage({
-        command: "listAllAgentPolicyFiles"
-      });
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("stable-version-status"), "Stable Version Markdown이 저장되었습니다.", "success");
+      const stableVersionInput = document.getElementById("agent-policy-stable-version-input");
+      const stableVersionUploadBtn = document.getElementById("upload-stable-version-button");
+      const stableVersionDeleteBtn = document.getElementById("delete-stable-version-button");
+      const stableVersionFileName = document.getElementById("stable-version-file-name");
+      if (stableVersionInput) {
+        stableVersionInput.value = "";
+      }
+      if (stableVersionUploadBtn) {
+        stableVersionUploadBtn.disabled = true;
+        delete stableVersionUploadBtn.dataset.mdContent;
+        delete stableVersionUploadBtn.dataset.xmlContent;
+      }
+      if (stableVersionDeleteBtn) {
+        stableVersionDeleteBtn.style.display = "inline-block";
+      }
+      if (stableVersionFileName) {
+        stableVersionFileName.textContent = "";
+      }
+      break;
+    case "agentPolicyStableVersionSaveError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("stable-version-status"), `저장 실패: ${message.error}`, "error");
+      document.getElementById("upload-stable-version-button").disabled = false;
       break;
     case "agentPolicyStableVersionLoaded":
-    case "agentPolicyCodingStyleLoaded":
-    case "agentPolicyProjectArchitectureLoaded":
-    case "agentPolicyDependencyPolicyLoaded":
-    case "agentPolicyDbPolicyLoaded":
-      // 레거시 로드 응답은 무시 (listAllAgentPolicyFiles 사용)
+      if (message.mdContent || message.xmlContent) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("stable-version-status"), "Stable Version Markdown이 로드되었습니다.", "success");
+        document.getElementById("delete-stable-version-button").style.display = "inline-block";
+      }
       break;
     case "agentPolicyCodingStyleSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById("coding-style-status"), "Coding Style Markdown이 저장되었습니다.", "success");
-      document.getElementById("upload-coding-style-button").disabled = true;
-      vscode.postMessage({
-        command: "listAllAgentPolicyFiles"
-      });
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("coding-style-status"), "Coding Style Markdown이 저장되었습니다.", "success");
+      const codingStyleInput = document.getElementById("agent-policy-coding-style-input");
+      const codingStyleUploadBtn = document.getElementById("upload-coding-style-button");
+      const codingStyleDeleteBtn = document.getElementById("delete-coding-style-button");
+      const codingStyleFileName = document.getElementById("coding-style-file-name");
+      if (codingStyleInput) {
+        codingStyleInput.value = "";
+      }
+      if (codingStyleUploadBtn) {
+        codingStyleUploadBtn.disabled = true;
+        delete codingStyleUploadBtn.dataset.mdContent;
+        delete codingStyleUploadBtn.dataset.xmlContent;
+      }
+      if (codingStyleDeleteBtn) {
+        codingStyleDeleteBtn.style.display = "inline-block";
+      }
+      if (codingStyleFileName) {
+        codingStyleFileName.textContent = "";
+      }
+      break;
+    case "agentPolicyCodingStyleSaveError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("coding-style-status"), `저장 실패: ${message.error}`, "error");
+      document.getElementById("upload-coding-style-button").disabled = false;
+      break;
+    case "agentPolicyCodingStyleLoaded":
+      if (message.mdContent || message.xmlContent) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("coding-style-status"), "Coding Style Markdown이 로드되었습니다.", "success");
+        document.getElementById("delete-coding-style-button").style.display = "inline-block";
+      }
       break;
     case "agentPolicyProjectArchitectureSaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById("project-architecture-status"), "Project Architecture Markdown이 저장되었습니다.", "success");
-      document.getElementById("upload-project-architecture-button").disabled = true;
-      vscode.postMessage({
-        command: "listAllAgentPolicyFiles"
-      });
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("project-architecture-status"), "Project Architecture Markdown이 저장되었습니다.", "success");
+      const projectArchInput = document.getElementById("agent-policy-project-architecture-input");
+      const projectArchUploadBtn = document.getElementById("upload-project-architecture-button");
+      const projectArchDeleteBtn = document.getElementById("delete-project-architecture-button");
+      const projectArchFileName = document.getElementById("project-architecture-file-name");
+      if (projectArchInput) {
+        projectArchInput.value = "";
+      }
+      if (projectArchUploadBtn) {
+        projectArchUploadBtn.disabled = true;
+        delete projectArchUploadBtn.dataset.mdContent;
+        delete projectArchUploadBtn.dataset.xmlContent;
+      }
+      if (projectArchDeleteBtn) {
+        projectArchDeleteBtn.style.display = "inline-block";
+      }
+      if (projectArchFileName) {
+        projectArchFileName.textContent = "";
+      }
+      break;
+    case "agentPolicyProjectArchitectureSaveError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("project-architecture-status"), `저장 실패: ${message.error}`, "error");
+      document.getElementById("upload-project-architecture-button").disabled = false;
+      break;
+    case "agentPolicyProjectArchitectureLoaded":
+      if (message.mdContent || message.xmlContent) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("project-architecture-status"), "Project Architecture Markdown이 로드되었습니다.", "success");
+        document.getElementById("delete-project-architecture-button").style.display = "inline-block";
+      }
       break;
     case "agentPolicyDependencyPolicySaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById("dependency-policy-status"), "Dependency Policy Markdown이 저장되었습니다.", "success");
-      document.getElementById("upload-dependency-policy-button").disabled = true;
-      vscode.postMessage({
-        command: "listAllAgentPolicyFiles"
-      });
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("dependency-policy-status"), "Dependency Policy Markdown이 저장되었습니다.", "success");
+      const dependencyPolicyInput = document.getElementById("agent-policy-dependency-policy-input");
+      const dependencyPolicyUploadBtn = document.getElementById("upload-dependency-policy-button");
+      const dependencyPolicyDeleteBtn = document.getElementById("delete-dependency-policy-button");
+      const dependencyPolicyFileName = document.getElementById("dependency-policy-file-name");
+      if (dependencyPolicyInput) {
+        dependencyPolicyInput.value = "";
+      }
+      if (dependencyPolicyUploadBtn) {
+        dependencyPolicyUploadBtn.disabled = true;
+        delete dependencyPolicyUploadBtn.dataset.mdContent;
+        delete dependencyPolicyUploadBtn.dataset.xmlContent;
+      }
+      if (dependencyPolicyDeleteBtn) {
+        dependencyPolicyDeleteBtn.style.display = "inline-block";
+      }
+      if (dependencyPolicyFileName) {
+        dependencyPolicyFileName.textContent = "";
+      }
+      break;
+    case "agentPolicyDependencyPolicySaveError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("dependency-policy-status"), `저장 실패: ${message.error}`, "error");
+      document.getElementById("upload-dependency-policy-button").disabled = false;
+      break;
+    case "agentPolicyDependencyPolicyLoaded":
+      if (message.mdContent || message.xmlContent) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("dependency-policy-status"), "Dependency Policy Markdown이 로드되었습니다.", "success");
+        document.getElementById("delete-dependency-policy-button").style.display = "inline-block";
+      }
       break;
     case "agentPolicyDbPolicySaved":
-      Object(function webpackMissingModule() { var e = new Error("Cannot find module './settings/api-keys.js'"); e.code = 'MODULE_NOT_FOUND'; throw e; }())(document.getElementById("db-policy-status"), "DB Policy Markdown이 저장되었습니다.", "success");
-      document.getElementById("upload-db-policy-button").disabled = true;
-      vscode.postMessage({
-        command: "listAllAgentPolicyFiles"
-      });
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("db-policy-status"), "DB Policy Markdown이 저장되었습니다.", "success");
+      const dbPolicyInput = document.getElementById("agent-policy-db-policy-input");
+      const dbPolicyUploadBtn = document.getElementById("upload-db-policy-button");
+      const dbPolicyDeleteBtn = document.getElementById("delete-db-policy-button");
+      const dbPolicyFileName = document.getElementById("db-policy-file-name");
+      if (dbPolicyInput) {
+        dbPolicyInput.value = "";
+      }
+      if (dbPolicyUploadBtn) {
+        dbPolicyUploadBtn.disabled = true;
+        delete dbPolicyUploadBtn.dataset.mdContent;
+        delete dbPolicyUploadBtn.dataset.xmlContent;
+      }
+      if (dbPolicyDeleteBtn) {
+        dbPolicyDeleteBtn.style.display = "inline-block";
+      }
+      if (dbPolicyFileName) {
+        dbPolicyFileName.textContent = "";
+      }
+      break;
+    case "agentPolicyDbPolicySaveError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("db-policy-status"), `저장 실패: ${message.error}`, "error");
+      document.getElementById("upload-db-policy-button").disabled = false;
+      break;
+    case "agentPolicyDbPolicyLoaded":
+      if (message.mdContent || message.xmlContent) {
+        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("db-policy-status"), "DB Policy Markdown이 로드되었습니다.", "success");
+        document.getElementById("delete-db-policy-button").style.display = "inline-block";
+      }
       break;
     case "agentPolicyStableVersionDeleted":
-    case "agentPolicyCodingStyleDeleted":
-    case "agentPolicyProjectArchitectureDeleted":
-    case "agentPolicyDependencyPolicyDeleted":
-    case "agentPolicyDbPolicyDeleted":
-      // 레거시 삭제 응답 - 파일 목록 새로고침
-      vscode.postMessage({
-        command: "listAllAgentPolicyFiles"
-      });
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("stable-version-status"), "Stable Version Markdown이 삭제되었습니다.", "success");
+      document.getElementById("delete-stable-version-button").style.display = "none";
       break;
-
-    // 레거시 에러 핸들러
-    case "agentPolicyStableVersionSaveError":
-    case "agentPolicyCodingStyleSaveError":
-    case "agentPolicyProjectArchitectureSaveError":
-    case "agentPolicyDependencyPolicySaveError":
-    case "agentPolicyDbPolicySaveError":
     case "agentPolicyStableVersionDeleteError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("stable-version-status"), `삭제 실패: ${message.error}`, "error");
+      break;
+    case "agentPolicyCodingStyleDeleted":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("coding-style-status"), "Coding Style Markdown이 삭제되었습니다.", "success");
+      document.getElementById("delete-coding-style-button").style.display = "none";
+      break;
     case "agentPolicyCodingStyleDeleteError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("coding-style-status"), `삭제 실패: ${message.error}`, "error");
+      break;
+    case "agentPolicyProjectArchitectureDeleted":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("project-architecture-status"), "Project Architecture Markdown이 삭제되었습니다.", "success");
+      document.getElementById("delete-project-architecture-button").style.display = "none";
+      break;
     case "agentPolicyProjectArchitectureDeleteError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("project-architecture-status"), `삭제 실패: ${message.error}`, "error");
+      break;
+    case "agentPolicyDependencyPolicyDeleted":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("dependency-policy-status"), "Dependency Policy Markdown이 삭제되었습니다.", "success");
+      document.getElementById("delete-dependency-policy-button").style.display = "none";
+      break;
     case "agentPolicyDependencyPolicyDeleteError":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("dependency-policy-status"), `삭제 실패: ${message.error}`, "error");
+      break;
+    case "agentPolicyDbPolicyDeleted":
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("db-policy-status"), "DB Policy Markdown이 삭제되었습니다.", "success");
+      document.getElementById("delete-db-policy-button").style.display = "none";
+      break;
     case "agentPolicyDbPolicyDeleteError":
-      console.error("AgentPolicy 에러:", message.error);
+      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(document.getElementById("db-policy-status"), `삭제 실패: ${message.error}`, "error");
       break;
   }
 });
+})();
+
 /******/ 	return __webpack_exports__;
 /******/ })()
 ;

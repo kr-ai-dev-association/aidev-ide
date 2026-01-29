@@ -276,6 +276,17 @@ export class StateManager {
     private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
     private readonly AUTO_CORRECTION_ENABLED_KEY = 'codepilot.autoCorrectionEnabled';
 
+    // 모델 라우팅 관련 키
+    private readonly COMPACTOR_MODEL_TYPE_KEY = 'codepilot.compactorModelType';
+    private readonly COMPACTOR_MODEL_NAME_KEY = 'codepilot.compactorModelName';
+    private readonly COMPACTOR_API_KEY_KEY = 'codepilot.compactorApiKey';
+    private readonly COMMAND_MODEL_TYPE_KEY = 'codepilot.commandModelType';
+    private readonly COMMAND_MODEL_NAME_KEY = 'codepilot.commandModelName';
+    private readonly COMMAND_API_KEY_KEY = 'codepilot.commandApiKey';
+    private readonly INTENT_MODEL_TYPE_KEY = 'codepilot.intentModelType';
+    private readonly INTENT_MODEL_NAME_KEY = 'codepilot.intentModelName';
+    private readonly INTENT_API_KEY_KEY = 'codepilot.intentApiKey';
+
     /**
      * API Key를 저장합니다
      */
@@ -439,7 +450,7 @@ export class StateManager {
     }
 
     public async getAiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.aiModel')) || 'ollama';
+        return (await this.getSecret('codepilot.aiModel')) || 'gemini';
     }
 
     public async saveAiModel(model: string): Promise<void> {
@@ -447,7 +458,7 @@ export class StateManager {
     }
 
     public async getGeminiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.geminiModel')) || 'gemini-3-pro-preview';
+        return (await this.getSecret('codepilot.geminiModel')) || 'gemini-3-flash-preview';
     }
 
     public async saveGeminiModel(model: string): Promise<void> {
@@ -643,5 +654,335 @@ export class StateManager {
      */
     public async deleteAgentPolicyDbPolicy(): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_DB_POLICY_KEY, undefined);
+    }
+
+    // ===== 모델 라우팅 관련 메서드들 =====
+
+    /**
+     * Compactor 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     */
+    public async saveCompactorModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.COMPACTOR_MODEL_TYPE_KEY, modelType);
+        console.log('[StateManager] Compactor model type saved:', modelType);
+    }
+
+    /**
+     * Compactor 모델 타입을 가져옵니다 (설정되지 않으면 undefined 반환 - 메인 모델 사용)
+     */
+    public async getCompactorModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPACTOR_MODEL_TYPE_KEY);
+    }
+
+    /**
+     * Compactor 모델 타입을 삭제합니다
+     */
+    public async deleteCompactorModelType(): Promise<void> {
+        await this.deleteSecret(this.COMPACTOR_MODEL_TYPE_KEY);
+    }
+
+    /**
+     * Compactor 모델 이름을 저장합니다 (gemini-2.0-flash, llama3 등)
+     */
+    public async saveCompactorModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.COMPACTOR_MODEL_NAME_KEY, modelName);
+        console.log('[StateManager] Compactor model name saved:', modelName);
+    }
+
+    /**
+     * Compactor 모델 이름을 가져옵니다
+     */
+    public async getCompactorModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPACTOR_MODEL_NAME_KEY);
+    }
+
+    /**
+     * Compactor 모델 이름을 삭제합니다
+     */
+    public async deleteCompactorModelName(): Promise<void> {
+        await this.deleteSecret(this.COMPACTOR_MODEL_NAME_KEY);
+    }
+
+    /**
+     * Command 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     */
+    public async saveCommandModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.COMMAND_MODEL_TYPE_KEY, modelType);
+        console.log('[StateManager] Command model type saved:', modelType);
+    }
+
+    /**
+     * Command 모델 타입을 가져옵니다 (설정되지 않으면 undefined 반환 - 메인 모델 사용)
+     */
+    public async getCommandModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.COMMAND_MODEL_TYPE_KEY);
+    }
+
+    /**
+     * Command 모델 타입을 삭제합니다
+     */
+    public async deleteCommandModelType(): Promise<void> {
+        await this.deleteSecret(this.COMMAND_MODEL_TYPE_KEY);
+    }
+
+    /**
+     * Command 모델 이름을 저장합니다 (gemini-2.0-flash, llama3 등)
+     */
+    public async saveCommandModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.COMMAND_MODEL_NAME_KEY, modelName);
+        console.log('[StateManager] Command model name saved:', modelName);
+    }
+
+    /**
+     * Command 모델 이름을 가져옵니다
+     */
+    public async getCommandModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.COMMAND_MODEL_NAME_KEY);
+    }
+
+    /**
+     * Command 모델 이름을 삭제합니다
+     */
+    public async deleteCommandModelName(): Promise<void> {
+        await this.deleteSecret(this.COMMAND_MODEL_NAME_KEY);
+    }
+
+    /**
+     * Compactor 모델 설정을 한 번에 가져옵니다
+     * @returns { type: string | undefined, name: string | undefined }
+     */
+    public async getCompactorModelConfig(): Promise<{ type: string | undefined; name: string | undefined }> {
+        const [type, name] = await Promise.all([
+            this.getCompactorModelType(),
+            this.getCompactorModelName()
+        ]);
+        return { type, name };
+    }
+
+    /**
+     * Command 모델 설정을 한 번에 가져옵니다
+     * @returns { type: string | undefined, name: string | undefined }
+     */
+    public async getCommandModelConfig(): Promise<{ type: string | undefined; name: string | undefined }> {
+        const [type, name] = await Promise.all([
+            this.getCommandModelType(),
+            this.getCommandModelName()
+        ]);
+        return { type, name };
+    }
+
+    /**
+     * Compactor 모델 설정을 한 번에 저장합니다
+     */
+    public async saveCompactorModelConfig(type: string, name: string): Promise<void> {
+        await Promise.all([
+            this.saveCompactorModelType(type),
+            this.saveCompactorModelName(name)
+        ]);
+    }
+
+    /**
+     * Command 모델 설정을 한 번에 저장합니다
+     */
+    public async saveCommandModelConfig(type: string, name: string): Promise<void> {
+        await Promise.all([
+            this.saveCommandModelType(type),
+            this.saveCommandModelName(name)
+        ]);
+    }
+
+    /**
+     * Compactor 모델 설정을 초기화합니다 (메인 모델 사용으로 되돌림)
+     */
+    public async clearCompactorModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteCompactorModelType(),
+            this.deleteCompactorModelName()
+        ]);
+        console.log('[StateManager] Compactor model config cleared (will use main model)');
+    }
+
+    /**
+     * Command 모델 설정을 초기화합니다 (메인 모델 사용으로 되돌림)
+     */
+    public async clearCommandModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteCommandModelType(),
+            this.deleteCommandModelName()
+        ]);
+        console.log('[StateManager] Command model config cleared (will use main model)');
+    }
+
+    // ===== Compactor/Command API 키 관련 메서드들 =====
+
+    /**
+     * Compactor API 키를 저장합니다
+     */
+    public async saveCompactorApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.COMPACTOR_API_KEY_KEY, apiKey);
+        console.log('[StateManager] Compactor API key saved');
+    }
+
+    /**
+     * Compactor API 키를 가져옵니다
+     */
+    public async getCompactorApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPACTOR_API_KEY_KEY);
+    }
+
+    /**
+     * Compactor API 키를 삭제합니다
+     */
+    public async deleteCompactorApiKey(): Promise<void> {
+        await this.deleteSecret(this.COMPACTOR_API_KEY_KEY);
+        console.log('[StateManager] Compactor API key deleted');
+    }
+
+    /**
+     * Command API 키를 저장합니다
+     */
+    public async saveCommandApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.COMMAND_API_KEY_KEY, apiKey);
+        console.log('[StateManager] Command API key saved');
+    }
+
+    /**
+     * Command API 키를 가져옵니다
+     */
+    public async getCommandApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.COMMAND_API_KEY_KEY);
+    }
+
+    /**
+     * Command API 키를 삭제합니다
+     */
+    public async deleteCommandApiKey(): Promise<void> {
+        await this.deleteSecret(this.COMMAND_API_KEY_KEY);
+        console.log('[StateManager] Command API key deleted');
+    }
+
+    /**
+     * Compactor API 키가 설정되어 있는지 확인합니다
+     */
+    public async hasCompactorApiKey(): Promise<boolean> {
+        const key = await this.getCompactorApiKey();
+        return !!key;
+    }
+
+    /**
+     * Command API 키가 설정되어 있는지 확인합니다
+     */
+    public async hasCommandApiKey(): Promise<boolean> {
+        const key = await this.getCommandApiKey();
+        return !!key;
+    }
+
+    // ===== Intent 모델 관련 메서드들 =====
+
+    /**
+     * Intent 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     */
+    public async saveIntentModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.INTENT_MODEL_TYPE_KEY, modelType);
+        console.log('[StateManager] Intent model type saved:', modelType);
+    }
+
+    /**
+     * Intent 모델 타입을 가져옵니다 (설정되지 않으면 undefined 반환 - 메인 모델 사용)
+     */
+    public async getIntentModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.INTENT_MODEL_TYPE_KEY);
+    }
+
+    /**
+     * Intent 모델 타입을 삭제합니다
+     */
+    public async deleteIntentModelType(): Promise<void> {
+        await this.deleteSecret(this.INTENT_MODEL_TYPE_KEY);
+    }
+
+    /**
+     * Intent 모델 이름을 저장합니다
+     */
+    public async saveIntentModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.INTENT_MODEL_NAME_KEY, modelName);
+        console.log('[StateManager] Intent model name saved:', modelName);
+    }
+
+    /**
+     * Intent 모델 이름을 가져옵니다
+     */
+    public async getIntentModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.INTENT_MODEL_NAME_KEY);
+    }
+
+    /**
+     * Intent 모델 이름을 삭제합니다
+     */
+    public async deleteIntentModelName(): Promise<void> {
+        await this.deleteSecret(this.INTENT_MODEL_NAME_KEY);
+    }
+
+    /**
+     * Intent API 키를 저장합니다
+     */
+    public async saveIntentApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.INTENT_API_KEY_KEY, apiKey);
+        console.log('[StateManager] Intent API key saved');
+    }
+
+    /**
+     * Intent API 키를 가져옵니다
+     */
+    public async getIntentApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.INTENT_API_KEY_KEY);
+    }
+
+    /**
+     * Intent API 키를 삭제합니다
+     */
+    public async deleteIntentApiKey(): Promise<void> {
+        await this.deleteSecret(this.INTENT_API_KEY_KEY);
+        console.log('[StateManager] Intent API key deleted');
+    }
+
+    /**
+     * Intent API 키가 설정되어 있는지 확인합니다
+     */
+    public async hasIntentApiKey(): Promise<boolean> {
+        const key = await this.getIntentApiKey();
+        return !!key;
+    }
+
+    /**
+     * Intent 모델 설정을 한 번에 가져옵니다
+     */
+    public async getIntentModelConfig(): Promise<{ type: string | undefined; name: string | undefined }> {
+        const [type, name] = await Promise.all([
+            this.getIntentModelType(),
+            this.getIntentModelName()
+        ]);
+        return { type, name };
+    }
+
+    /**
+     * Intent 모델 설정을 한 번에 저장합니다
+     */
+    public async saveIntentModelConfig(type: string, name: string): Promise<void> {
+        await Promise.all([
+            this.saveIntentModelType(type),
+            this.saveIntentModelName(name)
+        ]);
+    }
+
+    /**
+     * Intent 모델 설정을 초기화합니다 (메인 모델 사용으로 되돌림)
+     */
+    public async clearIntentModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteIntentModelType(),
+            this.deleteIntentModelName(),
+            this.deleteIntentApiKey()
+        ]);
+        console.log('[StateManager] Intent model config cleared (will use main model)');
     }
 }

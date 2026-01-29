@@ -29,7 +29,15 @@ export enum Tool {
     ANALYZE_CODE = 'analyze_code',
     VERIFY_CODE = 'verify_code',
     REFACTOR_CODE = 'refactor_code',
-    RIPGREP_SEARCH = 'ripgrep_search'
+    RIPGREP_SEARCH = 'ripgrep_search',
+    // 새로운 파일 읽기 도구들
+    EXPAND_AROUND_LINE = 'expand_around_line',
+    LIST_IMPORTS = 'list_imports',
+    STAT_FILE = 'stat_file',
+    // Git 및 IDE 연동 도구들
+    GIT_DIFF = 'git_diff',
+    READ_ACTIVE_FILE = 'read_active_file',
+    FETCH_URL = 'fetch_url'
 }
 
 /**

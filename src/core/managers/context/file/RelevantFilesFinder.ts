@@ -4,12 +4,14 @@
  */
 
 import * as path from "path";
+import * as fs from "fs/promises";
 import { glob } from "glob";
 import { ProjectManager } from "../../project/ProjectManager";
 import { estimateTokens } from "../../../../utils";
 import { LLMManager } from "../../model/LLMManager";
 import { FileSearcher } from "./FileSearcher";
 import { getBatchScoringPrompt } from "../prompts/analysis/generalAnalysis";
+import { ProjectContextCache } from "../ProjectContextCache";
 
 export interface RelevantFilesResult {
   fileContentsContext: string;
@@ -30,6 +32,22 @@ export class RelevantFilesFinder {
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
     this.fileSearcher = FileSearcher.getInstance();
+  }
+
+  /**
+   * 캐시를 우선 사용하여 파일 내용 읽기
+   */
+  private async readFileWithCache(filePath: string): Promise<string> {
+    const cache = ProjectContextCache.getInstance();
+    const cachedContent = await cache.getFile(filePath);
+    if (cachedContent) {
+      console.log(`[RelevantFilesFinder] Using cached content: ${filePath}`);
+      return cachedContent;
+    }
+    const content = await fs.readFile(filePath, "utf8");
+    // 캐시에 저장 (백그라운드)
+    cache.cacheFile(filePath).catch(() => {});
+    return content;
   }
 
   /**
@@ -92,9 +110,8 @@ export class RelevantFilesFinder {
         }
 
         try {
-          const fs = await import("fs/promises");
           console.log(`[RelevantFilesFinder] 파일 읽기 시도: ${filePath}`);
-          const content = await fs.readFile(filePath, "utf8");
+          const content = await this.readFileWithCache(filePath);
           const relativePath = path.relative(projectRoot, filePath);
           const fileExtension = path.extname(filePath).substring(1) || "text";
 
@@ -232,8 +249,7 @@ export class RelevantFilesFinder {
         }
 
         try {
-          const fs = await import("fs/promises");
-          const content = await fs.readFile(filePath, "utf8");
+          const content = await this.readFileWithCache(filePath);
           const relativePath = path.relative(projectRoot, filePath);
           const fileExtension = path.extname(filePath).substring(1) || "text";
 
@@ -278,150 +294,16 @@ export class RelevantFilesFinder {
   }
 
   /**
-   * 키워드를 추출합니다
+   * 키워드를 추출합니다 (범용적 - 언어/프레임워크에 의존하지 않음)
    */
   private extractKeywordsFromQuery(userQuery: string): string[] {
-    const cleanQuery = userQuery
+    return userQuery
       .toLowerCase()
-      .replace(/[^\w\s가-힣]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    // 모든 단어 추출 (한국어 포함)
-    const allWords = cleanQuery.split(" ").filter((word) => word.length > 1);
-
-    // 개발 관련 키워드 추가
-    const developmentKeywords = this.getDevelopmentKeywords(userQuery);
-
-    // 모든 키워드 결합
-    const allKeywords = [...allWords, ...developmentKeywords];
-
-    // 키워드 우선순위 기반 필터링
-    return this.prioritizeKeywords(allKeywords, userQuery);
-  }
-
-  /**
-   * 개발 관련 키워드를 추출합니다
-   */
-  private getDevelopmentKeywords(userQuery: string): string[] {
-    const keywords: string[] = [];
-    const queryLower = userQuery.toLowerCase();
-
-    const techKeywords = [
-      "react",
-      "vue",
-      "angular",
-      "node",
-      "express",
-      "typescript",
-      "javascript",
-      "python",
-      "java",
-      "spring",
-      "springboot",
-      "boot",
-      "django",
-      "flask",
-      "vite",
-      "webpack",
-      "babel",
-      "eslint",
-      "prettier",
-      "maven",
-      "gradle",
-      "npm",
-      "yarn",
-      "pnpm",
-      "bun",
-    ];
-
-    for (const keyword of techKeywords) {
-      if (queryLower.includes(keyword)) {
-        keywords.push(keyword);
-      }
-    }
-
-    return keywords;
-  }
-
-  /**
-   * 키워드 우선순위를 기반으로 필터링합니다
-   */
-  private prioritizeKeywords(keywords: string[], userQuery: string): string[] {
-    const keywordScores = new Map<string, number>();
-
-    for (const keyword of keywords) {
-      let score = 0;
-
-      if (userQuery.toLowerCase().includes(keyword.toLowerCase())) {
-        score += 10;
-      }
-
-      const techKeywords = [
-        "react",
-        "vue",
-        "angular",
-        "node",
-        "express",
-        "typescript",
-        "javascript",
-        "python",
-        "java",
-        "spring",
-        "springboot",
-        "boot",
-        "django",
-        "flask",
-        "vite",
-        "webpack",
-        "babel",
-        "eslint",
-        "prettier",
-        "maven",
-        "gradle",
-      ];
-      if (techKeywords.includes(keyword.toLowerCase())) {
-        score += 5;
-      }
-
-      const fileKeywords = [
-        "src",
-        "package",
-        "config",
-        "main",
-        "index",
-        "app",
-        "component",
-        "service",
-        "util",
-        "helper",
-        "controller",
-        "repository",
-        "entity",
-        "application",
-        "resources",
-      ];
-      if (fileKeywords.includes(keyword.toLowerCase())) {
-        score += 2;
-      }
-
-      if (/^[가-힣]+$/.test(keyword)) {
-        score += 3;
-      }
-
-      if (keyword.length < 2) {
-        score -= 5;
-      } else if (keyword.length > 20) {
-        score -= 2;
-      }
-
-      keywordScores.set(keyword, score);
-    }
-
-    return Array.from(keywordScores.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([keyword]) => keyword);
+      .replace(/[^\w\s\uAC00-\uD7AF]/g, " ") // 영문, 숫자, 한글만 유지
+      .split(/\s+/)
+      .filter((word) => word.length > 1 && word.length <= 30) // 2~30자
+      .filter((word, index, self) => self.indexOf(word) === index) // 중복 제거
+      .slice(0, 10); // 상위 10개
   }
 
   /**
@@ -919,7 +801,7 @@ export class RelevantFilesFinder {
         }> = [];
         for (const filePath of batch) {
           try {
-            const content = await fs.readFile(filePath, "utf8");
+            const content = await this.readFileWithCache(filePath);
             const relativePath = path.relative(projectRoot, filePath);
 
             // 파일 내용 요약 (큰 파일 처리)
