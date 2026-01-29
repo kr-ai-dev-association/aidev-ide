@@ -22,6 +22,30 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
+        const waitForCompletion = toolUse.params.wait === 'true' || String(toolUse.params.wait) === 'true';
+
+        // 🔥 wait=true인 경우: 타임아웃 없이 완료까지 대기
+        if (waitForCompletion) {
+            console.log(`[RunCommandToolHandler] wait=true: Waiting for command completion: ${command}`);
+            const result = await context.executionManager.executeCommand(command, {
+                cwd: context.projectRoot
+                // 타임아웃 없음 - 완료까지 대기
+            });
+
+            console.log(`[RunCommandToolHandler] 🔥 DEBUG wait=true stdout: "${result.stdout?.substring(0, 500)}..." (${result.stdout?.length || 0} chars)`);
+
+            return {
+                success: result.success,
+                message: result.success
+                    ? `Command executed: ${command}`
+                    : `Command failed: ${command}`,
+                data: {
+                    output: result.stdout,
+                    error: result.stderr,
+                    exitCode: result.exitCode
+                }
+            };
+        }
 
         // npm install 등 설치 명령어는 기본적으로 더 긴 타임아웃 부여
         const isSetupCommand = command.includes('npm install') || command.includes('yarn install') || command.includes('pnpm install');
@@ -48,21 +72,28 @@ export class RunCommandToolHandler implements IToolHandler {
             if (pid) {
                 console.log(`[RunCommandToolHandler] Long-running command detected (output-based/timeout): ${command}, using continue() pattern`);
 
+                // 🔥 버퍼에 있는 출력을 먼저 가져옴 (타임아웃 전에 생성된 출력)
+                const buffer = context.executionManager.getProcessOutput(pid);
+                const bufferedStdout = buffer?.stdout || initialResult.stdout || '';
+                const bufferedStderr = buffer?.stderr || initialResult.stderr || '';
+
+                console.log(`[RunCommandToolHandler] 🔥 DEBUG buffered stdout: "${bufferedStdout?.substring(0, 200)}..." (${bufferedStdout?.length || 0} chars)`);
+
                 // continue() 호출하여 백그라운드에서 계속 실행
                 context.executionManager.continueProcess(pid);
 
                 // 타임아웃 발생 시에도 성공 메시지 반환
                 const isTimeout = initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE';
                 const outputMessage = isTimeout
-                    ? `명령어가 백그라운드에서 실행 중입니다. ${initialResult.stdout ? `현재까지의 출력:\n${initialResult.stdout}` : ''}`
-                    : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}...`);
+                    ? `명령어가 백그라운드에서 실행 중입니다. ${bufferedStdout ? `현재까지의 출력:\n${bufferedStdout}` : ''}`
+                    : (bufferedStdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}...`);
 
                 return {
                     success: true,
                     message: `Long-running command started: ${command}${pid ? ` (PID: ${pid})` : ''}`,
                     data: {
                         output: outputMessage,
-                        error: initialResult.stderr,
+                        error: bufferedStderr,
                         exitCode: undefined // 장기 실행 프로세스는 exitCode 없음
                     }
                 };
@@ -73,6 +104,8 @@ export class RunCommandToolHandler implements IToolHandler {
         // 이렇게 하면 중복 실행을 방지할 수 있음
         if (initialResult.exitCode !== undefined && !initialResult.error) {
             console.log(`[RunCommandToolHandler] Command completed in initial execution: ${command}`);
+            console.log(`[RunCommandToolHandler] 🔥 DEBUG stdout: "${initialResult.stdout?.substring(0, 200)}..." (${initialResult.stdout?.length || 0} chars)`);
+            console.log(`[RunCommandToolHandler] 🔥 DEBUG stderr: "${initialResult.stderr?.substring(0, 200)}..."`);
             return {
                 success: initialResult.success,
                 message: initialResult.success

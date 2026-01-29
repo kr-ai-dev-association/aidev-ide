@@ -140,7 +140,8 @@ export class ToolSpecBuilder {
                 description: '프로젝트 디렉토리에서 터미널 명령을 실행합니다. **⚠️ 중요: 파일 일괄 수정(find + sed 등)은 절대 사용하지 마세요. 대신 ripgrep_search → read_file → update_file 플로우를 사용하세요.**',
                 parameters: [
                     { name: 'command', required: true, description: '실행할 명령어. **절대 금지: find + sed -i, perl -i, xargs sed 등 파일 일괄 수정 명령어**', type: 'string' },
-                    { name: 'timeout', required: false, description: '명령어 타임아웃 (초)', type: 'string' }
+                    { name: 'timeout', required: false, description: '명령어 타임아웃 (초)', type: 'string' },
+                    { name: 'wait', required: false, description: '완료까지 대기 (true이면 타임아웃 없이 완료까지 대기)', type: 'string' }
                 ]
             });
         }

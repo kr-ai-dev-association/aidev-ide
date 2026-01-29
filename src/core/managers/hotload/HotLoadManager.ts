@@ -190,6 +190,8 @@ ${itemsText}
 ## 매칭 규칙:
 1. 사용자 입력의 의도가 키워드나 설명과 유사하면 매칭으로 판단
 2. 매칭된 Hot Load가 있으면 run_command 도구를 사용하여 해당 명령어를 즉시 실행
+   - **반드시 wait: "true" 파라미터를 포함**하여 명령어가 완료될 때까지 대기
+   - 예: {"tool": "run_command", "command": "...", "wait": "true"}
 3. 매칭되는 Hot Load가 없으면 일반 대화로 처리 (Hot Load에 대해 언급하지 않음)
 
 `;
