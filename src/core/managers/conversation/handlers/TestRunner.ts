@@ -16,7 +16,7 @@ import { AiModelType } from "../../../../services";
 import { AgentConfig } from "../../../config/AgentConfig";
 import { StringUtils } from "../../../utils/StringUtils";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
-import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory } from "./ErrorClassifier";
+import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory, ExecutionOutcome } from "./ErrorClassifier";
 import { AutoRemediator } from "./AutoRemediator";
 
 export interface TestResult {
@@ -285,13 +285,16 @@ export class TestRunner {
         );
       }
 
+      let cliClassification: ClassificationResult | undefined;
+
       if (validationCmd) {
         const lintResult = await TestRunner.runValidationCommand(
           webview,
           validationCmd,
           workspaceRoot,
         );
-        testResults.push(lintResult);
+        testResults.push(lintResult.message);
+        cliClassification = lintResult.classification;
       } else {
         testResults.push(
           `컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어를 결정할 수 없습니다. (규칙 기반 및 LLM fallback 모두 실패)`,
@@ -318,7 +321,7 @@ export class TestRunner {
           "executing",
           "테스트 검증 실패",
         );
-        return { success: false, errorMessage };
+        return { success: false, errorMessage, classification: cliClassification };
       }
 
       // 모든 테스트 통과
@@ -409,12 +412,13 @@ export class TestRunner {
 
   /**
    * 검증 명령어 실행
+   * 실패 시 ExecutionOutcome을 구성하여 구조적 분류를 수행
    */
   private static async runValidationCommand(
     webview: vscode.Webview,
     validationCmd: { command: string; description: string },
     workspaceRoot: string,
-  ): Promise<string> {
+  ): Promise<{ message: string; classification?: ClassificationResult }> {
     WebviewBridge.sendProcessingStatus(
       webview,
       "executing",
@@ -434,8 +438,25 @@ export class TestRunner {
           "executing",
           `${validationCmd.description} 통과`,
         );
-        return message;
+        return { message };
       } else {
+        // ExecutionResult → ExecutionOutcome 변환
+        const outcome: ExecutionOutcome = {
+          command: validationCmd.command,
+          exitCode: result.exitCode,
+          hasStderr: (result.stderr || '').length > 0,
+          hasStdout: (result.stdout || '').length > 0,
+          duration: result.duration,
+          errorCode: result.error?.code,
+          killed: result.error?.killed ?? false,
+          signal: result.error?.signal,
+          stderrSnippet: (result.stderr || result.stdout || '').substring(0, 200),
+        };
+
+        // 구조적 분류
+        const envHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
+        const classification = ErrorClassifier.classifyFromExecution(outcome, envHealth);
+
         const errorOutput = result.stderr || result.stdout || "";
         const truncatedOutput = StringUtils.truncate(
           errorOutput,
@@ -447,7 +468,7 @@ export class TestRunner {
           "executing",
           `${validationCmd.description} 실패`,
         );
-        return message;
+        return { message, classification };
       }
     } catch (error) {
       const message = `${validationCmd.description} 실행 실패: ${error instanceof Error ? error.message : String(error)}`;
@@ -456,7 +477,7 @@ export class TestRunner {
         "executing",
         `${validationCmd.description} 실행 실패`,
       );
-      return message;
+      return { message };
     }
   }
 

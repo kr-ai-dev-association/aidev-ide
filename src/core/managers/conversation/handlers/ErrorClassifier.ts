@@ -21,11 +21,30 @@ export interface RichDiagnostic {
     severity: 'error' | 'warning';
 }
 
+/**
+ * CLI 실행 결과에서 분류에 필요한 구조적 신호만 추출한 경량 어댑터.
+ * ExecutionResult를 대체하지 않고 ErrorClassifier의 입력으로만 사용.
+ */
+export interface ExecutionOutcome {
+    command: string;              // 실행된 명령어 (fingerprint용)
+    exitCode: number | undefined; // -1 for killed, undefined for background
+    hasStderr: boolean;           // stderr.length > 0
+    hasStdout: boolean;           // stdout.length > 0
+    duration: number;             // ms
+    errorCode?: string;           // 'TIMEOUT'|'TIMEOUT_CONTINUE'|'NON_ZERO_EXIT'|'EXECUTION_FAILED'
+    killed: boolean;
+    signal?: string;              // SIGTERM, SIGKILL 등
+    stderrSnippet: string;        // stderr 처음 200자
+}
+
 export enum ErrorCategory {
     ENVIRONMENT_MISSING = 'environment_missing',         // dep dir 없음 (node_modules, venv 등)
     SOURCE_ERRORS_CLUSTERED = 'source_errors_clustered', // 동일 source+code 50%+ → 단일 근본 원인
     SOURCE_ERRORS_SCATTERED = 'source_errors_scattered', // 다양한 에러 → 개별 버그
     CONFIG_ERROR = 'config_error',                       // 설정 파일(tsconfig 등)에만 에러
+    EXECUTION_TIMEOUT = 'execution_timeout',             // 명령어 타임아웃 (SIGTERM/SIGKILL)
+    COMMAND_NOT_FOUND = 'command_not_found',             // exit code 127 또는 "command not found"
+    SILENT_FAILURE = 'silent_failure',                   // non-zero exit, 출력 없음
     UNKNOWN = 'unknown'
 }
 
@@ -160,6 +179,63 @@ export class ErrorClassifier {
         };
     }
 
+    /**
+     * ExecutionOutcome 기반 구조적 분류
+     * CLI 실행 결과의 메타데이터(exitCode, signal, duration)를 활용하여
+     * 문자열 분석 없이 에러 유형을 결정
+     *
+     * 결정 트리:
+     * 1. TIMEOUT/TIMEOUT_CONTINUE → EXECUTION_TIMEOUT
+     * 2. exitCode 127 또는 "command not found" → COMMAND_NOT_FOUND
+     * 3. non-zero exit + 출력 없음 → SILENT_FAILURE
+     * 4. 그 외 → classifyFromMessage() fallback
+     */
+    static classifyFromExecution(
+        outcome: ExecutionOutcome,
+        envHealth?: EnvironmentHealth
+    ): ClassificationResult {
+        const fallbackEnv: EnvironmentHealth = envHealth || {
+            hasManifestFile: false,
+            hasDependencyDir: true,
+            hasLockFile: false,
+            needsInstall: false
+        };
+
+        // 1. 타임아웃
+        if (outcome.errorCode === 'TIMEOUT' || outcome.errorCode === 'TIMEOUT_CONTINUE') {
+            return this.buildExecutionResult(
+                ErrorCategory.EXECUTION_TIMEOUT,
+                outcome,
+                `명령어 타임아웃 (${outcome.duration}ms): ${outcome.command}`,
+                fallbackEnv
+            );
+        }
+
+        // 2. 명령어 미발견 (Unix exit code 127 또는 stderr 패턴)
+        if (outcome.exitCode === 127 ||
+            /command not found|not found/i.test(outcome.stderrSnippet)) {
+            return this.buildExecutionResult(
+                ErrorCategory.COMMAND_NOT_FOUND,
+                outcome,
+                `명령어를 찾을 수 없음: ${outcome.command}`,
+                fallbackEnv
+            );
+        }
+
+        // 3. 무출력 실패 (non-zero exit, stdout/stderr 모두 없음)
+        if (outcome.exitCode !== 0 && !outcome.hasStderr && !outcome.hasStdout) {
+            return this.buildExecutionResult(
+                ErrorCategory.SILENT_FAILURE,
+                outcome,
+                `명령어가 코드 ${outcome.exitCode}로 종료됨. 출력 없음 (killed=${outcome.killed}, signal=${outcome.signal || 'none'})`,
+                fallbackEnv
+            );
+        }
+
+        // 4. 출력이 있는 실패 → 기존 문자열 기반 분류 fallback
+        return this.classifyFromMessage(outcome.stderrSnippet, fallbackEnv);
+    }
+
     // ==================== Private Helpers ====================
 
     /**
@@ -229,6 +305,41 @@ export class ErrorClassifier {
             dominantCategory,
             environmentCheck: envHealth,
             retryFingerprint: this.buildFingerprint(groups)
+        };
+    }
+
+    /**
+     * ExecutionOutcome 기반 ClassificationResult 조립
+     * fingerprint: "{category}:{command}" 또는 "{category}:{command}:{exitCode}"
+     */
+    private static buildExecutionResult(
+        category: ErrorCategory,
+        outcome: ExecutionOutcome,
+        hypothesis: string,
+        envHealth: EnvironmentHealth
+    ): ClassificationResult {
+        const group: ErrorGroup = {
+            category,
+            source: 'execution',
+            representativeCode: outcome.errorCode || `exit:${outcome.exitCode}`,
+            count: 1,
+            affectedFiles: [],
+            sampleMessages: outcome.stderrSnippet
+                ? [outcome.stderrSnippet]
+                : [`${outcome.command} exited with code ${outcome.exitCode}`],
+            rootCauseHypothesis: hypothesis,
+            autoRemediable: false,
+        };
+
+        const fingerprint = `${category}:${outcome.command}` +
+            (outcome.exitCode !== undefined ? `:${outcome.exitCode}` : '');
+
+        return {
+            groups: [group],
+            totalErrorCount: 1,
+            dominantCategory: category,
+            environmentCheck: envHealth,
+            retryFingerprint: fingerprint,
         };
     }
 

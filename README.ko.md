@@ -6,6 +6,19 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.2.2 (ExecutionOutcome 기반 CLI 실행 실패 분류)
+- **ExecutionOutcome 구조적 에러 분류**: CLI 검증 실패 시 문자열 파싱 대신 구조적 메타데이터(exitCode, signal, duration)로 분류합니다.
+  - `ExecutionOutcome` 인터페이스: CLI 실행 결과에서 분류에 필요한 신호만 추출하는 경량 어댑터
+  - `classifyFromExecution()`: 4단계 결정 트리 (타임아웃 → 명령어 미발견 → 무출력 실패 → 문자열 fallback)
+  - 3개 신규 `ErrorCategory`: `EXECUTION_TIMEOUT`, `COMMAND_NOT_FOUND`, `SILENT_FAILURE`
+- **비재시도 카테고리 즉시 종료**: LLM이 해결할 수 없는 실행 레벨 실패는 retry 없이 즉시 give_up합니다.
+  - 타임아웃(SIGTERM/SIGKILL), 명령어 미설치(exit 127), 무출력 실패 → LLM 호출 없이 중단
+  - RetryCoordinator에 `isNonRetryable()` 체크 추가
+- **결정론적 fingerprint**: 동일한 실행 실패는 항상 동일한 fingerprint를 생성하여 패턴 추적이 정확해졌습니다.
+  - 기존: `unknown:tsc --noEmit 실패: 오류가...` (매번 미묘하게 다름 → 카운터 리셋)
+  - 변경: `execution_timeout:tsc --noEmit` (항상 동일 → 3회 반복 시 정확히 종료)
+- **TestRunner CLI 분류 전파**: `runValidationCommand()`가 `ExecutionOutcome`을 구성하여 `ClassificationResult`를 `TestResult`까지 전파합니다.
+
 ## v9.2.1 (에러 분류 시스템 통합 및 MCP 커스텀 프롬프트)
 - **통합 에러 분류 시스템**: 키워드 기반 `extractErrorPattern()`을 구조적 에러 분류 시스템으로 교체했습니다.
   - `ErrorClassifier`: LSP diagnostic.source + diagnostic.code 기반 구조적 에러 분류 (5개 카테고리)
