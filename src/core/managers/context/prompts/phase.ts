@@ -183,14 +183,8 @@ export function getExecutionPhasePrompt(): string {
     `${noThinkingLeakage}\n\n` +
     `** 파일 생성 Fallback 규칙 (중요!):**\n` +
     `- 필요한 파일이 프로젝트에 없으면 **새로 생성**하세요.\n` +
-    `- 진입점 파일이 없으면 기본 구조를 생성하세요:\n` +
-    `  - Android: MainActivity.kt + activity_main.xml + AndroidManifest 등록\n` +
-    `  - React: App.tsx 또는 index.tsx\n` +
-    `  - Flutter: main.dart\n` +
-    `  - Spring: Application.kt/java + @SpringBootApplication\n` +
-    `  - Python: main.py 또는 app.py\n` +
-    `- **"파일을 찾을 수 없다"는 이유로 작업을 중단하지 마세요.**\n` +
-    `- 없으면 만들면 됩니다. 탐색만 반복하지 말고 **즉시 생성**하세요.\n\n` +
+    `- 진입점 파일이 없으면 기본 구조를 생성하세요\n` +
+    `- 없으면 만들면 됩니다. 탐색만 반복하지 말고 생성하세요.\n\n` +
     `**절대 금지 사항 (위반 시 작업 실패):**\n` +
     `- ❌ \`{ "plan": [...] }\` 출력 절대 금지 - plan은 이미 수립 완료됨. 다시 제출하면 무시됨.\n` +
     `- ❌ CODE 블록 내부에 자연어 삽입 절대 금지 - "We need to...", "Let me..." 등 삽입 시 파일 깨짐\n` +

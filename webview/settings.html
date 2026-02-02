@@ -662,7 +662,10 @@
         margin-left: 8px;
       }
       .policy-file-item .delete-file-btn:hover {
-        background-color: var(--vscode-inputValidation-errorBackground, #be1100);
+        background-color: var(
+          --vscode-inputValidation-errorBackground,
+          #be1100
+        );
       }
       body[data-theme="light"] .policy-file-list {
         background-color: #ffffff !important;
@@ -713,6 +716,57 @@
           width: 100% !important;
           margin-right: 0 !important;
         }
+      }
+
+      /* MCP 서버 토글 스위치 */
+      .mcp-toggle {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+      .mcp-toggle-input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .mcp-toggle-slider {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--vscode-input-background, #3c3c3c);
+        border: 1px solid var(--vscode-panel-border, #555);
+        border-radius: 10px;
+        transition: background-color 0.2s;
+      }
+      .mcp-toggle-slider::before {
+        content: "";
+        position: absolute;
+        height: 14px;
+        width: 14px;
+        left: 2px;
+        bottom: 2px;
+        background-color: var(--vscode-descriptionForeground, #999);
+        border-radius: 50%;
+        transition:
+          transform 0.2s,
+          background-color 0.2s;
+      }
+      .mcp-toggle-input:checked + .mcp-toggle-slider {
+        background-color: var(--vscode-button-background, #0e639c);
+        border-color: var(--vscode-button-background, #0e639c);
+      }
+      .mcp-toggle-input:checked + .mcp-toggle-slider::before {
+        transform: translateX(16px);
+        background-color: var(--vscode-button-foreground, #fff);
+      }
+      .mcp-server-card button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
       }
     </style>
   </head>
@@ -1099,7 +1153,7 @@
           id="remote-ollama-settings-section"
           style="display: none"
         >
-          <h3 id="remote-ollama-api-label">🌐 원격 Ollama 서버 설정</h3>
+          <h3 id="remote-ollama-api-label">원격 Ollama 서버 설정</h3>
           <p class="info-message">
             원격 서버에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을
             활성화합니다.
@@ -1291,8 +1345,8 @@
     <div class="section-container" id="mcp-settings-section">
       <h2 id="mcp-section-title">MCP 서버 설정</h2>
       <p class="info-message">
-        Model Context Protocol (MCP) 서버를 연결하여 LLM이 외부 도구들을 사용할 수 있도록 합니다.
-        예: 날씨 API, 데이터베이스 조회, 외부 서비스 연동 등
+        Model Context Protocol (MCP) 서버를 연결하여 LLM이 외부 도구들을 사용할
+        수 있도록 합니다.
       </p>
 
       <!-- MCP 서버 목록 -->
@@ -1301,67 +1355,129 @@
       </div>
 
       <!-- 서버 추가 버튼 -->
-      <button id="add-mcp-server-button" type="button" style="margin-top: 10px;">
+      <button id="add-mcp-server-button" type="button" style="margin-top: 10px">
         + MCP 서버 추가
       </button>
 
       <!-- 서버 추가/편집 폼 -->
-      <div id="mcp-server-form" class="api-key-section" style="display: none; margin-top: 15px;">
+      <div
+        id="mcp-server-form"
+        class="api-key-section"
+        style="display: none; margin-top: 15px"
+      >
         <h3 id="mcp-form-title">MCP 서버 추가</h3>
         <input type="hidden" id="mcp-server-id" />
 
-        <div class="api-key-input-group" style="margin-bottom: 10px;">
-          <label for="mcp-server-name" style="display: block; margin-bottom: 5px;">서버 이름</label>
-          <input type="text" id="mcp-server-name" placeholder="예: Weather Server" style="width: 100%;" />
+        <div class="api-key-input-group" style="margin-bottom: 10px">
+          <label
+            for="mcp-server-name"
+            style="display: block; margin-bottom: 5px"
+            >서버 이름</label
+          >
+          <input
+            type="text"
+            id="mcp-server-name"
+            placeholder="예: Weather Server"
+            style="width: 100%"
+          />
         </div>
 
-        <div class="api-key-input-group" style="margin-bottom: 10px;">
-          <label for="mcp-server-type" style="display: block; margin-bottom: 5px;">연결 타입</label>
-          <select id="mcp-server-type" style="width: 100%;">
-            <option value="stdio">로컬 (stdio) - npx, node 등 로컬 명령어</option>
-            <option value="http">원격 (HTTP) - 외부 MCP 서버 URL</option>
+        <div class="api-key-input-group" style="margin-bottom: 10px">
+          <label
+            for="mcp-server-type"
+            style="display: block; margin-bottom: 5px"
+            >연결 타입</label
+          >
+          <select id="mcp-server-type" style="width: 100%">
+            <option value="stdio">로컬 - 로컬 명령어</option>
+            <option value="http">원격 - 외부 MCP 서버 URL</option>
           </select>
         </div>
 
         <!-- stdio 설정 -->
         <div id="mcp-stdio-settings">
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
-            <label for="mcp-command" style="display: block; margin-bottom: 5px;">명령어</label>
-            <input type="text" id="mcp-command" placeholder="예: npx" style="width: 100%;" />
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-command" style="display: block; margin-bottom: 5px"
+              >명령어</label
+            >
+            <input
+              type="text"
+              id="mcp-command"
+              placeholder="예: npx"
+              style="width: 100%"
+            />
           </div>
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
-            <label for="mcp-args" style="display: block; margin-bottom: 5px;">인자 (쉼표로 구분)</label>
-            <input type="text" id="mcp-args" placeholder="예: -y, @anthropic/mcp-server-weather" style="width: 100%;" />
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-args" style="display: block; margin-bottom: 5px"
+              >인자</label
+            >
+            <input
+              type="text"
+              id="mcp-args"
+              placeholder="예: -y, @anthropic/mcp-server-weather"
+              style="width: 100%"
+            />
           </div>
         </div>
 
         <!-- http 설정 -->
-        <div id="mcp-http-settings" style="display: none;">
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
-            <label for="mcp-url" style="display: block; margin-bottom: 5px;">서버 URL</label>
-            <input type="text" id="mcp-url" placeholder="예: http://localhost:3000/mcp" style="width: 100%;" />
+        <div id="mcp-http-settings" style="display: none">
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-url" style="display: block; margin-bottom: 5px"
+              >서버 URL</label
+            >
+            <input
+              type="text"
+              id="mcp-url"
+              placeholder="예: http://localhost:3000/mcp"
+              style="width: 100%"
+            />
           </div>
-          <div class="api-key-input-group" style="margin-bottom: 10px;">
-            <label for="mcp-api-key" style="display: block; margin-bottom: 5px;">API 키 (선택)</label>
-            <input type="password" id="mcp-api-key" placeholder="인증이 필요한 경우 API 키 입력" style="width: 100%;" />
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-api-key" style="display: block; margin-bottom: 5px"
+              >API 키</label
+            >
+            <input
+              type="password"
+              id="mcp-api-key"
+              placeholder="인증이 필요한 경우 API 키 입력"
+              style="width: 100%"
+            />
           </div>
         </div>
 
-        <div style="display: flex; gap: 10px; margin-top: 15px;">
+        <!-- 커스텀 프롬프트 (공통: stdio/http 무관) -->
+        <div class="api-key-input-group" style="margin-bottom: 10px">
+          <label
+            for="mcp-custom-prompt"
+            style="display: block; margin-bottom: 5px"
+            >프롬프트</label
+          >
+          <textarea
+            id="mcp-custom-prompt"
+            rows="3"
+            placeholder="예: 날씨 관련 질문에는 반드시 이 MCP 도구를 사용하세요"
+            style="width: 100%; resize: vertical"
+          ></textarea>
+          <p class="info-message" style="font-size: 0.8em; margin-top: 4px">
+            이 MCP 서버의 도구 사용 방법을 LLM에게 안내하는 프롬프트입니다.
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 15px">
           <button id="save-mcp-server-button" type="button">저장</button>
-          <button id="cancel-mcp-server-button" type="button" style="background-color: #6b7280;">취소</button>
+          <button
+            id="cancel-mcp-server-button"
+            type="button"
+            style="background-color: #6b7280"
+          >
+            취소
+          </button>
         </div>
         <p id="mcp-form-status" class="info-message"></p>
       </div>
 
-      <!-- MCP 서버 상세 정보 (도구 목록) -->
-      <div id="mcp-server-details" class="api-key-section" style="display: none; margin-top: 15px;">
-        <h3 id="mcp-details-title">서버 도구 목록</h3>
-        <div id="mcp-tools-list">
-          <!-- 동적으로 도구 목록이 추가됨 -->
-        </div>
-        <button id="close-mcp-details-button" type="button" style="margin-top: 10px;">닫기</button>
-      </div>
+      <!-- MCP 도구 목록은 각 서버 카드 내부에 인라인 표시 -->
     </div>
 
     <div class="section-container">
@@ -1376,8 +1492,8 @@
       <div class="api-key-section">
         <h3>버전 관리 규칙</h3>
         <p class="info-message">
-          프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요.
-          여러 파일을 추가할 수 있습니다.
+          프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요. 여러
+          파일을 추가할 수 있습니다.
         </p>
         <div class="api-key-input-group">
           <input
@@ -1400,7 +1516,11 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
-        <div id="stable-version-file-list" class="policy-file-list" data-category="stable-version"></div>
+        <div
+          id="stable-version-file-list"
+          class="policy-file-list"
+          data-category="stable-version"
+        ></div>
       </div>
 
       <!-- Coding Style Markdown -->
@@ -1431,7 +1551,11 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
-        <div id="coding-style-file-list" class="policy-file-list" data-category="coding-style"></div>
+        <div
+          id="coding-style-file-list"
+          class="policy-file-list"
+          data-category="coding-style"
+        ></div>
       </div>
 
       <!-- Project Architecture Markdown -->
@@ -1466,7 +1590,11 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
-        <div id="project-architecture-file-list" class="policy-file-list" data-category="project-architecture"></div>
+        <div
+          id="project-architecture-file-list"
+          class="policy-file-list"
+          data-category="project-architecture"
+        ></div>
       </div>
 
       <!-- Dependency Policy Markdown -->
@@ -1497,7 +1625,11 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
-        <div id="dependency-policy-file-list" class="policy-file-list" data-category="dependency-policy"></div>
+        <div
+          id="dependency-policy-file-list"
+          class="policy-file-list"
+          data-category="dependency-policy"
+        ></div>
       </div>
 
       <!-- DB Policy Markdown -->
@@ -1526,7 +1658,11 @@
           class="info-message"
           style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
         ></p>
-        <div id="db-policy-file-list" class="policy-file-list" data-category="db-policy"></div>
+        <div
+          id="db-policy-file-list"
+          class="policy-file-list"
+          data-category="db-policy"
+        ></div>
       </div>
     </div>
 
@@ -1534,57 +1670,98 @@
     <div class="section-container">
       <h2 id="hotload-section-title">Hot Load 관리</h2>
       <p class="info-message">
-        사용자 입력이 키워드/설명과 유사하면 자동으로 명령어를 실행합니다.
-        Hot Load는 다른 모든 지시보다 우선합니다.
+        사용자 입력이 키워드/설명과 유사하면 자동으로 명령어를 실행합니다. Hot
+        Load는 다른 모든 지시보다 우선합니다.
       </p>
 
       <!-- Hot Load 추가 폼 -->
       <div class="api-key-section">
         <h3>새 Hot Load 추가</h3>
-        <div style="margin-bottom: 15px;">
-          <label for="hotload-keywords-input" style="display: block; margin-bottom: 5px;">
-            <b>키워드</b> (쉼표로 구분)
+        <div style="margin-bottom: 15px">
+          <label
+            for="hotload-keywords-input"
+            style="display: block; margin-bottom: 5px"
+          >
+            <b>키워드</b>
           </label>
           <input
             type="text"
             id="hotload-keywords-input"
             placeholder="예: 빌드, build, 컴파일"
-            style="width: 100%; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px;"
+            style="
+              width: 100%;
+              padding: 8px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+            "
           />
         </div>
-        <div style="margin-bottom: 15px;">
-          <label for="hotload-description-input" style="display: block; margin-bottom: 5px;">
-            <b>동작 설명</b> (LLM 매칭에 사용)
+        <div style="margin-bottom: 15px">
+          <label
+            for="hotload-description-input"
+            style="display: block; margin-bottom: 5px"
+          >
+            <b>동작 설명</b>
           </label>
           <textarea
             id="hotload-description-input"
             placeholder="예: 프로젝트를 빌드하거나 컴파일할 때 실행"
             rows="2"
-            style="width: 100%; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; resize: vertical; font-family: var(--vscode-font-family);"
+            style="
+              width: 100%;
+              padding: 8px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+              resize: vertical;
+              font-family: var(--vscode-font-family);
+            "
           ></textarea>
         </div>
-        <div style="margin-bottom: 15px;">
-          <label for="hotload-command-input" style="display: block; margin-bottom: 5px;">
+        <div style="margin-bottom: 15px">
+          <label
+            for="hotload-command-input"
+            style="display: block; margin-bottom: 5px"
+          >
             <b>실행 명령어</b>
           </label>
           <input
             type="text"
             id="hotload-command-input"
             placeholder="예: npm run build"
-            style="width: 100%; padding: 8px; border: 1px solid var(--vscode-input-border); background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-family: monospace;"
+            style="
+              width: 100%;
+              padding: 8px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+              font-family: monospace;
+            "
           />
         </div>
-        <button id="add-hotload-button" class="save-button">Hot Load 추가</button>
-        <p id="hotload-add-status" class="info-message" style="margin-top: 10px;"></p>
+        <button id="add-hotload-button" class="save-button">
+          Hot Load 추가
+        </button>
+        <p
+          id="hotload-add-status"
+          class="info-message"
+          style="margin-top: 10px"
+        ></p>
       </div>
 
       <!-- Hot Load 목록 -->
-      <div class="api-key-section" style="margin-top: 20px;">
+      <div class="api-key-section" style="margin-top: 20px">
         <h3>등록된 Hot Load 목록</h3>
         <div id="hotload-list" class="policy-file-list">
           <!-- 동적으로 채워짐 -->
         </div>
-        <p id="hotload-list-empty" class="info-message" style="display: none;">등록된 Hot Load가 없습니다.</p>
+        <p id="hotload-list-empty" class="info-message" style="display: none">
+          등록된 Hot Load가 없습니다.
+        </p>
       </div>
     </div>
 

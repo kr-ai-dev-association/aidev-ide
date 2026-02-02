@@ -2578,6 +2578,62 @@ export function openSettingsPanel(
             });
           }
           break;
+        case "toggleMcpServer": // MCP 서버 활성화/비활성화
+          try {
+            const toggleServerId = data.serverId;
+            const enabled = data.enabled;
+            if (!toggleServerId) {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+
+            // StateManager에 enabled 상태 저장
+            await stateManager.updateMcpServer(toggleServerId, { enabled });
+
+            // MCPManager에서 연결/해제 처리
+            const { MCPManager: MCPMgr } = await import('../mcp/MCPManager');
+            const mcpMgr = MCPMgr.getInstance();
+            await mcpMgr.initialize(context);
+
+            if (enabled) {
+              // 활성화: MCPManager에 서버 등록 (연결은 수동으로)
+              const existingServers = mcpMgr.getServers();
+              if (!existingServers.find(s => s.id === toggleServerId)) {
+                const allServers = await stateManager.getMcpServers();
+                const serverConfig = allServers.find((s: any) => s.id === toggleServerId);
+                if (serverConfig) {
+                  await mcpMgr.addServer(serverConfig);
+                }
+              }
+              await mcpMgr.updateServer(toggleServerId, { enabled: true });
+              console.log(`[SettingsPanel] MCP server enabled: ${toggleServerId}`);
+            } else {
+              // 비활성화: 연결 해제
+              try {
+                await mcpMgr.disconnectFromServer(toggleServerId);
+              } catch (e) {
+                // 이미 연결 해제된 경우 무시
+              }
+              await stateManager.updateMcpServer(toggleServerId, { status: 'disconnected', tools: [] });
+              console.log(`[SettingsPanel] MCP server disabled: ${toggleServerId}`);
+            }
+
+            safePostMessage(panel, {
+              command: 'mcpServerToggled',
+              serverId: toggleServerId,
+              enabled,
+              status: 'disconnected'
+            });
+            notificationService.showInfoMessage(`CODEPILOT: MCP 서버 ${enabled ? '활성화' : '비활성화'}됨`);
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to toggle MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerToggled',
+              serverId: data.serverId,
+              enabled: !data.enabled,
+              status: 'error'
+            });
+          }
+          break;
         case "testMcpServer": // MCP 서버 연결 테스트
           try {
             const serverId = data.serverId;
@@ -2598,11 +2654,12 @@ export function openSettingsPanel(
             // MCPManager 초기화 (아직 안 되어 있으면)
             await mcpManager.initialize(context);
 
-            // 서버가 아직 등록되지 않았으면 추가
+            // 서버가 아직 등록되지 않았으면 추가 (ID 유지)
             const existingServers = mcpManager.getServers();
             const existingServer = existingServers.find(s => s.id === serverId);
             if (!existingServer) {
-              await mcpManager.addServer(server);
+              const addedServer = await mcpManager.addServer(server);
+              console.log(`[SettingsPanel] MCP server registered: ${addedServer.id}`);
             }
 
             // 연결 및 도구 목록 가져오기

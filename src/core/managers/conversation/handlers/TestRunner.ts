@@ -16,10 +16,13 @@ import { AiModelType } from "../../../../services";
 import { AgentConfig } from "../../../config/AgentConfig";
 import { StringUtils } from "../../../utils/StringUtils";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
+import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory } from "./ErrorClassifier";
+import { AutoRemediator } from "./AutoRemediator";
 
 export interface TestResult {
   success: boolean;
   errorMessage?: string;
+  classification?: ClassificationResult;
 }
 
 export class TestRunner {
@@ -183,31 +186,77 @@ export class TestRunner {
         workspaceRoot,
       );
       if (diagnosticErrors.length > 0) {
-        const errorSummary = diagnosticErrors
-          .slice(0, 10) // 최대 10개만 표시
-          .map(
-            (e: { file: string; line: number; message: string }) =>
-              `- ${e.file}:${e.line}: ${e.message}`,
-          )
-          .join("\n");
-        const truncatedNote =
-          diagnosticErrors.length > 10
-            ? `\n... 외 ${diagnosticErrors.length - 10}개 에러`
-            : "";
-        testResults.push(
-          `Diagnostics 검사 실패:\n${errorSummary}${truncatedNote}`,
-        );
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          "executing",
-          `Diagnostics 에러 ${diagnosticErrors.length}개 발견`,
-        );
+        // 구조적 에러 분류 (source+code 그룹핑, 키워드 매칭 없음)
+        const envHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
+        const configFiles = detector.getCriticalFiles(projectInfo.type, workspaceRoot);
+        const classification = ErrorClassifier.classify(diagnosticErrors, envHealth, configFiles);
 
-        // Diagnostics 에러가 있으면 CLI 검사 없이 바로 반환 (빠른 피드백)
-        return {
-          success: false,
-          errorMessage: `Diagnostics 검사 실패 (${diagnosticErrors.length}개 에러):\n${errorSummary}${truncatedNote}`,
-        };
+        console.log(`[TestRunner] Error classification: ${classification.dominantCategory}, groups: ${classification.groups.length}, envNeedsInstall: ${envHealth.needsInstall}`);
+
+        // Pre-LLM 자동 수정 시도 (의존성 미설치 등)
+        if (classification.dominantCategory === ErrorCategory.ENVIRONMENT_MISSING) {
+          WebviewBridge.sendProcessingStatus(
+            webview,
+            "executing",
+            `환경 문제 감지 - 자동 수정 중 (${envHealth.installCommand || '...'})...`,
+          );
+
+          const remediation = await AutoRemediator.attemptFix(classification, workspaceRoot, webview);
+
+          if (remediation.attempted && remediation.success) {
+            console.log(`[TestRunner] Auto-remediation succeeded: ${remediation.command}`);
+            // LSP가 업데이트할 시간 대기
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Diagnostics 재확인
+            const retryDiagnostics = await TestRunner.checkDiagnostics(
+              createdFiles, modifiedFiles, workspaceRoot
+            );
+
+            if (retryDiagnostics.length === 0) {
+              testResults.push(`Diagnostics 검사 통과: 자동 의존성 설치 후 에러 해결됨`);
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                "executing",
+                "Diagnostics 검사 통과 (자동 수정 적용)",
+              );
+              // CLI 검증으로 계속 진행 (fall through)
+            } else {
+              // 자동 수정 후에도 에러 남음 → 재분류하여 반환
+              const newEnvHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
+              const newClassification = ErrorClassifier.classify(retryDiagnostics, newEnvHealth, configFiles);
+              const errorSummary = TestRunner.formatClassifiedErrors(newClassification);
+
+              return {
+                success: false,
+                errorMessage: errorSummary,
+                classification: newClassification,
+              };
+            }
+          } else {
+            // 자동 수정 실패 또는 미시도
+            const errorSummary = TestRunner.formatClassifiedErrors(classification);
+            return {
+              success: false,
+              errorMessage: errorSummary,
+              classification,
+            };
+          }
+        } else {
+          // 환경 문제가 아닌 일반 에러 → 분류 결과와 함께 반환
+          const errorSummary = TestRunner.formatClassifiedErrors(classification);
+          WebviewBridge.sendProcessingStatus(
+            webview,
+            "executing",
+            `Diagnostics 에러 ${diagnosticErrors.length}개 발견`,
+          );
+
+          return {
+            success: false,
+            errorMessage: errorSummary,
+            classification,
+          };
+        }
       } else {
         testResults.push(`Diagnostics 검사 통과: 문법/타입 에러 없음`);
         WebviewBridge.sendProcessingStatus(
@@ -414,25 +463,15 @@ export class TestRunner {
   /**
    * VS Code Diagnostics를 사용한 빠른 에러 검사
    * LSP 기반으로 문법/타입 에러를 CLI 실행 없이 빠르게 확인
+   *
+   * RichDiagnostic 반환: source, relatedFiles, tags 등 구조적 필드 포함
    */
-  private static async checkDiagnostics(
+  public static async checkDiagnostics(
     createdFiles: string[],
     modifiedFiles: string[],
     workspaceRoot: string,
-  ): Promise<
-    Array<{
-      file: string;
-      line: number;
-      message: string;
-      code: string | number;
-    }>
-  > {
-    const errors: Array<{
-      file: string;
-      line: number;
-      message: string;
-      code: string | number;
-    }> = [];
+  ): Promise<RichDiagnostic[]> {
+    const errors: RichDiagnostic[] = [];
     const allFiles = [...createdFiles, ...modifiedFiles];
 
     for (const filePath of allFiles) {
@@ -459,11 +498,27 @@ export class TestRunner {
 
         for (const diagnostic of criticalErrors) {
           const fileName = path.relative(workspaceRoot, absolutePath);
+
+          // relatedInformation에서 관련 파일 추출
+          const relatedFiles: string[] = [];
+          if (diagnostic.relatedInformation) {
+            for (const info of diagnostic.relatedInformation) {
+              const relPath = path.relative(workspaceRoot, info.location.uri.fsPath);
+              if (!relatedFiles.includes(relPath)) {
+                relatedFiles.push(relPath);
+              }
+            }
+          }
+
           errors.push({
             file: fileName,
             line: diagnostic.range.start.line + 1, // 0-based to 1-based
             message: diagnostic.message,
             code: diagnostic.code?.toString() || "unknown",
+            source: diagnostic.source || "unknown",
+            relatedFiles,
+            tags: diagnostic.tags ? diagnostic.tags.map(t => t as number) : [],
+            severity: 'error',
           });
         }
       } catch (error) {
@@ -478,7 +533,36 @@ export class TestRunner {
   }
 
   /**
+   * 분류된 에러를 LLM 프롬프트용 문자열로 포맷팅
+   */
+  private static formatClassifiedErrors(classification: ClassificationResult): string {
+    const lines: string[] = [];
+    lines.push(`Diagnostics 검사 실패 (${classification.totalErrorCount}개 에러):`);
+    lines.push(`분류: ${classification.dominantCategory}`);
+
+    if (classification.environmentCheck.needsInstall) {
+      lines.push(`환경: 의존성 디렉토리 누락 (${classification.environmentCheck.installCommand || '설치 필요'})`);
+    }
+
+    for (const group of classification.groups) {
+      lines.push(`\n[${group.source}:${group.representativeCode}] ${group.count}건 - ${group.affectedFiles.length}개 파일:`);
+      for (const file of group.affectedFiles.slice(0, 5)) {
+        lines.push(`  - ${file}`);
+      }
+      for (const msg of group.sampleMessages) {
+        lines.push(`  > ${msg}`);
+      }
+      if (group.rootCauseHypothesis) {
+        lines.push(`  분석: ${group.rootCauseHypothesis}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
    * 에러 패턴 추출 (중복 재시도 방지용)
+   * @deprecated ErrorClassifier.classify()의 retryFingerprint로 대체
    */
   public static extractErrorPattern(errorMessage: string): string {
     // TypeScript 에러 패턴: "error TS2345: ..."

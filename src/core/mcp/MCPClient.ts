@@ -169,11 +169,14 @@ export class MCPClient {
 
         try {
             console.log(`[MCPClient] Calling tool ${toolName} on ${this.config.name}...`);
+            console.log(`[MCPClient] Tool arguments:`, JSON.stringify(args));
 
             const response = await this.client.callTool({
                 name: toolName,
                 arguments: args
             });
+
+            console.log(`[MCPClient] Tool ${toolName} response isError=${response.isError}, content items=${Array.isArray(response.content) ? response.content.length : 0}`);
 
             // 결과 변환
             const responseContent = Array.isArray(response.content) ? response.content : [];
@@ -191,16 +194,34 @@ export class MCPClient {
                 }
             });
 
+            if (response.isError) {
+                // 에러 시 content에서 실제 에러 메시지 추출
+                const errorText = responseContent
+                    .filter((item: any) => item.type === 'text' && item.text)
+                    .map((item: any) => item.text)
+                    .join('\n') || 'Tool execution failed (no error details)';
+                console.error(`[MCPClient] Tool ${toolName} returned error: ${errorText}`);
+                return {
+                    success: false,
+                    content,
+                    error: errorText
+                };
+            }
+
             console.log(`[MCPClient] Tool ${toolName} completed successfully`);
             return {
-                success: !response.isError,
-                content,
-                error: response.isError ? 'Tool execution failed' : undefined
+                success: true,
+                content
             };
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[MCPClient] Tool call failed: ${errorMessage}`);
+            // 연결 끊김 감지 시 상태 업데이트
+            if (errorMessage.includes('closed') || errorMessage.includes('disconnected') || errorMessage.includes('ECONNREFUSED')) {
+                this._status = 'error';
+                console.error(`[MCPClient] Connection lost to ${this.config.name}, marking as error`);
+            }
             return {
                 success: false,
                 content: [],

@@ -64,15 +64,26 @@ export class MCPToolHandler implements IToolHandler {
 
         // 파라미터 추출
         const args = this.extractArguments(toolUse.params);
+        console.log(`[MCPToolHandler] Tool: ${this.mcpToolName}, serverId: ${this.serverId}, args:`, JSON.stringify(args));
 
         // MCP 도구 호출
         const result = await this.mcpManager.callTool(this.serverId, this.mcpToolName, args);
 
         if (!result.success) {
+            // 에러 content가 있으면 포함하여 더 상세한 메시지 제공
+            const errorDetail = result.error || 'Unknown error';
+            const contentText = result.content?.length > 0
+                ? this.formatResult(result.content)
+                : '';
+            const fullError = contentText
+                ? `${errorDetail}\n---\n${contentText}`
+                : errorDetail;
+
+            console.error(`[MCPToolHandler] Tool ${this.mcpToolName} failed: ${errorDetail}`);
             return {
                 success: false,
-                message: `MCP 도구 실행 실패: ${result.error || 'Unknown error'}`,
-                error: { code: 'MCP_ERROR', message: result.error || 'Unknown error' }
+                message: `MCP 도구 실행 실패 (${this.mcpToolName}): ${fullError}`,
+                error: { code: 'MCP_ERROR', message: errorDetail }
             };
         }
 

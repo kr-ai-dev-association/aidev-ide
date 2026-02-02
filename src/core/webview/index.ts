@@ -6,4 +6,5 @@
 export * from './WebviewBridge';
 export type { ProcessingStepCallback, ProcessingStatusCallback } from './WebviewBridge';
 export { openSettingsPanel } from './SettingsPanelProvider';
+export * from './types';
 

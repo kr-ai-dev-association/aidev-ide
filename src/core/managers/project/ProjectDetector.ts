@@ -10,6 +10,7 @@ import {
     BuildTool
 } from './types';
 import { AgentConfig } from '../../config/AgentConfig';
+import { EnvironmentHealth } from '../conversation/handlers/ErrorClassifier';
 
 export class ProjectDetector {
     /**
@@ -1516,6 +1517,121 @@ JSON 형식으로 응답하세요:
             default:
                 return null;
         }
+    }
+
+    // ==================== 환경 상태 검사 ====================
+
+    /**
+     * 프로젝트 환경 상태 검사 (파일시스템 기반)
+     * manifest 파일은 있지만 dependency 디렉토리가 없으면 설치 필요로 판단
+     * 키워드 패턴 매칭 없이 파일시스템 상태만으로 판단
+     */
+    public static checkEnvironmentHealth(workspaceRoot: string): EnvironmentHealth {
+        const result: EnvironmentHealth = {
+            hasManifestFile: false,
+            hasDependencyDir: false,
+            hasLockFile: false,
+            needsInstall: false,
+        };
+
+        // 범용 매니페스트 → 의존성 디렉토리 매핑 테이블
+        const ECOSYSTEM_MAP: Array<{
+            manifest: string;
+            depDir: string;          // 빈 문자열 = dep dir 검사 불필요 (Go 등)
+            lockFiles: string[];
+            installCmd: (pm: string) => string;
+        }> = [
+            {
+                manifest: 'package.json',
+                depDir: 'node_modules',
+                lockFiles: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb'],
+                installCmd: (pm) => `${pm} install`
+            },
+            {
+                manifest: 'requirements.txt',
+                depDir: '',
+                lockFiles: [],
+                installCmd: () => 'pip install -r requirements.txt'
+            },
+            {
+                manifest: 'pyproject.toml',
+                depDir: '.venv',
+                lockFiles: ['poetry.lock', 'pdm.lock'],
+                installCmd: () => 'poetry install'
+            },
+            {
+                manifest: 'Pipfile',
+                depDir: '.venv',
+                lockFiles: ['Pipfile.lock'],
+                installCmd: () => 'pipenv install'
+            },
+            {
+                manifest: 'Cargo.toml',
+                depDir: 'target',
+                lockFiles: ['Cargo.lock'],
+                installCmd: () => 'cargo build'
+            },
+            {
+                manifest: 'go.mod',
+                depDir: '',
+                lockFiles: ['go.sum'],
+                installCmd: () => 'go mod download'
+            },
+            {
+                manifest: 'Gemfile',
+                depDir: 'vendor/bundle',
+                lockFiles: ['Gemfile.lock'],
+                installCmd: () => 'bundle install'
+            },
+            {
+                manifest: 'composer.json',
+                depDir: 'vendor',
+                lockFiles: ['composer.lock'],
+                installCmd: () => 'composer install'
+            },
+            {
+                manifest: 'pubspec.yaml',
+                depDir: '.dart_tool',
+                lockFiles: ['pubspec.lock'],
+                installCmd: () => 'flutter pub get'
+            },
+        ];
+
+        for (const eco of ECOSYSTEM_MAP) {
+            const manifestPath = path.join(workspaceRoot, eco.manifest);
+            if (fs.existsSync(manifestPath)) {
+                result.hasManifestFile = true;
+
+                // Lock file 존재 여부
+                for (const lockFile of eco.lockFiles) {
+                    if (fs.existsSync(path.join(workspaceRoot, lockFile))) {
+                        result.hasLockFile = true;
+                        break;
+                    }
+                }
+
+                // Dependency directory 존재 여부
+                if (eco.depDir) {
+                    result.hasDependencyDir = fs.existsSync(path.join(workspaceRoot, eco.depDir));
+                } else {
+                    result.hasDependencyDir = true; // dep dir 검사 불필요 (Go 등)
+                }
+
+                // 패키지 매니저 감지 (Node.js 에코시스템)
+                if (eco.manifest === 'package.json') {
+                    const detector = new ProjectDetector();
+                    result.packageManager = detector.detectPackageManager(workspaceRoot);
+                    result.installCommand = eco.installCmd(result.packageManager);
+                } else {
+                    result.installCommand = eco.installCmd('');
+                }
+
+                result.needsInstall = result.hasManifestFile && !result.hasDependencyDir;
+                break; // 첫 번째 매칭 에코시스템 사용
+            }
+        }
+
+        return result;
     }
 }
 

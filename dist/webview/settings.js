@@ -388,39 +388,63 @@ let mcpServers = [];
  * MCP 서버 카드 HTML 생성
  */
 function createServerCard(server) {
-  const statusClass = server.status === 'connected' ? 'success' : server.status === 'error' ? 'error' : '';
-  const statusText = server.status === 'connected' ? '연결됨' : server.status === 'error' ? '오류' : '대기';
+  const isEnabled = server.enabled !== false; // 기본값 true
+  const statusClass = !isEnabled ? "" : server.status === "connected" ? "success" : server.status === "error" ? "error" : "";
+  const statusText = !isEnabled ? "비활성" : server.status === "connected" ? "연결됨" : server.status === "error" ? "오류" : "대기";
   const toolCount = server.tools?.length || 0;
+  const disabledStyle = !isEnabled ? "opacity: 0.5;" : "";
+
+  // 도구 목록 HTML
+  const toolsHtml = server.tools && server.tools.length > 0 ? server.tools.map(tool => `
+        <div style="padding: 6px 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; margin-bottom: 4px;">
+          <strong style="font-size: 0.85em;">${tool.name}</strong>
+          <span style="font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-left: 6px;">
+            ${tool.description || "설명 없음"}
+          </span>
+        </div>
+      `).join("") : '<p class="info-message" style="margin: 4px 0; font-size: 0.85em;">도구 없음 - 연결 테스트를 실행해주세요</p>';
   return `
     <div class="api-key-section mcp-server-card" data-server-id="${server.id}" style="margin-bottom: 10px;">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <strong>${server.name}</strong>
-          <span style="margin-left: 10px; font-size: 0.85em; color: var(--vscode-descriptionForeground);">
-            (${server.type === 'stdio' ? '로컬' : 'HTTP'})
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <label class="mcp-toggle" title="${isEnabled ? "비활성화" : "활성화"}">
+            <input type="checkbox" class="mcp-toggle-input" data-server-id="${server.id}" ${isEnabled ? "checked" : ""} />
+            <span class="mcp-toggle-slider"></span>
+          </label>
+          <strong style="${disabledStyle}">${server.name}</strong>
+          <span style="font-size: 0.85em; color: var(--vscode-descriptionForeground); ${disabledStyle}">
+            (${server.type === "stdio" ? "로컬" : "HTTP"})
           </span>
-          <span class="info-message ${statusClass}-message" style="margin-left: 10px; font-size: 0.85em;">
+          <span class="info-message ${statusClass}-message" style="font-size: 0.85em;">
             ${statusText}
           </span>
         </div>
         <div style="display: flex; gap: 5px;">
-          <button class="mcp-test-btn" data-server-id="${server.id}" title="연결 테스트">
-            🔌
+          <button class="mcp-test-btn" data-server-id="${server.id}" title="연결 테스트" ${!isEnabled ? "disabled" : ""}>
+            연결
           </button>
-          <button class="mcp-tools-btn" data-server-id="${server.id}" title="도구 목록 (${toolCount}개)">
-            🛠️ ${toolCount}
+          <button class="mcp-tools-btn" data-server-id="${server.id}" title="도구 목록 토글 (${toolCount}개)" ${!isEnabled ? "disabled" : ""}>
+            도구 ${toolCount}
           </button>
           <button class="mcp-edit-btn" data-server-id="${server.id}" title="편집">
-            ✏️
+            수정
           </button>
           <button class="mcp-delete-btn" data-server-id="${server.id}" title="삭제">
-            🗑️
+            삭제
           </button>
         </div>
       </div>
-      <p style="margin-top: 5px; font-size: 0.85em; color: var(--vscode-descriptionForeground);">
-        ${server.type === 'stdio' ? `${server.command} ${(server.args || []).join(' ')}` : server.url || ''}
+      <p style="margin-top: 5px; font-size: 0.85em; color: var(--vscode-descriptionForeground); ${disabledStyle}">
+        ${server.type === "stdio" ? `${server.command} ${(server.args || []).join(" ")}` : server.url || ""}
       </p>
+      <!-- 인라인 도구 목록 (토글) -->
+      <div class="mcp-inline-tools" data-server-id="${server.id}" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border);">
+        <p style="margin: 0 0 6px 0; font-size: 0.85em; font-weight: bold;">도구 목록 (${toolCount}개)</p>
+        ${toolsHtml}
+      </div>
+      <!-- 인라인 테스트 결과 -->
+      <div class="mcp-inline-status" data-server-id="${server.id}" style="display: none; margin-top: 8px; padding: 6px 8px; border-radius: 4px; font-size: 0.85em;">
+      </div>
     </div>
   `;
 }
@@ -429,12 +453,14 @@ function createServerCard(server) {
  * MCP 서버 목록 렌더링
  */
 function renderServerList() {
-  const listEl = document.getElementById('mcp-server-list');
-  if (!listEl) return;
+  const listEl = document.getElementById("mcp-server-list");
+  if (!listEl) {
+    return;
+  }
   if (mcpServers.length === 0) {
     listEl.innerHTML = '<p class="info-message">등록된 MCP 서버가 없습니다.</p>';
   } else {
-    listEl.innerHTML = mcpServers.map(createServerCard).join('');
+    listEl.innerHTML = mcpServers.map(createServerCard).join("");
   }
 
   // 이벤트 바인딩
@@ -445,71 +471,98 @@ function renderServerList() {
  * 서버 카드 이벤트 바인딩
  */
 function bindServerCardEvents() {
-  // 테스트 버튼
-  document.querySelectorAll('.mcp-test-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
+  // 온/오프 토글
+  document.querySelectorAll(".mcp-toggle-input").forEach(toggle => {
+    toggle.addEventListener("change", e => {
       const serverId = e.currentTarget.dataset.serverId;
+      const enabled = e.currentTarget.checked;
       window.vscode?.postMessage({
-        command: 'testMcpServer',
+        command: "toggleMcpServer",
+        serverId,
+        enabled
+      });
+    });
+  });
+
+  // 테스트 버튼
+  document.querySelectorAll(".mcp-test-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const serverId = e.currentTarget.dataset.serverId;
+      // 인라인 상태 표시
+      const statusEl = document.querySelector(`.mcp-inline-status[data-server-id="${serverId}"]`);
+      if (statusEl) {
+        statusEl.style.display = "block";
+        statusEl.style.backgroundColor = "var(--vscode-textBlockQuote-background)";
+        statusEl.textContent = "연결 테스트 중...";
+      }
+      window.vscode?.postMessage({
+        command: "testMcpServer",
         serverId
       });
     });
   });
 
-  // 도구 목록 버튼
-  document.querySelectorAll('.mcp-tools-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
+  // 도구 목록 토글 버튼
+  document.querySelectorAll(".mcp-tools-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
       const serverId = e.currentTarget.dataset.serverId;
-      showServerDetails(serverId);
+      const toolsEl = document.querySelector(`.mcp-inline-tools[data-server-id="${serverId}"]`);
+      if (toolsEl) {
+        toolsEl.style.display = toolsEl.style.display === "none" ? "block" : "none";
+      }
     });
   });
 
   // 편집 버튼
-  document.querySelectorAll('.mcp-edit-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
+  document.querySelectorAll(".mcp-edit-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
       const serverId = e.currentTarget.dataset.serverId;
       editServer(serverId);
     });
   });
 
-  // 삭제 버튼
-  document.querySelectorAll('.mcp-delete-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
+  // 삭제 버튼 (confirm()은 VSCode webview에서 작동하지 않으므로 사용하지 않음)
+  document.querySelectorAll(".mcp-delete-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
       const serverId = e.currentTarget.dataset.serverId;
-      if (confirm('이 MCP 서버를 삭제하시겠습니까?')) {
-        window.vscode?.postMessage({
-          command: 'removeMcpServer',
-          serverId
-        });
-      }
+      window.vscode?.postMessage({
+        command: "removeMcpServer",
+        serverId
+      });
     });
   });
 }
 
 /**
- * 서버 상세 정보 (도구 목록) 표시
+ * 서버 인라인 테스트 결과 표시
  */
-function showServerDetails(serverId) {
-  const server = mcpServers.find(s => s.id === serverId);
-  if (!server) return;
-  const detailsEl = document.getElementById('mcp-server-details');
-  const titleEl = document.getElementById('mcp-details-title');
-  const toolsListEl = document.getElementById('mcp-tools-list');
-  if (!detailsEl || !titleEl || !toolsListEl) return;
-  titleEl.textContent = `${server.name} - 도구 목록`;
-  if (!server.tools || server.tools.length === 0) {
-    toolsListEl.innerHTML = '<p class="info-message">사용 가능한 도구가 없습니다. 서버 연결 테스트를 실행해주세요.</p>';
-  } else {
-    toolsListEl.innerHTML = server.tools.map(tool => `
-      <div style="padding: 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; margin-bottom: 8px;">
-        <strong>${tool.name}</strong>
-        <p style="margin: 5px 0 0 0; font-size: 0.85em; color: var(--vscode-descriptionForeground);">
-          ${tool.description || '설명 없음'}
-        </p>
-      </div>
-    `).join('');
+function showInlineTestResult(serverId, success, message) {
+  const statusEl = document.querySelector(`.mcp-inline-status[data-server-id="${serverId}"]`);
+  if (!statusEl) {
+    return;
   }
-  detailsEl.style.display = 'block';
+  statusEl.style.display = "block";
+  if (success) {
+    statusEl.style.backgroundColor = "var(--vscode-testing-iconPassed, #28a745)";
+    statusEl.style.color = "#fff";
+  } else {
+    statusEl.style.backgroundColor = "var(--vscode-testing-iconFailed, #dc3545)";
+    statusEl.style.color = "#fff";
+  }
+  statusEl.textContent = message;
+
+  // 5초 후 자동 숨김
+  setTimeout(() => {
+    statusEl.style.display = "none";
+  }, 5000);
 }
 
 /**
@@ -517,7 +570,9 @@ function showServerDetails(serverId) {
  */
 function editServer(serverId) {
   const server = mcpServers.find(s => s.id === serverId);
-  if (!server) return;
+  if (!server) {
+    return;
+  }
   showServerForm(server);
 }
 
@@ -525,48 +580,53 @@ function editServer(serverId) {
  * 서버 추가/편집 폼 표시
  */
 function showServerForm(server = null) {
-  const formEl = document.getElementById('mcp-server-form');
-  const titleEl = document.getElementById('mcp-form-title');
-  const idInput = document.getElementById('mcp-server-id');
-  const nameInput = document.getElementById('mcp-server-name');
-  const typeSelect = document.getElementById('mcp-server-type');
-  const commandInput = document.getElementById('mcp-command');
-  const argsInput = document.getElementById('mcp-args');
-  const urlInput = document.getElementById('mcp-url');
-  const apiKeyInput = document.getElementById('mcp-api-key');
-  if (!formEl) return;
+  const formEl = document.getElementById("mcp-server-form");
+  const titleEl = document.getElementById("mcp-form-title");
+  const idInput = document.getElementById("mcp-server-id");
+  const nameInput = document.getElementById("mcp-server-name");
+  const typeSelect = document.getElementById("mcp-server-type");
+  const commandInput = document.getElementById("mcp-command");
+  const argsInput = document.getElementById("mcp-args");
+  const urlInput = document.getElementById("mcp-url");
+  const apiKeyInput = document.getElementById("mcp-api-key");
+  const customPromptInput = document.getElementById("mcp-custom-prompt");
+  if (!formEl) {
+    return;
+  }
   if (server) {
-    titleEl.textContent = 'MCP 서버 편집';
+    titleEl.textContent = "MCP 서버 편집";
     idInput.value = server.id;
-    nameInput.value = server.name || '';
-    typeSelect.value = server.type || 'stdio';
-    commandInput.value = server.command || '';
-    argsInput.value = (server.args || []).join(', ');
-    urlInput.value = server.url || '';
-    apiKeyInput.value = server.apiKey || '';
+    nameInput.value = server.name || "";
+    typeSelect.value = server.type || "stdio";
+    commandInput.value = server.command || "";
+    argsInput.value = (server.args || []).join(", ");
+    urlInput.value = server.url || "";
+    apiKeyInput.value = server.apiKey || "";
+    if (customPromptInput) customPromptInput.value = server.customPrompt || "";
   } else {
-    titleEl.textContent = 'MCP 서버 추가';
-    idInput.value = '';
-    nameInput.value = '';
-    typeSelect.value = 'stdio';
-    commandInput.value = '';
-    argsInput.value = '';
-    urlInput.value = '';
-    apiKeyInput.value = '';
+    titleEl.textContent = "MCP 서버 추가";
+    idInput.value = "";
+    nameInput.value = "";
+    typeSelect.value = "stdio";
+    commandInput.value = "";
+    argsInput.value = "";
+    urlInput.value = "";
+    apiKeyInput.value = "";
+    if (customPromptInput) customPromptInput.value = "";
   }
   updateTypeVisibility(typeSelect.value);
-  formEl.style.display = 'block';
+  formEl.style.display = "block";
 }
 
 /**
  * 연결 타입에 따른 필드 표시/숨김
  */
 function updateTypeVisibility(type) {
-  const stdioSettings = document.getElementById('mcp-stdio-settings');
-  const httpSettings = document.getElementById('mcp-http-settings');
+  const stdioSettings = document.getElementById("mcp-stdio-settings");
+  const httpSettings = document.getElementById("mcp-http-settings");
   if (stdioSettings && httpSettings) {
-    stdioSettings.style.display = type === 'stdio' ? 'block' : 'none';
-    httpSettings.style.display = type === 'http' ? 'block' : 'none';
+    stdioSettings.style.display = type === "stdio" ? "block" : "none";
+    httpSettings.style.display = type === "http" ? "block" : "none";
   }
 }
 
@@ -574,9 +634,9 @@ function updateTypeVisibility(type) {
  * 폼 숨기기
  */
 function hideServerForm() {
-  const formEl = document.getElementById('mcp-server-form');
+  const formEl = document.getElementById("mcp-server-form");
   if (formEl) {
-    formEl.style.display = 'none';
+    formEl.style.display = "none";
   }
 }
 
@@ -584,38 +644,38 @@ function hideServerForm() {
  * 폼 데이터 수집 및 저장
  */
 function saveServerFromForm() {
-  const idInput = document.getElementById('mcp-server-id');
-  const nameInput = document.getElementById('mcp-server-name');
-  const typeSelect = document.getElementById('mcp-server-type');
-  const commandInput = document.getElementById('mcp-command');
-  const argsInput = document.getElementById('mcp-args');
-  const urlInput = document.getElementById('mcp-url');
-  const apiKeyInput = document.getElementById('mcp-api-key');
-  const statusEl = document.getElementById('mcp-form-status');
+  const idInput = document.getElementById("mcp-server-id");
+  const nameInput = document.getElementById("mcp-server-name");
+  const typeSelect = document.getElementById("mcp-server-type");
+  const commandInput = document.getElementById("mcp-command");
+  const argsInput = document.getElementById("mcp-args");
+  const urlInput = document.getElementById("mcp-url");
+  const apiKeyInput = document.getElementById("mcp-api-key");
+  const statusEl = document.getElementById("mcp-form-status");
   const name = nameInput?.value.trim();
   if (!name) {
-    (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, '서버 이름을 입력해주세요.', 'error');
+    (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "서버 이름을 입력해주세요.", "error");
     return;
   }
-  const type = typeSelect?.value || 'stdio';
+  const type = typeSelect?.value || "stdio";
   let serverConfig = {
     id: idInput?.value || `mcp_${Date.now()}`,
     name,
     type,
     enabled: true
   };
-  if (type === 'stdio') {
+  if (type === "stdio") {
     const command = commandInput?.value.trim();
     if (!command) {
-      (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, '명령어를 입력해주세요.', 'error');
+      (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "명령어를 입력해주세요.", "error");
       return;
     }
     serverConfig.command = command;
-    serverConfig.args = argsInput?.value.split(',').map(s => s.trim()).filter(s => s);
+    serverConfig.args = argsInput?.value.split(",").map(s => s.trim()).filter(s => s);
   } else {
     const url = urlInput?.value.trim();
     if (!url) {
-      (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, 'URL을 입력해주세요.', 'error');
+      (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "URL을 입력해주세요.", "error");
       return;
     }
     serverConfig.url = url;
@@ -624,15 +684,22 @@ function saveServerFromForm() {
     }
   }
 
+  // 커스텀 프롬프트 (공통)
+  const customPromptInput = document.getElementById("mcp-custom-prompt");
+  const customPrompt = customPromptInput?.value.trim();
+  if (customPrompt) {
+    serverConfig.customPrompt = customPrompt;
+  }
+
   // 기존 서버 업데이트 또는 새 서버 추가
   if (idInput?.value) {
     window.vscode?.postMessage({
-      command: 'updateMcpServer',
+      command: "updateMcpServer",
       server: serverConfig
     });
   } else {
     window.vscode?.postMessage({
-      command: 'addMcpServer',
+      command: "addMcpServer",
       server: serverConfig
     });
   }
@@ -644,43 +711,34 @@ function saveServerFromForm() {
  */
 function bindMcpSettingsEvents(vscode) {
   // 서버 추가 버튼
-  const addBtn = document.getElementById('add-mcp-server-button');
+  const addBtn = document.getElementById("add-mcp-server-button");
   if (addBtn) {
-    addBtn.addEventListener('click', () => showServerForm());
+    addBtn.addEventListener("click", () => showServerForm());
   }
 
   // 타입 선택 변경
-  const typeSelect = document.getElementById('mcp-server-type');
+  const typeSelect = document.getElementById("mcp-server-type");
   if (typeSelect) {
-    typeSelect.addEventListener('change', e => {
+    typeSelect.addEventListener("change", e => {
       updateTypeVisibility(e.target.value);
     });
   }
 
   // 저장 버튼
-  const saveBtn = document.getElementById('save-mcp-server-button');
+  const saveBtn = document.getElementById("save-mcp-server-button");
   if (saveBtn) {
-    saveBtn.addEventListener('click', saveServerFromForm);
+    saveBtn.addEventListener("click", saveServerFromForm);
   }
 
   // 취소 버튼
-  const cancelBtn = document.getElementById('cancel-mcp-server-button');
+  const cancelBtn = document.getElementById("cancel-mcp-server-button");
   if (cancelBtn) {
-    cancelBtn.addEventListener('click', hideServerForm);
-  }
-
-  // 상세 정보 닫기 버튼
-  const closeDetailsBtn = document.getElementById('close-mcp-details-button');
-  if (closeDetailsBtn) {
-    closeDetailsBtn.addEventListener('click', () => {
-      const detailsEl = document.getElementById('mcp-server-details');
-      if (detailsEl) detailsEl.style.display = 'none';
-    });
+    cancelBtn.addEventListener("click", hideServerForm);
   }
 
   // 초기 서버 목록 요청
   vscode?.postMessage({
-    command: 'getMcpServers'
+    command: "getMcpServers"
   });
 }
 
@@ -711,16 +769,16 @@ function updateMcpServerStatus(serverId, status, tools = null) {
  */
 function handleMcpMessage(data) {
   switch (data.command) {
-    case 'mcpServers':
+    case "mcpServers":
       updateMcpServers(data.servers);
       break;
-    case 'mcpServerAdded':
+    case "mcpServerAdded":
       if (data.server) {
         mcpServers.push(data.server);
         renderServerList();
       }
       break;
-    case 'mcpServerUpdated':
+    case "mcpServerUpdated":
       if (data.server) {
         const idx = mcpServers.findIndex(s => s.id === data.server.id);
         if (idx !== -1) {
@@ -729,23 +787,35 @@ function handleMcpMessage(data) {
         }
       }
       break;
-    case 'mcpServerRemoved':
+    case "mcpServerRemoved":
       mcpServers = mcpServers.filter(s => s.id !== data.serverId);
       renderServerList();
       break;
-    case 'mcpServerStatus':
+    case "mcpServerStatus":
       updateMcpServerStatus(data.serverId, data.status, data.tools);
       break;
-    case 'mcpTestResult':
-      const statusEl = document.getElementById('mcp-form-status');
+    case "mcpTestResult":
       if (data.success) {
-        (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, `연결 성공! ${data.toolCount || 0}개 도구 발견`, 'success');
-        updateMcpServerStatus(data.serverId, 'connected', data.tools);
+        showInlineTestResult(data.serverId, true, `연결 성공! ${data.toolCount || 0}개 도구 발견`);
+        updateMcpServerStatus(data.serverId, "connected", data.tools);
       } else {
-        (0,_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, `연결 실패: ${data.error}`, 'error');
-        updateMcpServerStatus(data.serverId, 'error');
+        showInlineTestResult(data.serverId, false, `연결 실패: ${data.error}`);
+        updateMcpServerStatus(data.serverId, "error");
       }
       break;
+    case "mcpServerToggled":
+      {
+        const server = mcpServers.find(s => s.id === data.serverId);
+        if (server) {
+          server.enabled = data.enabled;
+          server.status = data.status || (data.enabled ? "disconnected" : "disconnected");
+          if (!data.enabled) {
+            server.tools = [];
+          }
+          renderServerList();
+        }
+        break;
+      }
   }
 }
 
@@ -4090,22 +4160,21 @@ function renderHotLoadList(hotLoads) {
   `).join("");
 
   // 삭제 버튼 이벤트 바인딩
+  // VSCode webview에서 confirm()이 작동하지 않으므로 바로 삭제 요청
   listContainer.querySelectorAll(".delete-hotload-btn").forEach(btn => {
     btn.addEventListener("click", e => {
-      const id = parseInt(e.target.dataset.id);
-      if (confirm("이 Hot Load를 삭제하시겠습니까?")) {
-        vscode.postMessage({
-          command: "deleteHotLoad",
-          id: id
-        });
-      }
+      const id = parseInt(e.currentTarget.dataset.id);
+      vscode.postMessage({
+        command: "deleteHotLoad",
+        id: id
+      });
     });
   });
 
   // 편집 버튼 이벤트 바인딩
   listContainer.querySelectorAll(".edit-hotload-btn").forEach(btn => {
     btn.addEventListener("click", e => {
-      const id = parseInt(e.target.dataset.id);
+      const id = parseInt(e.currentTarget.dataset.id);
       const item = hotLoads.find(h => h.id === id);
       if (item) {
         const keywordsInput = document.getElementById("hotload-keywords-input");

@@ -33,6 +33,8 @@ export interface MCPServerConfig {
     lastConnected?: number;
     /** 연결 상태 */
     status?: MCPServerStatus;
+    /** 사용자 정의 프롬프트 (LLM에 전달되는 MCP 도구 사용 지침) */
+    customPrompt?: string;
 }
 
 /**

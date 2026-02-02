@@ -4230,19 +4230,18 @@ function renderHotLoadList(hotLoads) {
     .join("");
 
   // 삭제 버튼 이벤트 바인딩
+  // VSCode webview에서 confirm()이 작동하지 않으므로 바로 삭제 요청
   listContainer.querySelectorAll(".delete-hotload-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      const id = parseInt(e.target.dataset.id);
-      if (confirm("이 Hot Load를 삭제하시겠습니까?")) {
-        vscode.postMessage({ command: "deleteHotLoad", id: id });
-      }
+      const id = parseInt(e.currentTarget.dataset.id);
+      vscode.postMessage({ command: "deleteHotLoad", id: id });
     });
   });
 
   // 편집 버튼 이벤트 바인딩
   listContainer.querySelectorAll(".edit-hotload-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      const id = parseInt(e.target.dataset.id);
+      const id = parseInt(e.currentTarget.dataset.id);
       const item = hotLoads.find((h) => h.id === id);
       if (item) {
         const keywordsInput = document.getElementById("hotload-keywords-input");

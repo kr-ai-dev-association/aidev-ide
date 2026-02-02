@@ -6,6 +6,19 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.2.1 (에러 분류 시스템 통합 및 MCP 커스텀 프롬프트)
+- **통합 에러 분류 시스템**: 키워드 기반 `extractErrorPattern()`을 구조적 에러 분류 시스템으로 교체했습니다.
+  - `ErrorClassifier`: LSP diagnostic.source + diagnostic.code 기반 구조적 에러 분류 (5개 카테고리)
+  - `AutoRemediator`: 의존성 누락 등 100% 확실한 경우 LLM 없이 자동 수정 (npm install 등)
+  - `RetryCoordinator`: 9개 재시도 위치를 하나의 통합 진입점으로 통합
+  - 동일 에러 3회 반복 시 조기 종료 — 무한 루프 방지 (기존: 반복할수록 더 호출)
+- **MCP 서버별 커스텀 프롬프트**: MCP 서버 등록 시 해당 도구의 사용 지침을 LLM에 전달할 수 있습니다.
+  - Settings UI에 커스텀 프롬프트 textarea 추가
+  - 활성화된 MCP 서버의 프롬프트가 시스템 프롬프트에 `## MCP 도구 사용 지침` 섹션으로 자동 삽입
+  - 예: "날씨 관련 질문에는 반드시 이 MCP 도구를 사용하세요"
+- **Hot Load 삭제 버튼 수정**: VSCode webview에서 `confirm()`이 항상 false를 반환하여 삭제가 동작하지 않던 문제 수정
+- **MCP 도구 타입 안전성 강화**: `ToolName` 타입을 `Tool | mcp_${string}`으로 정의하여 MCP 동적 도구를 타입 시스템에 통합
+
 ## v9.2.0 (코드 중복 방지 및 LLM 응답 파싱 개선)
 - **Fuzzy Match 완전 제거**: update_file 도구에서 Fuzzy Match 기능을 완전히 제거했습니다.
   - `FileMutationManager`에서 `fuzzyMatch()`, `getStringSimilarity()` 메서드 삭제

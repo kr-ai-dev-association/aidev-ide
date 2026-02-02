@@ -4,6 +4,7 @@
  */
 
 import { getFileCreationContext } from "./base";
+import { ClassificationResult } from "../../conversation/handlers/ErrorClassifier";
 
 // ==================== Execution First Rule ====================
 export function getExecutionFirstRulePrompt(): string {
@@ -472,4 +473,87 @@ export function getCompactSummarizationPrompt(): string {
 2. 코드는 포함하지 마세요 (파일명만 기록)
 3. 한국어로 작성하세요
 4. 다음 작업에 필수적인 컨텍스트만 유지하세요`;
+}
+
+// ==================== Classified Error Retry Prompt ====================
+
+/**
+ * 구조적 에러 분류 기반 재시도 프롬프트
+ * 키워드 매칭 없이 분류된 에러 그룹 + 근본 원인 분석을 LLM에 전달
+ *
+ * @param classification ErrorClassifier의 분류 결과
+ * @param modifiedFilesContext 수정된 파일들의 최신 내용
+ * @param escalation 동일 패턴 3회+ 반복 여부
+ * @param samePatternCount 동일 패턴 반복 횟수
+ */
+export function buildClassifiedRetryPrompt(
+    classification: ClassificationResult,
+    modifiedFilesContext: ModifiedFileContext[],
+    escalation: boolean,
+    samePatternCount: number
+): string {
+    let prompt = `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n`;
+
+    // 섹션 1: 에러 분류 결과 (구조적 분석)
+    prompt += `**에러 분류 결과:**\n`;
+    prompt += `- 총 에러 수: ${classification.totalErrorCount}\n`;
+    prompt += `- 주요 원인 유형: ${classification.dominantCategory}\n`;
+
+    if (classification.environmentCheck.needsInstall) {
+        prompt += `- ⚠️ 환경 문제: 의존성 디렉토리 누락 (자동 설치 시도됨)\n`;
+    }
+
+    prompt += `\n**에러 그룹:**\n`;
+    for (const group of classification.groups.slice(0, 5)) {
+        prompt += `\n### [${group.source}] 코드 ${group.representativeCode} (${group.count}건, ${group.affectedFiles.length}개 파일)\n`;
+        prompt += `- 영향 파일: ${group.affectedFiles.slice(0, 5).join(', ')}${group.affectedFiles.length > 5 ? ` 외 ${group.affectedFiles.length - 5}개` : ''}\n`;
+        if (group.rootCauseHypothesis) {
+            prompt += `- 분석: ${group.rootCauseHypothesis}\n`;
+        }
+        prompt += `- 샘플:\n`;
+        for (const msg of group.sampleMessages) {
+            prompt += `  - ${msg}\n`;
+        }
+    }
+
+    // 섹션 2: 에스컬레이션 경고 (동일 패턴 반복)
+    if (escalation) {
+        prompt += `\n**⚠️ 경고: 동일한 에러 패턴이 ${samePatternCount}회 반복되고 있습니다.**\n`;
+        prompt += `이전과 **다른 접근 방식**을 시도하세요:\n`;
+        prompt += `- 동일한 수정을 반복하지 마세요\n`;
+        prompt += `- 에러의 근본 원인을 다시 분석하세요\n`;
+        prompt += `- 의존성 문제라면 run_command로 패키지 설치를 시도하세요\n`;
+        prompt += `- 타입/모듈 에러가 반복되면 import 경로나 설정 파일을 확인하세요\n`;
+    }
+
+    // 섹션 3: 수정된 파일 최신 내용 (항상 포함)
+    if (modifiedFilesContext && modifiedFilesContext.length > 0) {
+        prompt += `\n**⚠️ 중요: 아래는 수정된 파일들의 최신 내용입니다.**\n`;
+        prompt += `**SEARCH 블록 작성 시 반드시 아래 내용을 기준으로 작성하세요.**\n\n`;
+
+        for (const file of modifiedFilesContext) {
+            const lines = file.content.split('\n');
+            const preview = lines.slice(0, 150).join('\n');
+            const isTruncated = lines.length > 150;
+            prompt += `**[${file.path}] 현재 내용:**\n\`\`\`\n${preview}${isTruncated ? '\n... (생략됨)' : ''}\n\`\`\`\n\n`;
+        }
+    }
+
+    // 섹션 4: 도구 호출 형식 지침
+    prompt +=
+        `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
+        `**사용 가능한 도구:**\n` +
+        `- 파일 수정: { "tool": "update_file", "path": "..." }\n` +
+        `- 파일 생성: { "tool": "create_file", "path": "..." }\n` +
+        `- 명령어 실행: { "tool": "run_command", "command": "..." }\n\n` +
+        `**빌드/테스트 도구 설치 절대 금지:**\n` +
+        `- "tsc not found", "gradle not found" 등 빌드 도구가 없는 경우\n` +
+        `- 절대 npm install -g typescript, brew install gradle 등 도구 설치 명령을 실행하지 마세요\n` +
+        `- 대신 사용자에게 설치를 권유하는 메시지만 출력하세요\n\n` +
+        `**절대 금지:**\n` +
+        `- 자연어 응답 (설명, 분석, "We need to..." 등)\n` +
+        `- XML 태그 형식\n\n` +
+        `**지금 바로 도구 호출을 출력하세요. 자연어 텍스트는 무시됩니다.**\n`;
+
+    return prompt;
 }

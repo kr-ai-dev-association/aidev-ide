@@ -1,10 +1,14 @@
 /**
  * MCP Manager
  * MCP 서버 설정 및 클라이언트 관리
+ *
+ * 데이터 영속성은 StateManager에 위임하고,
+ * MCPManager는 클라이언트 연결/도구 호출 등 런타임 관리만 담당합니다.
  */
 
 import * as vscode from 'vscode';
 import { MCPClient } from './MCPClient';
+import { StateManager } from '../managers/state/StateManager';
 import {
     MCPServerConfig,
     MCPSettings,
@@ -16,12 +20,13 @@ import {
 } from './types';
 
 export class MCPManager {
-    private static instance: MCPManager | null = null;
-    private context: vscode.ExtensionContext | null = null;
+    private static instance: MCPManager;
+    private context: vscode.ExtensionContext | undefined;
 
     private clients: Map<string, MCPClient> = new Map();
     private settings: MCPSettings = DEFAULT_MCP_SETTINGS;
     private eventListeners: ((event: MCPConnectionEvent) => void)[] = [];
+    private initialized = false;
 
     private constructor() { }
 
@@ -33,11 +38,30 @@ export class MCPManager {
     }
 
     /**
-     * 초기화
+     * StateManager 인스턴스를 가져옵니다
+     */
+    private getStateManager(): StateManager {
+        if (!this.context) {
+            throw new Error('[MCPManager] Not initialized - context is undefined');
+        }
+        return StateManager.getInstance(this.context);
+    }
+
+    /**
+     * 초기화 (중복 호출 안전)
      */
     async initialize(context: vscode.ExtensionContext): Promise<void> {
+        if (this.initialized) {
+            // 컨텍스트 갱신만 수행 (설정 리로드)
+            this.context = context;
+            await this.loadSettings();
+            return;
+        }
+
         this.context = context;
+        await this.migrateLegacySettings();
         await this.loadSettings();
+        this.initialized = true;
         console.log(`[MCPManager] Initialized with ${this.settings.servers.length} servers`);
 
         // 활성화된 서버들에 자동 연결
@@ -51,23 +75,50 @@ export class MCPManager {
     }
 
     /**
-     * 설정 로드
+     * 레거시 globalState 데이터 마이그레이션 (한 번만 실행)
      */
-    private async loadSettings(): Promise<void> {
+    private async migrateLegacySettings(): Promise<void> {
         if (!this.context) return;
 
-        const savedSettings = this.context.globalState.get<MCPSettings>('mcp.settings');
-        if (savedSettings) {
-            this.settings = savedSettings;
+        const legacySettings = this.context.globalState.get<MCPSettings>('mcp.settings');
+        if (legacySettings && legacySettings.servers.length > 0) {
+            const stateManager = this.getStateManager();
+            const existingServers = await stateManager.getMcpServers();
+            if (existingServers.length === 0) {
+                console.log('[MCPManager] Migrating from globalState to StateManager...');
+                await stateManager.saveMcpServers(legacySettings.servers);
+                await stateManager.saveMcpApprovedTools(legacySettings.approvedTools || []);
+                // 레거시 데이터 정리
+                await this.context.globalState.update('mcp.settings', undefined);
+            }
         }
     }
 
     /**
-     * 설정 저장
+     * StateManager에서 설정을 로드하여 인메모리 캐시에 반영
+     */
+    private async loadSettings(): Promise<void> {
+        if (!this.context) return;
+
+        const stateManager = this.getStateManager();
+        const servers = await stateManager.getMcpServers() as MCPServerConfig[];
+        const approvedTools = await stateManager.getMcpApprovedTools() as ApprovedMCPTool[];
+
+        this.settings = {
+            servers,
+            approvedTools,
+            enabled: true
+        };
+    }
+
+    /**
+     * 인메모리 설정을 StateManager에 저장
      */
     private async saveSettings(): Promise<void> {
         if (!this.context) return;
-        await this.context.globalState.update('mcp.settings', this.settings);
+        const stateManager = this.getStateManager();
+        await stateManager.saveMcpServers(this.settings.servers);
+        await stateManager.saveMcpApprovedTools(this.settings.approvedTools);
     }
 
     // ==================== 서버 관리 ====================
@@ -81,9 +132,20 @@ export class MCPManager {
 
     /**
      * 서버 추가
+     * 기존 ID가 있으면 유지, 없으면 새로 생성
      */
-    async addServer(config: Omit<MCPServerConfig, 'id'>): Promise<MCPServerConfig> {
-        const id = `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    async addServer(config: MCPServerConfig | Omit<MCPServerConfig, 'id'>): Promise<MCPServerConfig> {
+        const id = ('id' in config && config.id)
+            ? config.id
+            : `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // 이미 같은 ID의 서버가 있으면 중복 추가 방지
+        const existing = this.settings.servers.find(s => s.id === id);
+        if (existing) {
+            console.log(`[MCPManager] Server already exists: ${id}`);
+            return existing;
+        }
+
         const server: MCPServerConfig = {
             ...config,
             id,
@@ -93,7 +155,7 @@ export class MCPManager {
         this.settings.servers.push(server);
         await this.saveSettings();
 
-        console.log(`[MCPManager] Server added: ${server.name}`);
+        console.log(`[MCPManager] Server added: ${server.name} (id: ${id})`);
         return server;
     }
 
@@ -224,7 +286,7 @@ export class MCPManager {
     }
 
     /**
-     * 연결 테스트
+     * 연결 테스트 (성공 시 실제 연결도 유지)
      */
     async testConnection(serverId: string): Promise<{ success: boolean; error?: string; tools?: MCPToolInfo[] }> {
         const server = this.settings.servers.find(s => s.id === serverId);
@@ -232,11 +294,20 @@ export class MCPManager {
             return { success: false, error: 'Server not found' };
         }
 
-        const testClient = new MCPClient(server);
-        const result = await testClient.testConnection();
-        await testClient.disconnect();
+        // 기존 클라이언트가 있으면 먼저 정리
+        if (this.clients.has(serverId)) {
+            await this.disconnectFromServer(serverId);
+        }
 
-        return result;
+        // 실제 연결 시도 (성공하면 클라이언트를 유지)
+        try {
+            await this.connectToServer(serverId);
+            const client = this.clients.get(serverId);
+            return { success: true, tools: client?.tools || [] };
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            return { success: false, error: errorMessage };
+        }
     }
 
     // ==================== 도구 관리 ====================
@@ -263,10 +334,28 @@ export class MCPManager {
     }
 
     /**
-     * 도구 호출
+     * 도구 호출 (연결 끊어진 경우 자동 재연결 시도)
      */
     async callTool(serverId: string, toolName: string, args: Record<string, any>): Promise<MCPToolResult> {
-        const client = this.clients.get(serverId);
+        let client = this.clients.get(serverId);
+
+        // 클라이언트가 없거나 연결이 끊어진 경우 재연결 시도
+        if (!client || client.status !== 'connected') {
+            console.log(`[MCPManager] Client not connected for ${serverId}, attempting reconnect...`);
+            try {
+                await this.connectToServer(serverId);
+                client = this.clients.get(serverId);
+            } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                console.error(`[MCPManager] Reconnect failed for ${serverId}: ${errorMsg}`);
+                return {
+                    success: false,
+                    content: [],
+                    error: `Server not connected and reconnect failed: ${errorMsg}`
+                };
+            }
+        }
+
         if (!client || client.status !== 'connected') {
             return {
                 success: false,

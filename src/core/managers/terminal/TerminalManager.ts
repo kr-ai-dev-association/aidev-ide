@@ -742,7 +742,7 @@ export class TerminalManager {
                 TerminalManager.captureOutputChannel.hide();
                 TerminalManager.captureOutputChannel.clear();
             } catch (error) {
-                // ignore
+                console.debug('[TerminalManager] OutputChannel hide/clear failed (non-critical):', error);
             }
         }
     }
@@ -1006,8 +1006,8 @@ export class TerminalManager {
                     const decoded = Buffer.from(b64, 'base64').toString('utf8');
                     const payload = JSON.parse(decoded) as { type: 'create' | 'modify' | 'delete'; path: string; content?: string };
                     errorPath = payload.path;
-                } catch {
-                    // payload 파싱 실패 시 기본값 사용
+                } catch (parseErr) {
+                    console.debug('[TerminalManager] File-op payload parse failed, using default path:', parseErr);
                 }
                 errorManager.captureError(
                     ErrorSource.TERMINAL,
@@ -1017,8 +1017,8 @@ export class TerminalManager {
                         cwd: errorPath
                     }
                 ).catch(() => { /* no-op */ });
-            } catch {
-                // ErrorManager 초기화 실패 등은 무시
+            } catch (errMgrErr) {
+                console.debug('[TerminalManager] ErrorManager unavailable during file-op error capture:', errMgrErr);
             }
             return false;
         }
@@ -1118,7 +1118,7 @@ export class TerminalManager {
                                         console.log(`[TerminalManager] 다른 디렉토리 프로세스는 종료하지 않음: PID ${pid} (CWD: ${processCwd}, 현재: ${absCwd})`);
                                     }
                                 } catch (e) {
-                                    // 개별 프로세스 확인 실패는 무시
+                                    console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
                                 }
                             }
                         }
@@ -1515,8 +1515,8 @@ export class TerminalManager {
                                     cwd
                                 }
                             ).catch(() => { /* no-op */ });
-                        } catch {
-                            // ErrorManager 초기화 실패 등은 무시
+                        } catch (errMgrErr) {
+                            console.debug('[TerminalManager] ErrorManager unavailable during command error capture:', errMgrErr);
                         }
                     });
                 }

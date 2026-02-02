@@ -60,6 +60,8 @@ import { RunCommandToolHandler } from "./core/tools/terminal";
 import { GitDiffToolHandler } from "./core/tools/git";
 import { ReadActiveFileToolHandler } from "./core/tools/ide";
 import { FetchUrlToolHandler } from "./core/tools/web";
+import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
+import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
 
 // 전역 변수
@@ -561,6 +563,39 @@ export async function activate(context: vscode.ExtensionContext) {
     "[Extension] Tool handlers registered:",
     toolRegistry.getRegisteredTools(),
   );
+
+  // MCP Manager 초기화 및 도구 등록 브릿지
+  const mcpManager = MCPManager.getInstance();
+  await mcpManager.initialize(context);
+
+  // MCPManager 연결 이벤트 → ToolRegistry 동적 등록
+  mcpManager.onConnectionEvent((event) => {
+    if (event.type === 'connected' && event.tools) {
+      // 기존 도구 해제 후 새로 등록
+      const serverPrefix = `mcp_${event.serverName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      toolRegistry.unregisterByPrefix(serverPrefix);
+
+      for (const tool of event.tools) {
+        const handler = new MCPToolHandler(event.serverId, event.serverName, tool);
+        toolRegistry.register(handler);
+      }
+      console.log(`[Extension] MCP tools registered for ${event.serverName}: ${event.tools.length} tools`);
+    } else if (event.type === 'disconnected') {
+      const serverPrefix = `mcp_${event.serverName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      const count = toolRegistry.unregisterByPrefix(serverPrefix);
+      console.log(`[Extension] MCP tools unregistered for ${event.serverName}: ${count} tools`);
+    }
+  });
+
+  // 이미 연결된 서버의 도구를 ToolRegistry에 등록
+  const allMcpTools = mcpManager.getAllTools();
+  for (const { serverId, serverName, tool } of allMcpTools) {
+    const handler = new MCPToolHandler(serverId, serverName, tool);
+    toolRegistry.register(handler);
+  }
+  if (allMcpTools.length > 0) {
+    console.log(`[Extension] Existing MCP tools registered: ${allMcpTools.length}`);
+  }
 
   // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 
