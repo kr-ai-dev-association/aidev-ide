@@ -571,18 +571,19 @@ export async function activate(context: vscode.ExtensionContext) {
   // MCPManager 연결 이벤트 → ToolRegistry 동적 등록
   mcpManager.onConnectionEvent((event) => {
     if (event.type === 'connected' && event.tools) {
-      // 기존 도구 해제 후 새로 등록
-      const serverPrefix = `mcp_${event.serverName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-      toolRegistry.unregisterByPrefix(serverPrefix);
+      // 기존 도구 해제 후 새로 등록 (serverId 기반)
+      toolRegistry.unregisterByServerId(event.serverId);
 
       for (const tool of event.tools) {
         const handler = new MCPToolHandler(event.serverId, event.serverName, tool);
-        toolRegistry.register(handler);
+        const registeredName = toolRegistry.registerMCP(handler, event.serverId, event.serverName, tool.name);
+        if (registeredName !== handler.name) {
+          handler.setRegisteredName(registeredName);
+        }
       }
       console.log(`[Extension] MCP tools registered for ${event.serverName}: ${event.tools.length} tools`);
     } else if (event.type === 'disconnected') {
-      const serverPrefix = `mcp_${event.serverName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-      const count = toolRegistry.unregisterByPrefix(serverPrefix);
+      const count = toolRegistry.unregisterByServerId(event.serverId);
       console.log(`[Extension] MCP tools unregistered for ${event.serverName}: ${count} tools`);
     }
   });
@@ -591,7 +592,10 @@ export async function activate(context: vscode.ExtensionContext) {
   const allMcpTools = mcpManager.getAllTools();
   for (const { serverId, serverName, tool } of allMcpTools) {
     const handler = new MCPToolHandler(serverId, serverName, tool);
-    toolRegistry.register(handler);
+    const registeredName = toolRegistry.registerMCP(handler, serverId, serverName, tool.name);
+    if (registeredName !== handler.name) {
+      handler.setRegisteredName(registeredName);
+    }
   }
   if (allMcpTools.length > 0) {
     console.log(`[Extension] Existing MCP tools registered: ${allMcpTools.length}`);

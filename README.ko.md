@@ -6,6 +6,18 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.2.3 (Tool Registry SSOT — mcp_ 프리픽스 제거 및 메타데이터 기반 도구 관리)
+- **mcp_ 프리픽스 제거**: MCP 도구 이름에서 `mcp_{serverName}_` 프리픽스를 제거하여 원래 도구 이름을 사용합니다.
+  - 기존: `mcp_auto_test_mcp_server_web_launch` (39자)
+  - 변경: `web_launch` (10자) — LLM 토큰 절약 및 호출 정확도 향상
+- **ToolRegistry 메타데이터 레이어**: `ToolRegistryEntry`에 `source`, `serverId`, `serverName` 메타데이터를 추가하여 도구 출처를 구조적으로 관리합니다.
+  - `startsWith('mcp_')` 분산 로직 7곳 → `ToolRegistry.isMCPTool()` 단일 진입점으로 통합
+  - `registerMCP()`: 충돌 없음 → 원래 이름, 같은 서버 재연결 → 교체, 다른 출처 충돌 → `{serverName}_{toolName}` disambiguate
+  - `unregisterByServerId()`: 서버 연결 해제 시 해당 서버 도구만 정확히 제거
+- **Registry 기반 도구 검증**: ToolParser가 프리픽스 대신 `ToolRegistry.hasHandler()`로 도구 유효성을 검증합니다.
+  - LLM이 원래 이름(`web_launch`)으로 호출해도 정상 파싱
+- **MCP 도구 Phase Gating**: AgentStateManager에서 MCP 도구를 INVESTIGATION/EXECUTION 상태에서 허용합니다.
+
 ## v9.2.2 (ExecutionOutcome 기반 CLI 실행 실패 분류)
 - **ExecutionOutcome 구조적 에러 분류**: CLI 검증 실패 시 문자열 파싱 대신 구조적 메타데이터(exitCode, signal, duration)로 분류합니다.
   - `ExecutionOutcome` 인터페이스: CLI 실행 결과에서 분류에 필요한 신호만 추출하는 경량 어댑터

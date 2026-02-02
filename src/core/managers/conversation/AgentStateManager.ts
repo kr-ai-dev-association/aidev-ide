@@ -4,6 +4,7 @@
  */
 
 import { Tool } from '../../tools/types';
+import { ToolRegistry } from '../../tools/ToolRegistry';
 
 /**
  * 에이전트 상태
@@ -189,18 +190,31 @@ export class AgentStateManager {
 
     /**
      * 도구가 현재 상태에서 허용되는지 확인
+     * 빌트인 도구는 allowed/forbidden 리스트로 검증
+     * MCP 동적 도구는 INVESTIGATION/EXECUTION 상태에서 허용
      */
-    isToolAllowed(toolName: Tool): boolean {
+    isToolAllowed(toolName: string): boolean {
         const allowed = ALLOWED_TOOLS[this.currentState];
         const forbidden = FORBIDDEN_TOOLS[this.currentState];
 
         // 금지 목록에 있으면 차단
-        if (forbidden.includes(toolName)) {
+        if (forbidden.includes(toolName as Tool)) {
             return false;
         }
 
-        // 허용 목록에 있으면 허용
-        return allowed.includes(toolName);
+        // 빌트인 도구: 허용 목록에 있으면 허용
+        if (Object.values(Tool).includes(toolName as Tool)) {
+            return allowed.includes(toolName as Tool);
+        }
+
+        // MCP 등 동적 등록 도구: INVESTIGATION/EXECUTION에서 허용
+        if (ToolRegistry.getInstance().isMCPTool(toolName)) {
+            return this.currentState === AgentPhase.INVESTIGATION
+                || this.currentState === AgentPhase.EXECUTION;
+        }
+
+        // 알 수 없는 도구는 차단
+        return false;
     }
 
     /**
@@ -255,7 +269,7 @@ export class AgentStateManager {
         // 도구별 검증 (금지된 도구 사용 확인)
         if (response.toolCalls) {
             for (const toolCall of response.toolCalls) {
-                if (!this.isToolAllowed(toolCall.name as Tool)) {
+                if (!this.isToolAllowed(toolCall.name)) {
                     return {
                         valid: false,
                         reason: `Tool ${toolCall.name} is forbidden in ${this.currentState} phase`

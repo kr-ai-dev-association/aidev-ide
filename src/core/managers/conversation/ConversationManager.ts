@@ -2577,7 +2577,7 @@ export class ConversationManager {
           if (toolCalls.length > 0) {
             // FSM을 사용한 도구 허용 여부 검증
             const blockedCalls = toolCalls.filter(
-              (call) => !stateManager.isToolAllowed(call.name as Tool),
+              (call) => !stateManager.isToolAllowed(call.name),
             );
 
             // INVESTIGATION 단계에서 EXECUTION 도구가 있으면 EXECUTION으로 전환

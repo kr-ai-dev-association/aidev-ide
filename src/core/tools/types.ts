@@ -42,9 +42,10 @@ export enum Tool {
 
 /**
  * MCP 도구를 포함하는 도구 이름 타입
- * 내장 도구(Tool enum)와 MCP 동적 도구(mcp_ prefix)를 모두 지원
+ * 내장 도구(Tool enum)와 MCP 동적 도구를 모두 지원
+ * MCP 도구는 원래 이름 그대로 등록됨 (프리픽스 없음, 충돌 시에만 서버명 접두사)
  */
-export type ToolName = Tool | `mcp_${string}`;
+export type ToolName = Tool | string;
 
 /**
  * 툴 사용 (LLM이 생성하는 툴 콜)

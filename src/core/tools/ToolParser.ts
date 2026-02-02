@@ -16,7 +16,8 @@
  *    { "tool": "read_file", "path": "src/file.ts" }
  */
 
-import { ToolUse, Tool } from './types';
+import { ToolUse, Tool, ToolName } from './types';
+import { ToolRegistry } from './ToolRegistry';
 
 export class ToolParser {
     // CODE 블록 마커 상수 (XML 스타일)
@@ -128,7 +129,7 @@ export class ToolParser {
                 }
 
                 toolCalls.push({
-                    name: toolName as Tool,
+                    name: toolName as ToolName,
                     params,
                     partial: false
                 });
@@ -220,8 +221,8 @@ export class ToolParser {
 
         // git_diff, read_active_file은 파라미터 없어도 됨
 
-        // MCP 도구는 별도 검증 없이 통과 (MCP 서버에서 검증)
-        if (toolName.startsWith('mcp_')) {
+        // MCP 등 동적 등록 도구는 별도 검증 없이 통과 (MCP 서버에서 검증)
+        if (ToolRegistry.getInstance().isMCPTool(toolName)) {
             return { valid: true };
         }
 
@@ -230,14 +231,15 @@ export class ToolParser {
 
     /**
      * 도구 이름이 유효한지 확인
-     * MCP 도구 (mcp_ prefix)도 유효한 것으로 처리
+     * 빌트인 도구(Tool enum)와 Registry에 등록된 동적 도구 모두 지원
      */
     private static isValidToolName(name: string): boolean {
-        // MCP 도구는 mcp_ prefix로 시작
-        if (name.startsWith('mcp_')) {
+        // 빌트인 도구 (fast path)
+        if (Object.values(Tool).includes(name as Tool)) {
             return true;
         }
-        return Object.values(Tool).includes(name as Tool);
+        // Registry에 등록된 동적 도구 (MCP 등)
+        return ToolRegistry.getInstance().hasHandler(name);
     }
 
     /**
@@ -471,7 +473,7 @@ export class ToolParser {
             const toolMatch = content.match(/\{\s*["']tool["']\s*:\s*["']([^"']+)["']/);
             if (toolMatch && this.isValidToolName(toolMatch[1])) {
                 return {
-                    name: toolMatch[1] as Tool,
+                    name: toolMatch[1] as ToolName,
                     params: {},
                     partial: true
                 };

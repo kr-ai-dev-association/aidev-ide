@@ -1,6 +1,9 @@
 /**
  * MCP Tool Handler
  * MCP 도구를 기존 Tool 시스템에 통합
+ *
+ * v9.2.3: 원래 도구 이름 사용 (mcp_ 프리픽스 제거)
+ * 충돌 해결은 ToolRegistry.registerMCP()에서 처리
  */
 
 import * as vscode from 'vscode';
@@ -12,33 +15,35 @@ import { MCPManager, MCPToolInfo } from '../../mcp';
  * MCP 도구를 IToolHandler로 래핑
  */
 export class MCPToolHandler implements IToolHandler {
-    readonly name: string;
-    private serverId: string;
+    name: string;
+    readonly serverId: string;
+    readonly serverName: string;
     private mcpToolName: string;
     private toolInfo: MCPToolInfo;
     private mcpManager: MCPManager;
 
     constructor(serverId: string, serverName: string, toolInfo: MCPToolInfo) {
-        // 도구 이름: mcp_{서버명}_{도구명} 형식으로 고유하게 생성
-        this.name = `mcp_${this.sanitizeName(serverName)}_${toolInfo.name}`;
+        // 원래 도구 이름 사용 — 충돌 해결은 ToolRegistry가 담당
+        this.name = toolInfo.name;
         this.serverId = serverId;
+        this.serverName = serverName;
         this.mcpToolName = toolInfo.name;
         this.toolInfo = toolInfo;
         this.mcpManager = MCPManager.getInstance();
     }
 
     /**
-     * 이름에서 특수문자 제거
+     * 충돌로 disambiguate된 경우 Registry가 호출하여 이름 업데이트
      */
-    private sanitizeName(name: string): string {
-        return name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    setRegisteredName(name: string): void {
+        this.name = name;
     }
 
     /**
      * 도구 설명 반환
      */
     getDescription(toolUse: ToolUse): string {
-        return `[MCP] ${this.toolInfo.description || this.mcpToolName}`;
+        return `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`;
     }
 
     /**
@@ -196,7 +201,7 @@ export class MCPToolHandler implements IToolHandler {
 
         return {
             name: this.name,
-            description: `[MCP] ${this.toolInfo.description || this.mcpToolName}`,
+            description: `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`,
             parameters
         };
     }

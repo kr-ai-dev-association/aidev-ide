@@ -7,7 +7,7 @@
  * - buildToolPromptSectionJson(): JSON 기반 도구 호출 프롬프트
  */
 
-import { ToolSpec, Tool } from './types';
+import { ToolSpec, Tool, ToolName } from './types';
 import { buildToolPromptSection } from '../managers/context/prompts/tools';
 import { ToolRegistry } from './ToolRegistry';
 import { MCPToolHandler } from './mcp/MCPToolHandler';
@@ -303,7 +303,7 @@ export class ToolSpecBuilder {
             .map(handler => {
                 const spec = handler.toToolSpec();
                 return {
-                    name: spec.name as Tool,
+                    name: spec.name as ToolName,
                     description: spec.description,
                     parameters: spec.parameters
                 };
