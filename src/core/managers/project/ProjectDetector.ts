@@ -295,7 +295,7 @@ export class ProjectDetector {
                         return {
                             type: ProjectType.SWIFT,
                             confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                            buildTool: BuildTool.UNKNOWN
+                            buildTool: BuildTool.XCODE
                         };
                     }
                 } catch {
@@ -765,6 +765,22 @@ export class ProjectDetector {
                 return null;
 
             case ProjectType.SWIFT:
+                // Xcode 프로젝트 (.xcodeproj) 감지 → xcodebuild 사용
+                if (process.platform === 'darwin') {
+                    try {
+                        const xcodeprojFiles = fs.readdirSync(projectRoot).filter(f => f.endsWith('.xcodeproj'));
+                        if (xcodeprojFiles.length > 0) {
+                            const xcodeproj = xcodeprojFiles[0];
+                            return {
+                                command: `xcodebuild -project ${xcodeproj} build CODE_SIGNING_ALLOWED=NO`,
+                                description: 'Xcode 프로젝트 빌드 검사'
+                            };
+                        }
+                    } catch {
+                        // 디렉토리 읽기 실패 시 swift build fallback
+                    }
+                }
+                // Swift Package Manager (Package.swift) fallback
                 return { command: 'swift build', description: 'Swift 빌드 검사' };
 
             case ProjectType.C_CPP:

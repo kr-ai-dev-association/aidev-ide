@@ -6,6 +6,24 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.3.0 (ConversationManager 턴 루프 리팩토링 및 Xcode 빌드 검증 지원)
+- **턴 루프 리팩토링**: `executeAgentLoop()` 3031줄 while 루프를 ~15개 private 메서드로 분리하여 가독성 대폭 개선했습니다.
+  - `TurnContext` 타입 정의: 턴 루프의 모든 가변 상태 + 불변 설정을 하나의 인터페이스로 캡슐화
+  - `TurnAction` 반환 타입: 추출된 메서드가 `continue`/`break`/`proceed` 의도를 호출자에게 전달
+  - `runTestsAndTransition()`: 7곳에 복사/붙여넣기된 자동 테스트+재시도 로직을 1개 메서드로 통합
+  - `handleReviewPhase()`: REVIEW 단계 처리 (~210줄) 추출
+  - `handlePostToolTransition()`: 도구 실행 후 전이 결정 로직 (~160줄) 추출
+  - `executeToolsWithUI()`: 3곳의 동일한 도구 실행 보일러플레이트를 통합
+  - `completePlanItem()`, `transitionToReview()`: 중복 패턴 헬퍼 메서드
+  - 순 효과: ~816줄 감소 (4825줄 → 3940줄), 중복 코드 제거
+- **데드코드 제거**: `investigationTextOnlyCount` 변수 (쓰기만 하고 읽지 않음), legacy `runAutomatedTests()` 래퍼 메서드 삭제
+- **Xcode 프로젝트 빌드 검증 지원**: `.xcodeproj` 파일이 있는 프로젝트에서 `xcodebuild` 명령어로 빌드 검증을 실행합니다.
+  - `BuildTool.XCODE` enum 추가
+  - `.xcodeproj` 감지 시 `xcodebuild -project <name>.xcodeproj build CODE_SIGNING_ALLOWED=NO` 실행
+  - Swift Package Manager 프로젝트 (`Package.swift`)는 기존 `swift build` 유지
+  - macOS 환경에서만 동작 (`process.platform === 'darwin'`)
+- **ProjectManager 버그 수정**: `fs.existsSync(path.join(root, '*.xcodeproj'))` — glob 패턴이 `existsSync`에서 동작하지 않는 문제를 `fs.readdirSync().some()` 패턴으로 수정
+
 ## v9.2.3 (Tool Registry SSOT — mcp_ 프리픽스 제거 및 메타데이터 기반 도구 관리)
 - **mcp_ 프리픽스 제거**: MCP 도구 이름에서 `mcp_{serverName}_` 프리픽스를 제거하여 원래 도구 이름을 사용합니다.
   - 기존: `mcp_auto_test_mcp_server_web_launch` (39자)

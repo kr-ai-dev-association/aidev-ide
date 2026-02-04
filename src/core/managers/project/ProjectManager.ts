@@ -151,7 +151,7 @@ export class ProjectManager {
                         if (androidManifest) {
                             localProjectType = 'android';
                         }
-                    } else if (fs.existsSync(path.join(root, 'Podfile')) || fs.existsSync(path.join(root, '*.xcodeproj'))) {
+                    } else if (fs.existsSync(path.join(root, 'Podfile')) || fs.readdirSync(root).some(f => f.endsWith('.xcodeproj'))) {
                         localProjectType = 'ios';
                     }
                 } catch (e) {

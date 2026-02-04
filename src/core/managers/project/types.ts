@@ -72,6 +72,7 @@ export enum BuildTool {
     BUNDLER = 'bundler',
     DOTNET = 'dotnet',
     CMAKE = 'cmake',
+    XCODE = 'xcode',
     UNKNOWN = 'unknown'
 }
 

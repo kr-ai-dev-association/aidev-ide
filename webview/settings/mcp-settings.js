@@ -86,6 +86,9 @@ function createServerCard(server) {
         <p style="margin: 0 0 6px 0; font-size: 0.85em; font-weight: bold;">도구 목록 (${toolCount}개)</p>
         ${toolsHtml}
       </div>
+      <!-- 인라인 수정 폼 (토글) -->
+      <div class="mcp-inline-edit" data-server-id="${server.id}" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border);">
+      </div>
       <!-- 인라인 테스트 결과 -->
       <div class="mcp-inline-status" data-server-id="${server.id}" style="display: none; margin-top: 8px; padding: 6px 8px; border-radius: 4px; font-size: 0.85em;">
       </div>
@@ -156,9 +159,15 @@ function bindServerCardEvents() {
       e.preventDefault();
       e.stopPropagation();
       const serverId = e.currentTarget.dataset.serverId;
-      const toolsEl = document.querySelector(
-        `.mcp-inline-tools[data-server-id="${serverId}"]`,
-      );
+      const card = document.querySelector(`.mcp-server-card[data-server-id="${serverId}"]`);
+      const toolsEl = card?.querySelector(`.mcp-inline-tools`);
+      const editEl = card?.querySelector(`.mcp-inline-edit`);
+
+      // 수정 패널이 열려있으면 닫기 (상호 배제)
+      if (editEl) {
+        editEl.style.display = "none";
+      }
+
       if (toolsEl) {
         toolsEl.style.display =
           toolsEl.style.display === "none" ? "block" : "none";
@@ -172,7 +181,7 @@ function bindServerCardEvents() {
       e.preventDefault();
       e.stopPropagation();
       const serverId = e.currentTarget.dataset.serverId;
-      editServer(serverId);
+      showInlineEditForm(serverId);
     });
   });
 
@@ -217,7 +226,171 @@ function showInlineTestResult(serverId, success, message) {
 }
 
 /**
- * 서버 편집 폼 표시
+ * 인라인 수정 폼 표시 (서버 카드 내부)
+ */
+function showInlineEditForm(serverId) {
+  const server = mcpServers.find((s) => s.id === serverId);
+  if (!server) {
+    return;
+  }
+
+  const card = document.querySelector(`.mcp-server-card[data-server-id="${serverId}"]`);
+  if (!card) {
+    return;
+  }
+
+  const editEl = card.querySelector(`.mcp-inline-edit`);
+  const toolsEl = card.querySelector(`.mcp-inline-tools`);
+
+  if (!editEl) {
+    return;
+  }
+
+  // 도구 패널이 열려있으면 닫기 (상호 배제)
+  if (toolsEl) {
+    toolsEl.style.display = "none";
+  }
+
+  // 이미 열려있으면 토글로 닫기
+  if (editEl.style.display !== "none" && editEl.innerHTML.trim() !== "") {
+    editEl.style.display = "none";
+    editEl.innerHTML = "";
+    return;
+  }
+
+  const isStdio = server.type === "stdio";
+
+  editEl.innerHTML = `
+    <p style="margin: 0 0 8px 0; font-size: 0.85em; font-weight: bold;">서버 편집</p>
+    <div style="margin-bottom: 8px;">
+      <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">서버 이름</label>
+      <input type="text" class="mcp-edit-name" value="${server.name || ""}"
+        style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em;" />
+    </div>
+    <div style="margin-bottom: 8px;">
+      <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">연결 타입</label>
+      <select class="mcp-edit-type" style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em;">
+        <option value="stdio" ${isStdio ? "selected" : ""}>로컬 - 로컬 명령어</option>
+        <option value="http" ${!isStdio ? "selected" : ""}>원격 - 외부 MCP 서버 URL</option>
+      </select>
+    </div>
+    <div class="mcp-edit-stdio" style="display: ${isStdio ? "block" : "none"};">
+      <div style="margin-bottom: 8px;">
+        <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">명령어</label>
+        <input type="text" class="mcp-edit-command" value="${server.command || ""}"
+          style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em;" />
+      </div>
+      <div style="margin-bottom: 8px;">
+        <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">인자</label>
+        <input type="text" class="mcp-edit-args" value="${(server.args || []).join(", ")}"
+          style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em;" />
+      </div>
+    </div>
+    <div class="mcp-edit-http" style="display: ${!isStdio ? "block" : "none"};">
+      <div style="margin-bottom: 8px;">
+        <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">서버 URL</label>
+        <input type="text" class="mcp-edit-url" value="${server.url || ""}"
+          style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em;" />
+      </div>
+      <div style="margin-bottom: 8px;">
+        <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">API 키</label>
+        <input type="password" class="mcp-edit-apikey" value="${server.apiKey || ""}"
+          style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em;" />
+      </div>
+    </div>
+    <div style="margin-bottom: 8px;">
+      <label style="display: block; margin-bottom: 3px; font-size: 0.85em;">프롬프트</label>
+      <textarea class="mcp-edit-prompt" rows="2"
+        style="width: 100%; padding: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 3px; font-size: 0.85em; resize: vertical;">${server.customPrompt || ""}</textarea>
+    </div>
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+      <button class="mcp-edit-save-btn" style="padding: 5px 12px; font-size: 0.85em;">저장</button>
+      <button class="mcp-edit-cancel-btn" style="padding: 5px 12px; font-size: 0.85em; background-color: #6b7280;">취소</button>
+    </div>
+    <p class="mcp-edit-status" style="font-size: 0.8em; margin-top: 4px;"></p>
+  `;
+
+  editEl.style.display = "block";
+
+  // 타입 변경 시 필드 표시 전환
+  const typeSelect = editEl.querySelector(".mcp-edit-type");
+  typeSelect?.addEventListener("change", (e) => {
+    const stdioEl = editEl.querySelector(".mcp-edit-stdio");
+    const httpEl = editEl.querySelector(".mcp-edit-http");
+    if (stdioEl) stdioEl.style.display = e.target.value === "stdio" ? "block" : "none";
+    if (httpEl) httpEl.style.display = e.target.value === "http" ? "block" : "none";
+  });
+
+  // 저장 버튼
+  editEl.querySelector(".mcp-edit-save-btn")?.addEventListener("click", () => {
+    const name = editEl.querySelector(".mcp-edit-name")?.value.trim();
+    if (!name) {
+      const statusP = editEl.querySelector(".mcp-edit-status");
+      if (statusP) {
+        statusP.textContent = "서버 이름을 입력해주세요.";
+        statusP.style.color = "var(--vscode-terminal-ansiRed)";
+      }
+      return;
+    }
+
+    const type = editEl.querySelector(".mcp-edit-type")?.value || "stdio";
+    const serverConfig = {
+      id: serverId,
+      name,
+      type,
+      enabled: server.enabled !== false,
+    };
+
+    if (type === "stdio") {
+      const command = editEl.querySelector(".mcp-edit-command")?.value.trim();
+      if (!command) {
+        const statusP = editEl.querySelector(".mcp-edit-status");
+        if (statusP) {
+          statusP.textContent = "명령어를 입력해주세요.";
+          statusP.style.color = "var(--vscode-terminal-ansiRed)";
+        }
+        return;
+      }
+      serverConfig.command = command;
+      serverConfig.args = editEl.querySelector(".mcp-edit-args")?.value
+        .split(",").map(s => s.trim()).filter(s => s);
+    } else {
+      const url = editEl.querySelector(".mcp-edit-url")?.value.trim();
+      if (!url) {
+        const statusP = editEl.querySelector(".mcp-edit-status");
+        if (statusP) {
+          statusP.textContent = "URL을 입력해주세요.";
+          statusP.style.color = "var(--vscode-terminal-ansiRed)";
+        }
+        return;
+      }
+      serverConfig.url = url;
+      const apiKey = editEl.querySelector(".mcp-edit-apikey")?.value.trim();
+      if (apiKey) serverConfig.apiKey = apiKey;
+    }
+
+    const customPrompt = editEl.querySelector(".mcp-edit-prompt")?.value.trim();
+    if (customPrompt) serverConfig.customPrompt = customPrompt;
+
+    window.vscode?.postMessage({
+      command: "updateMcpServer",
+      server: serverConfig,
+    });
+
+    // 폼 닫기
+    editEl.style.display = "none";
+    editEl.innerHTML = "";
+  });
+
+  // 취소 버튼
+  editEl.querySelector(".mcp-edit-cancel-btn")?.addEventListener("click", () => {
+    editEl.style.display = "none";
+    editEl.innerHTML = "";
+  });
+}
+
+/**
+ * 서버 편집 폼 표시 (글로벌 폼 — 서버 추가 전용으로 유지)
  */
 function editServer(serverId) {
   const server = mcpServers.find((s) => s.id === serverId);
