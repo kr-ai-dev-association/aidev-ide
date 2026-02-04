@@ -5,7 +5,7 @@ import { PromptType, NotificationService, LicenseService, GitRepositoryService, 
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager, SessionManager } from '../../core';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
-import { EXCLUDED_LIBRARY_PATHS } from '../../core/utils/FileExclusionConstants';
+import { getAllExclusionPaths } from '../../core/utils/FileExclusionConstants';
 
 /**
  * Diff 가상 문서 프로바이더
@@ -1083,10 +1083,10 @@ ${JSON.stringify(errorContext, null, 2)}
                 return;
             }
 
-            // 제외할 디렉토리 패턴 (공용 상수 사용)
+            // 제외할 디렉토리 패턴 (공용 상수 + 커스텀 패턴)
             // glob 패턴에서 사용할 수 있도록 중괄호 안에 쉼표로 구분된 리스트 생성
             // 점(.)으로 시작하는 디렉토리와 일반 디렉토리를 모두 포함
-            const excludeDirs = EXCLUDED_LIBRARY_PATHS
+            const excludeDirs = getAllExclusionPaths()
                 .filter((excludedPath: string) => !excludedPath.includes('*') && !excludedPath.includes('/')) // 와일드카드와 경로 구분자 제외
                 .join(',');
             const excludePattern = `**/{${excludeDirs}}/**`;

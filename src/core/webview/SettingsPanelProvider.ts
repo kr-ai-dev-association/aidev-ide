@@ -2786,6 +2786,109 @@ export function openSettingsPanel(
           }
           break;
 
+        // ========== 컨텍스트 제외 패턴 관련 메시지 핸들러 ==========
+        case "getContextExclusions":
+          try {
+            const customExclusions: string[] = context.globalState.get('contextExclusionPatterns', []);
+            const disabledExclusions: string[] = context.globalState.get('contextExclusionDisabled', []);
+            const { EXCLUDED_LIBRARY_PATHS } = await import('../utils/FileExclusionConstants');
+            safePostMessage(panel, {
+              command: "contextExclusions",
+              defaultPatterns: EXCLUDED_LIBRARY_PATHS,
+              customPatterns: customExclusions,
+              disabledPatterns: disabledExclusions,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getContextExclusions error:", error);
+            safePostMessage(panel, {
+              command: "contextExclusionsError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addContextExclusion":
+          try {
+            const pattern = (data.pattern || '').trim();
+            if (!pattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const currentPatterns: string[] = context.globalState.get('contextExclusionPatterns', []);
+            if (currentPatterns.includes(pattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentPatterns.push(pattern);
+            await context.globalState.update('contextExclusionPatterns', currentPatterns);
+            // 캐시 갱신
+            const { updateCustomExclusionCache: updateCacheAdd } = await import('../utils/FileExclusionConstants');
+            updateCacheAdd(currentPatterns);
+            safePostMessage(panel, { command: "contextExclusionAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addContextExclusion error:", error);
+            safePostMessage(panel, {
+              command: "contextExclusionAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteContextExclusion":
+          try {
+            const patternToDelete = data.pattern;
+            const existingPatterns: string[] = context.globalState.get('contextExclusionPatterns', []);
+            const filtered = existingPatterns.filter(p => p !== patternToDelete);
+            await context.globalState.update('contextExclusionPatterns', filtered);
+            // 캐시 갱신
+            const { updateCustomExclusionCache: updateCacheDel } = await import('../utils/FileExclusionConstants');
+            updateCacheDel(filtered);
+            safePostMessage(panel, { command: "contextExclusionDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteContextExclusion error:", error);
+            safePostMessage(panel, {
+              command: "contextExclusionDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "disableDefaultExclusion":
+          try {
+            const patternToDisable = data.pattern;
+            const currentDisabled: string[] = context.globalState.get('contextExclusionDisabled', []);
+            if (!currentDisabled.includes(patternToDisable)) {
+              currentDisabled.push(patternToDisable);
+              await context.globalState.update('contextExclusionDisabled', currentDisabled);
+              const { updateDisabledExclusionCache: updateDisCache } = await import('../utils/FileExclusionConstants');
+              updateDisCache(currentDisabled);
+            }
+            safePostMessage(panel, { command: "defaultExclusionToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] disableDefaultExclusion error:", error);
+            safePostMessage(panel, {
+              command: "defaultExclusionToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "enableDefaultExclusion":
+          try {
+            const patternToEnable = data.pattern;
+            const disabledList: string[] = context.globalState.get('contextExclusionDisabled', []);
+            const updatedDisabled = disabledList.filter(p => p !== patternToEnable);
+            await context.globalState.update('contextExclusionDisabled', updatedDisabled);
+            const { updateDisabledExclusionCache: updateEnCache } = await import('../utils/FileExclusionConstants');
+            updateEnCache(updatedDisabled);
+            safePostMessage(panel, { command: "defaultExclusionToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] enableDefaultExclusion error:", error);
+            safePostMessage(panel, {
+              command: "defaultExclusionToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
         default:
           console.log("Unknown command:", data.command);
       }

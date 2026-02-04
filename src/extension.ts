@@ -324,6 +324,10 @@ export async function activate(context: vscode.ExtensionContext) {
   // HotLoadManager 초기화 (Hot Load 기능 사용을 위해)
   HotLoadManager.getInstance(context);
 
+  // 커스텀 제외 패턴 캐시 로드
+  const { loadCustomExclusionPatterns } = await import('./core/utils/FileExclusionConstants');
+  loadCustomExclusionPatterns(context);
+
   // Project Manager는 이미 위에서 초기화됨
   if (workspacePath) {
     try {

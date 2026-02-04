@@ -4169,6 +4169,38 @@ window.addEventListener("message", (event) => {
         "error"
       );
       break;
+
+    // ========== 컨텍스트 제외 패턴 관련 메시지 핸들러 ==========
+    case "contextExclusions":
+      renderContextExclusionLists(message.defaultPatterns, message.customPatterns, message.disabledPatterns);
+      break;
+
+    case "contextExclusionAdded":
+    case "contextExclusionDeleted":
+      showStatus(
+        document.getElementById("context-exclusion-status"),
+        "성공적으로 처리되었습니다.",
+        "success"
+      );
+      // 목록 새로고침
+      vscode.postMessage({ command: "getContextExclusions" });
+      break;
+
+    case "contextExclusionsError":
+    case "contextExclusionAddError":
+    case "contextExclusionDeleteError":
+    case "defaultExclusionToggleError":
+      showStatus(
+        document.getElementById("context-exclusion-status"),
+        message.error || "오류가 발생했습니다.",
+        "error"
+      );
+      break;
+
+    case "defaultExclusionToggled":
+      // 목록 새로고침
+      vscode.postMessage({ command: "getContextExclusions" });
+      break;
   }
 });
 
@@ -4326,3 +4358,112 @@ function initializeHotLoad() {
 
 // Hot Load 초기화 실행
 initializeHotLoad();
+
+// ========== 컨텍스트 제외 패턴 관련 함수 ==========
+
+/**
+ * 컨텍스트 제외 패턴 목록 렌더링
+ */
+function renderContextExclusionLists(defaultPatterns, customPatterns, disabledPatterns) {
+  const disabled = disabledPatterns || [];
+
+  // 커스텀 패턴 목록
+  const customList = document.getElementById("context-exclusion-custom-list");
+  const customEmpty = document.getElementById("context-exclusion-custom-empty");
+
+  if (customList) {
+    if (!customPatterns || customPatterns.length === 0) {
+      customList.innerHTML = "";
+      if (customEmpty) customEmpty.style.display = "block";
+    } else {
+      if (customEmpty) customEmpty.style.display = "none";
+      customList.innerHTML = customPatterns
+        .map(
+          (pattern) => `
+        <div class="policy-file-item" style="display: flex; justify-content: space-between; align-items: center;">
+          <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
+          <button class="delete-context-exclusion-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
+        </div>
+      `
+        )
+        .join("");
+
+      // 삭제 버튼 이벤트 바인딩
+      customList.querySelectorAll(".delete-context-exclusion-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const pattern = e.currentTarget.dataset.pattern;
+          vscode.postMessage({ command: "deleteContextExclusion", pattern: pattern });
+        });
+      });
+    }
+  }
+
+  // 기본 패턴 목록 (토글 가능, 개별 태그로 표시)
+  const defaultList = document.getElementById("context-exclusion-default-list");
+  if (defaultList && defaultPatterns) {
+    defaultList.innerHTML = defaultPatterns
+      .map((p) => {
+        const isDisabled = disabled.includes(p);
+        const bg = isDisabled
+          ? "var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1))"
+          : "var(--vscode-badge-background)";
+        const color = isDisabled
+          ? "var(--vscode-errorForeground, #f44)"
+          : "var(--vscode-badge-foreground)";
+        const textDecoration = isDisabled ? "line-through" : "none";
+        const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
+        return `<span class="default-exclusion-tag" data-pattern="${escapeHtml(p)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 2px 4px; padding: 2px 8px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; user-select: none; transition: opacity 0.2s;">${escapeHtml(p)}</span>`;
+      })
+      .join("");
+
+    // 토글 이벤트 바인딩
+    defaultList.querySelectorAll(".default-exclusion-tag").forEach((tag) => {
+      tag.addEventListener("click", (e) => {
+        const pattern = e.currentTarget.dataset.pattern;
+        const isDisabled = e.currentTarget.dataset.disabled === "true";
+        if (isDisabled) {
+          vscode.postMessage({ command: "enableDefaultExclusion", pattern: pattern });
+        } else {
+          vscode.postMessage({ command: "disableDefaultExclusion", pattern: pattern });
+        }
+      });
+    });
+  }
+}
+
+/**
+ * 컨텍스트 제외 패턴 초기화
+ */
+function initializeContextExclusion() {
+  const addButton = document.getElementById("add-context-exclusion-button");
+  const input = document.getElementById("context-exclusion-input");
+
+  if (addButton && input) {
+    addButton.addEventListener("click", () => {
+      const pattern = input.value.trim();
+      if (!pattern) {
+        showStatus(
+          document.getElementById("context-exclusion-status"),
+          "패턴을 입력해주세요.",
+          "error"
+        );
+        return;
+      }
+      vscode.postMessage({ command: "addContextExclusion", pattern: pattern });
+      input.value = "";
+    });
+
+    // Enter 키로도 추가 가능
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        addButton.click();
+      }
+    });
+  }
+
+  // 초기 목록 요청
+  vscode.postMessage({ command: "getContextExclusions" });
+}
+
+// 컨텍스트 제외 패턴 초기화 실행
+initializeContextExclusion();
