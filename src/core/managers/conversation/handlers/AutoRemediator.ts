@@ -12,6 +12,8 @@
  */
 
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { WebviewBridge } from "../../../webview/WebviewBridge";
 import { ExecutionManager } from "../../execution/ExecutionManager";
 import { ClassificationResult, ErrorCategory } from "./ErrorClassifier";
@@ -45,7 +47,15 @@ export class AutoRemediator {
             return await this.runInstallCommand(env.installCommand, workspaceRoot, webview);
         }
 
-        // Case 2: 자동 수정 해당 없음
+        // Case 2: 빌드 타임아웃 → 빌드 캐시 클리어 시도
+        if (classification.dominantCategory === ErrorCategory.BUILD_TIMEOUT) {
+            const cleanCmd = this.detectCleanCommand(workspaceRoot);
+            if (cleanCmd) {
+                return await this.runCleanCommand(cleanCmd, workspaceRoot, webview);
+            }
+        }
+
+        // Case 3: 자동 수정 해당 없음
         return {
             attempted: false,
             success: false,
@@ -116,6 +126,113 @@ export class AutoRemediator {
                 success: false,
                 command: installCommand,
                 message: `의존성 설치 중 오류: ${errorMsg.substring(0, 300)}`
+            };
+        }
+    }
+
+    // ─── 빌드 캐시 클리어 ───
+
+    /**
+     * 프로젝트 타입별 빌드 캐시 클리어 명령 감지
+     */
+    private static detectCleanCommand(workspaceRoot: string): string | null {
+        const exists = (file: string) =>
+            fs.existsSync(path.join(workspaceRoot, file));
+
+        // Gradle
+        if (exists('gradlew')) {
+            return './gradlew clean';
+        }
+        if (exists('build.gradle') || exists('build.gradle.kts')) {
+            return 'gradle clean';
+        }
+
+        // Maven
+        if (exists('pom.xml')) {
+            return 'mvn clean';
+        }
+
+        // Node.js (빌드 캐시 디렉토리 삭제)
+        if (exists('package.json')) {
+            return 'rm -rf dist build .next .nuxt .vite .parcel-cache';
+        }
+
+        // Rust
+        if (exists('Cargo.toml')) {
+            return 'cargo clean';
+        }
+
+        // Go
+        if (exists('go.mod')) {
+            return 'go clean -cache';
+        }
+
+        // .NET
+        if (fs.readdirSync(workspaceRoot).some(f => f.endsWith('.csproj') || f.endsWith('.sln'))) {
+            return 'dotnet clean';
+        }
+
+        return null;
+    }
+
+    /**
+     * 빌드 캐시 클리어 명령 실행
+     */
+    private static async runCleanCommand(
+        cleanCommand: string,
+        workspaceRoot: string,
+        webview: vscode.Webview
+    ): Promise<RemediationResult> {
+        console.log(`[AutoRemediator] Running clean command: ${cleanCommand} in ${workspaceRoot}`);
+
+        WebviewBridge.sendProcessingStatus(
+            webview,
+            "executing",
+            `빌드 캐시 정리 중: ${cleanCommand}...`
+        );
+
+        try {
+            const executionManager = ExecutionManager.getInstance();
+            const result = await executionManager.executeCommand(cleanCommand, {
+                cwd: workspaceRoot,
+                timeout: 60000,       // 60초 타임아웃
+                killOnTimeout: true,
+            });
+
+            if (result.success) {
+                console.log(`[AutoRemediator] Clean succeeded: ${cleanCommand}`);
+                WebviewBridge.sendProcessingStatus(
+                    webview,
+                    "executing",
+                    `빌드 캐시 정리 완료`
+                );
+
+                return {
+                    attempted: true,
+                    success: true,
+                    command: cleanCommand,
+                    message: `빌드 캐시 정리 성공: ${cleanCommand}`
+                };
+            } else {
+                const errorMsg = result.stderr || result.stdout || '알 수 없는 오류';
+                console.warn(`[AutoRemediator] Clean failed: ${cleanCommand} - ${errorMsg.substring(0, 200)}`);
+
+                return {
+                    attempted: true,
+                    success: false,
+                    command: cleanCommand,
+                    message: `빌드 캐시 정리 실패 (${cleanCommand}): ${errorMsg.substring(0, 300)}`
+                };
+            }
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`[AutoRemediator] Clean command threw: ${errorMsg}`);
+
+            return {
+                attempted: true,
+                success: false,
+                command: cleanCommand,
+                message: `빌드 캐시 정리 중 오류: ${errorMsg.substring(0, 300)}`
             };
         }
     }

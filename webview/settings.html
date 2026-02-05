@@ -803,6 +803,13 @@
             opacity: 0.4;
             cursor: not-allowed;
         }
+
+        /* HotLoad 재시도 횟수 입력 스타일 */
+        #hotload-max-retries:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder, #007acc) !important;
+            box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc);
+        }
     </style>
 </head>
 
@@ -1527,6 +1534,73 @@
               font-family: monospace;
             " />
             </div>
+
+            <!-- 완료 조건 -->
+            <div style="margin-bottom: 12px">
+                <label for="hotload-condition-type" style="display: block; margin-bottom: 5px">
+                    <b>완료 조건</b> <span style="opacity: 0.7">(선택)</span>
+                </label>
+                <select id="hotload-condition-type" style="
+                  width: 100%;
+                  padding: 8px;
+                  border: 1px solid var(--vscode-input-border);
+                  background-color: var(--vscode-input-background);
+                  color: var(--vscode-input-foreground);
+                  border-radius: 3px;
+                ">
+                    <option value="none">없음 (종료코드 0이면 성공)</option>
+                    <option value="exit_code">종료 코드 일치</option>
+                    <option value="output_contains">출력에 문자열 포함</option>
+                    <option value="output_not_contains">출력에 문자열 미포함</option>
+                    <option value="file_exists">파일 존재 여부</option>
+                </select>
+                <input type="text" id="hotload-condition-value" placeholder="조건 값" style="
+                  width: 100%;
+                  padding: 8px;
+                  margin-top: 5px;
+                  border: 1px solid var(--vscode-input-border);
+                  background-color: var(--vscode-input-background);
+                  color: var(--vscode-input-foreground);
+                  border-radius: 3px;
+                  display: none;
+                " />
+            </div>
+
+            <!-- 재시도 횟수 -->
+            <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center;">
+                <div style="flex: 1; padding-right: 4px;">
+                    <label for="hotload-max-retries" style="display: block; margin-bottom: 5px">
+                        <b>재시도 횟수</b> <span style="opacity: 0.7">(0 = 재시도 없음)</span>
+                    </label>
+                    <input type="number" id="hotload-max-retries" min="0" max="10" value="0" style="
+                      width: 100%;
+                      padding: 8px;
+                      border: 2px solid var(--vscode-input-border);
+                      background-color: var(--vscode-input-background);
+                      color: var(--vscode-input-foreground);
+                      border-radius: 3px;
+                      box-sizing: border-box;
+                      transition: border-color 0.2s ease;
+                    " />
+                </div>
+                <div style="flex: 1;">
+                    <label for="hotload-on-failure" style="display: block; margin-bottom: 5px">
+                        <b>실패 시 동작</b>
+                    </label>
+                    <select id="hotload-on-failure" style="
+                      width: 100%;
+                      padding: 8px;
+                      border: 1px solid var(--vscode-input-border);
+                      background-color: var(--vscode-input-background);
+                      color: var(--vscode-input-foreground);
+                      border-radius: 3px;
+                    ">
+                        <option value="stop">중단</option>
+                        <option value="pass_to_llm">LLM에 에러 전달</option>
+                    </select>
+                </div>
+            </div>
+
             <button id="add-hotload-button" class="save-button">
                 Hot Load 추가
             </button>
@@ -1600,6 +1674,119 @@
             line-height: 1.6;
             color: var(--vscode-descriptionForeground);
           ">
+                <!-- 동적으로 채워짐 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 도구 실행 보안 규칙 관리 섹션 -->
+    <div class="section-container">
+        <h2>도구 실행 보안 규칙</h2>
+        <p class="info-message">
+            AI가 실행하는 명령어와 파일 작업에 대한 보안 규칙을 관리합니다.
+            위험한 명령어 차단, 민감한 파일 보호 등의 규칙을 설정할 수 있습니다.
+        </p>
+
+        <!-- 커스텀 차단 명령어 추가 -->
+        <div class="api-key-section">
+            <h3>커스텀 차단 명령어 추가</h3>
+            <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+                추가로 차단할 명령어 패턴을 입력하세요. 정규식을 지원합니다.
+            </p>
+            <div class="api-key-input-group">
+                <input type="text" id="blocked-command-input" placeholder="예: docker rm, kubectl delete" style="
+                    flex: 1;
+                    padding: 8px;
+                    border: 1px solid var(--vscode-input-border);
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                    border-radius: 3px;
+                " />
+                <button id="add-blocked-command-button" class="save-button">추가</button>
+            </div>
+            <p id="blocked-command-status" class="info-message" style="margin-top: 10px"></p>
+        </div>
+
+        <!-- 커스텀 차단 명령어 목록 -->
+        <div class="api-key-section" style="margin-top: 20px">
+            <h3>등록된 커스텀 차단 명령어</h3>
+            <div id="blocked-command-custom-list" class="policy-file-list">
+                <!-- 동적으로 채워짐 -->
+            </div>
+            <p id="blocked-command-custom-empty" class="info-message" style="display: none">
+                등록된 커스텀 차단 명령어가 없습니다.
+            </p>
+        </div>
+
+        <!-- 커스텀 보호 파일 추가 -->
+        <div class="api-key-section" style="margin-top: 20px">
+            <h3>커스텀 보호 파일 추가</h3>
+            <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+                AI가 수정하지 못하도록 보호할 파일 패턴을 입력하세요.
+            </p>
+            <div class="api-key-input-group">
+                <input type="text" id="protected-file-input" placeholder="예: config/production.json, *.secret" style="
+                    flex: 1;
+                    padding: 8px;
+                    border: 1px solid var(--vscode-input-border);
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                    border-radius: 3px;
+                " />
+                <button id="add-protected-file-button" class="save-button">추가</button>
+            </div>
+            <p id="protected-file-status" class="info-message" style="margin-top: 10px"></p>
+        </div>
+
+        <!-- 커스텀 보호 파일 목록 -->
+        <div class="api-key-section" style="margin-top: 20px">
+            <h3>등록된 커스텀 보호 파일</h3>
+            <div id="protected-file-custom-list" class="policy-file-list">
+                <!-- 동적으로 채워짐 -->
+            </div>
+            <p id="protected-file-custom-empty" class="info-message" style="display: none">
+                등록된 커스텀 보호 파일이 없습니다.
+            </p>
+        </div>
+
+        <!-- 기본 차단 명령어 목록 -->
+        <div class="api-key-section" style="margin-top: 20px">
+            <h3>기본 차단 명령어</h3>
+            <p class="info-message" style="margin-bottom: 10px">
+                클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
+            </p>
+            <div id="blocked-command-default-list" style="
+                max-height: 200px;
+                overflow-y: auto;
+                padding: 10px;
+                background-color: var(--vscode-textCodeBlock-background);
+                border-radius: 5px;
+                font-family: monospace;
+                font-size: 0.85em;
+                line-height: 1.8;
+                color: var(--vscode-descriptionForeground);
+            ">
+                <!-- 동적으로 채워짐 -->
+            </div>
+        </div>
+
+        <!-- 기본 보호 파일 목록 -->
+        <div class="api-key-section" style="margin-top: 20px">
+            <h3>기본 보호 파일</h3>
+            <p class="info-message" style="margin-bottom: 10px">
+                클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
+            </p>
+            <div id="protected-file-default-list" style="
+                max-height: 200px;
+                overflow-y: auto;
+                padding: 10px;
+                background-color: var(--vscode-textCodeBlock-background);
+                border-radius: 5px;
+                font-family: monospace;
+                font-size: 0.85em;
+                line-height: 1.8;
+                color: var(--vscode-descriptionForeground);
+            ">
                 <!-- 동적으로 채워짐 -->
             </div>
         </div>

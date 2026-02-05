@@ -966,5 +966,33 @@ export class LLMManager {
             }
         }
     }
+
+    /**
+     * 간단한 프롬프트에 대한 빠른 LLM 응답 생성
+     * HotLoad 키워드 매칭, 분류 등 짧은 응답이 필요한 경우 사용
+     * @param prompt 프롬프트
+     * @param options maxTokens, temperature 등
+     */
+    public async generateSimpleResponse(
+        prompt: string,
+        options?: { maxTokens?: number; temperature?: number }
+    ): Promise<string> {
+        // 간단한 시스템 프롬프트로 짧은 응답 유도
+        const systemPrompt = '간결하게 응답하세요. 요청된 형식만 출력하고 추가 설명은 하지 마세요.';
+        const userParts = [{ text: prompt }];
+
+        try {
+            const response = await this.sendMessageWithSystemPrompt(
+                systemPrompt,
+                userParts,
+                { maxTokens: options?.maxTokens || 50 }
+            );
+
+            return response.trim();
+        } catch (error) {
+            console.error('[LLMManager] generateSimpleResponse failed:', error);
+            throw error;
+        }
+    }
 }
 

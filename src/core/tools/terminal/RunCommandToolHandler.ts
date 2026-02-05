@@ -3,9 +3,11 @@
  * 터미널 명령어 실행 툴 핸들러
  */
 
+import * as vscode from 'vscode';
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { ExecutionResult } from '../../managers/execution/types';
+import { HotLoadManager, HotLoadItem } from '../../managers/hotload/HotLoadManager';
 
 export class RunCommandToolHandler implements IToolHandler {
     readonly name = Tool.RUN_COMMAND;
@@ -19,6 +21,12 @@ export class RunCommandToolHandler implements IToolHandler {
                 message: 'Command parameter is required',
                 error: { code: 'MISSING_PARAM', message: 'command is required' }
             };
+        }
+
+        // HotLoad 매칭 확인 - 완료 조건/재시도가 설정된 항목이면 executeWithRetry 사용
+        const hotLoadResult = await this.tryHotLoadExecution(command, context);
+        if (hotLoadResult) {
+            return hotLoadResult;
         }
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
@@ -161,6 +169,100 @@ export class RunCommandToolHandler implements IToolHandler {
 
     getDescription(toolUse: ToolUse): string {
         return `[run_command: ${toolUse.params.command}]`;
+    }
+
+    /**
+     * HotLoad 항목과 명령어 매칭 확인 후 executeWithRetry 실행
+     * 매칭되고 completionCondition/maxRetries가 있으면 HotLoad 방식으로 실행
+     */
+    private async tryHotLoadExecution(
+        command: string,
+        context: ToolExecutionContext
+    ): Promise<ToolResponse | null> {
+        try {
+            const hotLoadManager = HotLoadManager.getInstance();
+            const items = await hotLoadManager.getAllHotLoads();
+
+            // 명령어가 정확히 일치하는 HotLoad 항목 찾기
+            const matchedItem = items.find(item =>
+                item.command.trim() === command.trim()
+            );
+
+            if (!matchedItem) {
+                return null; // 매칭 없음 → 일반 실행으로 진행
+            }
+
+            // completionCondition 또는 maxRetries가 있어야 HotLoad 실행 의미가 있음
+            if (!matchedItem.completionCondition && (!matchedItem.maxRetries || matchedItem.maxRetries === 0)) {
+                console.log(`[RunCommandToolHandler] HotLoad matched but no conditions/retries: ${command}`);
+                return null; // 일반 실행으로 진행
+            }
+
+            console.log(`[RunCommandToolHandler] HotLoad executeWithRetry: ${command}`);
+
+            // context에서 webview 가져오기 (없으면 더미 생성)
+            const webview = context.webview || this.createDummyWebview();
+
+            const result = await hotLoadManager.executeWithRetry(
+                matchedItem,
+                context.projectRoot,
+                webview
+            );
+
+            // 결과 처리
+            if (result.success) {
+                return {
+                    success: true,
+                    message: `HotLoad command executed: ${command} (${result.attempts} attempt(s))`,
+                    data: {
+                        output: result.output,
+                        exitCode: result.exitCode,
+                        hotload: true,
+                        attempts: result.attempts
+                    }
+                };
+            }
+
+            // 실패 시 failureAction에 따라 처리
+            const response: ToolResponse = {
+                success: false,
+                message: `HotLoad command failed: ${command} (${result.attempts} attempt(s))`,
+                data: {
+                    output: result.output,
+                    exitCode: result.exitCode,
+                    hotload: true,
+                    attempts: result.attempts,
+                    failureAction: result.failureAction
+                }
+            };
+
+            // pass_to_llm인 경우 error 필드에 상세 정보 추가
+            if (result.failureAction === 'pass_to_llm') {
+                response.error = {
+                    code: 'HOTLOAD_FAILED',
+                    message: `HotLoad 실패 (${result.attempts}회 시도): ${result.output}`
+                };
+            }
+
+            return response;
+        } catch (error) {
+            console.warn('[RunCommandToolHandler] HotLoad check failed:', error);
+            return null; // 에러 시 일반 실행으로 진행
+        }
+    }
+
+    /**
+     * webview가 없을 때 사용할 더미 객체
+     */
+    private createDummyWebview(): vscode.Webview {
+        return {
+            postMessage: () => Promise.resolve(true),
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose: () => {} }),
+            asWebviewUri: (uri: vscode.Uri) => uri,
+            cspSource: ''
+        } as unknown as vscode.Webview;
     }
 }
 

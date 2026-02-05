@@ -35,6 +35,8 @@ export class AgentConfig {
 
     // 타임아웃 설정 (밀리초)
     static readonly VALIDATION_COMMAND_TIMEOUT = 15000;
+    static readonly BUILD_RETRY_TIMEOUT_MULTIPLIER = 2;  // 빌드 타임아웃 재시도 시 타임아웃 배수
+    static readonly MAX_BUILD_TIMEOUT = 120000;           // 빌드 최대 타임아웃 (2분)
 
     // ===== 의도 감지 임계값 =====
     static readonly MIN_INTENT_CONFIDENCE = 0.3;

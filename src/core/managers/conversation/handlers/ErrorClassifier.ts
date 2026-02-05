@@ -43,6 +43,7 @@ export enum ErrorCategory {
     SOURCE_ERRORS_SCATTERED = 'source_errors_scattered', // 다양한 에러 → 개별 버그
     CONFIG_ERROR = 'config_error',                       // 설정 파일(tsconfig 등)에만 에러
     EXECUTION_TIMEOUT = 'execution_timeout',             // 명령어 타임아웃 (SIGTERM/SIGKILL)
+    BUILD_TIMEOUT = 'build_timeout',                     // 빌드 타임아웃 (캐시 클리어 후 재시도 가능)
     COMMAND_NOT_FOUND = 'command_not_found',             // exit code 127 또는 "command not found"
     SILENT_FAILURE = 'silent_failure',                   // non-zero exit, 출력 없음
     UNKNOWN = 'unknown'
@@ -201,12 +202,15 @@ export class ErrorClassifier {
             needsInstall: false
         };
 
-        // 1. 타임아웃
+        // 1. 타임아웃 — 빌드 명령이면 BUILD_TIMEOUT (재시도 가능)
         if (outcome.errorCode === 'TIMEOUT' || outcome.errorCode === 'TIMEOUT_CONTINUE') {
+            const isBuild = this.isBuildCommand(outcome.command);
+            const category = isBuild ? ErrorCategory.BUILD_TIMEOUT : ErrorCategory.EXECUTION_TIMEOUT;
+            const desc = isBuild ? '빌드 타임아웃' : '명령어 타임아웃';
             return this.buildExecutionResult(
-                ErrorCategory.EXECUTION_TIMEOUT,
+                category,
                 outcome,
-                `명령어 타임아웃 (${outcome.duration}ms): ${outcome.command}`,
+                `${desc} (${outcome.duration}ms): ${outcome.command}`,
                 fallbackEnv
             );
         }
@@ -237,6 +241,28 @@ export class ErrorClassifier {
     }
 
     // ==================== Private Helpers ====================
+
+    /** 빌드 관련 명령어 패턴 (타임아웃 시 BUILD_TIMEOUT 분류용) */
+    private static readonly BUILD_COMMAND_PATTERNS = [
+        /\b(gradle|gradlew)\b/i,
+        /\b(mvn|maven)\b/i,
+        /\b(npm|yarn|pnpm|bun)\s+run\s+(build|compile|tsc)\b/i,
+        /\bcargo\s+build\b/i,
+        /\bgo\s+build\b/i,
+        /\bdotnet\s+build\b/i,
+        /\bmake\b/i,
+        /\btsc\b/,
+        /\bwebpack\b/i,
+        /\bvite\s+build\b/i,
+        /\bnext\s+build\b/i,
+    ];
+
+    /**
+     * 명령어가 빌드 관련인지 판단
+     */
+    private static isBuildCommand(command: string): boolean {
+        return this.BUILD_COMMAND_PATTERNS.some(p => p.test(command));
+    }
 
     /**
      * (source, code) 쌍으로 diagnostics를 그룹핑

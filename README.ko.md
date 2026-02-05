@@ -6,6 +6,26 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.3.2 (PreToolUse 보안 검증 및 HotLoad 확장)
+- **PreToolUse 보안 검증 시스템 (A2)**: 위험한 명령어와 민감한 파일에 대한 사전 검증 기능을 추가했습니다.
+  - 위험 명령어 차단: `rm -rf /`, `sudo rm`, `mkfs`, `dd of=/dev/`, fork bomb 등 시스템 파괴 명령 차단
+  - Windows 명령어 지원: `rd /s /q C:\`, `del /f`, `format`, `diskpart`, `reg delete`, `bcdedit /delete` 등
+  - 민감 파일 보호: `.git/`, `.env`, `*.pem`, `*.key`, `id_rsa`, credentials 파일 수정 차단
+  - 읽기 전용 파일: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` 수정 차단 (읽기는 허용)
+  - 프로젝트 외부 경로 접근 차단: projectRoot 외부 파일 읽기/쓰기/삭제 차단
+  - Settings UI: 기본 규칙 개별 비활성화/활성화, 커스텀 규칙 추가/삭제 지원
+- **HotLoad 확장 (B1)**: 완료 조건, 재시도, 실패 처리 기능을 추가했습니다.
+  - 완료 조건 (`completionCondition`): exit_code, output_contains, output_not_contains, file_exists
+  - 최대 재시도 (`maxRetries`): 실패 시 자동 재시도 (0~10회)
+  - 실패 동작 (`onFailure`): stop (중단) 또는 pass_to_llm (LLM에 에러 전달)
+  - `executeWithRetry()`: 완료 조건 + 재시도 통합 실행 메서드
+  - RunCommandToolHandler 통합: HotLoad 항목과 명령어 매칭 시 자동으로 executeWithRetry 사용
+  - Settings UI: 완료 조건, 재시도 횟수, 실패 동작 설정 필드 추가
+- **CompletionJudge (A4)**: AI 자체 판단으로 작업 완료 여부를 검증합니다.
+  - REVIEW 단계에서 LLM이 작업 완료 여부 판단 (confidence 0.0~1.0)
+  - 미완성 시 자동 추가 작업 실행 (최대 2회)
+  - confidence 70% 미만이면 완료로 처리 (불확실한 경우 안전하게 종료)
+
 ## v9.3.1 (컨텍스트 제외 패턴 관리 설정 UI)
 - **컨텍스트 제외 관리 Settings 추가**: 프로젝트 인덱싱, 파일 검색, 컨텍스트 수집 시 제외할 파일/폴더 패턴을 Settings에서 관리할 수 있습니다.
   - 기본 제외 패턴 33개(node_modules, dist, .git 등)를 badge 형태로 시각화

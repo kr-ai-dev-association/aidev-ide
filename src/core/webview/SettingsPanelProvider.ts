@@ -2726,10 +2726,17 @@ export function openSettingsPanel(
         case "addHotLoad":
           try {
             const hotLoadManager = HotLoadManager.getInstance(context);
+            // 완료조건 파싱
+            const addCondition = data.conditionType && data.conditionType !== 'none'
+              ? { type: data.conditionType, value: data.conditionValue || '' }
+              : undefined;
             const id = await hotLoadManager.addHotLoad(
               data.keywords,
               data.description,
-              data.commandStr
+              data.commandStr,
+              addCondition,
+              data.maxRetries ? parseInt(data.maxRetries, 10) : undefined,
+              data.onFailure || undefined,
             );
             safePostMessage(panel, {
               command: "hotLoadAdded",
@@ -2750,11 +2757,18 @@ export function openSettingsPanel(
         case "updateHotLoad":
           try {
             const hotLoadManager = HotLoadManager.getInstance(context);
+            // 완료조건 파싱
+            const updateCondition = data.conditionType && data.conditionType !== 'none'
+              ? { type: data.conditionType, value: data.conditionValue || '' }
+              : undefined;
             await hotLoadManager.updateHotLoad(
               data.id,
               data.keywords,
               data.description,
-              data.commandStr
+              data.commandStr,
+              updateCondition,
+              data.maxRetries ? parseInt(data.maxRetries, 10) : undefined,
+              data.onFailure || undefined,
             );
             safePostMessage(panel, { command: "hotLoadUpdated" });
             notificationService.showInfoMessage(
@@ -2884,6 +2898,207 @@ export function openSettingsPanel(
             console.error("[SettingsPanelProvider] enableDefaultExclusion error:", error);
             safePostMessage(panel, {
               command: "defaultExclusionToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // ========== PreToolUse 보안 규칙 관련 메시지 핸들러 ==========
+        case "getSecurityRules":
+          try {
+            const {
+              DEFAULT_BLOCKED_COMMANDS,
+              DEFAULT_PROTECTED_FILES,
+              updateCustomBlockedCommands,
+              updateCustomProtectedFiles,
+              updateDisabledBlockedCommands,
+              updateDisabledProtectedFiles,
+            } = await import('../tools/PreToolUseValidator');
+
+            const customCommands: string[] = context.globalState.get('securityBlockedCommands', []);
+            const customFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            const disabledCommands: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
+            const disabledFiles: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
+
+            // 캐시 업데이트
+            updateCustomBlockedCommands(customCommands);
+            updateCustomProtectedFiles(customFiles);
+            updateDisabledBlockedCommands(disabledCommands);
+            updateDisabledProtectedFiles(disabledFiles);
+
+            safePostMessage(panel, {
+              command: "securityRules",
+              defaultBlockedCommands: DEFAULT_BLOCKED_COMMANDS,
+              defaultProtectedFiles: DEFAULT_PROTECTED_FILES,
+              customBlockedCommands: customCommands,
+              customProtectedFiles: customFiles,
+              disabledBlockedCommands: disabledCommands,
+              disabledProtectedFiles: disabledFiles,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getSecurityRules error:", error);
+            safePostMessage(panel, {
+              command: "securityRulesError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addBlockedCommand":
+          try {
+            const cmdPattern = (data.pattern || '').trim();
+            if (!cmdPattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const currentCmds: string[] = context.globalState.get('securityBlockedCommands', []);
+            if (currentCmds.includes(cmdPattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentCmds.push(cmdPattern);
+            await context.globalState.update('securityBlockedCommands', currentCmds);
+            const { updateCustomBlockedCommands } = await import('../tools/PreToolUseValidator');
+            updateCustomBlockedCommands(currentCmds);
+            safePostMessage(panel, { command: "blockedCommandAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteBlockedCommand":
+          try {
+            const cmdToDelete = data.pattern;
+            const existingCmds: string[] = context.globalState.get('securityBlockedCommands', []);
+            const filteredCmds = existingCmds.filter(p => p !== cmdToDelete);
+            await context.globalState.update('securityBlockedCommands', filteredCmds);
+            const { updateCustomBlockedCommands: updateCmdsDel } = await import('../tools/PreToolUseValidator');
+            updateCmdsDel(filteredCmds);
+            safePostMessage(panel, { command: "blockedCommandDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addProtectedFile":
+          try {
+            const filePattern = (data.pattern || '').trim();
+            if (!filePattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const currentFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            if (currentFiles.includes(filePattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentFiles.push(filePattern);
+            await context.globalState.update('securityProtectedFiles', currentFiles);
+            const { updateCustomProtectedFiles } = await import('../tools/PreToolUseValidator');
+            updateCustomProtectedFiles(currentFiles);
+            safePostMessage(panel, { command: "protectedFileAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteProtectedFile":
+          try {
+            const fileToDelete = data.pattern;
+            const existingFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            const filteredFiles = existingFiles.filter(p => p !== fileToDelete);
+            await context.globalState.update('securityProtectedFiles', filteredFiles);
+            const { updateCustomProtectedFiles: updateFilesDel } = await import('../tools/PreToolUseValidator');
+            updateFilesDel(filteredFiles);
+            safePostMessage(panel, { command: "protectedFileDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "disableBlockedCommand":
+          try {
+            const cmdIdToDisable = data.id;
+            const currentDisabledCmds: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
+            if (!currentDisabledCmds.includes(cmdIdToDisable)) {
+              currentDisabledCmds.push(cmdIdToDisable);
+              await context.globalState.update('securityDisabledBlockedCommands', currentDisabledCmds);
+              const { updateDisabledBlockedCommands } = await import('../tools/PreToolUseValidator');
+              updateDisabledBlockedCommands(currentDisabledCmds);
+            }
+            safePostMessage(panel, { command: "blockedCommandToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] disableBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "enableBlockedCommand":
+          try {
+            const cmdIdToEnable = data.id;
+            const disabledCmdList: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
+            const updatedDisabledCmds = disabledCmdList.filter(id => id !== cmdIdToEnable);
+            await context.globalState.update('securityDisabledBlockedCommands', updatedDisabledCmds);
+            const { updateDisabledBlockedCommands: updateEnCmds } = await import('../tools/PreToolUseValidator');
+            updateEnCmds(updatedDisabledCmds);
+            safePostMessage(panel, { command: "blockedCommandToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] enableBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "disableProtectedFile":
+          try {
+            const fileIdToDisable = data.id;
+            const currentDisabledFiles: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
+            if (!currentDisabledFiles.includes(fileIdToDisable)) {
+              currentDisabledFiles.push(fileIdToDisable);
+              await context.globalState.update('securityDisabledProtectedFiles', currentDisabledFiles);
+              const { updateDisabledProtectedFiles } = await import('../tools/PreToolUseValidator');
+              updateDisabledProtectedFiles(currentDisabledFiles);
+            }
+            safePostMessage(panel, { command: "protectedFileToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] disableProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "enableProtectedFile":
+          try {
+            const fileIdToEnable = data.id;
+            const disabledFileList: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
+            const updatedDisabledFiles = disabledFileList.filter(id => id !== fileIdToEnable);
+            await context.globalState.update('securityDisabledProtectedFiles', updatedDisabledFiles);
+            const { updateDisabledProtectedFiles: updateEnFiles } = await import('../tools/PreToolUseValidator');
+            updateEnFiles(updatedDisabledFiles);
+            safePostMessage(panel, { command: "protectedFileToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] enableProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileToggleError",
               error: error.message,
             });
           }

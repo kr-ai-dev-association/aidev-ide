@@ -36,6 +36,7 @@ import { ToolExecutionCoordinator } from "./handlers/ToolExecutionCoordinator";
 import { AgentConfig } from "../../config/AgentConfig";
 import { InlineDiffManager } from "../diff/InlineDiffManager";
 import { HotLoadManager } from "../hotload/HotLoadManager";
+import { FetchUrlToolHandler } from "../../tools/web/FetchUrlToolHandler";
 import { StringUtils } from "../../utils/StringUtils";
 import { getExecutionPhasePrompt } from "../context/prompts/phase";
 import {
@@ -55,6 +56,7 @@ import {
   getExecutionNoToolCallWarningPrompt,
 } from "../context/prompts/rules";
 import { RetryCoordinator } from "./handlers/RetryCoordinator";
+import { CompletionJudge } from "./handlers/CompletionJudge";
 import { getGeneralAnalysisPrompt } from "../context/prompts/analysis/generalAnalysis";
 import { ConversationCompactor } from "./ConversationCompactor";
 import { MCPManager } from "../../mcp/MCPManager";
@@ -94,6 +96,7 @@ export class ConversationManager {
   private responseProcessor: ResponseProcessor;
   private currentAbortController: AbortController | null = null;
   private stateManager: StateManager | null = null;
+  private completionJudge: CompletionJudge;  // A4: 완료 판단기
 
   private constructor(
     userOS: string,
@@ -105,6 +108,7 @@ export class ConversationManager {
     this.contextManager = ContextManager.getInstance();
     this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi);
     this.responseProcessor = new ResponseProcessor(this.llmManager);
+    this.completionJudge = new CompletionJudge(this.llmManager);  // A4
   }
 
   public static getInstance(
@@ -192,6 +196,9 @@ export class ConversationManager {
       // 1. 초기화 및 준비
       this.prepareUI(webviewToRespond);
 
+      // A4: CompletionJudge 리셋 (새 요청 시작)
+      this.completionJudge.reset();
+
       // 세션 히스토리 정리 체크 (LLM 요약 없이 오래된 항목 제거)
       if (extensionContext) {
         const { SessionManager } = await import("../state/SessionManager");
@@ -246,6 +253,13 @@ export class ConversationManager {
       // MCP 커스텀 프롬프트 수집
       const mcpCustomPrompts = this.collectMcpCustomPrompts();
 
+      // URL 자동 감지 + fetch (HotLoad 전용 짧은 메시지는 제외)
+      const autoFetchedUrlContents = await this.extractAndFetchUrls(
+        userQuery,
+        webviewToRespond,
+        hotLoadPrompt,
+      );
+
       const promptOptions: PromptBuilderOptions = {
         userOS: optionsWithAbort.userOS || process.platform,
         modelType: optionsWithAbort.currentModelType || AiModelType.OLLAMA,
@@ -259,7 +273,7 @@ export class ConversationManager {
 
       // 5. 작업 타입에 따른 실행 분기
       if (optionsWithAbort.promptType === PromptType.CODE_GENERATION) {
-        const userParts = [{ text: userQuery }];
+        const userParts = this.buildUserPartsWithUrls(userQuery, autoFetchedUrlContents);
         await this.executeAgentLoop(
           systemPrompt,
           userParts,
@@ -273,6 +287,14 @@ export class ConversationManager {
           userQuery,
           optionsWithAbort,
         );
+        // ASK 모드에도 URL 자동 감지 내용 추가
+        if (autoFetchedUrlContents.length > 0) {
+          for (const fetched of autoFetchedUrlContents) {
+            userParts.push({
+              text: `\n--- 자동 가져온 URL: ${fetched.url} ---\n${fetched.content}\n--- URL 내용 끝 ---`,
+            });
+          }
+        }
         await this.handleGeneralAsk(systemPrompt, userParts, optionsWithAbort);
       }
     } catch (error: any) {
@@ -338,6 +360,95 @@ export class ConversationManager {
     // 현재 질문 추가
     userParts.push({ text: `[User]: ${currentQuery}` });
 
+    return userParts;
+  }
+
+  // ─── URL 자동 감지 ───
+
+  /** URL 정규식 */
+  private static readonly URL_REGEX =
+    /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
+
+  /**
+   * 사용자 메시지에서 URL을 추출하고 내용을 자동으로 가져옴
+   * HotLoad 전용 짧은 메시지(키워드만)는 건너뜀
+   */
+  private async extractAndFetchUrls(
+    userQuery: string,
+    webview: vscode.Webview,
+    hotLoadPrompt: string,
+  ): Promise<{ url: string; content: string }[]> {
+    try {
+      // HotLoad 의도인 짧은 메시지는 URL fetch 건너뜀
+      const shouldSkip =
+        hotLoadPrompt.length > 0 && userQuery.split(/\s+/).length <= 5;
+      if (shouldSkip) {
+        return [];
+      }
+
+      const matches = userQuery.match(ConversationManager.URL_REGEX);
+      if (!matches || matches.length === 0) {
+        return [];
+      }
+
+      // 중복 제거
+      const uniqueUrls = [...new Set(matches)];
+
+      // 최대 3개까지만 처리
+      const urlsToFetch = uniqueUrls.slice(0, 3);
+
+      console.log(
+        `[ConversationManager] URL ${urlsToFetch.length}개 감지 - 내용 가져오는 중...`,
+      );
+      WebviewBridge.sendProcessingStatus(
+        webview,
+        "context",
+        `URL ${urlsToFetch.length}개 감지 - 내용 가져오는 중...`,
+      );
+
+      // 병렬 fetch
+      const results = await Promise.allSettled(
+        urlsToFetch.map(async (url) => {
+          const { content } = await FetchUrlToolHandler.fetchAndExtract(url);
+          return { url, content };
+        }),
+      );
+
+      const fetched: { url: string; content: string }[] = [];
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          fetched.push(result.value);
+        }
+      }
+
+      if (fetched.length > 0) {
+        console.log(
+          `[ConversationManager] URL ${fetched.length}개 내용 가져오기 완료`,
+        );
+      }
+
+      return fetched;
+    } catch (error) {
+      console.warn("[ConversationManager] URL auto-fetch failed:", error);
+      return [];
+    }
+  }
+
+  /**
+   * userParts에 자동 fetch된 URL 내용을 포함하여 구성
+   */
+  private buildUserPartsWithUrls(
+    userQuery: string,
+    autoFetchedUrlContents: { url: string; content: string }[],
+  ): any[] {
+    const userParts = [{ text: userQuery }];
+    if (autoFetchedUrlContents.length > 0) {
+      for (const fetched of autoFetchedUrlContents) {
+        userParts.push({
+          text: `\n--- 자동 가져온 URL: ${fetched.url} ---\n${fetched.content}\n--- URL 내용 끝 ---`,
+        });
+      }
+    }
     return userParts;
   }
 
@@ -3511,6 +3622,40 @@ export class ConversationManager {
     );
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
+
+    // A4: 완료 여부 판단 (파일 변경이 있는 경우에만)
+    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+      try {
+        const judgment = await this.completionJudge.judge(
+          userQuery,
+          createdFiles,
+          modifiedFiles,
+          "", // lastResponse는 아직 생성 전
+          abortSignal
+        );
+
+        console.log(`[ConversationManager] A4 CompletionJudge: complete=${judgment.isComplete}, confidence=${judgment.confidence}, reason=${judgment.reason}`);
+
+        // 미완성으로 판단되고 추가 작업이 필요한 경우
+        if (this.completionJudge.shouldContinue(judgment)) {
+          console.log("[ConversationManager] A4: Incomplete work detected, continuing EXECUTION");
+          this.completionJudge.incrementAutoContinue();
+
+          // 추가 작업 프롬프트 생성 및 userParts에 추가
+          const continuePrompt = this.completionJudge.buildContinuePrompt(judgment);
+          accumulatedUserParts.push({ text: continuePrompt });
+
+          // EXECUTION으로 돌아가서 추가 작업 수행
+          stateManager.transitionTo(AgentPhase.EXECUTION);
+          WebviewBridge.sendProcessingStatus(webview, "executing", "추가 작업 진행 중...");
+
+          return { action: "continue" };
+        }
+      } catch (e) {
+        console.warn("[ConversationManager] A4 CompletionJudge failed:", e);
+        // 판단 실패 시 그냥 완료로 처리
+      }
+    }
 
     // 페이즈별 프롬프트 보정 (REVIEW 단계용)
     const activeSystemPrompt = systemPrompt;

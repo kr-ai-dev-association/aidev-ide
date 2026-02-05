@@ -14,6 +14,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { WebviewBridge } from "../../../webview/WebviewBridge";
 import { ClassificationResult, ErrorClassifier, ErrorCategory } from "./ErrorClassifier";
+import { AutoRemediator } from "./AutoRemediator";
 import { TestResult } from "./TestRunner";
 import { buildClassifiedRetryPrompt, ModifiedFileContext } from "../../context/prompts/rules";
 import { ProjectDetector } from "../../project/ProjectDetector";
@@ -83,6 +84,28 @@ export class RetryCoordinator {
                 testFixAttempts,
                 retryFingerprint: classification.retryFingerprint
             };
+        }
+
+        // 3.5. BUILD_TIMEOUT → 캐시 클리어 시도 후 재시도
+        if (classification.dominantCategory === ErrorCategory.BUILD_TIMEOUT) {
+            console.log('[RetryCoordinator] BUILD_TIMEOUT detected — attempting cache clear before retry');
+            WebviewBridge.sendProcessingStatus(
+                ctx.webview,
+                'executing',
+                '빌드 타임아웃 — 캐시 정리 후 재시도 중...'
+            );
+
+            const remediation = await AutoRemediator.attemptFix(
+                classification,
+                ctx.workspaceRoot,
+                ctx.webview,
+            );
+
+            if (remediation.attempted) {
+                console.log(
+                    `[RetryCoordinator] Cache clear ${remediation.success ? 'succeeded' : 'failed'}: ${remediation.message}`
+                );
+            }
         }
 
         // 4. 구조적 패턴 추적 (fingerprint 기반, 키워드 매칭 없음)
