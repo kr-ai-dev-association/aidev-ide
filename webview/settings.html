@@ -1718,6 +1718,27 @@
             </p>
         </div>
 
+        <!-- 기본 차단 명령어 목록 -->
+        <div class="api-key-section" style="margin-top: 20px">
+            <h3>기본 차단 명령어</h3>
+            <p class="info-message" style="margin-bottom: 10px">
+                클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
+            </p>
+            <div id="blocked-command-default-list" style="
+                max-height: 200px;
+                overflow-y: auto;
+                padding: 10px;
+                background-color: var(--vscode-textCodeBlock-background);
+                border-radius: 5px;
+                font-family: monospace;
+                font-size: 0.85em;
+                line-height: 1.8;
+                color: var(--vscode-descriptionForeground);
+            ">
+                <!-- 동적으로 채워짐 -->
+            </div>
+        </div>
+
         <!-- 커스텀 보호 파일 추가 -->
         <div class="api-key-section" style="margin-top: 20px">
             <h3>커스텀 보호 파일 추가</h3>
@@ -1747,27 +1768,6 @@
             <p id="protected-file-custom-empty" class="info-message" style="display: none">
                 등록된 커스텀 보호 파일이 없습니다.
             </p>
-        </div>
-
-        <!-- 기본 차단 명령어 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>기본 차단 명령어</h3>
-            <p class="info-message" style="margin-bottom: 10px">
-                클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
-            </p>
-            <div id="blocked-command-default-list" style="
-                max-height: 200px;
-                overflow-y: auto;
-                padding: 10px;
-                background-color: var(--vscode-textCodeBlock-background);
-                border-radius: 5px;
-                font-family: monospace;
-                font-size: 0.85em;
-                line-height: 1.8;
-                color: var(--vscode-descriptionForeground);
-            ">
-                <!-- 동적으로 채워짐 -->
-            </div>
         </div>
 
         <!-- 기본 보호 파일 목록 -->

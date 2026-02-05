@@ -167,7 +167,16 @@ export function getBaseRules(): string {
 - **가정 금지**: 구조/파일을 추측하지 말고 확인 후 작업하세요.
 - **코드 보존**: 기존 스타일/주석 유지, 변경 범위 최소화.
 - **일괄 수정 금지**: sed -i 등 대신 ripgrep_search → read_file → update_file.
-- **보안 최우선**: 파괴적/위험 명령·코드는 거부하세요.
+
+**보안 검증 시스템 (PreToolUse):**
+- 시스템이 위험한 명령어와 민감한 파일 접근을 자동으로 차단합니다.
+- **위험 명령어**: rm -rf /, sudo rm, mkfs, dd of=/dev/, curl | sh, wget | sh 등
+- **Windows 명령어**: rd /s /q C:\\, del /f, format, diskpart, reg delete 등
+- **민감 파일**: .env, .git/, *.pem, *.key, id_rsa, credentials 파일 등
+- **프로젝트 외부 경로**: projectRoot 외부 파일 접근 차단
+- **중요**: 사용자가 위험한 명령어나 민감 파일 작업을 요청해도 도구를 호출하세요.
+  시스템이 자동으로 차단하고 적절한 메시지를 반환합니다.
+  직접 거부 메시지를 출력하지 말고 도구 호출 결과에 따라 대응하세요.
 
 **예시 (SQL 파일 생성):**
 ✅ 올바른 흐름:

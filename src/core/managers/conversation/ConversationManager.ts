@@ -1193,7 +1193,7 @@ export class ConversationManager {
             `${phaseLabel}도구 실행 중...`,
           );
 
-          const { toolResults, hasSuccessfulExecution: hasSuccessfulPlanExecution } =
+          const { toolResults, hasSuccessfulExecution: hasSuccessfulPlanExecution, hasBlockedByValidator, blockedMessages } =
             await this.executeToolsWithUI(
               toolExecutor, toolCallsFromPlanCreation, webviewToRespond,
               actionManager, executionManager, terminalManager,
@@ -1202,6 +1202,14 @@ export class ConversationManager {
           if (hasSuccessfulPlanExecution) {
             lastTurnHadSuccessfulToolExecution = true;
             console.log(`[ConversationManager] Plan-based tool execution succeeded.`);
+          }
+
+          // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
+          // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
+          if (hasBlockedByValidator && blockedMessages.length > 0) {
+            console.log(`[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(', ')}`);
+            stateManager.transitionTo(AgentPhase.REVIEW);
+            break;
           }
 
           // 현재 Plan Item 완료 처리
@@ -1449,7 +1457,7 @@ export class ConversationManager {
                 `${phaseLabel}도구 실행 중...`,
               );
 
-              const { toolResults, hasSuccessfulExecution: hasSuccessfulToolExecution } =
+              const { toolResults, hasSuccessfulExecution: hasSuccessfulToolExecution, hasBlockedByValidator: hasBlockedByValidator2, blockedMessages: blockedMessages2 } =
                 await this.executeToolsWithUI(
                   toolExecutor, toolCallsFromExecution, webviewToRespond,
                   actionManager, executionManager, terminalManager,
@@ -1458,6 +1466,14 @@ export class ConversationManager {
               if (hasSuccessfulToolExecution) {
                 lastTurnHadSuccessfulToolExecution = true;
                 console.log(`[ConversationManager] Tool execution (from LLM) succeeded.`);
+              }
+
+              // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
+              // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
+              if (hasBlockedByValidator2 && blockedMessages2.length > 0) {
+                console.log(`[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages2.join(', ')}`);
+                stateManager.transitionTo(AgentPhase.REVIEW);
+                break;
               }
 
               const resultSummary =
@@ -2157,7 +2173,7 @@ export class ConversationManager {
                 `${phaseLabelExec}[단계 ${turnCount + 1}] ${ToolExecutionCoordinator.getToolLabel(toolCalls[0].name)} 실행 중...`,
               );
 
-              const { toolResults, hasSuccessfulExecution } =
+              const { toolResults, hasSuccessfulExecution, hasBlockedByValidator: hasBlockedByValidator3, blockedMessages: blockedMessages3 } =
                 await this.executeToolsWithUI(
                   toolExecutor, toolCalls, webviewToRespond,
                   actionManager, executionManager, terminalManager,
@@ -2167,6 +2183,14 @@ export class ConversationManager {
               if (hasSuccessfulExecution) {
                 lastTurnHadSuccessfulToolExecution = true;
                 console.log(`[ConversationManager] Tool execution succeeded.`);
+              }
+
+              // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
+              // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
+              if (hasBlockedByValidator3 && blockedMessages3.length > 0) {
+                console.log(`[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages3.join(', ')}`);
+                stateManager.transitionTo(AgentPhase.REVIEW);
+                break;
               }
 
               // 결과 요약 누적
@@ -3929,7 +3953,7 @@ export class ConversationManager {
     createdFiles: string[],
     modifiedFiles: string[],
     includeWebviewInContext: boolean = false,
-  ): Promise<{ toolResults: any[]; hasSuccessfulExecution: boolean }> {
+  ): Promise<{ toolResults: any[]; hasSuccessfulExecution: boolean; hasBlockedByValidator: boolean; blockedMessages: string[] }> {
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
 
@@ -3975,12 +3999,21 @@ export class ConversationManager {
     // 성공 여부 추적
     const hasSuccessfulExecution = toolResults.some((result: any) => result.success === true);
 
+    // 🔥 PreToolUseValidator 차단 여부 추적 (재시도 방지용)
+    const hasBlockedByValidator = toolResults.some(
+      (result: any) => result.error?.code === 'BLOCKED_BY_VALIDATOR'
+    );
+    const blockedMessages = toolResults
+      .filter((result: any) => result.error?.code === 'BLOCKED_BY_VALIDATOR')
+      .map((result: any) => result.message || result.error?.message)
+      .filter(Boolean);
+
     // 파일 변경 후 formatter 및 validation 실행
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
       await this.afterFileChanges(webview, workspaceRoot, createdFiles, modifiedFiles);
     }
 
-    return { toolResults, hasSuccessfulExecution };
+    return { toolResults, hasSuccessfulExecution, hasBlockedByValidator, blockedMessages };
   }
 
   /**
