@@ -1,7 +1,6 @@
 <!doctype html>
 <html>
-
-<head>
+  <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- CSP를 위한 meta 태그는 extension.ts에서 getHtmlContentWithUris 함수를 통해 동적으로 삽입됩니다. -->
@@ -11,1505 +10,1575 @@
     <link rel="stylesheet" type="text/css" href="{{commonStylesUri}}" />
     <link rel="stylesheet" type="text/css" href="{{settingsStylesUri}}" />
     <style>
-        /* ========== 라이트 테마 ========== */
-        body[data-theme="light"] {
-            --vscode-foreground: #374151 !important;
-            --vscode-editor-background: #f3f4f6 !important;
-            --vscode-panel-background: #f3f4f6 !important;
-            --vscode-input-background: #ffffff !important;
-            --vscode-input-foreground: #111827 !important;
-            --vscode-input-border: #d1d5db !important;
-            --vscode-button-background: #0e639c !important;
-            --vscode-button-foreground: #ffffff !important;
-            --vscode-button-hoverBackground: #1177bb !important;
-            --vscode-textLink-foreground: #2563eb !important;
-            --vscode-panel-border: #e5e7eb !important;
-            --vscode-descriptionForeground: #6b7280 !important;
-            --vscode-focusBorder: #2563eb !important;
-            background-color: #f3f4f6 !important;
-            color: #374151 !important;
+      /* ========== 라이트 테마 ========== */
+      body[data-theme="light"] {
+        --vscode-foreground: #374151 !important;
+        --vscode-editor-background: #f3f4f6 !important;
+        --vscode-panel-background: #f3f4f6 !important;
+        --vscode-input-background: #ffffff !important;
+        --vscode-input-foreground: #111827 !important;
+        --vscode-input-border: #d1d5db !important;
+        --vscode-button-background: #0e639c !important;
+        --vscode-button-foreground: #ffffff !important;
+        --vscode-button-hoverBackground: #1177bb !important;
+        --vscode-textLink-foreground: #2563eb !important;
+        --vscode-panel-border: #e5e7eb !important;
+        --vscode-descriptionForeground: #6b7280 !important;
+        --vscode-focusBorder: #2563eb !important;
+        background-color: #f3f4f6 !important;
+        color: #374151 !important;
+      }
+
+      /* 버튼 스타일 - 라이트 테마 (다크 테마와 동일한 색상) */
+      body[data-theme="light"] button,
+      body[data-theme="light"] .save-button,
+      body[data-theme="light"] #add-directory-button,
+      body[data-theme="light"] #verify-banya-license-button,
+      body[data-theme="light"] .license-button-group button {
+        background-color: #0e639c !important;
+        color: #ffffff !important;
+      }
+
+      body[data-theme="light"] button:hover,
+      body[data-theme="light"] .save-button:hover,
+      body[data-theme="light"] #add-directory-button:hover,
+      body[data-theme="light"] #verify-banya-license-button:hover,
+      body[data-theme="light"] .license-button-group button:hover {
+        background-color: #1177bb !important;
+      }
+
+      body[data-theme="light"] h1,
+      body[data-theme="light"] h2,
+      body[data-theme="light"] h3 {
+        color: #2563eb !important;
+      }
+
+      body[data-theme="light"] .api-key-section {
+        background-color: #ffffff !important;
+        border-color: #e5e7eb !important;
+      }
+
+      body[data-theme="light"] select,
+      body[data-theme="light"] input[type="text"],
+      body[data-theme="light"] input[type="password"],
+      body[data-theme="light"] input[type="number"] {
+        background-color: #ffffff !important;
+        color: #111827 !important;
+        border-color: #d1d5db !important;
+      }
+
+      body[data-theme="light"] .spinner-container label,
+      body[data-theme="light"] .spinner-container span {
+        color: #374151 !important;
+      }
+
+      body[data-theme="light"] .toggle-switch-container label {
+        background: #9ca3af !important;
+      }
+
+      body[data-theme="light"] .toggle-switch-container input:checked + label {
+        background: #2563eb !important;
+      }
+
+      body[data-theme="light"] .info-message {
+        color: #6b7280 !important;
+      }
+
+      body[data-theme="light"] .info-message.success-message {
+        color: #16a34a !important;
+      }
+
+      body[data-theme="light"] .info-message.error-message {
+        color: #dc2626 !important;
+      }
+
+      body[data-theme="light"] .model-card {
+        background-color: #ffffff !important;
+        border-color: #e5e7eb !important;
+      }
+
+      body[data-theme="light"] .model-card:hover {
+        border-color: #2563eb !important;
+      }
+
+      body[data-theme="light"] .model-card.selected {
+        border-color: #2563eb !important;
+        background-color: #eff6ff !important;
+      }
+
+      body[data-theme="light"] .model-name {
+        color: #111827 !important;
+      }
+
+      body[data-theme="light"] .model-description {
+        color: #6b7280 !important;
+      }
+
+      body[data-theme="light"] ::-webkit-scrollbar-track {
+        background: #f3f4f6 !important;
+      }
+
+      body[data-theme="light"] ::-webkit-scrollbar-thumb {
+        background: #9ca3af !important;
+      }
+
+      body[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+        background: #6b7280 !important;
+      }
+
+      /* settings.html 고유 스타일 및 license.html과 동기화된 스타일 */
+      body {
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        color: var(--vscode-foreground);
+        background-color: var(--vscode-editor-background);
+        padding: 20px;
+        line-height: 1.5;
+        display: flex;
+        /* <-- 추가: body를 flex 컨테이너로 설정 (세로 스크롤 가능하게) */
+        flex-direction: column;
+        /* <-- 추가: 자식 요소들을 세로로 쌓음 */
+        height: 100vh;
+        /* <-- 추가: 뷰포트 높이 전체를 차지하게 함 */
+        overflow: auto;
+        /* <-- 추가: 내용이 넘칠 때 스크롤바 생성 */
+      }
+
+      h1 {
+        color: var(--vscode-textLink-foreground);
+        border-bottom: 1px solid var(--vscode-panel-border);
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+      }
+
+      .section-container {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+
+      .section-container h2 {
+        margin-bottom: 10px;
+        color: var(--vscode-textLink-foreground);
+      }
+
+      .info-message {
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.9em;
+        margin-bottom: 15px;
+      }
+
+      .info-message.success-message {
+        color: var(--vscode-terminal-ansiGreen);
+      }
+
+      .info-message.error-message {
+        color: var(--vscode-terminal-ansiRed);
+      }
+
+      /* 버튼 그룹 스타일 */
+      .button-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        /* 버튼과 상태 메시지 간 간격 */
+        margin-top: 15px;
+      }
+
+      #add-directory-button {
+        padding: 8px 15px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+      }
+
+      #add-directory-button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+
+      /* 토글 스위치 스타일 (기존과 동일) */
+      .toggle-switch-container {
+        display: flex;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      .toggle-switch-container input[type="checkbox"] {
+        height: 0;
+        width: 0;
+        visibility: hidden;
+      }
+
+      .toggle-switch-container label {
+        cursor: pointer;
+        text-indent: -9999px;
+        width: 40px;
+        /* 스위치 너비 */
+        height: 20px;
+        /* 스위치 높이 */
+        background: grey;
+        display: block;
+        border-radius: 100px;
+        position: relative;
+        margin-right: 10px;
+        /* 스위치와 텍스트 사이 간격 */
+      }
+
+      .toggle-switch-container label:after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        /* 핸들 너비 */
+        height: 16px;
+        /* 핸들 높이 */
+        background: #fff;
+        border-radius: 90px;
+        transition: 0.3s;
+      }
+
+      .toggle-switch-container input:checked + label {
+        background: var(--vscode-button-background);
+        /* 활성화 시 VS Code 버튼 배경색 */
+      }
+
+      .toggle-switch-container input:checked + label:after {
+        left: calc(100% - 2px);
+        transform: translateX(-100%);
+      }
+
+      .toggle-switch-container label:active:after {
+        width: 22px;
+        /* 클릭 시 핸들 약간 커짐 */
+      }
+
+      .spinner-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 10px 0;
+      }
+
+      .spinner-container label {
+        font-weight: 500;
+        color: #333;
+      }
+
+      .spinner-container input[type="number"] {
+        width: 80px;
+        padding: 8px 12px;
+        border: 2px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+        text-align: center;
+        transition: border-color 0.3s ease;
+      }
+
+      .spinner-container input[type="number"]:focus {
+        outline: none;
+        border-color: #007acc;
+        box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+      }
+
+      .spinner-container span {
+        font-weight: 500;
+        color: #666;
+      }
+
+      .toggle-label-text {
+        font-weight: normal;
+        /* 일반 텍스트처럼 */
+        margin-bottom: 0;
+        /* label 태그의 기본 마진 제거 */
+      }
+
+      /* API 키 섹션 스타일 */
+      .api-key-section {
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 5px;
+        background-color: var(--vscode-input-background);
+      }
+
+      .api-key-section h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        color: var(--vscode-textLink-foreground);
+        font-size: 1.1em;
+      }
+
+      .api-key-input-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .api-key-input-group label,
+      .license-input-row label {
+        margin-right: 10px;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+
+      .api-key-input-group select,
+      .api-key-input-group input[type="text"],
+      .api-key-input-group input[type="password"],
+      .settings-section select {
+        flex-grow: 1;
+        width: 100%;
+        padding: 8px;
+        border: 1px solid var(--vscode-input-border);
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        outline: none;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        border-radius: 3px;
+        min-width: 0;
+      }
+
+      .api-key-input-group input[type="password"] {
+        padding: 8px;
+      }
+
+      .api-key-input-group input[type="password"]:focus {
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .api-key-input-group button {
+        padding: 8px 15px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        cursor: pointer;
+        border-radius: 3px;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+      }
+
+      .api-key-input-group button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+
+      .api-key-section .info-message {
+        margin-top: 8px;
+        margin-bottom: 0;
+      }
+
+      .api-key-section a {
+        color: var(--vscode-textLink-foreground);
+        text-decoration: none;
+      }
+
+      .api-key-section a:hover {
+        text-decoration: underline;
+      }
+
+      /* 라이센스 입력 그룹 스타일 */
+      .license-input-group {
+        margin-top: 10px;
+      }
+
+      .license-input-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .license-input-group input[type="text"] {
+        flex-grow: 1;
+        padding: 8px;
+        border: 1px solid var(--vscode-input-border);
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        outline: none;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        border-radius: 3px;
+        margin-right: 10px;
+      }
+
+      .license-input-group input[type="text"]:focus {
+        border-color: var(--vscode-focusBorder);
+      }
+
+      /* 읽기 전용 입력 필드 스타일 */
+      .license-input-group input[type="text"][readonly] {
+        background-color: var(--vscode-disabledForeground);
+        color: var(--vscode-disabledForeground);
+        cursor: not-allowed;
+        opacity: 0.7;
+      }
+
+      .license-input-group input[type="text"][readonly]:focus {
+        border-color: var(--vscode-input-border);
+        outline: none;
+      }
+
+      /* 라이센스 검증 버튼 스타일 */
+      #verify-banya-license-button {
+        padding: 8px 15px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        cursor: pointer;
+        border-radius: 3px;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        white-space: nowrap;
+        min-width: 60px;
+      }
+
+      #verify-banya-license-button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+
+      #verify-banya-license-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background-color: var(--vscode-disabledForeground);
+      }
+
+      #verify-banya-license-button:disabled:hover {
+        background-color: var(--vscode-disabledForeground);
+      }
+
+      .license-button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .license-button-group button {
+        padding: 8px 15px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        cursor: pointer;
+        border-radius: 3px;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+      }
+
+      .license-button-group button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+
+      /* 모델 리스트 스타일 */
+      .model-list-container {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 5px;
+        padding: 10px;
+        background-color: var(--vscode-editor-background);
+      }
+
+      .model-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px;
+        margin-bottom: 8px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 5px;
+        background-color: var(--vscode-input-background);
+      }
+
+      .model-item:hover {
+        background-color: var(--vscode-list-hoverBackground);
+      }
+
+      .model-info {
+        flex: 1;
+      }
+
+      .model-name {
+        font-weight: bold;
+        color: var(--vscode-foreground);
+        margin-bottom: 4px;
+      }
+
+      .model-description {
+        font-size: 0.9em;
+        color: var(--vscode-descriptionForeground);
+        margin-bottom: 2px;
+      }
+
+      .model-size {
+        font-size: 0.8em;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      .model-tags {
+        display: flex;
+        gap: 4px;
+        margin-top: 4px;
+      }
+
+      .model-tag {
+        background-color: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.7em;
+      }
+
+      .model-download-button {
+        padding: 6px 12px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.9em;
+      }
+
+      .model-download-button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+
+      .model-download-button:disabled {
+        background-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        cursor: not-allowed;
+      }
+
+      .download-link {
+        text-decoration: none;
+      }
+
+      .download-link button {
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        padding: 8px 16px;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+
+      .download-link button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+
+      /* Ollama API URL 입력 스타일 */
+      #ollama-api-url-input {
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+      }
+
+      /* AI 모델 선택 컨테이너 스타일 */
+      .model-selection-container {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 5px;
+        background-color: var(--vscode-input-background);
+      }
+
+      .model-selection-container label {
+        display: block;
+        margin-bottom: 10px;
+        color: var(--vscode-foreground);
+        font-weight: bold;
+      }
+
+      .model-selection-container select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid var(--vscode-input-border);
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        outline: none;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        border-radius: 3px;
+        min-width: 0;
+      }
+
+      .model-selection-container select:focus {
+        border-color: var(--vscode-focusBorder);
+      }
+
+      /* 비활성화된 설정 섹션 스타일 */
+      .api-key-section.disabled {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
+      .api-key-section.disabled input,
+      .api-key-section.disabled button {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .api-key-section.disabled h3 {
+        color: var(--vscode-descriptionForeground);
+      }
+
+      .api-key-section.disabled .info-message {
+        color: var(--vscode-descriptionForeground);
+      }
+
+      /* 비활성화된 저장 버튼 스타일 */
+      .api-key-input-group button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background-color: var(--vscode-disabledForeground);
+      }
+
+      .api-key-input-group button:disabled:hover {
+        background-color: var(--vscode-disabledForeground);
+      }
+
+      /* 파일 목록 스타일 (다중 파일 지원) */
+      .policy-file-list {
+        margin-top: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 3px;
+        background-color: var(--vscode-editor-background);
+      }
+
+      .policy-file-list:empty {
+        display: none;
+      }
+
+      .policy-file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+
+      .policy-file-item:last-child {
+        border-bottom: none;
+      }
+
+      .policy-file-item .file-name {
+        flex: 1;
+        font-size: 0.9em;
+        color: var(--vscode-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .policy-file-item .file-name.legacy {
+        color: var(--vscode-descriptionForeground);
+        font-style: italic;
+      }
+
+      .policy-file-item .delete-file-btn {
+        padding: 4px 8px;
+        background-color: var(--vscode-button-secondaryBackground, #5a5a5a);
+        color: var(--vscode-button-secondaryForeground, #fff);
+        border: none;
+        cursor: pointer;
+        border-radius: 3px;
+        font-size: 0.8em;
+        margin-left: 8px;
+      }
+
+      .policy-file-item .delete-file-btn:hover {
+        background-color: var(
+          --vscode-inputValidation-errorBackground,
+          #be1100
+        );
+      }
+
+      body[data-theme="light"] .policy-file-list {
+        background-color: #ffffff !important;
+        border-color: #e5e7eb !important;
+      }
+
+      body[data-theme="light"] .policy-file-item {
+        border-color: #e5e7eb !important;
+      }
+
+      body[data-theme="light"] .policy-file-item .file-name {
+        color: #374151 !important;
+      }
+
+      /* 버전 정보 푸터 스타일 */
+      .version-footer {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid var(--vscode-panel-border);
+        text-align: center;
+      }
+
+      .version-footer p {
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.85em;
+        margin: 0;
+      }
+
+      /* 반응형 레이아웃 */
+      @media (max-width: 600px) {
+        .api-key-input-group,
+        .license-input-row,
+        .settings-section > div[style*="flex"] {
+          flex-direction: column !important;
+          align-items: stretch !important;
         }
 
-        /* 버튼 스타일 - 라이트 테마 (다크 테마와 동일한 색상) */
-        body[data-theme="light"] button,
-        body[data-theme="light"] .save-button,
-        body[data-theme="light"] #add-directory-button,
-        body[data-theme="light"] #verify-banya-license-button,
-        body[data-theme="light"] .license-button-group button {
-            background-color: #0e639c !important;
-            color: #ffffff !important;
-        }
-
-        body[data-theme="light"] button:hover,
-        body[data-theme="light"] .save-button:hover,
-        body[data-theme="light"] #add-directory-button:hover,
-        body[data-theme="light"] #verify-banya-license-button:hover,
-        body[data-theme="light"] .license-button-group button:hover {
-            background-color: #1177bb !important;
-        }
-
-        body[data-theme="light"] h1,
-        body[data-theme="light"] h2,
-        body[data-theme="light"] h3 {
-            color: #2563eb !important;
-        }
-
-        body[data-theme="light"] .api-key-section {
-            background-color: #ffffff !important;
-            border-color: #e5e7eb !important;
-        }
-
-        body[data-theme="light"] select,
-        body[data-theme="light"] input[type="text"],
-        body[data-theme="light"] input[type="password"],
-        body[data-theme="light"] input[type="number"] {
-            background-color: #ffffff !important;
-            color: #111827 !important;
-            border-color: #d1d5db !important;
-        }
-
-        body[data-theme="light"] .spinner-container label,
-        body[data-theme="light"] .spinner-container span {
-            color: #374151 !important;
-        }
-
-        body[data-theme="light"] .toggle-switch-container label {
-            background: #9ca3af !important;
-        }
-
-        body[data-theme="light"] .toggle-switch-container input:checked+label {
-            background: #2563eb !important;
-        }
-
-        body[data-theme="light"] .info-message {
-            color: #6b7280 !important;
-        }
-
-        body[data-theme="light"] .info-message.success-message {
-            color: #16a34a !important;
-        }
-
-        body[data-theme="light"] .info-message.error-message {
-            color: #dc2626 !important;
-        }
-
-        body[data-theme="light"] .model-card {
-            background-color: #ffffff !important;
-            border-color: #e5e7eb !important;
-        }
-
-        body[data-theme="light"] .model-card:hover {
-            border-color: #2563eb !important;
-        }
-
-        body[data-theme="light"] .model-card.selected {
-            border-color: #2563eb !important;
-            background-color: #eff6ff !important;
-        }
-
-        body[data-theme="light"] .model-name {
-            color: #111827 !important;
-        }
-
-        body[data-theme="light"] .model-description {
-            color: #6b7280 !important;
-        }
-
-        body[data-theme="light"] ::-webkit-scrollbar-track {
-            background: #f3f4f6 !important;
-        }
-
-        body[data-theme="light"] ::-webkit-scrollbar-thumb {
-            background: #9ca3af !important;
-        }
-
-        body[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-            background: #6b7280 !important;
-        }
-
-        /* settings.html 고유 스타일 및 license.html과 동기화된 스타일 */
-        body {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
-            padding: 20px;
-            line-height: 1.5;
-            display: flex;
-            /* <-- 추가: body를 flex 컨테이너로 설정 (세로 스크롤 가능하게) */
-            flex-direction: column;
-            /* <-- 추가: 자식 요소들을 세로로 쌓음 */
-            height: 100vh;
-            /* <-- 추가: 뷰포트 높이 전체를 차지하게 함 */
-            overflow: auto;
-            /* <-- 추가: 내용이 넘칠 때 스크롤바 생성 */
-        }
-
-        h1 {
-            color: var(--vscode-textLink-foreground);
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-
-        .section-container {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
-
-        .section-container h2 {
-            margin-bottom: 10px;
-            color: var(--vscode-textLink-foreground);
-        }
-
-        .info-message {
-            color: var(--vscode-descriptionForeground);
-            font-size: 0.9em;
-            margin-bottom: 15px;
-        }
-
-        .info-message.success-message {
-            color: var(--vscode-terminal-ansiGreen);
-        }
-
-        .info-message.error-message {
-            color: var(--vscode-terminal-ansiRed);
-        }
-
-        /* 버튼 그룹 스타일 */
-        .button-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            /* 버튼과 상태 메시지 간 간격 */
-            margin-top: 15px;
-        }
-
-        #add-directory-button {
-            padding: 8px 15px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            cursor: pointer;
-            border-radius: 5px;
-        }
-
-        #add-directory-button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        /* 토글 스위치 스타일 (기존과 동일) */
-        .toggle-switch-container {
-            display: flex;
-            align-items: center;
-            margin-top: 10px;
-        }
-
-        .toggle-switch-container input[type="checkbox"] {
-            height: 0;
-            width: 0;
-            visibility: hidden;
-        }
-
-        .toggle-switch-container label {
-            cursor: pointer;
-            text-indent: -9999px;
-            width: 40px;
-            /* 스위치 너비 */
-            height: 20px;
-            /* 스위치 높이 */
-            background: grey;
-            display: block;
-            border-radius: 100px;
-            position: relative;
-            margin-right: 10px;
-            /* 스위치와 텍스트 사이 간격 */
-        }
-
-        .toggle-switch-container label:after {
-            content: "";
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 16px;
-            /* 핸들 너비 */
-            height: 16px;
-            /* 핸들 높이 */
-            background: #fff;
-            border-radius: 90px;
-            transition: 0.3s;
-        }
-
-        .toggle-switch-container input:checked+label {
-            background: var(--vscode-button-background);
-            /* 활성화 시 VS Code 버튼 배경색 */
-        }
-
-        .toggle-switch-container input:checked+label:after {
-            left: calc(100% - 2px);
-            transform: translateX(-100%);
-        }
-
-        .toggle-switch-container label:active:after {
-            width: 22px;
-            /* 클릭 시 핸들 약간 커짐 */
-        }
-
-        .spinner-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 10px 0;
-        }
-
-        .spinner-container label {
-            font-weight: 500;
-            color: #333;
-        }
-
-        .spinner-container input[type="number"] {
-            width: 80px;
-            padding: 8px 12px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            text-align: center;
-            transition: border-color 0.3s ease;
-        }
-
-        .spinner-container input[type="number"]:focus {
-            outline: none;
-            border-color: #007acc;
-            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
-        }
-
-        .spinner-container span {
-            font-weight: 500;
-            color: #666;
-        }
-
-        .toggle-label-text {
-            font-weight: normal;
-            /* 일반 텍스트처럼 */
-            margin-bottom: 0;
-            /* label 태그의 기본 마진 제거 */
-        }
-
-        /* API 키 섹션 스타일 */
-        .api-key-section {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 5px;
-            background-color: var(--vscode-input-background);
-        }
-
-        .api-key-section h3 {
-            margin-top: 0;
-            margin-bottom: 10px;
-            color: var(--vscode-textLink-foreground);
-            font-size: 1.1em;
-        }
-
-        .api-key-input-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .api-key-input-group label,
-        .license-input-row label {
-            margin-right: 10px;
-            font-weight: bold;
-            white-space: nowrap;
+        .api-key-input-group button,
+        .license-input-row button,
+        .settings-section button {
+          width: 100% !important;
+          margin-left: 0 !important;
+          margin-top: 5px;
         }
 
         .api-key-input-group select,
-        .api-key-input-group input[type="text"],
-        .api-key-input-group input[type="password"],
+        .api-key-input-group input,
+        .license-input-row input,
         .settings-section select {
-            flex-grow: 1;
-            width: 100%;
-            padding: 8px;
-            border: 1px solid var(--vscode-input-border);
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            outline: none;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            border-radius: 3px;
-            min-width: 0;
-        }
-
-        .api-key-input-group input[type="password"] {
-            padding: 8px;
-        }
-
-        .api-key-input-group input[type="password"]:focus {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        .api-key-input-group button {
-            padding: 8px 15px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            cursor: pointer;
-            border-radius: 3px;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-        }
-
-        .api-key-input-group button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        .api-key-section .info-message {
-            margin-top: 8px;
-            margin-bottom: 0;
-        }
-
-        .api-key-section a {
-            color: var(--vscode-textLink-foreground);
-            text-decoration: none;
-        }
-
-        .api-key-section a:hover {
-            text-decoration: underline;
-        }
-
-        /* 라이센스 입력 그룹 스타일 */
-        .license-input-group {
-            margin-top: 10px;
-        }
-
-        .license-input-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .license-input-group input[type="text"] {
-            flex-grow: 1;
-            padding: 8px;
-            border: 1px solid var(--vscode-input-border);
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            outline: none;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            border-radius: 3px;
-            margin-right: 10px;
-        }
-
-        .license-input-group input[type="text"]:focus {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        /* 읽기 전용 입력 필드 스타일 */
-        .license-input-group input[type="text"][readonly] {
-            background-color: var(--vscode-disabledForeground);
-            color: var(--vscode-disabledForeground);
-            cursor: not-allowed;
-            opacity: 0.7;
-        }
-
-        .license-input-group input[type="text"][readonly]:focus {
-            border-color: var(--vscode-input-border);
-            outline: none;
-        }
-
-        /* 라이센스 검증 버튼 스타일 */
-        #verify-banya-license-button {
-            padding: 8px 15px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            cursor: pointer;
-            border-radius: 3px;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            white-space: nowrap;
-            min-width: 60px;
-        }
-
-        #verify-banya-license-button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        #verify-banya-license-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background-color: var(--vscode-disabledForeground);
-        }
-
-        #verify-banya-license-button:disabled:hover {
-            background-color: var(--vscode-disabledForeground);
-        }
-
-        .license-button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .license-button-group button {
-            padding: 8px 15px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            cursor: pointer;
-            border-radius: 3px;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-        }
-
-        .license-button-group button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        /* 모델 리스트 스타일 */
-        .model-list-container {
-            max-height: 400px;
-            overflow-y: auto;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 5px;
-            padding: 10px;
-            background-color: var(--vscode-editor-background);
-        }
-
-        .model-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px;
-            margin-bottom: 8px;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 5px;
-            background-color: var(--vscode-input-background);
-        }
-
-        .model-item:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-
-        .model-info {
-            flex: 1;
-        }
-
-        .model-name {
-            font-weight: bold;
-            color: var(--vscode-foreground);
-            margin-bottom: 4px;
-        }
-
-        .model-description {
-            font-size: 0.9em;
-            color: var(--vscode-descriptionForeground);
-            margin-bottom: 2px;
-        }
-
-        .model-size {
-            font-size: 0.8em;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .model-tags {
-            display: flex;
-            gap: 4px;
-            margin-top: 4px;
-        }
-
-        .model-tag {
-            background-color: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.7em;
-        }
-
-        .model-download-button {
-            padding: 6px 12px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 0.9em;
-        }
-
-        .model-download-button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        .model-download-button:disabled {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            cursor: not-allowed;
-        }
-
-        .download-link {
-            text-decoration: none;
-        }
-
-        .download-link button {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 3px;
-            cursor: pointer;
-        }
-
-        .download-link button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-
-        /* Ollama API URL 입력 스타일 */
-        #ollama-api-url-input {
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-        }
-
-        /* AI 모델 선택 컨테이너 스타일 */
-        .model-selection-container {
-            margin-bottom: 20px;
-            padding: 15px;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 5px;
-            background-color: var(--vscode-input-background);
-        }
-
-        .model-selection-container label {
-            display: block;
-            margin-bottom: 10px;
-            color: var(--vscode-foreground);
-            font-weight: bold;
-        }
-
-        .model-selection-container select {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid var(--vscode-input-border);
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            outline: none;
-            font-family: var(--vscode-font-family);
-            font-size: var(--vscode-font-size);
-            border-radius: 3px;
-            min-width: 0;
-        }
-
-        .model-selection-container select:focus {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        /* 비활성화된 설정 섹션 스타일 */
-        .api-key-section.disabled {
-            opacity: 0.5;
-            pointer-events: none;
-        }
-
-        .api-key-section.disabled input,
-        .api-key-section.disabled button {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .api-key-section.disabled h3 {
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .api-key-section.disabled .info-message {
-            color: var(--vscode-descriptionForeground);
-        }
-
-        /* 비활성화된 저장 버튼 스타일 */
-        .api-key-input-group button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background-color: var(--vscode-disabledForeground);
-        }
-
-        .api-key-input-group button:disabled:hover {
-            background-color: var(--vscode-disabledForeground);
-        }
-
-        /* 파일 목록 스타일 (다중 파일 지원) */
-        .policy-file-list {
-            margin-top: 10px;
-            max-height: 200px;
-            overflow-y: auto;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 3px;
-            background-color: var(--vscode-editor-background);
-        }
-
-        .policy-file-list:empty {
-            display: none;
-        }
-
-        .policy-file-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-        }
-
-        .policy-file-item:last-child {
-            border-bottom: none;
-        }
-
-        .policy-file-item .file-name {
-            flex: 1;
-            font-size: 0.9em;
-            color: var(--vscode-foreground);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .policy-file-item .file-name.legacy {
-            color: var(--vscode-descriptionForeground);
-            font-style: italic;
-        }
-
-        .policy-file-item .delete-file-btn {
-            padding: 4px 8px;
-            background-color: var(--vscode-button-secondaryBackground, #5a5a5a);
-            color: var(--vscode-button-secondaryForeground, #fff);
-            border: none;
-            cursor: pointer;
-            border-radius: 3px;
-            font-size: 0.8em;
-            margin-left: 8px;
-        }
-
-        .policy-file-item .delete-file-btn:hover {
-            background-color: var(--vscode-inputValidation-errorBackground,
-                    #be1100);
-        }
-
-        body[data-theme="light"] .policy-file-list {
-            background-color: #ffffff !important;
-            border-color: #e5e7eb !important;
-        }
-
-        body[data-theme="light"] .policy-file-item {
-            border-color: #e5e7eb !important;
-        }
-
-        body[data-theme="light"] .policy-file-item .file-name {
-            color: #374151 !important;
-        }
-
-        /* 버전 정보 푸터 스타일 */
-        .version-footer {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid var(--vscode-panel-border);
-            text-align: center;
-        }
-
-        .version-footer p {
-            color: var(--vscode-descriptionForeground);
-            font-size: 0.85em;
-            margin: 0;
-        }
-
-        /* 반응형 레이아웃 */
-        @media (max-width: 600px) {
-
-            .api-key-input-group,
-            .license-input-row,
-            .settings-section>div[style*="flex"] {
-                flex-direction: column !important;
-                align-items: stretch !important;
-            }
-
-            .api-key-input-group button,
-            .license-input-row button,
-            .settings-section button {
-                width: 100% !important;
-                margin-left: 0 !important;
-                margin-top: 5px;
-            }
-
-            .api-key-input-group select,
-            .api-key-input-group input,
-            .license-input-row input,
-            .settings-section select {
-                width: 100% !important;
-                margin-right: 0 !important;
-            }
-        }
-
-        /* MCP 서버 토글 스위치 */
-        .mcp-toggle {
-            position: relative;
-            display: inline-block;
-            width: 36px;
-            height: 20px;
-            flex-shrink: 0;
-            cursor: pointer;
-        }
-
-        .mcp-toggle-input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .mcp-toggle-slider {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: var(--vscode-input-background, #3c3c3c);
-            border: 1px solid var(--vscode-panel-border, #555);
-            border-radius: 10px;
-            transition: background-color 0.2s;
-        }
-
-        .mcp-toggle-slider::before {
-            content: "";
-            position: absolute;
-            height: 14px;
-            width: 14px;
-            left: 2px;
-            bottom: 2px;
-            background-color: var(--vscode-descriptionForeground, #999);
-            border-radius: 50%;
-            transition:
-                transform 0.2s,
-                background-color 0.2s;
-        }
-
-        .mcp-toggle-input:checked+.mcp-toggle-slider {
-            background-color: var(--vscode-button-background, #0e639c);
-            border-color: var(--vscode-button-background, #0e639c);
-        }
-
-        .mcp-toggle-input:checked+.mcp-toggle-slider::before {
-            transform: translateX(16px);
-            background-color: var(--vscode-button-foreground, #fff);
-        }
-
-        .mcp-server-card button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        /* HotLoad 재시도 횟수 입력 스타일 */
-        #hotload-max-retries:focus {
-            outline: none;
-            border-color: var(--vscode-focusBorder, #007acc) !important;
-            box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc);
-        }
+          width: 100% !important;
+          margin-right: 0 !important;
+        }
+      }
+
+      /* MCP 서버 토글 스위치 */
+      .mcp-toggle {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+
+      .mcp-toggle-input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .mcp-toggle-slider {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--vscode-input-background, #3c3c3c);
+        border: 1px solid var(--vscode-panel-border, #555);
+        border-radius: 10px;
+        transition: background-color 0.2s;
+      }
+
+      .mcp-toggle-slider::before {
+        content: "";
+        position: absolute;
+        height: 14px;
+        width: 14px;
+        left: 2px;
+        bottom: 2px;
+        background-color: var(--vscode-descriptionForeground, #999);
+        border-radius: 50%;
+        transition:
+          transform 0.2s,
+          background-color 0.2s;
+      }
+
+      .mcp-toggle-input:checked + .mcp-toggle-slider {
+        background-color: var(--vscode-button-background, #0e639c);
+        border-color: var(--vscode-button-background, #0e639c);
+      }
+
+      .mcp-toggle-input:checked + .mcp-toggle-slider::before {
+        transform: translateX(16px);
+        background-color: var(--vscode-button-foreground, #fff);
+      }
+
+      .mcp-server-card button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      /* HotLoad 재시도 횟수 입력 스타일 */
+      #hotload-max-retries:focus {
+        outline: none;
+        border-color: var(--vscode-focusBorder, #007acc) !important;
+        box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc);
+      }
     </style>
-</head>
+  </head>
 
-<body>
+  <body>
     <h1 id="settings-title">CODEPILOT 설정</h1>
 
     <!-- 언어 설정 드롭다운 추가 -->
     <div class="settings-section">
-        <label id="language-label" for="language-select"><b>언어</b></label>
-        <div style="display: flex; align-items: center; gap: 10px">
-            <select id="language-select">
-                <option value="ko">한국어</option>
-                <option value="en">English</option>
-                <option value="zh">中文</option>
-                <option value="es">Español</option>
-                <option value="de">Deutsch</option>
-                <option value="fr">Français</option>
-                <option value="ja">日本語</option>
-            </select>
-            <button id="save-language-button" class="save-button">언어 저장</button>
-        </div>
+      <label id="language-label" for="language-select"><b>언어</b></label>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <select id="language-select">
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="ja">日本語</option>
+        </select>
+        <button id="save-language-button" class="save-button">언어 저장</button>
+      </div>
     </div>
 
     <!-- 테마 설정 -->
     <div class="settings-section" style="margin-top: 20px">
-        <label id="theme-label" for="theme-select"><b>테마</b></label>
-        <p class="info-message">색상 테마를 선택합니다.</p>
-        <div style="display: flex; align-items: center; gap: 10px">
-            <select id="theme-select">
-                <option value="dark">다크</option>
-                <option value="light">라이트</option>
-                <option value="auto">VS Code 테마</option>
-            </select>
-            <button id="save-theme-button" class="save-button">테마 저장</button>
-        </div>
-        <p id="theme-status" class="info-message" style="margin-top: 5px"></p>
+      <label id="theme-label" for="theme-select"><b>테마</b></label>
+      <p class="info-message">색상 테마를 선택합니다.</p>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <select id="theme-select">
+          <option value="dark">다크</option>
+          <option value="light">라이트</option>
+          <option value="auto">VS Code 테마</option>
+        </select>
+        <button id="save-theme-button" class="save-button">테마 저장</button>
+      </div>
+      <p id="theme-status" class="info-message" style="margin-top: 5px"></p>
     </div>
 
     <div class="section-container">
-        <h2 id="banya-license-title">CODEPILOT 시리얼 번호 인증</h2>
-        <p class="info-message">CODEPILOT 시리얼 번호를 입력하고 검증합니다.</p>
+      <h2 id="banya-license-title">CODEPILOT 시리얼 번호 인증</h2>
+      <p class="info-message">CODEPILOT 시리얼 번호를 입력하고 검증합니다.</p>
 
-        <div class="api-key-section">
-            <h3 id="banya-license-label">시리얼 번호</h3>
-            <p class="info-message">시리얼 번호를 입력하여 제품을 활성화하세요.</p>
-            <div class="license-input-group">
-                <div class="license-input-row">
-                    <input type="text" id="banya-license-serial-input"
-                        placeholder="시리얼 번호를 입력하세요 (예: TEST_SERIAL_123)" />
-                    <button id="verify-banya-license-button">검증</button>
-                </div>
-                <div class="license-button-group">
-                    <button id="save-banya-license-button">시리얼 번호 저장</button>
-                    <button id="delete-banya-license-button">시리얼 번호 삭제</button>
-                </div>
-            </div>
-            <p id="banya-license-status" class="info-message"></p>
+      <div class="api-key-section">
+        <h3 id="banya-license-label">시리얼 번호</h3>
+        <p class="info-message">시리얼 번호를 입력하여 제품을 활성화하세요.</p>
+        <div class="license-input-group">
+          <div class="license-input-row">
+            <input
+              type="text"
+              id="banya-license-serial-input"
+              placeholder="시리얼 번호를 입력하세요 (예: TEST_SERIAL_123)"
+            />
+            <button id="verify-banya-license-button">검증</button>
+          </div>
+          <div class="license-button-group">
+            <button id="save-banya-license-button">시리얼 번호 저장</button>
+            <button id="delete-banya-license-button">시리얼 번호 삭제</button>
+          </div>
         </div>
+        <p id="banya-license-status" class="info-message"></p>
+      </div>
     </div>
 
     <div class="section-container">
-        <h2 id="auto-update-label">파일 자동 업데이트</h2>
+      <h2 id="auto-update-label">파일 자동 업데이트</h2>
+      <p class="info-message">
+        LLM이 제안한 코드를 기반으로 파일을 자동으로 업데이트할지 여부를
+        설정합니다. 비활성화 시, 업데이트 전에 확인 메시지가 표시됩니다.
+      </p>
+      <div class="toggle-switch-container">
+        <input type="checkbox" id="auto-update-toggle" />
+        <label for="auto-update-toggle">Toggle</label>
+      </div>
+      <p
+        id="auto-update-status"
+        class="info-message"
+        style="margin-top: 5px"
+      ></p>
+    </div>
+
+    <div class="section-container">
+      <h2 id="auto-delete-label">자동 파일 삭제</h2>
+      <p class="info-message">
+        LLM이 요청한 파일 삭제를 자동으로 수행할지 여부를 설정합니다. 비활성화
+        시, 파일 삭제 전에 확인 메시지가 표시됩니다.
+      </p>
+      <div class="toggle-switch-container">
+        <input type="checkbox" id="auto-delete-toggle" />
+        <label for="auto-delete-toggle">Toggle</label>
+      </div>
+      <p
+        id="auto-delete-status"
+        class="info-message"
+        style="margin-top: 5px"
+      ></p>
+    </div>
+
+    <div class="section-container">
+      <h2 id="auto-tool-section">도구 자동 실행</h2>
+      <div class="toggle-switch-container" style="margin-bottom: 8px">
+        <input type="checkbox" id="auto-tool-toggle" />
+        <label for="auto-tool-toggle">Toggle</label>
+      </div>
+      <p id="auto-tool-status" class="info-message"></p>
+      <p class="info-message">
+        모든 도구(파일 읽기, 검색 등)를 자동으로 실행할지 여부를 설정합니다.
+        비활성화하면 모든 도구 실행 전에 확인 메시지가 표시됩니다.
+      </p>
+    </div>
+
+    <div class="section-container">
+      <h2 id="auto-execute-section" data-i18n="autoExecuteSection">
+        명령어 자동 실행
+      </h2>
+      <div class="toggle-switch-container" style="margin-bottom: 8px">
+        <input type="checkbox" id="auto-execute-toggle" />
+        <label for="auto-execute-toggle">Toggle</label>
+      </div>
+      <p id="auto-execute-status" class="info-message"></p>
+      <p class="info-message" data-i18n="autoExecuteDescription">
+        LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지
+        여부를 설정합니다. 비활성화하면 명령어 실행전전에 확인 메시지가
+        표시됩니다.
+      </p>
+    </div>
+
+    <div class="section-container">
+      <h2 id="error-retry-label" data-i18n="autoCorrectionSection">
+        자동 오류 수정
+      </h2>
+      <div class="toggle-switch-container" style="margin-bottom: 8px">
+        <input type="checkbox" id="auto-correction-toggle" />
+        <label for="auto-correction-toggle">Toggle</label>
+      </div>
+      <p id="auto-correction-status" class="info-message"></p>
+      <p class="info-message" data-i18n="errorRetryDescription">
+        터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를
+        설정합니다. (1-10회, 기본값: 5회)
+      </p>
+      <div class="spinner-container">
+        <label for="error-retry-spinner" data-i18n="errorRetrySpinnerLabel"
+          >최대 오류 수정 횟수:</label
+        >
+        <input
+          type="number"
+          id="error-retry-spinner"
+          min="1"
+          max="10"
+          value="3"
+        />
+        <span data-i18n="errorRetryTimes">회</span>
+      </div>
+      <p
+        id="error-retry-status"
+        class="info-message"
+        style="margin-top: 5px"
+      ></p>
+    </div>
+
+    <div class="section-container">
+      <h2 id="test-retry-label" data-i18n="autoTestRetrySection">
+        자동 테스트 재시도
+      </h2>
+      <div class="toggle-switch-container" style="margin-bottom: 8px">
+        <input type="checkbox" id="auto-test-retry-toggle" />
+        <label for="auto-test-retry-toggle">Toggle</label>
+      </div>
+      <p id="auto-test-retry-status" class="info-message"></p>
+      <p class="info-message" data-i18n="testRetryDescription">
+        자동 테스트 검증(Smoke Test, Diagnostics, Lint Check)이 실패했을 때
+        자동으로 재시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 5회)
+      </p>
+      <div class="spinner-container">
+        <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel"
+          >최대 테스트 재시도 횟수:</label
+        >
+        <input
+          type="number"
+          id="test-retry-spinner"
+          min="1"
+          max="10"
+          value="3"
+        />
+        <span data-i18n="testRetryTimes">회</span>
+      </div>
+      <p
+        id="test-retry-status"
+        class="info-message"
+        style="margin-top: 5px"
+      ></p>
+    </div>
+
+    <div class="section-container">
+      <h2 id="api-key-section-title">AI 모델 설정</h2>
+      <p class="info-message" data-i18n="aiModelSettingsDescription">
+        CODEPILOT의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을
+        선택하고 해당 설정을 구성하세요.
+      </p>
+
+      <!-- AI 모델 선택 드롭다운 -->
+      <div class="model-selection-container">
+        <label id="ai-model-select-label" for="ai-model-select"
+          ><b>AI 모델 엔진 선택</b></label
+        >
+        <select id="ai-model-select">
+          <option value="ollama">Ollama (Local/Remote)</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="banya">Banya</option>
+        </select>
+      </div>
+      <p id="ai-model-status" class="info-message"></p>
+
+      <!-- 스트리밍 설정 -->
+      <div
+        class="toggle-switch-container"
+        style="margin-top: 15px; margin-bottom: 15px"
+      >
+        <input type="checkbox" id="streaming-toggle" />
+        <label for="streaming-toggle"></label>
+        <span style="margin-left: 10px"><b>스트리밍 응답 활성화</b></span>
+      </div>
+
+      <!-- Gemini API 키 설정 -->
+      <div class="api-key-section" id="gemini-settings-section">
+        <h3 id="gemini-api-key-label">Gemini 설정</h3>
         <p class="info-message">
-            LLM이 제안한 코드를 기반으로 파일을 자동으로 업데이트할지 여부를
-            설정합니다. 비활성화 시, 업데이트 전에 확인 메시지가 표시됩니다.
-        </p>
-        <div class="toggle-switch-container">
-            <input type="checkbox" id="auto-update-toggle" />
-            <label for="auto-update-toggle">Toggle</label>
-        </div>
-        <p id="auto-update-status" class="info-message" style="margin-top: 5px"></p>
-    </div>
-
-    <div class="section-container">
-        <h2 id="output-log-label" data-i18n="outputLogLabel">OUTPUT 로그 제어</h2>
-        <p class="info-message" data-i18n="outputLogDescription">
-            VS Code의 OUTPUT 패널에 표시되는 로그를 활성화/비활성화할 수 있습니다.
-            비활성화하면 터미널 로그 확인이 더 편해집니다.
-        </p>
-        <div class="toggle-switch-container">
-            <input type="checkbox" id="output-log-toggle" />
-            <label for="output-log-toggle">Toggle</label>
-            <!-- 스위치 핸들 -->
-        </div>
-        <p id="output-log-status" class="info-message" style="margin-top: 5px"></p>
-    </div>
-
-    <div class="section-container">
-        <h2 id="test-retry-label" data-i18n="autoTestRetrySection">
-            자동 테스트 재시도
-        </h2>
-        <div class="toggle-switch-container" style="margin-bottom: 8px">
-            <input type="checkbox" id="auto-test-retry-toggle" />
-            <label for="auto-test-retry-toggle">Toggle</label>
-        </div>
-        <p id="auto-test-retry-status" class="info-message"></p>
-        <p class="info-message" data-i18n="testRetryDescription">
-            자동 테스트 검증(Smoke Test, Diagnostics, Lint Check)이 실패했을 때
-            자동으로 재시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 5회)
-        </p>
-        <div class="spinner-container">
-            <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
-            <input type="number" id="test-retry-spinner" min="1" max="10" value="3" />
-            <span data-i18n="testRetryTimes">회</span>
-        </div>
-        <p id="test-retry-status" class="info-message" style="margin-top: 5px"></p>
-    </div>
-
-    <div class="section-container">
-        <h2 id="error-retry-label" data-i18n="autoCorrectionSection">
-            자동 오류 수정
-        </h2>
-        <div class="toggle-switch-container" style="margin-bottom: 8px">
-            <input type="checkbox" id="auto-correction-toggle" />
-            <label for="auto-correction-toggle">Toggle</label>
-        </div>
-        <p id="auto-correction-status" class="info-message"></p>
-        <p class="info-message" data-i18n="errorRetryDescription">
-            터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를
-            설정합니다. (1-10회, 기본값: 5회)
-        </p>
-        <div class="spinner-container">
-            <label for="error-retry-spinner" data-i18n="errorRetrySpinnerLabel">최대 오류 수정 횟수:</label>
-            <input type="number" id="error-retry-spinner" min="1" max="10" value="3" />
-            <span data-i18n="errorRetryTimes">회</span>
-        </div>
-        <p id="error-retry-status" class="info-message" style="margin-top: 5px"></p>
-    </div>
-
-    <div class="section-container">
-        <h2 id="auto-execute-section" data-i18n="autoExecuteSection">
-            명령어 자동 실행
-        </h2>
-        <div class="toggle-switch-container" style="margin-bottom: 8px">
-            <input type="checkbox" id="auto-execute-toggle" />
-            <label for="auto-execute-toggle">Toggle</label>
-        </div>
-        <p id="auto-execute-status" class="info-message"></p>
-        <p class="info-message" data-i18n="autoExecuteDescription">
-            LLM 응답에 포함된 bash, powershell, cmd 명령어를 자동으로 실행할지
-            여부를 설정합니다. 비활성화하면 수동으로 실행해야 합니다.
-        </p>
-    </div>
-
-    <div class="section-container">
-        <h2 id="api-key-section-title">AI 모델 설정</h2>
-        <p class="info-message" data-i18n="aiModelSettingsDescription">
-            CODEPILOT의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을
-            선택하고 해당 설정을 구성하세요.
+          Google의 Gemini API를 사용하여 AI 코드 생성 및 분석 기능을
+          활성화합니다.
         </p>
 
-        <!-- AI 모델 선택 드롭다운 -->
+        <!-- Gemini 모델 선택 추가 -->
+        <div class="api-key-input-group" style="margin-bottom: 15px">
+          <select id="gemini-model-select">
+            <option value="gemini-3-pro-preview" selected>
+              Gemini 3 Pro Preview
+            </option>
+            <option value="gemini-3-flash-preview">
+              Gemini 3 Flash Preview
+            </option>
+          </select>
+          <button id="save-gemini-model-button">모델 저장</button>
+        </div>
+
+        <p class="info-message">
+          <strong>등록 방법:</strong>
+          <a href="https://aistudio.google.com/app/apikey" target="_blank"
+            >Google AI Studio API 키 페이지</a
+          >에서 새 API 키를 생성하세요.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="password"
+            id="gemini-api-key-input"
+            placeholder="Gemini API 키를 입력하세요..."
+          />
+          <button id="save-gemini-api-key-button">API 키 저장</button>
+        </div>
+        <p id="gemini-api-key-status" class="info-message"></p>
+      </div>
+
+      <!-- Banya API 키 설정 -->
+      <div class="api-key-section" id="banya-settings-section">
+        <h3 id="banya-api-key-label">Banya 설정</h3>
+        <p class="info-message">
+          Banya API를 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.
+        </p>
+
+        <!-- Banya 모델 선택 추가 -->
+        <div class="api-key-input-group" style="margin-bottom: 15px">
+          <select id="banya-model-select">
+            <option value="Banya Solar:100b" selected>Banya Solar:100b</option>
+            <option value="Banya Qwen-Coder:32b">Banya Qwen-Coder:32b</option>
+          </select>
+          <button id="save-banya-model-button">모델 저장</button>
+        </div>
+
+        <p class="info-message">
+          <strong>등록 방법:</strong> Banya API 키를 입력하세요.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="password"
+            id="banya-api-key-input"
+            placeholder="Banya API 키를 입력하세요..."
+          />
+          <button id="save-banya-api-key-button">API 키 저장</button>
+        </div>
+        <p id="banya-api-key-status" class="info-message"></p>
+      </div>
+
+      <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
+      <div id="ollama-settings-group">
+        <!-- Ollama 서버 타입 선택 토글 -->
         <div class="model-selection-container">
-            <label id="ai-model-select-label" for="ai-model-select"><b>AI 모델 엔진 선택</b></label>
-            <select id="ai-model-select">
-                <option value="ollama">Ollama (Local/Remote)</option>
-                <option value="gemini">Google Gemini</option>
-                <option value="banya">Banya</option>
+          <label id="ollama-server-type-label" for="ollama-server-type-select"
+            ><b>Ollama 서버 타입</b></label
+          >
+          <select id="ollama-server-type-select">
+            <option value="local">로컬 머신</option>
+            <option value="remote">원격 서버</option>
+          </select>
+          <button id="save-ollama-server-type-button">서버 타입 저장</button>
+        </div>
+        <p id="ollama-server-type-status" class="info-message"></p>
+
+        <!-- Ollama 설치 섹션 -->
+        <div class="api-key-section" id="ollama-install-section">
+          <h3 id="ollama-install-label">Ollama 설치</h3>
+          <p class="info-message">
+            Ollama를 설치하여 로컬에서 LLM 모델을 실행할 수 있습니다.
+          </p>
+          <p class="info-message">
+            <strong>설치 방법:</strong> 아래 링크에서 운영체제에 맞는 Ollama
+            설치 파일을 다운로드하여 설치하세요.
+          </p>
+          <div class="api-key-input-group">
+            <a
+              href="https://ollama.ai/download"
+              target="_blank"
+              class="download-link"
+            >
+              <button id="download-ollama-button">Ollama 다운로드</button>
+            </a>
+          </div>
+          <p class="info-message">
+            설치 후 터미널에서 <code>ollama --version</code> 명령어로 설치를
+            확인하세요.
+          </p>
+        </div>
+
+        <!-- 로컬 Ollama 설정 -->
+        <div class="api-key-section" id="local-ollama-settings-section">
+          <h3 id="local-ollama-api-label">Local Ollama 설정</h3>
+          <p class="info-message">
+            로컬 머신에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을
+            활성화합니다.
+          </p>
+          <p class="info-message">
+            <strong>설정 방법:</strong> 로컬 머신에서 실행 중인 Ollama 서버의
+            HTTP API 주소를 입력하세요. (예: http://localhost:11434)
+          </p>
+
+          <!-- Ollama 모델 선택 -->
+          <div class="api-key-input-group" style="margin-bottom: 15px">
+            <select id="ollama-model-select"></select>
+            <button id="save-ollama-model-button">모델 저장</button>
+          </div>
+          <p id="ollama-model-status" class="info-message"></p>
+
+          <!-- Ollama 인증 섹션 (gpt-oss-120b:cloud 모델용) -->
+          <div
+            id="ollama-auth-section"
+            class="api-key-input-group"
+            style="margin-bottom: 15px; display: none"
+          >
+            <input
+              type="text"
+              id="ollama-auth-serial"
+              placeholder="Ollama 인증 시리얼 번호를 입력하세요"
+            />
+            <button id="ollama-auth-button">인증</button>
+          </div>
+          <p
+            id="ollama-auth-status"
+            class="info-message"
+            style="display: none"
+          ></p>
+
+          <!-- 로컬 Ollama API URL 설정 -->
+          <div class="api-key-input-group">
+            <input
+              type="text"
+              id="local-ollama-api-url-input"
+              placeholder="http://localhost:11434"
+            />
+            <button id="save-local-ollama-api-url-button">주소 저장</button>
+          </div>
+          <p id="local-ollama-api-url-status" class="info-message"></p>
+
+          <!-- 로컬 Ollama 엔드포인트 선택 -->
+          <div class="api-key-input-group" style="margin-top: 15px">
+            <select id="local-ollama-endpoint-select">
+              <option value="/api/generate">/api/generate (로컬 Ollama)</option>
+              <option value="/api/chat">/api/chat (외부 서버)</option>
             </select>
-        </div>
-        <p id="ai-model-status" class="info-message"></p>
-
-        <!-- 스트리밍 설정 -->
-        <div class="toggle-switch-container" style="margin-top: 15px; margin-bottom: 15px">
-            <input type="checkbox" id="streaming-toggle" />
-            <label for="streaming-toggle"></label>
-            <span style="margin-left: 10px"><b>스트리밍 응답 활성화</b></span>
+            <button id="save-local-ollama-endpoint-button">
+              엔드포인트 저장
+            </button>
+          </div>
+          <p id="local-ollama-endpoint-status" class="info-message"></p>
         </div>
 
-        <!-- Gemini API 키 설정 -->
-        <div class="api-key-section" id="gemini-settings-section">
-            <h3 id="gemini-api-key-label">Gemini 설정</h3>
-            <p class="info-message">
-                Google의 Gemini API를 사용하여 AI 코드 생성 및 분석 기능을
-                활성화합니다.
-            </p>
+        <!-- 원격 서버 Ollama 설정 -->
+        <div
+          class="api-key-section"
+          id="remote-ollama-settings-section"
+          style="display: none"
+        >
+          <h3 id="remote-ollama-api-label">원격 Ollama 서버 설정</h3>
+          <p class="info-message">
+            원격 서버에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을
+            활성화합니다.
+          </p>
+          <p class="info-message">
+            <strong>설정 방법:</strong> 원격 서버의 HTTP API 주소, 모델명,
+            엔드포인트를 입력하세요.
+          </p>
 
-            <!-- Gemini 모델 선택 추가 -->
-            <div class="api-key-input-group" style="margin-bottom: 15px">
-                <select id="gemini-model-select">
-                    <option value="gemini-3-pro-preview" selected>
-                        Gemini 3 Pro Preview
-                    </option>
-                    <option value="gemini-3-flash-preview">
-                        Gemini 3 Flash Preview
-                    </option>
-                </select>
-                <button id="save-gemini-model-button">모델 저장</button>
-            </div>
+          <!-- 원격 서버 모델명 입력 -->
+          <div class="api-key-input-group" style="margin-bottom: 15px">
+            <input
+              type="text"
+              id="remote-ollama-model-input"
+              placeholder="예: gemma3:27b"
+            />
+            <button id="save-remote-ollama-model-button">모델 저장</button>
+          </div>
+          <p id="remote-ollama-model-status" class="info-message"></p>
 
-            <p class="info-message">
-                <strong>등록 방법:</strong>
-                <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio API 키 페이지</a>에서 새 API
-                키를 생성하세요.
-            </p>
+          <!-- 원격 서버 API URL 설정 -->
+          <div class="api-key-input-group">
+            <input
+              type="text"
+              id="remote-ollama-api-url-input"
+              placeholder="http://192.168.1.100:11434"
+            />
+            <button id="save-remote-ollama-api-url-button">주소 저장</button>
+          </div>
+          <p id="remote-ollama-api-url-status" class="info-message"></p>
+
+          <!-- 원격 서버 엔드포인트 선택 -->
+          <div class="api-key-input-group" style="margin-top: 15px">
+            <select id="remote-ollama-endpoint-select">
+              <option value="/api/generate">/api/generate (로컬 Ollama)</option>
+              <option value="/api/chat">/api/chat (외부 서버)</option>
+            </select>
+            <button id="save-remote-ollama-endpoint-button">
+              엔드포인트 저장
+            </button>
+          </div>
+          <p id="remote-ollama-endpoint-status" class="info-message"></p>
+        </div>
+      </div>
+
+      <!-- 모델 라우팅 설정 (Compactor/Command 모델) -->
+      <div class="api-key-section" id="model-routing-section">
+        <h3 id="model-routing-label">모델 라우팅 설정</h3>
+        <p class="info-message">
+          특정 작업에 다른 모델을 사용할 수 있습니다. 설정하지 않으면 메인
+          모델이 사용됩니다.
+        </p>
+
+        <!-- Compactor 모델 설정 -->
+        <div style="margin-bottom: 20px">
+          <label style="display: block; margin-bottom: 5px"
+            ><b>대화 압축용 모델</b></label
+          >
+          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+            대화가 길어질 때 컨텍스트를 요약하는 데 사용됩니다. 빠르고 저렴한
+            모델 권장.
+          </p>
+          <!-- 모델 타입 선택 -->
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <select id="compactor-model-type-select">
+              <option value="">메인 모델 사용</option>
+              <option value="ollama">Ollama</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="banya">Banya</option>
+            </select>
+          </div>
+          <!-- 하위 모델 선택 (타입 선택 시 표시) -->
+          <div
+            id="compactor-submodel-container"
+            style="display: none; margin-bottom: 10px"
+          >
             <div class="api-key-input-group">
-                <input type="password" id="gemini-api-key-input" placeholder="Gemini API 키를 입력하세요..." />
-                <button id="save-gemini-api-key-button">API 키 저장</button>
+              <select id="compactor-submodel-select">
+                <!-- 동적으로 채워짐 -->
+              </select>
+              <button id="save-compactor-model-button">모델 저장</button>
             </div>
-            <p id="gemini-api-key-status" class="info-message"></p>
-        </div>
-
-        <!-- Banya API 키 설정 -->
-        <div class="api-key-section" id="banya-settings-section">
-            <h3 id="banya-api-key-label">Banya 설정</h3>
-            <p class="info-message">
-                Banya API를 사용하여 AI 코드 생성 및 분석 기능을 활성화합니다.
-            </p>
-
-            <!-- Banya 모델 선택 추가 -->
-            <div class="api-key-input-group" style="margin-bottom: 15px">
-                <select id="banya-model-select">
-                    <option value="Banya Solar:100b" selected>Banya Solar:100b</option>
-                    <option value="Banya Qwen-Coder:32b">Banya Qwen-Coder:32b</option>
-                </select>
-                <button id="save-banya-model-button">모델 저장</button>
-            </div>
-
-            <p class="info-message">
-                <strong>등록 방법:</strong> Banya API 키를 입력하세요.
-            </p>
+          </div>
+          <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
+          <div id="compactor-apikey-container" style="display: none">
             <div class="api-key-input-group">
-                <input type="password" id="banya-api-key-input" placeholder="Banya API 키를 입력하세요..." />
-                <button id="save-banya-api-key-button">API 키 저장</button>
+              <input
+                type="password"
+                id="compactor-api-key-input"
+                placeholder="API 키를 입력하세요..."
+              />
+              <button id="save-compactor-api-key-button">API 키 저장</button>
             </div>
-            <p id="banya-api-key-status" class="info-message"></p>
+          </div>
+          <p id="compactor-model-status" class="info-message"></p>
         </div>
 
-        <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
-        <div id="ollama-settings-group">
-            <!-- Ollama 서버 타입 선택 토글 -->
-            <div class="model-selection-container">
-                <label id="ollama-server-type-label" for="ollama-server-type-select"><b>Ollama 서버 타입</b></label>
-                <select id="ollama-server-type-select">
-                    <option value="local">로컬 머신</option>
-                    <option value="remote">원격 서버</option>
-                </select>
-                <button id="save-ollama-server-type-button">서버 타입 저장</button>
+        <!-- Command 모델 설정 -->
+        <div>
+          <label style="display: block; margin-bottom: 5px"
+            ><b>명령어 생성용 모델</b>
+          </label>
+          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+            터미널 명령어를 생성하는 데 사용됩니다. 코드 생성에 특화된 모델
+            권장.
+          </p>
+          <!-- 모델 타입 선택 -->
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <select id="command-model-type-select">
+              <option value="">메인 모델 사용</option>
+              <option value="ollama">Ollama</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="banya">Banya</option>
+            </select>
+          </div>
+          <!-- 하위 모델 선택 (타입 선택 시 표시) -->
+          <div
+            id="command-submodel-container"
+            style="display: none; margin-bottom: 10px"
+          >
+            <div class="api-key-input-group">
+              <select id="command-submodel-select">
+                <!-- 동적으로 채워짐 -->
+              </select>
+              <button id="save-command-model-button">모델 저장</button>
             </div>
-            <p id="ollama-server-type-status" class="info-message"></p>
-
-            <!-- Ollama 설치 섹션 -->
-            <div class="api-key-section" id="ollama-install-section">
-                <h3 id="ollama-install-label">Ollama 설치</h3>
-                <p class="info-message">
-                    Ollama를 설치하여 로컬에서 LLM 모델을 실행할 수 있습니다.
-                </p>
-                <p class="info-message">
-                    <strong>설치 방법:</strong> 아래 링크에서 운영체제에 맞는 Ollama
-                    설치 파일을 다운로드하여 설치하세요.
-                </p>
-                <div class="api-key-input-group">
-                    <a href="https://ollama.ai/download" target="_blank" class="download-link">
-                        <button id="download-ollama-button">Ollama 다운로드</button>
-                    </a>
-                </div>
-                <p class="info-message">
-                    설치 후 터미널에서 <code>ollama --version</code> 명령어로 설치를
-                    확인하세요.
-                </p>
+          </div>
+          <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
+          <div id="command-apikey-container" style="display: none">
+            <div class="api-key-input-group">
+              <input
+                type="password"
+                id="command-api-key-input"
+                placeholder="API 키를 입력하세요..."
+              />
+              <button id="save-command-api-key-button">API 키 저장</button>
             </div>
-
-            <!-- 로컬 Ollama 설정 -->
-            <div class="api-key-section" id="local-ollama-settings-section">
-                <h3 id="local-ollama-api-label">Local Ollama 설정</h3>
-                <p class="info-message">
-                    로컬 머신에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을
-                    활성화합니다.
-                </p>
-                <p class="info-message">
-                    <strong>설정 방법:</strong> 로컬 머신에서 실행 중인 Ollama 서버의
-                    HTTP API 주소를 입력하세요. (예: http://localhost:11434)
-                </p>
-
-                <!-- Ollama 모델 선택 -->
-                <div class="api-key-input-group" style="margin-bottom: 15px">
-                    <select id="ollama-model-select"></select>
-                    <button id="save-ollama-model-button">모델 저장</button>
-                </div>
-                <p id="ollama-model-status" class="info-message"></p>
-
-                <!-- Ollama 인증 섹션 (gpt-oss-120b:cloud 모델용) -->
-                <div id="ollama-auth-section" class="api-key-input-group" style="margin-bottom: 15px; display: none">
-                    <input type="text" id="ollama-auth-serial" placeholder="Ollama 인증 시리얼 번호를 입력하세요" />
-                    <button id="ollama-auth-button">인증</button>
-                </div>
-                <p id="ollama-auth-status" class="info-message" style="display: none"></p>
-
-                <!-- 로컬 Ollama API URL 설정 -->
-                <div class="api-key-input-group">
-                    <input type="text" id="local-ollama-api-url-input" placeholder="http://localhost:11434" />
-                    <button id="save-local-ollama-api-url-button">주소 저장</button>
-                </div>
-                <p id="local-ollama-api-url-status" class="info-message"></p>
-
-                <!-- 로컬 Ollama 엔드포인트 선택 -->
-                <div class="api-key-input-group" style="margin-top: 15px">
-                    <select id="local-ollama-endpoint-select">
-                        <option value="/api/generate">/api/generate (로컬 Ollama)</option>
-                        <option value="/api/chat">/api/chat (외부 서버)</option>
-                    </select>
-                    <button id="save-local-ollama-endpoint-button">
-                        엔드포인트 저장
-                    </button>
-                </div>
-                <p id="local-ollama-endpoint-status" class="info-message"></p>
-            </div>
-
-            <!-- 원격 서버 Ollama 설정 -->
-            <div class="api-key-section" id="remote-ollama-settings-section" style="display: none">
-                <h3 id="remote-ollama-api-label">원격 Ollama 서버 설정</h3>
-                <p class="info-message">
-                    원격 서버에 설치된 LLM 모델을 사용하여 AI 코드 생성 및 분석 기능을
-                    활성화합니다.
-                </p>
-                <p class="info-message">
-                    <strong>설정 방법:</strong> 원격 서버의 HTTP API 주소, 모델명,
-                    엔드포인트를 입력하세요.
-                </p>
-
-                <!-- 원격 서버 모델명 입력 -->
-                <div class="api-key-input-group" style="margin-bottom: 15px">
-                    <input type="text" id="remote-ollama-model-input" placeholder="예: gemma3:27b" />
-                    <button id="save-remote-ollama-model-button">모델 저장</button>
-                </div>
-                <p id="remote-ollama-model-status" class="info-message"></p>
-
-                <!-- 원격 서버 API URL 설정 -->
-                <div class="api-key-input-group">
-                    <input type="text" id="remote-ollama-api-url-input" placeholder="http://192.168.1.100:11434" />
-                    <button id="save-remote-ollama-api-url-button">주소 저장</button>
-                </div>
-                <p id="remote-ollama-api-url-status" class="info-message"></p>
-
-                <!-- 원격 서버 엔드포인트 선택 -->
-                <div class="api-key-input-group" style="margin-top: 15px">
-                    <select id="remote-ollama-endpoint-select">
-                        <option value="/api/generate">/api/generate (로컬 Ollama)</option>
-                        <option value="/api/chat">/api/chat (외부 서버)</option>
-                    </select>
-                    <button id="save-remote-ollama-endpoint-button">
-                        엔드포인트 저장
-                    </button>
-                </div>
-                <p id="remote-ollama-endpoint-status" class="info-message"></p>
-            </div>
+          </div>
+          <p id="command-model-status" class="info-message"></p>
         </div>
 
-        <!-- 모델 라우팅 설정 (Compactor/Command 모델) -->
-        <div class="api-key-section" id="model-routing-section">
-            <h3 id="model-routing-label">모델 라우팅 설정</h3>
-            <p class="info-message">
-                특정 작업에 다른 모델을 사용할 수 있습니다. 설정하지 않으면 메인
-                모델이 사용됩니다.
-            </p>
-
-            <!-- Compactor 모델 설정 -->
-            <div style="margin-bottom: 20px">
-                <label style="display: block; margin-bottom: 5px"><b>대화 압축용 모델</b></label>
-                <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
-                    대화가 길어질 때 컨텍스트를 요약하는 데 사용됩니다. 빠르고 저렴한
-                    모델 권장.
-                </p>
-                <!-- 모델 타입 선택 -->
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <select id="compactor-model-type-select">
-                        <option value="">메인 모델 사용</option>
-                        <option value="ollama">Ollama</option>
-                        <option value="gemini">Google Gemini</option>
-                        <option value="banya">Banya</option>
-                    </select>
-                </div>
-                <!-- 하위 모델 선택 (타입 선택 시 표시) -->
-                <div id="compactor-submodel-container" style="display: none; margin-bottom: 10px">
-                    <div class="api-key-input-group">
-                        <select id="compactor-submodel-select">
-                            <!-- 동적으로 채워짐 -->
-                        </select>
-                        <button id="save-compactor-model-button">모델 저장</button>
-                    </div>
-                </div>
-                <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
-                <div id="compactor-apikey-container" style="display: none">
-                    <div class="api-key-input-group">
-                        <input type="password" id="compactor-api-key-input" placeholder="API 키를 입력하세요..." />
-                        <button id="save-compactor-api-key-button">API 키 저장</button>
-                    </div>
-                </div>
-                <p id="compactor-model-status" class="info-message"></p>
+        <!-- Intent 모델 설정 -->
+        <div style="margin-top: 20px">
+          <label style="display: block; margin-bottom: 5px"
+            ><b>의도 분석용 모델</b>
+          </label>
+          <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+            사용자 쿼리의 의도를 분석하는 데 사용됩니다. 빠르고 저렴한 모델
+            권장.
+          </p>
+          <!-- 모델 타입 선택 -->
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <select id="intent-model-type-select">
+              <option value="">메인 모델 사용</option>
+              <option value="ollama">Ollama</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="banya">Banya</option>
+            </select>
+          </div>
+          <!-- 하위 모델 선택 (타입 선택 시 표시) -->
+          <div
+            id="intent-submodel-container"
+            style="display: none; margin-bottom: 10px"
+          >
+            <div class="api-key-input-group">
+              <select id="intent-submodel-select">
+                <!-- 동적으로 채워짐 -->
+              </select>
+              <button id="save-intent-model-button">모델 저장</button>
             </div>
-
-            <!-- Command 모델 설정 -->
-            <div>
-                <label style="display: block; margin-bottom: 5px"><b>명령어 생성용 모델</b>
-                </label>
-                <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
-                    터미널 명령어를 생성하는 데 사용됩니다. 코드 생성에 특화된 모델
-                    권장.
-                </p>
-                <!-- 모델 타입 선택 -->
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <select id="command-model-type-select">
-                        <option value="">메인 모델 사용</option>
-                        <option value="ollama">Ollama</option>
-                        <option value="gemini">Google Gemini</option>
-                        <option value="banya">Banya</option>
-                    </select>
-                </div>
-                <!-- 하위 모델 선택 (타입 선택 시 표시) -->
-                <div id="command-submodel-container" style="display: none; margin-bottom: 10px">
-                    <div class="api-key-input-group">
-                        <select id="command-submodel-select">
-                            <!-- 동적으로 채워짐 -->
-                        </select>
-                        <button id="save-command-model-button">모델 저장</button>
-                    </div>
-                </div>
-                <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
-                <div id="command-apikey-container" style="display: none">
-                    <div class="api-key-input-group">
-                        <input type="password" id="command-api-key-input" placeholder="API 키를 입력하세요..." />
-                        <button id="save-command-api-key-button">API 키 저장</button>
-                    </div>
-                </div>
-                <p id="command-model-status" class="info-message"></p>
+          </div>
+          <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
+          <div id="intent-apikey-container" style="display: none">
+            <div class="api-key-input-group">
+              <input
+                type="password"
+                id="intent-api-key-input"
+                placeholder="API 키를 입력하세요..."
+              />
+              <button id="save-intent-api-key-button">API 키 저장</button>
             </div>
-
-            <!-- Intent 모델 설정 -->
-            <div style="margin-top: 20px">
-                <label style="display: block; margin-bottom: 5px"><b>의도 분석용 모델</b>
-                </label>
-                <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
-                    사용자 쿼리의 의도를 분석하는 데 사용됩니다. 빠르고 저렴한 모델
-                    권장.
-                </p>
-                <!-- 모델 타입 선택 -->
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <select id="intent-model-type-select">
-                        <option value="">메인 모델 사용</option>
-                        <option value="ollama">Ollama</option>
-                        <option value="gemini">Google Gemini</option>
-                        <option value="banya">Banya</option>
-                    </select>
-                </div>
-                <!-- 하위 모델 선택 (타입 선택 시 표시) -->
-                <div id="intent-submodel-container" style="display: none; margin-bottom: 10px">
-                    <div class="api-key-input-group">
-                        <select id="intent-submodel-select">
-                            <!-- 동적으로 채워짐 -->
-                        </select>
-                        <button id="save-intent-model-button">모델 저장</button>
-                    </div>
-                </div>
-                <!-- API 키 입력 (Gemini/Banya 선택 시 표시) -->
-                <div id="intent-apikey-container" style="display: none">
-                    <div class="api-key-input-group">
-                        <input type="password" id="intent-api-key-input" placeholder="API 키를 입력하세요..." />
-                        <button id="save-intent-api-key-button">API 키 저장</button>
-                    </div>
-                </div>
-                <p id="intent-model-status" class="info-message"></p>
-            </div>
+          </div>
+          <p id="intent-model-status" class="info-message"></p>
         </div>
+      </div>
     </div>
 
     <!-- MCP 서버 설정 섹션 -->
     <div class="section-container" id="mcp-settings-section">
-        <h2 id="mcp-section-title">MCP 서버 설정</h2>
-        <p class="info-message">
-            Model Context Protocol (MCP) 서버를 연결하여 LLM이 외부 도구들을 사용할
-            수 있도록 합니다.
-        </p>
+      <h2 id="mcp-section-title">MCP 서버 설정</h2>
+      <p class="info-message">
+        Model Context Protocol (MCP) 서버를 연결하여 LLM이 외부 도구들을 사용할
+        수 있도록 합니다.
+      </p>
 
-        <!-- MCP 서버 목록 -->
-        <div id="mcp-server-list">
-            <!-- 동적으로 서버 카드가 추가됨 -->
+      <!-- MCP 서버 목록 -->
+      <div id="mcp-server-list">
+        <!-- 동적으로 서버 카드가 추가됨 -->
+      </div>
+
+      <!-- 서버 추가 버튼 -->
+      <button id="add-mcp-server-button" type="button" style="margin-top: 10px">
+        + MCP 서버 추가
+      </button>
+
+      <!-- 서버 추가/편집 폼 -->
+      <div
+        id="mcp-server-form"
+        class="api-key-section"
+        style="display: none; margin-top: 15px"
+      >
+        <h3 id="mcp-form-title">MCP 서버 추가</h3>
+        <input type="hidden" id="mcp-server-id" />
+
+        <div class="api-key-input-group" style="margin-bottom: 10px">
+          <label
+            for="mcp-server-name"
+            style="display: block; margin-bottom: 5px"
+            >서버 이름</label
+          >
+          <input
+            type="text"
+            id="mcp-server-name"
+            placeholder="예: Weather Server"
+            style="width: 100%"
+          />
         </div>
 
-        <!-- 서버 추가 버튼 -->
-        <button id="add-mcp-server-button" type="button" style="margin-top: 10px">
-            + MCP 서버 추가
-        </button>
-
-        <!-- 서버 추가/편집 폼 -->
-        <div id="mcp-server-form" class="api-key-section" style="display: none; margin-top: 15px">
-            <h3 id="mcp-form-title">MCP 서버 추가</h3>
-            <input type="hidden" id="mcp-server-id" />
-
-            <div class="api-key-input-group" style="margin-bottom: 10px">
-                <label for="mcp-server-name" style="display: block; margin-bottom: 5px">서버 이름</label>
-                <input type="text" id="mcp-server-name" placeholder="예: Weather Server" style="width: 100%" />
-            </div>
-
-            <div class="api-key-input-group" style="margin-bottom: 10px">
-                <label for="mcp-server-type" style="display: block; margin-bottom: 5px">연결 타입</label>
-                <select id="mcp-server-type" style="width: 100%">
-                    <option value="stdio">로컬 - 로컬 명령어</option>
-                    <option value="http">원격 - 외부 MCP 서버 URL</option>
-                </select>
-            </div>
-
-            <!-- stdio 설정 -->
-            <div id="mcp-stdio-settings">
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-command" style="display: block; margin-bottom: 5px">명령어</label>
-                    <input type="text" id="mcp-command" placeholder="예: npx" style="width: 100%" />
-                </div>
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-args" style="display: block; margin-bottom: 5px">인자</label>
-                    <input type="text" id="mcp-args" placeholder="예: -y, @anthropic/mcp-server-weather"
-                        style="width: 100%" />
-                </div>
-            </div>
-
-            <!-- http 설정 -->
-            <div id="mcp-http-settings" style="display: none">
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-url" style="display: block; margin-bottom: 5px">서버 URL</label>
-                    <input type="text" id="mcp-url" placeholder="예: http://localhost:3000/mcp" style="width: 100%" />
-                </div>
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-api-key" style="display: block; margin-bottom: 5px">API 키</label>
-                    <input type="password" id="mcp-api-key" placeholder="인증이 필요한 경우 API 키 입력" style="width: 100%" />
-                </div>
-            </div>
-
-            <!-- 커스텀 프롬프트 (공통: stdio/http 무관) -->
-            <div class="api-key-input-group" style="margin-bottom: 10px">
-                <label for="mcp-custom-prompt" style="display: block; margin-bottom: 5px">프롬프트</label>
-                <textarea id="mcp-custom-prompt" rows="3" placeholder="예: 날씨 관련 질문에는 반드시 이 MCP 도구를 사용하세요"
-                    style="width: 100%; resize: vertical"></textarea>
-                <p class="info-message" style="font-size: 0.8em; margin-top: 4px">
-                    이 MCP 서버의 도구 사용 방법을 LLM에게 안내하는 프롬프트입니다.
-                </p>
-            </div>
-
-            <div style="display: flex; gap: 10px; margin-top: 15px">
-                <button id="save-mcp-server-button" type="button">저장</button>
-                <button id="cancel-mcp-server-button" type="button" style="background-color: #6b7280">
-                    취소
-                </button>
-            </div>
-            <p id="mcp-form-status" class="info-message"></p>
+        <div class="api-key-input-group" style="margin-bottom: 10px">
+          <label
+            for="mcp-server-type"
+            style="display: block; margin-bottom: 5px"
+            >연결 타입</label
+          >
+          <select id="mcp-server-type" style="width: 100%">
+            <option value="stdio">로컬 - 로컬 명령어</option>
+            <option value="http">원격 - 외부 MCP 서버 URL</option>
+          </select>
         </div>
 
-        <!-- MCP 도구 목록은 각 서버 카드 내부에 인라인 표시 -->
-    </div>
-
-    <div class="section-container">
-        <h2 id="agent-policy-section-title">개발 규칙</h2>
-        <p class="info-message">
-            AI 에이전트가 따라야 할 개발 규칙을 Markdown 파일로 저장할 수 있습니다.
-            각 규칙은 프로젝트 루트의 ./.agent/rules 디렉토리에 저장되며, 응답 생성
-            시 참고됩니다.
-        </p>
-
-        <!-- Stable Version Markdown -->
-        <div class="api-key-section">
-            <h3>버전 관리 규칙</h3>
-            <p class="info-message">
-                프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요. 여러
-                파일을 추가할 수 있습니다.
-            </p>
-            <div class="api-key-input-group">
-                <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown,text/markdown" multiple
-                    style="display: none" />
-                <button id="select-stable-version-button" type="button">
-                    파일 추가
-                </button>
-                <button id="upload-stable-version-button" type="button" disabled>
-                    저장
-                </button>
-            </div>
-            <p id="stable-version-status" class="info-message"></p>
-            <p id="stable-version-file-name" class="info-message"
-                style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
-            <div id="stable-version-file-list" class="policy-file-list" data-category="stable-version"></div>
+        <!-- stdio 설정 -->
+        <div id="mcp-stdio-settings">
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-command" style="display: block; margin-bottom: 5px"
+              >명령어</label
+            >
+            <input
+              type="text"
+              id="mcp-command"
+              placeholder="예: npx"
+              style="width: 100%"
+            />
+          </div>
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-args" style="display: block; margin-bottom: 5px"
+              >인자</label
+            >
+            <input
+              type="text"
+              id="mcp-args"
+              placeholder="예: -y, @anthropic/mcp-server-weather"
+              style="width: 100%"
+            />
+          </div>
         </div>
 
-        <!-- Coding Style Markdown -->
-        <div class="api-key-section">
-            <h3>코딩 스타일 규칙</h3>
-            <p class="info-message">
-                프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.
-                여러 파일을 추가할 수 있습니다.
-            </p>
-            <div class="api-key-input-group">
-                <input type="file" id="agent-policy-coding-style-input" accept=".md,.markdown,text/markdown" multiple
-                    style="display: none" />
-                <button id="select-coding-style-button" type="button">
-                    파일 추가
-                </button>
-                <button id="upload-coding-style-button" type="button" disabled>
-                    저장
-                </button>
-            </div>
-            <p id="coding-style-status" class="info-message"></p>
-            <p id="coding-style-file-name" class="info-message"
-                style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
-            <div id="coding-style-file-list" class="policy-file-list" data-category="coding-style"></div>
+        <!-- http 설정 -->
+        <div id="mcp-http-settings" style="display: none">
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-url" style="display: block; margin-bottom: 5px"
+              >서버 URL</label
+            >
+            <input
+              type="text"
+              id="mcp-url"
+              placeholder="예: http://localhost:3000/mcp"
+              style="width: 100%"
+            />
+          </div>
+          <div class="api-key-input-group" style="margin-bottom: 10px">
+            <label for="mcp-api-key" style="display: block; margin-bottom: 5px"
+              >API 키</label
+            >
+            <input
+              type="password"
+              id="mcp-api-key"
+              placeholder="인증이 필요한 경우 API 키 입력"
+              style="width: 100%"
+            />
+          </div>
         </div>
 
-        <!-- Project Architecture Markdown -->
-        <div class="api-key-section">
-            <h3>프로젝트 아키텍처 규칙</h3>
-            <p class="info-message">
-                프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을
-                저장하세요. 여러 파일을 추가할 수 있습니다.
-            </p>
-            <div class="api-key-input-group">
-                <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown,text/markdown"
-                    multiple style="display: none" />
-                <button id="select-project-architecture-button" type="button">
-                    파일 추가
-                </button>
-                <button id="upload-project-architecture-button" type="button" disabled>
-                    저장
-                </button>
-            </div>
-            <p id="project-architecture-status" class="info-message"></p>
-            <p id="project-architecture-file-name" class="info-message"
-                style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
-            <div id="project-architecture-file-list" class="policy-file-list" data-category="project-architecture">
-            </div>
+        <!-- 커스텀 프롬프트 (공통: stdio/http 무관) -->
+        <div class="api-key-input-group" style="margin-bottom: 10px">
+          <label
+            for="mcp-custom-prompt"
+            style="display: block; margin-bottom: 5px"
+            >프롬프트</label
+          >
+          <textarea
+            id="mcp-custom-prompt"
+            rows="3"
+            placeholder="예: 날씨 관련 질문에는 반드시 이 MCP 도구를 사용하세요"
+            style="width: 100%; resize: vertical"
+          ></textarea>
+          <p class="info-message" style="font-size: 0.8em; margin-top: 4px">
+            이 MCP 서버의 도구 사용 방법을 LLM에게 안내하는 프롬프트입니다.
+          </p>
         </div>
 
-        <!-- Dependency Policy Markdown -->
-        <div class="api-key-section">
-            <h3>의존성 정책 규칙</h3>
-            <p class="info-message">
-                프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.
-                여러 파일을 추가할 수 있습니다.
-            </p>
-            <div class="api-key-input-group">
-                <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown,text/markdown"
-                    multiple style="display: none" />
-                <button id="select-dependency-policy-button" type="button">
-                    파일 추가
-                </button>
-                <button id="upload-dependency-policy-button" type="button" disabled>
-                    저장
-                </button>
-            </div>
-            <p id="dependency-policy-status" class="info-message"></p>
-            <p id="dependency-policy-file-name" class="info-message"
-                style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
-            <div id="dependency-policy-file-list" class="policy-file-list" data-category="dependency-policy"></div>
+        <div style="display: flex; gap: 10px; margin-top: 15px">
+          <button id="save-mcp-server-button" type="button">저장</button>
+          <button
+            id="cancel-mcp-server-button"
+            type="button"
+            style="background-color: #6b7280"
+          >
+            취소
+          </button>
         </div>
+        <p id="mcp-form-status" class="info-message"></p>
+      </div>
 
-        <!-- DB Policy Markdown -->
-        <div class="api-key-section">
-            <h3>DB 규칙</h3>
-            <p class="info-message">
-                프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.
-                여러 파일을 추가할 수 있습니다.
-            </p>
-            <div class="api-key-input-group">
-                <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown,text/markdown" multiple
-                    style="display: none" />
-                <button id="select-db-policy-button" type="button">파일 추가</button>
-                <button id="upload-db-policy-button" type="button" disabled>
-                    저장
-                </button>
-            </div>
-            <p id="db-policy-status" class="info-message"></p>
-            <p id="db-policy-file-name" class="info-message"
-                style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
-            <div id="db-policy-file-list" class="policy-file-list" data-category="db-policy"></div>
-        </div>
+      <!-- MCP 도구 목록은 각 서버 카드 내부에 인라인 표시 -->
     </div>
 
     <!-- Hot Load 관리 섹션 -->
     <div class="section-container">
-        <h2 id="hotload-section-title">Hot Load 관리</h2>
-        <p class="info-message">
-            사용자 입력이 키워드/설명과 유사하면 자동으로 명령어를 실행합니다. Hot
-            Load는 다른 모든 지시보다 우선합니다.
-        </p>
+      <h2 id="hotload-section-title">Hot Load 관리</h2>
+      <p class="info-message">
+        사용자 입력이 키워드/설명과 유사하면 자동으로 명령어를 실행합니다. Hot
+        Load는 다른 모든 지시보다 우선합니다.
+      </p>
 
-        <!-- Hot Load 추가 폼 -->
-        <div class="api-key-section">
-            <h3>새 Hot Load 추가</h3>
-            <div style="margin-bottom: 15px">
-                <label for="hotload-keywords-input" style="display: block; margin-bottom: 5px">
-                    <b>키워드</b>
-                </label>
-                <input type="text" id="hotload-keywords-input" placeholder="예: 빌드, build, 컴파일" style="
+      <!-- Hot Load 추가 폼 -->
+      <div class="api-key-section">
+        <h3>새 Hot Load 추가</h3>
+        <div style="margin-bottom: 15px">
+          <label
+            for="hotload-keywords-input"
+            style="display: block; margin-bottom: 5px"
+          >
+            <b>키워드</b>
+          </label>
+          <input
+            type="text"
+            id="hotload-keywords-input"
+            placeholder="예: 빌드, build, 컴파일"
+            style="
               width: 100%;
               padding: 8px;
               border: 1px solid var(--vscode-input-border);
               background-color: var(--vscode-input-background);
               color: var(--vscode-input-foreground);
               border-radius: 3px;
-            " />
-            </div>
-            <div style="margin-bottom: 15px">
-                <label for="hotload-description-input" style="display: block; margin-bottom: 5px">
-                    <b>동작 설명</b>
-                </label>
-                <textarea id="hotload-description-input" placeholder="예: 프로젝트를 빌드하거나 컴파일할 때 실행" rows="2" style="
+            "
+          />
+        </div>
+        <div style="margin-bottom: 15px">
+          <label
+            for="hotload-description-input"
+            style="display: block; margin-bottom: 5px"
+          >
+            <b>동작 설명</b>
+          </label>
+          <textarea
+            id="hotload-description-input"
+            placeholder="예: 프로젝트를 빌드하거나 컴파일할 때 실행"
+            rows="2"
+            style="
               width: 100%;
               padding: 8px;
               border: 1px solid var(--vscode-input-border);
@@ -1518,13 +1587,21 @@
               border-radius: 3px;
               resize: vertical;
               font-family: var(--vscode-font-family);
-            "></textarea>
-            </div>
-            <div style="margin-bottom: 15px">
-                <label for="hotload-command-input" style="display: block; margin-bottom: 5px">
-                    <b>실행 명령어</b>
-                </label>
-                <input type="text" id="hotload-command-input" placeholder="예: npm run build" style="
+            "
+          ></textarea>
+        </div>
+        <div style="margin-bottom: 15px">
+          <label
+            for="hotload-command-input"
+            style="display: block; margin-bottom: 5px"
+          >
+            <b>실행 명령어</b>
+          </label>
+          <input
+            type="text"
+            id="hotload-command-input"
+            placeholder="예: npm run build"
+            style="
               width: 100%;
               padding: 8px;
               border: 1px solid var(--vscode-input-border);
@@ -1532,138 +1609,378 @@
               color: var(--vscode-input-foreground);
               border-radius: 3px;
               font-family: monospace;
-            " />
-            </div>
-
-            <!-- 완료 조건 -->
-            <div style="margin-bottom: 12px">
-                <label for="hotload-condition-type" style="display: block; margin-bottom: 5px">
-                    <b>완료 조건</b> <span style="opacity: 0.7">(선택)</span>
-                </label>
-                <select id="hotload-condition-type" style="
-                  width: 100%;
-                  padding: 8px;
-                  border: 1px solid var(--vscode-input-border);
-                  background-color: var(--vscode-input-background);
-                  color: var(--vscode-input-foreground);
-                  border-radius: 3px;
-                ">
-                    <option value="none">없음 (종료코드 0이면 성공)</option>
-                    <option value="exit_code">종료 코드 일치</option>
-                    <option value="output_contains">출력에 문자열 포함</option>
-                    <option value="output_not_contains">출력에 문자열 미포함</option>
-                    <option value="file_exists">파일 존재 여부</option>
-                </select>
-                <input type="text" id="hotload-condition-value" placeholder="조건 값" style="
-                  width: 100%;
-                  padding: 8px;
-                  margin-top: 5px;
-                  border: 1px solid var(--vscode-input-border);
-                  background-color: var(--vscode-input-background);
-                  color: var(--vscode-input-foreground);
-                  border-radius: 3px;
-                  display: none;
-                " />
-            </div>
-
-            <!-- 재시도 횟수 -->
-            <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center;">
-                <div style="flex: 1; padding-right: 4px;">
-                    <label for="hotload-max-retries" style="display: block; margin-bottom: 5px">
-                        <b>재시도 횟수</b> <span style="opacity: 0.7">(0 = 재시도 없음)</span>
-                    </label>
-                    <input type="number" id="hotload-max-retries" min="0" max="10" value="0" style="
-                      width: 100%;
-                      padding: 8px;
-                      border: 2px solid var(--vscode-input-border);
-                      background-color: var(--vscode-input-background);
-                      color: var(--vscode-input-foreground);
-                      border-radius: 3px;
-                      box-sizing: border-box;
-                      transition: border-color 0.2s ease;
-                    " />
-                </div>
-                <div style="flex: 1;">
-                    <label for="hotload-on-failure" style="display: block; margin-bottom: 5px">
-                        <b>실패 시 동작</b>
-                    </label>
-                    <select id="hotload-on-failure" style="
-                      width: 100%;
-                      padding: 8px;
-                      border: 1px solid var(--vscode-input-border);
-                      background-color: var(--vscode-input-background);
-                      color: var(--vscode-input-foreground);
-                      border-radius: 3px;
-                    ">
-                        <option value="stop">중단</option>
-                        <option value="pass_to_llm">LLM에 에러 전달</option>
-                    </select>
-                </div>
-            </div>
-
-            <button id="add-hotload-button" class="save-button">
-                Hot Load 추가
-            </button>
-            <p id="hotload-add-status" class="info-message" style="margin-top: 10px"></p>
+            "
+          />
         </div>
 
-        <!-- Hot Load 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>등록된 Hot Load 목록</h3>
-            <div id="hotload-list" class="policy-file-list">
-                <!-- 동적으로 채워짐 -->
-            </div>
-            <p id="hotload-list-empty" class="info-message" style="display: none">
-                등록된 Hot Load가 없습니다.
-            </p>
+        <!-- 완료 조건 -->
+        <div style="margin-bottom: 12px">
+          <label
+            for="hotload-condition-type"
+            style="display: block; margin-bottom: 5px"
+          >
+          </label>
+          <select
+            id="hotload-condition-type"
+            style="
+              width: 100%;
+              padding: 8px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+            "
+          >
+            <option value="none">없음</option>
+            <option value="exit_code">종료 코드 일치</option>
+            <option value="output_contains">출력에 문자열 포함</option>
+            <option value="output_not_contains">출력에 문자열 미포함</option>
+            <option value="file_exists">파일 존재 여부</option>
+          </select>
+          <input
+            type="text"
+            id="hotload-condition-value"
+            placeholder="조건 값"
+            style="
+              width: 100%;
+              padding: 8px;
+              margin-top: 5px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+              display: none;
+            "
+          />
         </div>
+
+        <!-- 재시도 횟수 -->
+        <div
+          style="
+            margin-bottom: 12px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+          "
+        >
+          <div style="flex: 1; padding-right: 4px">
+            <label
+              for="hotload-max-retries"
+              style="display: block; margin-bottom: 5px"
+            >
+              <b>재시도 횟수</b>
+            </label>
+            <input
+              type="number"
+              id="hotload-max-retries"
+              min="0"
+              max="10"
+              value="0"
+              style="
+                width: 100%;
+                padding: 8px;
+                border: 2px solid var(--vscode-input-border);
+                background-color: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                border-radius: 3px;
+                box-sizing: border-box;
+                transition: border-color 0.2s ease;
+              "
+            />
+          </div>
+          <div style="flex: 1">
+            <label
+              for="hotload-on-failure"
+              style="display: block; margin-bottom: 5px"
+            >
+              <b>실패 시 동작</b>
+            </label>
+            <select
+              id="hotload-on-failure"
+              style="
+                width: 100%;
+                padding: 8px;
+                border: 1px solid var(--vscode-input-border);
+                background-color: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                border-radius: 3px;
+              "
+            >
+              <option value="stop">중단</option>
+              <option value="pass_to_llm">LLM에 에러 전달</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="add-hotload-button" class="save-button">
+          Hot Load 추가
+        </button>
+        <p
+          id="hotload-add-status"
+          class="info-message"
+          style="margin-top: 10px"
+        ></p>
+      </div>
+
+      <!-- Hot Load 목록 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>등록된 Hot Load 목록</h3>
+        <div id="hotload-list" class="policy-file-list">
+          <!-- 동적으로 채워짐 -->
+        </div>
+        <p id="hotload-list-empty" class="info-message" style="display: none">
+          등록된 Hot Load가 없습니다.
+        </p>
+      </div>
+    </div>
+
+    <div class="section-container">
+      <h2 id="agent-policy-section-title">개발 규칙</h2>
+      <p class="info-message">
+        AI 에이전트가 따라야 할 개발 규칙을 Markdown 파일로 저장할 수 있습니다.
+        각 규칙은 프로젝트 루트의 ./.agent/rules 디렉토리에 저장되며, 응답 생성
+        시 참고됩니다.
+      </p>
+
+      <!-- Stable Version Markdown -->
+      <div class="api-key-section">
+        <h3>버전 관리 규칙</h3>
+        <p class="info-message">
+          프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요. 여러
+          파일을 추가할 수 있습니다.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="file"
+            id="agent-policy-stable-version-input"
+            accept=".md,.markdown,text/markdown"
+            multiple
+            style="display: none"
+          />
+          <button id="select-stable-version-button" type="button">
+            파일 추가
+          </button>
+          <button id="upload-stable-version-button" type="button" disabled>
+            저장
+          </button>
+        </div>
+        <p id="stable-version-status" class="info-message"></p>
+        <p
+          id="stable-version-file-name"
+          class="info-message"
+          style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
+        ></p>
+        <div
+          id="stable-version-file-list"
+          class="policy-file-list"
+          data-category="stable-version"
+        ></div>
+      </div>
+
+      <!-- Coding Style Markdown -->
+      <div class="api-key-section">
+        <h3>코딩 스타일 규칙</h3>
+        <p class="info-message">
+          프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="file"
+            id="agent-policy-coding-style-input"
+            accept=".md,.markdown,text/markdown"
+            multiple
+            style="display: none"
+          />
+          <button id="select-coding-style-button" type="button">
+            파일 추가
+          </button>
+          <button id="upload-coding-style-button" type="button" disabled>
+            저장
+          </button>
+        </div>
+        <p id="coding-style-status" class="info-message"></p>
+        <p
+          id="coding-style-file-name"
+          class="info-message"
+          style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
+        ></p>
+        <div
+          id="coding-style-file-list"
+          class="policy-file-list"
+          data-category="coding-style"
+        ></div>
+      </div>
+
+      <!-- Project Architecture Markdown -->
+      <div class="api-key-section">
+        <h3>프로젝트 아키텍처 규칙</h3>
+        <p class="info-message">
+          프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을
+          저장하세요. 여러 파일을 추가할 수 있습니다.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="file"
+            id="agent-policy-project-architecture-input"
+            accept=".md,.markdown,text/markdown"
+            multiple
+            style="display: none"
+          />
+          <button id="select-project-architecture-button" type="button">
+            파일 추가
+          </button>
+          <button
+            id="upload-project-architecture-button"
+            type="button"
+            disabled
+          >
+            저장
+          </button>
+        </div>
+        <p id="project-architecture-status" class="info-message"></p>
+        <p
+          id="project-architecture-file-name"
+          class="info-message"
+          style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
+        ></p>
+        <div
+          id="project-architecture-file-list"
+          class="policy-file-list"
+          data-category="project-architecture"
+        ></div>
+      </div>
+
+      <!-- Dependency Policy Markdown -->
+      <div class="api-key-section">
+        <h3>의존성 정책 규칙</h3>
+        <p class="info-message">
+          프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="file"
+            id="agent-policy-dependency-policy-input"
+            accept=".md,.markdown,text/markdown"
+            multiple
+            style="display: none"
+          />
+          <button id="select-dependency-policy-button" type="button">
+            파일 추가
+          </button>
+          <button id="upload-dependency-policy-button" type="button" disabled>
+            저장
+          </button>
+        </div>
+        <p id="dependency-policy-status" class="info-message"></p>
+        <p
+          id="dependency-policy-file-name"
+          class="info-message"
+          style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
+        ></p>
+        <div
+          id="dependency-policy-file-list"
+          class="policy-file-list"
+          data-category="dependency-policy"
+        ></div>
+      </div>
+
+      <!-- DB Policy Markdown -->
+      <div class="api-key-section">
+        <h3>DB 규칙</h3>
+        <p class="info-message">
+          프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.
+          여러 파일을 추가할 수 있습니다.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="file"
+            id="agent-policy-db-policy-input"
+            accept=".md,.markdown,text/markdown"
+            multiple
+            style="display: none"
+          />
+          <button id="select-db-policy-button" type="button">파일 추가</button>
+          <button id="upload-db-policy-button" type="button" disabled>
+            저장
+          </button>
+        </div>
+        <p id="db-policy-status" class="info-message"></p>
+        <p
+          id="db-policy-file-name"
+          class="info-message"
+          style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"
+        ></p>
+        <div
+          id="db-policy-file-list"
+          class="policy-file-list"
+          data-category="db-policy"
+        ></div>
+      </div>
     </div>
 
     <!-- 컨텍스트 제외 패턴 관리 섹션 -->
     <div class="section-container">
-        <h2>컨텍스트 제외 관리</h2>
-        <p class="info-message">
-            프로젝트 인덱싱, 파일 검색, 컨텍스트 수집 시 제외할 파일/폴더 패턴을 관리합니다.
-            기본 제외 목록 자동 적용되며, 추가로 제외할 패턴을 등록할 수 있습니다.
-        </p>
+      <h2>컨텍스트 제외 관리</h2>
+      <p class="info-message">
+        프로젝트 인덱싱, 파일 검색, 컨텍스트 수집 시 제외할 파일/폴더 패턴을
+        관리합니다. 기본 제외 목록 자동 적용되며, 추가로 제외할 패턴을 등록할 수
+        있습니다.
+      </p>
 
-        <!-- 커스텀 제외 패턴 추가 -->
-        <div class="api-key-section">
-            <h3>커스텀 제외 패턴 추가</h3>
-            <div class="api-key-input-group">
-                <input type="text" id="context-exclusion-input" placeholder="예: .env, *.log, my-folder, secrets/" style="
+      <!-- 커스텀 제외 패턴 추가 -->
+      <div class="api-key-section">
+        <h3>커스텀 제외 패턴 추가</h3>
+        <div class="api-key-input-group">
+          <input
+            type="text"
+            id="context-exclusion-input"
+            placeholder="예: .env, *.log, my-folder, secrets/"
+            style="
               flex: 1;
               padding: 8px;
               border: 1px solid var(--vscode-input-border);
               background-color: var(--vscode-input-background);
               color: var(--vscode-input-foreground);
               border-radius: 3px;
-            " />
-                <button id="add-context-exclusion-button" class="save-button">
-                    추가
-                </button>
-            </div>
-            <p id="context-exclusion-status" class="info-message" style="margin-top: 10px"></p>
+            "
+          />
+          <button id="add-context-exclusion-button" class="save-button">
+            추가
+          </button>
         </div>
+        <p
+          id="context-exclusion-status"
+          class="info-message"
+          style="margin-top: 10px"
+        ></p>
+      </div>
 
-        <!-- 커스텀 제외 패턴 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>등록된 커스텀 제외 패턴</h3>
-            <div id="context-exclusion-custom-list" class="policy-file-list">
-                <!-- 동적으로 채워짐 -->
-            </div>
-            <p id="context-exclusion-custom-empty" class="info-message" style="display: none">
-                등록된 커스텀 제외 패턴이 없습니다.
-            </p>
+      <!-- 커스텀 제외 패턴 목록 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>등록된 커스텀 제외 패턴</h3>
+        <div id="context-exclusion-custom-list" class="policy-file-list">
+          <!-- 동적으로 채워짐 -->
         </div>
+        <p
+          id="context-exclusion-custom-empty"
+          class="info-message"
+          style="display: none"
+        >
+          등록된 커스텀 제외 패턴이 없습니다.
+        </p>
+      </div>
 
-        <!-- 기본 제외 패턴 목록 (토글 가능) -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>기본 제외 패턴</h3>
-            <p class="info-message" style="margin-bottom: 10px">
-                클릭하여 개별 패턴을 비활성화/활성화할 수 있습니다.
-            </p>
-            <div id="context-exclusion-default-list" style="
+      <!-- 기본 제외 패턴 목록 (토글 가능) -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>기본 제외 패턴</h3>
+        <p class="info-message" style="margin-bottom: 10px">
+          클릭하여 개별 패턴을 비활성화/활성화할 수 있습니다.
+        </p>
+        <div
+          id="context-exclusion-default-list"
+          style="
             max-height: 200px;
             overflow-y: auto;
             padding: 10px;
@@ -1673,132 +1990,169 @@
             font-size: 0.85em;
             line-height: 1.6;
             color: var(--vscode-descriptionForeground);
-          ">
-                <!-- 동적으로 채워짐 -->
-            </div>
+          "
+        >
+          <!-- 동적으로 채워짐 -->
         </div>
+      </div>
     </div>
 
     <!-- 도구 실행 보안 규칙 관리 섹션 -->
     <div class="section-container">
-        <h2>도구 실행 보안 규칙</h2>
-        <p class="info-message">
-            AI가 실행하는 명령어와 파일 작업에 대한 보안 규칙을 관리합니다.
-            위험한 명령어 차단, 민감한 파일 보호 등의 규칙을 설정할 수 있습니다.
+      <h2>도구 실행 보안 규칙</h2>
+      <p class="info-message">
+        AI가 실행하는 명령어와 파일 작업에 대한 보안 규칙을 관리합니다. 위험한
+        명령어 차단, 민감한 파일 보호 등의 규칙을 설정할 수 있습니다.
+      </p>
+
+      <!-- 커스텀 차단 명령어 추가 -->
+      <div class="api-key-section">
+        <h3>커스텀 차단 명령어 추가</h3>
+        <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+          추가로 차단할 명령어 패턴을 입력하세요. 정규식을 지원합니다.
         </p>
-
-        <!-- 커스텀 차단 명령어 추가 -->
-        <div class="api-key-section">
-            <h3>커스텀 차단 명령어 추가</h3>
-            <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
-                추가로 차단할 명령어 패턴을 입력하세요. 정규식을 지원합니다.
-            </p>
-            <div class="api-key-input-group">
-                <input type="text" id="blocked-command-input" placeholder="예: docker rm, kubectl delete" style="
-                    flex: 1;
-                    padding: 8px;
-                    border: 1px solid var(--vscode-input-border);
-                    background-color: var(--vscode-input-background);
-                    color: var(--vscode-input-foreground);
-                    border-radius: 3px;
-                " />
-                <button id="add-blocked-command-button" class="save-button">추가</button>
-            </div>
-            <p id="blocked-command-status" class="info-message" style="margin-top: 10px"></p>
+        <div class="api-key-input-group">
+          <input
+            type="text"
+            id="blocked-command-input"
+            placeholder="예: docker rm, kubectl delete"
+            style="
+              flex: 1;
+              padding: 8px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+            "
+          />
+          <button id="add-blocked-command-button" class="save-button">
+            추가
+          </button>
         </div>
+        <p
+          id="blocked-command-status"
+          class="info-message"
+          style="margin-top: 10px"
+        ></p>
+      </div>
 
-        <!-- 커스텀 차단 명령어 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>등록된 커스텀 차단 명령어</h3>
-            <div id="blocked-command-custom-list" class="policy-file-list">
-                <!-- 동적으로 채워짐 -->
-            </div>
-            <p id="blocked-command-custom-empty" class="info-message" style="display: none">
-                등록된 커스텀 차단 명령어가 없습니다.
-            </p>
+      <!-- 커스텀 차단 명령어 목록 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>등록된 커스텀 차단 명령어</h3>
+        <div id="blocked-command-custom-list" class="policy-file-list">
+          <!-- 동적으로 채워짐 -->
         </div>
+        <p
+          id="blocked-command-custom-empty"
+          class="info-message"
+          style="display: none"
+        >
+          등록된 커스텀 차단 명령어가 없습니다.
+        </p>
+      </div>
 
-        <!-- 기본 차단 명령어 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>기본 차단 명령어</h3>
-            <p class="info-message" style="margin-bottom: 10px">
-                클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
-            </p>
-            <div id="blocked-command-default-list" style="
-                max-height: 200px;
-                overflow-y: auto;
-                padding: 10px;
-                background-color: var(--vscode-textCodeBlock-background);
-                border-radius: 5px;
-                font-family: monospace;
-                font-size: 0.85em;
-                line-height: 1.8;
-                color: var(--vscode-descriptionForeground);
-            ">
-                <!-- 동적으로 채워짐 -->
-            </div>
+      <!-- 기본 차단 명령어 목록 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>기본 차단 명령어</h3>
+        <p class="info-message" style="margin-bottom: 10px">
+          클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
+        </p>
+        <div
+          id="blocked-command-default-list"
+          style="
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: var(--vscode-textCodeBlock-background);
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.85em;
+            line-height: 1.8;
+            color: var(--vscode-descriptionForeground);
+          "
+        >
+          <!-- 동적으로 채워짐 -->
         </div>
+      </div>
 
-        <!-- 커스텀 보호 파일 추가 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>커스텀 보호 파일 추가</h3>
-            <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
-                AI가 수정하지 못하도록 보호할 파일 패턴을 입력하세요.
-            </p>
-            <div class="api-key-input-group">
-                <input type="text" id="protected-file-input" placeholder="예: config/production.json, *.secret" style="
-                    flex: 1;
-                    padding: 8px;
-                    border: 1px solid var(--vscode-input-border);
-                    background-color: var(--vscode-input-background);
-                    color: var(--vscode-input-foreground);
-                    border-radius: 3px;
-                " />
-                <button id="add-protected-file-button" class="save-button">추가</button>
-            </div>
-            <p id="protected-file-status" class="info-message" style="margin-top: 10px"></p>
+      <!-- 커스텀 보호 파일 추가 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>커스텀 보호 파일 추가</h3>
+        <p class="info-message" style="font-size: 0.85em; margin-bottom: 8px">
+          AI가 수정하지 못하도록 보호할 파일 패턴을 입력하세요.
+        </p>
+        <div class="api-key-input-group">
+          <input
+            type="text"
+            id="protected-file-input"
+            placeholder="예: config/production.json, *.secret"
+            style="
+              flex: 1;
+              padding: 8px;
+              border: 1px solid var(--vscode-input-border);
+              background-color: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border-radius: 3px;
+            "
+          />
+          <button id="add-protected-file-button" class="save-button">
+            추가
+          </button>
         </div>
+        <p
+          id="protected-file-status"
+          class="info-message"
+          style="margin-top: 10px"
+        ></p>
+      </div>
 
-        <!-- 커스텀 보호 파일 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>등록된 커스텀 보호 파일</h3>
-            <div id="protected-file-custom-list" class="policy-file-list">
-                <!-- 동적으로 채워짐 -->
-            </div>
-            <p id="protected-file-custom-empty" class="info-message" style="display: none">
-                등록된 커스텀 보호 파일이 없습니다.
-            </p>
+      <!-- 커스텀 보호 파일 목록 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>등록된 커스텀 보호 파일</h3>
+        <div id="protected-file-custom-list" class="policy-file-list">
+          <!-- 동적으로 채워짐 -->
         </div>
+        <p
+          id="protected-file-custom-empty"
+          class="info-message"
+          style="display: none"
+        >
+          등록된 커스텀 보호 파일이 없습니다.
+        </p>
+      </div>
 
-        <!-- 기본 보호 파일 목록 -->
-        <div class="api-key-section" style="margin-top: 20px">
-            <h3>기본 보호 파일</h3>
-            <p class="info-message" style="margin-bottom: 10px">
-                클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
-            </p>
-            <div id="protected-file-default-list" style="
-                max-height: 200px;
-                overflow-y: auto;
-                padding: 10px;
-                background-color: var(--vscode-textCodeBlock-background);
-                border-radius: 5px;
-                font-family: monospace;
-                font-size: 0.85em;
-                line-height: 1.8;
-                color: var(--vscode-descriptionForeground);
-            ">
-                <!-- 동적으로 채워짐 -->
-            </div>
+      <!-- 기본 보호 파일 목록 -->
+      <div class="api-key-section" style="margin-top: 20px">
+        <h3>기본 보호 파일</h3>
+        <p class="info-message" style="margin-bottom: 10px">
+          클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
+        </p>
+        <div
+          id="protected-file-default-list"
+          style="
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: var(--vscode-textCodeBlock-background);
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.85em;
+            line-height: 1.8;
+            color: var(--vscode-descriptionForeground);
+          "
+        >
+          <!-- 동적으로 채워짐 -->
         </div>
+      </div>
     </div>
 
     <!-- 버전 정보 -->
     <div class="version-footer">
-        <p id="version-info">CODEPILOT v<span id="version-number">9.3.1</span></p>
+      <p id="version-info">CODEPILOT v<span id="version-number">...</span></p>
     </div>
 
     <!-- Nonce가 적용된 스크립트 로드 -->
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
-</body>
-
+  </body>
 </html>
+

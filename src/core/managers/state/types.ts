@@ -129,7 +129,6 @@ export interface GlobalState {
     extensionMode?: ExtensionMode;
     autoExecuteCommands?: boolean;
     autoCorrectErrors?: boolean;
-    outputLogEnabled?: boolean;
 
     // 최근 활동
     recentProjects?: string[];
@@ -196,7 +195,6 @@ export interface UserSettings {
     autoExecuteCommands: boolean;
     autoCorrectErrors: boolean;
     maxErrorRetries: number;
-    outputLogEnabled: boolean;
 
     // UI 설정
     theme?: 'light' | 'dark' | 'auto';

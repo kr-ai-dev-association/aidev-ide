@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "9.3.2",
+  "version": "9.4.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -235,6 +235,12 @@
           "description": "Enable or disable automatic updating of files based on LLM's code block suggestions. If disabled, you will be prompted before updating.",
           "scope": "resource"
         },
+        "codepilot.autoDeleteFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable or disable automatic deletion of files. If disabled, you will be prompted before deleting any file.",
+          "scope": "resource"
+        },
         "codepilot.projectRoot": {
           "type": "string",
           "default": "",
@@ -260,12 +266,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable terminal-daemon to run commands via external PTY daemon and stream logs/errors.",
-          "scope": "resource"
-        },
-        "codepilot.outputLogEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable or disable logs displayed in VS Code's OUTPUT panel. Disabling makes it easier to check terminal logs.",
           "scope": "resource"
         },
         "codepilot.errorRetryCount": {
@@ -300,6 +300,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
+          "scope": "resource"
+        },
+        "codepilot.autoToolExecution": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable automatic execution of all tools (read, search, etc). When disabled, you will be prompted before executing any tool.",
           "scope": "resource"
         },
         "codepilot.chatTheme": {

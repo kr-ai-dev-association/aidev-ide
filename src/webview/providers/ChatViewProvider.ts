@@ -475,6 +475,15 @@ ${JSON.stringify(errorContext, null, 2)}
                             case 'gitStash':
                                 await vscode.commands.executeCommand('codepilot.gitStash');
                                 break;
+                            case 'viewMcpServers':
+                                await vscode.commands.executeCommand('codepilot.viewMcpServers');
+                                break;
+                            case 'connectMcpServer':
+                                await vscode.commands.executeCommand('codepilot.connectMcpServer');
+                                break;
+                            case 'disconnectMcpServer':
+                                await vscode.commands.executeCommand('codepilot.disconnectMcpServer');
+                                break;
                             default:
                                 console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
                         }

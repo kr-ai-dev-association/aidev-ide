@@ -69,7 +69,6 @@ export class SettingsManager extends BaseManager {
             autoExecuteCommands: ConfigurationService.get<boolean>('autoExecuteCommands', false) ?? false,
             autoCorrectErrors: ConfigurationService.get<boolean>('autoCorrectErrors', true) ?? true,
             maxErrorRetries: ConfigurationService.get<number>('maxErrorRetries', 3) ?? 3,
-            outputLogEnabled: ConfigurationService.get<boolean>('outputLogEnabled', true) ?? true,
 
             // UI 설정
             theme: ConfigurationService.get<'light' | 'dark' | 'auto'>('theme', 'auto') ?? 'auto',
@@ -202,6 +201,20 @@ export class SettingsManager extends BaseManager {
         await this.updateUserSetting('autoUpdateFiles' as any, enabled, vscode.ConfigurationTarget.Global);
     }
 
+    /**
+     * 자동 파일 삭제 On/Off 상태를 읽습니다
+     */
+    public async isAutoDeleteFilesEnabled(): Promise<boolean> {
+        return ConfigurationService.get<boolean>('autoDeleteFiles') || false;
+    }
+
+    /**
+     * 자동 파일 삭제 On/Off 상태를 저장합니다
+     */
+    public async updateAutoDeleteFilesEnabled(enabled: boolean): Promise<void> {
+        console.log(`[SettingsManager] Update autoDeleteFiles -> ${enabled} (Global)`);
+        await this.updateUserSetting('autoDeleteFiles' as any, enabled, vscode.ConfigurationTarget.Global);
+    }
 
     /**
      * 현재 워크스페이스 루트 경로를 반환합니다
@@ -281,20 +294,6 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
-     * OUTPUT 로그 활성화 상태를 가져옵니다
-     */
-    public async isOutputLogEnabled(): Promise<boolean> {
-        return ConfigurationService.get<boolean>('outputLogEnabled') ?? true;
-    }
-
-    /**
-     * OUTPUT 로그 활성화 상태를 업데이트합니다
-     */
-    public async updateOutputLogEnabled(enabled: boolean): Promise<void> {
-        await this.updateUserSetting('outputLogEnabled' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
-
-    /**
      * 자동 오류 수정 횟수를 가져옵니다
      */
     public async getErrorRetryCount(): Promise<number> {
@@ -342,6 +341,22 @@ export class SettingsManager extends BaseManager {
     public async updateAutoExecuteCommandsEnabled(enabled: boolean): Promise<void> {
         console.log(`[SettingsManager] Update autoExecuteCommands -> ${enabled} (Global)`);
         await this.updateUserSetting('autoExecuteCommands' as any, enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
+     * 도구 자동 실행 On/Off 상태를 읽습니다
+     */
+    public async isAutoToolExecutionEnabled(): Promise<boolean> {
+        const value = ConfigurationService.get<boolean>('autoToolExecution') ?? true;
+        return value;
+    }
+
+    /**
+     * 도구 자동 실행 On/Off 상태를 저장합니다
+     */
+    public async updateAutoToolExecutionEnabled(enabled: boolean): Promise<void> {
+        console.log(`[SettingsManager] Update autoToolExecution -> ${enabled} (Global)`);
+        await this.updateUserSetting('autoToolExecution' as any, enabled, vscode.ConfigurationTarget.Global);
     }
 
     /**

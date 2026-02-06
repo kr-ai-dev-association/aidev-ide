@@ -671,7 +671,6 @@ export class TerminalManager {
 
     private static terminalSeq = 0;
     private static codePilotTerminal: vscode.Terminal | undefined;
-    private static outputLogEnabled = true;
     private static captureOutputChannel: vscode.OutputChannel | undefined;
 
     /**
@@ -730,21 +729,6 @@ export class TerminalManager {
         }
 
         return TerminalManager.codePilotTerminal;
-    }
-
-    /**
-     * OUTPUT 로그 활성화 상태를 설정합니다 (terminal/terminalManager.ts 호환)
-     */
-    public static setOutputLogEnabled(enabled: boolean): void {
-        TerminalManager.outputLogEnabled = enabled;
-        if (!enabled && TerminalManager.captureOutputChannel) {
-            try {
-                TerminalManager.captureOutputChannel.hide();
-                TerminalManager.captureOutputChannel.clear();
-            } catch (error) {
-                console.debug('[TerminalManager] OutputChannel hide/clear failed (non-critical):', error);
-            }
-        }
     }
 
     /**
@@ -918,20 +902,6 @@ export class TerminalManager {
      * OUTPUT 로그 채널을 가져옵니다
      */
     private getCaptureOutputChannel(): vscode.OutputChannel {
-        if (!TerminalManager.outputLogEnabled) {
-            // OUTPUT 로그가 비활성화된 경우 더미 채널 반환
-            return {
-                name: 'CODEPILOT Terminal (Disabled)',
-                append: () => { },
-                appendLine: () => { },
-                clear: () => { },
-                show: () => { },
-                hide: () => { },
-                dispose: () => { },
-                replace: () => { }
-            } as unknown as vscode.OutputChannel;
-        }
-
         if (!TerminalManager.captureOutputChannel) {
             TerminalManager.captureOutputChannel = vscode.window.createOutputChannel('CODEPILOT Terminal');
         }

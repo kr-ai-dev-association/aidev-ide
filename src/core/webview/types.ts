@@ -154,8 +154,8 @@ export interface GetChatThemeCommand {
 }
 
 export interface SetToggleSettingCommand {
-    command: 'setAutoUpdateEnabled' | 'setOutputLogEnabled' | 'setStreamingEnabled'
-        | 'setAutoTestRetryEnabled' | 'setAutoCorrectionEnabled' | 'setAutoExecuteCommandsEnabled';
+    command: 'setAutoUpdateEnabled' | 'setStreamingEnabled'
+        | 'setAutoTestRetryEnabled' | 'setAutoCorrectionEnabled' | 'setAutoExecuteCommandsEnabled' | 'setAutoToolExecutionEnabled';
     enabled: boolean;
 }
 

@@ -10,11 +10,12 @@
 export function bindToggleEvents(elements) {
   const {
     autoUpdateToggle,
-    outputLogToggle,
+    autoDeleteToggle,
     streamingToggle,
     autoTestRetryToggle,
     autoCorrectionToggle,
     autoExecuteToggle,
+    autoToolToggle,
     vscode,
   } = elements;
 
@@ -28,12 +29,22 @@ export function bindToggleEvents(elements) {
     });
   }
 
-  // 출력 로그 토글
-  if (outputLogToggle) {
-    outputLogToggle.addEventListener("change", () => {
-      const enabled = outputLogToggle.checked;
+  // 자동 파일 삭제 토글
+  if (autoDeleteToggle) {
+    autoDeleteToggle.addEventListener("change", () => {
+      const enabled = autoDeleteToggle.checked;
       if (vscode) {
-        vscode.postMessage({ command: "setOutputLogEnabled", enabled });
+        vscode.postMessage({ command: "setAutoDeleteFilesEnabled", enabled });
+      }
+    });
+  }
+
+  // 도구 자동 실행 토글
+  if (autoToolToggle) {
+    autoToolToggle.addEventListener("change", () => {
+      const enabled = autoToolToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setAutoToolExecutionEnabled", enabled });
       }
     });
   }

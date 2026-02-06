@@ -272,7 +272,6 @@ export class StateManager {
     private readonly IS_LICENSE_VERIFIED_KEY = 'codepilot.isLicenseVerified';
     private readonly LANGUAGE_KEY = 'codepilot.language';
     private readonly AUTO_UPDATE_ENABLED_KEY = 'codepilot.autoUpdateEnabled';
-    private readonly OUTPUT_LOG_ENABLED_KEY = 'codepilot.outputLogEnabled';
     private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
     private readonly AUTO_CORRECTION_ENABLED_KEY = 'codepilot.autoCorrectionEnabled';
 
@@ -510,15 +509,6 @@ export class StateManager {
 
     public async getAutoUpdateEnabled(): Promise<boolean> {
         return this.context.workspaceState.get<boolean>(this.AUTO_UPDATE_ENABLED_KEY) ?? false;
-    }
-
-    // Output log enabled
-    public async saveOutputLogEnabled(enabled: boolean): Promise<void> {
-        await this.context.workspaceState.update(this.OUTPUT_LOG_ENABLED_KEY, enabled);
-    }
-
-    public async getOutputLogEnabled(): Promise<boolean> {
-        return this.context.workspaceState.get<boolean>(this.OUTPUT_LOG_ENABLED_KEY) ?? false;
     }
 
     // Error retry count

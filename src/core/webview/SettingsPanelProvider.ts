@@ -81,7 +81,6 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
-            const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
@@ -96,14 +95,22 @@ export function openSettingsPanel(
             const language = await stateManager.getLanguage();
             const autoUpdateEnabled =
               await settingsManager.isAutoUpdateEnabled();
+            const autoDeleteFilesEnabled =
+              await settingsManager.isAutoDeleteFilesEnabled();
             const autoExecuteCommandsEnabled =
               await settingsManager.isAutoExecuteCommandsEnabled();
+            const autoToolExecutionEnabled =
+              await settingsManager.isAutoToolExecutionEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
             // 채팅 테마 설정 로드
             const config = vscode.workspace.getConfiguration('codepilot');
             const chatTheme = config.get<string>('chatTheme') || 'dark';
+
+            // package.json에서 버전 로드
+            const packageJson = require('../../../../package.json');
+            const extensionVersion = packageJson.version || '0.0.0';
 
             // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
             const compactorModelType = await stateManager.getCompactorModelType();
@@ -133,14 +140,15 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
-              outputLogEnabled: outputLogEnabled || false,
               autoUpdateEnabled: autoUpdateEnabled || false,
+              autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
+              autoToolExecutionEnabled: autoToolExecutionEnabled, // 도구 자동 실행 설정 추가
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
@@ -153,6 +161,7 @@ export function openSettingsPanel(
               intentModelName: intentModelName || "",
               intentApiKeySet: intentApiKeySet,
               chatTheme: chatTheme,
+              extensionVersion: extensionVersion,
             };
             console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
               compactorModelType,
@@ -1048,35 +1057,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "setOutputLog": // 출력 로그 설정 저장 케이스 (별칭)
-        case "saveOutputLogEnabled": // 출력 로그 설정 저장 케이스 추가
-          const outputLogEnabledToSave = data.outputLogEnabled;
-          if (typeof outputLogEnabledToSave === "boolean") {
-            try {
-              await stateManager.saveOutputLogEnabled(outputLogEnabledToSave);
-              safePostMessage(panel, { command: "outputLogEnabledSaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Output Log setting saved.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "outputLogEnabledSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Output Log setting: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "outputLogEnabledSaveError",
-              error: "Invalid Output Log setting",
-            });
-            notificationService.showErrorMessage(
-              "Invalid Output Log setting provided.",
-            );
-          }
-          break;
         case "saveErrorRetryCount": // 오류 재시도 횟수 저장 케이스 추가
           const errorRetryCountToSave = data.errorRetryCount;
           if (
@@ -1227,6 +1207,66 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setAutoUpdateEnabled": // 자동 파일 업데이트 설정 저장 케이스 추가 (toggles.js에서 호출)
+          const autoUpdateEnabledToSet = data.enabled;
+          if (typeof autoUpdateEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoUpdateEnabled(autoUpdateEnabledToSet);
+              // 과거 저장값과의 호환(필요 시 유지)
+              try {
+                await stateManager.saveAutoUpdateEnabled(autoUpdateEnabledToSet);
+              } catch { }
+              safePostMessage(panel, { command: "autoUpdateEnabledSet" });
+              console.log(
+                `[PanelManager] Auto Update 설정 저장됨: ${autoUpdateEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoUpdateEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Update: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoUpdateEnabledSetError",
+              error: "Invalid Auto Update setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Update setting provided.",
+            );
+          }
+          break;
+        case "setAutoDeleteFilesEnabled": // 자동 파일 삭제 설정 저장 케이스 추가
+          const autoDeleteFilesEnabledToSet = data.enabled;
+          if (typeof autoDeleteFilesEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoDeleteFilesEnabled(autoDeleteFilesEnabledToSet);
+              safePostMessage(panel, { command: "autoDeleteFilesEnabledSet" });
+              console.log(
+                `[PanelManager] Auto Delete Files 설정 저장됨: ${autoDeleteFilesEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoDeleteFilesEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Delete Files: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoDeleteFilesEnabledSetError",
+              error: "Invalid Auto Delete Files setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Delete Files setting provided.",
+            );
+          }
+          break;
         case "setAutoExecuteCommandsEnabled": // 명령어 자동 실행 설정 저장 케이스 추가
           const autoExecuteCommandsEnabledToSet = data.enabled;
           if (typeof autoExecuteCommandsEnabledToSet === "boolean") {
@@ -1256,6 +1296,38 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               "Invalid Auto Execute Commands setting provided.",
+            );
+          }
+          break;
+        case "setAutoToolExecutionEnabled": // 도구 자동 실행 설정 저장 케이스 추가
+          const autoToolExecutionEnabledToSet = data.enabled;
+          if (typeof autoToolExecutionEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoToolExecutionEnabled(
+                autoToolExecutionEnabledToSet,
+              );
+              safePostMessage(panel, {
+                command: "autoToolExecutionEnabledSet",
+              });
+              console.log(
+                `[PanelManager] Auto Tool Execution 설정 저장됨: ${autoToolExecutionEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoToolExecutionEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Tool Execution: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoToolExecutionEnabledSetError",
+              error: "Invalid Auto Tool Execution setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Tool Execution setting provided.",
             );
           }
           break;
@@ -1648,7 +1720,6 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
-            const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
@@ -1676,7 +1747,6 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
-              outputLogEnabled: outputLogEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
@@ -1712,7 +1782,6 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
-            const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
@@ -1743,7 +1812,6 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
-              outputLogEnabled: outputLogEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified,

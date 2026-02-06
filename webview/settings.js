@@ -1,7 +1,19 @@
 // settings.js
-import { showStatus, bindGeminiApiKeyEvents, bindBanyaApiKeyEvents } from "./settings/api-keys.js";
-import { bindToggleEvents, bindSpinnerEvents, updateToggleState, updateSpinnerValue } from "./settings/toggles.js";
-import { bindMcpSettingsEvents, handleMcpMessage } from "./settings/mcp-settings.js";
+import {
+  showStatus,
+  bindGeminiApiKeyEvents,
+  bindBanyaApiKeyEvents,
+} from "./settings/api-keys.js";
+import {
+  bindToggleEvents,
+  bindSpinnerEvents,
+  updateToggleState,
+  updateSpinnerValue,
+} from "./settings/toggles.js";
+import {
+  bindMcpSettingsEvents,
+  handleMcpMessage,
+} from "./settings/mcp-settings.js";
 
 // VS Code API를 전역으로 획득
 if (
@@ -19,8 +31,9 @@ let isLoadingSettings = false;
 function applyThemeToBody(theme) {
   if (theme === "auto") {
     // VS Code 테마 감지
-    const isDark = document.body.classList.contains("vscode-dark") ||
-                   window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const isDark =
+      document.body.classList.contains("vscode-dark") ||
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.body.setAttribute("data-theme", isDark ? "dark" : "light");
   } else {
     document.body.setAttribute("data-theme", theme);
@@ -38,8 +51,8 @@ if (vscode) {
 const autoUpdateToggle = document.getElementById("auto-update-toggle");
 const autoUpdateStatus = document.getElementById("auto-update-status");
 
-const outputLogToggle = document.getElementById("output-log-toggle");
-const outputLogStatus = document.getElementById("output-log-status");
+const autoDeleteToggle = document.getElementById("auto-delete-toggle");
+const autoDeleteStatus = document.getElementById("auto-delete-status");
 
 const testRetrySpinner = document.getElementById("test-retry-spinner");
 const testRetryStatus = document.getElementById("test-retry-status");
@@ -54,17 +67,21 @@ const autoCorrectionStatus = document.getElementById("auto-correction-status");
 const autoExecuteToggle = document.getElementById("auto-execute-toggle");
 const autoExecuteStatus = document.getElementById("auto-execute-status");
 
+const autoToolToggle = document.getElementById("auto-tool-toggle");
+const autoToolStatus = document.getElementById("auto-tool-status");
+
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
 // 토글 이벤트 바인딩 (모듈 함수 사용)
 bindToggleEvents({
   autoUpdateToggle,
-  outputLogToggle,
+  autoDeleteToggle,
   streamingToggle,
   autoTestRetryToggle,
   autoCorrectionToggle,
   autoExecuteToggle,
+  autoToolToggle,
   vscode,
 });
 
@@ -1822,6 +1839,14 @@ window.addEventListener("message", (event) => {
         applyThemeToBody(message.chatTheme);
       }
 
+      // 버전 표시 (package.json에서 동기화)
+      if (message.extensionVersion) {
+        const versionNumberElement = document.getElementById("version-number");
+        if (versionNumberElement) {
+          versionNumberElement.textContent = message.extensionVersion;
+        }
+      }
+
       // Ollama 모델 설정 처리
       if (message.ollamaModel && message.ollamaModel !== "") {
         storedOllamaModel = message.ollamaModel;
@@ -1851,8 +1876,11 @@ window.addEventListener("message", (event) => {
       if (typeof message.autoUpdateEnabled === "boolean" && autoUpdateToggle) {
         autoUpdateToggle.checked = message.autoUpdateEnabled;
       }
-      if (typeof message.outputLogEnabled === "boolean" && outputLogToggle) {
-        outputLogToggle.checked = message.outputLogEnabled;
+      if (
+        typeof message.autoDeleteFilesEnabled === "boolean" &&
+        autoDeleteToggle
+      ) {
+        autoDeleteToggle.checked = message.autoDeleteFilesEnabled;
       }
       if (typeof message.errorRetryCount === "number" && errorRetrySpinner) {
         errorRetrySpinner.value = message.errorRetryCount;
@@ -1862,6 +1890,12 @@ window.addEventListener("message", (event) => {
         autoExecuteToggle
       ) {
         autoExecuteToggle.checked = message.autoExecuteCommandsEnabled;
+      }
+      if (
+        typeof message.autoToolExecutionEnabled === "boolean" &&
+        autoToolToggle
+      ) {
+        autoToolToggle.checked = message.autoToolExecutionEnabled;
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
@@ -2663,11 +2697,6 @@ window.addEventListener("message", (event) => {
         autoUpdateToggle.checked = message.enabled;
       }
       break;
-    case "outputLogStatusChanged":
-      if (typeof message.enabled === "boolean" && outputLogToggle) {
-        outputLogToggle.checked = message.enabled;
-      }
-      break;
     case "errorRetryCountChanged":
       if (typeof message.count === "number" && errorRetrySpinner) {
         errorRetrySpinner.value = message.count;
@@ -3345,7 +3374,7 @@ window.addEventListener("message", (event) => {
   }
 
   // MCP 관련 메시지는 별도 모듈에서 처리
-  if (message.command && message.command.startsWith('mcp')) {
+  if (message.command && message.command.startsWith("mcp")) {
     handleMcpMessage(message);
   }
 });
@@ -3835,54 +3864,63 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // 카테고리별 파일 캐시
 const agentPolicyFilesCache = {
-  'stable-version': [],
-  'coding-style': [],
-  'project-architecture': [],
-  'dependency-policy': [],
-  'db-policy': []
+  "stable-version": [],
+  "coding-style": [],
+  "project-architecture": [],
+  "dependency-policy": [],
+  "db-policy": [],
 };
 
 // 파일 목록 렌더링
 function renderPolicyFileList(category, files) {
   const listContainer = document.getElementById(`${category}-file-list`);
-  if (!listContainer) return;
+  if (!listContainer) {
+    return;
+  }
 
   // 캐시 업데이트
   agentPolicyFilesCache[category] = files;
 
   // 목록 초기화
-  listContainer.innerHTML = '';
+  listContainer.innerHTML = "";
 
   if (!files || files.length === 0) {
     return;
   }
 
-  files.forEach(fileName => {
-    const isLegacy = fileName.includes('(레거시)');
-    const displayName = fileName.replace(' (레거시)', '');
+  files.forEach((fileName) => {
+    const isLegacy = fileName.includes("(레거시)");
+    const displayName = fileName.replace(" (레거시)", "");
 
-    const item = document.createElement('div');
-    item.className = 'policy-file-item';
+    const item = document.createElement("div");
+    item.className = "policy-file-item";
 
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'file-name' + (isLegacy ? ' legacy' : '');
-    nameSpan.textContent = displayName + (isLegacy ? ' (레거시)' : '');
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "file-name" + (isLegacy ? " legacy" : "");
+    nameSpan.textContent = displayName + (isLegacy ? " (레거시)" : "");
     item.appendChild(nameSpan);
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'delete-file-btn';
-    deleteBtn.textContent = '삭제';
-    deleteBtn.addEventListener('click', (e) => {
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "delete-file-btn";
+    deleteBtn.textContent = "삭제";
+    deleteBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('[settings.js] Delete button clicked for:', displayName, 'category:', category, 'isLegacy:', isLegacy);
+      console.log(
+        "[settings.js] Delete button clicked for:",
+        displayName,
+        "category:",
+        category,
+        "isLegacy:",
+        isLegacy,
+      );
 
       // VSCode webview에서 confirm()이 작동하지 않을 수 있으므로 바로 삭제 요청
       vscode.postMessage({
-        command: 'deleteAgentPolicyFile',
+        command: "deleteAgentPolicyFile",
         category: category,
         fileName: displayName,
-        isLegacy: isLegacy
+        isLegacy: isLegacy,
       });
     });
     item.appendChild(deleteBtn);
@@ -3921,11 +3959,13 @@ function setupAgentPolicyFileUpload(
   // 파일 선택 시 (다중 파일 지원)
   fileInput.addEventListener("change", (e) => {
     const files = Array.from(e.target.files);
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      return;
+    }
 
     // MD 파일만 필터링
-    const validFiles = files.filter(f =>
-      f.name.endsWith(".md") || f.name.endsWith(".markdown")
+    const validFiles = files.filter(
+      (f) => f.name.endsWith(".md") || f.name.endsWith(".markdown"),
     );
 
     if (validFiles.length === 0) {
@@ -3936,19 +3976,25 @@ function setupAgentPolicyFileUpload(
     }
 
     if (validFiles.length < files.length) {
-      showStatus(statusElement, `${files.length - validFiles.length}개의 비-Markdown 파일이 제외되었습니다.`, "info");
+      showStatus(
+        statusElement,
+        `${files.length - validFiles.length}개의 비-Markdown 파일이 제외되었습니다.`,
+        "info",
+      );
     }
 
     selectedFiles = validFiles;
     if (fileNameElement) {
-      fileNameElement.textContent = `선택된 파일: ${validFiles.map(f => f.name).join(', ')}`;
+      fileNameElement.textContent = `선택된 파일: ${validFiles.map((f) => f.name).join(", ")}`;
     }
     uploadButton.disabled = false;
   });
 
   // 저장 버튼 클릭 (다중 파일 업로드)
   uploadButton.addEventListener("click", async () => {
-    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0) {
+      return;
+    }
 
     showStatus(statusElement, "저장 중...", "info");
     uploadButton.disabled = true;
@@ -3960,10 +4006,10 @@ function setupAgentPolicyFileUpload(
       try {
         const content = await readFileAsText(file);
         vscode.postMessage({
-          command: 'addAgentPolicyFile',
+          command: "addAgentPolicyFile",
           category: category,
           fileName: file.name,
-          content: content
+          content: content,
         });
         successCount++;
       } catch (error) {
@@ -3980,7 +4026,11 @@ function setupAgentPolicyFileUpload(
     }
 
     if (errorCount > 0) {
-      showStatus(statusElement, `${successCount}개 저장됨, ${errorCount}개 실패`, errorCount > 0 ? "error" : "success");
+      showStatus(
+        statusElement,
+        `${successCount}개 저장됨, ${errorCount}개 실패`,
+        errorCount > 0 ? "error" : "success",
+      );
     }
   });
 }
@@ -4002,11 +4052,11 @@ function loadAgentPolicyFiles() {
 
 // 카테고리별 상태 요소 ID 매핑
 const categoryStatusMap = {
-  'stable-version': 'stable-version-status',
-  'coding-style': 'coding-style-status',
-  'project-architecture': 'project-architecture-status',
-  'dependency-policy': 'dependency-policy-status',
-  'db-policy': 'db-policy-status'
+  "stable-version": "stable-version-status",
+  "coding-style": "coding-style-status",
+  "project-architecture": "project-architecture-status",
+  "dependency-policy": "dependency-policy-status",
+  "db-policy": "db-policy-status",
 };
 
 // AgentPolicy 파일 업로드 설정 (다중 파일 지원)
@@ -4082,7 +4132,7 @@ window.addEventListener("message", (event) => {
           showStatus(
             document.getElementById(statusId),
             `"${message.fileName}" 파일이 저장되었습니다.`,
-            "success"
+            "success",
           );
         }
         // 파일 목록 새로고침
@@ -4098,7 +4148,7 @@ window.addEventListener("message", (event) => {
           showStatus(
             document.getElementById(statusId),
             `저장 실패: ${message.error}`,
-            "error"
+            "error",
           );
           // 업로드 버튼 다시 활성화
           const uploadBtnId = `upload-${message.category}-button`;
@@ -4118,7 +4168,7 @@ window.addEventListener("message", (event) => {
           showStatus(
             document.getElementById(statusId),
             `"${message.fileName}" 파일이 삭제되었습니다.`,
-            "success"
+            "success",
           );
         }
         // 파일 목록 새로고침
@@ -4134,7 +4184,7 @@ window.addEventListener("message", (event) => {
           showStatus(
             document.getElementById(statusId),
             `삭제 실패: ${message.error}`,
-            "error"
+            "error",
           );
         }
       }
@@ -4153,7 +4203,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("hotload-add-status"),
         "성공적으로 처리되었습니다.",
-        "success"
+        "success",
       );
       // 목록 새로고침
       vscode.postMessage({ command: "getHotLoads" });
@@ -4166,13 +4216,17 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("hotload-add-status"),
         message.error || "오류가 발생했습니다.",
-        "error"
+        "error",
       );
       break;
 
     // ========== 컨텍스트 제외 패턴 관련 메시지 핸들러 ==========
     case "contextExclusions":
-      renderContextExclusionLists(message.defaultPatterns, message.customPatterns, message.disabledPatterns);
+      renderContextExclusionLists(
+        message.defaultPatterns,
+        message.customPatterns,
+        message.disabledPatterns,
+      );
       break;
 
     case "contextExclusionAdded":
@@ -4180,7 +4234,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("context-exclusion-status"),
         "성공적으로 처리되었습니다.",
-        "success"
+        "success",
       );
       // 목록 새로고침
       vscode.postMessage({ command: "getContextExclusions" });
@@ -4193,7 +4247,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("context-exclusion-status"),
         message.error || "오류가 발생했습니다.",
-        "error"
+        "error",
       );
       break;
 
@@ -4210,7 +4264,7 @@ window.addEventListener("message", (event) => {
         message.customBlockedCommands,
         message.customProtectedFiles,
         message.disabledBlockedCommands,
-        message.disabledProtectedFiles
+        message.disabledProtectedFiles,
       );
       break;
 
@@ -4219,7 +4273,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("blocked-command-status"),
         "성공적으로 처리되었습니다.",
-        "success"
+        "success",
       );
       // 목록 새로고침
       vscode.postMessage({ command: "getSecurityRules" });
@@ -4230,7 +4284,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("protected-file-status"),
         "성공적으로 처리되었습니다.",
-        "success"
+        "success",
       );
       // 목록 새로고침
       vscode.postMessage({ command: "getSecurityRules" });
@@ -4249,7 +4303,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("blocked-command-status"),
         message.error || "오류가 발생했습니다.",
-        "error"
+        "error",
       );
       break;
 
@@ -4259,7 +4313,7 @@ window.addEventListener("message", (event) => {
       showStatus(
         document.getElementById("protected-file-status"),
         message.error || "오류가 발생했습니다.",
-        "error"
+        "error",
       );
       break;
   }
@@ -4280,13 +4334,28 @@ function clearHotLoadForm() {
   const maxRetries = document.getElementById("hotload-max-retries");
   const onFailure = document.getElementById("hotload-on-failure");
 
-  if (keywordsInput) keywordsInput.value = "";
-  if (descriptionInput) descriptionInput.value = "";
-  if (commandInput) commandInput.value = "";
-  if (conditionType) conditionType.value = "none";
-  if (conditionValue) { conditionValue.value = ""; conditionValue.style.display = "none"; }
-  if (maxRetries) maxRetries.value = "0";
-  if (onFailure) onFailure.value = "stop";
+  if (keywordsInput) {
+    keywordsInput.value = "";
+  }
+  if (descriptionInput) {
+    descriptionInput.value = "";
+  }
+  if (commandInput) {
+    commandInput.value = "";
+  }
+  if (conditionType) {
+    conditionType.value = "none";
+  }
+  if (conditionValue) {
+    conditionValue.value = "";
+    conditionValue.style.display = "none";
+  }
+  if (maxRetries) {
+    maxRetries.value = "0";
+  }
+  if (onFailure) {
+    onFailure.value = "stop";
+  }
   if (addButton) {
     addButton.textContent = "Hot Load 추가";
     delete addButton.dataset.editId;
@@ -4300,42 +4369,54 @@ function renderHotLoadList(hotLoads) {
   const listContainer = document.getElementById("hotload-list");
   const emptyMessage = document.getElementById("hotload-list-empty");
 
-  if (!listContainer) return;
-
-  if (!hotLoads || hotLoads.length === 0) {
-    listContainer.innerHTML = "";
-    if (emptyMessage) emptyMessage.style.display = "block";
+  if (!listContainer) {
     return;
   }
 
-  if (emptyMessage) emptyMessage.style.display = "none";
+  if (!hotLoads || hotLoads.length === 0) {
+    listContainer.innerHTML = "";
+    if (emptyMessage) {
+      emptyMessage.style.display = "block";
+    }
+    return;
+  }
+
+  if (emptyMessage) {
+    emptyMessage.style.display = "none";
+  }
 
   listContainer.innerHTML = hotLoads
-    .map(
-      (item) => {
-        // 확장 필드 표시 텍스트
-        let extraInfo = '';
-        if (item.maxRetries && item.maxRetries > 0) {
-          extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; opacity: 0.8;">🔄 재시도: ${item.maxRetries}회</span>`;
-        }
-        if (item.completionCondition) {
-          const condLabels = { exit_code: '종료코드', output_contains: '출력포함', output_not_contains: '출력미포함', file_exists: '파일존재' };
-          const condLabel = condLabels[item.completionCondition.type] || item.completionCondition.type;
-          extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; opacity: 0.8;">✅ ${condLabel}: ${escapeHtml(item.completionCondition.value)}</span>`;
-        }
-        if (item.onFailure && item.onFailure !== 'stop') {
-          const failLabels = { notify: '알림', pass_to_llm: 'LLM전달' };
-          extraInfo += `<span style="font-size: 0.8em; opacity: 0.8;">⚠️ 실패: ${failLabels[item.onFailure] || item.onFailure}</span>`;
-        }
+    .map((item) => {
+      // 확장 필드 표시 텍스트
+      let extraInfo = "";
+      if (item.maxRetries && item.maxRetries > 0) {
+        extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; opacity: 0.8;">재시도: ${item.maxRetries}회</span>`;
+      }
+      if (item.completionCondition) {
+        const condLabels = {
+          exit_code: "종료코드",
+          output_contains: "출력포함",
+          output_not_contains: "출력미포함",
+          file_exists: "파일존재",
+        };
+        const condLabel =
+          condLabels[item.completionCondition.type] ||
+          item.completionCondition.type;
+        extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; opacity: 0.8;">${condLabel}: ${escapeHtml(item.completionCondition.value)}</span>`;
+      }
+      if (item.onFailure && item.onFailure !== "stop") {
+        const failLabels = { notify: "알림", pass_to_llm: "LLM전달" };
+        extraInfo += `<span style="font-size: 0.8em; opacity: 0.8;">실패: ${failLabels[item.onFailure] || item.onFailure}</span>`;
+      }
 
-        return `
+      return `
     <div class="policy-file-item" data-id="${item.id}" style="flex-direction: column; align-items: stretch;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
         <div style="flex: 1;">
           <strong style="color: var(--vscode-foreground);">${escapeHtml(item.keywords)}</strong>
           <p style="margin: 4px 0; font-size: 0.9em; color: var(--vscode-descriptionForeground);">${escapeHtml(item.description)}</p>
           <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">${escapeHtml(item.command)}</code>
-          ${extraInfo ? `<div style="margin-top: 4px;">${extraInfo}</div>` : ''}
+          ${extraInfo ? `<div style="margin-top: 4px;">${extraInfo}</div>` : ""}
         </div>
         <div style="display: flex; gap: 5px; margin-left: 10px;">
           <button class="edit-hotload-btn delete-file-btn" data-id="${item.id}" style="background-color: var(--vscode-button-secondaryBackground);">편집</button>
@@ -4344,8 +4425,7 @@ function renderHotLoadList(hotLoads) {
       </div>
     </div>
   `;
-      }
-    )
+    })
     .join("");
 
   // 삭제 버튼 이벤트 바인딩
@@ -4364,28 +4444,48 @@ function renderHotLoadList(hotLoads) {
       const item = hotLoads.find((h) => h.id === id);
       if (item) {
         const keywordsInput = document.getElementById("hotload-keywords-input");
-        const descriptionInput = document.getElementById("hotload-description-input");
+        const descriptionInput = document.getElementById(
+          "hotload-description-input",
+        );
         const commandInput = document.getElementById("hotload-command-input");
         const addButton = document.getElementById("add-hotload-button");
         const conditionType = document.getElementById("hotload-condition-type");
-        const conditionValue = document.getElementById("hotload-condition-value");
+        const conditionValue = document.getElementById(
+          "hotload-condition-value",
+        );
         const maxRetries = document.getElementById("hotload-max-retries");
         const onFailure = document.getElementById("hotload-on-failure");
 
-        if (keywordsInput) keywordsInput.value = item.keywords;
-        if (descriptionInput) descriptionInput.value = item.description;
-        if (commandInput) commandInput.value = item.command;
+        if (keywordsInput) {
+          keywordsInput.value = item.keywords;
+        }
+        if (descriptionInput) {
+          descriptionInput.value = item.description;
+        }
+        if (commandInput) {
+          commandInput.value = item.command;
+        }
 
         // 확장 필드 채우기
         if (conditionType) {
-          conditionType.value = item.completionCondition ? item.completionCondition.type : "none";
+          conditionType.value = item.completionCondition
+            ? item.completionCondition.type
+            : "none";
         }
         if (conditionValue) {
-          conditionValue.value = item.completionCondition ? item.completionCondition.value : "";
-          conditionValue.style.display = item.completionCondition ? "block" : "none";
+          conditionValue.value = item.completionCondition
+            ? item.completionCondition.value
+            : "";
+          conditionValue.style.display = item.completionCondition
+            ? "block"
+            : "none";
         }
-        if (maxRetries) maxRetries.value = item.maxRetries || 0;
-        if (onFailure) onFailure.value = item.onFailure || "stop";
+        if (maxRetries) {
+          maxRetries.value = item.maxRetries || 0;
+        }
+        if (onFailure) {
+          onFailure.value = item.onFailure || "stop";
+        }
 
         if (addButton) {
           addButton.textContent = "Hot Load 수정";
@@ -4414,12 +4514,15 @@ function escapeHtml(text) {
 function initializeHotLoad() {
   const addButton = document.getElementById("add-hotload-button");
   const conditionTypeSelect = document.getElementById("hotload-condition-type");
-  const conditionValueInput = document.getElementById("hotload-condition-value");
+  const conditionValueInput = document.getElementById(
+    "hotload-condition-value",
+  );
 
   // 완료 조건 타입 변경 시 value input 표시/숨김
   if (conditionTypeSelect && conditionValueInput) {
     conditionTypeSelect.addEventListener("change", () => {
-      conditionValueInput.style.display = conditionTypeSelect.value === "none" ? "none" : "block";
+      conditionValueInput.style.display =
+        conditionTypeSelect.value === "none" ? "none" : "block";
       // placeholder 변경
       const placeholders = {
         exit_code: "종료 코드 (예: 0)",
@@ -4427,14 +4530,17 @@ function initializeHotLoad() {
         output_not_contains: "미포함할 문자열 (예: ERROR)",
         file_exists: "파일 경로 (예: ./dist/index.js)",
       };
-      conditionValueInput.placeholder = placeholders[conditionTypeSelect.value] || "조건 값";
+      conditionValueInput.placeholder =
+        placeholders[conditionTypeSelect.value] || "조건 값";
     });
   }
 
   if (addButton) {
     addButton.addEventListener("click", () => {
       const keywordsInput = document.getElementById("hotload-keywords-input");
-      const descriptionInput = document.getElementById("hotload-description-input");
+      const descriptionInput = document.getElementById(
+        "hotload-description-input",
+      );
       const commandInput = document.getElementById("hotload-command-input");
       const conditionType = document.getElementById("hotload-condition-type");
       const conditionValue = document.getElementById("hotload-condition-value");
@@ -4449,7 +4555,7 @@ function initializeHotLoad() {
         showStatus(
           document.getElementById("hotload-add-status"),
           "모든 필드를 입력해주세요.",
-          "error"
+          "error",
         );
         return;
       }
@@ -4502,7 +4608,11 @@ initializeHotLoad();
 /**
  * 컨텍스트 제외 패턴 목록 렌더링
  */
-function renderContextExclusionLists(defaultPatterns, customPatterns, disabledPatterns) {
+function renderContextExclusionLists(
+  defaultPatterns,
+  customPatterns,
+  disabledPatterns,
+) {
   const disabled = disabledPatterns || [];
 
   // 커스텀 패턴 목록
@@ -4512,9 +4622,13 @@ function renderContextExclusionLists(defaultPatterns, customPatterns, disabledPa
   if (customList) {
     if (!customPatterns || customPatterns.length === 0) {
       customList.innerHTML = "";
-      if (customEmpty) customEmpty.style.display = "block";
+      if (customEmpty) {
+        customEmpty.style.display = "block";
+      }
     } else {
-      if (customEmpty) customEmpty.style.display = "none";
+      if (customEmpty) {
+        customEmpty.style.display = "none";
+      }
       customList.innerHTML = customPatterns
         .map(
           (pattern) => `
@@ -4522,17 +4636,22 @@ function renderContextExclusionLists(defaultPatterns, customPatterns, disabledPa
           <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
           <button class="delete-context-exclusion-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
         </div>
-      `
+      `,
         )
         .join("");
 
       // 삭제 버튼 이벤트 바인딩
-      customList.querySelectorAll(".delete-context-exclusion-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const pattern = e.currentTarget.dataset.pattern;
-          vscode.postMessage({ command: "deleteContextExclusion", pattern: pattern });
+      customList
+        .querySelectorAll(".delete-context-exclusion-btn")
+        .forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const pattern = e.currentTarget.dataset.pattern;
+            vscode.postMessage({
+              command: "deleteContextExclusion",
+              pattern: pattern,
+            });
+          });
         });
-      });
     }
   }
 
@@ -4560,9 +4679,15 @@ function renderContextExclusionLists(defaultPatterns, customPatterns, disabledPa
         const pattern = e.currentTarget.dataset.pattern;
         const isDisabled = e.currentTarget.dataset.disabled === "true";
         if (isDisabled) {
-          vscode.postMessage({ command: "enableDefaultExclusion", pattern: pattern });
+          vscode.postMessage({
+            command: "enableDefaultExclusion",
+            pattern: pattern,
+          });
         } else {
-          vscode.postMessage({ command: "disableDefaultExclusion", pattern: pattern });
+          vscode.postMessage({
+            command: "disableDefaultExclusion",
+            pattern: pattern,
+          });
         }
       });
     });
@@ -4583,7 +4708,7 @@ function initializeContextExclusion() {
         showStatus(
           document.getElementById("context-exclusion-status"),
           "패턴을 입력해주세요.",
-          "error"
+          "error",
         );
         return;
       }
@@ -4617,21 +4742,27 @@ function renderSecurityRulesLists(
   customBlockedCommands,
   customProtectedFiles,
   disabledBlockedCommands,
-  disabledProtectedFiles
+  disabledProtectedFiles,
 ) {
   const disabledCmds = disabledBlockedCommands || [];
   const disabledFiles = disabledProtectedFiles || [];
 
   // 커스텀 차단 명령어 목록
   const customCmdList = document.getElementById("blocked-command-custom-list");
-  const customCmdEmpty = document.getElementById("blocked-command-custom-empty");
+  const customCmdEmpty = document.getElementById(
+    "blocked-command-custom-empty",
+  );
 
   if (customCmdList) {
     if (!customBlockedCommands || customBlockedCommands.length === 0) {
       customCmdList.innerHTML = "";
-      if (customCmdEmpty) customCmdEmpty.style.display = "block";
+      if (customCmdEmpty) {
+        customCmdEmpty.style.display = "block";
+      }
     } else {
-      if (customCmdEmpty) customCmdEmpty.style.display = "none";
+      if (customCmdEmpty) {
+        customCmdEmpty.style.display = "none";
+      }
       customCmdList.innerHTML = customBlockedCommands
         .map(
           (pattern) => `
@@ -4639,30 +4770,41 @@ function renderSecurityRulesLists(
           <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
           <button class="delete-blocked-command-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
         </div>
-      `
+      `,
         )
         .join("");
 
       // 삭제 버튼 이벤트 바인딩
-      customCmdList.querySelectorAll(".delete-blocked-command-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const pattern = e.currentTarget.dataset.pattern;
-          vscode.postMessage({ command: "deleteBlockedCommand", pattern: pattern });
+      customCmdList
+        .querySelectorAll(".delete-blocked-command-btn")
+        .forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const pattern = e.currentTarget.dataset.pattern;
+            vscode.postMessage({
+              command: "deleteBlockedCommand",
+              pattern: pattern,
+            });
+          });
         });
-      });
     }
   }
 
   // 커스텀 보호 파일 목록
   const customFileList = document.getElementById("protected-file-custom-list");
-  const customFileEmpty = document.getElementById("protected-file-custom-empty");
+  const customFileEmpty = document.getElementById(
+    "protected-file-custom-empty",
+  );
 
   if (customFileList) {
     if (!customProtectedFiles || customProtectedFiles.length === 0) {
       customFileList.innerHTML = "";
-      if (customFileEmpty) customFileEmpty.style.display = "block";
+      if (customFileEmpty) {
+        customFileEmpty.style.display = "block";
+      }
     } else {
-      if (customFileEmpty) customFileEmpty.style.display = "none";
+      if (customFileEmpty) {
+        customFileEmpty.style.display = "none";
+      }
       customFileList.innerHTML = customProtectedFiles
         .map(
           (pattern) => `
@@ -4670,22 +4812,29 @@ function renderSecurityRulesLists(
           <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
           <button class="delete-protected-file-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
         </div>
-      `
+      `,
         )
         .join("");
 
       // 삭제 버튼 이벤트 바인딩
-      customFileList.querySelectorAll(".delete-protected-file-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const pattern = e.currentTarget.dataset.pattern;
-          vscode.postMessage({ command: "deleteProtectedFile", pattern: pattern });
+      customFileList
+        .querySelectorAll(".delete-protected-file-btn")
+        .forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const pattern = e.currentTarget.dataset.pattern;
+            vscode.postMessage({
+              command: "deleteProtectedFile",
+              pattern: pattern,
+            });
+          });
         });
-      });
     }
   }
 
   // 기본 차단 명령어 목록 (토글 가능)
-  const defaultCmdList = document.getElementById("blocked-command-default-list");
+  const defaultCmdList = document.getElementById(
+    "blocked-command-default-list",
+  );
   if (defaultCmdList && defaultBlockedCommands) {
     defaultCmdList.innerHTML = defaultBlockedCommands
       .map((rule) => {
@@ -4703,21 +4852,25 @@ function renderSecurityRulesLists(
       .join("");
 
     // 토글 이벤트 바인딩
-    defaultCmdList.querySelectorAll(".default-blocked-cmd-tag").forEach((tag) => {
-      tag.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.id;
-        const isDisabled = e.currentTarget.dataset.disabled === "true";
-        if (isDisabled) {
-          vscode.postMessage({ command: "enableBlockedCommand", id: id });
-        } else {
-          vscode.postMessage({ command: "disableBlockedCommand", id: id });
-        }
+    defaultCmdList
+      .querySelectorAll(".default-blocked-cmd-tag")
+      .forEach((tag) => {
+        tag.addEventListener("click", (e) => {
+          const id = e.currentTarget.dataset.id;
+          const isDisabled = e.currentTarget.dataset.disabled === "true";
+          if (isDisabled) {
+            vscode.postMessage({ command: "enableBlockedCommand", id: id });
+          } else {
+            vscode.postMessage({ command: "disableBlockedCommand", id: id });
+          }
+        });
       });
-    });
   }
 
   // 기본 보호 파일 목록 (토글 가능)
-  const defaultFileList = document.getElementById("protected-file-default-list");
+  const defaultFileList = document.getElementById(
+    "protected-file-default-list",
+  );
   if (defaultFileList && defaultProtectedFiles) {
     defaultFileList.innerHTML = defaultProtectedFiles
       .map((rule) => {
@@ -4735,17 +4888,19 @@ function renderSecurityRulesLists(
       .join("");
 
     // 토글 이벤트 바인딩
-    defaultFileList.querySelectorAll(".default-protected-file-tag").forEach((tag) => {
-      tag.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.id;
-        const isDisabled = e.currentTarget.dataset.disabled === "true";
-        if (isDisabled) {
-          vscode.postMessage({ command: "enableProtectedFile", id: id });
-        } else {
-          vscode.postMessage({ command: "disableProtectedFile", id: id });
-        }
+    defaultFileList
+      .querySelectorAll(".default-protected-file-tag")
+      .forEach((tag) => {
+        tag.addEventListener("click", (e) => {
+          const id = e.currentTarget.dataset.id;
+          const isDisabled = e.currentTarget.dataset.disabled === "true";
+          if (isDisabled) {
+            vscode.postMessage({ command: "enableProtectedFile", id: id });
+          } else {
+            vscode.postMessage({ command: "disableProtectedFile", id: id });
+          }
+        });
       });
-    });
   }
 }
 
@@ -4764,7 +4919,7 @@ function initializeSecurityRules() {
         showStatus(
           document.getElementById("blocked-command-status"),
           "패턴을 입력해주세요.",
-          "error"
+          "error",
         );
         return;
       }
@@ -4791,7 +4946,7 @@ function initializeSecurityRules() {
         showStatus(
           document.getElementById("protected-file-status"),
           "패턴을 입력해주세요.",
-          "error"
+          "error",
         );
         return;
       }
