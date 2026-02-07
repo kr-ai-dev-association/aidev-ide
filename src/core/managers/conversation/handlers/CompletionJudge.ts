@@ -30,14 +30,25 @@ export class CompletionJudge {
 
     /**
      * 작업 완료 여부 판단
+     * @param buildTestPassed - 빌드/테스트 통과 여부 (true면 완료 가능성 높음)
      */
     async judge(
         userQuery: string,
         createdFiles: string[],
         modifiedFiles: string[],
         lastResponse: string,
-        abortSignal?: AbortSignal
+        abortSignal?: AbortSignal,
+        buildTestPassed: boolean = false
     ): Promise<CompletionJudgment> {
+        // v9.7.0: 빌드/테스트가 통과했고 파일 변경이 있으면 완료로 간주
+        if (buildTestPassed && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
+            console.log(`[CompletionJudge] Build/test passed with file changes, marking as complete`);
+            return {
+                isComplete: true,
+                confidence: 0.95,
+                reason: '빌드/테스트 통과 및 파일 변경 완료'
+            };
+        }
         // 자동 추가 작업 횟수 초과 시 강제 완료
         if (this.autoContinueCount >= CompletionJudge.MAX_AUTO_CONTINUE) {
             console.log(`[CompletionJudge] Max auto-continue reached (${this.autoContinueCount}), forcing complete`);

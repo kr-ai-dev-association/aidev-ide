@@ -130,21 +130,22 @@ export class SessionManager {
     /**
      * 대화 기록을 추가합니다
      */
-    public addConversationEntry(sessionId: string, entry: ConversationEntry): void {
+    public async addConversationEntry(sessionId: string, entry: ConversationEntry): Promise<void> {
         const session = this.sessions.get(sessionId);
         if (!session) {
             return;
         }
 
         session.conversationHistory.push(entry);
-        
+
         // 최대 100개만 유지
         if (session.conversationHistory.length > 100) {
             session.conversationHistory.shift();
         }
 
         session.lastActiveAt = Date.now();
-        this.saveSessions();
+        await this.saveSessions();
+        console.log(`[SessionManager] Conversation entry saved. Total entries: ${session.conversationHistory.length}`);
     }
 
     /**
@@ -272,12 +273,12 @@ export class SessionManager {
     }
 
     /**
-     * 세션을 저장합니다
+     * 세션을 저장합니다 (비동기, await 가능)
      */
-    private saveSessions(): void {
+    private async saveSessions(): Promise<void> {
         try {
             const sessions = Array.from(this.sessions.values());
-            this.context.globalState.update('codepilot.sessions', {
+            await this.context.globalState.update('codepilot.sessions', {
                 sessions,
                 currentSessionId: this.currentSessionId
             });

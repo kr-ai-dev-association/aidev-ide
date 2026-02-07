@@ -23,6 +23,7 @@ import { ProjectType } from "../project/types";
 import { InvestigationManager } from "../investigation/InvestigationManager";
 import { SettingsManager } from "../state/SettingsManager";
 import { StateManager } from "../state/StateManager";
+import { UsageMetricsManager } from "../state/UsageMetricsManager";
 import { AiModelType, OllamaApi, GeminiApi, BanyaApi } from "../../../services";
 import { AgentStateManager, AgentPhase } from "./AgentStateManager";
 import { getSimpleSummaryPrompt } from "../context/prompts/task";
@@ -913,6 +914,7 @@ export class ConversationManager {
     const terminalManager = TerminalManager.getInstance();
     const investigationManager = InvestigationManager.getInstance();
     const toolExecutor = new ToolExecutor();
+    const usageMetrics = UsageMetricsManager.getInstance(); // v9.7.0: 사용량 메트릭
 
     // ✅ Phase 기준 CODEPILOT 텍스트 송신 제어 함수
     // 🔥 v8.9.8: EXECUTION 단계에서도 스트리밍 (CODE 블록 → 마크다운 변환)
@@ -1004,6 +1006,29 @@ export class ConversationManager {
           );
 
         console.log(`[ConversationManager] Greeting streaming completed.`);
+
+        // 인사말 응답도 세션에 저장
+        if (options.extensionContext) {
+          try {
+            const { SessionManager } = await import("../state/SessionManager");
+            const sessionManager = SessionManager.getInstance(options.extensionContext);
+            const currentSession = sessionManager.getCurrentSession();
+            if (currentSession) {
+              await sessionManager.addConversationEntry(currentSession.id, {
+                id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+                timestamp: Date.now(),
+                userRequest: options.userQuery || "",
+                assistantResponse: greetingResponse,
+                actions: [],
+                result: "success",
+                model: options.currentModelType,
+              });
+            }
+          } catch (e) {
+            console.warn("[ConversationManager] Failed to save greeting to session:", e);
+          }
+        }
+
         return; // 스트리밍 완료 후 즉시 종료
       }
 
@@ -1062,6 +1087,29 @@ export class ConversationManager {
         cleanGreetingResponse,
       );
       console.log(`[ConversationManager] Greeting message sent to webview.`);
+
+      // 인사말 응답도 세션에 저장
+      if (options.extensionContext) {
+        try {
+          const { SessionManager } = await import("../state/SessionManager");
+          const sessionManager = SessionManager.getInstance(options.extensionContext);
+          const currentSession = sessionManager.getCurrentSession();
+          if (currentSession) {
+            await sessionManager.addConversationEntry(currentSession.id, {
+              id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+              timestamp: Date.now(),
+              userRequest: options.userQuery || "",
+              assistantResponse: cleanGreetingResponse,
+              actions: [],
+              result: "success",
+              model: options.currentModelType,
+            });
+          }
+        } catch (e) {
+          console.warn("[ConversationManager] Failed to save greeting to session:", e);
+        }
+      }
+
       return; // 즉시 종료
     }
 
@@ -1228,6 +1276,9 @@ export class ConversationManager {
             console.log(
               `[ConversationManager] Context compacted. Saved ${compactionResult.savedTokens} tokens (${compactionResult.originalTokens} → ${compactionResult.compactedTokens})`,
             );
+
+            // v9.7.0: 컨텍스트 압축 메트릭 기록
+            usageMetrics.recordContextCompaction(compactionResult.savedTokens);
 
             // UI에 압축 알림
             WebviewBridge.receiveMessage(
@@ -2059,6 +2110,7 @@ export class ConversationManager {
         : false;
 
       let llmResponse: string;
+      const llmStartTime = Date.now(); // v9.7.0: LLM 호출 시간 측정
 
       if (isStreamingEnabled) {
         // 스트리밍 모드: 실시간으로 웹뷰에 청크 전송
@@ -2154,6 +2206,12 @@ export class ConversationManager {
           );
         }
       }
+
+      // v9.7.0: LLM 호출 메트릭 기록
+      const llmResponseTime = Date.now() - llmStartTime;
+      const estimatedTokenCount = Math.ceil(llmResponse.length / 4); // 대략적인 토큰 추정
+      usageMetrics.recordLLMCall(llmResponseTime, estimatedTokenCount, true);
+      usageMetrics.incrementTurnCount();
 
       console.log(
         `[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`,
@@ -2922,8 +2980,8 @@ export class ConversationManager {
                 );
                 const currentSession = sessionManager.getCurrentSession();
                 if (currentSession) {
-                  sessionManager.addConversationEntry(currentSession.id, {
-                    id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  await sessionManager.addConversationEntry(currentSession.id, {
+                    id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
                     timestamp: Date.now(),
                     userRequest: userQuery || "",
                     assistantResponse: cleanResponse,
@@ -3517,6 +3575,39 @@ export class ConversationManager {
         "모든 작업이 완료되었습니다.",
       );
     }
+
+    // 📝 v9.7.0: 루프 종료 후 세션에 저장 (어떤 경로로든 종료 시 보장)
+    if (options.extensionContext) {
+      try {
+        const { SessionManager } = await import("../state/SessionManager");
+        const sessionManager = SessionManager.getInstance(options.extensionContext);
+        const currentSession = sessionManager.getCurrentSession();
+
+        if (currentSession) {
+          // 최종 응답 생성
+          const finalSummary = (createdFiles.length > 0 || modifiedFiles.length > 0)
+            ? `작업이 완료되었습니다.\n${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
+            : "작업이 완료되었습니다.";
+
+          console.log(`[ConversationManager] Saving CODE mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`);
+          await sessionManager.addConversationEntry(currentSession.id, {
+            id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+            timestamp: Date.now(),
+            userRequest: userQuery || "",
+            assistantResponse: finalSummary,
+            actions: collectedActions as any,
+            filesCreated: createdFiles,
+            filesModified: modifiedFiles,
+            uiMessages: collectedUIMessages,
+            result: "success",
+            model: options.currentModelType,
+          });
+          console.log(`[ConversationManager] CODE mode entry saved successfully (loop end)`);
+        }
+      } catch (e) {
+        console.warn("[ConversationManager] Failed to save CODE mode entry (loop end):", e);
+      }
+    }
   }
 
   /**
@@ -3584,19 +3675,11 @@ export class ConversationManager {
       const currentSession = sessionManager.getCurrentSession();
 
       if (currentSession) {
-        // 원본 사용자 요청 추출 (userParts에서)
-        const userRequest =
-          userParts
-            .filter((p) => p.text && p.text.startsWith("[User]:"))
-            .map((p) => p.text.replace("[User]: ", ""))
-            .pop() ||
-          options.userQuery ||
-          "";
-
-        sessionManager.addConversationEntry(currentSession.id, {
-          id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        // v9.7.0: 원본 사용자 요청은 options.userQuery 사용 (userParts에서 추출 시 히스토리 포함 문제)
+        await sessionManager.addConversationEntry(currentSession.id, {
+          id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
           timestamp: Date.now(),
-          userRequest: userRequest,
+          userRequest: options.userQuery || "",
           assistantResponse: response, // ASK 모드는 전체 응답 저장
           actions: [], // ASK 모드는 도구 사용 안 함
           result: "success",
@@ -4210,6 +4293,7 @@ export class ConversationManager {
     const workspaceRoot = currentProject?.root || "";
 
     // A4: 완료 여부 판단 (파일 변경이 있는 경우에만)
+    // v9.7.0: REVIEW phase는 테스트 통과 후 진입하므로 buildTestPassed=true
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
       try {
         const judgment = await this.completionJudge.judge(
@@ -4218,6 +4302,7 @@ export class ConversationManager {
           modifiedFiles,
           "", // lastResponse는 아직 생성 전
           abortSignal,
+          true, // buildTestPassed: REVIEW phase는 테스트 통과 후 진입
         );
 
         console.log(
@@ -4230,6 +4315,9 @@ export class ConversationManager {
             "[ConversationManager] A4: Incomplete work detected, continuing EXECUTION",
           );
           this.completionJudge.incrementAutoContinue();
+
+          // v9.7.0: EXECUTION으로 돌아갈 때 reviewProcessed 리셋 (다음 REVIEW에서 요약 생성 위해)
+          (this as any).reviewProcessed = null;
 
           // 추가 작업 프롬프트 생성 및 userParts에 추가
           const continuePrompt =
@@ -4289,70 +4377,20 @@ export class ConversationManager {
       await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
     }
 
-    // 📝 구조화된 메타데이터로 세션에 저장
-    if (options.extensionContext) {
-      try {
-        const { SessionManager } = await import("../state/SessionManager");
-        const sessionManager = SessionManager.getInstance(
-          options.extensionContext,
-        );
-        const currentSession = sessionManager.getCurrentSession();
-
-        if (currentSession) {
-          createdFiles.forEach((file) => {
-            if (
-              !collectedActions.some(
-                (a) => a.type === "create" && a.file === file,
-              )
-            ) {
-              collectedActions.push({
-                type: "create",
-                file,
-                result: "success",
-              });
-            }
-          });
-          modifiedFiles.forEach((file) => {
-            if (
-              !collectedActions.some(
-                (a) => a.type === "modify" && a.file === file,
-              )
-            ) {
-              collectedActions.push({
-                type: "modify",
-                file,
-                result: "success",
-              });
-            }
-          });
-
-          if (finalResponse) {
-            collectedUIMessages.push({
-              sender: "CODEPILOT",
-              text: finalResponse,
-              type: "summary",
-            });
-          }
-
-          sessionManager.addConversationEntry(currentSession.id, {
-            id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: Date.now(),
-            userRequest: userQuery || "",
-            assistantResponse: finalResponse || "작업 완료",
-            actions: collectedActions as any,
-            filesCreated: createdFiles,
-            filesModified: modifiedFiles,
-            uiMessages: collectedUIMessages,
-            result: "success",
-            model: options.currentModelType,
-          });
-        }
-      } catch (e) {
-        console.warn(
-          "[ConversationManager] Failed to save CODE mode entry to session:",
-          e,
-        );
+    // 📝 v9.7.0: 세션 저장은 루프 종료 후 executeAgentLoop 끝에서 처리
+    // (collectedActions, collectedUIMessages 업데이트는 유지)
+    createdFiles.forEach((file) => {
+      if (!collectedActions.some((a) => a.type === "create" && a.file === file)) {
+        collectedActions.push({ type: "create", file, result: "success" });
       }
+    });
+    modifiedFiles.forEach((file) => {
+      if (!collectedActions.some((a) => a.type === "modify" && a.file === file)) {
+        collectedActions.push({ type: "modify", file, result: "success" });
+      }
+    });
+    if (finalResponse) {
+      collectedUIMessages.push({ sender: "CODEPILOT", text: finalResponse, type: "summary" });
     }
 
     // CODE 모드 사용 토큰을 세션에 설정

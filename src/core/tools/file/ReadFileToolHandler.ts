@@ -11,6 +11,7 @@ import { ToolUse, ToolResponse, Tool } from '../types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
+import { UsageMetricsManager } from '../../managers/state/UsageMetricsManager';
 
 // 파일 크기 임계값 (라인 수)
 // v9.6.0: 300 → 2000으로 증가 (대부분의 일반 파일 전체 읽기 지원)
@@ -109,6 +110,9 @@ export class ReadFileToolHandler implements IToolHandler {
                 const lines = fullContent.split('\n');
                 const totalLines = lines.length;
                 const ext = path.extname(absolutePath).toLowerCase();
+
+                // 파일 읽기 메트릭 기록
+                UsageMetricsManager.getInstance().recordFileRead();
 
                 // 부분 읽기 (명시적 범위 지정)
                 if (startLine !== undefined || endLine !== undefined) {

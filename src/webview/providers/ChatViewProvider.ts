@@ -1494,7 +1494,9 @@ ${JSON.stringify(errorContext, null, 2)}
 
         // 각 대화 항목을 순차적으로 표시
         // ConversationEntry 형식: { userRequest, assistantResponse, uiMessages, ... }
-        conversationHistory.forEach(entry => {
+        conversationHistory.forEach((entry, index) => {
+            console.log(`[ChatViewProvider] Entry ${index}: userRequest="${entry.userRequest?.substring(0, 50)}...", assistantResponse="${entry.assistantResponse?.substring(0, 100)}..."`);
+
             // 사용자 요청 표시
             if (entry.userRequest) {
                 this._view?.webview.postMessage({

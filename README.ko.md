@@ -6,6 +6,30 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.7.1 (세션 저장 버그 수정 및 CompletionJudge 개선)
+- **세션 저장 버그 수정**: CODE 모드 대화가 세션에 저장되지 않던 문제를 해결했습니다.
+  - Agent loop 종료 후 세션 저장 보장 (어떤 경로로든 종료 시 저장)
+  - REVIEW 중복 처리 시에도 세션이 저장되도록 수정
+  - ASK 모드 세션 저장 시 히스토리 포함 문제 수정 (`options.userQuery` 직접 사용)
+- **REVIEW 요약 누락 수정**: CompletionJudge가 `complete=false` 반환 시 `reviewProcessed` 플래그를 리셋하여 다음 REVIEW에서 요약이 생성되도록 수정
+- **CompletionJudge 개선**: 빌드/테스트가 통과하고 파일 변경이 있으면 즉시 완료로 판단
+  - 불필요한 LLM 호출 제거로 응답 시간 단축
+  - `buildTestPassed` 파라미터 추가로 테스트 통과 여부 전달
+- **MCP 도구 등록 로그 제거**: `[ToolRegistry] Registered MCP tool` 로그 메시지 제거
+
+## v9.7.0 (사용량 모니터링 시스템)
+- **UsageMetricsManager**: 확장 프로그램의 리소스 사용량 및 성능 지표를 실시간으로 추적합니다.
+  - 메모리 사용량: 현재 메모리, 최고 메모리 (30초 간격 자동 측정)
+  - LLM 호출 통계: 호출 횟수, 총 토큰, 평균 응답 시간, 오류 횟수
+  - 도구 실행 통계: 실행 횟수, 성공/실패, 평균 실행 시간
+  - 파일 작업: 생성, 수정, 읽기 횟수
+  - 컨텍스트 압축: 압축 횟수, 절약된 토큰 수
+- **Settings UI 통계 패널**: Settings 화면에서 사용량 통계를 시각적으로 확인할 수 있습니다.
+  - 그리드 레이아웃으로 주요 지표 표시
+  - 새로고침 버튼으로 실시간 데이터 갱신
+  - 통계 초기화 기능 (새 세션 시작 시 리셋)
+- **ConversationManager 통합**: LLM 호출 시 자동으로 응답 시간 및 토큰 사용량 기록
+
 ## v9.6.0 (FSM 복구 전략 및 에러 해결 매핑 시스템)
 - **FSM 상태 복구 전략 (Phase 2-5)**: 에이전트 상태 전이 실패 시 구조적 복구 메커니즘을 추가했습니다.
   - `RecoveryStrategy` 인터페이스: 상태별 복구 액션 정의 (retry, skip, force_transition, abort)

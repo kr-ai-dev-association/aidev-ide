@@ -12,6 +12,7 @@ import { ToolUse, ToolResponse, Tool } from './types';
 import { ToolExecutionContext } from './IToolHandler';
 import { ToolRegistry } from './ToolRegistry';
 import { PreToolUseValidator } from './PreToolUseValidator';
+import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
 
 export class ToolExecutor {
     private registry: ToolRegistry;
@@ -52,14 +53,25 @@ export class ToolExecutor {
             };
         }
 
+        const usageMetrics = UsageMetricsManager.getInstance();
+        const startTime = Date.now();
+
         try {
             console.log(`[ToolExecutor] Executing tool: ${toolUse.name}`);
             const result = await handler.execute(toolUse, context);
-            console.log(`[ToolExecutor] Tool ${toolUse.name} completed: ${result.success ? 'success' : 'failed'}`);
+            const executionTime = Date.now() - startTime;
+
+            // 도구 실행 메트릭 기록
+            usageMetrics.recordToolExecution(toolUse.name, executionTime, result.success);
+            console.log(`[ToolExecutor] Tool ${toolUse.name} completed: ${result.success ? 'success' : 'failed'} (${executionTime}ms)`);
 
             return result;
         } catch (error) {
-            console.error(`[ToolExecutor] Tool execution failed: ${toolUse.name}`, error);
+            const executionTime = Date.now() - startTime;
+
+            // 실패 메트릭 기록
+            usageMetrics.recordToolExecution(toolUse.name, executionTime, false);
+            console.error(`[ToolExecutor] Tool execution failed: ${toolUse.name} (${executionTime}ms)`, error);
 
             return {
                 success: false,

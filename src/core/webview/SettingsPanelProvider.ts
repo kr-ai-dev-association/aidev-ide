@@ -15,6 +15,7 @@ import { TaskManager } from "../managers/task/TaskManager";
 import { ModelConnectionService } from "../managers/model/ModelConnectionService";
 import { LocaleService } from "../../webview/services";
 import { HotLoadManager } from "../managers/hotload";
+import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -3183,6 +3184,38 @@ export function openSettingsPanel(
               command: "protectedFileToggleError",
               error: error.message,
             });
+          }
+          break;
+
+        // v9.7.0: 사용량 메트릭 조회
+        case "getUsageMetrics":
+          try {
+            const metricsManager = UsageMetricsManager.getInstance();
+            const metrics = metricsManager.getMetrics();
+            const toolStats = Object.fromEntries(metricsManager.getToolStats());
+            safePostMessage(panel, {
+              command: "usageMetricsData",
+              metrics,
+              toolStats,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getUsageMetrics error:", error);
+            safePostMessage(panel, {
+              command: "usageMetricsError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // v9.7.0: 사용량 메트릭 리셋
+        case "resetUsageMetrics":
+          try {
+            const metricsManager = UsageMetricsManager.getInstance();
+            metricsManager.resetMetrics();
+            safePostMessage(panel, { command: "usageMetricsReset" });
+            notificationService.showInfoMessage("사용량 통계가 초기화되었습니다.");
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] resetUsageMetrics error:", error);
           }
           break;
 

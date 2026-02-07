@@ -55,7 +55,6 @@ export class ToolRegistry {
             this.entries.set(desiredName, {
                 handler, source: 'mcp', serverId, serverName, originalName,
             });
-            console.log(`[ToolRegistry] Registered MCP tool: ${desiredName} (server: ${serverName})`);
             return desiredName;
         }
 
@@ -64,7 +63,6 @@ export class ToolRegistry {
             this.entries.set(desiredName, {
                 handler, source: 'mcp', serverId, serverName, originalName,
             });
-            console.log(`[ToolRegistry] Replaced MCP tool: ${desiredName} (server: ${serverName})`);
             return desiredName;
         }
 
@@ -80,7 +78,6 @@ export class ToolRegistry {
         this.entries.set(disambiguated, {
             handler, source: 'mcp', serverId, serverName, originalName,
         });
-        console.log(`[ToolRegistry] Registered MCP tool (disambiguated): ${disambiguated} (original: ${desiredName}, server: ${serverName})`);
         return disambiguated;
     }
 

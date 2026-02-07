@@ -4303,6 +4303,20 @@ window.addEventListener("message", (event) => {
         "error",
       );
       break;
+
+    // v9.7.0: 사용량 메트릭 처리
+    case "usageMetricsData":
+      updateUsageMetricsUI(message.metrics, message.toolStats);
+      break;
+
+    case "usageMetricsReset":
+      // 리셋 후 새로고침
+      vscode.postMessage({ command: "getUsageMetrics" });
+      break;
+
+    case "usageMetricsError":
+      console.error("[Settings] Usage metrics error:", message.error);
+      break;
   }
 });
 
@@ -4955,3 +4969,101 @@ function initializeSecurityRules() {
 
 // 보안 규칙 초기화 실행
 initializeSecurityRules();
+
+// ========== 사용량 메트릭 관련 함수 (v9.7.0) ==========
+
+/**
+ * 시간을 포맷팅하는 헬퍼 함수
+ */
+function formatDuration(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
+  }
+}
+
+/**
+ * 숫자를 천 단위 구분 포맷으로 변환
+ */
+function formatNumber(num) {
+  return num.toLocaleString();
+}
+
+/**
+ * 사용량 메트릭 UI 업데이트
+ */
+function updateUsageMetricsUI(metrics, toolStats) {
+  if (!metrics) return;
+
+  // 메모리 사용량
+  const memCurrent = document.getElementById("metrics-memory-current");
+  const memPeak = document.getElementById("metrics-memory-peak");
+  const sessionDuration = document.getElementById("metrics-session-duration");
+
+  if (memCurrent) memCurrent.textContent = metrics.memoryUsage || 0;
+  if (memPeak) memPeak.textContent = metrics.peakMemory || 0;
+  if (sessionDuration) sessionDuration.textContent = formatDuration(metrics.sessionDuration || 0);
+
+  // LLM 호출 통계
+  const llmCalls = document.getElementById("metrics-llm-calls");
+  const llmTokens = document.getElementById("metrics-llm-tokens");
+  const llmAvgTime = document.getElementById("metrics-llm-avg-time");
+  const llmErrors = document.getElementById("metrics-llm-errors");
+
+  if (llmCalls) llmCalls.textContent = formatNumber(metrics.llmCallCount || 0);
+  if (llmTokens) llmTokens.textContent = formatNumber(metrics.llmTotalTokens || 0);
+  if (llmAvgTime) llmAvgTime.textContent = formatNumber(metrics.llmAvgResponseTime || 0);
+  if (llmErrors) llmErrors.textContent = formatNumber(metrics.llmErrors || 0);
+
+  // 도구 실행 통계
+  const toolTotal = document.getElementById("metrics-tool-total");
+  const toolSuccess = document.getElementById("metrics-tool-success");
+  const toolFailure = document.getElementById("metrics-tool-failure");
+  const toolAvgTime = document.getElementById("metrics-tool-avg-time");
+
+  if (toolTotal) toolTotal.textContent = formatNumber(metrics.toolExecutionCount || 0);
+  if (toolSuccess) toolSuccess.textContent = formatNumber(metrics.toolSuccessCount || 0);
+  if (toolFailure) toolFailure.textContent = formatNumber(metrics.toolFailureCount || 0);
+  if (toolAvgTime) toolAvgTime.textContent = formatNumber(metrics.toolAvgExecutionTime || 0);
+
+  // 파일 작업 및 컨텍스트
+  const filesCreated = document.getElementById("metrics-files-created");
+  const filesModified = document.getElementById("metrics-files-modified");
+  const compactionCount = document.getElementById("metrics-compaction-count");
+  const tokensSaved = document.getElementById("metrics-tokens-saved");
+
+  if (filesCreated) filesCreated.textContent = formatNumber(metrics.filesCreated || 0);
+  if (filesModified) filesModified.textContent = formatNumber(metrics.filesModified || 0);
+  if (compactionCount) compactionCount.textContent = formatNumber(metrics.contextCompactionCount || 0);
+  if (tokensSaved) tokensSaved.textContent = formatNumber(metrics.tokensSaved || 0);
+
+  console.log("[Settings] Usage metrics UI updated");
+}
+
+/**
+ * 사용량 메트릭 초기화
+ */
+function initializeUsageMetrics() {
+  // 초기화 버튼
+  const resetButton = document.getElementById("reset-metrics-button");
+  if (resetButton) {
+    resetButton.addEventListener("click", () => {
+      if (confirm("사용량 통계를 초기화하시겠습니까?")) {
+        vscode.postMessage({ command: "resetUsageMetrics" });
+      }
+    });
+  }
+
+  // 초기 데이터 요청
+  vscode.postMessage({ command: "getUsageMetrics" });
+}
+
+// 사용량 메트릭 초기화 실행
+initializeUsageMetrics();
