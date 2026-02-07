@@ -61,3 +61,43 @@ export interface RevertOptions {
     preserveMetadata?: boolean;
 }
 
+/**
+ * 트랜잭션 파일 변경 정보 (FileTransactionManager에서 사용)
+ * v9.4.0: 파일 롤백 메커니즘
+ */
+export interface TransactionFileChange {
+    path: string;
+    beforeContent: string;
+    afterContent?: string;
+    status: 'pending' | 'applied' | 'failed' | 'rolledBack';
+    appliedAt?: number;
+}
+
+/**
+ * 파일 트랜잭션
+ * v9.4.0: 파일 롤백 메커니즘
+ */
+export interface FileTransaction {
+    id: string;
+    startedAt: number;
+    endedAt?: number;
+    files: TransactionFileChange[];
+    status: 'active' | 'committed' | 'rolledBack' | 'failed';
+    metadata?: {
+        userQuery?: string;
+        planItemId?: string;
+        source?: string;
+    };
+}
+
+/**
+ * 롤백 결과
+ * v9.4.0: 파일 롤백 메커니즘
+ */
+export interface RollbackResult {
+    success: boolean;
+    rolledBackFiles: string[];
+    failedFiles: Array<{ path: string; error: string }>;
+    message: string;
+}
+

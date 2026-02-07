@@ -11,10 +11,22 @@ export class AgentConfig {
     static readonly MAX_NUDGE_COUNT_EXECUTION = 1; // EXECUTION 단계에서 최대 nudge 횟수
     static readonly MAX_INVESTIGATION_TEXT_ONLY_COUNT = 3; // 텍스트만 출력 시 최대 허용 횟수
 
+    // 무한 루프 감지 설정 (v9.4.0)
+    static readonly LOOP_DETECTION_NO_PROGRESS_THRESHOLD = 3;   // 진전 없이 연속된 턴 수 임계값
+    static readonly LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD = 5; // 동일 Plan Item 연속 처리 임계값
+    static readonly LOOP_DETECTION_SAME_PHASE_THRESHOLD = 8;     // 동일 Phase 연속 임계값
+    static readonly LOOP_DETECTION_SAME_RESPONSE_THRESHOLD = 3;  // 동일 LLM 응답 연속 임계값
+
     // 대화 히스토리 설정
     static readonly MAX_HISTORY_ENTRIES = 10; // ASK 모드에서 포함할 최대 대화 히스토리 수
     static readonly MAX_LOG_PREVIEW_LENGTH = 500; // 로그 출력 시 truncate 길이
     static readonly MAX_HISTORY_ACTION_PREVIEW_LENGTH = 200; // 히스토리 액션 미리보기 길이
+
+    // 메모리 누수 방지 설정 (v9.4.0)
+    static readonly MAX_ACCUMULATED_PARTS = 100;          // accumulatedUserParts 최대 항목 수
+    static readonly ACCUMULATED_PARTS_TRIM_TARGET = 50;   // 초과 시 유지할 항목 수 (최근)
+    static readonly MAX_PART_TEXT_LENGTH = 50000;         // 개별 part의 최대 텍스트 길이
+    static readonly PART_TEXT_TRIM_LENGTH = 30000;        // 초과 시 자를 길이
 
     // 세션 관리 설정
     static readonly SESSION_TRIM_THRESHOLD = 50; // 세션 트림 필요 여부 판단 임계값

@@ -3353,20 +3353,7 @@ window.addEventListener("message", (event) => {
           }
         }
 
-        if (projectRootStatus && projectRootStatus.textContent) {
-          const currentText = projectRootStatus.textContent;
-          if (
-            currentText.includes("로드 완료") ||
-            currentText.includes("loaded successfully") ||
-            currentText.includes("cargado correctamente") ||
-            currentText.includes("chargé avec succès") ||
-            currentText.includes("加载完成") ||
-            currentText.includes("正常に読み込まれました")
-          ) {
-            projectRootStatus.textContent =
-              languageData["projectRootLoaded"] || "프로젝트 Root 로드 완료.";
-          }
-        }
+        // projectRootStatus 요소가 HTML에 없으므로 제거됨 (v9.4.1)
 
         // autoUpdateStatus 텍스트 업데이트 제거 - 스위치 버튼으로 상태 표시
       }

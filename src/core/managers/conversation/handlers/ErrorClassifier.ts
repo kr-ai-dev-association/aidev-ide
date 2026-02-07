@@ -77,6 +77,105 @@ export interface ClassificationResult {
     retryFingerprint: string;    // 패턴 추적용 결정론적 해시
 }
 
+/**
+ * 에러 카테고리별 해결 전략
+ * v9.6.0: Phase 2-6 에러 처리 개선
+ */
+export interface ResolutionStrategy {
+    autoRemediable: boolean;           // LLM 없이 자동 수정 가능 여부
+    retryable: boolean;                // 재시도 가능 여부
+    maxRetries: number;                // 최대 재시도 횟수
+    llmGuidance: string;               // LLM에게 전달할 해결 가이드
+    userMessage: string;               // 사용자에게 표시할 메시지
+    suggestedAction: 'auto_fix' | 'retry' | 'llm_fix' | 'user_intervention' | 'abort';
+}
+
+/**
+ * 카테고리별 해결 전략 매핑
+ */
+const RESOLUTION_STRATEGIES: Record<ErrorCategory, ResolutionStrategy> = {
+    [ErrorCategory.ENVIRONMENT_MISSING]: {
+        autoRemediable: true,
+        retryable: true,
+        maxRetries: 2,
+        llmGuidance: '의존성 설치가 자동으로 진행됩니다. 설치 완료 후 재시도하세요.',
+        userMessage: '의존성이 누락되었습니다. 자동 설치를 시도합니다.',
+        suggestedAction: 'auto_fix'
+    },
+    [ErrorCategory.SOURCE_ERRORS_CLUSTERED]: {
+        autoRemediable: false,
+        retryable: true,
+        maxRetries: 3,
+        llmGuidance: '동일한 원인에서 여러 에러가 발생했습니다. 근본 원인을 먼저 수정하세요. ' +
+                     'representativeCode를 확인하고 해당 패턴의 모든 발생 위치를 수정하세요. ' +
+                     '개별 에러를 하나씩 수정하지 말고 공통 원인을 해결하세요.',
+        userMessage: '여러 파일에서 동일한 유형의 에러가 발생했습니다. 근본 원인 수정 중...',
+        suggestedAction: 'llm_fix'
+    },
+    [ErrorCategory.SOURCE_ERRORS_SCATTERED]: {
+        autoRemediable: false,
+        retryable: true,
+        maxRetries: 5,
+        llmGuidance: '다양한 에러가 분산되어 있습니다. 각 에러를 개별적으로 수정하세요. ' +
+                     'sampleMessages를 참고하여 우선순위가 높은 에러부터 처리하세요.',
+        userMessage: '여러 유형의 에러가 발견되었습니다. 순차적으로 수정 중...',
+        suggestedAction: 'llm_fix'
+    },
+    [ErrorCategory.CONFIG_ERROR]: {
+        autoRemediable: false,
+        retryable: true,
+        maxRetries: 2,
+        llmGuidance: '설정 파일에서 에러가 발생했습니다. tsconfig.json, eslintrc, package.json 등 ' +
+                     '설정 파일의 문법이나 옵션을 확인하세요. JSON 형식 오류, 잘못된 경로, ' +
+                     '지원되지 않는 옵션이 원인일 수 있습니다.',
+        userMessage: '설정 파일에 문제가 있습니다. 설정 수정 중...',
+        suggestedAction: 'llm_fix'
+    },
+    [ErrorCategory.EXECUTION_TIMEOUT]: {
+        autoRemediable: false,
+        retryable: false,
+        maxRetries: 0,
+        llmGuidance: '명령어 실행이 타임아웃되었습니다. 무한 루프나 데드락이 있을 수 있습니다. ' +
+                     '사용자에게 수동 확인을 요청하세요.',
+        userMessage: '명령어 실행 시간이 초과되었습니다. 수동 확인이 필요합니다.',
+        suggestedAction: 'user_intervention'
+    },
+    [ErrorCategory.BUILD_TIMEOUT]: {
+        autoRemediable: true,
+        retryable: true,
+        maxRetries: 1,
+        llmGuidance: '빌드 타임아웃이 발생했습니다. 빌드 캐시 클리어 후 재시도합니다.',
+        userMessage: '빌드 시간이 초과되었습니다. 캐시 정리 후 재시도합니다.',
+        suggestedAction: 'auto_fix'
+    },
+    [ErrorCategory.COMMAND_NOT_FOUND]: {
+        autoRemediable: false,
+        retryable: false,
+        maxRetries: 0,
+        llmGuidance: '명령어를 찾을 수 없습니다. 사용자에게 해당 도구 설치 방법을 안내하세요. ' +
+                     '절대로 자동 설치(npm install -g, brew install 등)를 시도하지 마세요.',
+        userMessage: '필요한 도구가 설치되어 있지 않습니다. 설치 방법을 안내합니다.',
+        suggestedAction: 'user_intervention'
+    },
+    [ErrorCategory.SILENT_FAILURE]: {
+        autoRemediable: false,
+        retryable: true,
+        maxRetries: 1,
+        llmGuidance: '명령어가 실패했지만 출력이 없습니다. 명령어 자체가 잘못되었거나 ' +
+                     '권한 문제일 수 있습니다. 명령어를 확인하고 다시 시도하세요.',
+        userMessage: '명령어 실행에 실패했습니다. 다시 시도합니다.',
+        suggestedAction: 'retry'
+    },
+    [ErrorCategory.UNKNOWN]: {
+        autoRemediable: false,
+        retryable: true,
+        maxRetries: 2,
+        llmGuidance: '분류되지 않은 에러입니다. 에러 메시지를 직접 분석하여 해결하세요.',
+        userMessage: '알 수 없는 오류가 발생했습니다. 분석 중...',
+        suggestedAction: 'llm_fix'
+    }
+};
+
 // ==================== Classifier ====================
 
 export class ErrorClassifier {
@@ -377,5 +476,59 @@ export class ErrorClassifier {
         return groups
             .map(g => `${g.category}:${g.source}:${g.representativeCode}:${g.count}`)
             .join('|');
+    }
+
+    // ==================== Resolution Strategy (v9.6.0) ====================
+
+    /**
+     * 에러 카테고리에 대한 해결 전략 조회
+     */
+    static getResolutionStrategy(category: ErrorCategory): ResolutionStrategy {
+        return RESOLUTION_STRATEGIES[category];
+    }
+
+    /**
+     * 분류 결과에 대한 해결 전략 조회
+     */
+    static getResolutionStrategyFromResult(result: ClassificationResult): ResolutionStrategy {
+        return RESOLUTION_STRATEGIES[result.dominantCategory];
+    }
+
+    /**
+     * 재시도 가능 여부 확인
+     */
+    static isRetryable(category: ErrorCategory): boolean {
+        return RESOLUTION_STRATEGIES[category].retryable;
+    }
+
+    /**
+     * 자동 수정 가능 여부 확인
+     */
+    static isAutoRemediable(category: ErrorCategory): boolean {
+        return RESOLUTION_STRATEGIES[category].autoRemediable;
+    }
+
+    /**
+     * LLM에게 전달할 해결 가이드 생성
+     * 분류 결과의 상세 정보를 포함한 컨텍스트 제공
+     */
+    static buildLLMGuidance(result: ClassificationResult): string {
+        const strategy = RESOLUTION_STRATEGIES[result.dominantCategory];
+        let guidance = `## 에러 분류: ${result.dominantCategory}\n\n`;
+        guidance += `**해결 가이드:** ${strategy.llmGuidance}\n\n`;
+
+        if (result.groups.length > 0) {
+            guidance += `**에러 그룹 (${result.totalErrorCount}개):**\n`;
+            for (const group of result.groups) {
+                guidance += `- [${group.source}:${group.representativeCode}] ${group.count}개 에러\n`;
+                guidance += `  - 영향 파일: ${group.affectedFiles.slice(0, 3).join(', ')}${group.affectedFiles.length > 3 ? '...' : ''}\n`;
+                guidance += `  - 가설: ${group.rootCauseHypothesis}\n`;
+                if (group.sampleMessages.length > 0) {
+                    guidance += `  - 샘플: "${group.sampleMessages[0].substring(0, 100)}..."\n`;
+                }
+            }
+        }
+
+        return guidance;
     }
 }

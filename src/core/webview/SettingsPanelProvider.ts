@@ -108,9 +108,9 @@ export function openSettingsPanel(
             const config = vscode.workspace.getConfiguration('codepilot');
             const chatTheme = config.get<string>('chatTheme') || 'dark';
 
-            // package.json에서 버전 로드
-            const packageJson = require('../../../../package.json');
-            const extensionVersion = packageJson.version || '0.0.0';
+            // 확장 버전 로드 (context에서)
+            const extension = vscode.extensions.getExtension('banya.codepilot');
+            const extensionVersion = extension?.packageJSON?.version || '0.0.0';
 
             // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
             const compactorModelType = await stateManager.getCompactorModelType();
@@ -1344,9 +1344,7 @@ export function openSettingsPanel(
               console.log(
                 `[PanelManager] Streaming 설정 저장됨: ${streamingEnabledToSet}`,
               );
-              notificationService.showInfoMessage(
-                `CODEPILOT: Streaming ${streamingEnabledToSet ? 'enabled' : 'disabled'}.`,
-              );
+              // 알림 제거 (v9.4.1) - 사용자 요청
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "streamingEnabledSetError",
@@ -1783,6 +1781,17 @@ export function openSettingsPanel(
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
+            // 추가 토글 설정들 로드 (닫았다 열어도 유지되도록)
+            const autoUpdateEnabled =
+              await settingsManager.isAutoUpdateEnabled();
+            const autoDeleteFilesEnabled =
+              await settingsManager.isAutoDeleteFilesEnabled();
+            const autoExecuteCommandsEnabled =
+              await settingsManager.isAutoExecuteCommandsEnabled();
+            const autoToolExecutionEnabled =
+              await settingsManager.isAutoToolExecutionEnabled();
+            const streamingEnabled =
+              await settingsManager.isStreamingEnabled();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
@@ -1813,12 +1822,17 @@ export function openSettingsPanel(
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
               errorRetryCount: errorRetryCount || 2,
+              // 추가된 토글 설정들
+              autoUpdateEnabled: autoUpdateEnabled || false,
+              autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
+              autoExecuteCommandsEnabled: autoExecuteCommandsEnabled ?? true,
+              autoToolExecutionEnabled: autoToolExecutionEnabled ?? true,
+              streamingEnabled: streamingEnabled || false,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified,
               aiModel: modelToUse,
             };
-            // console.log('[PanelManager] Sending currentSettings message:', messageToSend);
-            // console.log('[PanelManager] Message ollamaModel value:', messageToSend.ollamaModel);
+            console.log('[PanelManager] loadSettings - sending currentSettings with toggles');
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error loading settings:", error);

@@ -26,6 +26,7 @@ import { ActionMapper } from './ActionMapper';
 import { TerminalManager } from '../terminal/TerminalManager';
 import { FileChangeTracker } from './file/FileChangeTracker';
 import { FileContextTracker } from '../context/file/FileContextTracker';
+import { FileTransactionManager } from './file/FileTransactionManager';
 
 export class ActionManager {
     private static instance: ActionManager;
@@ -859,6 +860,13 @@ export class ActionManager {
                         );
                     }
 
+                    // v9.4.0: 트랜잭션에 파일 변경 기록
+                    const transactionManager = FileTransactionManager.getInstance();
+                    if (transactionManager.hasActiveTransaction()) {
+                        await transactionManager.recordFileChange(sourceUri.fsPath, content);
+                        transactionManager.markFileApplied(sourceUri.fsPath, content);
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,
@@ -903,6 +911,15 @@ export class ActionManager {
                         );
                     }
 
+                    // v9.4.0: 트랜잭션에 파일 변경 기록
+                    {
+                        const txnManager = FileTransactionManager.getInstance();
+                        if (txnManager.hasActiveTransaction()) {
+                            await txnManager.recordFileChange(sourceUri.fsPath, content);
+                            txnManager.markFileApplied(sourceUri.fsPath, content);
+                        }
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,
@@ -934,6 +951,15 @@ export class ActionManager {
                                 source: 'ai',
                             }
                         );
+                    }
+
+                    // v9.4.0: 트랜잭션에 파일 삭제 기록 (beforeContent만 저장)
+                    {
+                        const txnManager = FileTransactionManager.getInstance();
+                        if (txnManager.hasActiveTransaction()) {
+                            await txnManager.recordFileChange(sourceUri.fsPath, undefined);
+                            txnManager.markFileApplied(sourceUri.fsPath);
+                        }
                     }
 
                     return {

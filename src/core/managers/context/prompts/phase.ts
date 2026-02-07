@@ -10,6 +10,8 @@ import {
   getMultiFileReadRules,
   getNoDuplicateReadRules,
   getNoThinkingLeakageRules,
+  getFileExistenceCheckRules,
+  getLargeFileChunkReadingRules,
 } from "./base";
 
 // ==================== Intent Phase ====================
@@ -23,6 +25,12 @@ export function getIntentPrompt(userQuery: string): string {
 3. 코드베이스 구조/기술/기능 분석 (analysis_structure, analysis_technology, analysis_function, analysis_branch)
 4. 문서 작성 (documentation_general)
 5. 터미널 오류 해결 (terminal_error_fix)
+
+**⚠️ 중요: 사용자 요청을 문자 그대로 해석하세요**
+- "수정해줘"라고 했으면 code_modify입니다. 파일 존재 여부와 관계없이 사용자의 **명시적인 의도**를 따르세요.
+- 사용자가 "생성"이라고 명시하지 않았는데 code_generate로 분류하지 마세요.
+- 존재하지 않는 파일을 "수정"하라고 했을 때 → 그것은 code_modify입니다 (실행 시 파일 없음 오류 발생, 사용자에게 확인 요청)
+- 사용자 의도를 추측하여 다른 의도로 변환하지 마세요.
 
 **계획 필요 여부 (requiresPlan) 판단 기준:**
 - **true**: 새로운 기능 개발, 여러 파일 수정, 복잡한 리팩토링 등 여러 단계의 작업이 필요한 경우
@@ -40,6 +48,7 @@ export function getIntentPrompt(userQuery: string): string {
 - "git status 확인해줘" → requiresPlan: false (단순 명령어 실행)
 - "이 코드 리팩토링해줘" → requiresPlan: true (여러 파일 수정 가능성)
 - "인증 시스템 구현해줘" → requiresPlan: true (복잡한 기능 개발)
+- "존재하지 않는 파일 수정해줘" → code_modify (수정 의도, 파일 없으면 실행 시 오류 처리)
 
 출력 형식 (JSON):
 {
@@ -59,6 +68,8 @@ export function getInvestigationPrompt(userQuery: string): string {
   const multiFileRules = getMultiFileReadRules();
   const noDuplicateRules = getNoDuplicateReadRules();
   const noThinkingLeakage = getNoThinkingLeakageRules();
+  const fileExistenceRules = getFileExistenceCheckRules();
+  const largeFileChunkRules = getLargeFileChunkReadingRules();
   return `
 ## 역할: 조사 관리자 (코드의 셜록 홈즈)
 
@@ -90,6 +101,8 @@ export function getInvestigationPrompt(userQuery: string): string {
 - ❌ JSON 형식 없는 일반 텍스트만 출력하는 것
 
 ${noThinkingLeakage}
+
+${fileExistenceRules}
 
 ✅ **올바른 응답 형식:**
 
@@ -170,6 +183,8 @@ ${planFormatRules}
 1. **한 번에 여러 파일 조사**: 여러 \`{ "tool": "read_file" }\`을 연속으로 작성
 2. **Pre-load 활용**: 이미 읽은 파일은 다시 읽지 않고 대화 기록에서 확인
 3. **Investigation Item 통합**: 여러 조사 작업을 하나의 Item으로 병합하여 LLM 호출 최소화
+
+${largeFileChunkRules}
 `;
 }
 
@@ -177,14 +192,16 @@ ${planFormatRules}
 export function getExecutionPhasePrompt(): string {
   const noMonologueRules = getNoInternalMonologueRules();
   const noThinkingLeakage = getNoThinkingLeakageRules();
+  const fileExistenceRules = getFileExistenceCheckRules();
   return (
     `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
     `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
     `${noThinkingLeakage}\n\n` +
-    `** 파일 생성 Fallback 규칙 (중요!):**\n` +
-    `- 필요한 파일이 프로젝트에 없으면 **새로 생성**하세요.\n` +
-    `- 진입점 파일이 없으면 기본 구조를 생성하세요\n` +
-    `- 없으면 만들면 됩니다. 탐색만 반복하지 말고 생성하세요.\n\n` +
+    `${fileExistenceRules}\n\n` +
+    `** 파일 생성 규칙 (중요!):**\n` +
+    `- 사용자가 **명시적으로 "생성", "만들어줘"**라고 요청한 경우에만 create_file 사용\n` +
+    `- 사용자가 "수정해줘"라고 했는데 파일이 없으면 → create_file 하지 말고 "파일이 존재하지 않습니다" 응답\n` +
+    `- read_file 실패 후 자동으로 create_file 호출 금지\n\n` +
     `**절대 금지 사항 (위반 시 작업 실패):**\n` +
     `- ❌ \`{ "plan": [...] }\` 출력 절대 금지 - plan은 이미 수립 완료됨. 다시 제출하면 무시됨.\n` +
     `- ❌ CODE 블록 내부에 자연어 삽입 절대 금지 - "We need to...", "Let me..." 등 삽입 시 파일 깨짐\n` +

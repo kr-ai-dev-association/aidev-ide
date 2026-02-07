@@ -6,6 +6,31 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.6.0 (FSM 복구 전략 및 에러 해결 매핑 시스템)
+- **FSM 상태 복구 전략 (Phase 2-5)**: 에이전트 상태 전이 실패 시 구조적 복구 메커니즘을 추가했습니다.
+  - `RecoveryStrategy` 인터페이스: 상태별 복구 액션 정의 (retry, skip, force_transition, abort)
+  - INVESTIGATION, EXECUTION, REVIEW, DONE 각 상태별 복구 시나리오 매핑
+  - `attemptAutoRecovery()`: 자동 복구 시도 (예: stale 상태 → 강제 전이)
+  - `getTransitionFailureAdvice()`: 전이 실패 시 사용자 안내 메시지 생성
+- **에러 카테고리-해결 전략 매핑 (Phase 2-6)**: 9개 에러 카테고리에 대한 해결 전략을 체계화했습니다.
+  - `ResolutionStrategy` 인터페이스: autoRemediable, retryable, maxRetries, llmGuidance, suggestedAction
+  - 카테고리별 전략:
+    - `ENVIRONMENT_MISSING`: 자동 수정 가능, npm install 등 자동 실행
+    - `SOURCE_ERRORS_CLUSTERED`: LLM 수정 권장, 단일 파일 집중 에러
+    - `SOURCE_ERRORS_SCATTERED`: LLM 수정 권장, 여러 파일 분산 에러
+    - `CONFIG_ERROR`: LLM 수정 권장, 설정 파일 문제
+    - `EXECUTION_TIMEOUT`: 재시도 불가, 타임아웃 발생
+    - `BUILD_TIMEOUT`: 캐시 클리어 후 재시도 가능
+    - `COMMAND_NOT_FOUND`: 사용자 개입 필요, 명령어 미설치
+    - `SILENT_FAILURE`: 중단, 출력 없는 실패
+    - `UNKNOWN`: LLM에 전달, 분류 불가 에러
+  - `buildLLMGuidance()`: LLM에 전달할 구조화된 에러 안내 생성
+- **대용량 파일 읽기 개선**: 파일 읽기 임계값을 상향 조정했습니다.
+  - `MAX_FULL_READ_LINES`: 300줄 → 2000줄로 증가
+  - `PREVIEW_HEAD_LINES`: 50줄 → 100줄로 증가
+  - `PREVIEW_TAIL_LINES`: 30줄 → 50줄로 증가
+  - TRUNCATED 파일에 대한 청크 읽기 프롬프트 규칙 추가
+
 ## v9.4.0 (자동 파일 삭제 설정 및 MCP 슬래시 명령어)
 - **자동 파일 삭제 토글**: 파일 자동 업데이트와 별도로 파일 삭제에 대한 확인을 설정할 수 있습니다.
   - Settings에 "자동 파일 삭제" 토글 추가

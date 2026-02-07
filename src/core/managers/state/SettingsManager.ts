@@ -191,7 +191,12 @@ export class SettingsManager extends BaseManager {
      * 자동 업데이트 활성화 여부를 가져옵니다
      */
     public async isAutoUpdateEnabled(): Promise<boolean> {
-        return ConfigurationService.get<boolean>('autoUpdateFiles') || false;
+        // Global 설정을 우선으로 읽기
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('autoUpdateFiles')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('autoUpdateFiles') ?? false;
+        console.log(`[SettingsManager] Get autoUpdateFiles: ${value} (global: ${globalValue})`);
+        return value;
     }
 
     /**
@@ -205,7 +210,12 @@ export class SettingsManager extends BaseManager {
      * 자동 파일 삭제 On/Off 상태를 읽습니다
      */
     public async isAutoDeleteFilesEnabled(): Promise<boolean> {
-        return ConfigurationService.get<boolean>('autoDeleteFiles') || false;
+        // Global 설정을 우선으로 읽기
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('autoDeleteFiles')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('autoDeleteFiles') ?? false;
+        console.log(`[SettingsManager] Get autoDeleteFiles: ${value} (global: ${globalValue})`);
+        return value;
     }
 
     /**
@@ -313,8 +323,11 @@ export class SettingsManager extends BaseManager {
      * 자동 오류 수정 On/Off 상태를 가져옵니다
      */
     public async isAutoCorrectionEnabled(): Promise<boolean> {
-        const value = ConfigurationService.get<boolean>('autoCorrectionEnabled') ?? false;
-        // console.log(`[SettingsManager] Read autoCorrectionEnabled: ${value}`);
+        // Global 설정을 우선으로 읽기
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('autoCorrectionEnabled')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('autoCorrectionEnabled') ?? false;
+        console.log(`[SettingsManager] Get autoCorrectionEnabled: ${value} (global: ${globalValue})`);
         return value;
     }
 
@@ -322,16 +335,19 @@ export class SettingsManager extends BaseManager {
      * 자동 오류 수정 On/Off 상태를 저장합니다
      */
     public async updateAutoCorrectionEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoCorrectionEnabled -> ${enabled} (Workspace)`);
-        await ConfigurationService.updateConfig('autoCorrectionEnabled', enabled, vscode.ConfigurationTarget.Workspace);
+        console.log(`[SettingsManager] Update autoCorrectionEnabled -> ${enabled} (Global)`);
+        await ConfigurationService.updateConfig('autoCorrectionEnabled', enabled, vscode.ConfigurationTarget.Global);
     }
 
     /**
      * 명령어 자동 실행 On/Off 상태를 읽습니다
      */
     public async isAutoExecuteCommandsEnabled(): Promise<boolean> {
-        const value = ConfigurationService.get<boolean>('autoExecuteCommands') ?? true;
-        // console.log(`[SettingsManager] Read autoExecuteCommands: ${value}`);
+        // Global 설정을 우선으로 읽기
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('autoExecuteCommands')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('autoExecuteCommands') ?? true;
+        console.log(`[SettingsManager] Get autoExecuteCommands: ${value} (global: ${globalValue})`);
         return value;
     }
 
@@ -347,7 +363,11 @@ export class SettingsManager extends BaseManager {
      * 도구 자동 실행 On/Off 상태를 읽습니다
      */
     public async isAutoToolExecutionEnabled(): Promise<boolean> {
-        const value = ConfigurationService.get<boolean>('autoToolExecution') ?? true;
+        // Global 설정을 우선으로 읽기
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('autoToolExecution')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('autoToolExecution') ?? true;
+        console.log(`[SettingsManager] Get autoToolExecution: ${value} (global: ${globalValue})`);
         return value;
     }
 
@@ -363,15 +383,20 @@ export class SettingsManager extends BaseManager {
      * 스트리밍 On/Off 상태를 읽습니다
      */
     public async isStreamingEnabled(): Promise<boolean> {
-        return ConfigurationService.get<boolean>('streamingEnabled', false) ?? false;
+        // Global 설정을 우선으로 읽기
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('streamingEnabled')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('streamingEnabled') ?? false;
+        console.log(`[SettingsManager] Get streamingEnabled: ${value} (global: ${globalValue})`);
+        return value;
     }
 
     /**
      * 스트리밍 On/Off 상태를 저장합니다
      */
     public async updateStreamingEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update streamingEnabled -> ${enabled} (Workspace)`);
-        await ConfigurationService.updateConfig('streamingEnabled', enabled, vscode.ConfigurationTarget.Workspace);
+        console.log(`[SettingsManager] Update streamingEnabled -> ${enabled} (Global)`);
+        await ConfigurationService.updateConfig('streamingEnabled', enabled, vscode.ConfigurationTarget.Global);
     }
 
     /**
@@ -392,12 +417,11 @@ export class SettingsManager extends BaseManager {
      * 자동 코드 검증 On/Off 상태를 가져옵니다
      */
     public async isAutoTestRetryEnabled(): Promise<boolean> {
-        // 워크스페이스 설정을 명시적으로 읽기
+        // Global 설정을 우선으로 읽기
         const config = vscode.workspace.getConfiguration('codepilot');
-        const workspaceValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceValue;
-        const workspaceFolderValue = config.inspect<boolean>('autoTestRetryEnabled')?.workspaceFolderValue;
-        const value = workspaceFolderValue ?? workspaceValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
-        console.log(`[SettingsManager] Get autoTestRetryEnabled: ${value} (workspaceFolder: ${workspaceFolderValue}, workspace: ${workspaceValue})`);
+        const globalValue = config.inspect<boolean>('autoTestRetryEnabled')?.globalValue;
+        const value = globalValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
+        console.log(`[SettingsManager] Get autoTestRetryEnabled: ${value} (global: ${globalValue})`);
         return value;
     }
 
@@ -405,21 +429,20 @@ export class SettingsManager extends BaseManager {
      * 자동 코드 검증 On/Off 상태를 저장합니다
      */
     public async updateAutoTestRetryEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Workspace)`);
-        await this.updateUserSetting('autoTestRetryEnabled' as any, enabled, vscode.ConfigurationTarget.Workspace);
+        console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Global)`);
+        await this.updateUserSetting('autoTestRetryEnabled' as any, enabled, vscode.ConfigurationTarget.Global);
     }
 
     /**
      * 자동 테스트 재시도 횟수를 가져옵니다
      */
     public async getTestRetryCount(): Promise<number> {
-        // 워크스페이스 설정을 명시적으로 읽기
+        // Global 설정을 우선으로 읽기
         const config = vscode.workspace.getConfiguration('codepilot');
-        const workspaceValue = config.inspect<number>('testRetryCount')?.workspaceValue;
-        const workspaceFolderValue = config.inspect<number>('testRetryCount')?.workspaceFolderValue;
-        const count = workspaceFolderValue ?? workspaceValue ?? config.get<number>('testRetryCount') ?? 5;
+        const globalValue = config.inspect<number>('testRetryCount')?.globalValue;
+        const count = globalValue ?? config.get<number>('testRetryCount') ?? 5;
         const validCount = Math.max(1, Math.min(10, count));
-        console.log(`[SettingsManager] Get testRetryCount: ${validCount} (workspaceFolder: ${workspaceFolderValue}, workspace: ${workspaceValue})`);
+        console.log(`[SettingsManager] Get testRetryCount: ${validCount} (global: ${globalValue})`);
         return validCount;
     }
 
@@ -428,8 +451,8 @@ export class SettingsManager extends BaseManager {
      */
     public async updateTestRetryCount(count: number): Promise<void> {
         const validCount = Math.max(1, Math.min(10, count));
-        console.log(`[SettingsManager] Update testRetryCount -> ${validCount} (Workspace)`);
-        await this.updateUserSetting('testRetryCount' as any, validCount, vscode.ConfigurationTarget.Workspace);
+        console.log(`[SettingsManager] Update testRetryCount -> ${validCount} (Global)`);
+        await this.updateUserSetting('testRetryCount' as any, validCount, vscode.ConfigurationTarget.Global);
     }
 }
 

@@ -13,9 +13,10 @@ import * as path from 'path';
 import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
 
 // 파일 크기 임계값 (라인 수)
-const MAX_FULL_READ_LINES = 300;  // 이 이하면 전체 읽기
-const PREVIEW_HEAD_LINES = 50;    // 큰 파일의 처음 N줄
-const PREVIEW_TAIL_LINES = 30;    // 큰 파일의 마지막 N줄
+// v9.6.0: 300 → 2000으로 증가 (대부분의 일반 파일 전체 읽기 지원)
+const MAX_FULL_READ_LINES = 2000;  // 이 이하면 전체 읽기
+const PREVIEW_HEAD_LINES = 100;    // 큰 파일의 처음 N줄 (50 → 100)
+const PREVIEW_TAIL_LINES = 50;     // 큰 파일의 마지막 N줄 (30 → 50)
 
 interface FileReadResult {
     path: string;

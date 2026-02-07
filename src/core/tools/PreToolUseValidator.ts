@@ -9,6 +9,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import { ToolUse, Tool } from './types';
 
 export interface ValidationResult {
@@ -105,6 +106,27 @@ export function updateDisabledProtectedFiles(ids: string[]): void {
 }
 
 export class PreToolUseValidator {
+    // v9.4.0: 셸 메타문자 패턴 (명령어 우회 방지)
+    private static readonly SHELL_METACHAR_PATTERNS: RegExp[] = [
+        /\$\([^)]+\)/,           // $() 서브셸
+        /`[^`]+`/,               // ` ` 백틱 서브셸
+        /\$\{[^}]+\}/,           // ${} 변수 확장
+        /\$[A-Za-z_][A-Za-z0-9_]*/,  // $VAR 변수 참조
+    ];
+
+    // v9.4.0: 위험한 경로 패턴 (rm과 조합 시 차단)
+    private static readonly DANGEROUS_PATH_PATTERNS: RegExp[] = [
+        /^\s*\/\s*$/,            // 루트 디렉토리
+        /^\s*~\s*$/,             // 홈 디렉토리
+        /^\s*\/etc/i,            // 시스템 설정
+        /^\s*\/usr/i,            // 시스템 바이너리
+        /^\s*\/var/i,            // 시스템 데이터
+        /^\s*\/boot/i,           // 부트 파티션
+        /^\s*\/dev/i,            // 디바이스
+        /^\s*\/sys/i,            // 시스템 정보
+        /^\s*\/proc/i,           // 프로세스 정보
+    ];
+
     // 위험한 명령어 패턴 (절대 실행 금지) - 기본값 기반으로 동적 생성
     private static get DANGEROUS_COMMANDS(): RegExp[] {
         const patterns: RegExp[] = [];
@@ -213,6 +235,7 @@ export class PreToolUseValidator {
 
     /**
      * 명령어 검증
+     * v9.4.0: 셸 메타문자 및 변수 확장 패턴 감지 강화
      */
     private static validateCommand(command: string): ValidationResult {
         // 위험한 명령어 차단
@@ -223,6 +246,51 @@ export class PreToolUseValidator {
                     reason: `위험한 명령어 차단: ${command.substring(0, 50)}...`,
                     severity: 'error'
                 };
+            }
+        }
+
+        // v9.4.0: rm 명령어 + 셸 메타문자 조합 차단
+        const hasRmCommand = /\brm\s+(-[rRfF]+\s+)*/.test(command);
+        if (hasRmCommand) {
+            // 셸 메타문자가 포함되어 있으면 차단 (변수/서브셸을 통한 우회 방지)
+            for (const metaPattern of this.SHELL_METACHAR_PATTERNS) {
+                if (metaPattern.test(command)) {
+                    return {
+                        allowed: false,
+                        reason: `위험한 명령어 우회 시도 차단: rm과 셸 메타문자 조합 불허`,
+                        severity: 'error'
+                    };
+                }
+            }
+
+            // 세미콜론, 파이프, && 를 통한 명령어 연결 + rm 조합 차단
+            if (/[;|]/.test(command) || /&&/.test(command) || /\|\|/.test(command)) {
+                // rm 뒤에 위험한 경로가 있는지 추가 검사
+                for (const pathPattern of this.DANGEROUS_PATH_PATTERNS) {
+                    if (pathPattern.test(command)) {
+                        return {
+                            allowed: false,
+                            reason: `위험한 경로 삭제 차단: 시스템 디렉토리 보호`,
+                            severity: 'error'
+                        };
+                    }
+                }
+            }
+        }
+
+        // v9.4.0: sudo + 위험 명령어 조합 차단
+        if (/\bsudo\b/.test(command)) {
+            // sudo와 함께 위험한 패턴 감지
+            if (/\brm\b/.test(command) || /\bchmod\b/.test(command) || /\bchown\b/.test(command)) {
+                for (const pathPattern of this.DANGEROUS_PATH_PATTERNS) {
+                    if (pathPattern.test(command)) {
+                        return {
+                            allowed: false,
+                            reason: `sudo 권한 상승 + 시스템 경로 접근 차단`,
+                            severity: 'error'
+                        };
+                    }
+                }
             }
         }
 
@@ -242,16 +310,67 @@ export class PreToolUseValidator {
     }
 
     /**
+     * 경로 정규화 (심볼릭 링크 해결)
+     * v9.4.0: 심볼릭 링크 우회 방지
+     */
+    private static normalizePath(filePath: string, projectRoot: string): { absolutePath: string; error?: string } {
+        try {
+            // 절대 경로 변환
+            let absolutePath = path.isAbsolute(filePath)
+                ? filePath
+                : path.resolve(projectRoot, filePath);
+
+            // 심볼릭 링크 해결 (실제 경로 반환)
+            // 파일이 존재하면 realpath로 정규화
+            if (fs.existsSync(absolutePath)) {
+                try {
+                    absolutePath = fs.realpathSync(absolutePath);
+                } catch (e) {
+                    // realpath 실패 시 원래 경로 사용 (새 파일 생성 등)
+                }
+            } else {
+                // 파일이 없으면 부모 디렉토리로 검사
+                const parentDir = path.dirname(absolutePath);
+                if (fs.existsSync(parentDir)) {
+                    try {
+                        const realParent = fs.realpathSync(parentDir);
+                        absolutePath = path.join(realParent, path.basename(absolutePath));
+                    } catch (e) {
+                        // 부모 디렉토리 realpath 실패 시 원래 경로 사용
+                    }
+                }
+            }
+
+            // 경로 정규화 (.. 등 제거)
+            absolutePath = path.normalize(absolutePath);
+
+            return { absolutePath };
+        } catch (error) {
+            return {
+                absolutePath: filePath,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            };
+        }
+    }
+
+    /**
      * 파일 쓰기 경로 검증
+     * v9.4.0: 심볼릭 링크 정규화 추가
      */
     private static validateFileWrite(filePath: string, projectRoot: string): ValidationResult {
-        // 절대 경로 변환
-        const absolutePath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(projectRoot, filePath);
+        // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
+        const { absolutePath, error } = this.normalizePath(filePath, projectRoot);
 
-        // 프로젝트 외부 접근 차단
-        if (!absolutePath.startsWith(projectRoot)) {
+        if (error) {
+            console.warn(`[PreToolUseValidator] Path normalization warning: ${error}`);
+        }
+
+        // 프로젝트 외부 접근 차단 (정규화된 경로로 검사)
+        const normalizedProjectRoot = fs.existsSync(projectRoot)
+            ? fs.realpathSync(projectRoot)
+            : projectRoot;
+
+        if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
                 allowed: false,
                 reason: `프로젝트 외부 파일 수정 차단: ${filePath}`,
@@ -260,7 +379,7 @@ export class PreToolUseValidator {
         }
 
         // 상대 경로로 변환하여 패턴 매칭
-        const relativePath = path.relative(projectRoot, absolutePath);
+        const relativePath = path.relative(normalizedProjectRoot, absolutePath);
 
         // 민감한 파일 차단
         for (const pattern of this.SENSITIVE_FILES) {
@@ -289,14 +408,18 @@ export class PreToolUseValidator {
 
     /**
      * 파일 읽기 경로 검증
+     * v9.4.0: 심볼릭 링크 정규화 추가
      */
     private static validateFileRead(filePath: string, projectRoot: string): ValidationResult {
-        const absolutePath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(projectRoot, filePath);
+        // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
+        const { absolutePath } = this.normalizePath(filePath, projectRoot);
 
-        // 프로젝트 외부 접근 차단
-        if (!absolutePath.startsWith(projectRoot)) {
+        // 프로젝트 외부 접근 차단 (정규화된 경로로 검사)
+        const normalizedProjectRoot = fs.existsSync(projectRoot)
+            ? fs.realpathSync(projectRoot)
+            : projectRoot;
+
+        if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
                 allowed: false,
                 reason: `프로젝트 외부 파일 읽기 차단: ${filePath}`,
@@ -309,14 +432,18 @@ export class PreToolUseValidator {
 
     /**
      * 파일 삭제 경로 검증
+     * v9.4.0: 심볼릭 링크 정규화 및 READ_ONLY_FILES 삭제 차단 추가
      */
     private static validateFileRemove(filePath: string, projectRoot: string): ValidationResult {
-        const absolutePath = path.isAbsolute(filePath)
-            ? filePath
-            : path.resolve(projectRoot, filePath);
+        // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
+        const { absolutePath } = this.normalizePath(filePath, projectRoot);
 
-        // 프로젝트 외부 삭제 차단
-        if (!absolutePath.startsWith(projectRoot)) {
+        // 프로젝트 외부 삭제 차단 (정규화된 경로로 검사)
+        const normalizedProjectRoot = fs.existsSync(projectRoot)
+            ? fs.realpathSync(projectRoot)
+            : projectRoot;
+
+        if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
                 allowed: false,
                 reason: `프로젝트 외부 파일 삭제 차단: ${filePath}`,
@@ -325,7 +452,7 @@ export class PreToolUseValidator {
         }
 
         // 상대 경로로 변환
-        const relativePath = path.relative(projectRoot, absolutePath);
+        const relativePath = path.relative(normalizedProjectRoot, absolutePath);
 
         // 민감한 파일 삭제 차단
         for (const pattern of this.SENSITIVE_FILES) {
@@ -333,6 +460,17 @@ export class PreToolUseValidator {
                 return {
                     allowed: false,
                     reason: `민감한 파일 삭제 차단: ${filePath}`,
+                    severity: 'error'
+                };
+            }
+        }
+
+        // v9.4.0: 읽기 전용 파일 삭제도 차단 (package-lock.json 등)
+        for (const pattern of this.READ_ONLY_FILES) {
+            if (pattern.test(relativePath) || pattern.test(filePath)) {
+                return {
+                    allowed: false,
+                    reason: `읽기 전용 파일 삭제 차단: ${filePath}`,
                     severity: 'error'
                 };
             }

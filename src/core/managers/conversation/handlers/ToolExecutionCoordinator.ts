@@ -119,6 +119,60 @@ export class ToolExecutionCoordinator {
     }
 
     /**
+     * 🔥 도구 실행 시작 시 진행 상태 전송 (Processing Steps 업데이트)
+     * executeTools의 onToolStart 콜백에서 호출
+     */
+    public static sendToolStartStatus(
+        webview: vscode.Webview | undefined,
+        call: any
+    ): void {
+        if (!webview) return;
+
+        const toolName = call.name;
+        const params = call.params || {};
+        const toolLabel = ToolExecutionCoordinator.getToolLabel(toolName);
+
+        let statusMessage = `${toolLabel} 중...`;
+
+        // read_file 도구인 경우 파일 경로와 줄 번호 범위 표시
+        if (toolName === Tool.READ_FILE) {
+            const filePath = params.path || params.paths?.split(',')[0] || '';
+            const fileName = filePath ? pathModule.basename(filePath) : '';
+            const startLine = params.startLine;
+            const endLine = params.endLine;
+
+            if (startLine || endLine) {
+                // 부분 읽기: 줄 번호 범위 표시
+                const lineRange = `${startLine || 1}-${endLine || 'end'}`;
+                statusMessage = `파일 읽는 중: ${fileName} (${lineRange}줄)`;
+            } else {
+                statusMessage = `파일 읽는 중: ${fileName}`;
+            }
+        }
+        // 다른 파일 관련 도구들
+        else if ([Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE].includes(toolName as Tool)) {
+            const filePath = params.path || params.file_path || params.target_file || '';
+            const fileName = filePath ? pathModule.basename(filePath) : '';
+            if (fileName) {
+                statusMessage = `${toolLabel} 중: ${fileName}`;
+            }
+        }
+        // 명령 실행
+        else if (toolName === Tool.RUN_COMMAND) {
+            const command = params.command || '';
+            const shortCommand = command.length > 30 ? command.substring(0, 30) + '...' : command;
+            statusMessage = `명령 실행 중: ${shortCommand}`;
+        }
+        // 검색 도구
+        else if (toolName === Tool.RIPGREP_SEARCH || toolName === Tool.SEARCH_FILES) {
+            const pattern = params.pattern || params.query || '';
+            statusMessage = `검색 중: ${pattern}`;
+        }
+
+        WebviewBridge.sendProcessingStatus(webview, 'execution', statusMessage);
+    }
+
+    /**
      * 🔥 단일 Tool 실행 결과를 즉시 UI에 전송 (실시간 업데이트용)
      * executeTools의 onToolComplete 콜백에서 호출
      */

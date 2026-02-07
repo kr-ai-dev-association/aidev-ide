@@ -2522,6 +2522,14 @@ window.addEventListener("message", event => {
         applyThemeToBody(message.chatTheme);
       }
 
+      // 버전 표시 (package.json에서 동기화)
+      if (message.extensionVersion) {
+        const versionNumberElement = document.getElementById("version-number");
+        if (versionNumberElement) {
+          versionNumberElement.textContent = message.extensionVersion;
+        }
+      }
+
       // Ollama 모델 설정 처리
       if (message.ollamaModel && message.ollamaModel !== "") {
         storedOllamaModel = message.ollamaModel;
@@ -3588,12 +3596,8 @@ window.addEventListener("message", event => {
             sourcePathStatus.textContent = languageData["sourcePathsLoaded"] || "소스 경로 로드 완료.";
           }
         }
-        if (projectRootStatus && projectRootStatus.textContent) {
-          const currentText = projectRootStatus.textContent;
-          if (currentText.includes("로드 완료") || currentText.includes("loaded successfully") || currentText.includes("cargado correctamente") || currentText.includes("chargé avec succès") || currentText.includes("加载完成") || currentText.includes("正常に読み込まれました")) {
-            projectRootStatus.textContent = languageData["projectRootLoaded"] || "프로젝트 Root 로드 완료.";
-          }
-        }
+
+        // projectRootStatus 요소가 HTML에 없으므로 제거됨 (v9.4.1)
 
         // autoUpdateStatus 텍스트 업데이트 제거 - 스위치 버튼으로 상태 표시
       }

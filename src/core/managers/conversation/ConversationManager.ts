@@ -62,7 +62,9 @@ import { ConversationCompactor } from "./ConversationCompactor";
 import { MCPManager } from "../../mcp/MCPManager";
 import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
-import { TurnContext, TurnAction } from "./types/TurnContext";
+import { TurnContext, TurnAction, LoopState } from "./types/TurnContext";
+import { FileTransactionManager } from "../action/file/FileTransactionManager";
+import * as crypto from "crypto";
 
 export interface ConversationOptions {
   userQuery: string;
@@ -169,6 +171,189 @@ export class ConversationManager {
   }
 
   /**
+   * LoopState 초기화
+   * v9.4.0: 무한 루프 감지 메커니즘
+   */
+  private initializeLoopState(): LoopState {
+    return {
+      lastPhase: AgentPhase.INVESTIGATION,
+      lastPlanItemId: null,
+      lastToolCalls: [],
+      lastResponseHash: "",
+      consecutiveNoProgressTurns: 0,
+      consecutiveSamePhase: 0,
+      consecutiveSamePlanItem: 0,
+    };
+  }
+
+  /**
+   * LLM 응답의 간단한 해시 생성 (중복 응답 감지용)
+   */
+  private computeResponseHash(response: string): string {
+    // 응답에서 도구 호출과 핵심 텍스트만 추출하여 해시 생성
+    const normalized = response
+      .replace(/\s+/g, " ")
+      .trim()
+      .substring(0, 500); // 처음 500자만 사용
+    return crypto.createHash("md5").update(normalized).digest("hex");
+  }
+
+  /**
+   * LoopState 업데이트 및 무한 루프 감지
+   * @returns 무한 루프가 감지되었는지 여부
+   */
+  private updateAndCheckLoopState(
+    loopState: LoopState,
+    currentPhase: AgentPhase,
+    currentPlanItemId: string | null,
+    toolCalls: string[],
+    llmResponse: string,
+    hasProgress: boolean,
+  ): { isLoop: boolean; reason?: string } {
+    const responseHash = this.computeResponseHash(llmResponse);
+
+    // Phase 연속 카운트 업데이트
+    if (currentPhase === loopState.lastPhase) {
+      loopState.consecutiveSamePhase++;
+    } else {
+      loopState.consecutiveSamePhase = 1;
+      loopState.lastPhase = currentPhase;
+    }
+
+    // Plan Item 연속 카운트 업데이트
+    if (
+      currentPlanItemId !== null &&
+      currentPlanItemId === loopState.lastPlanItemId
+    ) {
+      loopState.consecutiveSamePlanItem++;
+    } else {
+      loopState.consecutiveSamePlanItem = 1;
+      loopState.lastPlanItemId = currentPlanItemId;
+    }
+
+    // 진전 없음 카운트 업데이트
+    const sameToolCalls =
+      JSON.stringify(toolCalls) === JSON.stringify(loopState.lastToolCalls);
+    const sameResponse = responseHash === loopState.lastResponseHash;
+
+    if (!hasProgress && (sameToolCalls || sameResponse)) {
+      loopState.consecutiveNoProgressTurns++;
+    } else if (hasProgress) {
+      loopState.consecutiveNoProgressTurns = 0;
+    }
+
+    loopState.lastToolCalls = toolCalls;
+    loopState.lastResponseHash = responseHash;
+
+    // 무한 루프 감지 조건 체크
+    if (
+      loopState.consecutiveNoProgressTurns >=
+      AgentConfig.LOOP_DETECTION_NO_PROGRESS_THRESHOLD
+    ) {
+      return {
+        isLoop: true,
+        reason: `진전 없이 ${loopState.consecutiveNoProgressTurns}턴 연속 반복`,
+      };
+    }
+
+    if (
+      loopState.consecutiveSamePlanItem >=
+      AgentConfig.LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD
+    ) {
+      return {
+        isLoop: true,
+        reason: `동일 Plan Item에서 ${loopState.consecutiveSamePlanItem}턴 연속 미완료`,
+      };
+    }
+
+    if (
+      loopState.consecutiveSamePhase >=
+      AgentConfig.LOOP_DETECTION_SAME_PHASE_THRESHOLD
+    ) {
+      return {
+        isLoop: true,
+        reason: `동일 Phase(${currentPhase})에서 ${loopState.consecutiveSamePhase}턴 연속`,
+      };
+    }
+
+    return { isLoop: false };
+  }
+
+  /**
+   * 무한 루프 탈출 처리
+   * @returns 루프를 종료해야 하는지 여부
+   */
+  private handleInfiniteLoopEscape(
+    reason: string,
+    loopState: LoopState,
+    stateManager: AgentStateManager,
+    taskManager: TaskManager,
+    webview: vscode.Webview,
+  ): { shouldBreak: boolean; message: string } {
+    console.warn(
+      `[ConversationManager] 무한 루프 감지: ${reason}`,
+    );
+
+    // 1단계: 현재 Plan Item 스킵 시도
+    const currentPlanItem = taskManager.getNextPendingItem();
+    if (
+      currentPlanItem &&
+      loopState.consecutiveSamePlanItem >=
+        AgentConfig.LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD
+    ) {
+      console.log(
+        `[ConversationManager] Plan Item "${currentPlanItem.title}" 스킵 처리`,
+      );
+      taskManager.updatePlanItemStatus(currentPlanItem.id, "skipped");
+      WebviewBridge.updateTaskQueue(webview, taskManager.listPlanItems());
+
+      // 다음 Plan Item이 있으면 계속 진행
+      const nextItem = taskManager.getNextPendingItem();
+      if (nextItem) {
+        loopState.consecutiveSamePlanItem = 0;
+        loopState.consecutiveNoProgressTurns = 0;
+        return {
+          shouldBreak: false,
+          message: `작업 "${currentPlanItem.title}"을(를) 건너뛰고 다음 작업으로 진행합니다.`,
+        };
+      }
+    }
+
+    // 2단계: Phase 전환 강제
+    const currentPhase = stateManager.getCurrentState();
+    if (
+      currentPhase === AgentPhase.INVESTIGATION ||
+      currentPhase === AgentPhase.EXECUTION
+    ) {
+      console.log(
+        `[ConversationManager] ${currentPhase} → REVIEW 강제 전환`,
+      );
+      stateManager.transitionTo(AgentPhase.REVIEW);
+
+      // REVIEW로 전환 후 한 번 더 시도
+      loopState.consecutiveSamePhase = 0;
+      loopState.consecutiveNoProgressTurns = 0;
+      return {
+        shouldBreak: false,
+        message: `반복이 감지되어 검토 단계로 전환합니다.`,
+      };
+    }
+
+    // 3단계: 최종 탈출 - 사용자에게 알림 및 종료
+    console.log(`[ConversationManager] 무한 루프 탈출 불가 - 대화 종료`);
+    WebviewBridge.receiveMessage(
+      webview,
+      "SYSTEM_WARNING",
+      `⚠️ 작업이 반복되어 자동으로 중단되었습니다. (${reason})`,
+    );
+
+    return {
+      shouldBreak: true,
+      message: `무한 루프가 감지되어 작업을 중단합니다: ${reason}`,
+    };
+  }
+
+  /**
    * 사용자의 메시지를 처리하고 응답을 생성하는 메인 엔트리 포인트
    */
   public async handleUserMessageAndRespond(
@@ -198,6 +383,13 @@ export class ConversationManager {
 
       // A4: CompletionJudge 리셋 (새 요청 시작)
       this.completionJudge.reset();
+
+      // v9.4.0: 파일 트랜잭션 시작 (롤백 지원)
+      const fileTransactionManager = FileTransactionManager.getInstance();
+      fileTransactionManager.beginTransaction({
+        userQuery: options.userQuery,
+        source: "conversation",
+      });
 
       // 세션 히스토리 정리 체크 (LLM 요약 없이 오래된 항목 제거)
       if (extensionContext) {
@@ -272,10 +464,14 @@ export class ConversationManager {
         this.promptBuilder.generateSystemPrompt(promptOptions);
 
       // 5. 작업 타입에 따른 실행 분기
+      console.log(`[ConversationManager] promptType check: ${optionsWithAbort.promptType}, CODE_GENERATION=${PromptType.CODE_GENERATION}`);
       if (optionsWithAbort.promptType === PromptType.CODE_GENERATION) {
-        const userParts = this.buildUserPartsWithUrls(
+        // v9.5.0: AGENT 모드에서도 이전 대화 히스토리 포함 (대화 연속성 유지)
+        console.log(`[ConversationManager] Using buildUserPartsWithUrlsAndHistory for AGENT mode`);
+        const userParts = await this.buildUserPartsWithUrlsAndHistory(
           userQuery,
           autoFetchedUrlContents,
+          optionsWithAbort,
         );
         await this.executeAgentLoop(
           systemPrompt,
@@ -437,13 +633,72 @@ export class ConversationManager {
   }
 
   /**
-   * userParts에 자동 fetch된 URL 내용을 포함하여 구성
+   * userParts에 이전 대화 히스토리와 자동 fetch된 URL 내용을 포함하여 구성
+   * v9.5.0: AGENT 모드에서도 이전 대화 컨텍스트 포함
    */
-  private buildUserPartsWithUrls(
+  private async buildUserPartsWithUrlsAndHistory(
     userQuery: string,
     autoFetchedUrlContents: { url: string; content: string }[],
-  ): any[] {
-    const userParts = [{ text: userQuery }];
+    options: ConversationOptions,
+  ): Promise<any[]> {
+    const userParts: any[] = [];
+
+    // 이전 대화 히스토리 추가 (대화 연속성 유지)
+    if (options.extensionContext) {
+      try {
+        const { SessionManager } = await import("../state/SessionManager");
+        const sessionManager = SessionManager.getInstance(
+          options.extensionContext,
+        );
+        const currentSession = sessionManager.getCurrentSession();
+
+        console.log(`[ConversationManager] Loading history for AGENT mode: session=${currentSession?.id}, historyCount=${currentSession?.conversationHistory?.length || 0}`);
+
+        if (currentSession && currentSession.conversationHistory.length > 0) {
+          // 최근 대화 히스토리 (구조화된 메타데이터)
+          const history = currentSession.conversationHistory.slice(
+            -AgentConfig.MAX_HISTORY_ENTRIES,
+          );
+
+          console.log(`[ConversationManager] Including ${history.length} previous conversations in context`);
+
+          // 이전 대화를 간결한 컨텍스트로 추가
+          for (const entry of history) {
+            const actions =
+              entry.actions && entry.actions.length > 0
+                ? ` [Actions: ${entry.actions.map((a: any) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
+                : "";
+            const response = entry.assistantResponse
+              ? entry.assistantResponse.slice(
+                  0,
+                  AgentConfig.MAX_HISTORY_ACTION_PREVIEW_LENGTH,
+                )
+              : entry.filesCreated || entry.filesModified
+                ? "파일 변경 완료"
+                : "작업 완료";
+            const historyText = `[Previous] User: ${entry.userRequest}${actions}\nAssistant: ${response}`;
+            console.log(`[ConversationManager] History entry: ${historyText.substring(0, 100)}...`);
+            userParts.push({
+              text: historyText,
+            });
+          }
+        } else {
+          console.log(`[ConversationManager] No conversation history found for AGENT mode`);
+        }
+      } catch (error) {
+        console.warn(
+          "[ConversationManager] Failed to load conversation history for AGENT mode:",
+          error,
+        );
+      }
+    } else {
+      console.warn("[ConversationManager] extensionContext not available, cannot load history");
+    }
+
+    // 현재 질문 추가
+    userParts.push({ text: userQuery });
+
+    // URL 내용 추가
     if (autoFetchedUrlContents.length > 0) {
       for (const fetched of autoFetchedUrlContents) {
         userParts.push({
@@ -918,10 +1173,17 @@ export class ConversationManager {
     // 🔥 대화 시작 시 reviewProcessed 플래그 초기화 (이전 대화에서 남은 값 제거)
     (this as any).reviewProcessed = null;
 
+    // v9.4.0: 무한 루프 감지 상태 초기화
+    const loopState = this.initializeLoopState();
+    loopState.lastPhase = initialState;
+
     while (turnCount < maxTurns) {
       if (abortSignal?.aborted) {
         break;
       }
+
+      // 🔒 메모리 누수 방지: accumulatedUserParts 정리
+      accumulatedUserParts = this.trimAccumulatedParts(accumulatedUserParts);
 
       // 🔄 컨텍스트 자동 압축 체크 (토큰 임계값 초과 시 트리거)
       try {
@@ -2419,6 +2681,47 @@ export class ConversationManager {
       if (postToolResult.pendingMCPResultInterpretation) {
         pendingMCPResultInterpretation = true;
       }
+
+      // v9.4.0: 무한 루프 감지 (턴 종료 시점에 체크)
+      const hasProgress =
+        turnHasSideEffects ||
+        validPlanReceived ||
+        createdFiles.length > 0 ||
+        modifiedFiles.length > 0;
+      const toolCallSignatures = totalToolCalls.map(
+        (tc: any) => `${tc.name}:${JSON.stringify(tc.params || {})}`,
+      );
+      const loopCheck = this.updateAndCheckLoopState(
+        loopState,
+        currentPhase,
+        currentPlanItem?.id || null,
+        toolCallSignatures,
+        llmResponse,
+        hasProgress,
+      );
+
+      if (loopCheck.isLoop) {
+        const escapeResult = this.handleInfiniteLoopEscape(
+          loopCheck.reason!,
+          loopState,
+          stateManager,
+          taskManager,
+          webviewToRespond,
+        );
+
+        if (escapeResult.shouldBreak) {
+          console.log(
+            `[ConversationManager] 무한 루프 탈출 실패, 대화 종료: ${escapeResult.message}`,
+          );
+          break;
+        } else {
+          // 탈출 성공 - 로그만 남기고 계속 진행
+          console.log(
+            `[ConversationManager] 무한 루프 탈출 시도: ${escapeResult.message}`,
+          );
+        }
+      }
+
       if (postToolResult.turnAction.action === "continue") {
         turnCount++;
         continue;
@@ -2567,15 +2870,25 @@ export class ConversationManager {
           intent &&
           (intent.category === "analysis" ||
             intent.category === "documentation");
+
+        // 🔥 v9.4.1: 파일 미존재 응답 패턴 감지 - 사용자에게 확인 질문은 허용
+        const isFileNotExistResponse = totalResponseText && (
+          /파일이?\s*(존재하지\s*않|없)/i.test(totalResponseText) ||
+          /존재하지\s*않습니다/i.test(totalResponseText) ||
+          /새로\s*생성.*\?/i.test(totalResponseText) ||
+          /file.*not.*exist/i.test(totalResponseText) ||
+          /does.*not.*exist/i.test(totalResponseText)
+        );
+
         if (
-          isTextAllowedIntent &&
+          (isTextAllowedIntent || isFileNotExistResponse) &&
           totalResponseText &&
           totalResponseText.trim() &&
           !hasPlanTag &&
           !hasJsonPlanInResponse
         ) {
           console.log(
-            `[ConversationManager] INVESTIGATION phase: ${intent.category} intent detected, allowing text response.`,
+            `[ConversationManager] INVESTIGATION phase: ${isFileNotExistResponse ? 'file-not-exist response' : intent?.category + ' intent'} detected, allowing text response.`,
           );
           // 응답 정제: thinking 태그 및 시스템 토큰 제거
           let cleanResponse = StringUtils.cleanText(totalResponseText, {
@@ -2599,9 +2912,40 @@ export class ConversationManager {
               "CODEPILOT",
               cleanResponse,
             );
+
+            // 🔥 v9.5.0: 파일 미존재 응답도 세션에 저장 (대화 연속성 유지)
+            if (options.extensionContext) {
+              try {
+                const { SessionManager } = await import("../state/SessionManager");
+                const sessionManager = SessionManager.getInstance(
+                  options.extensionContext,
+                );
+                const currentSession = sessionManager.getCurrentSession();
+                if (currentSession) {
+                  sessionManager.addConversationEntry(currentSession.id, {
+                    id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    timestamp: Date.now(),
+                    userRequest: userQuery || "",
+                    assistantResponse: cleanResponse,
+                    actions: collectedActions as any,
+                    result: "success",
+                    model: options.currentModelType,
+                  });
+                  console.log(
+                    "[ConversationManager] Saved file-not-exist response to session history",
+                  );
+                }
+              } catch (e) {
+                console.warn(
+                  "[ConversationManager] Failed to save file-not-exist response to session:",
+                  e,
+                );
+              }
+            }
+
             stateManager.transitionTo(AgentPhase.DONE, {});
             console.log(
-              "[ConversationManager] Analysis text response sent. Transitioning to DONE.",
+              "[ConversationManager] Text response sent (file-not-exist or analysis). Transitioning to DONE.",
             );
             break;
           }
@@ -3138,6 +3482,9 @@ export class ConversationManager {
 
       break;
     }
+
+    // v9.4.0: 파일 트랜잭션 커밋
+    FileTransactionManager.getInstance().commit();
 
     if (turnCount >= maxTurns) {
       WebviewBridge.updateProcessingStatus(
@@ -4400,6 +4747,10 @@ export class ConversationManager {
         );
         uiMsgs.push(...msgs);
       },
+      // 🔥 도구 실행 시작 시 진행 상태 표시 (v9.5.0)
+      (toolUse: any, _index: number) => {
+        ToolExecutionCoordinator.sendToolStartStatus(webview, toolUse);
+      },
     );
 
     // 스킵된 결과와 실행된 결과를 합침 (원래 순서 유지를 위해 재구성)
@@ -4657,5 +5008,55 @@ export class ConversationManager {
       "테스트 실패 - 결과 검토 중...",
     );
     return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
+  }
+
+  // ─── 메모리 누수 방지 ───
+
+  /**
+   * accumulatedUserParts 메모리 정리
+   * - 최대 항목 수 초과 시 오래된 항목 제거
+   * - 개별 항목의 텍스트 길이 제한
+   */
+  private trimAccumulatedParts(parts: any[]): any[] {
+    // 1. 항목 수 제한
+    if (parts.length > AgentConfig.MAX_ACCUMULATED_PARTS) {
+      console.log(
+        `[ConversationManager] Trimming accumulatedUserParts: ${parts.length} → ${AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET}`,
+      );
+      // 첫 번째 항목(원래 사용자 쿼리)과 최근 항목들 유지
+      const firstPart = parts[0];
+      const recentParts = parts.slice(-AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1);
+      parts = [firstPart, ...recentParts];
+    }
+
+    // 2. 개별 항목 텍스트 길이 제한
+    for (const part of parts) {
+      if (part.text && part.text.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
+        console.log(
+          `[ConversationManager] Trimming part text: ${part.text.length} → ${AgentConfig.PART_TEXT_TRIM_LENGTH}`,
+        );
+        part.text = part.text.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
+          '\n\n... [내용이 너무 길어 일부가 생략되었습니다] ...';
+      }
+    }
+
+    return parts;
+  }
+
+  /**
+   * 대화 종료 시 리소스 정리
+   * handleUserMessageAndRespond 또는 runAgentLoop 종료 시 호출 가능
+   */
+  public cleanupConversationResources(): void {
+    // 트랜잭션 매니저 정리
+    try {
+      const txManager = FileTransactionManager.getInstance();
+      txManager.discardTransaction();
+      txManager.clearHistory();
+    } catch (e) {
+      // 무시
+    }
+
+    console.log('[ConversationManager] Conversation resources cleaned up');
   }
 }

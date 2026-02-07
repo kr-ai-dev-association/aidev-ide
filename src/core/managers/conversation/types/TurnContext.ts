@@ -6,10 +6,31 @@
  */
 
 import * as vscode from 'vscode';
-import { AgentStateManager } from '../AgentStateManager';
+import { AgentStateManager, AgentPhase } from '../AgentStateManager';
 import { TaskManager } from '../../task/TaskManager';
 import { RetryCoordinator } from '../handlers/RetryCoordinator';
 import { ConversationOptions } from '../ConversationManager';
+
+/**
+ * 무한 루프 감지를 위한 상태 추적
+ * v9.4.0: 무한 루프 감지 메커니즘 추가
+ */
+export interface LoopState {
+  /** 마지막 턴의 Phase */
+  lastPhase: AgentPhase;
+  /** 마지막 처리된 Plan Item ID */
+  lastPlanItemId: string | null;
+  /** 마지막 턴에서 실행된 도구 호출 시그니처 */
+  lastToolCalls: string[];
+  /** LLM 응답의 해시 (중복 응답 감지) */
+  lastResponseHash: string;
+  /** 진전 없이 연속된 턴 수 */
+  consecutiveNoProgressTurns: number;
+  /** 동일 Phase에서 연속된 턴 수 */
+  consecutiveSamePhase: number;
+  /** 동일 Plan Item에서 연속된 턴 수 */
+  consecutiveSamePlanItem: number;
+}
 
 /**
  * 턴 루프의 모든 가변 상태 + 불변 설정을 하나로 캡슐화
