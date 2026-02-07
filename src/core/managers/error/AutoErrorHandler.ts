@@ -2,18 +2,20 @@
  * Auto Error Handler
  * 자동 오류 처리 및 수정을 담당하는 서비스
  * ErrorManager의 onError 이벤트를 구독하여 자동으로 오류 수정 시도
+ *
+ * v9.7.2: 순환 의존성 제거 - ConversationManager 대신 IConversationHandler 인터페이스 사용
  */
 
 import * as vscode from 'vscode';
 import { ErrorManager } from './ErrorManager';
 import { SettingsManager } from '../state/SettingsManager';
-import { ConversationManager } from '../conversation/ConversationManager';
+import { IConversationHandler } from '../conversation/IConversationHandler';
 import { PromptType } from '../../../services';
 import { safePostMessage } from '../../../utils';
 import { LLMManager } from '../model/LLMManager';
 
 export interface AutoErrorHandlerOptions {
-    conversationManager: ConversationManager;
+    conversationHandler: IConversationHandler;
     chatWebview?: vscode.Webview;
     askWebview?: vscode.Webview;
     extensionContext?: vscode.ExtensionContext;
@@ -21,7 +23,7 @@ export interface AutoErrorHandlerOptions {
 
 export class AutoErrorHandler {
     private static instance: AutoErrorHandler;
-    private conversationManager?: ConversationManager;
+    private conversationHandler?: IConversationHandler;
     private chatWebview?: vscode.Webview;
     private askWebview?: vscode.Webview;
     private extensionContext?: vscode.ExtensionContext;
@@ -43,7 +45,7 @@ export class AutoErrorHandler {
      * AutoErrorHandler를 설정합니다
      */
     public configure(options: AutoErrorHandlerOptions): void {
-        this.conversationManager = options.conversationManager;
+        this.conversationHandler = options.conversationHandler;
         this.chatWebview = options.chatWebview;
         this.askWebview = options.askWebview;
         this.extensionContext = options.extensionContext;
@@ -96,8 +98,8 @@ export class AutoErrorHandler {
                 return;
             }
 
-            if (!this.conversationManager) {
-                console.warn('[AutoErrorHandler] ConversationManager not configured');
+            if (!this.conversationHandler) {
+                console.warn('[AutoErrorHandler] ConversationHandler not configured');
                 return;
             }
 
@@ -113,8 +115,8 @@ export class AutoErrorHandler {
             console.log('[AutoErrorHandler] Auto error fix prompt:', shortPrompt);
             console.log('[AutoErrorHandler] Starting auto error correction...');
 
-            // ConversationManager를 통해 오류 수정 요청
-            await this.conversationManager.handleUserMessageAndRespond({
+            // ConversationHandler를 통해 오류 수정 요청
+            await this.conversationHandler.handleUserMessageAndRespond({
                 userQuery: shortPrompt,
                 webviewToRespond: target,
                 promptType: PromptType.CODE_GENERATION,

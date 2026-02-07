@@ -3,6 +3,7 @@
  * 턴 루프의 모든 상태를 캡슐화하는 컨텍스트 및 액션 타입
  *
  * v9.3.0: ConversationManager 턴 루프 리팩토링
+ * v9.7.3: any 타입 제거, 명시적 타입 정의
  */
 
 import * as vscode from 'vscode';
@@ -10,6 +11,34 @@ import { AgentStateManager, AgentPhase } from '../AgentStateManager';
 import { TaskManager } from '../../task/TaskManager';
 import { RetryCoordinator } from '../handlers/RetryCoordinator';
 import { ConversationOptions } from '../ConversationManager';
+import { ToolUse } from '../../../tools/types';
+import { IntentDetectionResult } from '../../action/IntentDetector';
+import { Part } from '../../../../services/llm/GeminiApi';
+
+/**
+ * LLM에 전달되는 사용자 메시지 파트
+ * Part 타입을 재사용 (GeminiApi의 Part와 호환)
+ */
+export type UserPart = Part;
+
+/**
+ * 수집된 액션 정보
+ */
+export interface CollectedAction {
+  type: string;
+  file?: string;
+  command?: string;
+  result?: string;
+}
+
+/**
+ * UI 메시지 수집
+ */
+export interface CollectedUIMessage {
+  sender: 'USER' | 'CODEPILOT' | 'System';
+  text: string;
+  type?: 'action' | 'code' | 'summary' | 'message';
+}
 
 /**
  * 무한 루프 감지를 위한 상태 추적
@@ -51,15 +80,15 @@ export interface TurnContext {
   hasExecutionIntentEver: boolean;
 
   // ── 누적 데이터 (가변) ──
-  accumulatedUserParts: any[];
+  accumulatedUserParts: UserPart[];
   createdFiles: string[];
   modifiedFiles: string[];
   preloadedFiles: Set<string>;
-  toolCallsFromPlanCreation: any[];
+  toolCallsFromPlanCreation: ToolUse[];
 
   // ── 메타데이터 수집 (가변) ──
-  collectedActions: Array<{ type: string; file?: string; command?: string; result?: string }>;
-  collectedUIMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }>;
+  collectedActions: CollectedAction[];
+  collectedUIMessages: CollectedUIMessage[];
   lastAssistantResponse: string;
   recentlyExecutedCommands: Set<string>;
 
@@ -67,7 +96,7 @@ export interface TurnContext {
   readonly maxTestFixAttempts: number;
   readonly maxExecutionNoToolRetries: number;
   readonly isAutoTestRetryEnabled: boolean;
-  readonly intent: any;
+  readonly intent: IntentDetectionResult | null;
   readonly hasNoIntent: boolean;
   readonly webview: vscode.Webview;
   readonly abortSignal?: AbortSignal;

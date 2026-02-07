@@ -52,9 +52,11 @@ export class MCPManager {
      */
     async initialize(context: vscode.ExtensionContext): Promise<void> {
         if (this.initialized) {
-            // 컨텍스트 갱신만 수행 (설정 리로드)
+            // 컨텍스트 갱신 시 기존 연결 정리 후 설정 리로드
             this.context = context;
+            await this.disconnectAllServers();
             await this.loadSettings();
+            await this.autoConnectEnabledServers();
             return;
         }
 
@@ -64,11 +66,43 @@ export class MCPManager {
         this.initialized = true;
         console.log(`[MCPManager] Initialized with ${this.settings.servers.length} servers`);
 
-        // 활성화된 서버들에 자동 연결
+        await this.autoConnectEnabledServers();
+    }
+
+    /**
+     * 모든 서버 연결 해제 (설정 리로드 전 정리용)
+     */
+    private async disconnectAllServers(): Promise<void> {
+        const serverIds = Array.from(this.clients.keys());
+        for (const serverId of serverIds) {
+            try {
+                await this.disconnectFromServer(serverId);
+            } catch (err) {
+                console.warn(`[MCPManager] Disconnect failed for ${serverId}:`, err);
+            }
+        }
+    }
+
+    /**
+     * 활성화된 서버들에 자동 연결 (상태 업데이트 포함)
+     */
+    private async autoConnectEnabledServers(): Promise<void> {
         for (const server of this.settings.servers) {
             if (server.enabled) {
-                this.connectToServer(server.id).catch(err => {
-                    console.error(`[MCPManager] Auto-connect failed for ${server.name}:`, err);
+                this.connectToServer(server.id).catch(async (err) => {
+                    const errorMessage = err instanceof Error ? err.message : String(err);
+                    console.error(`[MCPManager] Auto-connect failed for ${server.name}:`, errorMessage);
+
+                    // 서버 상태 업데이트 및 이벤트 발행
+                    server.status = 'error';
+                    await this.saveSettings();
+
+                    this.emitEvent({
+                        type: 'error',
+                        serverId: server.id,
+                        serverName: server.name,
+                        error: `Auto-connect failed: ${errorMessage}`
+                    });
                 });
             }
         }

@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
 import {
     ContextData,
     ContextType,
@@ -232,12 +233,16 @@ export class ContextManager {
 
         const filePath = editor.document.uri.fsPath;
 
-        // 파일 크기 확인
+        // 파일 크기 확인 (비동기)
         if (options.maxFileSize) {
-            const stats = require('fs').statSync(filePath);
-            if (stats.size > options.maxFileSize) {
-                console.warn(`[ContextManager] File too large: ${stats.size} bytes, max: ${options.maxFileSize}`);
-                return null;
+            try {
+                const stats = await fs.stat(filePath);
+                if (stats.size > options.maxFileSize) {
+                    console.warn(`[ContextManager] File too large: ${stats.size} bytes, max: ${options.maxFileSize}`);
+                    return null;
+                }
+            } catch (error) {
+                console.warn('[ContextManager] Failed to check file size:', error);
             }
         }
 

@@ -5,15 +5,22 @@
 
 import * as vscode from 'vscode';
 import * as pathModule from 'path';
-import { Tool } from '../../../tools/types';
+import { Tool, ToolUse, ToolResponse } from '../../../tools/types';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
 import { InlineDiffManager } from '../../diff/InlineDiffManager';
+
+/** read_file 도구의 파일 결과 항목 */
+interface ReadFileResultItem {
+    path: string;
+    content?: string;
+    error?: string;
+}
 
 export class ToolExecutionCoordinator {
     /**
      * Tool 실행 결과가 부작용이 있는지 확인
      */
-    public static hasSideEffects(calls: any[], results: any[]): boolean {
+    public static hasSideEffects(calls: ToolUse[], results: ToolResponse[]): boolean {
         const sideEffectTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
         return results.some((res, i) => res.success && sideEffectTools.includes(calls[i].name as Tool));
     }
@@ -22,8 +29,8 @@ export class ToolExecutionCoordinator {
      * 파일 변경 추적 (요약 검증용)
      */
     public static trackFileChanges(
-        toolCalls: any[],
-        toolResults: any[],
+        toolCalls: ToolUse[],
+        toolResults: ToolResponse[],
         createdFiles: string[],
         modifiedFiles: string[]
     ): void {
@@ -68,7 +75,7 @@ export class ToolExecutionCoordinator {
     /**
      * Tool 실행 결과 요약 생성
      */
-    public static createToolResultSummary(turn: number, calls: any[], results: any[]): string {
+    public static createToolResultSummary(turn: number, calls: ToolUse[], results: ToolResponse[]): string {
         let summary = '';
         results.forEach((res, i) => {
             const toolName = calls[i].name;
@@ -86,7 +93,7 @@ export class ToolExecutionCoordinator {
                 if (res.success && res.data) {
                     // 여러 파일인 경우 (files 배열)
                     if (res.data.files && Array.isArray(res.data.files)) {
-                        res.data.files.forEach((file: any, index: number) => {
+                        res.data.files.forEach((file: ReadFileResultItem, index: number) => {
                             summary += `File ${index + 1}: ${file.path}\n`;
                             if (file.error) {
                                 summary += `Error: ${file.error}\n`;
@@ -124,7 +131,7 @@ export class ToolExecutionCoordinator {
      */
     public static sendToolStartStatus(
         webview: vscode.Webview | undefined,
-        call: any
+        call: ToolUse
     ): void {
         if (!webview) return;
 
@@ -178,8 +185,8 @@ export class ToolExecutionCoordinator {
      */
     public static sendSingleToolResultToUI(
         webview: vscode.Webview | undefined,
-        call: any,
-        result: any
+        call: ToolUse,
+        result: ToolResponse
     ): { sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }[] {
         if (!webview) return [];
 
@@ -192,8 +199,8 @@ export class ToolExecutionCoordinator {
      */
     private static sendToolExecutionResultsToUISync(
         webview: vscode.Webview,
-        calls: any[],
-        results: any[]
+        calls: ToolUse[],
+        results: ToolResponse[]
     ): Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> {
         const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];
 
@@ -287,8 +294,8 @@ export class ToolExecutionCoordinator {
      */
     public static async sendToolExecutionResultsToUI(
         webview: vscode.Webview,
-        calls: any[],
-        results: any[]
+        calls: ToolUse[],
+        results: ToolResponse[]
     ): Promise<Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }>> {
         console.log(`[ToolExecutionCoordinator] sendToolExecutionResultsToUI called with ${results.length} results, webview=${!!webview}`);
         const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];

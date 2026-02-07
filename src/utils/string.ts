@@ -29,16 +29,6 @@ export function removeCDataSections(text: string): string {
 }
 
 /**
- * 잘못된 문자(예: replacement character)를 문자열에서 제거합니다
- * @param text 잘못된 문자가 포함될 수 있는 문자열
- * @returns 잘못된 문자가 제거된 문자열
- */
-export function removeInvalidChars(text: string): string {
-    // Replacement character () 및 기타 잘못된 문자 제거
-    return text.replace(/\uFFFD/g, '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
-}
-
-/**
  * JSON 문자열에서 주석과 후행 쉼표(trailing commas)를 제거합니다.
  * tsconfig.json 등 JSONC 파일을 파싱할 때 유용합니다.
  */

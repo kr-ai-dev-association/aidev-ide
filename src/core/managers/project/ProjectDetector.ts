@@ -4,6 +4,7 @@
  */
 
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import {
     ProjectType,
@@ -11,6 +12,7 @@ import {
 } from './types';
 import { AgentConfig } from '../../config/AgentConfig';
 import { EnvironmentHealth } from '../conversation/handlers/ErrorClassifier';
+import { fileExistsAsync, readFileAsync, readdirAsync, readJsonFileAsync } from '../../utils';
 
 export class ProjectDetector {
     /**
@@ -23,8 +25,8 @@ export class ProjectDetector {
     }> {
         console.log(`[ProjectDetector] Detecting project type: ${projectRoot}`);
 
-        // 파일 기반 감지
-        const fileBasedDetection = this.detectByFiles(projectRoot);
+        // 파일 기반 감지 (비동기)
+        const fileBasedDetection = await this.detectByFilesAsync(projectRoot);
         if (fileBasedDetection) {
             return fileBasedDetection;
         }
@@ -136,14 +138,14 @@ export class ProjectDetector {
     ];
 
     /**
-     * 파일을 기반으로 프로젝트 타입을 감지합니다
+     * 파일을 기반으로 프로젝트 타입을 감지합니다 (비동기)
      * 범용적인 감지 로직: 명시적 빌드 파일을 순회하며 첫 번째로 발견된 타입 반환
      */
-    private detectByFiles(projectRoot: string): {
+    private async detectByFilesAsync(projectRoot: string): Promise<{
         type: ProjectType;
         confidence: number;
         buildTool: BuildTool;
-    } | null {
+    } | null> {
         try {
             // ============================================================
             // Step 1: 명시적 빌드/설정 파일 기반 감지 (범용적)
@@ -154,10 +156,14 @@ export class ProjectDetector {
                     continue;
                 }
 
-                // 파일 존재 여부 확인
-                const foundFile = rule.files.find(file =>
-                    fs.existsSync(path.join(projectRoot, file))
-                );
+                // 파일 존재 여부 확인 (비동기)
+                let foundFile: string | null = null;
+                for (const file of rule.files) {
+                    if (await fileExistsAsync(path.join(projectRoot, file))) {
+                        foundFile = file;
+                        break;
+                    }
+                }
 
                 if (foundFile) {
                     console.log(`[ProjectDetector] Detected ${rule.type} by file: ${foundFile}`);
@@ -172,65 +178,72 @@ export class ProjectDetector {
             // ============================================================
             // Step 2: package.json 기반 세부 감지 (React, Vue, Angular 등)
             // ============================================================
-            if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
-                const packageJson = JSON.parse(
-                    fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')
-                );
+            const packageJsonPath = path.join(projectRoot, 'package.json');
+            if (await fileExistsAsync(packageJsonPath)) {
+                const packageJson = await readJsonFileAsync<{
+                    dependencies?: Record<string, string>;
+                    devDependencies?: Record<string, string>;
+                }>(packageJsonPath);
 
-                // React
-                if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
+                if (packageJson) {
+                    // React
+                    if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
+                        return {
+                            type: ProjectType.REACT,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // Vue
+                    if (packageJson.dependencies?.vue || packageJson.devDependencies?.vue) {
+                        return {
+                            type: ProjectType.VUE,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // Angular
+                    if (packageJson.dependencies?.['@angular/core'] || packageJson.devDependencies?.['@angular/core']) {
+                        return {
+                            type: ProjectType.ANGULAR,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // TypeScript
+                    if (await fileExistsAsync(path.join(projectRoot, 'tsconfig.json'))) {
+                        return {
+                            type: ProjectType.TYPESCRIPT,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // JavaScript/Node.js
                     return {
-                        type: ProjectType.REACT,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
+                        type: ProjectType.NODE,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
+                        buildTool: await this.detectBuildToolAsync(projectRoot)
                     };
                 }
-
-                // Vue
-                if (packageJson.dependencies?.vue || packageJson.devDependencies?.vue) {
-                    return {
-                        type: ProjectType.VUE,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
-                    };
-                }
-
-                // Angular
-                if (packageJson.dependencies?.['@angular/core'] || packageJson.devDependencies?.['@angular/core']) {
-                    return {
-                        type: ProjectType.ANGULAR,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
-                    };
-                }
-
-                // TypeScript
-                if (fs.existsSync(path.join(projectRoot, 'tsconfig.json'))) {
-                    return {
-                        type: ProjectType.TYPESCRIPT,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
-                    };
-                }
-
-                // JavaScript/Node.js
-                return {
-                    type: ProjectType.NODE,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
-                    buildTool: this.detectBuildTool(projectRoot)
-                };
             }
 
             // ============================================================
             // Step 3: Python 프레임워크 세부 감지 (Django, Flask, FastAPI)
             // Note: 기본 Python은 Step 1의 EXPLICIT_BUILD_FILES에서 처리됨
             // ============================================================
-            if (fs.existsSync(path.join(projectRoot, 'requirements.txt')) ||
-                fs.existsSync(path.join(projectRoot, 'pyproject.toml')) ||
-                fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
+            const [hasRequirements, hasPyproject, hasPipfile] = await Promise.all([
+                fileExistsAsync(path.join(projectRoot, 'requirements.txt')),
+                fileExistsAsync(path.join(projectRoot, 'pyproject.toml')),
+                fileExistsAsync(path.join(projectRoot, 'Pipfile'))
+            ]);
 
+            if (hasRequirements || hasPyproject || hasPipfile) {
                 // Django
-                if (fs.existsSync(path.join(projectRoot, 'manage.py'))) {
+                if (await fileExistsAsync(path.join(projectRoot, 'manage.py'))) {
                     return {
                         type: ProjectType.DJANGO,
                         confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.DJANGO,
@@ -239,8 +252,11 @@ export class ProjectDetector {
                 }
 
                 // Flask
-                if (fs.existsSync(path.join(projectRoot, 'app.py')) ||
-                    fs.existsSync(path.join(projectRoot, 'flask_app.py'))) {
+                const [hasAppPy, hasFlaskApp] = await Promise.all([
+                    fileExistsAsync(path.join(projectRoot, 'app.py')),
+                    fileExistsAsync(path.join(projectRoot, 'flask_app.py'))
+                ]);
+                if (hasAppPy || hasFlaskApp) {
                     return {
                         type: ProjectType.FLASK,
                         confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.FLASK_FASTAPI,
@@ -249,9 +265,10 @@ export class ProjectDetector {
                 }
 
                 // FastAPI
-                if (fs.existsSync(path.join(projectRoot, 'main.py'))) {
+                const mainPyPath = path.join(projectRoot, 'main.py');
+                if (await fileExistsAsync(mainPyPath)) {
                     try {
-                        const mainPy = fs.readFileSync(path.join(projectRoot, 'main.py'), 'utf8');
+                        const mainPy = await readFileAsync(mainPyPath);
                         if (mainPy.includes('FastAPI') || mainPy.includes('from fastapi')) {
                             return {
                                 type: ProjectType.FASTAPI,
@@ -273,7 +290,8 @@ export class ProjectDetector {
 
             // *.csproj, *.sln, *.fsproj (C# / .NET) - 파일명이 가변적
             try {
-                const csprojFiles = fs.readdirSync(projectRoot).filter(f =>
+                const files = await readdirAsync(projectRoot);
+                const csprojFiles = files.filter(f =>
                     f.endsWith('.csproj') || f.endsWith('.sln') || f.endsWith('.fsproj')
                 );
                 if (csprojFiles.length > 0) {
@@ -283,14 +301,10 @@ export class ProjectDetector {
                         buildTool: BuildTool.DOTNET
                     };
                 }
-            } catch {
-                // 디렉토리 읽기 실패 시 무시
-            }
 
-            // *.xcodeproj (iOS/macOS) - 파일명이 가변적, macOS만
-            if (process.platform === 'darwin') {
-                try {
-                    const xcodeprojFiles = fs.readdirSync(projectRoot).filter(f => f.endsWith('.xcodeproj'));
+                // *.xcodeproj (iOS/macOS) - 파일명이 가변적, macOS만
+                if (process.platform === 'darwin') {
+                    const xcodeprojFiles = files.filter(f => f.endsWith('.xcodeproj'));
                     if (xcodeprojFiles.length > 0) {
                         return {
                             type: ProjectType.SWIFT,
@@ -298,9 +312,9 @@ export class ProjectDetector {
                             buildTool: BuildTool.XCODE
                         };
                     }
-                } catch {
-                    // 디렉토리 읽기 실패 시 무시
                 }
+            } catch {
+                // 디렉토리 읽기 실패 시 무시
             }
 
             return null;
@@ -312,7 +326,7 @@ export class ProjectDetector {
     }
 
     /**
-     * 빌드 도구를 감지합니다
+     * 빌드 도구를 감지합니다 (동기 - 레거시 호환용)
      */
     private detectBuildTool(projectRoot: string): BuildTool {
         if (fs.existsSync(path.join(projectRoot, 'package-lock.json'))) {
@@ -332,6 +346,28 @@ export class ProjectDetector {
         if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
             return BuildTool.NPM;
         }
+
+        return BuildTool.UNKNOWN;
+    }
+
+    /**
+     * 빌드 도구를 감지합니다 (비동기)
+     */
+    private async detectBuildToolAsync(projectRoot: string): Promise<BuildTool> {
+        // 병렬로 락 파일 존재 여부 확인
+        const [hasPackageLock, hasYarnLock, hasPnpmLock, hasBunLock, hasPackageJson] = await Promise.all([
+            fileExistsAsync(path.join(projectRoot, 'package-lock.json')),
+            fileExistsAsync(path.join(projectRoot, 'yarn.lock')),
+            fileExistsAsync(path.join(projectRoot, 'pnpm-lock.yaml')),
+            fileExistsAsync(path.join(projectRoot, 'bun.lockb')),
+            fileExistsAsync(path.join(projectRoot, 'package.json'))
+        ]);
+
+        if (hasPackageLock) return BuildTool.NPM;
+        if (hasYarnLock) return BuildTool.YARN;
+        if (hasPnpmLock) return BuildTool.PNPM;
+        if (hasBunLock) return BuildTool.BUN;
+        if (hasPackageJson) return BuildTool.NPM;
 
         return BuildTool.UNKNOWN;
     }

@@ -4,6 +4,7 @@ import {
   PromptType,
   PromptBuilderOptions,
 } from "../context/PromptBuilder";
+import { IConversationHandler } from "./IConversationHandler";
 import { ContextManager } from "../context/ContextManager";
 import { TaskManager } from "../task/TaskManager";
 import { LLMManager } from "../model/LLMManager";
@@ -11,6 +12,7 @@ import { WebviewBridge } from "../../webview/WebviewBridge";
 import { ToolParser } from "../../tools/ToolParser";
 import { ToolExecutor } from "../../tools/ToolExecutor";
 import { ToolRegistry } from "../../tools/ToolRegistry";
+import { ToolExecutionContext } from "../../tools/IToolHandler";
 import { StreamingCodeApplier } from "../../tools/StreamingCodeApplier";
 import { ActionManager } from "../action/ActionManager";
 import { ExecutionManager } from "../execution/ExecutionManager";
@@ -25,6 +27,7 @@ import { SettingsManager } from "../state/SettingsManager";
 import { StateManager } from "../state/StateManager";
 import { UsageMetricsManager } from "../state/UsageMetricsManager";
 import { AiModelType, OllamaApi, GeminiApi, BanyaApi } from "../../../services";
+import type { NotificationService, GitRepositoryService } from "../../../services";
 import { AgentStateManager, AgentPhase } from "./AgentStateManager";
 import { getSimpleSummaryPrompt } from "../context/prompts/task";
 import * as fs from "fs/promises";
@@ -63,7 +66,9 @@ import { ConversationCompactor } from "./ConversationCompactor";
 import { MCPManager } from "../../mcp/MCPManager";
 import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
-import { TurnContext, TurnAction, LoopState } from "./types/TurnContext";
+import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, CollectedUIMessage } from "./types/TurnContext";
+import { IntentDetectionResult } from "../action/IntentDetector";
+import { ToolUse, ToolResponse } from "../../tools/types";
 import { FileTransactionManager } from "../action/file/FileTransactionManager";
 import * as crypto from "crypto";
 
@@ -78,12 +83,28 @@ export interface ConversationOptions {
   terminalContext?: string;
   diagnosticsContext?: string;
   extensionContext?: vscode.ExtensionContext;
-  geminiApi?: any;
-  ollamaApi?: any;
+  geminiApi?: GeminiApi;
+  ollamaApi?: OllamaApi;
   currentModelType?: AiModelType;
   userOS?: string;
-  notificationService?: any;
-  gitRepositoryService?: any;
+  notificationService?: NotificationService;
+  gitRepositoryService?: GitRepositoryService;
+}
+
+/**
+ * gatherContext 반환 타입
+ */
+export interface GatheredContext {
+  codebaseContext?: string;
+  realTimeInfo?: string;
+  profileContext?: string;
+  intentContext: string;
+  gitContext: string;
+  languageInstruction: string;
+  selectedFilesContent: string;
+  terminalContextContent: string;
+  diagnosticsContextContent: string;
+  frameworkRulesPrompt: string;
 }
 
 // AgentPhase는 AgentStateManager에서 import
@@ -91,7 +112,7 @@ export interface ConversationOptions {
 /**
  * 대화 및 에이전트 루프를 관리하는 매니저
  */
-export class ConversationManager {
+export class ConversationManager implements IConversationHandler {
   private static instance: ConversationManager;
   private promptBuilder: PromptBuilder;
   private contextManager: ContextManager;
@@ -137,28 +158,65 @@ export class ConversationManager {
     return ConversationManager.instance;
   }
 
-  // extension.ts 호환성을 위한 Setter 메서드들
-  public setLLMService(service: any): void {
+  // ─── 싱글톤 상태 격리 (테스트용) ───
+
+  /**
+   * 싱글톤 인스턴스 리셋 (테스트 환경 전용)
+   * 프로덕션에서는 사용하지 않음
+   */
+  public static resetInstance(): void {
+    if (process.env.NODE_ENV === "test" || process.env.VSCODE_TEST) {
+      ConversationManager.instance = undefined as unknown as ConversationManager;
+      console.log("[ConversationManager] Instance reset for testing");
+    } else {
+      console.warn("[ConversationManager] resetInstance() called in non-test environment - ignored");
+    }
+  }
+
+  /**
+   * 격리된 인스턴스 생성 (테스트 환경 전용)
+   * 싱글톤과 독립적인 인스턴스를 반환
+   */
+  public static createIsolatedInstance(
+    userOS: string,
+    geminiApi: GeminiApi,
+    ollamaApi: OllamaApi,
+    banyaApi: BanyaApi,
+  ): ConversationManager {
+    if (process.env.NODE_ENV !== "test" && !process.env.VSCODE_TEST) {
+      console.warn("[ConversationManager] createIsolatedInstance() called in non-test environment");
+    }
+    // private 생성자를 우회하여 새 인스턴스 생성
+    return new ConversationManager(userOS, geminiApi, ollamaApi, banyaApi);
+  }
+
+  // extension.ts 호환성을 위한 Setter 메서드들 (레거시, 대부분 no-op)
+  public setLLMService(service: { getCurrentModel?: () => AiModelType } | null): void {
     if (service && typeof service.getCurrentModel === "function") {
       const model = service.getCurrentModel();
       this.llmManager.setCurrentModel(model);
       this.promptBuilder.setModelType(model);
     }
   }
-  public setSessionManager(manager: any): void {}
-  public setPromptBuilder(builder: any): void {
+  /** @deprecated 사용되지 않음 */
+  public setSessionManager(_manager: unknown): void {}
+  public setPromptBuilder(builder: PromptBuilder): void {
     this.promptBuilder = builder;
   }
-  public setIntentDetector(detector: any): void {}
+  /** @deprecated 사용되지 않음 */
+  public setIntentDetector(_detector: unknown): void {}
   public setStateManager(stateManager: StateManager): void {
     this.stateManager = stateManager;
     console.log(
       "[ConversationManager] StateManager configured for model routing",
     );
   }
-  public setExternalApiService(service: any): void {}
-  public configurePlanManager(client: any, model: any): void {}
-  public setContextHistoryManager(manager: any): void {}
+  /** @deprecated 사용되지 않음 */
+  public setExternalApiService(_service: unknown): void {}
+  /** @deprecated 사용되지 않음 */
+  public configurePlanManager(_client: unknown, _model: unknown): void {}
+  /** @deprecated 사용되지 않음 */
+  public setContextHistoryManager(_manager: unknown): void {}
 
   /**
    * 현재 진행 중인 LLM 호출을 취소합니다
@@ -284,6 +342,9 @@ export class ConversationManager {
    * 무한 루프 탈출 처리
    * @returns 루프를 종료해야 하는지 여부
    */
+  private escapeAttemptCount = 0;
+  private static readonly MAX_ESCAPE_ATTEMPTS = 3;
+
   private handleInfiniteLoopEscape(
     reason: string,
     loopState: LoopState,
@@ -294,6 +355,21 @@ export class ConversationManager {
     console.warn(
       `[ConversationManager] 무한 루프 감지: ${reason}`,
     );
+
+    // 탈출 시도 횟수 제한 체크
+    this.escapeAttemptCount++;
+    if (this.escapeAttemptCount >= ConversationManager.MAX_ESCAPE_ATTEMPTS) {
+      console.error(`[ConversationManager] 최대 탈출 시도 횟수(${ConversationManager.MAX_ESCAPE_ATTEMPTS}) 초과 - 강제 종료`);
+      WebviewBridge.receiveMessage(
+        webview,
+        "SYSTEM_WARNING",
+        `⚠️ 작업이 반복적으로 멈춰 자동으로 중단되었습니다.`,
+      );
+      return {
+        shouldBreak: true,
+        message: `탈출 시도 횟수 초과로 작업을 중단합니다.`,
+      };
+    }
 
     // 1단계: 현재 Plan Item 스킵 시도
     const currentPlanItem = taskManager.getNextPendingItem();
@@ -384,6 +460,9 @@ export class ConversationManager {
 
       // A4: CompletionJudge 리셋 (새 요청 시작)
       this.completionJudge.reset();
+
+      // 탈출 시도 카운터 리셋 (새 대화 시작)
+      this.escapeAttemptCount = 0;
 
       // v9.4.0: 파일 트랜잭션 시작 (롤백 지원)
       const fileTransactionManager = FileTransactionManager.getInstance();
@@ -497,7 +576,7 @@ export class ConversationManager {
         }
         await this.handleGeneralAsk(systemPrompt, userParts, optionsWithAbort);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, webviewToRespond);
     } finally {
       WebviewBridge.hideLoading(webviewToRespond);
@@ -511,8 +590,8 @@ export class ConversationManager {
   private async buildUserPartsWithHistory(
     currentQuery: string,
     options: ConversationOptions,
-  ): Promise<any[]> {
-    const userParts: any[] = [];
+  ): Promise<UserPart[]> {
+    const userParts: UserPart[] = [];
 
     if (options.extensionContext) {
       try {
@@ -533,7 +612,7 @@ export class ConversationManager {
             // 구조화된 형식에서 컨텍스트 추출
             const actions =
               entry.actions && entry.actions.length > 0
-                ? ` [Actions: ${entry.actions.map((a: any) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
+                ? ` [Actions: ${entry.actions.map((a) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
                 : "";
             // assistantResponse가 있으면 사용, 없으면 파일 변경 정보 또는 '작업 완료'
             const response = entry.assistantResponse
@@ -614,15 +693,30 @@ export class ConversationManager {
       );
 
       const fetched: { url: string; content: string }[] = [];
+      const failed: string[] = [];
       for (const result of results) {
         if (result.status === "fulfilled") {
           fetched.push(result.value);
+        } else {
+          // 실패한 URL 추적
+          const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          failed.push(reason);
         }
       }
 
       if (fetched.length > 0) {
         console.log(
           `[ConversationManager] URL ${fetched.length}개 내용 가져오기 완료`,
+        );
+      }
+
+      // 실패한 URL이 있으면 사용자에게 알림
+      if (failed.length > 0) {
+        console.warn(`[ConversationManager] URL ${failed.length}개 가져오기 실패:`, failed);
+        WebviewBridge.receiveMessage(
+          webview,
+          "System",
+          `⚠️ 일부 URL을 가져오지 못했습니다 (${failed.length}개 실패)`,
         );
       }
 
@@ -641,8 +735,8 @@ export class ConversationManager {
     userQuery: string,
     autoFetchedUrlContents: { url: string; content: string }[],
     options: ConversationOptions,
-  ): Promise<any[]> {
-    const userParts: any[] = [];
+  ): Promise<UserPart[]> {
+    const userParts: UserPart[] = [];
 
     // 이전 대화 히스토리 추가 (대화 연속성 유지)
     if (options.extensionContext) {
@@ -667,7 +761,7 @@ export class ConversationManager {
           for (const entry of history) {
             const actions =
               entry.actions && entry.actions.length > 0
-                ? ` [Actions: ${entry.actions.map((a: any) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
+                ? ` [Actions: ${entry.actions.map((a) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
                 : "";
             const response = entry.assistantResponse
               ? entry.assistantResponse.slice(
@@ -774,8 +868,8 @@ export class ConversationManager {
    */
   private async gatherContext(
     options: ConversationOptions,
-    intent: any,
-  ): Promise<any> {
+    intent: IntentDetectionResult,
+  ): Promise<GatheredContext> {
     WebviewBridge.sendProcessingStep(options.webviewToRespond, "assembling");
     WebviewBridge.sendProcessingStatus(
       options.webviewToRespond,
@@ -861,10 +955,10 @@ export class ConversationManager {
 
   private async executeAgentLoop(
     systemPrompt: string,
-    userParts: any[],
+    userParts: UserPart[],
     options: ConversationOptions,
-    intent: any,
-    gatheredContext?: any,
+    intent: IntentDetectionResult,
+    gatheredContext?: GatheredContext,
   ): Promise<void> {
     // 🔥 참고: executionIntent는 더 이상 INVESTIGATION→EXECUTION 전환에 사용되지 않음
     // 실행 도구 자체가 실행 의도의 증거이므로 조건 없이 전환됨
@@ -876,10 +970,15 @@ export class ConversationManager {
     let pendingRetryPrompt = false; // retry 프롬프트가 LLM에 전달 대기 중인지
     let pendingMCPResultInterpretation = false; // MCP 도구 결과가 LLM 해석 대기 중인지
     const retryCoordinator = new RetryCoordinator();
-    const maxTestFixAttempts =
-      await SettingsManager.getInstance().getTestRetryCount(); // 설정에서 최대 시도 횟수 가져오기
-    const isAutoTestRetryEnabled =
-      await SettingsManager.getInstance().isAutoTestRetryEnabled(); // 자동 테스트 재시도 설정 확인
+    // 설정에서 최대 시도 횟수 가져오기 (기본값 3)
+    let maxTestFixAttempts = 3;
+    let isAutoTestRetryEnabled = false;
+    try {
+      maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount() ?? 3;
+      isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled() ?? false;
+    } catch (settingsError) {
+      console.warn("[ConversationManager] Failed to load test retry settings, using defaults:", settingsError);
+    }
     let executionNoToolRetryCount = 0; // EXECUTION phase에서 도구 호출 없이 응답 시 재시도 횟수
     const maxExecutionNoToolRetries = 2; // 최대 재시도 횟수
     let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
@@ -1210,7 +1309,7 @@ export class ConversationManager {
     }
 
     // plan 생성 시 받은 도구 호출을 추적
-    let toolCallsFromPlanCreation: any[] = [];
+    let toolCallsFromPlanCreation: ToolUse[] = [];
     let hasInvestigationHistory = false; // 조사 이력 추적
     const preloadedFiles = new Set<string>(); // Pre-load된 파일 목록 추적 (중복 읽기 방지)
 
@@ -2747,7 +2846,7 @@ export class ConversationManager {
         createdFiles.length > 0 ||
         modifiedFiles.length > 0;
       const toolCallSignatures = totalToolCalls.map(
-        (tc: any) => `${tc.name}:${JSON.stringify(tc.params || {})}`,
+        (tc: ToolUse) => `${tc.name}:${JSON.stringify(tc.params || {})}`,
       );
       const loopCheck = this.updateAndCheckLoopState(
         loopState,
@@ -3176,7 +3275,7 @@ export class ConversationManager {
       const isCodeIntent =
         intent?.category === "code" ||
         intent?.taskType === "code_work" ||
-        intent?.taskType === "command";
+        intent?.taskType === "terminal";
       const shouldNudge =
         totalResponseText.trim() && isCodeIntent && totalToolCalls.length === 0;
 
@@ -3240,7 +3339,7 @@ export class ConversationManager {
 
         // 🔥 최적화: ripgrep_search 결과가 이미 있으면 LLM 호출 없이 직접 답변 생성
         let hasRipgrepResults = false;
-        let ripgrepResults: any = null;
+        let ripgrepResults: unknown = null;
         let ripgrepPattern = "";
 
         // accumulatedUserParts에서 ripgrep_search 결과 찾기
@@ -3615,7 +3714,7 @@ export class ConversationManager {
    */
   private async handleGeneralAsk(
     systemPrompt: string,
-    userParts: any[],
+    userParts: UserPart[],
     options: ConversationOptions,
   ): Promise<void> {
     // 스트리밍 설정 확인
@@ -3781,15 +3880,19 @@ export class ConversationManager {
   /**
    * 에러 핸들링
    */
-  private handleError(error: any, webview: vscode.Webview): void {
+  private handleError(error: unknown, webview: vscode.Webview): void {
     // AbortError는 사용자가 의도적으로 취소한 것이므로 무시
-    if (error.name === "AbortError" || error.message?.includes("aborted")) {
+    const isError = error instanceof Error;
+    const errorName = isError ? error.name : "";
+    const errorMsg = isError ? error.message : String(error);
+
+    if (errorName === "AbortError" || errorMsg.includes("aborted")) {
       console.log("[ConversationManager] Request cancelled by user");
       return;
     }
 
     console.error("[ConversationManager] Error:", error);
-    const errorMessage = error.message || "알 수 없는 오류가 발생했습니다.";
+    const errorMessage = errorMsg || "알 수 없는 오류가 발생했습니다.";
     WebviewBridge.receiveMessage(
       webview,
       "System",
@@ -3819,7 +3922,7 @@ export class ConversationManager {
    * @returns execution-first 작업 여부
    */
   private isExecutionFirstTask(
-    intent: any,
+    intent: IntentDetectionResult | null,
     hasExecutionIntentEver: boolean,
     hasActivePlan: boolean = false,
     hasExecutionIntent: boolean = false,
@@ -3839,17 +3942,17 @@ export class ConversationManager {
       return false;
     }
 
-    // execution 카테고리 또는 code 카테고리의 code_generate/code_run 서브타입
+    // execution 카테고리 또는 code 카테고리의 code_generate/code_modify 서브타입
     const isExecutionCategory = intent.category === "execution";
-    const isCodeGenerateOrRun =
+    const isCodeGenerateOrModify =
       intent.category === "code" &&
-      (intent.subtype === "code_generate" || intent.subtype === "code_run");
+      (intent.subtype === "code_generate" || intent.subtype === "code_modify");
 
     // confidence >= MIN_EXECUTION_FIRST_CONFIDENCE 필수
     const hasHighConfidence =
       intent.confidence >= AgentConfig.MIN_EXECUTION_FIRST_CONFIDENCE;
 
-    return (isExecutionCategory || isCodeGenerateOrRun) && hasHighConfidence;
+    return (isExecutionCategory || isCodeGenerateOrModify) && hasHighConfidence;
   }
 
   // 참고: 이전 메서드들 (extractResponseText, getToolLabel, createToolResultSummary,
@@ -3865,7 +3968,7 @@ export class ConversationManager {
     modifiedFiles: string[],
     workspaceRoot: string,
     systemPrompt: string,
-    accumulatedParts: any[],
+    accumulatedParts: UserPart[],
     abortSignal?: AbortSignal,
   ): Promise<string> {
     // 실제 디스크에서 파일 존재 여부 확인
@@ -4195,7 +4298,7 @@ export class ConversationManager {
    * @returns 압축 결과
    */
   public async forceCompact(
-    userParts: any[],
+    userParts: UserPart[],
     extensionContext?: vscode.ExtensionContext,
   ): Promise<{
     compacted: boolean;
@@ -4253,7 +4356,7 @@ export class ConversationManager {
     createdFiles: string[],
     modifiedFiles: string[],
     systemPrompt: string,
-    accumulatedUserParts: any[],
+    accumulatedUserParts: UserPart[],
     abortSignal: AbortSignal | undefined,
     options: ConversationOptions,
     userQuery: string,
@@ -4481,14 +4584,14 @@ export class ConversationManager {
    * Block 22 (executeAgentLoop 턴 루프에서 추출)
    */
   private async handlePostToolTransition(
-    totalToolCalls: any[],
+    totalToolCalls: ToolUse[],
     validPlanReceived: boolean,
     currentPhase: string,
     stateManager: AgentStateManager,
     taskManager: TaskManager,
     webview: vscode.Webview,
     retryCoordinator: RetryCoordinator,
-    accumulatedUserParts: any[],
+    accumulatedUserParts: UserPart[],
     createdFiles: string[],
     modifiedFiles: string[],
     testFixAttempts: number,
@@ -4497,7 +4600,7 @@ export class ConversationManager {
     turnCount: number,
     llmResponse: string,
     turnResultsSummary: string,
-    intent: any,
+    intent: IntentDetectionResult | null,
   ): Promise<{
     turnAction: TurnAction;
     testFixAttempts: number;
@@ -4669,7 +4772,7 @@ export class ConversationManager {
    */
   private async executeToolsWithUI(
     toolExecutor: ToolExecutor,
-    toolCalls: any[],
+    toolCalls: ToolUse[],
     webview: vscode.Webview,
     actionManager: ActionManager,
     executionManager: ExecutionManager,
@@ -4684,7 +4787,7 @@ export class ConversationManager {
     modifiedFiles: string[],
     includeWebviewInContext: boolean = false,
   ): Promise<{
-    toolResults: any[];
+    toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
     hasBlockedByValidator: boolean;
     blockedMessages: string[];
@@ -4704,8 +4807,8 @@ export class ConversationManager {
       await settingsManager.isAutoDeleteFilesEnabled();
 
     // 실행할 도구와 건너뛸 도구 분리
-    const approvedToolCalls: any[] = [];
-    const skippedToolResults: any[] = [];
+    const approvedToolCalls: ToolUse[] = [];
+    const skippedToolResults: ToolResponse[] = [];
 
     for (const call of toolCalls) {
       const needsConfirmation = await this.checkToolNeedsConfirmation(
@@ -4746,7 +4849,7 @@ export class ConversationManager {
     // 승인된 도구가 없으면 빈 결과 반환 (사용자가 스킵한 경우 hasUserSkipped: true)
     if (approvedToolCalls.length === 0) {
       const hasUserSkipped = skippedToolResults.some(
-        (r: any) => r.error?.code === "USER_REJECTED",
+        (r: ToolResponse) => r.error?.code === "USER_REJECTED",
       );
       return {
         toolResults: skippedToolResults,
@@ -4757,7 +4860,7 @@ export class ConversationManager {
       };
     }
 
-    const executionContext: any = {
+    const executionContext: ToolExecutionContext = {
       projectRoot: workspaceRoot,
       workspaceRoot: workspaceRoot,
       actionManager,
@@ -4777,7 +4880,7 @@ export class ConversationManager {
     const executedResults = await toolExecutor.executeTools(
       approvedToolCalls,
       executionContext,
-      (_toolUse: any, result: any, index: number) => {
+      (_toolUse: ToolUse, result: ToolResponse, index: number) => {
         const msgs = ToolExecutionCoordinator.sendSingleToolResultToUI(
           webview,
           approvedToolCalls[index],
@@ -4786,13 +4889,13 @@ export class ConversationManager {
         uiMsgs.push(...msgs);
       },
       // 🔥 도구 실행 시작 시 진행 상태 표시 (v9.5.0)
-      (toolUse: any, _index: number) => {
+      (toolUse: ToolUse, _index: number) => {
         ToolExecutionCoordinator.sendToolStartStatus(webview, toolUse);
       },
     );
 
     // 스킵된 결과와 실행된 결과를 합침 (원래 순서 유지를 위해 재구성)
-    const toolResults: any[] = [];
+    const toolResults: ToolResponse[] = [];
     let executedIdx = 0;
     let skippedIdx = 0;
     for (const call of toolCalls) {
@@ -4806,7 +4909,7 @@ export class ConversationManager {
     collectedUIMessages.push(...uiMsgs);
 
     // read_file 결과를 preloadedFiles에 추가 (중복 읽기 방지)
-    toolCalls.forEach((call: any, index: number) => {
+    toolCalls.forEach((call: ToolUse, index: number) => {
       if (call.name === Tool.READ_FILE && toolResults[index]?.success) {
         const filePath = call.params.path || call.params.paths?.split(",")[0];
         if (filePath) {
@@ -4825,17 +4928,17 @@ export class ConversationManager {
 
     // 성공 여부 추적
     const hasSuccessfulExecution = toolResults.some(
-      (result: any) => result.success === true,
+      (result: ToolResponse) => result.success === true,
     );
 
     // 🔥 PreToolUseValidator 차단 여부 추적 (재시도 방지용)
     const hasBlockedByValidator = toolResults.some(
-      (result: any) => result.error?.code === "BLOCKED_BY_VALIDATOR",
+      (result: ToolResponse) => result.error?.code === "BLOCKED_BY_VALIDATOR",
     );
     const blockedMessages = toolResults
-      .filter((result: any) => result.error?.code === "BLOCKED_BY_VALIDATOR")
-      .map((result: any) => result.message || result.error?.message)
-      .filter(Boolean);
+      .filter((result: ToolResponse) => result.error?.code === "BLOCKED_BY_VALIDATOR")
+      .map((result: ToolResponse) => result.message || result.error?.message)
+      .filter((msg): msg is string => Boolean(msg));
 
     // 파일 변경 후 formatter 및 validation 실행
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
@@ -4849,7 +4952,7 @@ export class ConversationManager {
 
     // 사용자가 스킵한 도구가 있는지 확인
     const hasUserSkipped = toolResults.some(
-      (r: any) => r.error?.code === "USER_REJECTED",
+      (r: ToolResponse) => r.error?.code === "USER_REJECTED",
     );
 
     return {
@@ -4865,7 +4968,7 @@ export class ConversationManager {
    * 도구가 사용자 확인이 필요한지 판단
    */
   private async checkToolNeedsConfirmation(
-    call: any,
+    call: ToolUse,
     isAutoToolEnabled: boolean,
     isAutoCommandEnabled: boolean,
     isAutoUpdateEnabled: boolean,
@@ -4903,7 +5006,7 @@ export class ConversationManager {
    * 사용자에게 도구 실행 승인 요청
    */
   private async requestToolApproval(
-    call: any,
+    call: ToolUse,
     webview: vscode.Webview,
   ): Promise<boolean> {
     const toolName = call.name as string;
@@ -4962,7 +5065,7 @@ export class ConversationManager {
     testFixAttempts: number,
     maxTestFixAttempts: number,
     isAutoTestRetryEnabled: boolean,
-    accumulatedUserParts: any[],
+    accumulatedUserParts: UserPart[],
     turnCount: number,
   ): Promise<{
     turnAction: TurnAction;
@@ -5055,7 +5158,7 @@ export class ConversationManager {
    * - 최대 항목 수 초과 시 오래된 항목 제거
    * - 개별 항목의 텍스트 길이 제한
    */
-  private trimAccumulatedParts(parts: any[]): any[] {
+  private trimAccumulatedParts(parts: UserPart[]): UserPart[] {
     // 1. 항목 수 제한
     if (parts.length > AgentConfig.MAX_ACCUMULATED_PARTS) {
       console.log(

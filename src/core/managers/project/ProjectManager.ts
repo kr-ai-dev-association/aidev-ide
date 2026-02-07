@@ -28,7 +28,7 @@ import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
 import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
 import { AgentConfig } from '../../config/AgentConfig';
-import { getAllExclusionPaths } from '../../utils/FileExclusionConstants';
+import { getAllExclusionPaths, fileExistsAsync, readdirAsync } from '../../utils';
 
 export class ProjectManager {
     private static instance: ProjectManager;
@@ -130,29 +130,57 @@ export class ProjectManager {
         abortSignal?: AbortSignal
     ): Promise<{ projectType: string, confidence: number, needsUserSelection: boolean }> {
         try {
-            // 로컬 파일 시스템 기반 감지 먼저 시도
+            // 로컬 파일 시스템 기반 감지 먼저 시도 (비동기)
             let localProjectType = 'unknown';
             const root = projectRoot || this.projectRoot;
             if (root) {
                 try {
-                    if (fs.existsSync(path.join(root, 'package.json'))) {
+                    // 병렬로 파일 존재 여부 확인
+                    const [
+                        hasPackageJson,
+                        hasRequirements,
+                        hasPyproject,
+                        hasPomXml,
+                        hasBuildGradle,
+                        hasGoMod,
+                        hasAppDir,
+                        hasAndroidManifest,
+                        hasPodfile
+                    ] = await Promise.all([
+                        fileExistsAsync(path.join(root, 'package.json')),
+                        fileExistsAsync(path.join(root, 'requirements.txt')),
+                        fileExistsAsync(path.join(root, 'pyproject.toml')),
+                        fileExistsAsync(path.join(root, 'pom.xml')),
+                        fileExistsAsync(path.join(root, 'build.gradle')),
+                        fileExistsAsync(path.join(root, 'go.mod')),
+                        fileExistsAsync(path.join(root, 'app')),
+                        fileExistsAsync(path.join(root, 'app', 'src', 'main', 'AndroidManifest.xml')),
+                        fileExistsAsync(path.join(root, 'Podfile'))
+                    ]);
+
+                    if (hasPackageJson) {
                         localProjectType = 'nodejs-npm';
-                    } else if (fs.existsSync(path.join(root, 'requirements.txt')) || fs.existsSync(path.join(root, 'pyproject.toml'))) {
+                    } else if (hasRequirements || hasPyproject) {
                         localProjectType = 'python';
-                    } else if (fs.existsSync(path.join(root, 'pom.xml'))) {
+                    } else if (hasPomXml) {
                         localProjectType = 'java-maven';
-                    } else if (fs.existsSync(path.join(root, 'build.gradle'))) {
-                        localProjectType = 'java-gradle';
-                    } else if (fs.existsSync(path.join(root, 'go.mod'))) {
-                        localProjectType = 'go';
-                    } else if (fs.existsSync(path.join(root, 'build.gradle')) && fs.existsSync(path.join(root, 'app'))) {
+                    } else if (hasBuildGradle) {
                         // Android 프로젝트 확인
-                        const androidManifest = fs.existsSync(path.join(root, 'app', 'src', 'main', 'AndroidManifest.xml'));
-                        if (androidManifest) {
+                        if (hasAppDir && hasAndroidManifest) {
                             localProjectType = 'android';
+                        } else {
+                            localProjectType = 'java-gradle';
                         }
-                    } else if (fs.existsSync(path.join(root, 'Podfile')) || fs.readdirSync(root).some(f => f.endsWith('.xcodeproj'))) {
+                    } else if (hasGoMod) {
+                        localProjectType = 'go';
+                    } else if (hasPodfile) {
                         localProjectType = 'ios';
+                    } else {
+                        // iOS xcodeproj 확인 (비동기)
+                        const files = await readdirAsync(root);
+                        if (files.some(f => f.endsWith('.xcodeproj'))) {
+                            localProjectType = 'ios';
+                        }
                     }
                 } catch (e) {
                     console.warn('[ProjectManager] 로컬 프로젝트 타입 감지 실패:', e);

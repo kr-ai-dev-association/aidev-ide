@@ -1,443 +1,611 @@
-# Codepilot vs 경쟁사 상세 기능 비교 분석
+# AI 코드 어시스턴트 경쟁사 분석 및 개선 제안
 
-## 1. 도구(Tool) 시스템 상세 비교
+> 작성일: 2026-02-07
+> 대상: Cline, Continue.dev, OpenCode, Roo Code, Windsurf, Cursor
 
-### 1.1 도구 호출 형식 비교
+---
 
-| 항목 | Codepilot | Cursor | Cline | Claude Code | Copilot | Windsurf | Continue |
-|------|-----------|--------|-------|-------------|---------|----------|----------|
-| 호출 형식 | XML 태그 | JSON Function Call | JSON Function Call | JSON Function Call | Function Call | Function Call | Function Call |
-| 파싱 방식 | 정규식 | Native API | Native API | Native API | Native API | Native API | Native API |
-| 스트리밍 지원 | ⚠️ 부분 | ✅ 완전 | ✅ 완전 | ✅ 완전 | ✅ 완전 | ✅ 완전 | ✅ 완전 |
-| 병렬 호출 | ❌ 순차 | ✅ 병렬 | ✅ 병렬 | ✅ 병렬 | ✅ 병렬 | ✅ 병렬 | ✅ 병렬 |
+## 목차
 
-**Codepilot 현황:**
-```xml
-<!-- XML 기반 도구 호출 -->
-<create_file>
-<path>src/App.tsx</path>
-<content>...</content>
-</create_file>
+1. [경쟁사 상세 분석](#1-경쟁사-상세-분석)
+2. [기능 비교표](#2-기능-비교표)
+3. [Codepilot 추가 기능 제안](#3-codepilot-추가-기능-제안)
+4. [잠재적 로직 오류 분석](#4-잠재적-로직-오류-분석)
+5. [개선 우선순위](#5-개선-우선순위)
+
+---
+
+## 1. 경쟁사 상세 분석
+
+### 1.1 Cline
+
+> 출처: [Cline 공식 사이트](https://cline.bot/), [GitHub](https://github.com/cline/cline)
+
+**개요**: VSCode 기반 자율 AI 코딩 에이전트, 4M+ 개발자 사용
+
+**핵심 아키텍처**:
+- **Plan/Act 모드**: 전략 수립과 실행을 분리한 듀얼 모드
+- **Human-in-the-Loop**: 모든 파일 변경/명령 실행에 사용자 승인 필요
+- **MCP 통합**: Model Context Protocol로 커스텀 도구 생성 가능
+- **브라우저 자동화**: Headless 브라우저로 UI 디버깅
+
+**주요 기능**:
+| 기능 | 설명 |
+|------|------|
+| Diff 뷰 편집 | 변경사항을 diff 뷰에서 직접 편집/되돌리기 |
+| 스트리밍 Git 커밋 | 스트리밍 지원 Git 메시지 생성 |
+| MCP 프롬프트 | `/mcp:<server>:<prompt>` 형식 슬래시 명령 |
+| 멀티 API 지원 | OpenRouter, Anthropic, OpenAI, Gemini, Bedrock, Azure, Ollama |
+| 토큰/비용 추적 | 태스크별 토큰 사용량 및 API 비용 표시 |
+
+**엔터프라이즈 기능**:
+- SSO (SAML/OIDC)
+- 감사 로그 (Audit Trail)
+- VPC/Private Link
+- 온프레미스 배포
+
+---
+
+### 1.2 Continue.dev
+
+> 출처: [Continue 공식 문서](https://docs.continue.dev/), [GitHub](https://github.com/continuedev/continue)
+
+**개요**: Apache 2.0 오픈소스, VSCode + JetBrains + CLI 지원
+
+**핵심 아키텍처**:
+- **모델 불가지론**: 어떤 LLM이든 연결 가능 (로컬 포함)
+- **에이전트 모드**: Chat, Plan, Agent 세 가지 워크플로우
+- **Embeddings 기반 검색**: 코드베이스 인덱싱 + 벡터 검색
+
+**코드베이스 인덱싱 시스템**:
+```
+Embeddings Provider (선택 가능):
+├── Transformers.js (all-MiniLM-L6-v2, 384차원)
+├── Voyage AI (voyage-code-2, 코드 최적화)
+└── OpenAI (text-embedding-3-small)
+
+검색 파이프라인:
+1. nRetrieve=25개 초기 검색 (벡터 DB)
+2. Re-ranking (LLM 기반)
+3. nFinal=5개 최종 선택
 ```
 
-**경쟁사 현황 (JSON Function Call):**
-```json
-{
-  "name": "create_file",
-  "arguments": {
-    "path": "src/App.tsx",
-    "content": "..."
-  }
+**Repository Map 기능**:
+- Claude 3, Llama 3.x, Gemini 1.5, GPT-4o에서 자동 활성화
+- 코드베이스 구조 이해 후 질문 응답
+
+**주요 특징**:
+- Air-gapped 배포 지원 (로컬 LLM + 로컬 embeddings)
+- Tree-sitter 기반 AST 파싱
+- ripgrep 기반 텍스트 검색
+- "Instinct" 모델: 다음 코드 편집 예측
+
+---
+
+### 1.3 OpenCode
+
+> 출처: [OpenCode 공식 사이트](https://opencode.ai/), [GitHub](https://github.com/opencode-ai/opencode)
+
+**개요**: 터미널 네이티브 AI 코딩 에이전트, 95K+ GitHub Stars
+
+**핵심 아키텍처**:
+- **TUI 인터페이스**: 터미널 기반 UI
+- **Agent Client Protocol (ACP)**: JetBrains, Zed, Neovim, Emacs 지원
+- **LSP 통합**: Language Server Protocol로 코드 인텔리전스
+
+**듀얼 에이전트 모드**:
+| 모드 | 권한 | 용도 |
+|------|------|------|
+| `build` | 전체 접근 | 개발 작업 |
+| `plan` | 읽기 전용 | 분석 및 탐색 |
+
+**주요 기능**:
+- **75+ 모델 지원**: Claude, OpenAI, Gemini, 로컬 모델
+- **MCP 통합**: 외부 서비스 연동
+- **GitHub Actions 통합**: `/opencode` 멘션으로 CI에서 실행
+- **Privacy-First**: 코드/컨텍스트 저장 안함
+
+---
+
+### 1.4 Roo Code
+
+> 출처: [Roo Code vs Cline 비교](https://www.qodo.ai/blog/roo-code-vs-cline/)
+
+**개요**: Cline 기반 포크, AI "Personalities" 기능 추가
+
+**핵심 차별점**:
+- **역할 기반 모드**: 보안 검사, 성능 튜닝 등 전문가 AI 팀 구성
+- **모델 불가지론**: 수십 개 AI 제공자 지원
+- **고급 설정 필요**: 초보자에게 권장되지 않음
+
+---
+
+### 1.5 Windsurf
+
+> 출처: [Windsurf 공식](https://windsurf.com/), [비교 기사](https://www.builder.io/blog/windsurf-vs-cursor)
+
+**개요**: Cognition(Devin 팀) 개발, 에이전트 통합 IDE
+
+**핵심 기술**:
+- **SWE-1.5 모델**: Sonnet 4.5보다 13배 빠름
+- **Fast Context**: 빠른 코드베이스 이해
+- **Codemaps**: AI 기반 시각적 코드 네비게이션
+
+**가격**: $15/월 (Cursor $20/월 대비 저렴)
+
+---
+
+### 1.6 Cursor
+
+> 출처: [Cursor 공식](https://cursor.sh/)
+
+**개요**: VSCode 기반 AI IDE, Anysphere 개발
+
+**Cursor 1.0 (2025) 주요 기능**:
+- **Background Agent**: 장시간 태스크를 백그라운드에서 실행
+- **요청 기반 통합 가격**: 단순화된 가격 체계
+- **멀티 파일 편집**: 여러 파일 동시 수정
+
+---
+
+## 2. 기능 비교표
+
+| 기능 | Codepilot | Cline | Continue | OpenCode | Windsurf | Cursor |
+|------|:---------:|:-----:|:--------:|:--------:|:--------:|:------:|
+| **에이전트 모드** | FSM 5단계 | Plan/Act | Chat/Plan/Agent | build/plan | Cascade | Agent |
+| **MCP 통합** | O | O | X | O | X | X |
+| **스트리밍 응답** | O | O | O | O | O | O |
+| **Diff 뷰 편집** | O | O | O | X | O | O |
+| **인라인 Diff** | O | X | X | X | O | O |
+| **브라우저 자동화** | X | O | X | X | X | X |
+| **코드베이스 Embeddings** | X | X | O | X | O | O |
+| **Repository Map** | X | X | O | X | O | X |
+| **LSP 통합** | Tree-sitter | X | X | O | O | O |
+| **터미널 TUI** | X | X | CLI | O | X | X |
+| **GitHub Actions 통합** | X | X | X | O | X | X |
+| **Background Agent** | X | X | X | X | X | O |
+| **토큰/비용 추적** | O | O | O | X | O | O |
+| **자동 에러 수정** | O | X | X | X | X | X |
+| **HotLoad 프롬프트** | O | X | X | X | X | X |
+| **역할 기반 모드** | X | X | X | X | X | X |
+| **Air-gapped 배포** | Ollama | X | O | X | X | X |
+| **JetBrains 지원** | X | X | O | O | O | X |
+
+---
+
+## 3. Codepilot 추가 기능 제안
+
+### 3.1 높은 우선순위 (경쟁력 확보)
+
+#### A. 코드베이스 Embeddings 및 검색
+
+**현황**: 현재 파일 스캔 기반 컨텍스트만 수집
+**제안**: Continue.dev 방식의 벡터 검색 도입
+
+```
+구현 방안:
+1. Embeddings Provider 추가
+   - Voyage AI voyage-code-2 (권장)
+   - OpenAI text-embedding-3-small
+   - 로컬: all-MiniLM-L6-v2
+
+2. 인덱싱 파이프라인
+   - 초기 스캔 시 코드 청킹 (함수/클래스 단위)
+   - 벡터 DB 저장 (LanceDB 또는 Chroma)
+   - 변경 감지 시 증분 업데이트
+
+3. 검색 통합
+   - ContextManager에 EmbeddingsSearcher 추가
+   - "@codebase" 컨텍스트 프로바이더
+   - Re-ranking 옵션
+```
+
+**예상 효과**: 대규모 프로젝트에서 관련 코드 검색 정확도 대폭 향상
+
+---
+
+#### B. 브라우저 자동화 (Cline 방식)
+
+**현황**: 웹 fetch만 지원
+**제안**: Puppeteer/Playwright 기반 브라우저 제어
+
+```typescript
+// 새 도구: browser_action
+interface BrowserActionParams {
+  action: 'launch' | 'click' | 'type' | 'screenshot' | 'close';
+  url?: string;
+  selector?: string;
+  text?: string;
 }
 ```
 
-### 1.2 파일 수정 전략 비교
+**활용 사례**:
+- UI 버그 디버깅 (스크린샷 캡처 → LLM 분석)
+- E2E 테스트 결과 확인
+- 웹 앱 상호작용 자동화
 
-| 항목 | Codepilot | Cursor | Cline | Claude Code | Windsurf |
-|------|-----------|--------|-------|-------------|----------|
-| 수정 형식 | SEARCH/REPLACE 블록 | Unified Diff | Full File Replace | SEARCH/REPLACE | Unified Diff |
-| 매칭 전략 | 5단계 폴백 | Apply Model | Exact Match | Fuzzy Match | Apply Model |
-| 실패 복구 | 자동 전체 덮어쓰기 | Reapply Tool | 재시도 요청 | 재시도 요청 | Checkpoint 복원 |
-| Diff 표시 | ✅ 인라인 | ✅ 인라인 | ✅ 인라인 | ✅ 인라인 | ✅ 인라인 |
-| 줄 단위 수락 | ❌ | ✅ | ✅ | ✅ | ✅ |
+---
 
-**Codepilot의 5단계 매칭 폴백:**
+#### C. Repository Map
+
+**현황**: ContextManager의 파일 구조 수집은 있으나 LLM 프롬프트에 최적화 안됨
+**제안**: 프로젝트 구조 요약을 시스템 프롬프트에 자동 포함
+
 ```
-1. 정확한 매칭 (Exact Match)
-2. 라인 트림 매칭 (Line-Trimmed)
-3. 블록 앵커 매칭 (Block Anchor)
-4. 구조적 공백 무시 (Structural)
-5. 퍼지 매칭 (Fuzzy Match)
-```
+repository_map 형식:
+src/
+├── core/
+│   ├── managers/        # 도메인별 매니저 (15개)
+│   └── tools/           # 도구 핸들러 (12개)
+├── services/            # LLM API, Git 서비스
+└── webview/             # Chat UI 프로바이더
 
-**Cursor의 접근법:**
-```
-1. Main model이 edit_file 호출
-2. Apply model (약한 모델)이 실제 적용
-3. 실패 시 Reapply tool로 강한 모델 재호출
-```
-
-### 1.3 등록된 도구 비교
-
-| 도구 카테고리 | Codepilot | Cursor | Cline | Claude Code | Windsurf | Continue |
-|--------------|-----------|--------|-------|-------------|----------|----------|
-| 파일 읽기 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ @file |
-| 파일 생성 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 파일 수정 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 파일 삭제 | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 파일 목록 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ @tree |
-| 파일 검색 | ✅ ripgrep | ✅ semantic | ✅ ripgrep | ✅ glob/grep | ✅ | ✅ @search |
-| 명령어 실행 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 웹 검색 | ❌ | ✅ | ❌ | ✅ WebSearch | ✅ | ❌ |
-| 브라우저 | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Git 작업 | ❌ | ✅ | ✅ | ✅ Bash | ✅ | ✅ @diff |
-| LSP 연동 | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
-| 코드 분석 | ❌ (미구현) | ✅ | ❌ | ❌ | ✅ | ✅ @code |
-| MCP 지원 | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-### 1.4 도구 확장성 비교
-
-| 항목 | Codepilot | Cursor | Cline | Continue |
-|------|-----------|--------|-------|----------|
-| 확장 방식 | 코드 수정 필요 | MCP + Rules | MCP + "add tool" | Context Provider |
-| 동적 추가 | ❌ | ✅ | ✅ AI가 직접 생성 | ✅ |
-| 커스텀 서버 | ❌ | ✅ | ✅ | ✅ HTTP Provider |
-| 플러그인 | ❌ | ✅ | ✅ | ✅ |
-
-**Cline의 동적 도구 생성:**
-```
-사용자: "add a tool that fetches Jira tickets"
-→ Cline이 MCP 서버 생성 및 자동 설치
-→ 새 도구로 등록
+주요 진입점:
+- extension.ts:activate() → 확장 시작
+- ConversationManager.handleUserMessageAndRespond() → 메시지 처리
 ```
 
 ---
 
-## 2. 세션/히스토리 관리 상세 비교
+### 3.2 중간 우선순위 (차별화)
 
-### 2.1 세션 저장 방식
+#### D. Background Agent (Cursor 방식)
 
-| 항목 | Codepilot | Cursor | Copilot | Cline | Windsurf | Claude Code |
-|------|-----------|--------|---------|-------|----------|-------------|
-| 저장소 | globalState | 로컬 파일 | 클라우드 | 로컬 파일 | 클라우드 | 로컬 파일 |
-| 영속성 | ✅ VS Code | ❌ 세션 내 | ⚠️ Pro만 | ❌ 세션 내 | ✅ Memory | ✅ CLAUDE.md |
-| 프로젝트별 | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ |
-| 세션 복원 | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| 내보내기 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ JSON |
+**제안**: 장시간 태스크를 백그라운드에서 실행하고 결과 알림
 
-### 2.2 컨텍스트 압축 전략
-
-| 항목 | Codepilot | Cursor | Copilot | Windsurf | Claude Code |
-|------|-----------|--------|---------|----------|-------------|
-| 압축 방식 | LLM 요약 | 슬라이딩 윈도우 | Auto-compact | LLM 요약 | LLM 요약 |
-| 트리거 | 80% 토큰 | 컨텍스트 한계 | 95% 토큰 | 자동 | 자동 |
-| 최근 유지 | 12-20개 | 가변 | 가변 | 가변 | 가변 |
-| 요약 저장 | ✅ compactedSummaries | ❌ 휘발 | ❌ 휘발 | ✅ Memory | ❌ 휘발 |
-| 폴백 | 슬라이딩 윈도우 | - | - | - | - |
-
-**Codepilot의 압축 흐름:**
-```
-토큰 > 80% 임계값
-    ↓
-오래된 메시지 추출 (전체 - 최근 20개)
-    ↓
-LLM 요약 요청
-    ↓
-compactedSummaries에 저장
-    ↓
-다음 요청 시 "요약 + 최근 20개" 전달
-```
-
-**Copilot의 압축 흐름:**
-```
-토큰 > 95% 컨텍스트
-    ↓
-자동 요약 (휘발)
-    ↓
-다음 세션 시 컨텍스트 상실
-```
-
-### 2.3 대화 히스토리 구조
-
-| 항목 | Codepilot | Cursor | Cline | Claude Code |
-|------|-----------|--------|-------|-------------|
-| 저장 내용 | 요청+응답+메타데이터 | 요청+응답 | 요청+응답+비용 | 요청+응답 |
-| 파일 변경 추적 | ✅ filesCreated/Modified | ❌ | ❌ | ❌ |
-| 명령어 추적 | ✅ commandsExecuted | ❌ | ✅ | ❌ |
-| 토큰 사용량 | ✅ tokensUsed | ❌ | ✅ | ✅ |
-| 수행 시간 | ✅ durationMs | ❌ | ❌ | ❌ |
-
-**Codepilot ConversationEntry 구조:**
 ```typescript
-{
-    id: string,
-    timestamp: number,
-    userRequest: string,
-    assistantResponse?: string,
-    actions: ActionEntry[],
-    filesCreated?: string[],
-    filesModified?: string[],
-    commandsExecuted?: string[],
-    result: 'success' | 'error' | 'cancelled',
-    model?: string,
-    tokensUsed?: number,
-    durationMs?: number
+interface BackgroundTask {
+  id: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: Date;
+  progress: number;
+  result?: string;
 }
 ```
 
-### 2.4 메모리 시스템 비교
-
-| 항목 | Codepilot | Windsurf | Copilot (신규) |
-|------|-----------|----------|----------------|
-| 타입 | 대화 요약 | 규칙/패턴 학습 | 리포지토리 메모리 |
-| 학습 대상 | 이전 작업 내용 | 코딩 스타일, API | 코드베이스 인사이트 |
-| 적용 범위 | 현재 세션 | 모든 세션 | 리포지토리 전체 |
-| 수동 편집 | ❌ | ✅ | ❌ |
-| 자동 생성 | ✅ | ✅ | ✅ |
+**활용**: 빌드, 테스트 실행, 대규모 리팩토링 등
 
 ---
 
-## 3. 파싱/컨텍스트 수집 상세 비교
+#### E. 역할 기반 AI 모드 (Roo Code 방식)
 
-### 3.1 컨텍스트 소스
+**제안**: 전문화된 AI 페르소나 제공
 
-| 소스 | Codepilot | Cursor | Cline | Windsurf | Continue |
-|------|-----------|--------|-------|----------|----------|
-| 현재 파일 | ✅ | ✅ | ✅ | ✅ | ✅ @file |
-| 선택 영역 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 커서 주변 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 열린 파일 | ❌ | ✅ | ❌ | ✅ | ❌ |
-| 터미널 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 에러 | ✅ ErrorParser | ✅ | ✅ | ✅ Linter | ❌ |
-| Git diff | ✅ (기본) | ✅ | ✅ | ✅ | ✅ @diff |
-| 클립보드 | ❌ | ❌ | ❌ | ✅ | ❌ |
-| 브라우저 | ❌ | ❌ | ✅ | ❌ | ❌ |
-| 실시간 액션 | ❌ | ❌ | ❌ | ✅ | ❌ |
+| 역할 | 특화 영역 | 시스템 프롬프트 조정 |
+|------|----------|---------------------|
+| Security Expert | 보안 취약점 검사 | OWASP Top 10 중심 |
+| Performance Tuner | 성능 최적화 | 프로파일링 중심 |
+| Code Reviewer | 코드 리뷰 | 컨벤션 준수 검사 |
+| Documentation Writer | 문서화 | JSDoc/README 작성 |
 
-**Windsurf의 실시간 액션 추적:**
+---
+
+#### F. GitHub Actions 통합 (OpenCode 방식)
+
+**제안**: GitHub 이슈/PR에서 `/codepilot` 명령으로 작업 실행
+
+```yaml
+# .github/workflows/codepilot.yml
+on:
+  issue_comment:
+    types: [created]
+jobs:
+  codepilot:
+    if: contains(github.event.comment.body, '/codepilot')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: codepilot/action@v1
 ```
-사용자가 파일 수정 → Cascade 자동 인식
-사용자가 명령어 실행 → Cascade 결과 인식
-사용자가 텍스트 복사 → Cascade 클립보드 인식
-→ 프롬프트에 명시적으로 전달할 필요 없음
-```
 
-### 3.2 코드 파싱 (AST)
+---
 
-| 항목 | Codepilot | Cursor | Continue | Windsurf |
-|------|-----------|--------|----------|----------|
-| 파서 | Tree-sitter | 내장 | Tree-sitter | 내장 |
-| 지원 언어 | JS/TS/Python/Java | 다수 | 다수 | 다수 |
-| 추출 정보 | 클래스/함수/메서드 | Semantic | Symbol | Symbol |
-| 관계 분석 | import/export | ✅ | ❌ | ✅ |
-| 심볼 검색 | ✅ findDefinition | ✅ | ✅ @code | ✅ |
+### 3.3 낮은 우선순위 (장기 로드맵)
 
-**Codepilot TreeSitterAdapter 기능:**
+#### G. JetBrains/Neovim 확장
+
+**제안**: Language Server Protocol 기반으로 다른 IDE 지원
+
+---
+
+#### H. 시각적 Codemaps (Windsurf 방식)
+
+**제안**: 코드 의존성 그래프 시각화
+
+---
+
+## 4. 잠재적 로직 오류 분석
+
+### 4.1 레이스 컨디션 (Race Conditions)
+
+#### 문제 1: MCPManager 자동 연결 실패 무시
+
+**위치**: `src/core/mcp/MCPManager.ts:70-72`
+
 ```typescript
-// 정의 찾기
-findDefinition('MyClass', DefinitionType.CLASS, projectRoot)
-
-// 사용 위치 찾기
-findDefinitionUsages('foo', DefinitionType.FUNCTION, projectRoot)
-
-// 관련 파일 찾기 (import 기반)
-findRelatedFiles(filePath, projectRoot)
+// 현재 코드
+this.connectToServer(server.id).catch(err => {
+    console.error(`[MCPManager] Auto-connect failed...`);
+    // 에러 상태 업데이트 없음
+});
 ```
 
-### 3.3 관련 파일 찾기
+**문제**: 연결 실패 시 상태가 업데이트되지 않아 UI에서 서버가 연결된 것처럼 표시될 수 있음
 
-| 항목 | Codepilot | Cursor | Cline | Continue |
-|------|-----------|--------|-------|----------|
-| 검색 엔진 | Ripgrep | Semantic Search | Ripgrep | Ripgrep |
-| 키워드 추출 | ✅ 한/영 분리 | ✅ | ❌ | ❌ |
-| LLM 스코어링 | ✅ 배치 8개 | ✅ | ❌ | ❌ |
-| 명시적 파일 감지 | ✅ 정규식 | ✅ | ✅ | ✅ |
-| 임베딩 검색 | ❌ | ✅ | ❌ | ✅ |
-
-**Codepilot의 4단계 파일 찾기:**
-```
-1. 명시적 파일명 추출 (정규식)
-   → design.md, App.tsx 등 직접 언급된 파일
-
-2. 키워드 확장
-   → 한국어 형태소 + 영어 단어 + 기술 용어
-
-3. 이중 필터링
-   → Ripgrep 검색 + 파일명/경로 매칭
-
-4. 배치 LLM 스코어링
-   → 8개씩 배치 처리, 점수 ≥ 30점만 선택
-```
-
-**Cursor의 Semantic Search:**
-```
-임베딩 기반 유사도 검색
-→ 코드의 의미적 유사성으로 관련 파일 탐색
-```
-
-### 3.4 프로젝트 분석
-
-| 항목 | Codepilot | Cursor | Windsurf |
-|------|-----------|--------|----------|
-| 타입 감지 | ✅ 파일+LLM 혼합 | ✅ | ✅ |
-| 프레임워크 | ✅ React/Vue/Angular/Django/Flask/Spring | ✅ | ✅ |
-| 빌드 명령어 | ✅ 자동 추출 | ✅ | ✅ |
-| 의존성 | ✅ package.json/pom.xml | ✅ | ✅ |
-| 신뢰도 점수 | ✅ (0.6-0.95) | ❌ | ❌ |
-
-**Codepilot 프로젝트 감지 신뢰도:**
+**해결안**:
 ```typescript
-PROJECT_TYPE_CONFIDENCE = {
-    DEPENDENCY_BASED: 0.95,    // package.json 라이브러리
-    FILE_BASED: 0.85,         // 설정 파일
-    LOCAL_HEURISTIC: 0.7,     // 휴리스틱
-    KEYWORD_BASED: 0.6        // 키워드
+this.connectToServer(server.id).catch(err => {
+    console.error(`[MCPManager] Auto-connect failed...`);
+    this.updateServerStatus(server.id, 'error', err.message);
+    this.notifyConnectionFailure(server.name);
+});
+```
+
+---
+
+#### 문제 2: ConversationManager 싱글톤 상태 격리 부재
+
+**위치**: `src/core/managers/conversation/ConversationManager.ts:96-173`
+
+```typescript
+// 현재 구조
+private currentAbortController: AbortController | null = null;
+// 모든 대화가 같은 인스턴스를 공유
+```
+
+**문제**: 두 개의 대화가 빠르게 시작되면 AbortController가 덮어씌워져 첫 번째 대화의 취소가 동작하지 않음
+
+**해결안**:
+```typescript
+// 대화별 컨텍스트 Map 사용
+private conversationContexts: Map<string, ConversationContext> = new Map();
+
+interface ConversationContext {
+    abortController: AbortController;
+    state: AgentState;
+    history: Message[];
 }
-// 신뢰도 < 0.7이면 사용자 선택 요청
 ```
 
 ---
 
-## 4. 에이전트 루프/상태 관리 비교
+### 4.2 메모리 누수 (Memory Leaks)
 
-### 4.1 상태 머신 비교
+#### 문제 3: TerminalManager 이벤트 리스너 미해제
 
-| 항목 | Codepilot | Cursor | Cline | Windsurf |
-|------|-----------|--------|-------|----------|
-| 상태 머신 | FSM 4단계 | 암묵적 | Plan-then-Act | Planning Agent |
-| 계획 단계 | INVESTIGATION | Plan Mode | Plan | Planning |
-| 실행 단계 | EXECUTION | Agent Mode | Act | Action |
-| 검토 단계 | REVIEW | ❌ | ❌ | ❌ |
-| 완료 단계 | DONE | ❌ | ❌ | ❌ |
+**위치**: `src/core/managers/terminal/TerminalManager.ts:390-423`
 
-**Codepilot FSM:**
-```
-INVESTIGATION (조사)
-    ↓ [파일/검색 도구만 허용]
-EXECUTION (실행)
-    ↓ [모든 도구 허용]
-REVIEW (검토)
-    ↓ [도구 사용 금지, 자동 요약]
-DONE (완료)
+```typescript
+// Shell Integration 핸들러가 disposables에 추가되지 않음
+private registerShellIntegrationHandlers(): void {
+    // ... 핸들러 등록하지만 추적 안함
+}
 ```
 
-**Cline Plan-then-Act:**
+**해결안**:
+```typescript
+private registerShellIntegrationHandlers(): void {
+    const disposable1 = onDidStartExecution?.(...);
+    const disposable2 = onDidEndExecution?.(...);
+
+    if (disposable1) this.disposables.push(disposable1);
+    if (disposable2) this.disposables.push(disposable2);
+}
 ```
-Plan Mode: 접근 방식 설명, 사용자 동의 요청
-    ↓
-Act Mode: 승인 후 실행
-```
-
-### 4.2 도구 제한
-
-| 단계 | Codepilot | Cursor | Cline |
-|------|-----------|--------|-------|
-| 조사 | READ_FILE, LIST_FILES, SEARCH_FILES, RIPGREP | 전체 | 전체 |
-| 실행 | 전체 | 전체 | 전체 (승인 필요) |
-| 검토 | 없음 (텍스트만) | - | - |
-
-### 4.3 자동화 수준
-
-| 항목 | Codepilot | Cursor | Cline | Windsurf |
-|------|-----------|--------|-------|----------|
-| 자동 실행 | ⚠️ 명령어만 | ✅ | ⚠️ 승인 필요 | ✅ Turbo Mode |
-| 파일 변경 | 승인 필요 (Diff) | 자동 | 승인 필요 | 자동 |
-| 명령어 실행 | 설정 가능 | 승인 필요 | 승인 필요 | 자동 |
-| 테스트 재시도 | ✅ 자동 | ❌ | ❌ | ❌ |
-| 에러 자동 수정 | ✅ | ✅ | ❌ | ❌ |
 
 ---
 
-## 5. 프롬프트/LLM 통신 비교
+#### 문제 4: 터미널 종료 리스너 누수
 
-### 5.1 프롬프트 구성
+**위치**: `src/core/managers/terminal/TerminalManager.ts:689-694`
 
-| 항목 | Codepilot | Cursor | Continue |
-|------|-----------|--------|----------|
-| OS별 프롬프트 | ✅ | ✅ | ✅ |
-| LLM별 프롬프트 | ✅ Gemini/Banya/Ollama | ✅ | ✅ |
-| 작업별 프롬프트 | ✅ code/execution/analysis | ✅ | ✅ |
-| 커스텀 규칙 | ✅ .agent/rules/ | ✅ .cursor/rules/ | ✅ config |
-| 프롬프트 캐싱 | ❌ | ✅ | ❌ |
+**문제**: VSCode 확장이 터미널보다 먼저 비활성화되면 리스너가 해제되지 않음
 
-**Codepilot 규칙 파일:**
+**해결안**:
+```typescript
+// 생성된 터미널 리스너를 disposables에 추가
+const disposable = vscode.window.onDidCloseTerminal(...);
+this.disposables.push(disposable);
 ```
-.agent/rules/
-├── stable-version.md
-├── coding-style.md
-├── project-architecture.md
-└── db-policy.md
-```
-
-**Cursor 규칙:**
-```
-.cursor/rules/*.mdc (프로젝트)
-User rules (전역)
-Team rules (팀 대시보드)
-AGENTS.md (에이전트용)
-```
-
-### 5.2 응답 처리
-
-| 항목 | Codepilot | Cursor | Claude Code |
-|------|-----------|--------|-------------|
-| 응답 정제 | ✅ thinking 태그 제거 | ✅ | ✅ |
-| 도구 호출 검증 | ✅ | ✅ | ✅ |
-| 요약 생성 | ✅ 파일 검증 포함 | ❌ | ❌ |
-| 형식 검증 | ✅ 페이즈별 규칙 | ✅ | ✅ |
 
 ---
 
-## 6. 개선사항 및 권장사항
+### 4.3 에러 핸들링 갭
 
-### 6.1 도구 시스템 개선
+#### 문제 5: 무음 에러 처리
 
-| 현재 | 문제점 | 권장 개선 |
-|------|--------|-----------|
-| XML 파싱 | 정규식 기반, 오류 가능성 | JSON Function Call로 전환 |
-| 순차 실행 | 성능 저하 | 병렬 도구 실행 지원 |
-| MCP 미지원 | 확장성 제한 | MCP 프로토콜 구현 |
-| 웹 검색 없음 | 문서 참조 불가 | WebSearchTool 추가 |
-| 브라우저 없음 | E2E 테스트 불가 | BrowserTool 추가 |
-| 코드 분석 미구현 | AST 활용 부족 | AnalyzeCodeTool 완성 |
+**위치**: `src/core/managers/terminal/TerminalManager.ts:989, 1283, 1487`
 
-### 6.2 세션/히스토리 개선
+```typescript
+).catch(() => { /* no-op */ });  // 에러 완전히 무시
+```
 
-| 현재 | 문제점 | 권장 개선 |
-|------|--------|-----------|
-| globalState만 | 내보내기/공유 불가 | 파일 내보내기 추가 |
-| 단순 압축 | 중요 정보 손실 가능 | 선택적 압축 (중요도 기반) |
-| 세션 공유 없음 | 팀 협업 불가 | 팀 세션 공유 기능 |
-| 메모리 시스템 없음 | 스타일 학습 불가 | Windsurf式 Memory 추가 |
-
-### 6.3 파싱/컨텍스트 개선
-
-| 현재 | 문제점 | 권장 개선 |
-|------|--------|-----------|
-| Ripgrep만 | 의미 검색 불가 | 임베딩 기반 검색 추가 |
-| 실시간 추적 없음 | 반복 프롬프팅 필요 | Windsurf式 액션 추적 |
-| 열린 파일 미포함 | 컨텍스트 손실 | 열린 탭 컨텍스트 추가 |
-| 클립보드 미포함 | 복사된 코드 누락 | 클립보드 추적 추가 |
-
-### 6.4 에이전트 루프 개선
-
-| 현재 | 문제점 | 권장 개선 |
-|------|--------|-----------|
-| 단일 에이전트 | 복잡한 작업 비효율 | 병렬 에이전트 (Cursor式) |
-| Checkpoint 없음 | 롤백 불가 | 상태 체크포인트 시스템 |
-| 진행 표시 기본 | 사용자 불안 | 상세 진행률/예상 시간 |
+**해결안**:
+```typescript
+).catch(err => {
+    console.warn('[TerminalManager] File operation failed:', err.message);
+    // 또는 에러 메트릭 기록
+});
+```
 
 ---
 
-## 7. 우선순위별 개선 로드맵
+#### 문제 6: URL Fetch 실패 무시
 
-### Phase 1: 핵심 격차 해소
-1. **JSON Function Call 전환** - XML → JSON (모든 LLM 호환)
-2. **MCP 프로토콜 지원** - 도구 확장성 확보
-3. **병렬 도구 실행** - 성능 개선
-4. **웹 검색 도구** - 문서/API 참조
+**위치**: `src/core/managers/conversation/ConversationManager.ts:610-622`
 
-### Phase 2: 경쟁력 강화
-1. **실시간 액션 추적** - Windsurf式 컨텍스트 자동 수집
-2. **메모리 시스템** - 코딩 스타일/패턴 학습
-3. **임베딩 검색** - 의미 기반 파일 탐색
-4. **줄 단위 Diff 수락** - 세밀한 변경 제어
+```typescript
+// Promise.allSettled 사용하지만 rejected 결과 무시
+for (const result of results) {
+    if (result.status === "fulfilled") {
+        fetched.push(result.value);
+    }
+    // rejected인 경우 사용자에게 알림 없음
+}
+```
 
-### Phase 3: 차별화
-1. **병렬 에이전트** - Cursor式 다중 작업
-2. **Checkpoint 시스템** - 상태 복원
-3. **팀 세션 공유** - 협업 지원
-4. **브라우저 자동화** - E2E 테스트
+**해결안**:
+```typescript
+const failed: string[] = [];
+for (const result of results) {
+    if (result.status === "fulfilled") {
+        fetched.push(result.value);
+    } else {
+        failed.push(result.reason);
+    }
+}
+if (failed.length > 0) {
+    WebviewBridge.receiveMessage(webview, 'System',
+        `일부 URL을 가져오지 못했습니다: ${failed.join(', ')}`);
+}
+```
 
 ---
 
-## Sources
+### 4.4 무한 루프 위험
 
-- [How Cursor AI IDE Works](https://www.cursor.com)
-- [Cursor Agent System Prompt](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools)
+#### 문제 7: 루프 탈출 핸들러 무제한 호출
+
+**위치**: `src/core/managers/conversation/ConversationManager.ts:288-356`
+
+**문제**: `handleInfiniteLoopEscape()`가 여러 번 호출될 수 있으며, 각 호출마다 상태가 리셋됨
+
+**해결안**:
+```typescript
+// 탈출 시도 횟수 제한
+private escapeAttempts: number = 0;
+private readonly MAX_ESCAPE_ATTEMPTS = 3;
+
+private handleInfiniteLoopEscape(): boolean {
+    this.escapeAttempts++;
+    if (this.escapeAttempts >= this.MAX_ESCAPE_ATTEMPTS) {
+        console.warn('[ConversationManager] Max escape attempts reached, breaking loop');
+        return true; // 강제 종료
+    }
+    // ... 기존 로직
+}
+```
+
+---
+
+#### 문제 8: 테스트 재시도 제한 undefined 가능
+
+**위치**: `src/core/managers/conversation/ConversationManager.ts:876-881`
+
+```typescript
+const maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount();
+// SettingsManager 실패 시 undefined
+```
+
+**해결안**:
+```typescript
+const maxTestFixAttempts = await SettingsManager.getInstance()
+    .getTestRetryCount()
+    .catch(() => 3); // 기본값 폴백
+```
+
+---
+
+### 4.5 타입 안전성
+
+#### 문제 9: 과도한 any 사용
+
+**위치**:
+- `ConversationManager.ts:501` - `error: any`
+- `ConversationManager.ts:82` - `geminiApi?: any`
+- `ConversationManager.ts:757-770` - Intent detection
+
+**해결안**: 각각에 대해 구체적인 인터페이스 정의
+
+```typescript
+// Intent 타입 정의
+interface DetectedIntent {
+    category: 'code_generation' | 'analysis' | 'question' | 'unknown';
+    subtype?: string;
+    confidence: number;
+    requiresPlan: boolean;
+}
+```
+
+---
+
+### 4.6 상태 관리
+
+#### 문제 10: MCPManager 설정 캐시 무효화 미흡
+
+**위치**: `src/core/mcp/MCPManager.ts:53-65`
+
+**문제**: 설정이 변경되어도 기존 클라이언트가 정리되지 않음
+
+**해결안**:
+```typescript
+async initialize(context: vscode.ExtensionContext): Promise<void> {
+    if (this.initialized) {
+        // 기존 연결 정리
+        await this.disconnectAllServers();
+        await this.loadSettings();
+        await this.autoConnectEnabledServers();
+        return;
+    }
+    // ...
+}
+```
+
+---
+
+## 5. 개선 우선순위
+
+### 5.1 즉시 수정 필요 (Critical)
+
+| # | 문제 | 파일 | 예상 시간 |
+|---|------|------|----------|
+| 1 | 싱글톤 상태 격리 | ConversationManager.ts | 4h |
+| 2 | 무한 루프 탈출 제한 | ConversationManager.ts | 2h |
+| 3 | 무음 에러 처리 | TerminalManager.ts | 1h |
+
+### 5.2 단기 개선 (High)
+
+| # | 문제 | 파일 | 예상 시간 |
+|---|------|------|----------|
+| 4 | 이벤트 리스너 해제 | TerminalManager.ts | 2h |
+| 5 | MCPManager 연결 실패 처리 | MCPManager.ts | 2h |
+| 6 | URL Fetch 실패 알림 | ConversationManager.ts | 1h |
+
+### 5.3 중기 개선 (Medium)
+
+| # | 기능 | 예상 시간 |
+|---|------|----------|
+| 7 | any 타입 제거 | 8h |
+| 8 | 테스트 재시도 폴백 | 1h |
+| 9 | MCPManager 설정 재로드 | 2h |
+
+### 5.4 새 기능 우선순위
+
+| 우선순위 | 기능 | 예상 효과 | 예상 시간 |
+|---------|------|----------|----------|
+| **P0** | 코드베이스 Embeddings | 관련 코드 검색 정확도 향상 | 3주 |
+| **P1** | Repository Map | 대규모 프로젝트 컨텍스트 개선 | 1주 |
+| **P1** | 브라우저 자동화 | UI 디버깅 자동화 | 2주 |
+| **P2** | Background Agent | 장시간 태스크 UX 개선 | 2주 |
+| **P2** | 역할 기반 AI 모드 | 전문화된 어시스턴스 | 1주 |
+| **P3** | GitHub Actions 통합 | CI/CD 통합 | 3주 |
+
+---
+
+## 참고 자료
+
+### 경쟁사 문서
+- [Cline 공식 사이트](https://cline.bot/)
 - [Cline GitHub](https://github.com/cline/cline)
-- [Cline MCP Configuration](https://github.com/cline/cline/blob/main/docs/mcp.md)
-- [Claude Code SDK](https://docs.anthropic.com/claude/docs/claude-code)
-- [Copilot Memory](https://github.blog/changelog/2024-11-13-copilot-memory/)
-- [Windsurf Cascade](https://codeium.com/windsurf)
-- [Continue Context Providers](https://continue.dev/docs)
+- [Continue.dev 공식 문서](https://docs.continue.dev/)
+- [Continue GitHub](https://github.com/continuedev/continue)
+- [OpenCode 공식 사이트](https://opencode.ai/)
+- [OpenCode GitHub](https://github.com/opencode-ai/opencode)
+- [Windsurf 공식](https://windsurf.com/)
+- [Cursor 공식](https://cursor.sh/)
+
+### 비교 기사
+- [Cline Review 2026](https://vibecoding.app/blog/cline-review-2026)
+- [Continue.dev Review 2026](https://vibecoding.app/blog/continue-dev-review)
+- [Roo Code vs Cline](https://www.qodo.ai/blog/roo-code-vs-cline/)
+- [Windsurf vs Cursor](https://www.builder.io/blog/windsurf-vs-cursor)
+- [Best AI Coding Agents 2026](https://www.faros.ai/blog/best-ai-coding-agents-2026)

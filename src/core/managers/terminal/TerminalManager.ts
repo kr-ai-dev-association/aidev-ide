@@ -686,12 +686,17 @@ export class TerminalManager {
                 console.log(`[TerminalManager] 터미널 작업 디렉토리 설정: ${projectRoot}`);
             }
             const term = vscode.window.createTerminal(terminalOptions);
+            const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === term) {
                     console.log(`[TerminalManager] 터미널 종료 감지: ${name}`);
                     disposable.dispose();
+                    // disposables 배열에서도 제거
+                    const idx = instance.disposables.indexOf(disposable);
+                    if (idx !== -1) instance.disposables.splice(idx, 1);
                 }
             });
+            instance.disposables.push(disposable);
             return term;
         }
 
@@ -719,13 +724,18 @@ export class TerminalManager {
             }
 
             TerminalManager.codePilotTerminal = vscode.window.createTerminal(terminalOptions);
+            const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === TerminalManager.codePilotTerminal) {
                     console.log(`[TerminalManager] 터미널 종료 감지: codepilot Terminal`);
                     TerminalManager.codePilotTerminal = undefined;
                     disposable.dispose();
+                    // disposables 배열에서도 제거
+                    const idx = instance.disposables.indexOf(disposable);
+                    if (idx !== -1) instance.disposables.splice(idx, 1);
                 }
             });
+            instance.disposables.push(disposable);
         }
 
         return TerminalManager.codePilotTerminal;
@@ -986,7 +996,7 @@ export class TerminalManager {
                         command: 'file-op',
                         cwd: errorPath
                     }
-                ).catch(() => { /* no-op */ });
+                ).catch(err => console.warn('[TerminalManager] ErrorManager capture failed:', err));
             } catch (errMgrErr) {
                 console.debug('[TerminalManager] ErrorManager unavailable during file-op error capture:', errMgrErr);
             }
@@ -1280,7 +1290,7 @@ export class TerminalManager {
                                 cwd,
                                 terminalName: terminal.name
                             }
-                        ).catch(() => { /* no-op */ });
+                        ).catch(err => console.warn('[TerminalManager] ErrorManager capture failed:', err));
                     } catch {
                         // ErrorManager 초기화 실패 등은 무시
                     }
@@ -1484,7 +1494,7 @@ export class TerminalManager {
                                     command: cleanCommand,
                                     cwd
                                 }
-                            ).catch(() => { /* no-op */ });
+                            ).catch(err => console.warn('[TerminalManager] ErrorManager capture failed:', err));
                         } catch (errMgrErr) {
                             console.debug('[TerminalManager] ErrorManager unavailable during command error capture:', errMgrErr);
                         }

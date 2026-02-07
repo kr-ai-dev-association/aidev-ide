@@ -3,7 +3,6 @@ import { getFirestore, doc, getDoc, connectFirestoreEmulator } from 'firebase/fi
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Firebase 설정 (ollama-blocker와 동일한 프로젝트)
 const firebaseConfig = {
   projectId: "aidev-ass"
 };
@@ -58,7 +57,7 @@ export class LicenseService {
   }
 
   /**
-   * ollama-blocker와 동일한 방식으로 시리얼 번호 검증
+   * 시리얼 번호 검증
    * @param serialNumber 검증할 시리얼 번호
    * @returns 검증 결과 (성공/실패)
    */
@@ -82,7 +81,7 @@ export class LicenseService {
         };
       }
 
-      // Firestore에서 serial_numbers 컬렉션에서 시리얼 번호 조회 (ollama-blocker와 동일)
+      // Firestore에서 serial_numbers 컬렉션에서 시리얼 번호 조회 
       const serialDocRef = doc(db, 'serial_numbers', cleanedSerialNumber);
       const serialDoc = await getDoc(serialDocRef);
 

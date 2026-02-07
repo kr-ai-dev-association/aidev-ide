@@ -6,6 +6,43 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v9.7.3 (타입 안전성 강화 및 싱글톤 격리)
+- **ConversationManager any 타입 제거**: 50개 이상의 `any` 타입을 명시적 타입으로 교체했습니다.
+  - `userParts: any[]` → `UserPart[]` (Part 타입 재사용)
+  - `toolCalls: any[]` → `ToolUse[]`
+  - `toolResults: any[]` → `ToolResponse[]`
+  - `intent: any` → `IntentDetectionResult | null`
+  - `error: any` → `unknown` (타입 가드 추가)
+  - `executionContext: any` → `ToolExecutionContext`
+  - 콜백 함수들 (`tc: any`, `result: any` 등) 모두 명시적 타입 적용
+- **싱글톤 상태 격리 패턴**: 테스트 환경에서 싱글톤 인스턴스를 격리할 수 있도록 개선했습니다.
+  - `resetInstance()`: 테스트 간 싱글톤 리셋 (NODE_ENV=test 환경에서만 동작)
+  - `createIsolatedInstance()`: 싱글톤과 독립적인 인스턴스 생성 (테스트용)
+- **GatheredContext 인터페이스 추가**: `gatherContext()` 반환 타입 명시화
+- **IntentSubtype 타입 오류 수정**: `code_run` → `code_modify` (유효하지 않은 서브타입 수정)
+- **TurnContext 타입 강화**: `UserPart`, `CollectedAction`, `CollectedUIMessage` 타입 추가
+
+## v9.7.2 (성능 최적화 및 코드 품질 개선)
+- **비동기 I/O 전환**: 동기 파일 I/O를 비동기로 변환하여 초기화 성능을 개선했습니다.
+  - `ProjectManager`, `ProjectDetector`, `ContextManager`의 `fs.existsSync`/`fs.readFileSync` → `fs.promises` 사용
+  - `AsyncFileUtils.ts` 신규 추가: `fileExistsAsync`, `readFileAsync`, `readdirAsync`, `readJsonFileAsync`
+- **병렬 파일 처리**: `RelevantFilesFinder`의 순차 파일 읽기를 `Promise.all()`로 병렬화하여 검색 속도 향상
+- **순환 의존성 제거**: `AutoErrorHandler`와 `ConversationManager` 간의 순환 의존성을 해결했습니다.
+  - `IConversationHandler` 인터페이스 도입으로 결합도 감소
+  - `ConversationManager`가 `IConversationHandler` 구현
+- **any 타입 제거**: TypeScript 타입 안전성을 강화했습니다.
+  - `ToolExecutionCoordinator`: `ToolUse`, `ToolResponse` 타입 적용 (12개 → 0개)
+  - `ConversationCompactor`: `Part` 타입 적용 (7개 → 0개)
+  - `webview/types.ts`: `Task`, `MCPServerConfig`, `MCPToolInfo`, `PendingChangeStats` 타입 적용 (7개 → 0개)
+- **상수 추출**: `ActionManager`의 하드코딩된 값을 상수로 추출했습니다.
+  - `FILE_STABILITY_TIMEOUT`, `FILE_STABILITY_CHECK_INTERVAL`, `FILE_STABILITY_DEBOUNCE`
+  - `IMPORT_SCAN_DELAY`, `MAX_PACKAGE_JSON_SEARCH_DEPTH`
+  - `JS_TS_EXTENSIONS`, `DEV_DEPENDENCIES`
+- **에러 응답 헬퍼**: `ActionManager.createErrorResult()` 메서드로 중복 에러 응답 패턴 제거
+- **로딩 상태 피드백**: UX 개선을 위한 로딩 상태 표시 기능 추가
+  - `WebviewBridge.showLoading()` 메서드 추가
+  - `ChatViewProvider`의 `priorityErrorPrompt` 처리 시 로딩/에러 피드백 구현
+
 ## v9.7.1 (세션 저장 버그 수정 및 CompletionJudge 개선)
 - **세션 저장 버그 수정**: CODE 모드 대화가 세션에 저장되지 않던 문제를 해결했습니다.
   - Agent loop 종료 후 세션 저장 보장 (어떤 경로로든 종료 시 저장)

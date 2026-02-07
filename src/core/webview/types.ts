@@ -5,6 +5,18 @@
  * 모든 메시지는 `command` 필드를 discriminant로 사용하는 유니온 타입입니다.
  */
 
+import { Task } from '../managers/task/types';
+import { MCPServerConfig, MCPToolInfo } from '../mcp/types';
+
+/** Pending Changes 통계 정보 */
+export interface PendingChangeStats {
+    filePath: string;
+    fileName: string;
+    addedLines: number;
+    deletedLines: number;
+    totalChanges: number;
+}
+
 // ==================== Chat Messages (webview → extension) ====================
 
 export interface SendMessageCommand {
@@ -357,7 +369,7 @@ export interface UpdateProcessingStatusResponse {
 
 export interface UpdateTaskQueueResponse {
     command: 'updateTaskQueue';
-    tasks: any[];
+    tasks: Task[];
     clear?: boolean;
 }
 
@@ -379,7 +391,7 @@ export interface ClearChatResponse {
 
 export interface UpdatePendingChangesResponse {
     command: 'updatePendingChanges';
-    changes: any[];
+    changes: PendingChangeStats[];
 }
 
 export interface FileSelectedResponse {
@@ -472,17 +484,17 @@ export interface OpenPanelResponse {
 
 export interface McpServersResponse {
     command: 'mcpServers';
-    servers: any[];
+    servers: MCPServerConfig[];
 }
 
 export interface McpServerAddedResponse {
     command: 'mcpServerAdded';
-    server: any;
+    server: MCPServerConfig;
 }
 
 export interface McpServerUpdatedResponse {
     command: 'mcpServerUpdated';
-    server: any;
+    server: MCPServerConfig;
 }
 
 export interface McpServerRemovedResponse {
@@ -494,7 +506,7 @@ export interface McpServerStatusResponse {
     command: 'mcpServerStatus';
     serverId: string;
     status: string;
-    tools?: any[];
+    tools?: MCPToolInfo[];
 }
 
 export interface McpTestResultResponse {
@@ -502,7 +514,7 @@ export interface McpTestResultResponse {
     serverId: string;
     success: boolean;
     toolCount?: number;
-    tools?: any[];
+    tools?: MCPToolInfo[];
     error?: string;
 }
 

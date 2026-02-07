@@ -43,12 +43,23 @@ export class WebviewBridge {
     }
 
     /**
+     * 로딩 상태 표시
+     */
+    public static showLoading(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'showLoading'
+            });
+        }
+    }
+
+    /**
      * 로딩 상태 숨기기
      */
     public static hideLoading(webview: vscode.Webview | undefined): void {
         if (webview) {
-            safePostMessage(webview, { 
-                command: 'hideLoading' 
+            safePostMessage(webview, {
+                command: 'hideLoading'
             });
         }
     }
