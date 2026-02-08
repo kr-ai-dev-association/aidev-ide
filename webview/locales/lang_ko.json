@@ -1,6 +1,6 @@
 {
   "settingsTitle": "CODEPILOT 설정",
-  "languageLabel": "언어",
+  "languageLabel": "언어 (Language)",
   "apiKeySectionTitle": "AI 모델 설정",
   "aiModelSettingsTitle": "AI 모델 설정",
   "aiModelSettingsDescription": "CODEPILOT의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을 선택하고 해당 설정을 구성하세요.",
@@ -143,6 +143,13 @@
   "githubViewLink": "🌐 GitHub에서 보기",
   "githubIssuesLink": "🐛 Issues & Feedback",
   "githubStarLink": "⭐ Star & Support",
+  "outputLogLabel": "OUTPUT 로그 제어",
+  "outputLogDescription": "VS Code의 OUTPUT 패널에 표시되는 로그를 활성화/비활성화할 수 있습니다. 비활성화하면 터미널 로그 확인이 더 편해집니다.",
+  "outputLogOn": "켜기",
+  "outputLogOff": "끄기",
+  "outputLogEnabled": "OUTPUT 로그 활성화",
+  "outputLogStatusEnabled": "현재: OUTPUT 로그 활성화됨",
+  "outputLogStatusDisabled": "현재: OUTPUT 로그 비활성화됨",
   "errorRetryLabel": "자동 오류 수정 횟수",
   "errorRetryDescription": "터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 3회)",
   "errorRetrySpinnerLabel": "최대 오류 수정 횟수:",
@@ -151,4 +158,3 @@
   "stopErrorCorrectionLabel": "⏹️ 자동 오류 수정 중단",
   "stopErrorCorrectionTooltip": "자동 오류 수정을 즉시 중단합니다"
 }
-

@@ -254,7 +254,7 @@ export class UsageMetricsManager {
     const m = this.metrics;
     const duration = this.formatDuration(m.sessionDuration);
 
-    return `📊 사용량 통계
+    return `사용량 통계
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 메모리: ${m.memoryUsage}MB / 최고: ${m.peakMemory}MB
 세션 시간: ${duration}
