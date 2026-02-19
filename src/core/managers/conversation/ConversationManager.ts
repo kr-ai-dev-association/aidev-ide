@@ -497,23 +497,50 @@ export class ConversationManager implements IConversationHandler {
         );
       }
 
-      // 2. 의도 파악 및 프로젝트 분석
-      // 현재 선택된 모델 타입을 사용하여 의도 파악 수행
-      const intent = await this.detectIntent(userQuery);
+      // 2. Hot Load 항목 로드 (Intent Detection에 전달)
+      let hotLoadItems: any[] = [];
+      try {
+        const hotLoadManager = HotLoadManager.getInstance();
+        hotLoadItems = await hotLoadManager.getAllHotLoads();
+        if (hotLoadItems.length > 0) {
+          console.log(
+            `[ConversationManager] Hot Load items loaded: ${hotLoadItems.length} items`,
+          );
+        }
+      } catch (error: any) {
+        console.warn(
+          `[ConversationManager] Failed to load Hot Load items: ${error?.message || error}`,
+        );
+      }
 
-      // 3. 컨텍스트 수집
+      // 3. 의도 파악 (Hot Load 항목 포함하여 LLM이 의미론적 매칭)
+      const intent = await this.detectIntent(userQuery, { hotLoadItems });
+
+      // 4. 컨텍스트 수집
       const context = await this.gatherContext(optionsWithAbort, intent);
 
-      // 4. 시스템 프롬프트 생성
-      // Hot Load 프롬프트 로드 (최우선 규칙)
+      // 5. 시스템 프롬프트 생성
+      // Hot Load 프롬프트: 매칭된 경우 인자 추출 프롬프트, 아니면 전체 목록
       let hotLoadPrompt = "";
       try {
         const hotLoadManager = HotLoadManager.getInstance();
-        hotLoadPrompt = await hotLoadManager.getPromptSection();
-        if (hotLoadPrompt) {
-          console.log(
-            `[ConversationManager] Hot Load prompt loaded (${hotLoadPrompt.length} chars)`,
+        if (intent.hotLoadMatch) {
+          // 매칭됨 → 인자 추출 가이드 포함 프롬프트
+          hotLoadPrompt = hotLoadManager.getMatchedPromptSection(
+            intent.hotLoadMatch,
+            userQuery,
           );
+          console.log(
+            `[ConversationManager] Hot Load matched: ${intent.hotLoadMatch.keywords} → argument extraction prompt injected`,
+          );
+        } else {
+          // 매칭 안됨 → 전체 목록 프롬프트
+          hotLoadPrompt = await hotLoadManager.getPromptSection();
+          if (hotLoadPrompt) {
+            console.log(
+              `[ConversationManager] Hot Load prompt loaded (${hotLoadPrompt.length} chars)`,
+            );
+          }
         }
       } catch (error) {
         console.warn(
@@ -847,7 +874,7 @@ export class ConversationManager implements IConversationHandler {
    * 사용자 의도 및 작업 타입 감지
    * Intent 모델이 설정된 경우 해당 모델 사용, 미설정 시 메인 모델 사용
    */
-  private async detectIntent(query: string): Promise<any> {
+  private async detectIntent(query: string, options?: { hotLoadItems?: any[] }): Promise<any> {
     const detector = new IntentDetector(this.llmManager);
 
     // StateManager가 있으면 Intent 모델 라우팅 설정
@@ -855,11 +882,16 @@ export class ConversationManager implements IConversationHandler {
       detector.setStateManager(this.stateManager);
     }
 
-    const intent = await detector.detectIntent(query);
+    const intent = await detector.detectIntent(query, { hotLoadItems: options?.hotLoadItems });
 
     console.log(
       `[ConversationManager] Intent detected: ${intent.category}/${intent.subtype} (confidence: ${intent.confidence})`,
     );
+    if (intent.hotLoadMatch) {
+      console.log(
+        `[ConversationManager] Hot Load matched: ${intent.hotLoadMatch.keywords} → ${intent.hotLoadMatch.command}`,
+      );
+    }
     return intent;
   }
 
@@ -1484,12 +1516,17 @@ export class ConversationManager implements IConversationHandler {
 
         // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
         // 🔥 핵심 수정: gatheredContext의 첨부 컨텍스트(selectedFilesContent 등)를 포함해야 함
-        // Hot Load 프롬프트 로드
+        // Hot Load 프롬프트 로드 (매칭된 경우 인자 추출 프롬프트 우선)
         let hotLoadPromptForInvestigation = "";
         try {
           const hotLoadManager = HotLoadManager.getInstance();
-          hotLoadPromptForInvestigation =
-            await hotLoadManager.getPromptSection();
+          if (intent?.hotLoadMatch) {
+            hotLoadPromptForInvestigation =
+              hotLoadManager.getMatchedPromptSection(intent.hotLoadMatch as any, options.userQuery);
+          } else {
+            hotLoadPromptForInvestigation =
+              await hotLoadManager.getPromptSection();
+          }
         } catch (error) {
           console.warn(
             "[ConversationManager] Failed to load Hot Load prompt for investigation:",

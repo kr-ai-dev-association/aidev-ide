@@ -334,7 +334,7 @@
     "test": "vscode-test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@peoplesgrocers/seti-ui-file-icons": "^1.11.3",
     "@tensorflow/tfjs-node": "^4.22.0",
     "cheerio": "^1.2.0",
@@ -349,6 +349,7 @@
   "devDependencies": {
     "@babel/core": "^7.27.3",
     "@babel/preset-env": "^7.27.2",
+    "@types/cheerio": "^0.22.35",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.24",
     "@types/vscode": "1.85",
