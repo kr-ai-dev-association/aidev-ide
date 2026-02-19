@@ -8,4 +8,5 @@ export { StateManager } from './StateManager';
 export { SessionManager } from './SessionManager';
 export { SettingsManager } from './SettingsManager';
 export { ConfigurationService } from './ConfigurationService';
+export { UsageMetricsManager } from './UsageMetricsManager';
 

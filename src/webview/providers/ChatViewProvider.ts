@@ -5,7 +5,8 @@ import { PromptType, NotificationService, LicenseService, GitRepositoryService, 
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager, SessionManager } from '../../core';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
-import { EXCLUDED_LIBRARY_PATHS } from '../../core/utils/FileExclusionConstants';
+import { getAllExclusionPaths } from '../../core/utils/FileExclusionConstants';
+import { WebviewBridge } from '../../core/webview/WebviewBridge';
 
 /**
  * Diff 가상 문서 프로바이더
@@ -124,9 +125,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             switch (data.command) {
                 case 'priorityErrorPrompt': {
-                    try {
-                        const text = typeof data.text === 'string' ? data.text : '';
-                        if (text) {
+                    const text = typeof data.text === 'string' ? data.text : '';
+                    if (text) {
+                        try {
+                            // 로딩 상태 표시
+                            WebviewBridge.showLoading(webviewView.webview);
                             await ConversationService.handleUserMessage({
                                 userQuery: text,
                                 webviewToRespond: webviewView.webview,
@@ -135,8 +138,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                 notificationService: this.notificationService,
                                 gitRepositoryService: this.gitRepositoryService
                             });
+                        } catch (e) {
+                            // 에러 발생 시 사용자에게 피드백
+                            console.error('[ChatViewProvider] priorityErrorPrompt error:', e);
+                            WebviewBridge.receiveMessage(
+                                webviewView.webview,
+                                'System',
+                                `❌ 오류 처리 중 문제가 발생했습니다: ${e instanceof Error ? e.message : String(e)}`
+                            );
+                        } finally {
+                            // 로딩 상태 숨기기
+                            WebviewBridge.hideLoading(webviewView.webview);
                         }
-                    } catch (e) {
                     }
                     break;
                 }
@@ -474,6 +487,15 @@ ${JSON.stringify(errorContext, null, 2)}
                                 break;
                             case 'gitStash':
                                 await vscode.commands.executeCommand('codepilot.gitStash');
+                                break;
+                            case 'viewMcpServers':
+                                await vscode.commands.executeCommand('codepilot.viewMcpServers');
+                                break;
+                            case 'connectMcpServer':
+                                await vscode.commands.executeCommand('codepilot.connectMcpServer');
+                                break;
+                            case 'disconnectMcpServer':
+                                await vscode.commands.executeCommand('codepilot.disconnectMcpServer');
                                 break;
                             default:
                                 console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
@@ -1083,10 +1105,10 @@ ${JSON.stringify(errorContext, null, 2)}
                 return;
             }
 
-            // 제외할 디렉토리 패턴 (공용 상수 사용)
+            // 제외할 디렉토리 패턴 (공용 상수 + 커스텀 패턴)
             // glob 패턴에서 사용할 수 있도록 중괄호 안에 쉼표로 구분된 리스트 생성
             // 점(.)으로 시작하는 디렉토리와 일반 디렉토리를 모두 포함
-            const excludeDirs = EXCLUDED_LIBRARY_PATHS
+            const excludeDirs = getAllExclusionPaths()
                 .filter((excludedPath: string) => !excludedPath.includes('*') && !excludedPath.includes('/')) // 와일드카드와 경로 구분자 제외
                 .join(',');
             const excludePattern = `**/{${excludeDirs}}/**`;
@@ -1436,37 +1458,6 @@ ${JSON.stringify(errorContext, null, 2)}
     }
 
     /**
-     * Git 리포지토리 정보를 웹뷰에 표시
-     */
-    //     private async showGitRepositoryInfo(webview: vscode.Webview): Promise<void> {
-    //         try {
-    //             const gitInfo = await this.gitRepositoryService.getRepositoryInfo();
-
-    //             if (gitInfo) {
-    //                 const message = `
-    // 🔗 **Git 리포지토리 연결됨**
-    // - 리포지토리: \`${gitInfo.owner}/${gitInfo.repo}\`
-    // - 현재 브랜치: \`${gitInfo.branch}\`
-    // - URL: ${gitInfo.url}
-
-    // 이제 다음과 같은 Git 명령어를 자연어로 요청할 수 있습니다:
-    // - "변경사항을 커밋해줘"
-    // - "새 브랜치를 만들어줘"
-    // - "PR을 생성해줘"
-    // - "이슈를 만들어줘"
-    // - "코드를 리뷰해줘"
-    //                 `;
-
-    //                 webview.postMessage({
-    //                     command: 'showGitInfo',
-    //                     content: message
-    //                 });
-    //             }
-    //         } catch (error) {
-    //         }
-    //     }
-
-    /**
      * 세션의 대화 히스토리를 복원
      * ✅ 개선: uiMessages가 있으면 코드블록, 액션 영역 포함하여 복원
      */
@@ -1485,7 +1476,9 @@ ${JSON.stringify(errorContext, null, 2)}
 
         // 각 대화 항목을 순차적으로 표시
         // ConversationEntry 형식: { userRequest, assistantResponse, uiMessages, ... }
-        conversationHistory.forEach(entry => {
+        conversationHistory.forEach((entry, index) => {
+            console.log(`[ChatViewProvider] Entry ${index}: userRequest="${entry.userRequest?.substring(0, 50)}...", assistantResponse="${entry.assistantResponse?.substring(0, 100)}..."`);
+
             // 사용자 요청 표시
             if (entry.userRequest) {
                 this._view?.webview.postMessage({

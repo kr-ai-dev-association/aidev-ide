@@ -55,6 +55,7 @@ const stepLabels = {
   thinking: "분석 및 생각",
   plan: "작업 계획 수립",
   executing: "도구 실행",
+  review: "결과 검토",
   done: "작업 완료",
 };
 
@@ -123,6 +124,14 @@ export function updateThinkingBubbleText() {
  * @param {string} stepName - 단계 이름
  */
 export function setProcessingStep(stepName) {
+  console.log(`[processing-steps] setProcessingStep called: stepName=${stepName}`);
+
+  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
+    console.log(`[processing-steps] Showing hidden thinking bubble for step: ${stepName}`);
+    thinkingBubbleElement.style.display = "";
+  }
+
   // global array update
   const existingStepIndex = processingStepsArray.findIndex(
     (s) => s.step === stepName
@@ -162,6 +171,7 @@ export function setProcessingStep(stepName) {
     "analyzing",
     "assembling",
     "executing",
+    "review",
     "parsing",
     "file_processing",
     "printing",
@@ -184,6 +194,14 @@ export function setProcessingStep(stepName) {
  * @param {Function} handleScrollFn - 스크롤 핸들러 함수 (optional)
  */
 export function updateProcessingStatus(stepName, status, handleScrollFn) {
+  console.log(`[processing-steps] updateProcessingStatus called: stepName=${stepName}, status=${status}`);
+
+  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
+    console.log(`[processing-steps] Showing hidden thinking bubble for status update: ${stepName} - ${status}`);
+    thinkingBubbleElement.style.display = "";
+  }
+
   // global array update
   const existingStepIndex = processingStepsArray.findIndex(
     (s) => s.step === stepName

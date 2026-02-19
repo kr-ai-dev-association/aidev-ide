@@ -15,6 +15,7 @@ import { TaskManager } from "../managers/task/TaskManager";
 import { ModelConnectionService } from "../managers/model/ModelConnectionService";
 import { LocaleService } from "../../webview/services";
 import { HotLoadManager } from "../managers/hotload";
+import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -81,7 +82,6 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
-            const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
@@ -96,14 +96,22 @@ export function openSettingsPanel(
             const language = await stateManager.getLanguage();
             const autoUpdateEnabled =
               await settingsManager.isAutoUpdateEnabled();
+            const autoDeleteFilesEnabled =
+              await settingsManager.isAutoDeleteFilesEnabled();
             const autoExecuteCommandsEnabled =
               await settingsManager.isAutoExecuteCommandsEnabled();
+            const autoToolExecutionEnabled =
+              await settingsManager.isAutoToolExecutionEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
             // 채팅 테마 설정 로드
             const config = vscode.workspace.getConfiguration('codepilot');
             const chatTheme = config.get<string>('chatTheme') || 'dark';
+
+            // 확장 버전 로드 (context에서)
+            const extension = vscode.extensions.getExtension('banya.codepilot');
+            const extensionVersion = extension?.packageJSON?.version || '0.0.0';
 
             // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
             const compactorModelType = await stateManager.getCompactorModelType();
@@ -133,14 +141,15 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
-              outputLogEnabled: outputLogEnabled || false,
               autoUpdateEnabled: autoUpdateEnabled || false,
+              autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
+              autoToolExecutionEnabled: autoToolExecutionEnabled, // 도구 자동 실행 설정 추가
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
@@ -153,6 +162,7 @@ export function openSettingsPanel(
               intentModelName: intentModelName || "",
               intentApiKeySet: intentApiKeySet,
               chatTheme: chatTheme,
+              extensionVersion: extensionVersion,
             };
             console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
               compactorModelType,
@@ -1048,35 +1058,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "setOutputLog": // 출력 로그 설정 저장 케이스 (별칭)
-        case "saveOutputLogEnabled": // 출력 로그 설정 저장 케이스 추가
-          const outputLogEnabledToSave = data.outputLogEnabled;
-          if (typeof outputLogEnabledToSave === "boolean") {
-            try {
-              await stateManager.saveOutputLogEnabled(outputLogEnabledToSave);
-              safePostMessage(panel, { command: "outputLogEnabledSaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Output Log setting saved.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "outputLogEnabledSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Output Log setting: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "outputLogEnabledSaveError",
-              error: "Invalid Output Log setting",
-            });
-            notificationService.showErrorMessage(
-              "Invalid Output Log setting provided.",
-            );
-          }
-          break;
         case "saveErrorRetryCount": // 오류 재시도 횟수 저장 케이스 추가
           const errorRetryCountToSave = data.errorRetryCount;
           if (
@@ -1227,6 +1208,66 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setAutoUpdateEnabled": // 자동 파일 업데이트 설정 저장 케이스 추가 (toggles.js에서 호출)
+          const autoUpdateEnabledToSet = data.enabled;
+          if (typeof autoUpdateEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoUpdateEnabled(autoUpdateEnabledToSet);
+              // 과거 저장값과의 호환(필요 시 유지)
+              try {
+                await stateManager.saveAutoUpdateEnabled(autoUpdateEnabledToSet);
+              } catch { }
+              safePostMessage(panel, { command: "autoUpdateEnabledSet" });
+              console.log(
+                `[PanelManager] Auto Update 설정 저장됨: ${autoUpdateEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoUpdateEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Update: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoUpdateEnabledSetError",
+              error: "Invalid Auto Update setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Update setting provided.",
+            );
+          }
+          break;
+        case "setAutoDeleteFilesEnabled": // 자동 파일 삭제 설정 저장 케이스 추가
+          const autoDeleteFilesEnabledToSet = data.enabled;
+          if (typeof autoDeleteFilesEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoDeleteFilesEnabled(autoDeleteFilesEnabledToSet);
+              safePostMessage(panel, { command: "autoDeleteFilesEnabledSet" });
+              console.log(
+                `[PanelManager] Auto Delete Files 설정 저장됨: ${autoDeleteFilesEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoDeleteFilesEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Delete Files: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoDeleteFilesEnabledSetError",
+              error: "Invalid Auto Delete Files setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Delete Files setting provided.",
+            );
+          }
+          break;
         case "setAutoExecuteCommandsEnabled": // 명령어 자동 실행 설정 저장 케이스 추가
           const autoExecuteCommandsEnabledToSet = data.enabled;
           if (typeof autoExecuteCommandsEnabledToSet === "boolean") {
@@ -1259,6 +1300,38 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setAutoToolExecutionEnabled": // 도구 자동 실행 설정 저장 케이스 추가
+          const autoToolExecutionEnabledToSet = data.enabled;
+          if (typeof autoToolExecutionEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateAutoToolExecutionEnabled(
+                autoToolExecutionEnabledToSet,
+              );
+              safePostMessage(panel, {
+                command: "autoToolExecutionEnabledSet",
+              });
+              console.log(
+                `[PanelManager] Auto Tool Execution 설정 저장됨: ${autoToolExecutionEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoToolExecutionEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(
+                `Error setting Auto Tool Execution: ${error.message}`,
+              );
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoToolExecutionEnabledSetError",
+              error: "Invalid Auto Tool Execution setting",
+            });
+            notificationService.showErrorMessage(
+              "Invalid Auto Tool Execution setting provided.",
+            );
+          }
+          break;
         case "setStreamingEnabled": // 스트리밍 설정 저장 케이스 추가
           const streamingEnabledToSet = data.enabled;
           if (typeof streamingEnabledToSet === "boolean") {
@@ -1272,9 +1345,7 @@ export function openSettingsPanel(
               console.log(
                 `[PanelManager] Streaming 설정 저장됨: ${streamingEnabledToSet}`,
               );
-              notificationService.showInfoMessage(
-                `CODEPILOT: Streaming ${streamingEnabledToSet ? 'enabled' : 'disabled'}.`,
-              );
+              // 알림 제거 (v9.4.1) - 사용자 요청
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "streamingEnabledSetError",
@@ -1648,7 +1719,6 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
-            const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
@@ -1676,7 +1746,6 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
-              outputLogEnabled: outputLogEnabled || false,
               errorRetryCount: errorRetryCount || 2,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
@@ -1712,8 +1781,18 @@ export function openSettingsPanel(
             const testRetryCount = await settingsManager.getTestRetryCount();
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
-            const outputLogEnabled = await stateManager.getOutputLogEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
+            // 추가 토글 설정들 로드 (닫았다 열어도 유지되도록)
+            const autoUpdateEnabled =
+              await settingsManager.isAutoUpdateEnabled();
+            const autoDeleteFilesEnabled =
+              await settingsManager.isAutoDeleteFilesEnabled();
+            const autoExecuteCommandsEnabled =
+              await settingsManager.isAutoExecuteCommandsEnabled();
+            const autoToolExecutionEnabled =
+              await settingsManager.isAutoToolExecutionEnabled();
+            const streamingEnabled =
+              await settingsManager.isStreamingEnabled();
             const banyaLicenseSerial =
               await stateManager.getBanyaLicenseSerial();
             const isLicenseVerified = await stateManager.getIsLicenseVerified();
@@ -1743,14 +1822,18 @@ export function openSettingsPanel(
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
-              outputLogEnabled: outputLogEnabled || false,
               errorRetryCount: errorRetryCount || 2,
+              // 추가된 토글 설정들
+              autoUpdateEnabled: autoUpdateEnabled || false,
+              autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
+              autoExecuteCommandsEnabled: autoExecuteCommandsEnabled ?? true,
+              autoToolExecutionEnabled: autoToolExecutionEnabled ?? true,
+              streamingEnabled: streamingEnabled || false,
               banyaLicenseSerial: banyaLicenseSerial || "",
               isLicenseVerified: isLicenseVerified,
               aiModel: modelToUse,
             };
-            // console.log('[PanelManager] Sending currentSettings message:', messageToSend);
-            // console.log('[PanelManager] Message ollamaModel value:', messageToSend.ollamaModel);
+            console.log('[PanelManager] loadSettings - sending currentSettings with toggles');
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error loading settings:", error);
@@ -2266,44 +2349,7 @@ export function openSettingsPanel(
             notificationService.showErrorMessage(`Error deleting DB Policy Markdown: ${error.message}`);
           }
           break;
-        case "saveChatTheme": // 채팅 테마 저장
-          try {
-            const theme = data.theme;
-            if (theme && ['dark', 'light', 'auto'].includes(theme)) {
-              const config = vscode.workspace.getConfiguration('codepilot');
-              await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
-              console.log(`[SettingsPanel] Chat theme saved: ${theme}`);
-              safePostMessage(panel, {
-                command: 'chatThemeSaved',
-                theme: theme
-              });
-            }
-          } catch (error: any) {
-            console.error('[SettingsPanel] Failed to save chat theme:', error);
-            safePostMessage(panel, {
-              command: 'chatThemeSaveError',
-              error: error.message
-            });
-          }
-          break;
-        case "getChatTheme": // 채팅 테마 로드
-          try {
-            const config = vscode.workspace.getConfiguration('codepilot');
-            const theme = config.get<string>('chatTheme') || 'dark';
-            safePostMessage(panel, {
-              command: 'chatTheme',
-              theme: theme
-            });
-          } catch (error: any) {
-            console.error('[SettingsPanel] Failed to get chat theme:', error);
-            safePostMessage(panel, {
-              command: 'chatTheme',
-              theme: 'dark'
-            });
-          }
-          break;
-
-        // ===== 새로운 다중 파일 Agent Policy API =====
+        // ===== AgentPolicy 다중 파일 관리 =====
         case "addAgentPolicyFile": // 카테고리에 파일 추가
           try {
             const { category, fileName, content } = data;
@@ -2350,6 +2396,7 @@ export function openSettingsPanel(
           } catch (error: any) {
             safePostMessage(panel, {
               command: "agentPolicyFileAddError",
+              category: data.category,
               error: error.message,
             });
             notificationService.showErrorMessage(
@@ -2360,7 +2407,9 @@ export function openSettingsPanel(
 
         case "deleteAgentPolicyFile": // 카테고리에서 특정 파일 삭제
           try {
-            const { category, fileName } = data;
+            const { category, fileName, isLegacy } = data;
+            console.log(`[SettingsPanel] deleteAgentPolicyFile received - category: ${category}, fileName: ${fileName}, isLegacy: ${isLegacy}`);
+
             if (!category || !fileName) {
               throw new Error("카테고리와 파일명이 필요합니다.");
             }
@@ -2371,27 +2420,59 @@ export function openSettingsPanel(
               throw new Error("워크스페이스가 열려있지 않습니다.");
             }
 
-            // 파일 삭제
-            const filePath = path.join(workspaceRoot, ".agent", "rules", category, fileName);
-            const fileUri = vscode.Uri.file(filePath);
+            // 파일명에 확장자가 없으면 .md 추가
+            let targetFileName = fileName;
+            if (!targetFileName.endsWith('.md') && !targetFileName.endsWith('.markdown')) {
+              targetFileName += '.md';
+            }
 
-            try {
-              await vscode.workspace.fs.delete(fileUri);
-            } catch (e: any) {
-              if (e.code !== "FileNotFound") throw e;
+            let deleted = false;
+
+            if (isLegacy) {
+              // 레거시 파일: .agent/rules/{fileName}
+              const legacyPath = path.join(workspaceRoot, ".agent", "rules", targetFileName);
+              console.log(`[SettingsPanel] Trying legacy path: ${legacyPath}`);
+              try {
+                const legacyUri = vscode.Uri.file(legacyPath);
+                await vscode.workspace.fs.stat(legacyUri);
+                await vscode.workspace.fs.delete(legacyUri);
+                deleted = true;
+                console.log(`[SettingsPanel] Deleted legacy file: ${legacyPath}`);
+              } catch (e: any) {
+                console.warn(`[SettingsPanel] Legacy file not found: ${legacyPath}`, e.message);
+              }
+            } else {
+              // 새 구조 파일: .agent/rules/{category}/{fileName}
+              const newStructurePath = path.join(workspaceRoot, ".agent", "rules", category, targetFileName);
+              console.log(`[SettingsPanel] Trying new structure path: ${newStructurePath}`);
+              try {
+                const newUri = vscode.Uri.file(newStructurePath);
+                await vscode.workspace.fs.stat(newUri);
+                await vscode.workspace.fs.delete(newUri);
+                deleted = true;
+                console.log(`[SettingsPanel] Deleted file from new structure: ${newStructurePath}`);
+              } catch (e: any) {
+                console.warn(`[SettingsPanel] New structure file not found: ${newStructurePath}`, e.message);
+              }
+            }
+
+            if (!deleted) {
+              throw new Error(`파일을 찾을 수 없습니다: ${targetFileName}`);
             }
 
             safePostMessage(panel, {
               command: "agentPolicyFileDeleted",
               category,
-              fileName
+              fileName: targetFileName
             });
             notificationService.showInfoMessage(
-              `CODEPILOT: ${fileName} deleted from .agent/rules/${category}/`,
+              `CODEPILOT: ${targetFileName} deleted`,
             );
           } catch (error: any) {
+            console.error(`[SettingsPanel] deleteAgentPolicyFile error:`, error);
             safePostMessage(panel, {
               command: "agentPolicyFileDeleteError",
+              category: data.category,
               error: error.message,
             });
             notificationService.showErrorMessage(
@@ -2400,128 +2481,310 @@ export function openSettingsPanel(
           }
           break;
 
-        case "listAgentPolicyFiles": // 카테고리의 파일 목록 조회
-          try {
-            const { category } = data;
-            if (!category) {
-              throw new Error("카테고리가 필요합니다.");
-            }
-
-            // 워크스페이스 루트 가져오기
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspaceRoot) {
-              safePostMessage(panel, {
-                command: "agentPolicyFilesList",
-                category,
-                files: []
-              });
-              break;
-            }
-
-            const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
-            const files: string[] = [];
-
-            // 디렉토리가 존재하면 파일 목록 조회
-            try {
-              const categoryDirUri = vscode.Uri.file(categoryDir);
-              const entries = await vscode.workspace.fs.readDirectory(categoryDirUri);
-
-              for (const [name, type] of entries) {
-                if (type === vscode.FileType.File && (name.endsWith('.md') || name.endsWith('.markdown'))) {
-                  files.push(name);
-                }
-              }
-            } catch (e: any) {
-              // 디렉토리가 없으면 레거시 단일 파일 확인
-              if (e.code === 'FileNotFound' || e.code === 'ENOENT') {
-                const legacyFileMap: Record<string, string> = {
-                  'stable-version': 'stable-version.md',
-                  'coding-style': 'coding-style.md',
-                  'project-architecture': 'project-architecture.md',
-                  'dependency-policy': 'dependency-policy.md',
-                  'db-policy': 'db-policy.md'
-                };
-                const legacyFile = legacyFileMap[category];
-                if (legacyFile) {
-                  const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
-                  try {
-                    await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
-                    files.push(legacyFile + ' (레거시)');
-                  } catch {
-                    // 레거시 파일도 없음
-                  }
-                }
-              }
-            }
-
-            safePostMessage(panel, {
-              command: "agentPolicyFilesList",
-              category,
-              files: files.sort()
-            });
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "agentPolicyFilesListError",
-              error: error.message,
-            });
-          }
-          break;
-
         case "listAllAgentPolicyFiles": // 모든 카테고리의 파일 목록 조회
           try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
-            const result: Record<string, string[]> = {};
+            const allFiles: Record<string, string[]> = {};
 
             for (const category of categories) {
-              result[category] = [];
+              allFiles[category] = [];
 
               if (!workspaceRoot) continue;
 
               const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
 
+              // 디렉토리가 존재하면 파일 목록 조회
               try {
                 const categoryDirUri = vscode.Uri.file(categoryDir);
                 const entries = await vscode.workspace.fs.readDirectory(categoryDirUri);
 
                 for (const [name, type] of entries) {
                   if (type === vscode.FileType.File && (name.endsWith('.md') || name.endsWith('.markdown'))) {
-                    result[category].push(name);
+                    allFiles[category].push(name);
                   }
                 }
               } catch (e: any) {
-                // 디렉토리가 없으면 레거시 파일 확인
-                const legacyFileMap: Record<string, string> = {
-                  'stable-version': 'stable-version.md',
-                  'coding-style': 'coding-style.md',
-                  'project-architecture': 'project-architecture.md',
-                  'dependency-policy': 'dependency-policy.md',
-                  'db-policy': 'db-policy.md'
-                };
-                const legacyFile = legacyFileMap[category];
-                if (legacyFile) {
-                  const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
-                  try {
-                    await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
-                    result[category].push(legacyFile + ' (레거시)');
-                  } catch {
-                    // 레거시 파일도 없음
+                // 디렉토리가 없으면 레거시 단일 파일 확인
+                if (e.code === 'FileNotFound' || e.code === 'ENOENT') {
+                  const legacyFileMap: Record<string, string> = {
+                    'stable-version': 'stable-version.md',
+                    'coding-style': 'coding-style.md',
+                    'project-architecture': 'project-architecture.md',
+                    'dependency-policy': 'dependency-policy.md',
+                    'db-policy': 'db-policy.md'
+                  };
+                  const legacyFile = legacyFileMap[category];
+                  if (legacyFile) {
+                    const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
+                    try {
+                      await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
+                      allFiles[category].push(legacyFile + ' (레거시)');
+                    } catch {
+                      // 레거시 파일도 없음
+                    }
                   }
                 }
               }
-
-              result[category].sort();
             }
 
             safePostMessage(panel, {
               command: "allAgentPolicyFilesList",
-              files: result
+              files: allFiles
             });
           } catch (error: any) {
             safePostMessage(panel, {
               command: "allAgentPolicyFilesListError",
-              error: error.message,
+              error: error.message
             });
+          }
+          break;
+        case "saveChatTheme": // 채팅 테마 저장
+          try {
+            const theme = data.theme;
+            if (theme && ['dark', 'light', 'auto'].includes(theme)) {
+              const config = vscode.workspace.getConfiguration('codepilot');
+              await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
+              console.log(`[SettingsPanel] Chat theme saved: ${theme}`);
+              safePostMessage(panel, {
+                command: 'chatThemeSaved',
+                theme: theme
+              });
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to save chat theme:', error);
+            safePostMessage(panel, {
+              command: 'chatThemeSaveError',
+              error: error.message
+            });
+          }
+          break;
+        case "getChatTheme": // 채팅 테마 로드
+          try {
+            const config = vscode.workspace.getConfiguration('codepilot');
+            const theme = config.get<string>('chatTheme') || 'dark';
+            safePostMessage(panel, {
+              command: 'chatTheme',
+              theme: theme
+            });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to get chat theme:', error);
+            safePostMessage(panel, {
+              command: 'chatTheme',
+              theme: 'dark'
+            });
+          }
+          break;
+        // ===== MCP 서버 설정 =====
+        case "getMcpServers": // MCP 서버 목록 로드
+          try {
+            const servers = await stateManager.getMcpServers();
+            safePostMessage(panel, {
+              command: 'mcpServers',
+              servers: servers
+            });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to get MCP servers:', error);
+            safePostMessage(panel, {
+              command: 'mcpServers',
+              servers: [],
+              error: error.message
+            });
+          }
+          break;
+        case "addMcpServer": // MCP 서버 추가
+          try {
+            const server = data.server;
+            if (server && server.name) {
+              await stateManager.addMcpServer(server);
+              safePostMessage(panel, {
+                command: 'mcpServerAdded',
+                server: server
+              });
+              notificationService.showInfoMessage(`CODEPILOT: MCP 서버 "${server.name}" 추가됨`);
+            } else {
+              throw new Error('서버 정보가 올바르지 않습니다.');
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to add MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerAddError',
+              error: error.message
+            });
+          }
+          break;
+        case "updateMcpServer": // MCP 서버 업데이트
+          try {
+            const server = data.server;
+            if (server && server.id) {
+              await stateManager.updateMcpServer(server.id, server);
+              safePostMessage(panel, {
+                command: 'mcpServerUpdated',
+                server: server
+              });
+              notificationService.showInfoMessage(`CODEPILOT: MCP 서버 "${server.name}" 업데이트됨`);
+            } else {
+              throw new Error('서버 정보가 올바르지 않습니다.');
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to update MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerUpdateError',
+              error: error.message
+            });
+          }
+          break;
+        case "removeMcpServer": // MCP 서버 삭제
+          try {
+            const serverId = data.serverId;
+            if (serverId) {
+              const removed = await stateManager.removeMcpServer(serverId);
+              if (removed) {
+                // 해당 서버의 승인된 도구도 삭제
+                await stateManager.revokeAllMcpToolsForServer(serverId);
+                safePostMessage(panel, {
+                  command: 'mcpServerRemoved',
+                  serverId: serverId
+                });
+                notificationService.showInfoMessage('CODEPILOT: MCP 서버 삭제됨');
+              } else {
+                throw new Error('서버를 찾을 수 없습니다.');
+              }
+            } else {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to remove MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerRemoveError',
+              error: error.message
+            });
+          }
+          break;
+        case "toggleMcpServer": // MCP 서버 활성화/비활성화
+          try {
+            const toggleServerId = data.serverId;
+            const enabled = data.enabled;
+            if (!toggleServerId) {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+
+            // StateManager에 enabled 상태 저장
+            await stateManager.updateMcpServer(toggleServerId, { enabled });
+
+            // MCPManager에서 연결/해제 처리
+            const { MCPManager: MCPMgr } = await import('../mcp/MCPManager');
+            const mcpMgr = MCPMgr.getInstance();
+            await mcpMgr.initialize(context);
+
+            if (enabled) {
+              // 활성화: MCPManager에 서버 등록 (연결은 수동으로)
+              const existingServers = mcpMgr.getServers();
+              if (!existingServers.find(s => s.id === toggleServerId)) {
+                const allServers = await stateManager.getMcpServers();
+                const serverConfig = allServers.find((s: any) => s.id === toggleServerId);
+                if (serverConfig) {
+                  await mcpMgr.addServer(serverConfig);
+                }
+              }
+              await mcpMgr.updateServer(toggleServerId, { enabled: true });
+              console.log(`[SettingsPanel] MCP server enabled: ${toggleServerId}`);
+            } else {
+              // 비활성화: 연결 해제
+              try {
+                await mcpMgr.disconnectFromServer(toggleServerId);
+              } catch (e) {
+                // 이미 연결 해제된 경우 무시
+              }
+              await stateManager.updateMcpServer(toggleServerId, { status: 'disconnected', tools: [] });
+              console.log(`[SettingsPanel] MCP server disabled: ${toggleServerId}`);
+            }
+
+            safePostMessage(panel, {
+              command: 'mcpServerToggled',
+              serverId: toggleServerId,
+              enabled,
+              status: 'disconnected'
+            });
+            notificationService.showInfoMessage(`CODEPILOT: MCP 서버 ${enabled ? '활성화' : '비활성화'}됨`);
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to toggle MCP server:', error);
+            safePostMessage(panel, {
+              command: 'mcpServerToggled',
+              serverId: data.serverId,
+              enabled: !data.enabled,
+              status: 'error'
+            });
+          }
+          break;
+        case "testMcpServer": // MCP 서버 연결 테스트
+          try {
+            const serverId = data.serverId;
+            if (!serverId) {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+
+            const servers = await stateManager.getMcpServers();
+            const server = servers.find((s: any) => s.id === serverId);
+            if (!server) {
+              throw new Error('서버를 찾을 수 없습니다.');
+            }
+
+            // MCPManager를 통한 연결 테스트
+            const { MCPManager } = await import('../mcp/MCPManager');
+            const mcpManager = MCPManager.getInstance();
+
+            // MCPManager 초기화 (아직 안 되어 있으면)
+            await mcpManager.initialize(context);
+
+            // 서버가 아직 등록되지 않았으면 추가 (ID 유지)
+            const existingServers = mcpManager.getServers();
+            const existingServer = existingServers.find(s => s.id === serverId);
+            if (!existingServer) {
+              const addedServer = await mcpManager.addServer(server);
+              console.log(`[SettingsPanel] MCP server registered: ${addedServer.id}`);
+            }
+
+            // 연결 및 도구 목록 가져오기
+            await mcpManager.connectToServer(serverId);
+
+            // 업데이트된 서버에서 도구 가져오기
+            const updatedServers = mcpManager.getServers();
+            const connectedServer = updatedServers.find(s => s.id === serverId);
+            const tools = connectedServer?.tools || [];
+
+            // 서버 상태 업데이트
+            await stateManager.updateMcpServer(serverId, {
+              status: 'connected',
+              tools: tools,
+              lastConnected: Date.now()
+            });
+
+            safePostMessage(panel, {
+              command: 'mcpTestResult',
+              serverId: serverId,
+              success: true,
+              toolCount: tools.length,
+              tools: tools
+            });
+            notificationService.showInfoMessage(`CODEPILOT: MCP 서버 연결 성공 (${tools.length}개 도구)`);
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to test MCP server:', error);
+
+            // 서버 상태 업데이트
+            if (data.serverId) {
+              await stateManager.updateMcpServer(data.serverId, {
+                status: 'error'
+              });
+            }
+
+            safePostMessage(panel, {
+              command: 'mcpTestResult',
+              serverId: data.serverId,
+              success: false,
+              error: error.message
+            });
+            notificationService.showErrorMessage(`CODEPILOT: MCP 서버 연결 실패 - ${error.message}`);
           }
           break;
 
@@ -2546,10 +2809,17 @@ export function openSettingsPanel(
         case "addHotLoad":
           try {
             const hotLoadManager = HotLoadManager.getInstance(context);
+            // 완료조건 파싱
+            const addCondition = data.conditionType && data.conditionType !== 'none'
+              ? { type: data.conditionType, value: data.conditionValue || '' }
+              : undefined;
             const id = await hotLoadManager.addHotLoad(
               data.keywords,
               data.description,
-              data.commandStr
+              data.commandStr,
+              addCondition,
+              data.maxRetries ? parseInt(data.maxRetries, 10) : undefined,
+              data.onFailure || undefined,
             );
             safePostMessage(panel, {
               command: "hotLoadAdded",
@@ -2570,11 +2840,18 @@ export function openSettingsPanel(
         case "updateHotLoad":
           try {
             const hotLoadManager = HotLoadManager.getInstance(context);
+            // 완료조건 파싱
+            const updateCondition = data.conditionType && data.conditionType !== 'none'
+              ? { type: data.conditionType, value: data.conditionValue || '' }
+              : undefined;
             await hotLoadManager.updateHotLoad(
               data.id,
               data.keywords,
               data.description,
-              data.commandStr
+              data.commandStr,
+              updateCondition,
+              data.maxRetries ? parseInt(data.maxRetries, 10) : undefined,
+              data.onFailure || undefined,
             );
             safePostMessage(panel, { command: "hotLoadUpdated" });
             notificationService.showInfoMessage(
@@ -2603,6 +2880,342 @@ export function openSettingsPanel(
               command: "hotLoadDeleteError",
               error: error.message,
             });
+          }
+          break;
+
+        // ========== 컨텍스트 제외 패턴 관련 메시지 핸들러 ==========
+        case "getContextExclusions":
+          try {
+            const customExclusions: string[] = context.globalState.get('contextExclusionPatterns', []);
+            const disabledExclusions: string[] = context.globalState.get('contextExclusionDisabled', []);
+            const { EXCLUDED_LIBRARY_PATHS } = await import('../utils/FileExclusionConstants');
+            safePostMessage(panel, {
+              command: "contextExclusions",
+              defaultPatterns: EXCLUDED_LIBRARY_PATHS,
+              customPatterns: customExclusions,
+              disabledPatterns: disabledExclusions,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getContextExclusions error:", error);
+            safePostMessage(panel, {
+              command: "contextExclusionsError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addContextExclusion":
+          try {
+            const pattern = (data.pattern || '').trim();
+            if (!pattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const currentPatterns: string[] = context.globalState.get('contextExclusionPatterns', []);
+            if (currentPatterns.includes(pattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentPatterns.push(pattern);
+            await context.globalState.update('contextExclusionPatterns', currentPatterns);
+            // 캐시 갱신
+            const { updateCustomExclusionCache: updateCacheAdd } = await import('../utils/FileExclusionConstants');
+            updateCacheAdd(currentPatterns);
+            safePostMessage(panel, { command: "contextExclusionAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addContextExclusion error:", error);
+            safePostMessage(panel, {
+              command: "contextExclusionAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteContextExclusion":
+          try {
+            const patternToDelete = data.pattern;
+            const existingPatterns: string[] = context.globalState.get('contextExclusionPatterns', []);
+            const filtered = existingPatterns.filter(p => p !== patternToDelete);
+            await context.globalState.update('contextExclusionPatterns', filtered);
+            // 캐시 갱신
+            const { updateCustomExclusionCache: updateCacheDel } = await import('../utils/FileExclusionConstants');
+            updateCacheDel(filtered);
+            safePostMessage(panel, { command: "contextExclusionDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteContextExclusion error:", error);
+            safePostMessage(panel, {
+              command: "contextExclusionDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "disableDefaultExclusion":
+          try {
+            const patternToDisable = data.pattern;
+            const currentDisabled: string[] = context.globalState.get('contextExclusionDisabled', []);
+            if (!currentDisabled.includes(patternToDisable)) {
+              currentDisabled.push(patternToDisable);
+              await context.globalState.update('contextExclusionDisabled', currentDisabled);
+              const { updateDisabledExclusionCache: updateDisCache } = await import('../utils/FileExclusionConstants');
+              updateDisCache(currentDisabled);
+            }
+            safePostMessage(panel, { command: "defaultExclusionToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] disableDefaultExclusion error:", error);
+            safePostMessage(panel, {
+              command: "defaultExclusionToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "enableDefaultExclusion":
+          try {
+            const patternToEnable = data.pattern;
+            const disabledList: string[] = context.globalState.get('contextExclusionDisabled', []);
+            const updatedDisabled = disabledList.filter(p => p !== patternToEnable);
+            await context.globalState.update('contextExclusionDisabled', updatedDisabled);
+            const { updateDisabledExclusionCache: updateEnCache } = await import('../utils/FileExclusionConstants');
+            updateEnCache(updatedDisabled);
+            safePostMessage(panel, { command: "defaultExclusionToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] enableDefaultExclusion error:", error);
+            safePostMessage(panel, {
+              command: "defaultExclusionToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // ========== PreToolUse 보안 규칙 관련 메시지 핸들러 ==========
+        case "getSecurityRules":
+          try {
+            const {
+              DEFAULT_BLOCKED_COMMANDS,
+              DEFAULT_PROTECTED_FILES,
+              updateCustomBlockedCommands,
+              updateCustomProtectedFiles,
+              updateDisabledBlockedCommands,
+              updateDisabledProtectedFiles,
+            } = await import('../tools/PreToolUseValidator');
+
+            const customCommands: string[] = context.globalState.get('securityBlockedCommands', []);
+            const customFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            const disabledCommands: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
+            const disabledFiles: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
+
+            // 캐시 업데이트
+            updateCustomBlockedCommands(customCommands);
+            updateCustomProtectedFiles(customFiles);
+            updateDisabledBlockedCommands(disabledCommands);
+            updateDisabledProtectedFiles(disabledFiles);
+
+            safePostMessage(panel, {
+              command: "securityRules",
+              defaultBlockedCommands: DEFAULT_BLOCKED_COMMANDS,
+              defaultProtectedFiles: DEFAULT_PROTECTED_FILES,
+              customBlockedCommands: customCommands,
+              customProtectedFiles: customFiles,
+              disabledBlockedCommands: disabledCommands,
+              disabledProtectedFiles: disabledFiles,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getSecurityRules error:", error);
+            safePostMessage(panel, {
+              command: "securityRulesError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addBlockedCommand":
+          try {
+            const cmdPattern = (data.pattern || '').trim();
+            if (!cmdPattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const currentCmds: string[] = context.globalState.get('securityBlockedCommands', []);
+            if (currentCmds.includes(cmdPattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentCmds.push(cmdPattern);
+            await context.globalState.update('securityBlockedCommands', currentCmds);
+            const { updateCustomBlockedCommands } = await import('../tools/PreToolUseValidator');
+            updateCustomBlockedCommands(currentCmds);
+            safePostMessage(panel, { command: "blockedCommandAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteBlockedCommand":
+          try {
+            const cmdToDelete = data.pattern;
+            const existingCmds: string[] = context.globalState.get('securityBlockedCommands', []);
+            const filteredCmds = existingCmds.filter(p => p !== cmdToDelete);
+            await context.globalState.update('securityBlockedCommands', filteredCmds);
+            const { updateCustomBlockedCommands: updateCmdsDel } = await import('../tools/PreToolUseValidator');
+            updateCmdsDel(filteredCmds);
+            safePostMessage(panel, { command: "blockedCommandDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "addProtectedFile":
+          try {
+            const filePattern = (data.pattern || '').trim();
+            if (!filePattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const currentFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            if (currentFiles.includes(filePattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentFiles.push(filePattern);
+            await context.globalState.update('securityProtectedFiles', currentFiles);
+            const { updateCustomProtectedFiles } = await import('../tools/PreToolUseValidator');
+            updateCustomProtectedFiles(currentFiles);
+            safePostMessage(panel, { command: "protectedFileAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteProtectedFile":
+          try {
+            const fileToDelete = data.pattern;
+            const existingFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            const filteredFiles = existingFiles.filter(p => p !== fileToDelete);
+            await context.globalState.update('securityProtectedFiles', filteredFiles);
+            const { updateCustomProtectedFiles: updateFilesDel } = await import('../tools/PreToolUseValidator');
+            updateFilesDel(filteredFiles);
+            safePostMessage(panel, { command: "protectedFileDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "disableBlockedCommand":
+          try {
+            const cmdIdToDisable = data.id;
+            const currentDisabledCmds: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
+            if (!currentDisabledCmds.includes(cmdIdToDisable)) {
+              currentDisabledCmds.push(cmdIdToDisable);
+              await context.globalState.update('securityDisabledBlockedCommands', currentDisabledCmds);
+              const { updateDisabledBlockedCommands } = await import('../tools/PreToolUseValidator');
+              updateDisabledBlockedCommands(currentDisabledCmds);
+            }
+            safePostMessage(panel, { command: "blockedCommandToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] disableBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "enableBlockedCommand":
+          try {
+            const cmdIdToEnable = data.id;
+            const disabledCmdList: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
+            const updatedDisabledCmds = disabledCmdList.filter(id => id !== cmdIdToEnable);
+            await context.globalState.update('securityDisabledBlockedCommands', updatedDisabledCmds);
+            const { updateDisabledBlockedCommands: updateEnCmds } = await import('../tools/PreToolUseValidator');
+            updateEnCmds(updatedDisabledCmds);
+            safePostMessage(panel, { command: "blockedCommandToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] enableBlockedCommand error:", error);
+            safePostMessage(panel, {
+              command: "blockedCommandToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "disableProtectedFile":
+          try {
+            const fileIdToDisable = data.id;
+            const currentDisabledFiles: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
+            if (!currentDisabledFiles.includes(fileIdToDisable)) {
+              currentDisabledFiles.push(fileIdToDisable);
+              await context.globalState.update('securityDisabledProtectedFiles', currentDisabledFiles);
+              const { updateDisabledProtectedFiles } = await import('../tools/PreToolUseValidator');
+              updateDisabledProtectedFiles(currentDisabledFiles);
+            }
+            safePostMessage(panel, { command: "protectedFileToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] disableProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "enableProtectedFile":
+          try {
+            const fileIdToEnable = data.id;
+            const disabledFileList: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
+            const updatedDisabledFiles = disabledFileList.filter(id => id !== fileIdToEnable);
+            await context.globalState.update('securityDisabledProtectedFiles', updatedDisabledFiles);
+            const { updateDisabledProtectedFiles: updateEnFiles } = await import('../tools/PreToolUseValidator');
+            updateEnFiles(updatedDisabledFiles);
+            safePostMessage(panel, { command: "protectedFileToggled" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] enableProtectedFile error:", error);
+            safePostMessage(panel, {
+              command: "protectedFileToggleError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // v9.7.0: 사용량 메트릭 조회
+        case "getUsageMetrics":
+          try {
+            const metricsManager = UsageMetricsManager.getInstance();
+            const metrics = metricsManager.getMetrics();
+            const toolStats = Object.fromEntries(metricsManager.getToolStats());
+            safePostMessage(panel, {
+              command: "usageMetricsData",
+              metrics,
+              toolStats,
+            });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] getUsageMetrics error:", error);
+            safePostMessage(panel, {
+              command: "usageMetricsError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // v9.7.0: 사용량 메트릭 리셋
+        case "resetUsageMetrics":
+          try {
+            const metricsManager = UsageMetricsManager.getInstance();
+            metricsManager.resetMetrics();
+            safePostMessage(panel, { command: "usageMetricsReset" });
+            notificationService.showInfoMessage("사용량 통계가 초기화되었습니다.");
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] resetUsageMetrics error:", error);
           }
           break;
 

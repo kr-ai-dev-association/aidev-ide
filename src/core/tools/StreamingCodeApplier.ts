@@ -2,8 +2,8 @@
  * StreamingCodeApplier
  * 채팅 패널에 타이핑 효과로 텍스트 출력
  *
- * 🔥 v8.9.8: CODE 블록을 마크다운 코드 블록으로 변환하여 스트리밍
- * - { "tool": ... }<<<<<<<CODE...>>>>>>>END → ```언어\n코드\n```
+ * 🔥 v9.2.0: XML 스타일 file_content 태그로 변경
+ * - { "tool": ... }<file_content>...</file_content> → ```언어\n코드\n```
  * - 자연어 텍스트 + 코드 블록 모두 타이핑 효과
  */
 
@@ -34,15 +34,15 @@ export class StreamingCodeApplier {
     private isDone: boolean = false;
     private isFinalized: boolean = false;
 
-    // 🔥 CODE 블록 패턴 (마크다운으로 변환)
-    // 완전한 CODE 블록: { "tool": ... }<<<<<<<CODE...>>>>>>>END
-    private static readonly CODE_BLOCK_PATTERN = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*["']path["']\s*:\s*["']([^"']+)["'][^}]*\}\s*<<<<<<<CODE\s*([\s\S]*?)>>>>>>>END/g;
+    // 🔥 CODE 블록 패턴 (마크다운으로 변환) - XML 스타일
+    // 완전한 CODE 블록: { "tool": ... }<file_content>...</file_content>
+    private static readonly CODE_BLOCK_PATTERN = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*["']path["']\s*:\s*["']([^"']+)["'][^}]*\}\s*<file_content>\s*([\s\S]*?)<\/file_content>/g;
     // JSON만 있는 도구 호출 (CODE 블록 없음)
-    private static readonly TOOL_JSON_ONLY = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*\}(?!\s*<<<<<<<CODE)/g;
+    private static readonly TOOL_JSON_ONLY = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*\}(?!\s*<file_content>)/g;
     // 부분적 도구 시작 감지
     private static readonly PARTIAL_TOOL_START = /\{\s*["']tool["']\s*:/;
     // 부분적 CODE 블록 시작 감지
-    private static readonly PARTIAL_CODE_START = /<<<<<<<CODE/;
+    private static readonly PARTIAL_CODE_START = /<file_content>/;
 
     // 🔥 타이핑 속도 설정
     private static readonly CHARS_PER_TICK = 8; // 코드도 출력하므로 약간 빠르게
@@ -147,14 +147,14 @@ export class StreamingCodeApplier {
         // 3. 부분적 CODE 블록 감지 (완성되지 않은 것)
         const partialCodeMatch = result.match(StreamingCodeApplier.PARTIAL_CODE_START);
         if (partialCodeMatch) {
-            // <<<<<<<CODE 이전까지만 추출
+            // <file_content> 이전까지만 추출
             const partialIndex = result.indexOf(partialCodeMatch[0]);
             // 그 앞의 { "tool": ... } 도 함께 보류해야 함
             const toolStartBeforeCode = result.lastIndexOf('{', partialIndex);
             if (toolStartBeforeCode !== -1) {
                 return {
                     extracted: result.substring(0, toolStartBeforeCode),
-                    remaining: text.substring(text.lastIndexOf('{', text.indexOf('<<<<<<<CODE')))
+                    remaining: text.substring(text.lastIndexOf('{', text.indexOf('<file_content>')))
                 };
             }
         }

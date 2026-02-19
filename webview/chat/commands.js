@@ -10,6 +10,7 @@ export const slashCategories = [
   { id: "git", label: "Git", description: "Git 리포지토리 관련 명령어" },
   { id: "session", label: "Session", description: "대화 세션 관리" },
   { id: "cache", label: "Cache", description: "캐시 관리" },
+  { id: "mcp", label: "MCP", description: "MCP 서버 관리" },
 ];
 
 /**
@@ -92,6 +93,26 @@ export const slashCommandsByCategory = {
       label: "대화 압축",
       description: "현재 대화를 요약하여 토큰 절약",
       action: "compactConversation",
+    },
+  ],
+  mcp: [
+    {
+      command: "/mcp",
+      label: "MCP 서버 목록",
+      description: "연결된 MCP 서버와 도구 목록 표시",
+      action: "viewMcpServers",
+    },
+    {
+      command: "/mcp connect",
+      label: "서버 연결",
+      description: "MCP 서버에 연결",
+      action: "connectMcpServer",
+    },
+    {
+      command: "/mcp disconnect",
+      label: "서버 연결 해제",
+      description: "MCP 서버 연결 해제",
+      action: "disconnectMcpServer",
     },
   ],
 };

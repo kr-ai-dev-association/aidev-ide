@@ -43,12 +43,23 @@ export class WebviewBridge {
     }
 
     /**
+     * 로딩 상태 표시
+     */
+    public static showLoading(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'showLoading'
+            });
+        }
+    }
+
+    /**
      * 로딩 상태 숨기기
      */
     public static hideLoading(webview: vscode.Webview | undefined): void {
         if (webview) {
-            safePostMessage(webview, { 
-                command: 'hideLoading' 
+            safePostMessage(webview, {
+                command: 'hideLoading'
             });
         }
     }
@@ -82,8 +93,11 @@ export class WebviewBridge {
      * 처리 단계 전송 (호환성 유지)
      */
     public static sendProcessingStep(webview: vscode.Webview | undefined, step: string): void {
+        console.log(`[WebviewBridge] sendProcessingStep called: step=${step}, webview=${!!webview}`);
         if (webview) {
             safePostMessage(webview, { command: 'setProcessingStep', step });
+        } else {
+            console.warn(`[WebviewBridge] sendProcessingStep skipped: webview is undefined`);
         }
     }
 
@@ -91,8 +105,11 @@ export class WebviewBridge {
      * 처리 상태 전송 (호환성 유지)
      */
     public static sendProcessingStatus(webview: vscode.Webview | undefined, step: string, status: string): void {
+        console.log(`[WebviewBridge] sendProcessingStatus called: step=${step}, status=${status.substring(0, 30)}..., webview=${!!webview}`);
         if (webview) {
             safePostMessage(webview, { command: 'updateProcessingStatus', step, status });
+        } else {
+            console.warn(`[WebviewBridge] sendProcessingStatus skipped: webview is undefined`);
         }
     }
 

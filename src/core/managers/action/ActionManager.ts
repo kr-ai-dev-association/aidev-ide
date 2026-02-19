@@ -26,8 +26,21 @@ import { ActionMapper } from './ActionMapper';
 import { TerminalManager } from '../terminal/TerminalManager';
 import { FileChangeTracker } from './file/FileChangeTracker';
 import { FileContextTracker } from '../context/file/FileContextTracker';
+import { FileTransactionManager } from './file/FileTransactionManager';
 
 export class ActionManager {
+    // 상수 정의
+    private static readonly FILE_STABILITY_TIMEOUT = 3000;
+    private static readonly FILE_STABILITY_CHECK_INTERVAL = 400;
+    private static readonly FILE_STABILITY_DEBOUNCE = 200;
+    private static readonly IMPORT_SCAN_DELAY = 100;
+    private static readonly MAX_PACKAGE_JSON_SEARCH_DEPTH = 5;
+    private static readonly JS_TS_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
+    private static readonly DEV_DEPENDENCIES = [
+        'typescript', '@types', 'tsx', 'ts-node', 'vite', 'webpack', 'esbuild',
+        'eslint', 'prettier', '@vitejs', 'rollup', 'jest', 'mocha', 'chai'
+    ];
+
     private static instance: ActionManager;
     private registry: ActionRegistry;
     private validator: ActionValidator;
@@ -41,6 +54,33 @@ export class ActionManager {
         this.registry = ActionRegistry.getInstance();
         this.validator = new ActionValidator();
         this.mapper = new ActionMapper();
+    }
+
+    /**
+     * 에러 ActionResult 생성 헬퍼
+     * @param actionId 액션 ID
+     * @param code 에러 코드
+     * @param message 외부 메시지 (사용자에게 표시)
+     * @param errorMessage 에러 상세 메시지 (선택, 없으면 message 사용)
+     * @param details 추가 상세 정보 (선택)
+     */
+    private createErrorResult(
+        actionId: string,
+        code: string,
+        message: string,
+        errorMessage?: string,
+        details?: unknown
+    ): ActionResult {
+        return {
+            success: false,
+            actionId,
+            message,
+            error: {
+                code,
+                message: errorMessage || message,
+                details
+            }
+        };
     }
 
     /**
@@ -196,30 +236,24 @@ export class ActionManager {
             // 검증
             const validationResult = await this.validateAction(action);
             if (!validationResult.valid) {
-                return {
-                    success: false,
-                    actionId: action.id,
-                    message: 'Validation failed',
-                    error: {
-                        code: 'VALIDATION_FAILED',
-                        message: validationResult.errors.map(e => e.message).join(', '),
-                        details: validationResult.errors
-                    }
-                };
+                return this.createErrorResult(
+                    action.id,
+                    'VALIDATION_FAILED',
+                    'Validation failed',
+                    validationResult.errors.map(e => e.message).join(', '),
+                    validationResult.errors
+                );
             }
 
             // 권한 체크
             const permissionResult = this.checkPermissions(action);
             if (!permissionResult.allowed) {
-                return {
-                    success: false,
-                    actionId: action.id,
-                    message: 'Permission denied',
-                    error: {
-                        code: 'PERMISSION_DENIED',
-                        message: permissionResult.message || 'Required permissions not granted'
-                    }
-                };
+                return this.createErrorResult(
+                    action.id,
+                    'PERMISSION_DENIED',
+                    'Permission denied',
+                    permissionResult.message || 'Required permissions not granted'
+                );
             }
 
             // 액션을 활성 목록에 추가
@@ -287,15 +321,12 @@ export class ActionManager {
         const depValidation = this.validateDependencies(actions);
         if (!depValidation.valid) {
             console.error('[ActionManager] Dependency validation failed:', depValidation.errors);
-            return [{
-                success: false,
-                actionId: 'batch',
-                message: 'Dependency validation failed',
-                error: {
-                    code: 'DEPENDENCY_ERROR',
-                    message: depValidation.errors.map(e => e.message).join(', ')
-                }
-            }];
+            return [this.createErrorResult(
+                'batch',
+                'DEPENDENCY_ERROR',
+                'Dependency validation failed',
+                depValidation.errors.map(e => e.message).join(', ')
+            )];
         }
 
         const results: ActionResult[] = [];
@@ -309,15 +340,12 @@ export class ActionManager {
                 });
 
                 if (!depsSucceeded) {
-                    results.push({
-                        success: false,
-                        actionId: action.id,
-                        message: 'Dependencies failed',
-                        error: {
-                            code: 'DEPENDENCY_FAILED',
-                            message: 'One or more dependencies failed to execute'
-                        }
-                    });
+                    results.push(this.createErrorResult(
+                        action.id,
+                        'DEPENDENCY_FAILED',
+                        'Dependencies failed',
+                        'One or more dependencies failed to execute'
+                    ));
                     continue;
                 }
             }
@@ -430,15 +458,12 @@ export class ActionManager {
         const { filePath, code } = action.params;
 
         if (!filePath || !code) {
-            return {
-                success: false,
-                actionId: action.id,
-                message: 'File path and code are required',
-                error: {
-                    code: 'MISSING_PARAMS',
-                    message: 'File path and code are required for code generation'
-                }
-            };
+            return this.createErrorResult(
+                action.id,
+                'MISSING_PARAMS',
+                'File path and code are required',
+                'File path and code are required for code generation'
+            );
         }
 
         try {
@@ -447,15 +472,12 @@ export class ActionManager {
                 vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
             if (!projectRoot) {
-                return {
-                    success: false,
-                    actionId: action.id,
-                    message: 'Project root not found',
-                    error: {
-                        code: 'NO_PROJECT_ROOT',
-                        message: 'Cannot create file without project root'
-                    }
-                };
+                return this.createErrorResult(
+                    action.id,
+                    'NO_PROJECT_ROOT',
+                    'Project root not found',
+                    'Cannot create file without project root'
+                );
             }
 
             // 절대 경로 생성
@@ -472,7 +494,7 @@ export class ActionManager {
                         await fsPromises.access(absolutePath);
                         // 파일이 존재하면 추적 및 안정화 대기
                         this.fileContextTracker.trackFile(absolutePath);
-                        await this.fileContextTracker.waitForFileStability(absolutePath, 3000, 400, 200);
+                        await this.fileContextTracker.waitForFileStability(absolutePath, ActionManager.FILE_STABILITY_TIMEOUT, ActionManager.FILE_STABILITY_CHECK_INTERVAL, ActionManager.FILE_STABILITY_DEBOUNCE);
                     } catch (accessError: any) {
                         // 파일이 존재하지 않으면 (ENOENT) 추적만 시작하고 안정화 대기는 건너뜀
                         if (accessError.code === 'ENOENT') {
@@ -519,10 +541,10 @@ export class ActionManager {
             } else {
                 // TypeScript/JavaScript 파일인 경우 import 문 분석하여 package.json 업데이트
                 const fileExt = path.extname(absolutePath).toLowerCase();
-                if (['.ts', '.tsx', '.js', '.jsx'].includes(fileExt)) {
+                if (ActionManager.JS_TS_EXTENSIONS.includes(fileExt)) {
                     try {
                         // 파일이 안정화될 때까지 잠시 대기 (다른 파일이 package.json을 수정 중일 수 있음)
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, ActionManager.IMPORT_SCAN_DELAY));
                         await this.updatePackageJsonFromImports(projectRoot, code, absolutePath);
                     } catch (error) {
                         console.warn('[ActionManager] Failed to update package.json from imports:', error);
@@ -539,15 +561,12 @@ export class ActionManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing code generation:`, error);
-            return {
-                success: false,
-                actionId: action.id,
-                message: `Failed to create/update file: ${errorMessage}`,
-                error: {
-                    code: 'EXECUTION_ERROR',
-                    message: errorMessage
-                }
-            };
+            return this.createErrorResult(
+                action.id,
+                'EXECUTION_ERROR',
+                `Failed to create/update file: ${errorMessage}`,
+                errorMessage
+            );
         }
     }
 
@@ -562,8 +581,8 @@ export class ActionManager {
         let searchDir = path.dirname(sourceFilePath);
         let packageJsonPath: string | null = null;
 
-        // 최대 5단계까지 상위 디렉토리로 올라가며 package.json 찾기
-        for (let i = 0; i < 5; i++) {
+        // 최대 N단계까지 상위 디렉토리로 올라가며 package.json 찾기
+        for (let i = 0; i < ActionManager.MAX_PACKAGE_JSON_SEARCH_DEPTH; i++) {
             const candidatePath = path.join(searchDir, 'package.json');
             if (fs.existsSync(candidatePath)) {
                 packageJsonPath = candidatePath;
@@ -733,11 +752,7 @@ export class ActionManager {
      * 패키지가 개발 의존성인지 확인
      */
     private isDevDependency(packageName: string): boolean {
-        const devDeps = [
-            'typescript', '@types', 'tsx', 'ts-node', 'vite', 'webpack', 'esbuild',
-            'eslint', 'prettier', '@vitejs', 'rollup', 'jest', 'mocha', 'chai'
-        ];
-        return devDeps.some(dep => packageName.toLowerCase().includes(dep.toLowerCase()));
+        return ActionManager.DEV_DEPENDENCIES.some(dep => packageName.toLowerCase().includes(dep.toLowerCase()));
     }
 
     /**
@@ -806,7 +821,7 @@ export class ActionManager {
             if (this.fileContextTracker) {
                 try {
                     this.fileContextTracker.trackFile(sourceUri.fsPath);
-                    await this.fileContextTracker.waitForFileStability(sourceUri.fsPath, 3000, 400, 200);
+                    await this.fileContextTracker.waitForFileStability(sourceUri.fsPath, ActionManager.FILE_STABILITY_TIMEOUT, ActionManager.FILE_STABILITY_CHECK_INTERVAL, ActionManager.FILE_STABILITY_DEBOUNCE);
                 } catch (e) {
                     console.warn('[ActionManager] waitForFileStability failed for file_operation:', e);
                 }
@@ -859,6 +874,13 @@ export class ActionManager {
                         );
                     }
 
+                    // v9.4.0: 트랜잭션에 파일 변경 기록
+                    const transactionManager = FileTransactionManager.getInstance();
+                    if (transactionManager.hasActiveTransaction()) {
+                        await transactionManager.recordFileChange(sourceUri.fsPath, content);
+                        transactionManager.markFileApplied(sourceUri.fsPath, content);
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,
@@ -903,6 +925,15 @@ export class ActionManager {
                         );
                     }
 
+                    // v9.4.0: 트랜잭션에 파일 변경 기록
+                    {
+                        const txnManager = FileTransactionManager.getInstance();
+                        if (txnManager.hasActiveTransaction()) {
+                            await txnManager.recordFileChange(sourceUri.fsPath, content);
+                            txnManager.markFileApplied(sourceUri.fsPath, content);
+                        }
+                    }
+
                     return {
                         success: true,
                         actionId: action.id,
@@ -934,6 +965,15 @@ export class ActionManager {
                                 source: 'ai',
                             }
                         );
+                    }
+
+                    // v9.4.0: 트랜잭션에 파일 삭제 기록 (beforeContent만 저장)
+                    {
+                        const txnManager = FileTransactionManager.getInstance();
+                        if (txnManager.hasActiveTransaction()) {
+                            await txnManager.recordFileChange(sourceUri.fsPath, undefined);
+                            txnManager.markFileApplied(sourceUri.fsPath);
+                        }
                     }
 
                     return {

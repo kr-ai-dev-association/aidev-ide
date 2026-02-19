@@ -14,6 +14,7 @@
 import * as vscode from 'vscode';
 import * as diff from 'diff';
 import * as path from 'path';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
 
 /**
  * InlineChange: 변경 단위 모델
@@ -841,6 +842,9 @@ export class InlineDiffManager {
                 // ✅ 빈 파일이 아니라 newContent로 생성
                 await fs.writeFile(filePath, newContent, 'utf8');
 
+                // 파일 생성 메트릭 기록
+                UsageMetricsManager.getInstance().recordFileCreated();
+
                 // 파일 생성 후 약간의 대기 (파일 시스템 동기화)
                 await new Promise(resolve => setTimeout(resolve, 100));
             } catch (error) {
@@ -929,6 +933,9 @@ export class InlineDiffManager {
             );
             edit.replace(uri, fullRange, newContent);
             await vscode.workspace.applyEdit(edit);
+
+            // 파일 수정 메트릭 기록
+            UsageMetricsManager.getInstance().recordFileModified();
 
             // ✅ 핵심: WorkspaceEdit 적용 직후 저장 (파일을 수정한 곳에서만 저장)
             // Accept는 상태 관리만 담당하고, 실제 파일 저장은 수정한 곳에서 책임짐

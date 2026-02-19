@@ -16,6 +16,7 @@ import { SummarizationOptions } from "../context/types/contextHistory";
 import { AgentConfig } from "../../config/AgentConfig";
 import { StringUtils } from "../../utils/StringUtils";
 import { getCompactSummarizationPrompt } from "../context/prompts/rules";
+import { Part } from "../../../services/llm/GeminiApi";
 
 export interface ConversationMessage {
   role: "user" | "assistant" | "system";
@@ -28,7 +29,7 @@ export interface CompactionResult {
   originalTokens: number;
   compactedTokens: number;
   summary?: string;
-  recentMessages: any[];
+  recentMessages: Part[];
   savedTokens: number;
 }
 
@@ -100,7 +101,7 @@ export class ConversationCompactor {
    * 현재 대화가 압축이 필요한지 확인
    */
   public needsCompaction(
-    userParts: any[],
+    userParts: Part[],
     systemPrompt: string,
     maxTokens: number,
   ): boolean {
@@ -127,7 +128,7 @@ export class ConversationCompactor {
    * 3. [요약] + [최근 메시지] 구조로 재구성
    */
   public async compact(
-    userParts: any[],
+    userParts: Part[],
     systemPrompt: string,
     maxTokens: number,
     abortSignal?: AbortSignal,
@@ -226,7 +227,7 @@ export class ConversationCompactor {
    * @param maxTokens 최대 토큰 수
    */
   public async forceCompact(
-    userParts: any[],
+    userParts: Part[],
     maxTokens: number,
   ): Promise<CompactionResult> {
     // 메시지가 충분하지 않으면 압축 불가
@@ -319,7 +320,7 @@ export class ConversationCompactor {
    * StateManager가 설정된 경우 compactorModel 사용, 아니면 메인 모델 사용
    */
   private async generateSummary(
-    messagesToSummarize: any[],
+    messagesToSummarize: Part[],
     abortSignal?: AbortSignal,
   ): Promise<string> {
     console.log(
@@ -406,7 +407,7 @@ export class ConversationCompactor {
    * 폴백 압축 전략: 단순 슬라이딩 윈도우
    */
   private fallbackCompaction(
-    userParts: any[],
+    userParts: Part[],
     systemPrompt: string,
     originalTokens: number,
   ): CompactionResult {
@@ -444,7 +445,7 @@ export class ConversationCompactor {
   /**
    * 토큰 수 계산
    */
-  public calculateTotalTokens(userParts: any[], systemPrompt: string): number {
+  public calculateTotalTokens(userParts: Part[], systemPrompt: string): number {
     let totalTokens = estimateTokens(systemPrompt);
 
     for (const part of userParts) {

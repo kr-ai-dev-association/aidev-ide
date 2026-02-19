@@ -6,7 +6,414 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
-## v8.9.0 (Banya 멀티 모델 & 프롬프트 아키텍처)
+## v9.7.3 (타입 안전성 강화 및 싱글톤 격리)
+- **ConversationManager any 타입 제거**: 50개 이상의 `any` 타입을 명시적 타입으로 교체했습니다.
+  - `userParts: any[]` → `UserPart[]` (Part 타입 재사용)
+  - `toolCalls: any[]` → `ToolUse[]`
+  - `toolResults: any[]` → `ToolResponse[]`
+  - `intent: any` → `IntentDetectionResult | null`
+  - `error: any` → `unknown` (타입 가드 추가)
+  - `executionContext: any` → `ToolExecutionContext`
+  - 콜백 함수들 (`tc: any`, `result: any` 등) 모두 명시적 타입 적용
+- **싱글톤 상태 격리 패턴**: 테스트 환경에서 싱글톤 인스턴스를 격리할 수 있도록 개선했습니다.
+  - `resetInstance()`: 테스트 간 싱글톤 리셋 (NODE_ENV=test 환경에서만 동작)
+  - `createIsolatedInstance()`: 싱글톤과 독립적인 인스턴스 생성 (테스트용)
+- **GatheredContext 인터페이스 추가**: `gatherContext()` 반환 타입 명시화
+- **IntentSubtype 타입 오류 수정**: `code_run` → `code_modify` (유효하지 않은 서브타입 수정)
+- **TurnContext 타입 강화**: `UserPart`, `CollectedAction`, `CollectedUIMessage` 타입 추가
+
+## v9.7.2 (성능 최적화 및 코드 품질 개선)
+- **비동기 I/O 전환**: 동기 파일 I/O를 비동기로 변환하여 초기화 성능을 개선했습니다.
+  - `ProjectManager`, `ProjectDetector`, `ContextManager`의 `fs.existsSync`/`fs.readFileSync` → `fs.promises` 사용
+  - `AsyncFileUtils.ts` 신규 추가: `fileExistsAsync`, `readFileAsync`, `readdirAsync`, `readJsonFileAsync`
+- **병렬 파일 처리**: `RelevantFilesFinder`의 순차 파일 읽기를 `Promise.all()`로 병렬화하여 검색 속도 향상
+- **순환 의존성 제거**: `AutoErrorHandler`와 `ConversationManager` 간의 순환 의존성을 해결했습니다.
+  - `IConversationHandler` 인터페이스 도입으로 결합도 감소
+  - `ConversationManager`가 `IConversationHandler` 구현
+- **any 타입 제거**: TypeScript 타입 안전성을 강화했습니다.
+  - `ToolExecutionCoordinator`: `ToolUse`, `ToolResponse` 타입 적용 (12개 → 0개)
+  - `ConversationCompactor`: `Part` 타입 적용 (7개 → 0개)
+  - `webview/types.ts`: `Task`, `MCPServerConfig`, `MCPToolInfo`, `PendingChangeStats` 타입 적용 (7개 → 0개)
+- **상수 추출**: `ActionManager`의 하드코딩된 값을 상수로 추출했습니다.
+  - `FILE_STABILITY_TIMEOUT`, `FILE_STABILITY_CHECK_INTERVAL`, `FILE_STABILITY_DEBOUNCE`
+  - `IMPORT_SCAN_DELAY`, `MAX_PACKAGE_JSON_SEARCH_DEPTH`
+  - `JS_TS_EXTENSIONS`, `DEV_DEPENDENCIES`
+- **에러 응답 헬퍼**: `ActionManager.createErrorResult()` 메서드로 중복 에러 응답 패턴 제거
+- **로딩 상태 피드백**: UX 개선을 위한 로딩 상태 표시 기능 추가
+  - `WebviewBridge.showLoading()` 메서드 추가
+  - `ChatViewProvider`의 `priorityErrorPrompt` 처리 시 로딩/에러 피드백 구현
+
+## v9.7.1 (세션 저장 버그 수정 및 CompletionJudge 개선)
+- **세션 저장 버그 수정**: CODE 모드 대화가 세션에 저장되지 않던 문제를 해결했습니다.
+  - Agent loop 종료 후 세션 저장 보장 (어떤 경로로든 종료 시 저장)
+  - REVIEW 중복 처리 시에도 세션이 저장되도록 수정
+  - ASK 모드 세션 저장 시 히스토리 포함 문제 수정 (`options.userQuery` 직접 사용)
+- **REVIEW 요약 누락 수정**: CompletionJudge가 `complete=false` 반환 시 `reviewProcessed` 플래그를 리셋하여 다음 REVIEW에서 요약이 생성되도록 수정
+- **CompletionJudge 개선**: 빌드/테스트가 통과하고 파일 변경이 있으면 즉시 완료로 판단
+  - 불필요한 LLM 호출 제거로 응답 시간 단축
+  - `buildTestPassed` 파라미터 추가로 테스트 통과 여부 전달
+- **MCP 도구 등록 로그 제거**: `[ToolRegistry] Registered MCP tool` 로그 메시지 제거
+
+## v9.7.0 (사용량 모니터링 시스템)
+- **UsageMetricsManager**: 확장 프로그램의 리소스 사용량 및 성능 지표를 실시간으로 추적합니다.
+  - 메모리 사용량: 현재 메모리, 최고 메모리 (30초 간격 자동 측정)
+  - LLM 호출 통계: 호출 횟수, 총 토큰, 평균 응답 시간, 오류 횟수
+  - 도구 실행 통계: 실행 횟수, 성공/실패, 평균 실행 시간
+  - 파일 작업: 생성, 수정, 읽기 횟수
+  - 컨텍스트 압축: 압축 횟수, 절약된 토큰 수
+- **Settings UI 통계 패널**: Settings 화면에서 사용량 통계를 시각적으로 확인할 수 있습니다.
+  - 그리드 레이아웃으로 주요 지표 표시
+  - 새로고침 버튼으로 실시간 데이터 갱신
+  - 통계 초기화 기능 (새 세션 시작 시 리셋)
+- **ConversationManager 통합**: LLM 호출 시 자동으로 응답 시간 및 토큰 사용량 기록
+
+## v9.6.0 (FSM 복구 전략 및 에러 해결 매핑 시스템)
+- **FSM 상태 복구 전략 (Phase 2-5)**: 에이전트 상태 전이 실패 시 구조적 복구 메커니즘을 추가했습니다.
+  - `RecoveryStrategy` 인터페이스: 상태별 복구 액션 정의 (retry, skip, force_transition, abort)
+  - INVESTIGATION, EXECUTION, REVIEW, DONE 각 상태별 복구 시나리오 매핑
+  - `attemptAutoRecovery()`: 자동 복구 시도 (예: stale 상태 → 강제 전이)
+  - `getTransitionFailureAdvice()`: 전이 실패 시 사용자 안내 메시지 생성
+- **에러 카테고리-해결 전략 매핑 (Phase 2-6)**: 9개 에러 카테고리에 대한 해결 전략을 체계화했습니다.
+  - `ResolutionStrategy` 인터페이스: autoRemediable, retryable, maxRetries, llmGuidance, suggestedAction
+  - 카테고리별 전략:
+    - `ENVIRONMENT_MISSING`: 자동 수정 가능, npm install 등 자동 실행
+    - `SOURCE_ERRORS_CLUSTERED`: LLM 수정 권장, 단일 파일 집중 에러
+    - `SOURCE_ERRORS_SCATTERED`: LLM 수정 권장, 여러 파일 분산 에러
+    - `CONFIG_ERROR`: LLM 수정 권장, 설정 파일 문제
+    - `EXECUTION_TIMEOUT`: 재시도 불가, 타임아웃 발생
+    - `BUILD_TIMEOUT`: 캐시 클리어 후 재시도 가능
+    - `COMMAND_NOT_FOUND`: 사용자 개입 필요, 명령어 미설치
+    - `SILENT_FAILURE`: 중단, 출력 없는 실패
+    - `UNKNOWN`: LLM에 전달, 분류 불가 에러
+  - `buildLLMGuidance()`: LLM에 전달할 구조화된 에러 안내 생성
+- **대용량 파일 읽기 개선**: 파일 읽기 임계값을 상향 조정했습니다.
+  - `MAX_FULL_READ_LINES`: 300줄 → 2000줄로 증가
+  - `PREVIEW_HEAD_LINES`: 50줄 → 100줄로 증가
+  - `PREVIEW_TAIL_LINES`: 30줄 → 50줄로 증가
+  - TRUNCATED 파일에 대한 청크 읽기 프롬프트 규칙 추가
+
+## v9.4.0 (자동 파일 삭제 설정 및 MCP 슬래시 명령어)
+- **자동 파일 삭제 토글**: 파일 자동 업데이트와 별도로 파일 삭제에 대한 확인을 설정할 수 있습니다.
+  - Settings에 "자동 파일 삭제" 토글 추가
+  - 비활성화 시 `remove_file` 도구 실행 전 확인 다이얼로그 표시
+  - "실행" / "건너뛰기" 버튼으로 삭제 여부 선택
+- **MCP 슬래시 명령어**: `/mcp` 명령어로 MCP 서버 관리 기능을 빠르게 접근할 수 있습니다.
+  - `/mcp`: 연결된 MCP 서버와 도구 목록 표시
+  - `/mcp connect`: MCP 서버에 연결
+  - `/mcp disconnect`: MCP 서버 연결 해제
+- **도구 건너뛰기 무한 루프 수정**: 사용자가 도구 실행을 "건너뛰기"했을 때 LLM이 동일한 도구를 반복 호출하던 문제 수정
+  - `hasUserSkipped` 플래그 추가로 건너뛴 작업을 완료 처리
+- **버전 동기화**: Settings 화면의 버전 표시가 package.json과 자동으로 동기화됩니다.
+  - 하드코딩된 버전 대신 package.json에서 버전을 읽어 표시
+
+## v9.3.2 (PreToolUse 보안 검증 및 HotLoad 확장)
+- **PreToolUse 보안 검증 시스템 (A2)**: 위험한 명령어와 민감한 파일에 대한 사전 검증 기능을 추가했습니다.
+  - 위험 명령어 차단: `rm -rf /`, `sudo rm`, `mkfs`, `dd of=/dev/`, fork bomb 등 시스템 파괴 명령 차단
+  - Windows 명령어 지원: `rd /s /q C:\`, `del /f`, `format`, `diskpart`, `reg delete`, `bcdedit /delete` 등
+  - 민감 파일 보호: `.git/`, `.env`, `*.pem`, `*.key`, `id_rsa`, credentials 파일 수정 차단
+  - 읽기 전용 파일: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` 수정 차단 (읽기는 허용)
+  - 프로젝트 외부 경로 접근 차단: projectRoot 외부 파일 읽기/쓰기/삭제 차단
+  - Settings UI: 기본 규칙 개별 비활성화/활성화, 커스텀 규칙 추가/삭제 지원
+- **HotLoad 확장 (B1)**: 완료 조건, 재시도, 실패 처리 기능을 추가했습니다.
+  - 완료 조건 (`completionCondition`): exit_code, output_contains, output_not_contains, file_exists
+  - 최대 재시도 (`maxRetries`): 실패 시 자동 재시도 (0~10회)
+  - 실패 동작 (`onFailure`): stop (중단) 또는 pass_to_llm (LLM에 에러 전달)
+  - `executeWithRetry()`: 완료 조건 + 재시도 통합 실행 메서드
+  - RunCommandToolHandler 통합: HotLoad 항목과 명령어 매칭 시 자동으로 executeWithRetry 사용
+  - Settings UI: 완료 조건, 재시도 횟수, 실패 동작 설정 필드 추가
+- **CompletionJudge (A4)**: AI 자체 판단으로 작업 완료 여부를 검증합니다.
+  - REVIEW 단계에서 LLM이 작업 완료 여부 판단 (confidence 0.0~1.0)
+  - 미완성 시 자동 추가 작업 실행 (최대 2회)
+  - confidence 70% 미만이면 완료로 처리 (불확실한 경우 안전하게 종료)
+
+## v9.3.1 (컨텍스트 제외 패턴 관리 설정 UI)
+- **컨텍스트 제외 관리 Settings 추가**: 프로젝트 인덱싱, 파일 검색, 컨텍스트 수집 시 제외할 파일/폴더 패턴을 Settings에서 관리할 수 있습니다.
+  - 기본 제외 패턴 33개(node_modules, dist, .git 등)를 badge 형태로 시각화
+  - 기본 패턴 개별 비활성화/활성화 토글: 클릭으로 특정 기본 패턴을 제외에서 해제 가능
+  - 커스텀 제외 패턴 추가/삭제: 유저가 직접 패턴을 등록하여 제외 목록 확장
+  - `getAllExclusionPaths()` 함수로 기본 + 커스텀 패턴 통합 제공, 기존 5개 사용처 자동 반영
+  - globalState 기반 저장으로 extension 재시작 후에도 설정 유지
+  - 패턴 변경 시 메모리 캐시 즉시 갱신
+
+## v9.3.0 (ConversationManager 턴 루프 리팩토링 및 Xcode 빌드 검증 지원)
+- **턴 루프 리팩토링**: `executeAgentLoop()` 3031줄 while 루프를 ~15개 private 메서드로 분리하여 가독성 대폭 개선했습니다.
+  - `TurnContext` 타입 정의: 턴 루프의 모든 가변 상태 + 불변 설정을 하나의 인터페이스로 캡슐화
+  - `TurnAction` 반환 타입: 추출된 메서드가 `continue`/`break`/`proceed` 의도를 호출자에게 전달
+  - `runTestsAndTransition()`: 7곳에 복사/붙여넣기된 자동 테스트+재시도 로직을 1개 메서드로 통합
+  - `handleReviewPhase()`: REVIEW 단계 처리 (~210줄) 추출
+  - `handlePostToolTransition()`: 도구 실행 후 전이 결정 로직 (~160줄) 추출
+  - `executeToolsWithUI()`: 3곳의 동일한 도구 실행 보일러플레이트를 통합
+  - `completePlanItem()`, `transitionToReview()`: 중복 패턴 헬퍼 메서드
+  - 순 효과: ~816줄 감소 (4825줄 → 3940줄), 중복 코드 제거
+- **데드코드 제거**: `investigationTextOnlyCount` 변수 (쓰기만 하고 읽지 않음), legacy `runAutomatedTests()` 래퍼 메서드 삭제
+- **Xcode 프로젝트 빌드 검증 지원**: `.xcodeproj` 파일이 있는 프로젝트에서 `xcodebuild` 명령어로 빌드 검증을 실행합니다.
+  - `BuildTool.XCODE` enum 추가
+  - `.xcodeproj` 감지 시 `xcodebuild -project <name>.xcodeproj build CODE_SIGNING_ALLOWED=NO` 실행
+  - Swift Package Manager 프로젝트 (`Package.swift`)는 기존 `swift build` 유지
+  - macOS 환경에서만 동작 (`process.platform === 'darwin'`)
+- **ProjectManager 버그 수정**: `fs.existsSync(path.join(root, '*.xcodeproj'))` — glob 패턴이 `existsSync`에서 동작하지 않는 문제를 `fs.readdirSync().some()` 패턴으로 수정
+
+## v9.2.3 (Tool Registry SSOT — mcp_ 프리픽스 제거 및 메타데이터 기반 도구 관리)
+- **mcp_ 프리픽스 제거**: MCP 도구 이름에서 `mcp_{serverName}_` 프리픽스를 제거하여 원래 도구 이름을 사용합니다.
+  - 기존: `mcp_auto_test_mcp_server_web_launch` (39자)
+  - 변경: `web_launch` (10자) — LLM 토큰 절약 및 호출 정확도 향상
+- **ToolRegistry 메타데이터 레이어**: `ToolRegistryEntry`에 `source`, `serverId`, `serverName` 메타데이터를 추가하여 도구 출처를 구조적으로 관리합니다.
+  - `startsWith('mcp_')` 분산 로직 7곳 → `ToolRegistry.isMCPTool()` 단일 진입점으로 통합
+  - `registerMCP()`: 충돌 없음 → 원래 이름, 같은 서버 재연결 → 교체, 다른 출처 충돌 → `{serverName}_{toolName}` disambiguate
+  - `unregisterByServerId()`: 서버 연결 해제 시 해당 서버 도구만 정확히 제거
+- **Registry 기반 도구 검증**: ToolParser가 프리픽스 대신 `ToolRegistry.hasHandler()`로 도구 유효성을 검증합니다.
+  - LLM이 원래 이름(`web_launch`)으로 호출해도 정상 파싱
+- **MCP 도구 Phase Gating**: AgentStateManager에서 MCP 도구를 INVESTIGATION/EXECUTION 상태에서 허용합니다.
+
+## v9.2.2 (ExecutionOutcome 기반 CLI 실행 실패 분류)
+- **ExecutionOutcome 구조적 에러 분류**: CLI 검증 실패 시 문자열 파싱 대신 구조적 메타데이터(exitCode, signal, duration)로 분류합니다.
+  - `ExecutionOutcome` 인터페이스: CLI 실행 결과에서 분류에 필요한 신호만 추출하는 경량 어댑터
+  - `classifyFromExecution()`: 4단계 결정 트리 (타임아웃 → 명령어 미발견 → 무출력 실패 → 문자열 fallback)
+  - 3개 신규 `ErrorCategory`: `EXECUTION_TIMEOUT`, `COMMAND_NOT_FOUND`, `SILENT_FAILURE`
+- **비재시도 카테고리 즉시 종료**: LLM이 해결할 수 없는 실행 레벨 실패는 retry 없이 즉시 give_up합니다.
+  - 타임아웃(SIGTERM/SIGKILL), 명령어 미설치(exit 127), 무출력 실패 → LLM 호출 없이 중단
+  - RetryCoordinator에 `isNonRetryable()` 체크 추가
+- **결정론적 fingerprint**: 동일한 실행 실패는 항상 동일한 fingerprint를 생성하여 패턴 추적이 정확해졌습니다.
+  - 기존: `unknown:tsc --noEmit 실패: 오류가...` (매번 미묘하게 다름 → 카운터 리셋)
+  - 변경: `execution_timeout:tsc --noEmit` (항상 동일 → 3회 반복 시 정확히 종료)
+- **TestRunner CLI 분류 전파**: `runValidationCommand()`가 `ExecutionOutcome`을 구성하여 `ClassificationResult`를 `TestResult`까지 전파합니다.
+
+## v9.2.1 (에러 분류 시스템 통합 및 MCP 커스텀 프롬프트)
+- **통합 에러 분류 시스템**: 키워드 기반 `extractErrorPattern()`을 구조적 에러 분류 시스템으로 교체했습니다.
+  - `ErrorClassifier`: LSP diagnostic.source + diagnostic.code 기반 구조적 에러 분류 (5개 카테고리)
+  - `AutoRemediator`: 의존성 누락 등 100% 확실한 경우 LLM 없이 자동 수정 (npm install 등)
+  - `RetryCoordinator`: 9개 재시도 위치를 하나의 통합 진입점으로 통합
+  - 동일 에러 3회 반복 시 조기 종료 — 무한 루프 방지 (기존: 반복할수록 더 호출)
+- **MCP 서버별 커스텀 프롬프트**: MCP 서버 등록 시 해당 도구의 사용 지침을 LLM에 전달할 수 있습니다.
+  - Settings UI에 커스텀 프롬프트 textarea 추가
+  - 활성화된 MCP 서버의 프롬프트가 시스템 프롬프트에 `## MCP 도구 사용 지침` 섹션으로 자동 삽입
+  - 예: "날씨 관련 질문에는 반드시 이 MCP 도구를 사용하세요"
+- **Hot Load 삭제 버튼 수정**: VSCode webview에서 `confirm()`이 항상 false를 반환하여 삭제가 동작하지 않던 문제 수정
+- **MCP 도구 타입 안전성 강화**: `ToolName` 타입을 `Tool | mcp_${string}`으로 정의하여 MCP 동적 도구를 타입 시스템에 통합
+
+## v9.2.0 (코드 중복 방지 및 LLM 응답 파싱 개선)
+- **Fuzzy Match 완전 제거**: update_file 도구에서 Fuzzy Match 기능을 완전히 제거했습니다.
+  - `FileMutationManager`에서 `fuzzyMatch()`, `getStringSimilarity()` 메서드 삭제
+  - `AgentConfig`에서 `MIN_FUZZY_MATCH_THRESHOLD`, `FILE_MODIFY_FUZZY` 설정 삭제
+  - 코드 중복 삽입 문제를 원천적으로 방지
+  - Fuzzy Match는 나중에 검색/자동완성 등 다른 용도로 재구현 가능
+- **오류 재시도 시 파일 컨텍스트 제공**: 자동 테스트 실패 시 수정된 파일의 최신 내용을 LLM에 전달합니다.
+  - `getErrorRetryPrompt()`에 `modifiedFilesContext` 파라미터 추가
+  - SEARCH 블록 작성 시 최신 파일 내용 기준으로 작성하도록 안내
+- **LLM 응답 파싱 개선**: `paths` (복수형) 파라미터 지원으로 여러 파일을 한 번에 읽을 수 있습니다.
+  - LLM이 `{ "tool": "read_file", "paths": "file1.ts, file2.ts" }` 형식으로 응답 시
+  - 자동으로 여러 개의 `read_file` 호출로 분할하여 실행
+- **프레임워크별 규칙 시스템 제거**: 동적 프롬프트 주입 기능을 임시 비활성화했습니다.
+  - `FrameworkRuleProvider` 클래스 및 rules 디렉토리 삭제
+  - Android, React, Flutter, Spring, Python 등 프레임워크별 규칙 제거
+  - 필요시 나중에 다시 추가 예정
+
+## v9.1.0 (MCP - Model Context Protocol 지원)
+- **MCP 클라이언트 통합**: Anthropic의 Model Context Protocol을 지원하여 외부 도구 연동이 가능해졌습니다.
+  - **Settings UI**: MCP 서버 추가/편집/삭제 UI 제공
+  - **stdio 지원**: 로컬 MCP 서버 실행 (`npx`, `node` 등)
+  - **HTTP 지원**: 원격 MCP 서버 연결 (API 키 인증 지원)
+  - **도구 자동 등록**: 연결된 MCP 서버의 도구가 LLM에 자동으로 노출
+  - **승인 시스템**: 새 MCP 도구는 첫 호출 시 사용자 확인 후 승인 목록에 추가
+- **사용 방법**:
+  1. Settings → "MCP 서버 설정" 섹션에서 "+ MCP 서버 추가" 클릭
+  2. 서버 이름, 타입(stdio/HTTP), 명령어 또는 URL 입력
+  3. "저장" 후 "🔌" 버튼으로 연결 테스트
+  4. 연결 성공 시 도구 목록이 표시되며, LLM이 해당 도구를 호출 가능
+- **예제 MCP 서버**:
+  ```bash
+  # 날씨 MCP 서버 (Anthropic 공식)
+  npx -y @anthropic/mcp-server-weather
+
+  # 파일시스템 MCP 서버
+  npx -y @anthropic/mcp-server-filesystem
+  ```
+
+## v9.0.6 (새로운 도구 추가 - Git/IDE/Web)
+- **git_diff 도구 추가**: Git 저장소의 현재 변경사항을 조회합니다.
+  - working changes와 staged changes 모두 확인 가능
+  - `staged` 파라미터로 staged 변경사항만 조회 가능
+  - 파일 수정 후 변경 내역 검토, 커밋 전 확인에 유용
+- **read_active_file 도구 추가**: 에디터에 현재 열린 파일의 내용을 읽습니다.
+  - 사용자가 "이 파일", "지금 보고있는 파일" 등 경로 없이 지칭할 때 사용
+  - @파일첨부와 구분: @첨부가 없을 때만 사용
+  - 선택 영역이 있으면 함께 반환
+- **fetch_url 도구 추가**: 외부 URL의 내용을 가져옵니다.
+  - 웹페이지 요약, API 문서 확인, GitHub 파일 조회 등에 활용
+  - HTML 페이지는 자동으로 텍스트 추출
+  - 50,000자 초과 시 자동 트렁케이트
+
+## v9.0.5 (파일 읽기 도구 개선 및 UI 렌더링 수정)
+- **새로운 파일 읽기 도구 추가**: 대용량 파일을 효율적으로 탐색할 수 있는 3개의 새 도구를 추가했습니다.
+  - `stat_file`: 파일 메타데이터(크기, 라인 수, 심볼 목록) 조회 - 파일 읽기 전 구조 파악용
+  - `list_imports`: import/export 문 추출 - 파일 의존성 빠르게 파악
+  - `expand_around_line`: 특정 라인 주변 컨텍스트 읽기 - ripgrep 검색 결과 확인용
+- **read_file 자동 트렁케이트**: 300줄 초과 파일은 자동으로 head/tail 프리뷰 + 심볼 구조만 반환합니다.
+  - 컨텍스트 폭발 방지: 5,144줄 파일 기준 ~47,000 토큰 → ~7,600 토큰으로 감소
+  - LLM이 필요한 범위만 `startLine`/`endLine` 파라미터로 다시 읽도록 유도
+- **프롬프트 개선**: LLM이 도구 호출 전후에 설명 텍스트를 출력하지 않도록 규칙 강화
+  - "도구 호출 전후 텍스트 절대 금지" 규칙 추가
+  - 파일 읽기 워크플로우 가이드라인 추가 (stat_file → list_imports → read_file)
+- **패널 렌더링 버그 수정**: 코드블럭 내부의 백틱이 코드블럭 종료로 잘못 인식되던 문제 수정
+  - 정규식 변경: `/```([^\n]*?)\n([\s\S]*?)```/g` → `/```([^\n]*?)\n([\s\S]*?)^```/gm`
+  - 줄 시작 위치의 백틱만 코드블럭 종료 마커로 인식
+
+## v9.0.4 (Webview 코드 모듈화)
+- **chat.js 모듈화**: 4,000줄 이상의 chat.js 파일을 기능별 모듈로 분리했습니다.
+  - `streaming.js`: 스트리밍 메시지 처리 (시작, 청크 추가, 완료, think 태그 처리)
+  - `processing-steps.js`: thinking bubble 및 처리 단계 표시 (타자기 효과, 스크롤 처리)
+  - `mention-handler.js`: 파일/터미널/진단 멘션 삽입 및 복원 (MutationObserver 기반)
+  - `message-queue.js`: 대기 중 사용자 질문 큐 관리 (로딩 중 질문 큐잉)
+- **settings.js 모듈화 준비**: settings.js를 위한 추가 모듈을 생성했습니다.
+  - `ollama-settings.js`: Ollama 서버 설정 (로컬/원격 서버, 모델 선택)
+  - `license-settings.js`: 라이센스/시리얼 번호 관리 (검증, 저장, 삭제)
+  - `language-settings.js`: 다국어 지원 (i18n 텍스트 로드 및 적용)
+  - `agent-policy.js`: 에이전트 정책 파일 업로드 (Markdown 파일 지원)
+- **코드 유지보수성 향상**: 의존성 주입 패턴을 사용하여 모듈 간 결합도를 낮추고 테스트 용이성을 높였습니다.
+
+## v9.0.3 (도구 호출 파싱 안정성 개선)
+- **도구 호출 파싱 버그 수정**: LLM 응답에서 도구 호출이 파싱되었지만 실행되지 않던 문제를 수정했습니다.
+  - 원인: `StringUtils.cleanText()`의 자연어 필터링이 JSON 도구 호출 형식을 손상시킴
+  - 수정: 도구 호출 감지 및 파싱을 `cleanResponse` 대신 원본 `llmResponse`에서 수행
+  - 영향받은 기능: 도구 호출 감지, JSON Plan 파싱, 루프 종료 조건 확인
+- **대화 루프 조기 종료 방지**: Turn 2에서 빈 응답으로 루프가 종료되던 문제를 수정했습니다.
+  - Turn 1에서 도구가 실행되지 않아 Turn 2가 필요한 컨텍스트 없이 시작됨
+  - 원본 응답에서 도구를 올바르게 파싱하여 정상적인 대화 흐름 유지
+
+## v9.0.2 (프로젝트 컨텍스트 캐싱 및 Tool Output 필터링)
+- **프로젝트 컨텍스트 캐싱 시스템 활성화**: LLM이 파일을 읽을 때 캐시를 우선 사용하도록 개선했습니다.
+  - `ReadFileToolHandler`: LLM의 `read_file` 도구에서 캐시 사용
+  - `FileContext`: 파일 컨텍스트 수집 시 캐시 사용
+  - `RelevantFilesFinder`: 관련 파일 검색 시 캐시 사용
+  - 캐시 히트 시 디스크 I/O 없이 메모리에서 즉시 반환
+  - `/캐시통계` 명령어로 히트/미스 확인 가능
+- **프리로드 파일 목록 확장**: 프로젝트 시작 시 자동 캐싱되는 파일 목록을 확장했습니다.
+  - 린트/포맷팅: `.eslintrc`, `.eslintrc.json`, `.prettierrc` 등
+  - 무시 설정: `.gitignore`, `.dockerignore`
+  - 빌드 설정: `next.config.js`, `vite.config.ts`, `tailwind.config.js` 등
+  - 인프라: `Dockerfile`, `docker-compose.yml`, `Makefile`
+  - ⚠️ Lock 파일 및 webpack.config.* 제외 (파일 크기 문제)
+- **Tool Output 필터링 강화**: 채팅 패널에 raw tool output이 표시되던 문제를 수정했습니다.
+  - `<file_content>...</file_content>` 블록 제거
+  - `<<<<<<< SEARCH...>>>>>>> REPLACE` diff 패턴 제거
+  - 단독 `<<<<`, `>>>>`, `====` 라인 제거
+
+## v9.0.1 (라이트 테마 지원)
+- **라이트 테마 추가**: 채팅 패널과 설정 화면에 라이트 테마를 추가했습니다.
+  - 채팅 패널: 블루 계열 액센트 색상, 흰색 배경의 코드 블록
+  - 설정 화면: 채팅 패널과 동일한 색상 체계 적용
+  - 테마 변경 시 채팅/설정 화면 모두 동기화
+- **라이트 테마 코드 하이라이팅**: 코드 블록 문법 하이라이팅 색상을 라이트 테마에 맞게 최적화
+  - 키워드: 보라색, 함수: 파란색, 문자열: 주황색
+  - 태그/속성: 파란색 (기존 빨간색에서 변경)
+  - 주석: 회색 이탤릭
+- **토큰 게이지 수정**: VSCode 재시작 후 토큰 게이지가 100%를 초과하던 문제 수정
+  - `setTotalTokensUsed()` 메서드 추가로 토큰 누적 대신 현재 값 설정
+  - `/compact` 명령어 후 토큰이 정확하게 재계산됨
+- **코드 블록 스타일 개선**:
+  - 파일명 밑줄 제거 (다크/라이트 공통)
+  - 라이트 테마 테두리 색상 연하게 조정
+
+## v9.0.0 (LLM 호출 최적화 및 실시간 UI 업데이트)
+- **LLM 호출 횟수 최적화**: 불필요한 "완료 확인" 호출을 제거하여 LLM 호출 횟수를 감소시켰습니다.
+  - 이전: Intent (1) → Plan + Tool (2) → 완료 확인 (3) → Summary (4) = **4회 호출**
+  - 이후: Intent (1) → Plan + Tool (2) → Summary (3) = **3회 호출**
+  - 도구 실행이 성공하고 남은 plan item이 없으면 LLM 호출 없이 바로 REVIEW로 전환
+  - `lastTurnHadSuccessfulToolExecution` 기반의 조기 REVIEW 전환 로직 추가
+- **실시간 도구 실행 UI 업데이트**: 도구 실행 결과가 하나씩 실시간으로 패널에 표시됩니다.
+  - `ToolExecutor.executeTools()`에 `onToolComplete` 콜백 추가
+  - 각 도구 실행 완료 시 즉시 UI에 결과 전송 (기존: 모든 도구 완료 후 한 번에 전송)
+  - Pending Changes 버튼도 파일 생성/수정 시 즉시 업데이트
+- **코드 블록 헤더 아이콘 정렬 수정**: Diff/파일 열기 아이콘이 왼쪽에 붙어서 표시되도록 수정
+  - `headerRight` 컨테이너로 아이콘들을 그룹화하여 CSS `space-between` 레이아웃 문제 해결
+
+## v8.9.7 (새로운 도구 호출 형식 - XML 스타일)
+- **XML 스타일 file_content 태그 도입**: 기존 `function_call` 형식을 완전히 대체하는 새로운 도구 호출 형식입니다.
+  - 새 형식: `{ "tool": "create_file", "path": "..." }` + `<file_content> ... </file_content>`
+  - Git merge conflict 마커(`<<<<<<<`, `=======`, `>>>>>>>`)와 혼동 방지
+  - JSON 이스케이프 지옥 해결: 코드 내 `"`, `\n` 등을 이스케이프할 필요 없음
+  - 코드 내 ` ``` ` 충돌 없음
+  - 스트리밍 지원: JSON 메타데이터가 먼저 오므로 빠른 도구 감지 가능
+- **모든 프롬프트 업데이트**: `function_call` 형식 제거, 새 형식만 사용하도록 변경
+  - toolCalling.ts, phase.ts, rules.ts, base.ts 등 모든 프롬프트 파일 업데이트
+  - LLM별 프롬프트(Banya, GPT-OSS, Gemini, CodeLlama, Gemma) 업데이트
+- **파서 업데이트**: ToolParser, StreamingToolParser 모두 새 형식 지원 (기존 형식도 호환)
+
+## vt8.9.6 (명령어 실행 및 라우팅 모델 개선)
+- **중복 명령어 실행 수정**: npm install 등 명령어가 여러 번 실행되던 문제를 수정했습니다.
+  - `RunCommandToolHandler`에서 초기 실행이 완료되면 즉시 반환하도록 수정
+  - 타임아웃 후 재실행되던 로직 제거로 중복 실행 방지
+- **간단한 명령어 계획 불필요 처리**: 단순 실행 명령어에 대해 불필요한 계획 단계를 건너뛰도록 개선했습니다.
+  - Intent 프롬프트 업데이트: `npm install`, `npm run dev` 등 단순 명령어는 `requiresPlan: false`로 판별
+  - `isDirectExecutionTask` 로직 추가로 단순 실행 작업은 INVESTIGATION 단계 없이 바로 EXECUTION 단계로 진입
+- **설정 화면 라우팅 모델 로딩 수정**: 설정 화면에서 저장된 라우팅 모델 설정이 로드되지 않던 문제를 수정했습니다.
+  - settings.js의 JavaScript 에러(`projectRootPathDisplay is not defined`) 수정
+  - 설정 화면 재진입 시 Compactor/Command/Intent 모델 설정이 올바르게 표시됨
+- **메인 모델 사용 선택 시 설정 초기화**: 라우팅 모델을 "메인 모델 사용"으로 변경 시 저장된 설정이 삭제되도록 수정했습니다.
+  - `handleModelTypeChange`에서 `clearXxxModel` 메시지 전송
+  - `SettingsPanelProvider`에 `clearIntentModel` 케이스 추가
+- **Intent 실패 시 JSON 표시 방지**: Intent 감지 실패 시 JSON function_call이 채팅 패널에 표시되던 문제를 수정했습니다.
+  - 인사말이나 간단한 질문에 대해 전용 `greetingSystemPrompt` 사용
+  - JSON/function_call 형식이 아닌 자연스러운 한국어 응답 생성
+
+## v8.9.5 (Git 슬래시 명령어 메뉴)
+- **Git 슬래시 명령어 추가**: '/' 메뉴에 Git 관련 명령어를 카테고리 기반으로 추가했습니다.
+  - 카테고리 기반 메뉴: '@' 파일 참조 메뉴처럼 카테고리 → 하위 명령어 구조로 구현
+  - Git 카테고리에 7개 명령어 추가:
+    - `/git status`: 현재 Git 리포지토리 상태 표시
+    - `/git diff`: 스테이징 안된 변경사항 보기
+    - `/git log`: 최근 커밋 히스토리 보기 (최근 10개)
+    - `/git branch`: 로컬/원격 브랜치 목록 보기
+    - `/git info`: GitHub 리포지토리 정보 표시
+    - `/git staged`: 스테이징된 변경사항 보기
+    - `/git stash`: 저장된 stash 목록 보기
+  - Session, Cache 카테고리도 동일한 구조로 재구성
+- **카테고리 메뉴 키보드 네비게이션**: Enter 키로 카테고리 선택 가능하도록 수정
+  - `slashMenuMode` 상태 관리로 카테고리 모드와 명령어 모드 분리
+  - 카테고리 모드에서 Enter 키 입력 시 `selectSlashCategory()` 호출
+- **UI 개선**: 슬래시 메뉴 카테고리에서 이모지 아이콘 제거
+
+## v8.9.4 (Critic Pass 제거 및 버전 표시)
+- **Critic Pass 기능 제거**: Critic Pass 기능을 완전히 제거했습니다.
+  - Critic Pass는 tsc 검증 전에 실행되어 중복 검증을 수행하고 있었음
+  - 제거된 파일: `context/prompts/test/criticPass.ts`
+  - 제거된 메서드: `TestRunner.runCriticPassAndTests()`, `TestRunner.runCriticPass()`
+  - 제거된 설정: StateManager의 `criticPassEnabled` 관련 저장/불러오기 메서드
+  - 제거된 UI: Settings 패널의 Critic Pass 토글 스위치 제거
+  - `ConversationManager`에서 모든 테스트 호출이 `runAutomatedTests()`로 단순화됨
+- **설정 화면 버전 표시**: CODEPILOT 설정 화면 하단에 버전 정보를 추가했습니다.
+  - 설정 화면 최하단에 "CODEPILOT v8.9.4" 형식으로 버전 표시
+  - 구분선과 함께 중앙 정렬된 푸터 스타일 적용
+
+## v8.9.3 (SEARCH 블록 무결성 규칙)
+- **SEARCH 블록 무결성 규칙**: LLM이 잘못된 SEARCH 패턴을 생성하는 것을 방지하기 위해 update_file 프롬프트에 엄격한 지침 추가.
+  - 규칙: SEARCH 블록은 현재 파일 내용을 그대로 복사해야 함 (read_file 결과에서)
+  - 규칙: 수정 전 코드 섹션에 오타, 중복, 누락 금지
+  - 규칙: SEARCH 블록에서 기존 코드 구조를 재작성하거나 변형 금지
+  - 흔한 실수 섹션 추가: 중복 중괄호 `export default App;}`, 코드 블록 누락, 임의 공백 변경 등
+  - 수정된 파일: toolCalling.ts
+
+## v8.9.2 (범용 LLM 지원 & UI 개선)
+- **다국어 파일 작업 키워드 지원**: 한국어와 영어 파일 지시어 모두 지원.
+  - 모든 파일 작업 패턴이 다음을 지원: `새 파일`/`New file`/`Create file`, `수정 파일`/`Update file`/`Modify file`, `삭제 파일`/`Delete file`/`Remove file`
+  - 영어로 응답하는 LLM도 이제 파일 작업을 올바르게 트리거할 수 있음
+  - 수정된 파일: ActionMapper.ts, GptAdapter.ts, GemmaAdapter.ts, LLMManager.ts, AskViewProvider.ts
+- **키워드 추출 단순화**: RelevantFilesFinder에서 하드코딩된 기술 키워드 제거.
+  - `getDevelopmentKeywords()` 및 `prioritizeKeywords()` 함수 제거 (120+ 라인)
+  - 새로운 범용 `extractKeywordsFromQuery()`: 언어/프레임워크 편향 없는 단순 단어 추출
+  - "react", "vue", "spring" 등의 하드코딩된 리스트 제거
+- **메시지 전송 시 자동 스크롤**: 사용자가 메시지를 보내면 채팅이 자동으로 맨 아래로 스크롤.
+  - `scrollToUserMessage()`를 `scrollIntoView({ block: "center" })` 대신 `scrollTop = scrollHeight` 사용하도록 수정
+  - 긴 대화에서 메시지 전송 시 더 나은 UX
+
+## v8.9.1 변경사항 요약
+  - 터미널 컨텍스트 클립보드 방식: Shell Integration API → 클립보드 기반으로 변경
+  - 멘션 컨텍스트 전달 버그 수정: doSendUserMessage()에서 터미널/diagnostics 누락 문제 해결
+  - ASK 모드 프롬프트 강화: 첨부 컨텍스트가 있을 때 강한 지시문 추가
+  - 취소 요청 개선: AbortError 로그 및 알림 제거
+  - 파일 목록 실시간 업데이트: 삭제된 파일이 목록에 남지 않도록 수정
+
+## v8.9.0 (스트리밍 구현, Banya 멀티 모델 & 프롬프트 아키텍처)
 - **Banya Qwen-Coder 모델 지원**: Banya Qwen-Coder:32b 모델 지원을 추가했습니다.
   - 새 모델: `Banya Qwen-Coder:32b` (포트 8081), 기존 `Banya Solar:100b` (포트 8080)
   - API 프록시를 위한 `X-Target-Port` 헤더로 모델 라우팅

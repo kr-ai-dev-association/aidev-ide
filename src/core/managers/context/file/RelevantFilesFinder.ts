@@ -92,59 +92,52 @@ export class RelevantFilesFinder {
         `[RelevantFilesFinder] 명시적으로 언급된 파일 찾기 완료: ${explicitFiles.length}개`,
       );
 
-      for (const filePath of explicitFiles) {
+      // 파일 읽기를 병렬로 처리 (성능 최적화)
+      const uniqueExplicitFiles = explicitFiles.filter(fp => !includedPathSet.has(fp));
+      const fileReadResults = await Promise.all(
+        uniqueExplicitFiles.map(async (filePath) => {
+          try {
+            const content = await this.readFileWithCache(filePath);
+            const relativePath = path.relative(projectRoot, filePath);
+            const fileExtension = path.extname(filePath).substring(1) || "text";
+            return { filePath, content, relativePath, fileExtension, error: null };
+          } catch (error) {
+            console.error(`[RelevantFilesFinder] 명시적 파일 읽기 실패: ${filePath}`, error);
+            return { filePath, content: null, relativePath: null, fileExtension: null, error };
+          }
+        })
+      );
+
+      // 읽은 결과를 순차적으로 처리 (순서 보장 및 길이 제한 적용)
+      for (const result of fileReadResults) {
         if (abortSignal?.aborted) {
           break;
         }
-        if (includedPathSet.has(filePath)) {
-          console.log(
-            `[RelevantFilesFinder] 이미 포함된 파일 스킵: ${filePath}`,
-          );
-          continue; // 이미 포함된 파일은 스킵
-        }
         if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
-          console.warn(
-            `[RelevantFilesFinder] 컨텍스트 길이 제한으로 파일 읽기 중단: ${filePath}`,
-          );
+          console.warn(`[RelevantFilesFinder] 컨텍스트 길이 제한으로 파일 처리 중단`);
           break;
         }
+        if (result.error || !result.content) {
+          continue;
+        }
 
-        try {
-          console.log(`[RelevantFilesFinder] 파일 읽기 시도: ${filePath}`);
-          const content = await this.readFileWithCache(filePath);
-          const relativePath = path.relative(projectRoot, filePath);
-          const fileExtension = path.extname(filePath).substring(1) || "text";
+        const { filePath, content, relativePath, fileExtension } = result;
 
+        if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
+          const fileContext = `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
+          fileContentsContext += fileContext;
+          currentTotalContentLength += content.length;
+          includedFilesForContext.push({
+            name: relativePath!,
+            fullPath: filePath,
+          });
+          includedPathSet.add(filePath);
           console.log(
-            `[RelevantFilesFinder] 파일 읽기 성공: ${relativePath} (${content.length} bytes)`,
+            `[RelevantFilesFinder] 명시적으로 언급된 파일 컨텍스트에 추가: ${relativePath} (총 ${currentTotalContentLength} bytes)`,
           );
-
-          if (
-            currentTotalContentLength + content.length <=
-            this.MAX_TOTAL_CONTENT_LENGTH
-          ) {
-            const fileContext = `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
-            fileContentsContext += fileContext;
-            currentTotalContentLength += content.length;
-            includedFilesForContext.push({
-              name: relativePath,
-              fullPath: filePath,
-            });
-            includedPathSet.add(filePath);
-            console.log(
-              `[RelevantFilesFinder] 명시적으로 언급된 파일 컨텍스트에 추가: ${relativePath} (총 ${currentTotalContentLength} bytes)`,
-            );
-          } else {
-            fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다.\n\n`;
-            console.warn(
-              `[RelevantFilesFinder] 파일이 너무 커서 생략: ${relativePath}`,
-            );
-          }
-        } catch (error) {
-          console.error(
-            `[RelevantFilesFinder] 명시적 파일 읽기 실패: ${filePath}`,
-            error,
-          );
+        } else {
+          fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다.\n\n`;
+          console.warn(`[RelevantFilesFinder] 파일이 너무 커서 생략: ${relativePath}`);
         }
       }
 

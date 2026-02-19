@@ -5,6 +5,7 @@
  */
 
 import { GeminiApi, OllamaApi, BanyaApi, AiModelType } from '../../../services';
+import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult } from './LLMRetryHelper';
 
 export interface LLMMessagePart {
     text?: string;
@@ -20,6 +21,10 @@ export interface LLMRequestOptions {
     signal?: AbortSignal;
     temperature?: number;
     maxTokens?: number;
+    /** 재시도 설정 (기본: maxRetries=3) */
+    retry?: Partial<LLMRetryConfig>;
+    /** 재시도 비활성화 (기본: false) */
+    disableRetry?: boolean;
 }
 
 export interface LLMResponse {
@@ -109,6 +114,7 @@ export class LLMManager {
 
     /**
      * LLM에 메시지를 전송합니다 (시스템 프롬프트 없음)
+     * v9.4.0: 재시도 로직 추가
      */
     public async sendMessage(
         prompt: string,
@@ -117,7 +123,7 @@ export class LLMManager {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
 
-        try {
+        const apiCall = async (): Promise<string> => {
             let response: string;
 
             if (this.currentModelType === AiModelType.GEMINI) {
@@ -135,6 +141,33 @@ export class LLMManager {
             }
 
             return response;
+        };
+
+        try {
+            // 재시도 비활성화된 경우 직접 호출
+            if (options?.disableRetry) {
+                return await apiCall();
+            }
+
+            // 재시도 로직으로 감싸서 호출
+            const result = await withRetry(
+                apiCall,
+                options?.retry,
+                signal,
+                (attempt, error, delayMs) => {
+                    console.log(`[LLMManager] sendMessage retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
+                }
+            );
+
+            if (result.success && result.result !== undefined) {
+                if (result.attempts > 1) {
+                    console.log(`[LLMManager] sendMessage succeeded after ${result.attempts} attempts (total delay: ${result.totalDelayMs}ms)`);
+                }
+                return result.result;
+            }
+
+            // 실패한 경우 에러 throw
+            throw result.error || new Error('Unknown LLM error');
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 console.log('[LLMManager] Request cancelled');
@@ -151,6 +184,7 @@ export class LLMManager {
 
     /**
      * LLM에 메시지를 전송합니다 (시스템 프롬프트 포함)
+     * v9.4.0: 재시도 로직 추가
      */
     public async sendMessageWithSystemPrompt(
         systemPrompt: string,
@@ -160,7 +194,7 @@ export class LLMManager {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
 
-        try {
+        const apiCall = async (): Promise<string> => {
             let response: string;
 
             if (this.currentModelType === AiModelType.GEMINI) {
@@ -212,6 +246,33 @@ export class LLMManager {
             }
 
             return response;
+        };
+
+        try {
+            // 재시도 비활성화된 경우 직접 호출
+            if (options?.disableRetry) {
+                return await apiCall();
+            }
+
+            // 재시도 로직으로 감싸서 호출
+            const result = await withRetry(
+                apiCall,
+                options?.retry,
+                signal,
+                (attempt, error, delayMs) => {
+                    console.log(`[LLMManager] sendMessageWithSystemPrompt retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
+                }
+            );
+
+            if (result.success && result.result !== undefined) {
+                if (result.attempts > 1) {
+                    console.log(`[LLMManager] sendMessageWithSystemPrompt succeeded after ${result.attempts} attempts (total delay: ${result.totalDelayMs}ms)`);
+                }
+                return result.result;
+            }
+
+            // 실패한 경우 에러 throw
+            throw result.error || new Error('Unknown LLM error');
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 console.log('[LLMManager] Request cancelled');
@@ -867,6 +928,7 @@ export class LLMManager {
 
     /**
      * LLM에 스트리밍 메시지를 전송합니다 (시스템 프롬프트 포함)
+     * v9.4.0: 재시도 로직 추가 (스트리밍은 연결 시작 전 에러에 대해서만 재시도)
      * @param systemPrompt 시스템 프롬프트
      * @param userParts 사용자 메시지 파트
      * @param onChunk 청크 수신 콜백
@@ -881,7 +943,7 @@ export class LLMManager {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
 
-        try {
+        const apiCall = async (): Promise<string> => {
             let response: string;
 
             if (this.currentModelType === AiModelType.GEMINI) {
@@ -953,6 +1015,33 @@ export class LLMManager {
             }
 
             return response;
+        };
+
+        try {
+            // 재시도 비활성화된 경우 직접 호출
+            if (options?.disableRetry) {
+                return await apiCall();
+            }
+
+            // 스트리밍은 연결 에러에 대해서만 재시도 (청크 수신 중 에러는 재시도하지 않음)
+            const result = await withRetry(
+                apiCall,
+                options?.retry,
+                signal,
+                (attempt, error, delayMs) => {
+                    console.log(`[LLMManager] streaming retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
+                }
+            );
+
+            if (result.success && result.result !== undefined) {
+                if (result.attempts > 1) {
+                    console.log(`[LLMManager] streaming succeeded after ${result.attempts} attempts (total delay: ${result.totalDelayMs}ms)`);
+                }
+                return result.result;
+            }
+
+            // 실패한 경우 에러 throw
+            throw result.error || new Error('Unknown LLM streaming error');
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 console.log('[LLMManager] Streaming request cancelled');
@@ -964,6 +1053,34 @@ export class LLMManager {
             if (this.currentCallController && !options?.signal) {
                 this.currentCallController = null;
             }
+        }
+    }
+
+    /**
+     * 간단한 프롬프트에 대한 빠른 LLM 응답 생성
+     * HotLoad 키워드 매칭, 분류 등 짧은 응답이 필요한 경우 사용
+     * @param prompt 프롬프트
+     * @param options maxTokens, temperature 등
+     */
+    public async generateSimpleResponse(
+        prompt: string,
+        options?: { maxTokens?: number; temperature?: number }
+    ): Promise<string> {
+        // 간단한 시스템 프롬프트로 짧은 응답 유도
+        const systemPrompt = '간결하게 응답하세요. 요청된 형식만 출력하고 추가 설명은 하지 마세요.';
+        const userParts = [{ text: prompt }];
+
+        try {
+            const response = await this.sendMessageWithSystemPrompt(
+                systemPrompt,
+                userParts,
+                { maxTokens: options?.maxTokens || 50 }
+            );
+
+            return response.trim();
+        } catch (error) {
+            console.error('[LLMManager] generateSimpleResponse failed:', error);
+            throw error;
         }
     }
 }

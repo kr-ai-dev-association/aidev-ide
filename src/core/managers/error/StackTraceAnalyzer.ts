@@ -8,7 +8,7 @@ import {
     StackFrame,
     ErrorLocation
 } from './types';
-import { EXCLUDED_LIBRARY_PATHS } from '../../utils/FileExclusionConstants';
+import { getAllExclusionPaths } from '../../utils/FileExclusionConstants';
 
 export class StackTraceAnalyzer {
     /**
@@ -67,8 +67,8 @@ export class StackTraceAnalyzer {
 
         const file = frame.file.toLowerCase();
 
-        // 라이브러리 경로 제외 (공용 상수 사용)
-        for (const pattern of EXCLUDED_LIBRARY_PATHS) {
+        // 라이브러리 경로 제외 (공용 상수 + 커스텀 패턴)
+        for (const pattern of getAllExclusionPaths()) {
             if (file.includes(pattern.toLowerCase())) {
                 return false;
             }

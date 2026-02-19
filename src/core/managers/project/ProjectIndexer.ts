@@ -16,7 +16,7 @@ import {
 } from './types';
 import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
-import { EXCLUDED_LIBRARY_PATHS } from '../../utils/FileExclusionConstants';
+import { EXCLUDED_LIBRARY_PATHS, getAllExclusionPaths } from '../../utils/FileExclusionConstants';
 
 export class ProjectIndexer {
     private index: FileIndex = {
@@ -378,15 +378,16 @@ export class ProjectIndexer {
         const pathParts = relativePath.split(path.sep);
 
         // 경로의 각 부분을 확인하여 라이브러리 디렉토리인지 검사
+        const allExclusions = getAllExclusionPaths();
         for (const part of pathParts) {
-            if (EXCLUDED_LIBRARY_PATHS.includes(part.toLowerCase())) {
+            if (allExclusions.includes(part.toLowerCase())) {
                 return true;
             }
         }
 
         // 경로 자체에 라이브러리 디렉토리가 포함되어 있는지 확인
         const normalizedPath = relativePath.toLowerCase().replace(/\\/g, '/');
-        for (const excludedPath of EXCLUDED_LIBRARY_PATHS) {
+        for (const excludedPath of allExclusions) {
             if (normalizedPath.includes(`/${excludedPath}/`) ||
                 normalizedPath.startsWith(`${excludedPath}/`) ||
                 normalizedPath.endsWith(`/${excludedPath}`) ||

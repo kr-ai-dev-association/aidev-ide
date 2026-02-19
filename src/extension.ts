@@ -60,6 +60,8 @@ import { RunCommandToolHandler } from "./core/tools/terminal";
 import { GitDiffToolHandler } from "./core/tools/git";
 import { ReadActiveFileToolHandler } from "./core/tools/ide";
 import { FetchUrlToolHandler } from "./core/tools/web";
+import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
+import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
 
 // 전역 변수
@@ -322,6 +324,10 @@ export async function activate(context: vscode.ExtensionContext) {
   // HotLoadManager 초기화 (Hot Load 기능 사용을 위해)
   HotLoadManager.getInstance(context);
 
+  // 커스텀 제외 패턴 캐시 로드
+  const { loadCustomExclusionPatterns } = await import('./core/utils/FileExclusionConstants');
+  loadCustomExclusionPatterns(context);
+
   // Project Manager는 이미 위에서 초기화됨
   if (workspacePath) {
     try {
@@ -562,10 +568,44 @@ export async function activate(context: vscode.ExtensionContext) {
     toolRegistry.getRegisteredTools(),
   );
 
-  // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
+  // MCP Manager 초기화 및 도구 등록 브릿지
+  const mcpManager = MCPManager.getInstance();
+  await mcpManager.initialize(context);
 
-  // OUTPUT 로그 설정 로드 및 적용
-  const outputLogEnabled = await settingsManager.isOutputLogEnabled();
+  // MCPManager 연결 이벤트 → ToolRegistry 동적 등록
+  mcpManager.onConnectionEvent((event) => {
+    if (event.type === 'connected' && event.tools) {
+      // 기존 도구 해제 후 새로 등록 (serverId 기반)
+      toolRegistry.unregisterByServerId(event.serverId);
+
+      for (const tool of event.tools) {
+        const handler = new MCPToolHandler(event.serverId, event.serverName, tool);
+        const registeredName = toolRegistry.registerMCP(handler, event.serverId, event.serverName, tool.name);
+        if (registeredName !== handler.name) {
+          handler.setRegisteredName(registeredName);
+        }
+      }
+      console.log(`[Extension] MCP tools registered for ${event.serverName}: ${event.tools.length} tools`);
+    } else if (event.type === 'disconnected') {
+      const count = toolRegistry.unregisterByServerId(event.serverId);
+      console.log(`[Extension] MCP tools unregistered for ${event.serverName}: ${count} tools`);
+    }
+  });
+
+  // 이미 연결된 서버의 도구를 ToolRegistry에 등록
+  const allMcpTools = mcpManager.getAllTools();
+  for (const { serverId, serverName, tool } of allMcpTools) {
+    const handler = new MCPToolHandler(serverId, serverName, tool);
+    const registeredName = toolRegistry.registerMCP(handler, serverId, serverName, tool.name);
+    if (registeredName !== handler.name) {
+      handler.setRegisteredName(registeredName);
+    }
+  }
+  if (allMcpTools.length > 0) {
+    console.log(`[Extension] Existing MCP tools registered: ${allMcpTools.length}`);
+  }
+
+  // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 
   // 디버그 로그: VS Code Run/Debug 이벤트에만 연동 (설정 플래그 사용 중단)
   const projectRootForDebug = await settingsManager.getProjectRoot();
@@ -744,9 +784,6 @@ export async function activate(context: vscode.ExtensionContext) {
   // 설정 변경 시 TerminalManager에 반영
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (event.affectsConfiguration("codepilot.outputLogEnabled")) {
-        const outputLogEnabled = await settingsManager.isOutputLogEnabled();
-      }
       if (event.affectsConfiguration("codepilot.errorRetryCount")) {
         const errorRetryCount = await settingsManager.getErrorRetryCount();
       }
@@ -821,7 +858,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 캐시 통계를 가져올 수 없습니다.",
+            text: "캐시 통계를 가져올 수 없습니다.",
           });
           return;
         }
@@ -841,7 +878,7 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ 캐시 통계 조회 실패: ${error}`,
+          text: `캐시 통계 조회 실패: ${error}`,
         });
       }
     }),
@@ -871,8 +908,180 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ 캐시 초기화 실패: ${error}`,
+          text: `캐시 초기화 실패: ${error}`,
         });
+      }
+    }),
+  );
+
+  // MCP 서버 목록 보기 명령어 (패널에 출력 + QuickPick 선택)
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codepilot.viewMcpServers", async () => {
+      try {
+        const { MCPManager } = await import("./core/mcp/MCPManager");
+        const mcpManager = MCPManager.getInstance();
+        const servers = mcpManager.getServers();
+
+        if (servers.length === 0) {
+          chatViewProvider.postMessageToWebview({
+            command: "receiveMessage",
+            sender: "System",
+            text: "등록된 MCP 서버가 없습니다.\n\n설정에서 MCP 서버를 추가해주세요.",
+          });
+          return;
+        }
+
+        // 서버 목록 QuickPick 표시
+        const items = servers.map((server: any) => ({
+          label: `${server.status === 'connected' ? '🟢' : '⚪'} ${server.name}`,
+          description: server.type === 'stdio' ? server.command : server.url,
+          detail: `상태: ${server.status || 'disconnected'} | 활성화: ${server.enabled ? '예' : '아니오'}`,
+          serverId: server.id,
+          serverName: server.name,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: "MCP 서버 목록",
+          placeHolder: "도구를 확인할 서버를 선택하세요",
+        });
+
+        if (selected) {
+          // 선택한 서버의 도구 목록 표시
+          const allTools = mcpManager.getAllTools();
+          const serverTools = allTools.filter((t: any) => t.serverId === selected.serverId);
+
+          if (serverTools.length === 0) {
+            chatViewProvider.postMessageToWebview({
+              command: "receiveMessage",
+              sender: "System",
+              text: `**${selected.serverName}**\n\n연결되지 않았거나 도구가 없습니다.\n\`/mcp connect\` 명령어로 연결해보세요.`,
+            });
+            return;
+          }
+
+          // 도구 목록을 패널에 표시
+          let toolListText = `**${selected.serverName}** - 도구 목록 (${serverTools.length}개)\n\n`;
+          serverTools.forEach((t: any, idx: number) => {
+            const tool = t.tool;
+            toolListText += `**${idx + 1}. ${tool.name}**\n`;
+            toolListText += `   ${tool.description || '설명 없음'}\n`;
+            if (tool.inputSchema?.properties) {
+              const params = Object.keys(tool.inputSchema.properties);
+              if (params.length > 0) {
+                toolListText += `   파라미터: \`${params.join(', ')}\`\n`;
+              }
+            }
+            toolListText += '\n';
+          });
+          toolListText += '\n\n';
+          chatViewProvider.postMessageToWebview({
+            command: "receiveMessage",
+            sender: "System",
+            text: toolListText,
+          });
+        }
+      } catch (error) {
+        chatViewProvider.postMessageToWebview({
+          command: "receiveMessage",
+          sender: "System",
+          text: `MCP 서버 조회 실패: ${error}`,
+        });
+      }
+    }),
+  );
+
+  // MCP 서버 연결 명령어
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codepilot.connectMcpServer", async () => {
+      try {
+        const { MCPManager } = await import("./core/mcp/MCPManager");
+        const mcpManager = MCPManager.getInstance();
+        const servers = mcpManager.getServers();
+
+        const disconnectedServers = servers.filter((s: any) => s.status !== 'connected');
+        if (disconnectedServers.length === 0) {
+          vscode.window.showInformationMessage("모든 MCP 서버가 이미 연결되어 있습니다.");
+          return;
+        }
+
+        const items = disconnectedServers.map((server: any) => ({
+          label: server.name,
+          description: server.type === 'stdio' ? server.command : server.url,
+          serverId: server.id,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: "MCP 서버 연결",
+          placeHolder: "연결할 서버를 선택하세요",
+        });
+
+        if (selected) {
+          chatViewProvider.postMessageToWebview({
+            command: "receiveMessage",
+            sender: "System",
+            text: `${selected.label} 서버에 연결 중...`,
+          });
+
+          try {
+            await mcpManager.connectToServer(selected.serverId);
+            // 연결 후 도구 개수 조회
+            const allTools = mcpManager.getAllTools();
+            const serverTools = allTools.filter((t: any) => t.serverId === selected.serverId);
+            chatViewProvider.postMessageToWebview({
+              command: "receiveMessage",
+              sender: "System",
+              text: `${selected.label} 서버 연결 되었습니다.`,
+            });
+          } catch (connectError) {
+            chatViewProvider.postMessageToWebview({
+              command: "receiveMessage",
+              sender: "System",
+              text: `${selected.label} 서버 연결 실패: ${connectError}`,
+            });
+          }
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`MCP 서버 연결 실패: ${error}`);
+      }
+    }),
+  );
+
+  // MCP 서버 연결 해제 명령어
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codepilot.disconnectMcpServer", async () => {
+      try {
+        const { MCPManager } = await import("./core/mcp/MCPManager");
+        const mcpManager = MCPManager.getInstance();
+        const servers = mcpManager.getServers();
+
+        const connectedServers = servers.filter((s: any) => s.status === 'connected');
+        if (connectedServers.length === 0) {
+          vscode.window.showInformationMessage("연결된 MCP 서버가 없습니다.");
+          return;
+        }
+
+        const items = connectedServers.map((server: any) => ({
+          label: `🟢 ${server.name}`,
+          description: server.type === 'stdio' ? server.command : server.url,
+          serverId: server.id,
+          serverName: server.name,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: "MCP 서버 연결 해제",
+          placeHolder: "연결을 해제할 서버를 선택하세요",
+        });
+
+        if (selected) {
+          await mcpManager.disconnectFromServer(selected.serverId);
+          chatViewProvider.postMessageToWebview({
+            command: "receiveMessage",
+            sender: "System",
+            text: `${selected.serverName} 서버 연결이 해제되었습니다.`,
+          });
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`MCP 서버 연결 해제 실패: ${error}`);
       }
     }),
   );
@@ -981,7 +1190,7 @@ export async function activate(context: vscode.ExtensionContext) {
             chatViewProvider.postMessageToWebview({
               command: "receiveMessage",
               sender: "System",
-              text: "⚠️ 압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)",
+              text: "압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)",
             });
             return;
           }
@@ -1096,7 +1305,7 @@ export async function activate(context: vscode.ExtensionContext) {
             chatViewProvider.postMessageToWebview({
               command: "receiveMessage",
               sender: "System",
-              text: "⚠️ 압축할 대화가 충분하지 않습니다.",
+              text: "압축할 대화가 충분하지 않습니다.",
             });
           }
         } catch (error) {
@@ -1105,7 +1314,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: `❌ 대화 압축 실패: ${error}`,
+            text: `대화 압축 실패: ${error}`,
           });
         }
       },
@@ -1121,7 +1330,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 워크스페이스가 열려있지 않습니다.",
+            text: "워크스페이스가 열려있지 않습니다.",
           });
           return;
         }
@@ -1137,13 +1346,13 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `### 📊 Git 상태\n\n\`\`\`\n${stdout}\n\`\`\``,
+          text: `### Git 상태\n\n\`\`\`\n${stdout}\n\`\`\``,
         });
       } catch (error: any) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ Git 상태 확인 실패: ${error.message || error}`,
+          text: `Git 상태 확인 실패: ${error.message || error}`,
         });
       }
     }),
@@ -1158,7 +1367,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 워크스페이스가 열려있지 않습니다.",
+            text: "워크스페이스가 열려있지 않습니다.",
           });
           return;
         }
@@ -1175,7 +1384,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "### 📝 Git 변경사항\n\n변경된 파일이 없습니다.",
+            text: "### Git 변경사항\n\n변경된 파일이 없습니다.",
           });
           return;
         }
@@ -1183,13 +1392,13 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `### 📝 Git 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``,
+          text: `### Git 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``,
         });
       } catch (error: any) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ Git 변경사항 확인 실패: ${error.message || error}`,
+          text: `Git 변경사항 확인 실패: ${error.message || error}`,
         });
       }
     }),
@@ -1204,7 +1413,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 워크스페이스가 열려있지 않습니다.",
+            text: "워크스페이스가 열려있지 않습니다.",
           });
           return;
         }
@@ -1226,7 +1435,7 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ Git 히스토리 확인 실패: ${error.message || error}`,
+          text: `Git 히스토리 확인 실패: ${error.message || error}`,
         });
       }
     }),
@@ -1241,7 +1450,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 워크스페이스가 열려있지 않습니다.",
+            text: "워크스페이스가 열려있지 않습니다.",
           });
           return;
         }
@@ -1260,13 +1469,13 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `### 🌿 Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``,
+          text: `### Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``,
         });
       } catch (error: any) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ Git 브랜치 확인 실패: ${error.message || error}`,
+          text: `Git 브랜치 확인 실패: ${error.message || error}`,
         });
       }
     }),
@@ -1282,7 +1491,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "### ℹ️ Git 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.",
+            text: "### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.",
           });
           return;
         }
@@ -1291,7 +1500,7 @@ export async function activate(context: vscode.ExtensionContext) {
           command: "receiveMessage",
           sender: "System",
           text:
-            `### ℹ️ Git 리포지토리 정보\n\n` +
+            `### ℹGit 리포지토리 정보\n\n` +
             `- **소유자**: ${gitInfo.owner}\n` +
             `- **리포지토리**: ${gitInfo.repo}\n` +
             `- **현재 브랜치**: ${gitInfo.branch}\n` +
@@ -1303,7 +1512,7 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ Git 정보 확인 실패: ${error.message || error}`,
+          text: `Git 정보 확인 실패: ${error.message || error}`,
         });
       }
     }),
@@ -1318,7 +1527,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 워크스페이스가 열려있지 않습니다.",
+            text: "워크스페이스가 열려있지 않습니다.",
           });
           return;
         }
@@ -1335,7 +1544,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "### 📋 스테이징된 변경사항\n\n스테이징된 파일이 없습니다.",
+            text: "### 스테이징된 변경사항\n\n스테이징된 파일이 없습니다.",
           });
           return;
         }
@@ -1343,13 +1552,13 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `### 📋 스테이징된 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``,
+          text: `### 스테이징된 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``,
         });
       } catch (error: any) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ 스테이징 변경사항 확인 실패: ${error.message || error}`,
+          text: `스테이징 변경사항 확인 실패: ${error.message || error}`,
         });
       }
     }),
@@ -1364,7 +1573,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "⚠️ 워크스페이스가 열려있지 않습니다.",
+            text: "워크스페이스가 열려있지 않습니다.",
           });
           return;
         }
@@ -1381,7 +1590,7 @@ export async function activate(context: vscode.ExtensionContext) {
           chatViewProvider.postMessageToWebview({
             command: "receiveMessage",
             sender: "System",
-            text: "### 📦 Git Stash 목록\n\n저장된 stash가 없습니다.",
+            text: "### Git Stash 목록\n\n저장된 stash가 없습니다.",
           });
           return;
         }
@@ -1389,13 +1598,13 @@ export async function activate(context: vscode.ExtensionContext) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `### 📦 Git Stash 목록\n\n\`\`\`\n${stdout}\n\`\`\``,
+          text: `### Git Stash 목록\n\n\`\`\`\n${stdout}\n\`\`\``,
         });
       } catch (error: any) {
         chatViewProvider.postMessageToWebview({
           command: "receiveMessage",
           sender: "System",
-          text: `❌ Stash 목록 확인 실패: ${error.message || error}`,
+          text: `Stash 목록 확인 실패: ${error.message || error}`,
         });
       }
     }),

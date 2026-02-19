@@ -4,10 +4,10 @@
  *
  * 핵심 원리:
  * 1. 스트리밍 중에는 텍스트만 UI에 표시
- * 2. { "tool": ... } <<<<<<<CODE ... >>>>>>>END가 감지되면 도구 호출로 분리
+ * 2. { "tool": ... } <file_content> ... </file_content>가 감지되면 도구 호출로 분리
  * 3. 응답 완료 후 전체 도구 파싱 및 실행
  *
- * v8.9.7: CODE 블록 형식 전용 (function_call 형식 제거)
+ * v9.2.0: XML 스타일 file_content 태그 형식 (Git merge conflict 마커 혼동 방지)
  */
 
 import { ToolUse } from './types';
@@ -37,9 +37,9 @@ export interface StreamingCallbacks {
  * 스트리밍 응답에서 도구 호출을 분리하면서 텍스트를 실시간 표시
  */
 export class StreamingToolParser {
-    // CODE 블록 마커 상수
-    private static readonly CODE_START_MARKER = '<<<<<<<CODE';
-    private static readonly CODE_END_MARKER = '>>>>>>>END';
+    // CODE 블록 마커 상수 (XML 스타일)
+    private static readonly CODE_START_MARKER = '<file_content>';
+    private static readonly CODE_END_MARKER = '</file_content>';
 
     private buffer: string = '';
     private displayedLength: number = 0;
@@ -79,7 +79,7 @@ export class StreamingToolParser {
         const jsonStartPattern = /```json\s*/g;
         const jsonEndPattern = /```/g;
 
-        // CODE 블록 패턴: { "tool": ... } 다음에 <<<<<<<CODE ... >>>>>>>END
+        // CODE 블록 패턴: { "tool": ... } 다음에 <file_content> ... </file_content>
         const toolJsonPattern = /\{\s*["']tool["']\s*:/g;
 
         let safeEndIndex = this.displayedLength;
@@ -136,7 +136,7 @@ export class StreamingToolParser {
                     break;
                 }
             } else if (this.inCodeBlock) {
-                // CODE 블록 끝 찾기: >>>>>>>END
+                // CODE 블록 끝 찾기: </file_content>
                 const codeEndIndex = buffer.indexOf(StreamingToolParser.CODE_END_MARKER, currentIndex);
 
                 if (codeEndIndex !== -1) {
@@ -154,8 +154,8 @@ export class StreamingToolParser {
                     const jsonCloseBrace = this.findJsonEnd(buffer, this.toolJsonStart);
                     if (jsonCloseBrace !== -1) {
                         const afterJson = buffer.substring(jsonCloseBrace + 1, Math.min(buffer.length, jsonCloseBrace + 20));
-                        // <<<<<<<CODE가 없으면 JSON만 있는 도구 호출
-                        if (!afterJson.includes('<<<<<<<') && buffer.length > jsonCloseBrace + 15) {
+                        // <file_content>가 없으면 JSON만 있는 도구 호출
+                        if (!afterJson.includes('<file_content') && buffer.length > jsonCloseBrace + 15) {
                             const jsonOnly = buffer.substring(this.toolJsonStart, jsonCloseBrace + 1);
                             this.tryParseCodeBlock(jsonOnly);
 
@@ -246,17 +246,17 @@ export class StreamingToolParser {
             .replace(/```json[\s\S]*?```/g, '')
             .replace(/```json[\s\S]*/g, '');
 
-        // CODE 블록 형식 제거: { "tool": ... } <<<<<<<CODE ... >>>>>>>END
+        // CODE 블록 형식 제거: { "tool": ... } <file_content> ... </file_content>
         // 1. 완전한 CODE 블록 제거 (file_path 속성 포함)
         segment = segment
-            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<{3,}CODE[\s\S]*?>{3,}END/gi, '')
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*?<\/file_content>/gi, '')
             // 2. 부분 CODE 블록 제거 (스트리밍 중)
-            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<{3,}CODE[\s\S]*/gi, '')
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*/gi, '')
             // 3. JSON만 있는 도구 호출도 제거
             .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
             // 4. 고아 CODE 블록 제거 (JSON 없이 CODE 블록만 있는 경우)
-            .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, '')
-            .replace(/<{3,}CODE[\s\S]*/gi, '');
+            .replace(/<file_content>[\s\S]*?<\/file_content>/gi, '')
+            .replace(/<file_content>[\s\S]*/gi, '');
 
         // 🔥 핵심: 도구 호출 패턴이 전체 버퍼에 있으면 이 세그먼트의 자연어도 숨김
         // LLM이 "We need to run..." 같은 텍스트와 함께 도구 호출을 반환하는 경우
@@ -308,11 +308,11 @@ export class StreamingToolParser {
         let displayText = this.buffer
             .replace(/```json[\s\S]*?```/g, '')
             // 완전한 CODE 블록 제거 (file_path 속성 포함)
-            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<{3,}CODE[\s\S]*?>{3,}END/gi, '')
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*?<\/file_content>/gi, '')
             // JSON만 있는 도구 호출도 제거
             .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
             // 고아 CODE 블록 제거
-            .replace(/<{3,}CODE[\s\S]*?>{3,}END/gi, '')
+            .replace(/<file_content>[\s\S]*?<\/file_content>/gi, '')
             .trim();
 
         // 🔥 핵심: 도구 호출이 포함된 응답에서는 자연어 텍스트 전체 숨김

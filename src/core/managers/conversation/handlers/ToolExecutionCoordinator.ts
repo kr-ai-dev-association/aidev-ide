@@ -5,15 +5,22 @@
 
 import * as vscode from 'vscode';
 import * as pathModule from 'path';
-import { Tool } from '../../../tools/types';
+import { Tool, ToolUse, ToolResponse } from '../../../tools/types';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
 import { InlineDiffManager } from '../../diff/InlineDiffManager';
+
+/** read_file 도구의 파일 결과 항목 */
+interface ReadFileResultItem {
+    path: string;
+    content?: string;
+    error?: string;
+}
 
 export class ToolExecutionCoordinator {
     /**
      * Tool 실행 결과가 부작용이 있는지 확인
      */
-    public static hasSideEffects(calls: any[], results: any[]): boolean {
+    public static hasSideEffects(calls: ToolUse[], results: ToolResponse[]): boolean {
         const sideEffectTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND];
         return results.some((res, i) => res.success && sideEffectTools.includes(calls[i].name as Tool));
     }
@@ -22,8 +29,8 @@ export class ToolExecutionCoordinator {
      * 파일 변경 추적 (요약 검증용)
      */
     public static trackFileChanges(
-        toolCalls: any[],
-        toolResults: any[],
+        toolCalls: ToolUse[],
+        toolResults: ToolResponse[],
         createdFiles: string[],
         modifiedFiles: string[]
     ): void {
@@ -68,7 +75,7 @@ export class ToolExecutionCoordinator {
     /**
      * Tool 실행 결과 요약 생성
      */
-    public static createToolResultSummary(turn: number, calls: any[], results: any[]): string {
+    public static createToolResultSummary(turn: number, calls: ToolUse[], results: ToolResponse[]): string {
         let summary = '';
         results.forEach((res, i) => {
             const toolName = calls[i].name;
@@ -86,7 +93,7 @@ export class ToolExecutionCoordinator {
                 if (res.success && res.data) {
                     // 여러 파일인 경우 (files 배열)
                     if (res.data.files && Array.isArray(res.data.files)) {
-                        res.data.files.forEach((file: any, index: number) => {
+                        res.data.files.forEach((file: ReadFileResultItem, index: number) => {
                             summary += `File ${index + 1}: ${file.path}\n`;
                             if (file.error) {
                                 summary += `Error: ${file.error}\n`;
@@ -119,13 +126,67 @@ export class ToolExecutionCoordinator {
     }
 
     /**
+     * 🔥 도구 실행 시작 시 진행 상태 전송 (Processing Steps 업데이트)
+     * executeTools의 onToolStart 콜백에서 호출
+     */
+    public static sendToolStartStatus(
+        webview: vscode.Webview | undefined,
+        call: ToolUse
+    ): void {
+        if (!webview) return;
+
+        const toolName = call.name;
+        const params = call.params || {};
+        const toolLabel = ToolExecutionCoordinator.getToolLabel(toolName);
+
+        let statusMessage = `${toolLabel} 중...`;
+
+        // read_file 도구인 경우 파일 경로와 줄 번호 범위 표시
+        if (toolName === Tool.READ_FILE) {
+            const filePath = params.path || params.paths?.split(',')[0] || '';
+            const fileName = filePath ? pathModule.basename(filePath) : '';
+            const startLine = params.startLine;
+            const endLine = params.endLine;
+
+            if (startLine || endLine) {
+                // 부분 읽기: 줄 번호 범위 표시
+                const lineRange = `${startLine || 1}-${endLine || 'end'}`;
+                statusMessage = `파일 읽는 중: ${fileName} (${lineRange}줄)`;
+            } else {
+                statusMessage = `파일 읽는 중: ${fileName}`;
+            }
+        }
+        // 다른 파일 관련 도구들
+        else if ([Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE].includes(toolName as Tool)) {
+            const filePath = params.path || params.file_path || params.target_file || '';
+            const fileName = filePath ? pathModule.basename(filePath) : '';
+            if (fileName) {
+                statusMessage = `${toolLabel} 중: ${fileName}`;
+            }
+        }
+        // 명령 실행
+        else if (toolName === Tool.RUN_COMMAND) {
+            const command = params.command || '';
+            const shortCommand = command.length > 30 ? command.substring(0, 30) + '...' : command;
+            statusMessage = `명령 실행 중: ${shortCommand}`;
+        }
+        // 검색 도구
+        else if (toolName === Tool.RIPGREP_SEARCH || toolName === Tool.SEARCH_FILES) {
+            const pattern = params.pattern || params.query || '';
+            statusMessage = `검색 중: ${pattern}`;
+        }
+
+        WebviewBridge.sendProcessingStatus(webview, 'execution', statusMessage);
+    }
+
+    /**
      * 🔥 단일 Tool 실행 결과를 즉시 UI에 전송 (실시간 업데이트용)
      * executeTools의 onToolComplete 콜백에서 호출
      */
     public static sendSingleToolResultToUI(
         webview: vscode.Webview | undefined,
-        call: any,
-        result: any
+        call: ToolUse,
+        result: ToolResponse
     ): { sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }[] {
         if (!webview) return [];
 
@@ -138,8 +199,8 @@ export class ToolExecutionCoordinator {
      */
     private static sendToolExecutionResultsToUISync(
         webview: vscode.Webview,
-        calls: any[],
-        results: any[]
+        calls: ToolUse[],
+        results: ToolResponse[]
     ): Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> {
         const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];
 
@@ -233,8 +294,8 @@ export class ToolExecutionCoordinator {
      */
     public static async sendToolExecutionResultsToUI(
         webview: vscode.Webview,
-        calls: any[],
-        results: any[]
+        calls: ToolUse[],
+        results: ToolResponse[]
     ): Promise<Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }>> {
         console.log(`[ToolExecutionCoordinator] sendToolExecutionResultsToUI called with ${results.length} results, webview=${!!webview}`);
         const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];

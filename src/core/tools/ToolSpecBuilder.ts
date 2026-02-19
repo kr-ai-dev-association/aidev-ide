@@ -7,8 +7,10 @@
  * - buildToolPromptSectionJson(): JSON 기반 도구 호출 프롬프트
  */
 
-import { ToolSpec, Tool } from './types';
+import { ToolSpec, Tool, ToolName } from './types';
 import { buildToolPromptSection } from '../managers/context/prompts/tools';
+import { ToolRegistry } from './ToolRegistry';
+import { MCPToolHandler } from './mcp/MCPToolHandler';
 
 /**
  * JSON Schema 형식의 Function Declaration (Gemini/OpenAI 호환)
@@ -214,7 +216,98 @@ export class ToolSpecBuilder {
             });
         }
 
+        // expand_around_line - 특정 라인 주변 컨텍스트 읽기
+        if (!allowedTools || allowedTools.includes(Tool.EXPAND_AROUND_LINE)) {
+            specs.push({
+                name: Tool.EXPAND_AROUND_LINE,
+                description: '특정 라인 번호를 중심으로 주변 컨텍스트를 읽습니다. ripgrep_search 결과에서 찾은 라인의 주변 코드를 확인할 때 유용합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '읽을 파일 경로', type: 'string' },
+                    { name: 'line', required: true, description: '중심 라인 번호 (1부터 시작)', type: 'number' },
+                    { name: 'before', required: false, description: '중심 라인 위로 읽을 라인 수 (기본값: 20)', type: 'number' },
+                    { name: 'after', required: false, description: '중심 라인 아래로 읽을 라인 수 (기본값: 20)', type: 'number' }
+                ]
+            });
+        }
+
+        // list_imports - 파일의 import/export 문 추출
+        if (!allowedTools || allowedTools.includes(Tool.LIST_IMPORTS)) {
+            specs.push({
+                name: Tool.LIST_IMPORTS,
+                description: '파일의 import/export 문을 추출합니다. 파일의 의존성과 내보내기를 빠르게 파악할 때 유용합니다. JS/TS, Python, Java, Go, Rust, C/C++ 등 다양한 언어를 지원합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '분석할 파일 경로', type: 'string' }
+                ]
+            });
+        }
+
+        // stat_file - 파일 메타데이터 조회
+        if (!allowedTools || allowedTools.includes(Tool.STAT_FILE)) {
+            specs.push({
+                name: Tool.STAT_FILE,
+                description: '파일의 메타데이터와 구조 요약을 조회합니다. 파일 크기, 라인 수, 수정 시간, 그리고 클래스/함수/인터페이스 등의 심볼 목록을 반환합니다. 파일 내용을 읽지 않고 구조만 파악할 때 유용합니다.',
+                parameters: [
+                    { name: 'path', required: true, description: '조회할 파일 경로', type: 'string' },
+                    { name: 'symbols', required: false, description: '심볼(클래스, 함수 등) 추출 여부 (기본값: true)', type: 'string' }
+                ]
+            });
+        }
+
+        // git_diff - Git 변경사항 조회
+        if (!allowedTools || allowedTools.includes(Tool.GIT_DIFF)) {
+            specs.push({
+                name: Tool.GIT_DIFF,
+                description: 'Git 저장소의 현재 변경사항을 조회합니다. working changes와 staged changes를 확인할 수 있습니다. 파일 수정 후 변경 내역을 검토하거나, 커밋 전 확인에 유용합니다.',
+                parameters: [
+                    { name: 'staged', required: false, description: 'staged 변경사항만 보려면 "true" (기본값: working changes)', type: 'string' }
+                ]
+            });
+        }
+
+        // read_active_file - 현재 열린 파일 읽기
+        if (!allowedTools || allowedTools.includes(Tool.READ_ACTIVE_FILE)) {
+            specs.push({
+                name: Tool.READ_ACTIVE_FILE,
+                description: '에디터에 현재 열려있는 파일의 내용을 읽습니다. 사용자가 @로 파일을 첨부하지 않았고, "이 파일", "지금 보고있는 파일", "열린 파일" 등 경로 없이 현재 파일을 지칭할 때만 사용하세요. @첨부된 파일이 있으면 이 도구는 불필요합니다.',
+                parameters: []
+            });
+        }
+
+        // fetch_url - URL 내용 가져오기
+        if (!allowedTools || allowedTools.includes(Tool.FETCH_URL)) {
+            specs.push({
+                name: Tool.FETCH_URL,
+                description: '외부 URL의 내용을 가져올 수 있습니다. 사용자가 URL을 제공하고 내용을 요청하면 이 도구를 사용하세요. 웹페이지 요약, API 문서 확인, GitHub 파일 조회 등에 활용합니다.',
+                parameters: [
+                    { name: 'url', required: true, description: '가져올 URL (https:// 포함)', type: 'string' }
+                ]
+            });
+        }
+
+        // MCP 도구 추가
+        const mcpSpecs = this.buildMCPToolSpecs();
+        specs.push(...mcpSpecs);
+
         return specs;
+    }
+
+    /**
+     * MCP 도구 스펙 생성
+     */
+    static buildMCPToolSpecs(): ToolSpec[] {
+        const registry = ToolRegistry.getInstance();
+        const mcpHandlers = registry.getMCPTools();
+
+        return mcpHandlers
+            .filter((h): h is MCPToolHandler => h instanceof MCPToolHandler)
+            .map(handler => {
+                const spec = handler.toToolSpec();
+                return {
+                    name: spec.name as ToolName,
+                    description: spec.description,
+                    parameters: spec.parameters
+                };
+            });
     }
 
     /**

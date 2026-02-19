@@ -671,7 +671,6 @@ export class TerminalManager {
 
     private static terminalSeq = 0;
     private static codePilotTerminal: vscode.Terminal | undefined;
-    private static outputLogEnabled = true;
     private static captureOutputChannel: vscode.OutputChannel | undefined;
 
     /**
@@ -687,12 +686,17 @@ export class TerminalManager {
                 console.log(`[TerminalManager] 터미널 작업 디렉토리 설정: ${projectRoot}`);
             }
             const term = vscode.window.createTerminal(terminalOptions);
+            const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === term) {
                     console.log(`[TerminalManager] 터미널 종료 감지: ${name}`);
                     disposable.dispose();
+                    // disposables 배열에서도 제거
+                    const idx = instance.disposables.indexOf(disposable);
+                    if (idx !== -1) instance.disposables.splice(idx, 1);
                 }
             });
+            instance.disposables.push(disposable);
             return term;
         }
 
@@ -720,31 +724,21 @@ export class TerminalManager {
             }
 
             TerminalManager.codePilotTerminal = vscode.window.createTerminal(terminalOptions);
+            const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === TerminalManager.codePilotTerminal) {
                     console.log(`[TerminalManager] 터미널 종료 감지: codepilot Terminal`);
                     TerminalManager.codePilotTerminal = undefined;
                     disposable.dispose();
+                    // disposables 배열에서도 제거
+                    const idx = instance.disposables.indexOf(disposable);
+                    if (idx !== -1) instance.disposables.splice(idx, 1);
                 }
             });
+            instance.disposables.push(disposable);
         }
 
         return TerminalManager.codePilotTerminal;
-    }
-
-    /**
-     * OUTPUT 로그 활성화 상태를 설정합니다 (terminal/terminalManager.ts 호환)
-     */
-    public static setOutputLogEnabled(enabled: boolean): void {
-        TerminalManager.outputLogEnabled = enabled;
-        if (!enabled && TerminalManager.captureOutputChannel) {
-            try {
-                TerminalManager.captureOutputChannel.hide();
-                TerminalManager.captureOutputChannel.clear();
-            } catch (error) {
-                // ignore
-            }
-        }
     }
 
     /**
@@ -918,20 +912,6 @@ export class TerminalManager {
      * OUTPUT 로그 채널을 가져옵니다
      */
     private getCaptureOutputChannel(): vscode.OutputChannel {
-        if (!TerminalManager.outputLogEnabled) {
-            // OUTPUT 로그가 비활성화된 경우 더미 채널 반환
-            return {
-                name: 'CODEPILOT Terminal (Disabled)',
-                append: () => { },
-                appendLine: () => { },
-                clear: () => { },
-                show: () => { },
-                hide: () => { },
-                dispose: () => { },
-                replace: () => { }
-            } as unknown as vscode.OutputChannel;
-        }
-
         if (!TerminalManager.captureOutputChannel) {
             TerminalManager.captureOutputChannel = vscode.window.createOutputChannel('CODEPILOT Terminal');
         }
@@ -1006,8 +986,8 @@ export class TerminalManager {
                     const decoded = Buffer.from(b64, 'base64').toString('utf8');
                     const payload = JSON.parse(decoded) as { type: 'create' | 'modify' | 'delete'; path: string; content?: string };
                     errorPath = payload.path;
-                } catch {
-                    // payload 파싱 실패 시 기본값 사용
+                } catch (parseErr) {
+                    console.debug('[TerminalManager] File-op payload parse failed, using default path:', parseErr);
                 }
                 errorManager.captureError(
                     ErrorSource.TERMINAL,
@@ -1016,9 +996,9 @@ export class TerminalManager {
                         command: 'file-op',
                         cwd: errorPath
                     }
-                ).catch(() => { /* no-op */ });
-            } catch {
-                // ErrorManager 초기화 실패 등은 무시
+                ).catch(err => console.warn('[TerminalManager] ErrorManager capture failed:', err));
+            } catch (errMgrErr) {
+                console.debug('[TerminalManager] ErrorManager unavailable during file-op error capture:', errMgrErr);
             }
             return false;
         }
@@ -1118,7 +1098,7 @@ export class TerminalManager {
                                         console.log(`[TerminalManager] 다른 디렉토리 프로세스는 종료하지 않음: PID ${pid} (CWD: ${processCwd}, 현재: ${absCwd})`);
                                     }
                                 } catch (e) {
-                                    // 개별 프로세스 확인 실패는 무시
+                                    console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
                                 }
                             }
                         }
@@ -1310,7 +1290,7 @@ export class TerminalManager {
                                 cwd,
                                 terminalName: terminal.name
                             }
-                        ).catch(() => { /* no-op */ });
+                        ).catch(err => console.warn('[TerminalManager] ErrorManager capture failed:', err));
                     } catch {
                         // ErrorManager 초기화 실패 등은 무시
                     }
@@ -1514,9 +1494,9 @@ export class TerminalManager {
                                     command: cleanCommand,
                                     cwd
                                 }
-                            ).catch(() => { /* no-op */ });
-                        } catch {
-                            // ErrorManager 초기화 실패 등은 무시
+                            ).catch(err => console.warn('[TerminalManager] ErrorManager capture failed:', err));
+                        } catch (errMgrErr) {
+                            console.debug('[TerminalManager] ErrorManager unavailable during command error capture:', errMgrErr);
                         }
                     });
                 }

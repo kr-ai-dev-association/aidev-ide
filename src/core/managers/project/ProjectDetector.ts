@@ -4,12 +4,15 @@
  */
 
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import {
     ProjectType,
     BuildTool
 } from './types';
 import { AgentConfig } from '../../config/AgentConfig';
+import { EnvironmentHealth } from '../conversation/handlers/ErrorClassifier';
+import { fileExistsAsync, readFileAsync, readdirAsync, readJsonFileAsync } from '../../utils';
 
 export class ProjectDetector {
     /**
@@ -22,8 +25,8 @@ export class ProjectDetector {
     }> {
         console.log(`[ProjectDetector] Detecting project type: ${projectRoot}`);
 
-        // 파일 기반 감지
-        const fileBasedDetection = this.detectByFiles(projectRoot);
+        // 파일 기반 감지 (비동기)
+        const fileBasedDetection = await this.detectByFilesAsync(projectRoot);
         if (fileBasedDetection) {
             return fileBasedDetection;
         }
@@ -47,7 +50,21 @@ export class ProjectDetector {
         confidence: number;
         detector?: (projectRoot: string) => boolean;
     }> = [
-        // Java/Kotlin - Gradle
+        // ⚠️ Android 프로젝트 (Gradle 기반) - Spring Boot보다 먼저 체크해야 함
+        {
+            files: ['build.gradle', 'build.gradle.kts'],
+            type: ProjectType.ANDROID,
+            buildTool: BuildTool.GRADLE,
+            confidence: 0.95,
+            detector: (projectRoot: string) => {
+                // Android 프로젝트 특징: app/build.gradle 또는 AndroidManifest.xml 존재
+                return fs.existsSync(path.join(projectRoot, 'app', 'build.gradle')) ||
+                       fs.existsSync(path.join(projectRoot, 'app', 'build.gradle.kts')) ||
+                       fs.existsSync(path.join(projectRoot, 'app', 'src', 'main', 'AndroidManifest.xml')) ||
+                       fs.existsSync(path.join(projectRoot, 'AndroidManifest.xml'));
+            }
+        },
+        // Java/Kotlin - Gradle (Spring Boot 등, Android가 아닌 경우)
         {
             files: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'],
             type: ProjectType.SPRING_BOOT,
@@ -121,14 +138,14 @@ export class ProjectDetector {
     ];
 
     /**
-     * 파일을 기반으로 프로젝트 타입을 감지합니다
+     * 파일을 기반으로 프로젝트 타입을 감지합니다 (비동기)
      * 범용적인 감지 로직: 명시적 빌드 파일을 순회하며 첫 번째로 발견된 타입 반환
      */
-    private detectByFiles(projectRoot: string): {
+    private async detectByFilesAsync(projectRoot: string): Promise<{
         type: ProjectType;
         confidence: number;
         buildTool: BuildTool;
-    } | null {
+    } | null> {
         try {
             // ============================================================
             // Step 1: 명시적 빌드/설정 파일 기반 감지 (범용적)
@@ -139,10 +156,14 @@ export class ProjectDetector {
                     continue;
                 }
 
-                // 파일 존재 여부 확인
-                const foundFile = rule.files.find(file =>
-                    fs.existsSync(path.join(projectRoot, file))
-                );
+                // 파일 존재 여부 확인 (비동기)
+                let foundFile: string | null = null;
+                for (const file of rule.files) {
+                    if (await fileExistsAsync(path.join(projectRoot, file))) {
+                        foundFile = file;
+                        break;
+                    }
+                }
 
                 if (foundFile) {
                     console.log(`[ProjectDetector] Detected ${rule.type} by file: ${foundFile}`);
@@ -157,65 +178,72 @@ export class ProjectDetector {
             // ============================================================
             // Step 2: package.json 기반 세부 감지 (React, Vue, Angular 등)
             // ============================================================
-            if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
-                const packageJson = JSON.parse(
-                    fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')
-                );
+            const packageJsonPath = path.join(projectRoot, 'package.json');
+            if (await fileExistsAsync(packageJsonPath)) {
+                const packageJson = await readJsonFileAsync<{
+                    dependencies?: Record<string, string>;
+                    devDependencies?: Record<string, string>;
+                }>(packageJsonPath);
 
-                // React
-                if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
+                if (packageJson) {
+                    // React
+                    if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
+                        return {
+                            type: ProjectType.REACT,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // Vue
+                    if (packageJson.dependencies?.vue || packageJson.devDependencies?.vue) {
+                        return {
+                            type: ProjectType.VUE,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // Angular
+                    if (packageJson.dependencies?.['@angular/core'] || packageJson.devDependencies?.['@angular/core']) {
+                        return {
+                            type: ProjectType.ANGULAR,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // TypeScript
+                    if (await fileExistsAsync(path.join(projectRoot, 'tsconfig.json'))) {
+                        return {
+                            type: ProjectType.TYPESCRIPT,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // JavaScript/Node.js
                     return {
-                        type: ProjectType.REACT,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
+                        type: ProjectType.NODE,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
+                        buildTool: await this.detectBuildToolAsync(projectRoot)
                     };
                 }
-
-                // Vue
-                if (packageJson.dependencies?.vue || packageJson.devDependencies?.vue) {
-                    return {
-                        type: ProjectType.VUE,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
-                    };
-                }
-
-                // Angular
-                if (packageJson.dependencies?.['@angular/core'] || packageJson.devDependencies?.['@angular/core']) {
-                    return {
-                        type: ProjectType.ANGULAR,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
-                    };
-                }
-
-                // TypeScript
-                if (fs.existsSync(path.join(projectRoot, 'tsconfig.json'))) {
-                    return {
-                        type: ProjectType.TYPESCRIPT,
-                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                        buildTool: this.detectBuildTool(projectRoot)
-                    };
-                }
-
-                // JavaScript/Node.js
-                return {
-                    type: ProjectType.NODE,
-                    confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.LOCAL_HEURISTIC,
-                    buildTool: this.detectBuildTool(projectRoot)
-                };
             }
 
             // ============================================================
             // Step 3: Python 프레임워크 세부 감지 (Django, Flask, FastAPI)
             // Note: 기본 Python은 Step 1의 EXPLICIT_BUILD_FILES에서 처리됨
             // ============================================================
-            if (fs.existsSync(path.join(projectRoot, 'requirements.txt')) ||
-                fs.existsSync(path.join(projectRoot, 'pyproject.toml')) ||
-                fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
+            const [hasRequirements, hasPyproject, hasPipfile] = await Promise.all([
+                fileExistsAsync(path.join(projectRoot, 'requirements.txt')),
+                fileExistsAsync(path.join(projectRoot, 'pyproject.toml')),
+                fileExistsAsync(path.join(projectRoot, 'Pipfile'))
+            ]);
 
+            if (hasRequirements || hasPyproject || hasPipfile) {
                 // Django
-                if (fs.existsSync(path.join(projectRoot, 'manage.py'))) {
+                if (await fileExistsAsync(path.join(projectRoot, 'manage.py'))) {
                     return {
                         type: ProjectType.DJANGO,
                         confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.DJANGO,
@@ -224,8 +252,11 @@ export class ProjectDetector {
                 }
 
                 // Flask
-                if (fs.existsSync(path.join(projectRoot, 'app.py')) ||
-                    fs.existsSync(path.join(projectRoot, 'flask_app.py'))) {
+                const [hasAppPy, hasFlaskApp] = await Promise.all([
+                    fileExistsAsync(path.join(projectRoot, 'app.py')),
+                    fileExistsAsync(path.join(projectRoot, 'flask_app.py'))
+                ]);
+                if (hasAppPy || hasFlaskApp) {
                     return {
                         type: ProjectType.FLASK,
                         confidence: AgentConfig.PYTHON_PROJECT_CONFIDENCE.FLASK_FASTAPI,
@@ -234,9 +265,10 @@ export class ProjectDetector {
                 }
 
                 // FastAPI
-                if (fs.existsSync(path.join(projectRoot, 'main.py'))) {
+                const mainPyPath = path.join(projectRoot, 'main.py');
+                if (await fileExistsAsync(mainPyPath)) {
                     try {
-                        const mainPy = fs.readFileSync(path.join(projectRoot, 'main.py'), 'utf8');
+                        const mainPy = await readFileAsync(mainPyPath);
                         if (mainPy.includes('FastAPI') || mainPy.includes('from fastapi')) {
                             return {
                                 type: ProjectType.FASTAPI,
@@ -258,7 +290,8 @@ export class ProjectDetector {
 
             // *.csproj, *.sln, *.fsproj (C# / .NET) - 파일명이 가변적
             try {
-                const csprojFiles = fs.readdirSync(projectRoot).filter(f =>
+                const files = await readdirAsync(projectRoot);
+                const csprojFiles = files.filter(f =>
                     f.endsWith('.csproj') || f.endsWith('.sln') || f.endsWith('.fsproj')
                 );
                 if (csprojFiles.length > 0) {
@@ -268,24 +301,20 @@ export class ProjectDetector {
                         buildTool: BuildTool.DOTNET
                     };
                 }
-            } catch {
-                // 디렉토리 읽기 실패 시 무시
-            }
 
-            // *.xcodeproj (iOS/macOS) - 파일명이 가변적, macOS만
-            if (process.platform === 'darwin') {
-                try {
-                    const xcodeprojFiles = fs.readdirSync(projectRoot).filter(f => f.endsWith('.xcodeproj'));
+                // *.xcodeproj (iOS/macOS) - 파일명이 가변적, macOS만
+                if (process.platform === 'darwin') {
+                    const xcodeprojFiles = files.filter(f => f.endsWith('.xcodeproj'));
                     if (xcodeprojFiles.length > 0) {
                         return {
                             type: ProjectType.SWIFT,
                             confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
-                            buildTool: BuildTool.UNKNOWN
+                            buildTool: BuildTool.XCODE
                         };
                     }
-                } catch {
-                    // 디렉토리 읽기 실패 시 무시
                 }
+            } catch {
+                // 디렉토리 읽기 실패 시 무시
             }
 
             return null;
@@ -297,7 +326,7 @@ export class ProjectDetector {
     }
 
     /**
-     * 빌드 도구를 감지합니다
+     * 빌드 도구를 감지합니다 (동기 - 레거시 호환용)
      */
     private detectBuildTool(projectRoot: string): BuildTool {
         if (fs.existsSync(path.join(projectRoot, 'package-lock.json'))) {
@@ -317,6 +346,28 @@ export class ProjectDetector {
         if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
             return BuildTool.NPM;
         }
+
+        return BuildTool.UNKNOWN;
+    }
+
+    /**
+     * 빌드 도구를 감지합니다 (비동기)
+     */
+    private async detectBuildToolAsync(projectRoot: string): Promise<BuildTool> {
+        // 병렬로 락 파일 존재 여부 확인
+        const [hasPackageLock, hasYarnLock, hasPnpmLock, hasBunLock, hasPackageJson] = await Promise.all([
+            fileExistsAsync(path.join(projectRoot, 'package-lock.json')),
+            fileExistsAsync(path.join(projectRoot, 'yarn.lock')),
+            fileExistsAsync(path.join(projectRoot, 'pnpm-lock.yaml')),
+            fileExistsAsync(path.join(projectRoot, 'bun.lockb')),
+            fileExistsAsync(path.join(projectRoot, 'package.json'))
+        ]);
+
+        if (hasPackageLock) return BuildTool.NPM;
+        if (hasYarnLock) return BuildTool.YARN;
+        if (hasPnpmLock) return BuildTool.PNPM;
+        if (hasBunLock) return BuildTool.BUN;
+        if (hasPackageJson) return BuildTool.NPM;
 
         return BuildTool.UNKNOWN;
     }
@@ -533,6 +584,19 @@ export class ProjectDetector {
                 // JavaScript만 있는 경우 npm run build 시도 (package.json에 build 스크립트가 있는 경우)
                 return { command: 'npm run build --dry-run 2>/dev/null || echo "No build script"', description: 'Node.js 빌드 검사' };
 
+            case ProjectType.ANDROID:
+                // Android 프로젝트 검증 (Gradle 기반)
+                const isWinAndroid = process.platform === 'win32';
+                const gradlewAndroid = isWinAndroid ? 'gradlew.bat' : './gradlew';
+
+                // Gradle wrapper 우선 (Android Studio가 생성)
+                if (fs.existsSync(path.join(projectRoot, 'gradlew')) || fs.existsSync(path.join(projectRoot, 'gradlew.bat'))) {
+                    return { command: `${gradlewAndroid} assembleDebug`, description: 'Android 디버그 빌드' };
+                }
+
+                // Gradle wrapper가 없으면 gradle 직접 사용
+                return { command: 'gradle assembleDebug', description: 'Android 디버그 빌드 (Gradle)' };
+
             case ProjectType.SPRING_BOOT:
                 // Java/Kotlin 확장 검증 옵션
                 const isWin = process.platform === 'win32';
@@ -737,6 +801,22 @@ export class ProjectDetector {
                 return null;
 
             case ProjectType.SWIFT:
+                // Xcode 프로젝트 (.xcodeproj) 감지 → xcodebuild 사용
+                if (process.platform === 'darwin') {
+                    try {
+                        const xcodeprojFiles = fs.readdirSync(projectRoot).filter(f => f.endsWith('.xcodeproj'));
+                        if (xcodeprojFiles.length > 0) {
+                            const xcodeproj = xcodeprojFiles[0];
+                            return {
+                                command: `xcodebuild -project ${xcodeproj} build CODE_SIGNING_ALLOWED=NO`,
+                                description: 'Xcode 프로젝트 빌드 검사'
+                            };
+                        }
+                    } catch {
+                        // 디렉토리 읽기 실패 시 swift build fallback
+                    }
+                }
+                // Swift Package Manager (Package.swift) fallback
                 return { command: 'swift build', description: 'Swift 빌드 검사' };
 
             case ProjectType.C_CPP:
@@ -942,6 +1022,30 @@ export class ProjectDetector {
                 }
                 break;
 
+            case ProjectType.ANDROID:
+                // Android 프로젝트 필수 파일
+                if (fs.existsSync(path.join(projectRoot, 'build.gradle'))) {
+                    criticalFiles.push('build.gradle');
+                } else if (fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
+                    criticalFiles.push('build.gradle.kts');
+                }
+                if (fs.existsSync(path.join(projectRoot, 'settings.gradle'))) {
+                    criticalFiles.push('settings.gradle');
+                } else if (fs.existsSync(path.join(projectRoot, 'settings.gradle.kts'))) {
+                    criticalFiles.push('settings.gradle.kts');
+                }
+                // app 모듈 필수 파일
+                if (fs.existsSync(path.join(projectRoot, 'app', 'build.gradle'))) {
+                    criticalFiles.push('app/build.gradle');
+                } else if (fs.existsSync(path.join(projectRoot, 'app', 'build.gradle.kts'))) {
+                    criticalFiles.push('app/build.gradle.kts');
+                }
+                // AndroidManifest.xml
+                if (fs.existsSync(path.join(projectRoot, 'app', 'src', 'main', 'AndroidManifest.xml'))) {
+                    criticalFiles.push('app/src/main/AndroidManifest.xml');
+                }
+                break;
+
             case ProjectType.SPRING_BOOT:
                 if (fs.existsSync(path.join(projectRoot, 'pom.xml'))) {
                     criticalFiles.push('pom.xml');
@@ -1060,27 +1164,30 @@ export class ProjectDetector {
 파일 목록: ${fileList}
 
 지원하는 프로젝트 타입 (우선순위 순서대로):
-1. java-gradle: build.gradle, build.gradle.kts, settings.gradle, gradlew 존재 (Android 포함)
-2. java-maven: pom.xml 존재
-3. nodejs: package.json 존재
-4. python: requirements.txt, pyproject.toml, 또는 Pipfile 존재 (단, __pycache__나 .pytest_cache 폴더만 있는 경우는 python이 아닐 수 있음)
-5. go: go.mod 존재
-6. rust: Cargo.toml 존재
-7. php: composer.json 존재
-8. dart/flutter: pubspec.yaml 존재
-9. csharp: *.csproj, *.sln 존재
-10. ruby: Gemfile, Rakefile 존재
-11. swift: Package.swift 또는 *.xcodeproj 존재 (Mac OS만)
-12. c-cpp: CMakeLists.txt 존재
+1. android: build.gradle + (app 폴더 또는 AndroidManifest.xml 존재) - Android 프로젝트
+2. java-gradle: build.gradle, build.gradle.kts, settings.gradle, gradlew 존재 (Android가 아닌 경우)
+3. java-maven: pom.xml 존재
+4. nodejs: package.json 존재
+5. python: requirements.txt, pyproject.toml, 또는 Pipfile 존재 (단, __pycache__나 .pytest_cache 폴더만 있는 경우는 python이 아닐 수 있음)
+6. go: go.mod 존재
+7. rust: Cargo.toml 존재
+8. php: composer.json 존재
+9. dart/flutter: pubspec.yaml 존재
+10. csharp: *.csproj, *.sln 존재
+11. ruby: Gemfile, Rakefile 존재
+12. swift: Package.swift 또는 *.xcodeproj 존재 (Mac OS만)
+13. c-cpp: CMakeLists.txt 존재
 
-중요: __pycache__, .pytest_cache 같은 캐시 디렉토리만으로 Python 프로젝트라고 판단하지 마세요.
-build.gradle이나 settings.gradle이 있으면 반드시 java-gradle로 판단하세요.
+중요:
+- __pycache__, .pytest_cache 같은 캐시 디렉토리만으로 Python 프로젝트라고 판단하지 마세요.
+- build.gradle이 있고 app 폴더나 AndroidManifest.xml이 있으면 android로 판단하세요.
+- build.gradle이 있지만 Android 특징이 없으면 java-gradle로 판단하세요.
 
 JSON 형식으로 응답하세요:
 {
-  "projectType": "java-gradle",
-  "confidence": 0.9,
-  "reasoning": "build.gradle 파일이 존재하므로 Gradle 기반 Java/Android 프로젝트입니다."
+  "projectType": "android",
+  "confidence": 0.95,
+  "reasoning": "build.gradle과 app 폴더가 존재하므로 Android 프로젝트입니다."
 }`;
 
             // LLM 호출
@@ -1100,6 +1207,10 @@ JSON 형식으로 응답하세요:
                     case 'nodejs':
                         projectType = ProjectType.NODE;
                         buildTool = BuildTool.NPM;
+                        break;
+                    case 'android':
+                        projectType = ProjectType.ANDROID;
+                        buildTool = BuildTool.GRADLE;
                         break;
                     case 'java-maven':
                         projectType = ProjectType.SPRING_BOOT;
@@ -1458,6 +1569,121 @@ JSON 형식으로 응답하세요:
             default:
                 return null;
         }
+    }
+
+    // ==================== 환경 상태 검사 ====================
+
+    /**
+     * 프로젝트 환경 상태 검사 (파일시스템 기반)
+     * manifest 파일은 있지만 dependency 디렉토리가 없으면 설치 필요로 판단
+     * 키워드 패턴 매칭 없이 파일시스템 상태만으로 판단
+     */
+    public static checkEnvironmentHealth(workspaceRoot: string): EnvironmentHealth {
+        const result: EnvironmentHealth = {
+            hasManifestFile: false,
+            hasDependencyDir: false,
+            hasLockFile: false,
+            needsInstall: false,
+        };
+
+        // 범용 매니페스트 → 의존성 디렉토리 매핑 테이블
+        const ECOSYSTEM_MAP: Array<{
+            manifest: string;
+            depDir: string;          // 빈 문자열 = dep dir 검사 불필요 (Go 등)
+            lockFiles: string[];
+            installCmd: (pm: string) => string;
+        }> = [
+            {
+                manifest: 'package.json',
+                depDir: 'node_modules',
+                lockFiles: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb'],
+                installCmd: (pm) => `${pm} install`
+            },
+            {
+                manifest: 'requirements.txt',
+                depDir: '',
+                lockFiles: [],
+                installCmd: () => 'pip install -r requirements.txt'
+            },
+            {
+                manifest: 'pyproject.toml',
+                depDir: '.venv',
+                lockFiles: ['poetry.lock', 'pdm.lock'],
+                installCmd: () => 'poetry install'
+            },
+            {
+                manifest: 'Pipfile',
+                depDir: '.venv',
+                lockFiles: ['Pipfile.lock'],
+                installCmd: () => 'pipenv install'
+            },
+            {
+                manifest: 'Cargo.toml',
+                depDir: 'target',
+                lockFiles: ['Cargo.lock'],
+                installCmd: () => 'cargo build'
+            },
+            {
+                manifest: 'go.mod',
+                depDir: '',
+                lockFiles: ['go.sum'],
+                installCmd: () => 'go mod download'
+            },
+            {
+                manifest: 'Gemfile',
+                depDir: 'vendor/bundle',
+                lockFiles: ['Gemfile.lock'],
+                installCmd: () => 'bundle install'
+            },
+            {
+                manifest: 'composer.json',
+                depDir: 'vendor',
+                lockFiles: ['composer.lock'],
+                installCmd: () => 'composer install'
+            },
+            {
+                manifest: 'pubspec.yaml',
+                depDir: '.dart_tool',
+                lockFiles: ['pubspec.lock'],
+                installCmd: () => 'flutter pub get'
+            },
+        ];
+
+        for (const eco of ECOSYSTEM_MAP) {
+            const manifestPath = path.join(workspaceRoot, eco.manifest);
+            if (fs.existsSync(manifestPath)) {
+                result.hasManifestFile = true;
+
+                // Lock file 존재 여부
+                for (const lockFile of eco.lockFiles) {
+                    if (fs.existsSync(path.join(workspaceRoot, lockFile))) {
+                        result.hasLockFile = true;
+                        break;
+                    }
+                }
+
+                // Dependency directory 존재 여부
+                if (eco.depDir) {
+                    result.hasDependencyDir = fs.existsSync(path.join(workspaceRoot, eco.depDir));
+                } else {
+                    result.hasDependencyDir = true; // dep dir 검사 불필요 (Go 등)
+                }
+
+                // 패키지 매니저 감지 (Node.js 에코시스템)
+                if (eco.manifest === 'package.json') {
+                    const detector = new ProjectDetector();
+                    result.packageManager = detector.detectPackageManager(workspaceRoot);
+                    result.installCommand = eco.installCmd(result.packageManager);
+                } else {
+                    result.installCommand = eco.installCmd('');
+                }
+
+                result.needsInstall = result.hasManifestFile && !result.hasDependencyDir;
+                break; // 첫 번째 매칭 에코시스템 사용
+            }
+        }
+
+        return result;
     }
 }
 

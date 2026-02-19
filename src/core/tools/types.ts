@@ -41,10 +41,17 @@ export enum Tool {
 }
 
 /**
+ * MCP 도구를 포함하는 도구 이름 타입
+ * 내장 도구(Tool enum)와 MCP 동적 도구를 모두 지원
+ * MCP 도구는 원래 이름 그대로 등록됨 (프리픽스 없음, 충돌 시에만 서버명 접두사)
+ */
+export type ToolName = Tool | string;
+
+/**
  * 툴 사용 (LLM이 생성하는 툴 콜)
  */
 export interface ToolUse {
-    name: Tool;
+    name: ToolName;
     params: Record<string, string>;
     partial?: boolean;  // 스트리밍 중 부분 블록
     isNativeToolCall?: boolean;  // 네이티브 툴 콜 여부
@@ -70,7 +77,7 @@ export interface ToolResponse {
  * 툴 스펙 (프롬프트에 포함될 툴 정의)
  */
 export interface ToolSpec {
-    name: Tool;
+    name: ToolName;
     description: string;
     parameters: ToolParameter[];
 }

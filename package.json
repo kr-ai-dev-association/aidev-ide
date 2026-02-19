@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "9.1.7",
+  "version": "9.7.3",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -235,6 +235,12 @@
           "description": "Enable or disable automatic updating of files based on LLM's code block suggestions. If disabled, you will be prompted before updating.",
           "scope": "resource"
         },
+        "codepilot.autoDeleteFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable or disable automatic deletion of files. If disabled, you will be prompted before deleting any file.",
+          "scope": "resource"
+        },
         "codepilot.projectRoot": {
           "type": "string",
           "default": "",
@@ -260,12 +266,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable terminal-daemon to run commands via external PTY daemon and stream logs/errors.",
-          "scope": "resource"
-        },
-        "codepilot.outputLogEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable or disable logs displayed in VS Code's OUTPUT panel. Disabling makes it easier to check terminal logs.",
           "scope": "resource"
         },
         "codepilot.errorRetryCount": {
@@ -301,6 +301,23 @@
           "default": true,
           "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
           "scope": "resource"
+        },
+        "codepilot.autoToolExecution": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable automatic execution of all tools (read, search, etc). When disabled, you will be prompted before executing any tool.",
+          "scope": "resource"
+        },
+        "codepilot.chatTheme": {
+          "type": "string",
+          "default": "dark",
+          "enum": [
+            "dark",
+            "light",
+            "auto"
+          ],
+          "description": "채팅 패널의 색상 테마를 설정합니다. (dark: 다크, light: 라이트, auto: VS Code)",
+          "scope": "resource"
         }
       }
     }
@@ -317,15 +334,17 @@
     "test": "vscode-test"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@peoplesgrocers/seti-ui-file-icons": "^1.11.3",
     "@tensorflow/tfjs-node": "^4.22.0",
+    "cheerio": "^1.2.0",
     "diff": "^8.0.2",
-    "evaluate": "^1.0.2",
     "firebase": "^10.7.0",
     "korean-text-analytics": "^0.0.7",
     "markdown-it-container": "^4.0.0",
     "tree-sitter-wasms": "^0.1.11",
-    "web-tree-sitter": "^0.20.8"
+    "web-tree-sitter": "^0.20.8",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@babel/core": "^7.27.3",

@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
 import {
     ContextData,
     ContextType,
@@ -30,6 +31,7 @@ import { ProjectManager } from '../project/ProjectManager';
 import { estimateTokens } from '../../../utils';
 import { RelevantFilesFinder, RelevantFilesResult } from './file/RelevantFilesFinder';
 import { FileContextTracker } from './file/FileContextTracker';
+import { DetailedStack } from '../project';
 
 export class ContextManager {
     private static instance: ContextManager;
@@ -231,12 +233,16 @@ export class ContextManager {
 
         const filePath = editor.document.uri.fsPath;
 
-        // 파일 크기 확인
+        // 파일 크기 확인 (비동기)
         if (options.maxFileSize) {
-            const stats = require('fs').statSync(filePath);
-            if (stats.size > options.maxFileSize) {
-                console.warn(`[ContextManager] File too large: ${stats.size} bytes, max: ${options.maxFileSize}`);
-                return null;
+            try {
+                const stats = await fs.stat(filePath);
+                if (stats.size > options.maxFileSize) {
+                    console.warn(`[ContextManager] File too large: ${stats.size} bytes, max: ${options.maxFileSize}`);
+                    return null;
+                }
+            } catch (error) {
+                console.warn('[ContextManager] Failed to check file size:', error);
             }
         }
 
@@ -567,6 +573,64 @@ export class ContextManager {
         }
 
         return lines.join('\n');
+    }
+
+    /**
+     * 프로젝트의 세부 기술 스택을 감지합니다
+     * ProjectManager에 위임
+     */
+    public async detectDetailedStack(forceRefresh: boolean = false): Promise<DetailedStack | null> {
+        if (!this.projectManager) {
+            console.warn('[ContextManager] Project Manager not set, cannot detect stack');
+            return null;
+        }
+        return await this.projectManager.detectDetailedStack(forceRefresh);
+    }
+
+    /**
+     * 캐시된 세부 스택 반환 (동기)
+     * ProjectManager에 위임
+     */
+    public getCachedDetailedStack(): DetailedStack | undefined {
+        return this.projectManager?.getCachedDetailedStack();
+    }
+
+    /**
+     * 스택 캐시 초기화
+     * ProjectManager에 위임
+     */
+    public clearStackCache(): void {
+        this.projectManager?.clearStackCache();
+    }
+
+    /**
+     * 프로젝트 전체 컨텍스트 빌드 (프로필 + 스택 정보)
+     * ProjectManager에 위임
+     */
+    public async buildFullProjectContext(profile?: any, projectType?: string): Promise<string> {
+        if (!this.projectManager) {
+            return '';
+        }
+        return await this.projectManager.buildFullProjectContext(profile, projectType);
+    }
+
+    /**
+     * 프레임워크 규칙 프롬프트 생성
+     * 스택 정보를 LLM 컨텍스트용 문자열로 변환
+     */
+    public async getFrameworkRulesPrompt(forceRefresh: boolean = false): Promise<string> {
+        if (!this.projectManager) {
+            return '';
+        }
+
+        // 스택 감지
+        const detailedStack = await this.projectManager.detectDetailedStack(forceRefresh);
+        if (!detailedStack || detailedStack.stacks.length === 0) {
+            return '';
+        }
+
+        // 스택 요약 문자열 반환
+        return this.projectManager.getStackSummary();
     }
 
     /**

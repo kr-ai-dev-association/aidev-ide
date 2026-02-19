@@ -21,26 +21,32 @@ import {
 import { ProjectDetector } from './ProjectDetector';
 import { ProjectIndexer } from './ProjectIndexer';
 import { ConfigParser } from './ConfigParser';
+import { StackDetector } from './StackDetector';
+import { DetailedStack } from './stackTypes';
 import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
 import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
 import { AgentConfig } from '../../config/AgentConfig';
-import { EXCLUDED_LIBRARY_PATHS } from '../../utils/FileExclusionConstants';
+import { getAllExclusionPaths, fileExistsAsync, readdirAsync } from '../../utils';
 
 export class ProjectManager {
     private static instance: ProjectManager;
     private detector: ProjectDetector;
     private indexer: ProjectIndexer;
     private parser: ConfigParser;
+    private stackDetector: StackDetector;
     private currentProject?: ProjectInfo;
     private projectRoot?: string;
     private codeParserAdapter: ICodeParserAdapter;
+    private cachedDetailedStack?: DetailedStack;
+    private lastStackDetectionTime: number = 0;
 
     private constructor() {
         this.detector = new ProjectDetector();
         this.indexer = new ProjectIndexer();
         this.parser = new ConfigParser();
+        this.stackDetector = new StackDetector();
         // 코드 파서 초기화
         this.codeParserAdapter = new TreeSitterAdapter();
     }
@@ -124,29 +130,57 @@ export class ProjectManager {
         abortSignal?: AbortSignal
     ): Promise<{ projectType: string, confidence: number, needsUserSelection: boolean }> {
         try {
-            // 로컬 파일 시스템 기반 감지 먼저 시도
+            // 로컬 파일 시스템 기반 감지 먼저 시도 (비동기)
             let localProjectType = 'unknown';
             const root = projectRoot || this.projectRoot;
             if (root) {
                 try {
-                    if (fs.existsSync(path.join(root, 'package.json'))) {
+                    // 병렬로 파일 존재 여부 확인
+                    const [
+                        hasPackageJson,
+                        hasRequirements,
+                        hasPyproject,
+                        hasPomXml,
+                        hasBuildGradle,
+                        hasGoMod,
+                        hasAppDir,
+                        hasAndroidManifest,
+                        hasPodfile
+                    ] = await Promise.all([
+                        fileExistsAsync(path.join(root, 'package.json')),
+                        fileExistsAsync(path.join(root, 'requirements.txt')),
+                        fileExistsAsync(path.join(root, 'pyproject.toml')),
+                        fileExistsAsync(path.join(root, 'pom.xml')),
+                        fileExistsAsync(path.join(root, 'build.gradle')),
+                        fileExistsAsync(path.join(root, 'go.mod')),
+                        fileExistsAsync(path.join(root, 'app')),
+                        fileExistsAsync(path.join(root, 'app', 'src', 'main', 'AndroidManifest.xml')),
+                        fileExistsAsync(path.join(root, 'Podfile'))
+                    ]);
+
+                    if (hasPackageJson) {
                         localProjectType = 'nodejs-npm';
-                    } else if (fs.existsSync(path.join(root, 'requirements.txt')) || fs.existsSync(path.join(root, 'pyproject.toml'))) {
+                    } else if (hasRequirements || hasPyproject) {
                         localProjectType = 'python';
-                    } else if (fs.existsSync(path.join(root, 'pom.xml'))) {
+                    } else if (hasPomXml) {
                         localProjectType = 'java-maven';
-                    } else if (fs.existsSync(path.join(root, 'build.gradle'))) {
-                        localProjectType = 'java-gradle';
-                    } else if (fs.existsSync(path.join(root, 'go.mod'))) {
-                        localProjectType = 'go';
-                    } else if (fs.existsSync(path.join(root, 'build.gradle')) && fs.existsSync(path.join(root, 'app'))) {
+                    } else if (hasBuildGradle) {
                         // Android 프로젝트 확인
-                        const androidManifest = fs.existsSync(path.join(root, 'app', 'src', 'main', 'AndroidManifest.xml'));
-                        if (androidManifest) {
+                        if (hasAppDir && hasAndroidManifest) {
                             localProjectType = 'android';
+                        } else {
+                            localProjectType = 'java-gradle';
                         }
-                    } else if (fs.existsSync(path.join(root, 'Podfile')) || fs.existsSync(path.join(root, '*.xcodeproj'))) {
+                    } else if (hasGoMod) {
+                        localProjectType = 'go';
+                    } else if (hasPodfile) {
                         localProjectType = 'ios';
+                    } else {
+                        // iOS xcodeproj 확인 (비동기)
+                        const files = await readdirAsync(root);
+                        if (files.some(f => f.endsWith('.xcodeproj'))) {
+                            localProjectType = 'ios';
+                        }
                     }
                 } catch (e) {
                     console.warn('[ProjectManager] 로컬 프로젝트 타입 감지 실패:', e);
@@ -657,6 +691,7 @@ export class ProjectManager {
             [ProjectType.VUE]: 'TypeScript/JavaScript',
             [ProjectType.ANGULAR]: 'TypeScript',
             [ProjectType.NODE]: 'JavaScript',
+            [ProjectType.ANDROID]: 'Kotlin/Java',
             [ProjectType.SPRING_BOOT]: 'Java',
             [ProjectType.JAVA]: 'Java',
             [ProjectType.PYTHON]: 'Python',
@@ -1116,8 +1151,8 @@ export class ProjectManager {
                 return norm.startsWith(rootNorm) ? norm.substring(rootNorm.length + (rootNorm.endsWith('/') ? 0 : 1)) : norm;
             };
 
-            // 제외할 디렉토리 목록 (FileExclusionConstants 활용)
-            const excludeDirs = new Set(EXCLUDED_LIBRARY_PATHS);
+            // 제외할 디렉토리 목록 (FileExclusionConstants + 커스텀 패턴)
+            const excludeDirs = new Set(getAllExclusionPaths());
 
             const walk = async (dir: vscode.Uri, depth: number) => {
                 if (items.length >= maxEntries) return;
@@ -1152,6 +1187,108 @@ export class ProjectManager {
         } catch {
             return '';
         }
+    }
+
+    // ==================== Stack Detection Methods ====================
+
+    /**
+     * 프로젝트의 세부 기술 스택을 감지합니다
+     * 캐시를 사용하여 5분 이내 재호출 시 캐시된 결과 반환
+     */
+    public async detectDetailedStack(forceRefresh: boolean = false): Promise<DetailedStack | null> {
+        if (!this.currentProject || !this.projectRoot) {
+            console.warn('[ProjectManager] No project detected');
+            return null;
+        }
+
+        // 캐시 확인 (5분 유효)
+        const CACHE_DURATION = 5 * 60 * 1000; // 5분
+        const now = Date.now();
+        if (!forceRefresh && this.cachedDetailedStack && (now - this.lastStackDetectionTime) < CACHE_DURATION) {
+            console.log('[ProjectManager] Using cached detailed stack');
+            return this.cachedDetailedStack;
+        }
+
+        console.log(`[ProjectManager] Detecting detailed stack for ${this.currentProject.type}...`);
+
+        try {
+            const detailedStack = await this.stackDetector.detectDetailedStack(
+                this.projectRoot,
+                this.currentProject.type
+            );
+
+            // 캐시 저장
+            this.cachedDetailedStack = detailedStack;
+            this.lastStackDetectionTime = now;
+
+            console.log(`[ProjectManager] Detected ${detailedStack.stacks.length} stacks:`,
+                detailedStack.stacks.map(s => s.name).join(', '));
+
+            return detailedStack;
+        } catch (error) {
+            console.error('[ProjectManager] Stack detection failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 캐시된 세부 스택 반환 (동기)
+     */
+    public getCachedDetailedStack(): DetailedStack | undefined {
+        return this.cachedDetailedStack;
+    }
+
+    /**
+     * 스택 캐시 초기화
+     */
+    public clearStackCache(): void {
+        this.cachedDetailedStack = undefined;
+        this.lastStackDetectionTime = 0;
+        console.log('[ProjectManager] Stack cache cleared');
+    }
+
+    /**
+     * 스택 정보를 요약 문자열로 변환 (LLM 컨텍스트용)
+     */
+    public getStackSummary(): string {
+        if (!this.cachedDetailedStack) {
+            return '';
+        }
+        return this.stackDetector.formatStackSummary(this.cachedDetailedStack);
+    }
+
+    /**
+     * 프로젝트 컨텍스트 전체를 빌드합니다 (프로필 + 스택 정보)
+     */
+    public async buildFullProjectContext(profile?: ProjectProfile, projectType?: string): Promise<string> {
+        const lines: string[] = [];
+
+        // 프로필 컨텍스트
+        if (profile) {
+            lines.push(this.buildProfileContext(profile, projectType));
+        }
+
+        // 스택 정보 추가
+        const stackSummary = this.getStackSummary();
+        if (stackSummary) {
+            lines.push('');
+            lines.push('--- 감지된 기술 스택 ---');
+            lines.push(stackSummary);
+        }
+
+        // 호환성 이슈가 있으면 추가
+        if (this.cachedDetailedStack?.potentialIssues && this.cachedDetailedStack.potentialIssues.length > 0) {
+            lines.push('');
+            lines.push('--- 잠재적 호환성 이슈 ---');
+            for (const issue of this.cachedDetailedStack.potentialIssues) {
+                lines.push(`[${issue.severity.toUpperCase()}] ${issue.description}`);
+                if (issue.recommendation) {
+                    lines.push(`  권장: ${issue.recommendation}`);
+                }
+            }
+        }
+
+        return lines.join('\n');
     }
 }
 

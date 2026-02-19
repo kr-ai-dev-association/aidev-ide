@@ -25,7 +25,9 @@ export interface PromptComposerOptions {
     terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
     diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics (에러/경고)
     allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
+    frameworkRulesPrompt?: string; // v9.2.1: 동적 프레임워크 규칙 프롬프트
     hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
+    mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
 }
 
 export class PromptComposer {
@@ -127,7 +129,7 @@ ${rules.join('\n\n---\n\n')}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, hotLoadPrompt } = options;
+        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -209,13 +211,18 @@ ${diagnosticsContextContent}
         // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
         const agentRules = this.loadAgentRules();
 
-        // 조합 (Hot Load와 첨부 컨텍스트 경고를 최상단에 배치)
+        // v9.2.1: 프레임워크 규칙 섹션 (동적 감지된 스택 기반)
+        const frameworkRulesSection = frameworkRulesPrompt || '';
+
+        // 조합 (Hot Load 프롬프트와 첨부 컨텍스트 경고를 최상단에 배치)
         const parts = [
             hotLoadPrompt, // Hot Load 프롬프트 (최우선 규칙)
             attachedContextWarning, // 첨부 컨텍스트 경고
             osContextInfo,
             basePrompt,
+            mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
             agentRules, // 개발 규칙을 강력하게 포함
+            frameworkRulesSection, // v9.2.1: 동적 프레임워크 규칙
             terminalCommandRules,
             taskPrompt,
             // 사용자가 첨부한 컨텍스트 (터미널, 파일, Diagnostics)를 코드베이스보다 앞에 배치

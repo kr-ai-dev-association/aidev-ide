@@ -200,11 +200,6 @@ export function applyLanguage() {
   applyText("remote-ollama-endpoint-label", languageData["remoteOllamaEndpointLabel"]);
   applyText("ollama-model-label", languageData["ollamaModelLabel"]);
 
-  // 출력 로그 관련
-  applyText("output-log-label", languageData["outputLogLabel"]);
-  applyText("output-log-on", languageData["outputLogOn"]);
-  applyText("output-log-off", languageData["outputLogOff"]);
-
   // 스트리밍 관련
   applyText("streaming-label", languageData["streamingLabel"]);
   applyText("streaming-on", languageData["streamingOn"]);

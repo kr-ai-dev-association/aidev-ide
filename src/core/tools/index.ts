@@ -10,5 +10,4 @@ export * from './ToolRegistry';
 export * from './ToolSpecBuilder';
 export * from './file';
 export * from './terminal';
-export * from './code';
 
