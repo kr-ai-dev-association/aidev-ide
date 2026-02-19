@@ -30,12 +30,34 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
+        const waitForCompletion = toolUse.params.wait === 'true' || String(toolUse.params.wait) === 'true';
+
+        // wait=true인 경우: 타임아웃 없이 완료까지 대기
+        if (waitForCompletion) {
+            console.log(`[RunCommandToolHandler] wait=true: Waiting for command completion: ${command}`);
+            const result = await context.executionManager.executeCommand(command, {
+                cwd: context.projectRoot
+                // 타임아웃 없음 - 완료까지 대기
+            });
+
+            return {
+                success: result.success,
+                message: result.success
+                    ? `Command executed: ${command}`
+                    : `Command failed: ${command}`,
+                data: {
+                    output: result.stdout,
+                    error: result.stderr,
+                    exitCode: result.exitCode
+                }
+            };
+        }
 
         // npm install 등 설치 명령어는 기본적으로 더 긴 타임아웃 부여
         const isSetupCommand = command.includes('npm install') || command.includes('yarn install') || command.includes('pnpm install');
-        const initialTimeout = isSetupCommand ? 10000 : 5000;
+        const initialTimeout = isSetupCommand ? 60000 : 30000;
 
-        // 짧은 타임아웃으로 시작하여 출력을 확인 (killOnTimeout: false로 설정하여 프로세스 유지)
+        // 초기 타임아웃으로 실행 (killOnTimeout: false로 설정하여 프로세스 유지)
         const initialResult = await context.executionManager.executeCommand(command, {
             cwd: context.projectRoot,
             timeout: initialTimeout,
@@ -56,21 +78,23 @@ export class RunCommandToolHandler implements IToolHandler {
             if (pid) {
                 console.log(`[RunCommandToolHandler] Long-running command detected (output-based/timeout): ${command}, using continue() pattern`);
 
-                // continue() 호출하여 백그라운드에서 계속 실행
+                // 버퍼에서 현재까지의 출력을 가져온 후 continue() 호출
+                const buffer = context.executionManager.getProcessOutput(pid);
                 context.executionManager.continueProcess(pid);
 
-                // 타임아웃 발생 시에도 성공 메시지 반환
-                const isTimeout = initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE';
-                const outputMessage = isTimeout
-                    ? `명령어가 백그라운드에서 실행 중입니다. ${initialResult.stdout ? `현재까지의 출력:\n${initialResult.stdout}` : ''}`
-                    : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}...`);
+                const bufferedStdout = buffer?.stdout || initialResult.stdout || '';
+                const bufferedStderr = buffer?.stderr || initialResult.stderr || '';
+
+                const outputMessage = bufferedStdout
+                    ? `명령어가 백그라운드에서 실행 중입니다.\n현재까지의 출력:\n${bufferedStdout}`
+                    : `명령어가 백그라운드에서 실행 중입니다.`;
 
                 return {
                     success: true,
                     message: `Long-running command started: ${command}${pid ? ` (PID: ${pid})` : ''}`,
                     data: {
                         output: outputMessage,
-                        error: initialResult.stderr,
+                        error: bufferedStderr,
                         exitCode: undefined // 장기 실행 프로세스는 exitCode 없음
                     }
                 };
@@ -78,7 +102,6 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         // 초기 실행이 성공적으로 완료된 경우 (exitCode가 있고 에러가 없음) 바로 반환
-        // 이렇게 하면 중복 실행을 방지할 수 있음
         if (initialResult.exitCode !== undefined && !initialResult.error) {
             console.log(`[RunCommandToolHandler] Command completed in initial execution: ${command}`);
             return {
@@ -97,7 +120,6 @@ export class RunCommandToolHandler implements IToolHandler {
         // 사용자가 명시적으로 타임아웃을 지정한 경우
         if (timeoutSeconds && timeoutSeconds > 0) {
             try {
-                // 타임아웃으로 Promise.race 사용
                 const timeoutPromise = new Promise<ExecutionResult>((_, reject) => {
                     setTimeout(() => {
                         reject(new Error('COMMAND_TIMEOUT'));
@@ -122,15 +144,14 @@ export class RunCommandToolHandler implements IToolHandler {
                     }
                 };
             } catch (error) {
-                // 타임아웃 발생 시 continue() 호출
                 if (error instanceof Error && error.message === 'COMMAND_TIMEOUT') {
                     const runningProcesses = context.executionManager.getRunningProcesses();
                     const process = runningProcesses.find(p => p.command === command);
 
                     if (process) {
+                        const buffer = context.executionManager.getProcessOutput(process.pid);
                         context.executionManager.continueProcess(process.pid);
 
-                        const buffer = context.executionManager.getProcessOutput(process.pid);
                         return {
                             success: true,
                             message: `Command execution timed out after ${timeoutSeconds} seconds. Command is still running in background.`,
@@ -142,8 +163,6 @@ export class RunCommandToolHandler implements IToolHandler {
                         };
                     }
                 }
-
-                // 다른 에러는 그대로 전달
                 throw error;
             }
         }

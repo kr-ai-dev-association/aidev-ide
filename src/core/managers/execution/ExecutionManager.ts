@@ -372,16 +372,21 @@ export class ExecutionManager {
             if (timeout && timeout > 0) {
                 timeoutHandle = setTimeout(() => {
                     console.warn(`[ExecutionManager] Timeout after ${timeout}ms for PID=${pid}`);
-                    
+
                     if (killOnTimeout) {
                         childProcess.kill('SIGTERM');
                     }
 
+                    // 타임아웃 시 버퍼에 축적된 출력을 포함
+                    const buffer = this.streamManager.getBuffer(pid);
+                    const bufferedStdout = buffer?.stdout || '';
+                    const bufferedStderr = buffer?.stderr || '';
+
                     doResolve({
                         success: !killOnTimeout, // 죽이지 않는 경우 일단 성공(진행중)으로 간주
                         exitCode: killOnTimeout ? -1 : undefined as any,
-                        stdout: '',
-                        stderr: killOnTimeout ? 'Command timeout' : '',
+                        stdout: bufferedStdout,
+                        stderr: killOnTimeout ? (bufferedStderr || 'Command timeout') : bufferedStderr,
                         duration: Date.now() - startTime,
                         pid,
                         error: killOnTimeout ? {
