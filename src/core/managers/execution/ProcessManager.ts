@@ -91,8 +91,8 @@ export class ProcessManager {
         try {
             this.updateStatus(pid, ProcessStatus.STOPPING);
 
-            // SIGTERM으로 먼저 시도
-            const killed = childProcess.kill(signal);
+            // 프로세스 종료 시도 (Windows는 SIGTERM을 즉시 종료로 처리)
+            const killed = childProcess.kill(process.platform === 'win32' ? undefined : signal);
 
             if (!killed) {
                 console.warn(`[ProcessManager] Failed to send ${signal} to PID=${pid}`);
@@ -106,7 +106,7 @@ export class ProcessManager {
                 const timeout = setTimeout(() => {
                     if (this.isProcessRunning(pid)) {
                         console.warn(`[ProcessManager] Force killing PID=${pid} after grace period`);
-                        childProcess.kill('SIGKILL');
+                        childProcess.kill(process.platform === 'win32' ? undefined : 'SIGKILL');
                     }
                     resolve();
                 }, gracePeriod);
@@ -218,12 +218,9 @@ export class ProcessManager {
         // 간단한 파싱 (쉘이 처리하므로 복잡한 파싱 불필요)
         const trimmed = command.trim();
 
-        // 쉘 명령어인 경우 그대로 반환
-        if (process.platform === 'win32') {
-            return ['cmd', '/c', trimmed];
-        } else {
-            return [trimmed]; // shell: true이므로 쉘이 파싱
-        }
+        // shell: true 옵션과 함께 사용하므로 명령어를 그대로 반환
+        // (Node.js spawn이 shell: true일 때 자동으로 cmd.exe /c 또는 /bin/sh -c로 래핑)
+        return [trimmed];
     }
 
 

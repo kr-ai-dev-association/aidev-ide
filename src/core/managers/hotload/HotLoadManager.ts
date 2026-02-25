@@ -87,6 +87,9 @@ export class HotLoadManager {
         this.data = JSON.parse(fileContent);
       }
 
+      // 서버 관리 HotLoad 설정 병합
+      await this.mergeServerHotLoadConfigs();
+
       this.initialized = true;
       console.log("[HotLoadManager] Data initialized at:", this.dataPath);
     } catch (error) {
@@ -94,6 +97,76 @@ export class HotLoadManager {
       // 오류 시 빈 데이터로 초기화
       this.data = { nextId: 1, items: [] };
       this.initialized = true;
+    }
+  }
+
+  /**
+   * 서버(백엔드)에서 관리되는 HotLoad 설정을 로컬 데이터에 병합
+   * - enforcement='required': 자동 추가, 변경 불가 (immutable)
+   * - enforcement='recommended': 로컬에 없으면 추가 (사용자가 수정/삭제 가능)
+   * - key 기준으로 중복 제거
+   */
+  private async mergeServerHotLoadConfigs(): Promise<void> {
+    try {
+      const { SettingsManager } = await import('../state/SettingsManager');
+      const settingsManager = SettingsManager.getInstance();
+      const serverConfigs = settingsManager.getServerHotLoadConfigs();
+
+      if (!serverConfigs || serverConfigs.length === 0) {
+        return;
+      }
+
+      for (const serverConfig of serverConfigs) {
+        const configValue = serverConfig.value as Partial<HotLoadItem> & { keywords?: string; command?: string };
+        if (!configValue || !configValue.keywords || !configValue.command) continue;
+
+        // key 기준으로 중복 확인 (키워드로 매칭)
+        const existingIndex = this.data.items.findIndex(
+          (item) => item.keywords === configValue.keywords
+        );
+
+        if (serverConfig.enforcement === 'required') {
+          const serverItem: HotLoadItem = {
+            id: configValue.id || this.data.nextId++,
+            keywords: configValue.keywords,
+            description: configValue.description || serverConfig.key,
+            command: configValue.command,
+            createdAt: configValue.createdAt || new Date().toISOString(),
+            ...(configValue.completionCondition && { completionCondition: configValue.completionCondition }),
+            ...(configValue.maxRetries !== undefined && configValue.maxRetries > 0 && { maxRetries: configValue.maxRetries }),
+            ...(configValue.onFailure && configValue.onFailure !== 'stop' && { onFailure: configValue.onFailure }),
+            immutable: true, // 서버 required 항목은 변경 불가
+          } as HotLoadItem & { immutable: boolean };
+
+          if (existingIndex !== -1) {
+            // 이미 존재하면 서버 설정으로 덮어쓰기
+            serverItem.id = this.data.items[existingIndex].id;
+            this.data.items[existingIndex] = serverItem;
+          } else {
+            this.data.items.push(serverItem);
+          }
+        } else if (serverConfig.enforcement === 'recommended') {
+          if (existingIndex === -1) {
+            // 로컬에 없으면 추가 (fromServer 플래그로 개인 목록에서 구분)
+            this.data.items.push({
+              id: configValue.id || this.data.nextId++,
+              keywords: configValue.keywords,
+              description: configValue.description || serverConfig.key,
+              command: configValue.command,
+              createdAt: configValue.createdAt || new Date().toISOString(),
+              ...(configValue.completionCondition && { completionCondition: configValue.completionCondition }),
+              ...(configValue.maxRetries !== undefined && configValue.maxRetries > 0 && { maxRetries: configValue.maxRetries }),
+              ...(configValue.onFailure && configValue.onFailure !== 'stop' && { onFailure: configValue.onFailure }),
+              fromServer: true,
+            } as any);
+          }
+        }
+      }
+
+      console.log(`[HotLoadManager] Merged ${serverConfigs.length} server HotLoad configs`);
+    } catch (error) {
+      // 서버 설정 로드 실패 시 로컬 설정만으로 동작 (오프라인 복원력)
+      console.warn('[HotLoadManager] Failed to merge server HotLoad configs (falling back to local-only):', error);
     }
   }
 

@@ -3,6 +3,7 @@
  * LLM 응답 처리, 검증, 정제를 담당하는 클래스
  */
 
+import * as path from 'path';
 import { getSimpleSummaryPrompt } from '../../context/prompts/task';
 import { LLMManager } from '../../model/LLMManager';
 import { StringUtils } from '../../../utils/StringUtils';
@@ -21,14 +22,14 @@ export class ResponseProcessor {
     public extractResponseText(llmResponse: string): string {
         if (!llmResponse) return '';
 
-        // StringUtils를 사용하여 모든 패턴 제거
+        // thinking/시스템 태그만 제거, 자연어 및 마크다운 구조는 유지
         return StringUtils.cleanText(llmResponse, {
             removeThinking: true,
-            removeNaturalLanguage: true,
+            removeNaturalLanguage: false,
             removeSystemMessages: true,
             removeToolTags: true,
             removeJsonThinking: true,
-            extractJson: true
+            extractJson: false
         });
     }
 
@@ -189,14 +190,14 @@ export class ResponseProcessor {
 
         if (createdFiles.length > 0) {
             createdFiles.forEach(f => {
-                const fileName = f.split('/').pop() || f;
+                const fileName = path.basename(f) || f;
                 summary += `- **${fileName}**: 새로 생성됨\n`;
             });
         }
 
         if (modifiedFiles.length > 0) {
             modifiedFiles.forEach(f => {
-                const fileName = f.split('/').pop() || f;
+                const fileName = path.basename(f) || f;
                 summary += `- **${fileName}**: 수정됨\n`;
             });
         }

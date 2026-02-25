@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
-import { PromptType, NotificationService, LicenseService, GitRepositoryService, GeminiApi } from '../../services';
+import { PromptType, NotificationService, GitRepositoryService, AiModelType } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager, SessionManager } from '../../core';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
 import { getAllExclusionPaths } from '../../core/utils/FileExclusionConstants';
 import { WebviewBridge } from '../../core/webview/WebviewBridge';
+import { AuthService } from '../../services/auth/AuthService';
 
 /**
  * Diff 가상 문서 프로바이더
@@ -35,9 +36,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly configurationService: SettingsManager,
         private readonly notificationService: NotificationService,
         private readonly gitRepositoryService: GitRepositoryService,
-        private readonly geminiApi: GeminiApi,
-        private readonly ollamaApi: any,
-        private readonly banyaApi: any
+        private readonly ollamaApi: any
     ) { }
 
     public resolveWebviewView(
@@ -110,6 +109,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
         this.context.subscriptions.push(configChangeDisposable);
 
+        // 인증 상태 변경 시 웹뷰에 전달
+        try {
+            const authService = AuthService.getInstance();
+            const authDisposable = authService.onDidChangeAuth((loggedIn) => {
+                webviewView.webview.postMessage({
+                    command: 'authState',
+                    loggedIn,
+                    user: loggedIn ? authService.getUserInfo() : undefined,
+                });
+            });
+            this.context.subscriptions.push(authDisposable);
+        } catch { /* AuthService 미초기화 시 무시 */ }
+
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
 
             // ✅ __BOOT_PING__ 테스트 메시지 확인
@@ -124,6 +136,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             switch (data.command) {
+                // ═══════════ 인증 핸들러 ═══════════
+                case 'checkAuthState': {
+                    try {
+                        const auth = AuthService.getInstance();
+                        const state = auth.getAuthState();
+                        webviewView.webview.postMessage({
+                            command: 'authState',
+                            loggedIn: state.loggedIn,
+                            user: state.user,
+                        });
+                    } catch {
+                        webviewView.webview.postMessage({
+                            command: 'authState',
+                            loggedIn: false,
+                        });
+                    }
+                    break;
+                }
+                case 'loginWithGoogle': {
+                    try {
+                        const auth = AuthService.getInstance();
+                        await auth.loginWithGoogle();
+                        // OAuth 콜백이 handleOAuthCallback → onDidChangeAuth → authState 메시지로 처리됨
+                    } catch (e: any) {
+                        webviewView.webview.postMessage({
+                            command: 'loginError',
+                            message: e?.message || '로그인 실패',
+                        });
+                    }
+                    break;
+                }
+                case 'logout': {
+                    try {
+                        const auth = AuthService.getInstance();
+                        await auth.logout();
+                    } catch { /* ignore */ }
+                    break;
+                }
                 case 'priorityErrorPrompt': {
                     const text = typeof data.text === 'string' ? data.text : '';
                     if (text) {
@@ -172,18 +222,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
                         const aiModelEngine = await stateManager.getAiModel();
                         let currentModel = '';
-                        if (aiModelEngine === 'gemini') {
-                            currentModel = await stateManager.getGeminiModel();
-                        } else if (aiModelEngine === 'banya') {
-                            currentModel = await stateManager.getBanyaModel();
+                        if (aiModelEngine?.startsWith('admin:') || aiModelEngine?.startsWith('supported:')) {
+                            currentModel = aiModelEngine;
+                        } else if (aiModelEngine === 'ollama' || !aiModelEngine) {
+                            currentModel = await stateManager.getOllamaModel();
                         } else {
                             currentModel = await stateManager.getOllamaModel();
                         }
 
+                        // 관리자 모델 목록 추가
+                        let adminModels: { key: string; name: string; displayName: string }[] = [];
+                        let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
+                        try {
+                            const aiModelSettings = this.configurationService.getServerSettings('ai_model');
+
+                            // 지원 모델 (source=preset) — 서버 프리셋에서 등록된 모델
+                            supportedModels = (aiModelSettings || [])
+                                .filter((s: any) => s.source === 'preset' && s.value && s.value.enabled !== false)
+                                .map((s: any) => ({
+                                    key: s.key,
+                                    name: `supported:${s.key}`,
+                                    displayName: s.value?.name || s.key,
+                                    group: s.group || 'default',
+                                }));
+
+                            // 관리자 모델 (source=admin만) — 조직 관리자가 직접 등록한 모델
+                            adminModels = (aiModelSettings || [])
+                                .filter((s: any) => s.source === 'admin' && s.value && s.value.enabled !== false)
+                                .map((s: any) => ({
+                                    key: s.key,
+                                    name: `admin:${s.key}`,
+                                    displayName: s.value?.model || s.value?.model_name || s.key,
+                                }));
+                        } catch { }
+
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models,
-                            current: currentModel
+                            current: currentModel,
+                            adminModels,
+                            supportedModels,
                         });
                     } catch (e) {
                         webviewView.webview.postMessage({
@@ -231,56 +309,101 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 }
-                case 'setGeminiModel': {
+                case 'setAdminModel': {
                     try {
-                        const modelName = typeof data.model === 'string' ? data.model : '';
-                        if (!modelName) {
-                            throw new Error('Invalid model name');
-                        }
+                        const adminKey = typeof data.key === 'string' ? data.key : '';
+                        if (!adminKey) break;
                         const stateManager = StateManager.getInstance(this.context);
+                        const adminModelValue = `admin:${adminKey}`;
 
-                        // Gemini 모델인 경우 엔진을 gemini로 설정하고 모델명 저장
-                        await stateManager.saveAiModel('gemini');
-                        await stateManager.saveCurrentAiModel('gemini');
-                        await stateManager.saveGeminiModel(modelName);
+                        await stateManager.saveAiModel(adminModelValue);
+                        await stateManager.saveCurrentAiModel('admin');
 
-                        // GeminiApi 인스턴스 업데이트
-                        if (this.geminiApi) {
-                            this.geminiApi.updateModelName(modelName);
-                        }
-
-                        webviewView.webview.postMessage({
-                            command: 'ollamaModelChanged', // 기존 UI 호환성을 위해 동일한 명령 사용 가능 또는 새 명령 정의
-                            model: modelName
-                        });
-                    } catch (e) {
-                    }
-                    break;
-                }
-                case 'setBanyaModel': {
-                    try {
-                        const modelName = typeof data.model === 'string' ? data.model : '';
-                        if (!modelName) {
-                            throw new Error('Invalid model name');
-                        }
-                        const stateManager = StateManager.getInstance(this.context);
-                        const config = vscode.workspace.getConfiguration('codepilot');
-
-                        // Banya 모델인 경우 엔진을 banya로 설정하고 모델명 저장
-                        await stateManager.saveAiModel('banya');
-                        await stateManager.saveCurrentAiModel('banya');
-                        await config.update('banyaModel', modelName, vscode.ConfigurationTarget.Global);
-
-                        // BanyaApi 인스턴스 업데이트
-                        if (this.banyaApi) {
-                            this.banyaApi.setModel(modelName);
+                        // 서버 설정에서 관리자 모델 config 추출 및 적용
+                        const aiModelSettings = this.configurationService.getServerSettings('ai_model');
+                        const adminSetting = aiModelSettings.find((s: any) => s.key === adminKey);
+                        if (adminSetting?.value) {
+                            const v = adminSetting.value;
+                            const chatAdminUserApiKey = this.context.globalState.get<string>("codepilot.adminApiKey") || '';
+                            const adminConfig = {
+                                key: adminKey,
+                                provider: v.provider || '',
+                                model: v.model || v.model_name || '',
+                                apiKey: chatAdminUserApiKey || v.api_key || v.apiKey || '',
+                                endpoint: v.base_url || v.endpoint || '',
+                                maxTokens: v.max_tokens || v.maxTokens || undefined,
+                                contextWindow: v.context_window || v.contextWindow || undefined,
+                                enabled: v.enabled !== false,
+                            };
+                            await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
+                            // LLMManager에 즉시 적용
+                            const { LLMManager } = await import('../../core/managers/model/LLMManager');
+                            const llmManager = LLMManager.getInstance();
+                            llmManager.setAdminModelConfig(adminConfig as any);
+                            llmManager.setCurrentModel(AiModelType.ADMIN);
+                            // 토큰 제한 업데이트
+                            const { updateAdminTokenLimits } = await import('../../utils/tokenUtils');
+                            updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxTokens);
                         }
 
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
-                            model: modelName
+                            model: adminModelValue
                         });
                     } catch (e) {
+                        console.warn('[ChatViewProvider] setAdminModel error:', e);
+                    }
+                    break;
+                }
+                case 'setSupportedModel': {
+                    try {
+                        const presetKey = typeof data.key === 'string' ? data.key : '';
+                        if (!presetKey) break;
+                        const stateManager = StateManager.getInstance(this.context);
+                        const supportedModelValue = `supported:${presetKey}`;
+
+                        await stateManager.saveAiModel(supportedModelValue);
+                        await stateManager.saveCurrentAiModel('admin');
+
+                        // 서버 설정에서 지원 모델 config 추출 및 적용
+                        const aiModelSettings = this.configurationService.getServerSettings('ai_model');
+                        const presetSetting = aiModelSettings.find((s: any) => s.key === presetKey);
+                        if (presetSetting?.value) {
+                            const v = presetSetting.value;
+                            const customHeaders = v.customHeaders || v.custom_headers || {};
+                            const chatUserApiKey = this.context.globalState.get<string>("codepilot.adminApiKey") || '';
+                            const adminConfig = {
+                                key: presetKey,
+                                provider: v.provider || 'chat_completions',
+                                model: v.model || v.model_name || '',
+                                apiKey: chatUserApiKey || v.api_key || v.apiKey || '',
+                                endpoint: v.base_url || v.endpoint || '',
+                                maxTokens: v.max_tokens || v.maxTokens || undefined,
+                                maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                                contextWindow: v.context_window || v.contextWindow || undefined,
+                                enabled: v.enabled !== false,
+                                authType: v.authType || v.auth_type || 'bearer',
+                                authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                                customHeaders: typeof customHeaders === 'string' ? JSON.parse(customHeaders || '{}') : customHeaders,
+                                defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                                topP: v.topP ?? v.top_p ?? 0.9,
+                                streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                            };
+                            await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
+                            // LLMManager에 즉시 적용
+                            const { LLMManager } = await import('../../core/managers/model/LLMManager');
+                            const llmManager = LLMManager.getInstance();
+                            llmManager.setAdminModelConfig(adminConfig as any);
+                            llmManager.setCurrentModel(AiModelType.ADMIN);
+
+                            // 토큰 제한 동적 업데이트
+                            try {
+                                const { updateAdminTokenLimits } = await import('../../utils/tokenUtils');
+                                updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
+                            } catch { }
+                        }
+                    } catch (e) {
+                        console.error('Failed to set supported model:', e);
                     }
                     break;
                 }
@@ -376,39 +499,22 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
                 case 'sendMessage':
-                    // 시리얼 번호 검증
-                    const stateManager = StateManager.getInstance(this.context);
-                    const licenseSerial = await stateManager.getBanyaLicenseSerial();
-                    if (!licenseSerial || licenseSerial.trim() === '') {
-                        // 다국어 메시지 가져오기
-                        const currentLanguage = await stateManager.getLanguage() || 'ko';
-                        const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${currentLanguage}.json`);
-                        let licenseNotSetMessage = '시리얼 번호가 설정되지 않았습니다. 설정에서 AIDEV 시리얼 번호를 입력하고 검증해주세요.';
-
-                        try {
-                            const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
-                            const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
-                            licenseNotSetMessage = languageData.licenseNotSetMessage || licenseNotSetMessage;
-                        } catch (error) {
-                            console.error('Error loading language data for license message:', error);
+                    // 로그인 상태 확인
+                    try {
+                        const authService = AuthService.getInstance();
+                        if (!authService.isLoggedIn()) {
+                            webviewView.webview.postMessage({
+                                command: 'receiveMessage',
+                                sender: 'CODEPILOT',
+                                text: '로그인이 필요합니다. 로그인 후 다시 시도해주세요.'
+                            });
+                            return;
                         }
-
+                    } catch {
                         webviewView.webview.postMessage({
                             command: 'receiveMessage',
                             sender: 'CODEPILOT',
-                            text: licenseNotSetMessage
-                        });
-                        return;
-                    }
-
-                    // 시리얼 번호 검증
-                    const licenseService = new LicenseService();
-                    const verificationResult = await licenseService.verifyLicense(licenseSerial);
-                    if (!verificationResult.success) {
-                        webviewView.webview.postMessage({
-                            command: 'receiveMessage',
-                            sender: 'CODEPILOT',
-                            text: `시리얼 번호 검증 실패: ${verificationResult.message}`
+                            text: '인증 서비스를 초기화할 수 없습니다.'
                         });
                         return;
                     }
@@ -440,7 +546,7 @@ ${JSON.stringify(errorContext, null, 2)}
                 case 'webviewLoaded':
                     break;
                 case 'cancelGeminiCall':
-                    console.log('[Extension Host] Received cancelGeminiCall command.');
+                    console.log('[Extension Host] Received cancel call command.');
                     ConversationService.cancelCurrentCall();
                     // 즉시 로딩/처리 상태를 종료
                     webviewView.webview.postMessage({ command: 'hideLoading' });
@@ -1109,7 +1215,7 @@ ${JSON.stringify(errorContext, null, 2)}
             // glob 패턴에서 사용할 수 있도록 중괄호 안에 쉼표로 구분된 리스트 생성
             // 점(.)으로 시작하는 디렉토리와 일반 디렉토리를 모두 포함
             const excludeDirs = getAllExclusionPaths()
-                .filter((excludedPath: string) => !excludedPath.includes('*') && !excludedPath.includes('/')) // 와일드카드와 경로 구분자 제외
+                .filter((excludedPath: string) => !excludedPath.includes('*') && !excludedPath.includes('/') && !excludedPath.includes('\\')) // 와일드카드와 경로 구분자 제외
                 .join(',');
             const excludePattern = `**/{${excludeDirs}}/**`;
 
@@ -1414,20 +1520,9 @@ ${JSON.stringify(errorContext, null, 2)}
             let shellPath: string;
             let terminalName: string;
 
-            if (userOS === 'windows') {
-                shellPath = 'powershell.exe';
-                terminalName = 'CODEPILOT PowerShell Commands';
-            } else if (userOS === 'macos') {
-                shellPath = '/bin/bash';
-                terminalName = 'CODEPILOT Bash Commands';
-            } else if (userOS === 'linux') {
-                shellPath = '/bin/bash';
-                terminalName = 'CODEPILOT Bash Commands';
-            } else {
-                const osAdapter = ExecutionManager.getInstance().getOSAdapter();
-                shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
-                terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Bash Commands';
-            }
+            const osAdapter = ExecutionManager.getInstance().getOSAdapter();
+            shellPath = osAdapter.getDefaultShell();
+            terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Shell Commands';
 
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
             const terminalCwd = await this.configurationService.getProjectRoot();

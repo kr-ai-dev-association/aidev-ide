@@ -36,6 +36,11 @@ export interface UsageMetrics {
   filesModified: number;
   filesRead: number;
 
+  // 코드 검증 통계
+  verificationCount: number;
+  verificationSuccess: number;
+  verificationFailure: number;
+
   // 컨텍스트 통계
   contextCompactionCount: number;
   tokensSaved: number;
@@ -105,6 +110,9 @@ export class UsageMetricsManager {
       filesCreated: 0,
       filesModified: 0,
       filesRead: 0,
+      verificationCount: 0,
+      verificationSuccess: 0,
+      verificationFailure: 0,
       contextCompactionCount: 0,
       tokensSaved: 0,
     };
@@ -138,8 +146,9 @@ export class UsageMetricsManager {
 
   /**
    * LLM 호출 기록
+   * @param modelName 실제 사용된 모델 ID (예: "gemini-2.5-pro", "llama3.1:8b")
    */
-  public recordLLMCall(responseTime: number, tokenCount: number, success: boolean): void {
+  public recordLLMCall(responseTime: number, tokenCount: number, success: boolean, modelName?: string): void {
     this.metrics.llmCallCount++;
     this.metrics.llmTotalTokens += tokenCount;
 
@@ -167,7 +176,49 @@ export class UsageMetricsManager {
       this.metrics.llmAvgResponseTime = Math.round(totalTime / successfulCalls.length);
     }
 
-    console.log(`[UsageMetrics] LLM call recorded: ${responseTime}ms, ${tokenCount} tokens, success=${success}`);
+    console.log(`[UsageMetrics] LLM call recorded: ${responseTime}ms, ${tokenCount} tokens, model=${modelName || 'unknown'}, success=${success}`);
+
+    // 백엔드에 사용량 보고 (비동기, 실패해도 무시)
+    this.reportToBackend(tokenCount, modelName).catch(() => {});
+  }
+
+  /**
+   * 백엔드에 사용량 보고 (CodePilot Backend 연동)
+   */
+  private async reportToBackend(tokenCount: number, modelName?: string): Promise<void> {
+    try {
+      const { CodePilotApiClient } = await import("../../../services/api/CodePilotApiClient");
+      const { AuthService } = await import("../../../services/auth/AuthService");
+
+      const auth = AuthService.getInstance();
+      if (!auth.isLoggedIn()) return;
+
+      const userInfo = auth.getUserInfo();
+
+      // 실제 모델 ID 사용 (전달되지 않은 경우 LLMManager에서 가져옴)
+      let actualModelName = modelName;
+      if (!actualModelName) {
+        try {
+          const { LLMManager } = await import("../model/LLMManager");
+          const llmManager = LLMManager.getInstance();
+          actualModelName = await llmManager.getCurrentModelName();
+        } catch {
+          actualModelName = "unknown";
+        }
+      }
+
+      const api = CodePilotApiClient.getInstance();
+
+      await api.reportUsage({
+        org_id: userInfo?.organization_id,
+        model_name: actualModelName,
+        token_input: Math.floor(tokenCount * 0.6),
+        token_output: Math.floor(tokenCount * 0.4),
+        api_calls: 1,
+      });
+    } catch {
+      // 보고 실패 시 무시 (오프라인 등)
+    }
   }
 
   /**
@@ -231,6 +282,18 @@ export class UsageMetricsManager {
   }
 
   /**
+   * 코드 검증 결과 기록
+   */
+  public recordVerification(success: boolean): void {
+    this.metrics.verificationCount++;
+    if (success) {
+      this.metrics.verificationSuccess++;
+    } else {
+      this.metrics.verificationFailure++;
+    }
+  }
+
+  /**
    * 컨텍스트 압축 기록
    */
   public recordContextCompaction(tokensSaved: number): void {
@@ -268,6 +331,7 @@ LLM 호출: ${m.llmCallCount}회 (오류: ${m.llmErrors})
 평균 실행: ${m.toolAvgExecutionTime}ms
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 파일 작업: 생성 ${m.filesCreated} / 수정 ${m.filesModified} / 읽기 ${m.filesRead}
+코드 검증: ${m.verificationCount}회 (성공: ${m.verificationSuccess} / 실패: ${m.verificationFailure})
 컨텍스트 압축: ${m.contextCompactionCount}회 (${m.tokensSaved.toLocaleString()} 토큰 절약)
 턴 수: ${m.turnCount}`;
   }

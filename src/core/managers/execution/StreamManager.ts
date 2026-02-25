@@ -138,7 +138,12 @@ export class StreamManager {
     private decodeData(data: Buffer): string {
         try {
             // UTF-8 디코딩 시도
-            return data.toString('utf8');
+            let result = data.toString('utf8');
+            // Windows UTF-8 BOM 제거
+            if (result.charCodeAt(0) === 0xFEFF) {
+                result = result.slice(1);
+            }
+            return result;
         } catch {
             // 실패 시 Latin1로 디코딩
             return data.toString('latin1');

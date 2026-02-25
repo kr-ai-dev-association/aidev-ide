@@ -905,11 +905,7 @@
         display: none;
       }
 
-      #model-selector[data-model-type="gemini"]::before {
-        display: none;
-      }
-
-      #model-selector[data-model-type="banya"]::before {
+      #model-selector[data-model-type="supported"]::before {
         display: none;
       }
 
@@ -2581,6 +2577,11 @@
   </head>
 
   <body>
+    <!-- ═══════════ 로그인 화면 (미인증 시 표시) ═══════════ -->
+    {{loginScreenHtml}}
+
+    <!-- ═══════════ 채팅 앱 (인증 후 표시) ═══════════ -->
+    <div id="chat-app" style="display:none;">
     <!-- Processing steps will be rendered by React component -->
 
     <div class="main-container">
@@ -2896,6 +2897,7 @@
       </select>
     </div>
     <h1 id="chat-title" style="display: none">CHAT</h1>
+    </div><!-- /chat-app -->
 
     <script>
       // console.log("✅ chat.html loaded");

@@ -52,9 +52,12 @@ export class MCPToolHandler implements IToolHandler {
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
         console.log(`[MCPToolHandler] Executing MCP tool: ${this.mcpToolName}`);
 
-        // 승인 확인
-        if (!this.mcpManager.isToolApproved(this.serverId, this.mcpToolName)) {
-            // 사용자 확인 요청
+        // MCP 도구 자동 실행 설정 확인
+        const { SettingsManager } = await import('../../managers/state/SettingsManager');
+        const isAutoMcpEnabled = await SettingsManager.getInstance().isAutoMcpToolExecutionEnabled();
+
+        // 자동 실행 OFF이고 미승인 도구면 사용자 확인 요청
+        if (!isAutoMcpEnabled && !this.mcpManager.isToolApproved(this.serverId, this.mcpToolName)) {
             const approved = await this.requestApproval(context.webview);
             if (!approved) {
                 return {

@@ -565,7 +565,10 @@ export class TerminalManager {
         if (!fs.existsSync(p)) {
             return { success: false, message: 'terminal-daemon 바이너리를 찾을 수 없습니다.' };
         }
-        await execAsync(`chmod +x "${p}"`);
+        // Windows에서는 chmod 불필요 (.exe가 자동 실행 가능)
+        if (process.platform !== 'win32') {
+            await execAsync(`chmod +x "${p}"`);
+        }
         return { success: true, message: 'terminal-daemon 설치 완료' };
     }
 
@@ -650,7 +653,7 @@ export class TerminalManager {
 
         if (this.daemonProcessRef) {
             try {
-                this.daemonProcessRef.kill('SIGTERM');
+                this.daemonProcessRef.kill(process.platform === 'win32' ? undefined : 'SIGTERM');
             } catch (error) {
                 console.warn('[TerminalManager] Failed to kill daemon process:', error);
             }
@@ -769,7 +772,7 @@ export class TerminalManager {
         while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
             const block = match[1].trim();
             if (!block) continue;
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            const lines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
             commands.push(...lines);
         }
 
@@ -777,7 +780,7 @@ export class TerminalManager {
         while ((match = pwshBlockRegex.exec(llmResponse)) !== null) {
             const block = (match[1] || '').trim();
             if (!block) continue;
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            const lines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
             if (lines.length > 0) {
                 commands.push(`powershell -Command "${lines.join('; ')}"`);
             }
@@ -787,7 +790,7 @@ export class TerminalManager {
         while ((match = cmdBlockRegex.exec(llmResponse)) !== null) {
             const block = (match[1] || '').trim();
             if (!block) continue;
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('REM') && !l.startsWith('::'));
+            const lines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('REM') && !l.startsWith('::'));
             if (lines.length > 0) {
                 commands.push(`cmd.exe /d /c "${lines.join(' & ')}"`);
             }
@@ -1080,11 +1083,12 @@ export class TerminalManager {
                         const absCwd = path.resolve(cwd || '.');
                         console.log(`[TerminalManager] 현재 디렉토리에서만 프로세스 종료: ${absCwd}`);
 
+                        // Unix: lsof로 CWD 기반 프로세스 검색 후 종료
                         const findProcessCmd = `lsof -a -d cwd -c node -F p | grep -E "^p[0-9]+" | head -1 | sed 's/^p//'`;
                         const processResult = await this.executionManager.runCommandCapture(findProcessCmd, { cwd: absCwd });
 
                         if (processResult.stdout && processResult.stdout.trim()) {
-                            const pids = processResult.stdout.trim().split('\n').filter(pid => pid && /^\d+$/.test(pid));
+                            const pids = processResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
                             for (const pid of pids) {
                                 try {
                                     const checkCwdCmd = `lsof -a -p ${pid} -d cwd -Fn | grep -E "^n" | head -1 | sed 's/^n//'`;
@@ -1107,7 +1111,7 @@ export class TerminalManager {
                         const psResult = await this.executionManager.runCommandCapture(psCmd, { cwd: absCwd });
 
                         if (psResult.stdout && psResult.stdout.trim()) {
-                            const matchingPids = psResult.stdout.trim().split('\n').filter(pid => pid && /^\d+$/.test(pid));
+                            const matchingPids = psResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
                             for (const pid of matchingPids) {
                                 console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid}`);
                                 await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });

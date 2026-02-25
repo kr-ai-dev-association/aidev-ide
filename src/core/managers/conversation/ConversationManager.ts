@@ -26,7 +26,7 @@ import { InvestigationManager } from "../investigation/InvestigationManager";
 import { SettingsManager } from "../state/SettingsManager";
 import { StateManager } from "../state/StateManager";
 import { UsageMetricsManager } from "../state/UsageMetricsManager";
-import { AiModelType, OllamaApi, GeminiApi, BanyaApi } from "../../../services";
+import { AiModelType, OllamaApi } from "../../../services";
 import type { NotificationService, GitRepositoryService } from "../../../services";
 import { AgentStateManager, AgentPhase } from "./AgentStateManager";
 import { getSimpleSummaryPrompt } from "../context/prompts/task";
@@ -70,6 +70,7 @@ import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, Collecte
 import { IntentDetectionResult } from "../action/IntentDetector";
 import { ToolUse, ToolResponse } from "../../tools/types";
 import { FileTransactionManager } from "../action/file/FileTransactionManager";
+import { RelevantFilesFinder } from "../context/file/RelevantFilesFinder";
 import * as crypto from "crypto";
 
 export interface ConversationOptions {
@@ -83,7 +84,6 @@ export interface ConversationOptions {
   terminalContext?: string;
   diagnosticsContext?: string;
   extensionContext?: vscode.ExtensionContext;
-  geminiApi?: GeminiApi;
   ollamaApi?: OllamaApi;
   currentModelType?: AiModelType;
   userOS?: string;
@@ -105,6 +105,7 @@ export interface GatheredContext {
   terminalContextContent: string;
   diagnosticsContextContent: string;
   frameworkRulesPrompt: string;
+  ragContext: string;
 }
 
 // AgentPhase는 AgentStateManager에서 import
@@ -121,38 +122,32 @@ export class ConversationManager implements IConversationHandler {
   private currentAbortController: AbortController | null = null;
   private stateManager: StateManager | null = null;
   private completionJudge: CompletionJudge; // A4: 완료 판단기
+  private _lastBuildTestPassed = false;
 
   private constructor(
     userOS: string,
-    geminiApi: GeminiApi,
     ollamaApi: OllamaApi,
-    banyaApi: BanyaApi,
   ) {
     this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA);
     this.contextManager = ContextManager.getInstance();
-    this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi);
+    this.llmManager = LLMManager.getInstance(ollamaApi);
     this.responseProcessor = new ResponseProcessor(this.llmManager);
     this.completionJudge = new CompletionJudge(this.llmManager); // A4
   }
 
   public static getInstance(
     userOS: string = process.platform,
-    geminiApi?: GeminiApi,
     ollamaApi?: OllamaApi,
-    banyaApi?: BanyaApi,
   ): ConversationManager {
     if (!ConversationManager.instance) {
-      if (!geminiApi || !ollamaApi || !banyaApi) {
-        // 이 처리는 extension.ts에서 초기화된 후 호출됨을 보장해야 함
+      if (!ollamaApi) {
         throw new Error(
-          "ConversationManager requires GeminiApi, OllamaApi, and BanyaApi for initial creation",
+          "ConversationManager requires OllamaApi for initial creation",
         );
       }
       ConversationManager.instance = new ConversationManager(
         userOS,
-        geminiApi,
         ollamaApi,
-        banyaApi,
       );
     }
     return ConversationManager.instance;
@@ -179,15 +174,12 @@ export class ConversationManager implements IConversationHandler {
    */
   public static createIsolatedInstance(
     userOS: string,
-    geminiApi: GeminiApi,
     ollamaApi: OllamaApi,
-    banyaApi: BanyaApi,
   ): ConversationManager {
     if (process.env.NODE_ENV !== "test" && !process.env.VSCODE_TEST) {
       console.warn("[ConversationManager] createIsolatedInstance() called in non-test environment");
     }
-    // private 생성자를 우회하여 새 인스턴스 생성
-    return new ConversationManager(userOS, geminiApi, ollamaApi, banyaApi);
+    return new ConversationManager(userOS, ollamaApi);
   }
 
   // extension.ts 호환성을 위한 Setter 메서드들 (레거시, 대부분 no-op)
@@ -907,6 +899,44 @@ export class ConversationManager implements IConversationHandler {
       );
     }
 
+    // Ask 모드: 메시지에서 언급된 파일명을 자동 감지하여 컨텍스트에 포함
+    if (options.promptType === PromptType.GENERAL_ASK && options.userQuery) {
+      try {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspaceRoot) {
+          const mentionedFiles = await RelevantFilesFinder.findExplicitFiles(
+            options.userQuery,
+            workspaceRoot,
+            options.abortSignal,
+          );
+          // selectedFiles에 이미 포함된 파일은 제외
+          const alreadySelected = new Set((options.selectedFiles || []).map(f => f.toLowerCase()));
+          const newFiles = mentionedFiles.filter(f => !alreadySelected.has(f.toLowerCase()));
+          if (newFiles.length > 0) {
+            console.log(`[ConversationManager] Ask mode: auto-detected ${newFiles.length} files from message`);
+            const fileContents: string[] = [];
+            for (const filePath of newFiles) {
+              try {
+                const uri = vscode.Uri.file(filePath);
+                const document = await vscode.workspace.openTextDocument(uri);
+                const content = document.getText();
+                const fileName = filePath.split(/[/\\]/).pop() || filePath;
+                fileContents.push(`=== ${fileName} (${filePath}) ===\n${content}\n`);
+              } catch (error) {
+                console.warn(`[ConversationManager] Failed to read auto-detected file ${filePath}:`, error);
+              }
+            }
+            if (fileContents.length > 0) {
+              selectedFilesContent += (selectedFilesContent ? "\n\n" : "") + fileContents.join("\n\n");
+              console.log(`[ConversationManager] Ask mode: added ${fileContents.length} auto-detected files to context`);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn("[ConversationManager] Ask mode auto file detection failed:", error);
+      }
+    }
+
     // 터미널 컨텍스트 (사용자가 @terminal로 선택한 터미널 히스토리)
     const terminalContextContent = options.terminalContext || "";
     if (terminalContextContent) {
@@ -938,6 +968,42 @@ export class ConversationManager implements IConversationHandler {
       );
     }
 
+    // 서버 RAG 검색: 사용자 질문으로 관련 문서 검색
+    let ragContext = "";
+    try {
+      const { AuthService } = await import("../../../services/auth/AuthService");
+      const { CodePilotApiClient } = await import("../../../services/api/CodePilotApiClient");
+      const authService = AuthService.getInstance();
+      if (authService.isLoggedIn()) {
+        const userInfo = authService.getUserInfo();
+        const orgId = userInfo?.organization_id;
+        if (options.userQuery) {
+          const ragRaw = await CodePilotApiClient.getInstance().searchRag(
+            options.userQuery,
+            orgId || undefined,
+            undefined,
+            5,
+          );
+          const ragResults = Array.isArray(ragRaw) ? ragRaw : ((ragRaw as any)?.data || (ragRaw as any)?.results || []);
+          if (ragResults && ragResults.length > 0) {
+            ragContext = ragResults
+              .map((r: any, i: number) => {
+                const source = r.source_name || r.source || '';
+                const doc = r.document_name || r.document || '';
+                const sim = r.similarity != null ? ` (유사도: ${(r.similarity * 100).toFixed(0)}%)` : '';
+                return `[문서 ${i + 1}] ${source} > ${doc}${sim}\n${r.content}`;
+              })
+              .join("\n\n---\n\n");
+            console.log(`[ConversationManager] RAG: ${ragResults.length}개 문서 청크 포함 (${ragContext.length} chars)`);
+          } else {
+            console.log(`[ConversationManager] RAG: 검색 결과 없음`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("[ConversationManager] RAG search failed (non-critical):", error);
+    }
+
     // ContextData의 속성들을 PromptBuilderOptions 형식에 맞게 변환
     return {
       codebaseContext: contextData.file?.content,
@@ -949,7 +1015,8 @@ export class ConversationManager implements IConversationHandler {
       selectedFilesContent: selectedFilesContent,
       terminalContextContent: terminalContextContent,
       diagnosticsContextContent: diagnosticsContextContent,
-      frameworkRulesPrompt: frameworkRulesPrompt, // v9.2.1: 동적 프레임워크 규칙
+      frameworkRulesPrompt: frameworkRulesPrompt,
+      ragContext: ragContext,
     };
   }
 
@@ -1513,6 +1580,7 @@ export class ConversationManager implements IConversationHandler {
           diagnosticsContextContent: gatheredContext?.diagnosticsContextContent,
           codebaseContext: gatheredContext?.codebaseContext,
           frameworkRulesPrompt: gatheredContext?.frameworkRulesPrompt, // v9.2.1
+          ragContext: gatheredContext?.ragContext, // RAG 컨텍스트 포함
         };
         activeSystemPrompt =
           investigationPrompt +
@@ -1895,6 +1963,7 @@ export class ConversationManager implements IConversationHandler {
               currentTaskDetail: currentPlanItem.detail,
               projectInventoryContext,
               preloadedFilesContext: preloadedFilesContextForExecution,
+              ragContext: gatheredContext?.ragContext, // RAG 컨텍스트 재주입
             });
 
             // execution 의도일 때 Command 모델 사용
@@ -2218,7 +2287,8 @@ export class ConversationManager implements IConversationHandler {
         );
 
         // REVIEW/DONE 단계에서만 실제 스트리밍 출력, 그 외에는 조용히 수집
-        const shouldStreamToUI = shouldSendCodePilotText(currentPhase);
+        // 단, pendingMCPResultInterpretation=true면 INVESTIGATION에서도 MCP 결과 해석을 스트리밍
+        const shouldStreamToUI = shouldSendCodePilotText(currentPhase) || pendingMCPResultInterpretation;
 
         // 🔥 채팅 패널 타이핑 효과 (자연어 텍스트만, 코드 블록은 ToolExecutor가 처리)
         let textStreamer: StreamingCodeApplier | null = null;
@@ -2309,7 +2379,11 @@ export class ConversationManager implements IConversationHandler {
       // v9.7.0: LLM 호출 메트릭 기록
       const llmResponseTime = Date.now() - llmStartTime;
       const estimatedTokenCount = Math.ceil(llmResponse.length / 4); // 대략적인 토큰 추정
-      usageMetrics.recordLLMCall(llmResponseTime, estimatedTokenCount, true);
+      let actualModelName: string | undefined;
+      try {
+        actualModelName = await this.llmManager.getCurrentModelName();
+      } catch { }
+      usageMetrics.recordLLMCall(llmResponseTime, estimatedTokenCount, true, actualModelName);
       usageMetrics.incrementTurnCount();
 
       console.log(
@@ -2319,15 +2393,13 @@ export class ConversationManager implements IConversationHandler {
           : llmResponse,
       );
 
-      // 1. 응답 정제 (<think> 태그 및 JSON 래핑 처리)
-      // ⚠️ 핵심 수정: LLM response에서 thinking 노출 차단 강화
-      // StringUtils를 사용하여 모든 패턴 제거
-      // 🔥 수정: INVESTIGATION 단계에서는 자연어 제거 안함 (텍스트 응답 감지 필요)
+      // 1. 응답 정제 (<think> 태그 및 JSON thinking 제거)
+      // 자연어는 모든 단계에서 유지 (마크다운 구조 보존)
       let cleanResponse = StringUtils.cleanText(llmResponse, {
         removeThinking: true,
-        removeNaturalLanguage: currentPhase !== AgentPhase.INVESTIGATION, // INVESTIGATION에서는 자연어 유지 (텍스트 응답 감지용)
-        removeSystemMessages: false, // 이 컨텍스트에서는 시스템 메시지 제거하지 않음
-        removeToolTags: false, // 도구 태그는 유지
+        removeNaturalLanguage: false,
+        removeSystemMessages: false,
+        removeToolTags: false,
         removeJsonThinking: true,
         extractJson: false,
       });
@@ -2352,7 +2424,7 @@ export class ConversationManager implements IConversationHandler {
             `[ConversationManager] EXECUTION phase: No tool calls found. LLM provided natural language instead of tool calls.`,
           );
 
-          // ⚠️ MCP 도구 결과 해석 대기 중이면 → REVIEW로 보내지 않고 텍스트를 사용자에게 표시
+          // ⚠️ MCP 도구 결과 해석 대기 중이면 → 텍스트를 사용자에게 표시 후 종료
           if (pendingMCPResultInterpretation) {
             console.log(
               `[ConversationManager] EXECUTION phase: pendingMCPResultInterpretation=true. Displaying LLM text response to user.`,
@@ -2361,24 +2433,28 @@ export class ConversationManager implements IConversationHandler {
             lastTurnHadSuccessfulToolExecution = false;
             (this as any).naturalLanguageRetry = 0;
 
-            // LLM 텍스트 응답 정제 및 사용자에게 출력
-            let cleanMCPResponse = StringUtils.cleanText(llmResponse, {
-              removeThinking: true,
-              removeNaturalLanguage: false, // MCP 결과 해석은 자연어 허용
-              removeSystemMessages: false,
-              removeToolTags: false,
-              removeJsonThinking: true,
-              extractJson: false,
-            });
+            // 스트리밍이 비활성화된 경우에만 별도 출력 (스트리밍 활성화 시 이미 실시간 출력됨)
+            if (!isStreamingEnabled) {
+              let cleanMCPResponse = StringUtils.cleanText(llmResponse, {
+                removeThinking: true,
+                removeNaturalLanguage: false,
+                removeSystemMessages: false,
+                removeToolTags: false,
+                removeJsonThinking: true,
+                extractJson: false,
+              });
 
-            if (cleanMCPResponse && cleanMCPResponse.trim()) {
-              await WebviewBridge.streamText(
-                webviewToRespond,
-                "CODEPILOT",
-                cleanMCPResponse,
-              );
+              if (cleanMCPResponse && cleanMCPResponse.trim()) {
+                await WebviewBridge.streamText(
+                  webviewToRespond,
+                  "CODEPILOT",
+                  cleanMCPResponse,
+                );
+              }
             }
 
+            // EXECUTION → REVIEW → DONE (상태 머신 규칙 준수)
+            stateManager.transitionTo(AgentPhase.REVIEW);
             stateManager.transitionTo(AgentPhase.DONE, {});
             break;
           }
@@ -2390,6 +2466,10 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution and no remaining plan items. Skipping completion confirmation and transitioning to REVIEW.`,
             );
+            // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거
+            if (isStreamingEnabled) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
             // "완료 확인" 호출 없이 바로 REVIEW로 전환
             stateManager.transitionTo(AgentPhase.REVIEW);
             lastTurnHadSuccessfulToolExecution = false; // 리셋
@@ -2400,6 +2480,10 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution but remaining plan items exist. Continuing to next item.`,
             );
+            // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거
+            if (isStreamingEnabled) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
             lastTurnHadSuccessfulToolExecution = false; // 리셋
             (this as any).naturalLanguageRetry = 0; // 리셋
             // cleanResponse는 유지하지 않음 (자연어 응답 무시하고 다음 plan item으로)
@@ -2414,6 +2498,10 @@ export class ConversationManager implements IConversationHandler {
               console.log(
                 `[ConversationManager] EXECUTION phase: Natural language response detected. Requesting tool call (attempt ${currentRetryCount + 1}/3)`,
               );
+              // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거
+              if (isStreamingEnabled) {
+                WebviewBridge.removeLastMessage(webviewToRespond);
+              }
               accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
               turnCount++;
               continue; // 즉시 재요청
@@ -2543,7 +2631,10 @@ export class ConversationManager implements IConversationHandler {
       // JSON Plan 처리 (도구 호출 없이 plan만 있는 경우)
       // 🔥 핵심 수정: analysis/documentation 인텐트에서는 JSON plan을 무시하고 자연어 응답으로 처리
       // 🔥 v9.2.1: MCP 도구가 포함된 플랜은 intent와 무관하게 실행 (외부 도구 호출은 텍스트 응답이 아님)
+      // 🔥 CODE 모드에서는 documentation이라도 파일 생성이 필요하므로 plan 허용
+      const isCodeMode = options.promptType === PromptType.CODE_GENERATION;
       const isTextOnlyIntent =
+        !isCodeMode &&
         intent &&
         (intent.category === "analysis" || intent.category === "documentation");
       // MCP 도구 포함 여부: ToolRegistry에 등록된 MCP 도구가 응답에 포함되어 있는지 확인
@@ -2887,6 +2978,53 @@ export class ConversationManager implements IConversationHandler {
         break;
       }
 
+      // 🔥 핵심 수정: INVESTIGATION 단계에서도 MCP 결과 해석 턴 처리
+      // pendingMCPResultInterpretation=true이면 LLM의 텍스트 응답을 사용자에게 표시
+      if (
+        pendingMCPResultInterpretation &&
+        currentPhase === AgentPhase.INVESTIGATION &&
+        totalResponseText.trim()
+      ) {
+        console.log(
+          "[ConversationManager] INVESTIGATION phase: pendingMCPResultInterpretation=true. Displaying MCP result interpretation to user.",
+        );
+        pendingMCPResultInterpretation = false;
+
+        let cleanMCPResponse = StringUtils.cleanText(totalResponseText, {
+          removeThinking: true,
+          removeNaturalLanguage: false,
+          removeSystemMessages: false,
+          removeToolTags: false,
+          removeJsonThinking: true,
+          extractJson: false,
+        });
+        // JSON plan이 포함되어 있으면 제거 (MCP 결과 해석 텍스트만 필요)
+        cleanMCPResponse = cleanMCPResponse
+          .replace(
+            /```json[\s\S]*?\{\s*"plan"\s*:[\s\S]*?\}[\s\S]*?```/gi,
+            "",
+          )
+          .replace(/\{\s*"plan"\s*:\s*\[[\s\S]*?\]\s*\}/g, "")
+          .replace(/<investigation_done\s*\/>/gi, "")
+          .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
+          .trim();
+
+        if (cleanMCPResponse && cleanMCPResponse.trim()) {
+          if (!isStreamingEnabled) {
+            // 비스트리밍 모드: 텍스트를 직접 전송
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              cleanMCPResponse,
+            );
+          }
+          // 스트리밍 모드: shouldStreamToUI=true로 이미 스트리밍됨 (line 2210)
+        }
+
+        stateManager.transitionTo(AgentPhase.DONE, {});
+        break;
+      }
+
       // INVESTIGATION 단계에서 도구 호출도 없고 plan도 없으면 텍스트 출력 차단
       // 단, 의도가 없거나 단순 인사인 경우는 허용
       // ⚠️ 핵심 수정: analysis intent이고 조사가 완료된 경우, 자연어 답변 허용
@@ -2978,10 +3116,10 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               "[ConversationManager] INVESTIGATION phase: Analysis intent with completed investigation. Allowing text-only response.",
             );
-            // 응답 정제: thinking 태그 제거
+            // 응답 정제: thinking 태그 제거 (자연어/마크다운은 유지)
             let cleanResponse = StringUtils.cleanText(totalResponseText, {
               removeThinking: true,
-              removeNaturalLanguage: true, // thinking 노출 방지
+              removeNaturalLanguage: false,
               removeSystemMessages: false,
               removeToolTags: false,
               removeJsonThinking: true,
@@ -3190,22 +3328,24 @@ export class ConversationManager implements IConversationHandler {
         );
         pendingMCPResultInterpretation = false;
 
-        // 응답 정제: thinking 태그 제거
-        let cleanMCPResponse = StringUtils.cleanText(totalResponseText, {
-          removeThinking: true,
-          removeNaturalLanguage: false, // MCP 결과 해석은 자연어 허용
-          removeSystemMessages: false,
-          removeToolTags: false,
-          removeJsonThinking: true,
-          extractJson: false,
-        });
+        // 스트리밍이 비활성화된 경우에만 별도 출력 (스트리밍 활성화 시 이미 실시간 출력됨)
+        if (!isStreamingEnabled) {
+          let cleanMCPResponse = StringUtils.cleanText(totalResponseText, {
+            removeThinking: true,
+            removeNaturalLanguage: false,
+            removeSystemMessages: false,
+            removeToolTags: false,
+            removeJsonThinking: true,
+            extractJson: false,
+          });
 
-        if (cleanMCPResponse && cleanMCPResponse.trim()) {
-          await WebviewBridge.streamText(
-            webviewToRespond,
-            "CODEPILOT",
-            cleanMCPResponse,
-          );
+          if (cleanMCPResponse && cleanMCPResponse.trim()) {
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              cleanMCPResponse,
+            );
+          }
         }
 
         // LLM이 추가 도구도 호출한 경우 (텍스트 + 도구 혼합) → 계속 진행
@@ -3216,7 +3356,8 @@ export class ConversationManager implements IConversationHandler {
           continue;
         }
 
-        // 텍스트만 → DONE으로 전환
+        // 텍스트만 → REVIEW → DONE으로 전환 (상태 머신 규칙 준수)
+        stateManager.transitionTo(AgentPhase.REVIEW);
         stateManager.transitionTo(AgentPhase.DONE, {});
         break;
       }
@@ -4159,12 +4300,11 @@ export class ConversationManager implements IConversationHandler {
         const currentProject = ProjectManager.getInstance().getCurrentProject();
         const llmManager = LLMManager.getInstance();
         const currentModelType = llmManager.getCurrentModel();
-        const geminiApi = llmManager.getGeminiApi();
         const ollamaApi = llmManager.getOllamaApi();
 
         const llmResult = await detector.detectWithLLMFallback(
           workspaceRoot,
-          currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi,
+          ollamaApi,
           currentModelType,
         );
 
@@ -4396,7 +4536,6 @@ export class ConversationManager implements IConversationHandler {
     const workspaceRoot = currentProject?.root || "";
 
     // A4: 완료 여부 판단 (파일 변경이 있는 경우에만)
-    // v9.7.0: REVIEW phase는 테스트 통과 후 진입하므로 buildTestPassed=true
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
       try {
         const judgment = await this.completionJudge.judge(
@@ -4405,7 +4544,7 @@ export class ConversationManager implements IConversationHandler {
           modifiedFiles,
           "", // lastResponse는 아직 생성 전
           abortSignal,
-          true, // buildTestPassed: REVIEW phase는 테스트 통과 후 진입
+          this._lastBuildTestPassed,
         );
 
         console.log(
@@ -4560,7 +4699,9 @@ export class ConversationManager implements IConversationHandler {
     stateManager: AgentStateManager,
     webview: vscode.Webview,
     message: string,
+    buildTestPassed = false,
   ): TurnAction {
+    this._lastBuildTestPassed = buildTestPassed;
     WebviewBridge.sendProcessingStep(webview, "review");
     WebviewBridge.sendProcessingStatus(webview, "review", `[검토] ${message}`);
     stateManager.transitionTo(AgentPhase.REVIEW);
@@ -4633,6 +4774,32 @@ export class ConversationManager implements IConversationHandler {
 
     // 조사 단계에서는 계획이 없어도 계속 진행
     if (currentPhase === AgentPhase.INVESTIGATION) {
+      // 🔥 핵심 수정: INVESTIGATION 단계에서도 MCP 도구 실행 후 결과 해석 플래그 설정
+      // 이전: MCP 체크가 INVESTIGATION early return 이후에 있어서 도달 불가 → 무한 루프
+      // 현재: MCP 도구가 실행되었으면 pendingMCPResultInterpretation=true로 설정
+      const toolRegistry = ToolRegistry.getInstance();
+      const hasMCPToolInInvestigation = totalToolCalls.some((call) =>
+        toolRegistry.isMCPTool(call.name),
+      );
+
+      if (hasMCPToolInInvestigation) {
+        console.log(
+          "[ConversationManager] INVESTIGATION phase: MCP tool executed. Feeding results back to LLM for interpretation.",
+        );
+        WebviewBridge.sendProcessingStep(webview, "thinking");
+        WebviewBridge.sendProcessingStatus(
+          webview,
+          "thinking",
+          `[조사] MCP 도구 결과 분석 중...`,
+        );
+        return {
+          turnAction: { action: "continue" },
+          testFixAttempts,
+          pendingRetryPrompt: false,
+          pendingMCPResultInterpretation: true,
+        };
+      }
+
       console.log(
         "[ConversationManager] Investigation phase: continuing to allow plan creation or work execution.",
       );
@@ -5108,6 +5275,7 @@ export class ConversationManager implements IConversationHandler {
         stateManager,
         webview,
         "테스트 통과 - 결과 검토 중...",
+        true, // buildTestPassed
       );
       return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
     }

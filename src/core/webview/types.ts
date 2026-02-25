@@ -25,8 +25,8 @@ export interface SendMessageCommand {
     imageData?: string;
 }
 
-export interface CancelGeminiCallCommand {
-    command: 'cancelGeminiCall';
+export interface CancelLLMCallCommand {
+    command: 'cancelGeminiCall';  // kept for webview backward compat
 }
 
 export interface CancelAutoCorrectionCommand {
@@ -133,12 +133,7 @@ export interface GetCurrentSettingsCommand {
 }
 
 export interface SaveApiKeyCommand {
-    command: 'saveApiKey' | 'saveGeminiApiKey';
-    apiKey: string;
-}
-
-export interface SaveBanyaApiKeyCommand {
-    command: 'saveBanyaApiKey';
+    command: 'saveApiKey';
     apiKey: string;
 }
 
@@ -188,16 +183,6 @@ export interface GetOllamaModelsCommand {
 
 export interface SetOllamaModelCommand {
     command: 'setOllamaModel' | 'saveOllamaModel' | 'saveRemoteOllamaModel';
-    model: string;
-}
-
-export interface SetGeminiModelCommand {
-    command: 'setGeminiModel';
-    model: string;
-}
-
-export interface SetBanyaModelCommand {
-    command: 'setBanyaModel';
     model: string;
 }
 
@@ -274,7 +259,7 @@ export interface SaveAgentPolicyCommand {
 export type WebviewToExtensionMessage =
     // Chat
     | SendMessageCommand
-    | CancelGeminiCallCommand
+    | CancelLLMCallCommand
     | CancelAutoCorrectionCommand
     | StopCommandExecutionCommand
     | ClearHistoryCommand
@@ -300,7 +285,6 @@ export type WebviewToExtensionMessage =
     // Settings
     | GetCurrentSettingsCommand
     | SaveApiKeyCommand
-    | SaveBanyaApiKeyCommand
     | SaveAiModelCommand
     | SaveLanguageCommand
     | GetLanguageCommand
@@ -312,8 +296,6 @@ export type WebviewToExtensionMessage =
     // Model
     | GetOllamaModelsCommand
     | SetOllamaModelCommand
-    | SetGeminiModelCommand
-    | SetBanyaModelCommand
     | ProjectTypeSelectedCommand
     // MCP
     | GetMcpServersCommand

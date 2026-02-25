@@ -164,6 +164,12 @@ export function getWorkflowGuidelinePrompt(): string {
     prompt += '{ "tool": "read_file", "path": "src/chat.js", "startLine": "200", "endLine": "350" }\n';
     prompt += '```\n\n';
 
+    prompt += '**검색 시 다국어 키워드 병행:**\n';
+    prompt += '- 한글 키워드로 검색할 때 영문 동의어도 함께 검색하세요\n';
+    prompt += '- 코드베이스에는 한글 주석/변수명과 영문 함수/클래스명이 혼재합니다\n';
+    prompt += '- 예: "온보딩" 검색 시 → `onboarding|온보딩`, "인증" 검색 시 → `auth|인증|login`\n';
+    prompt += '- ripgrep은 `|`(OR)를 지원하므로 한 번의 검색으로 둘 다 찾을 수 있습니다\n\n';
+
     prompt += '**검색 후 컨텍스트 확인:**\n';
     prompt += '```\n';
     prompt += '{ "tool": "ripgrep_search", "pattern": "handleSubmit" }\n';

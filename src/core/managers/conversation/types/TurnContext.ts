@@ -13,11 +13,10 @@ import { RetryCoordinator } from '../handlers/RetryCoordinator';
 import { ConversationOptions } from '../ConversationManager';
 import { ToolUse } from '../../../tools/types';
 import { IntentDetectionResult } from '../../action/IntentDetector';
-import { Part } from '../../../../services/llm/GeminiApi';
+import { Part } from '../../../../services/types';
 
 /**
  * LLM에 전달되는 사용자 메시지 파트
- * Part 타입을 재사용 (GeminiApi의 Part와 호환)
  */
 export type UserPart = Part;
 

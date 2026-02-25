@@ -5,7 +5,7 @@
  */
 
 import * as vscode from 'vscode';
-import { PromptType, GeminiApi, OllamaApi, AiModelType, NotificationService, GitRepositoryService } from '../../../services';
+import { PromptType, OllamaApi, AiModelType, NotificationService, GitRepositoryService } from '../../../services';
 import { ConversationManager } from './ConversationManager';
 import { SettingsManager } from '../state/SettingsManager';
 import { StateManager } from '../state/StateManager';
@@ -20,7 +20,6 @@ export interface ConversationServiceOptions {
     terminalContext?: string;
     diagnosticsContext?: string;
     extensionContext?: vscode.ExtensionContext;
-    geminiApi?: GeminiApi;
     ollamaApi?: OllamaApi;
     currentModelType?: AiModelType;
     userOS?: string;
@@ -42,7 +41,6 @@ export class ConversationService {
 
         // 필요한 정보 수집
         const extensionContext = options.extensionContext;
-        let geminiApi = options.geminiApi;
         let ollamaApi = options.ollamaApi;
         let currentModelType = options.currentModelType;
         let userOS = options.userOS;
@@ -73,7 +71,6 @@ export class ConversationService {
             terminalContext: options.terminalContext,
             diagnosticsContext: options.diagnosticsContext,
             extensionContext: options.extensionContext,
-            geminiApi: geminiApi,
             ollamaApi: ollamaApi,
             currentModelType: currentModelType,
             userOS: userOS,

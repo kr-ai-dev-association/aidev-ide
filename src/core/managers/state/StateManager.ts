@@ -11,7 +11,7 @@ import {
     ExtensionStats,
     RecentAction
 } from './types';
-import { CryptoUtils } from '../../../utils';
+import { DEFAULT_OLLAMA_URL } from '../../config/ApiDefaults';
 
 export class StateManager {
     private static instance: StateManager;
@@ -258,8 +258,6 @@ export class StateManager {
     // API 키 및 모델 관련 키
     private readonly API_KEY_SECRET_KEY = 'codepilot.geminiApiKey';
     private readonly CURRENT_AI_MODEL_SECRET_KEY = 'codepilot.currentAiModel';
-    private readonly BANYA_LICENSE_SERIAL_SECRET_KEY = 'codepilot.banyaLicenseSerial';
-    private readonly BANYA_API_KEY_SECRET_KEY = 'codepilot.banyaApiKey';
     private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'codepilot.ollamaServerType';
     private readonly OLLAMA_API_URL_SECRET_KEY = 'codepilot.ollamaApiUrl';
     private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.ollamaEndpoint';
@@ -269,7 +267,6 @@ export class StateManager {
     private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'codepilot.remoteOllamaApiUrl';
     private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.remoteOllamaEndpoint';
     private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'codepilot.remoteOllamaModel';
-    private readonly IS_LICENSE_VERIFIED_KEY = 'codepilot.isLicenseVerified';
     private readonly LANGUAGE_KEY = 'codepilot.language';
     private readonly AUTO_UPDATE_ENABLED_KEY = 'codepilot.autoUpdateEnabled';
     private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
@@ -328,41 +325,6 @@ export class StateManager {
         await this.deleteSecret(this.CURRENT_AI_MODEL_SECRET_KEY);
     }
 
-    /**
-     * Banya 라이센스 시리얼을 암호화하여 저장합니다
-     */
-    public async saveBanyaLicenseSerial(licenseSerial: string): Promise<void> {
-        const encryptedSerial = CryptoUtils.encrypt(licenseSerial);
-        await this.saveSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY, encryptedSerial);
-        console.log('[StateManager] Banya license serial encrypted and saved.');
-    }
-
-    /**
-     * Banya 라이센스 시리얼을 복호화하여 가져옵니다
-     */
-    public async getBanyaLicenseSerial(): Promise<string | undefined> {
-        const encryptedSerial = await this.getSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY);
-        if (encryptedSerial) {
-            try {
-                if (CryptoUtils.isEncrypted(encryptedSerial)) {
-                    return CryptoUtils.decrypt(encryptedSerial);
-                }
-                return encryptedSerial;
-            } catch (error) {
-                console.error('[StateManager] Decrypt error:', error);
-                return undefined;
-            }
-        }
-        return undefined;
-    }
-
-    /**
-     * Banya 라이센스 시리얼을 삭제합니다
-     */
-    public async deleteBanyaLicenseSerial(): Promise<void> {
-        await this.deleteSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY);
-    }
-
     // Ollama 관련 메서드들
     public async saveOllamaServerType(serverType: string): Promise<void> {
         await this.saveSecret(this.OLLAMA_SERVER_TYPE_SECRET_KEY, serverType);
@@ -413,7 +375,7 @@ export class StateManager {
     }
 
     public async getLocalOllamaApiUrl(): Promise<string> {
-        return (await this.getSecret(this.LOCAL_OLLAMA_API_URL_SECRET_KEY)) || 'http://localhost:11434';
+        return (await this.getSecret(this.LOCAL_OLLAMA_API_URL_SECRET_KEY)) || DEFAULT_OLLAMA_URL;
     }
 
     public async saveLocalOllamaEndpoint(endpoint: string): Promise<void> {
@@ -449,48 +411,19 @@ export class StateManager {
     }
 
     public async getAiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.aiModel')) || 'gemini';
+        return (await this.getSecret('codepilot.aiModel')) || 'ollama';
     }
 
     public async saveAiModel(model: string): Promise<void> {
         await this.saveSecret('codepilot.aiModel', model);
     }
 
-    public async getGeminiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.geminiModel')) || 'gemini-3-flash-preview';
+    public async getAdminModelConfig(): Promise<string | undefined> {
+        return await this.getSecret('codepilot.adminModelConfig');
     }
 
-    public async saveGeminiModel(model: string): Promise<void> {
-        await this.saveSecret('codepilot.geminiModel', model);
-    }
-
-    public async getBanyaApiKey(): Promise<string | undefined> {
-        return await this.getSecret(this.BANYA_API_KEY_SECRET_KEY);
-    }
-
-    public async saveBanyaApiKey(apiKey: string): Promise<void> {
-        await this.saveSecret(this.BANYA_API_KEY_SECRET_KEY, apiKey);
-    }
-
-    public async deleteBanyaApiKey(): Promise<void> {
-        await this.deleteSecret(this.BANYA_API_KEY_SECRET_KEY);
-    }
-
-    public async getBanyaModel(): Promise<string> {
-        return (await this.getSecret('codepilot.banyaModel')) || 'Banya-Solar:100b';
-    }
-
-    public async saveBanyaModel(model: string): Promise<void> {
-        await this.saveSecret('codepilot.banyaModel', model);
-    }
-
-    // License verified flag
-    public async saveIsLicenseVerified(value: boolean): Promise<void> {
-        await this.context.workspaceState.update(this.IS_LICENSE_VERIFIED_KEY, value);
-    }
-
-    public async getIsLicenseVerified(): Promise<boolean> {
-        return this.context.workspaceState.get<boolean>(this.IS_LICENSE_VERIFIED_KEY) ?? false;
+    public async saveAdminModelConfig(configJson: string): Promise<void> {
+        await this.saveSecret('codepilot.adminModelConfig', configJson);
     }
 
     // Language
@@ -649,7 +582,7 @@ export class StateManager {
     // ===== 모델 라우팅 관련 메서드들 =====
 
     /**
-     * Compactor 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     * Compactor 모델 타입을 저장합니다 (ollama, admin 등)
      */
     public async saveCompactorModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_MODEL_TYPE_KEY, modelType);
@@ -671,7 +604,7 @@ export class StateManager {
     }
 
     /**
-     * Compactor 모델 이름을 저장합니다 (gemini-2.0-flash, llama3 등)
+     * Compactor 모델 이름을 저장합니다 (llama3 등)
      */
     public async saveCompactorModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_MODEL_NAME_KEY, modelName);
@@ -693,7 +626,7 @@ export class StateManager {
     }
 
     /**
-     * Command 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     * Command 모델 타입을 저장합니다 (ollama, admin 등)
      */
     public async saveCommandModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.COMMAND_MODEL_TYPE_KEY, modelType);
@@ -715,7 +648,7 @@ export class StateManager {
     }
 
     /**
-     * Command 모델 이름을 저장합니다 (gemini-2.0-flash, llama3 등)
+     * Command 모델 이름을 저장합니다 (llama3 등)
      */
     public async saveCommandModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.COMMAND_MODEL_NAME_KEY, modelName);
@@ -869,7 +802,7 @@ export class StateManager {
     // ===== Intent 모델 관련 메서드들 =====
 
     /**
-     * Intent 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     * Intent 모델 타입을 저장합니다 (ollama, admin 등)
      */
     public async saveIntentModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.INTENT_MODEL_TYPE_KEY, modelType);

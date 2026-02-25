@@ -137,7 +137,7 @@ export class StreamingToolParser {
                 }
             } else if (this.inCodeBlock) {
                 // CODE 블록 끝 찾기: </file_content>
-                const codeEndIndex = buffer.indexOf(StreamingToolParser.CODE_END_MARKER, currentIndex);
+                const codeEndIndex = buffer.lastIndexOf(StreamingToolParser.CODE_END_MARKER);
 
                 if (codeEndIndex !== -1) {
                     // CODE 블록 완성됨
@@ -307,12 +307,15 @@ export class StreamingToolParser {
         // 표시용 텍스트 (도구 호출 블록 제거)
         let displayText = this.buffer
             .replace(/```json[\s\S]*?```/g, '')
-            // 완전한 CODE 블록 제거 (file_path 속성 포함)
+            // 완전한 CODE 블록 제거
             .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*?<\/file_content>/gi, '')
+            // 닫는 태그 없는 CODE 블록 제거 (LLM이 </file_content> 누락한 경우)
+            .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*/gi, '')
             // JSON만 있는 도구 호출도 제거
             .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
             // 고아 CODE 블록 제거
             .replace(/<file_content>[\s\S]*?<\/file_content>/gi, '')
+            .replace(/<file_content>[\s\S]*/gi, '')
             .trim();
 
         // 🔥 핵심: 도구 호출이 포함된 응답에서는 자연어 텍스트 전체 숨김

@@ -16,6 +16,7 @@ export function bindToggleEvents(elements) {
     autoCorrectionToggle,
     autoExecuteToggle,
     autoToolToggle,
+    autoMcpToolToggle,
     vscode,
   } = elements;
 
@@ -75,6 +76,16 @@ export function bindToggleEvents(elements) {
       const enabled = autoCorrectionToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setAutoCorrectionEnabled", enabled });
+      }
+    });
+  }
+
+  // MCP 도구 자동 실행 토글
+  if (autoMcpToolToggle) {
+    autoMcpToolToggle.addEventListener("change", () => {
+      const enabled = autoMcpToolToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setAutoMcpToolExecutionEnabled", enabled });
       }
     });
   }

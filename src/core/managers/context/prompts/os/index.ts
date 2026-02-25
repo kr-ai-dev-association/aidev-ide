@@ -1,10 +1,11 @@
 /**
- * OS Prompt Components
- * OS별 프롬프트 컴포넌트 배럴 파일
+ * OS Prompt Components - 하위 호환 배럴
+ * 실제 구현은 ../osPrompts.ts에 통합됨
  */
-
-export { getWindowsPrompt } from './WindowsPrompt';
-export { getMacOSPrompt } from './MacOSPrompt';
-export { getLinuxPrompt } from './LinuxPrompt';
-export { getDefaultOSPrompt } from './DefaultOSPrompt';
-
+export {
+  getWindowsPrompt,
+  getMacOSPrompt,
+  getLinuxPrompt,
+  getDefaultOSPrompt,
+  getOSPrompt,
+} from '../osPrompts';

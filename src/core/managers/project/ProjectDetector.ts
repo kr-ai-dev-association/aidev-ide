@@ -416,13 +416,21 @@ export class ProjectDetector {
         }
     }
 
-    public getValidationCommand(
+    public async getValidationCommand(
         projectType: ProjectType,
         projectRoot: string,
         createdFiles: string[],
         modifiedFiles: string[]
-    ): { command: string; description: string } | null {
+    ): Promise<{ command: string; description: string } | null> {
+        // =========================================================
+        // LEVEL 0: 서버 관리 빌드/테스트 설정 확인 (최우선)
+        // =========================================================
         const allFiles = [...createdFiles, ...modifiedFiles];
+
+        const serverOverride = await this.getServerBuildTestOverride(allFiles);
+        if (serverOverride) {
+            return serverOverride;
+        }
 
         // =========================================================
         // LEVEL 1: 범용 린터 (가장 강력하고 빠름)
@@ -1002,6 +1010,127 @@ export class ProjectDetector {
     }
 
     /**
+     * 서버(백엔드)에서 관리되는 빌드/테스트 설정을 확인하여 오버라이드 반환
+     * - enforcement='required': 로컬 자동감지를 무시하고 서버 설정 사용
+     * - enforcement='recommended': 로컬 오버라이드가 없으면 서버 설정 사용
+     * - 서버 접근 실패 시 null 반환 (기존 로직으로 폴백)
+     */
+    private async getServerBuildTestOverride(modifiedFiles?: string[]): Promise<{ command: string; description: string } | null> {
+        try {
+            const { SettingsManager } = await import('../state/SettingsManager');
+            const settingsManager = SettingsManager.getInstance();
+            const serverConfigs = settingsManager.getServerBuildTestConfigs();
+
+            // 1. required 설정이 있으면 최우선 사용 (자동감지 오버라이드)
+            if (serverConfigs && serverConfigs.length > 0) {
+                const requiredConfig = serverConfigs.find(c => c.enforcement === 'required');
+                if (requiredConfig && requiredConfig.value) {
+                    const cmd = typeof requiredConfig.value === 'string'
+                        ? requiredConfig.value
+                        : requiredConfig.value.command;
+                    const desc = typeof requiredConfig.value === 'object'
+                        ? (requiredConfig.value.description || `Server config: ${requiredConfig.key}`)
+                        : `Server config: ${requiredConfig.key}`;
+
+                    if (cmd) {
+                        console.log(`[ProjectDetector] Using required server build/test config: ${requiredConfig.key}`);
+                        return { command: cmd, description: desc };
+                    }
+                }
+            }
+
+            // 2. 개인 설정이 있으면 사용 (required보다 낮고 recommended보다 높음)
+            const personalConfigs = settingsManager.getPersonalBuildTestConfigs();
+            if (personalConfigs && personalConfigs.length > 0) {
+                const personal = personalConfigs[0]; // 첫 번째 개인 설정 사용
+                const cmd = typeof personal.value === 'string'
+                    ? personal.value
+                    : personal.value?.command;
+                if (cmd) {
+                    console.log(`[ProjectDetector] Using personal build/test config: ${personal.key}`);
+                    return { command: cmd, description: personal.description || `Personal: ${personal.key}` };
+                }
+            }
+
+            // 3. recommended 설정이 있으면 폴백으로 사용
+            if (serverConfigs && serverConfigs.length > 0) {
+                const recommendedConfigs = serverConfigs.filter(c => c.enforcement === 'recommended' || c.enforcement === 'preset');
+                for (const recommendedConfig of recommendedConfigs) {
+                    if (!recommendedConfig.value) continue;
+
+                    // 사용자가 비활성화한 권장 설정은 건너뛰기
+                    if (settingsManager.isSettingDisabled('build_test', recommendedConfig.key)) {
+                        console.log(`[ProjectDetector] Skipping disabled recommended config: ${recommendedConfig.key}`);
+                        continue;
+                    }
+
+                    // language 필드가 있으면 수정된 파일의 확장자와 매칭 확인
+                    const configLang = typeof recommendedConfig.value === 'object' ? recommendedConfig.value.language : undefined;
+                    if (configLang && modifiedFiles && modifiedFiles.length > 0) {
+                        if (!this.isLanguageMatchingFiles(configLang, modifiedFiles)) {
+                            console.log(`[ProjectDetector] Skipping recommended config (language mismatch): ${recommendedConfig.key} (${configLang}) vs files: ${modifiedFiles.slice(0, 3).join(', ')}`);
+                            continue;
+                        }
+                    }
+
+                    const cmd = typeof recommendedConfig.value === 'string'
+                        ? recommendedConfig.value
+                        : recommendedConfig.value.command;
+                    const desc = typeof recommendedConfig.value === 'object'
+                        ? (recommendedConfig.value.description || `Server recommended: ${recommendedConfig.key}`)
+                        : `Server recommended: ${recommendedConfig.key}`;
+
+                    if (cmd) {
+                        console.log(`[ProjectDetector] Using recommended server build/test config: ${recommendedConfig.key}`);
+                        return { command: cmd, description: desc };
+                    }
+                }
+            }
+
+            return null;
+        } catch (error) {
+            // 서버 설정 로드 실패 시 기존 자동감지 로직으로 폴백 (오프라인 복원력)
+            console.warn('[ProjectDetector] Failed to get server build/test configs (falling back to auto-detect):', error);
+            return null;
+        }
+    }
+
+    /**
+     * 설정의 language 필드가 수정된 파일들의 확장자와 매칭되는지 확인
+     */
+    private isLanguageMatchingFiles(language: string, files: string[]): boolean {
+        const langLower = language.toLowerCase();
+        const extMap: Record<string, string[]> = {
+            'typescript': ['.ts', '.tsx'],
+            'javascript': ['.js', '.jsx', '.mjs', '.cjs'],
+            'react': ['.tsx', '.jsx'],
+            'vue': ['.vue'],
+            'angular': ['.ts', '.component.ts'],
+            'python': ['.py'],
+            'java': ['.java'],
+            'kotlin': ['.kt', '.kts'],
+            'go': ['.go'],
+            'rust': ['.rs'],
+            'c': ['.c', '.h'],
+            'c++': ['.cpp', '.cc', '.cxx', '.hpp', '.hxx'],
+            'c#': ['.cs'],
+            'swift': ['.swift'],
+            'ruby': ['.rb'],
+            'php': ['.php'],
+            'dart': ['.dart'],
+            'scala': ['.scala'],
+        };
+
+        const matchExts = extMap[langLower];
+        if (!matchExts) return true; // 알 수 없는 언어는 허용
+
+        return files.some(f => {
+            const fLower = f.toLowerCase();
+            return matchExts.some(ext => fLower.endsWith(ext));
+        });
+    }
+
+    /**
      * 프로젝트 타입에 맞는 필수 파일 목록을 반환합니다
      * @param projectType 프로젝트 타입
      * @param projectRoot 프로젝트 루트 경로
@@ -1128,7 +1257,7 @@ export class ProjectDetector {
     /**
      * Fallback: LLM에게 프로젝트 타입 판단을 넘깁니다
      * @param projectRoot 프로젝트 루트 경로
-     * @param llmApi LLM API 인스턴스 (GeminiApi 또는 OllamaApi)
+     * @param llmApi LLM API 인스턴스 (OllamaApi)
      * @param currentModelType 현재 모델 타입
      * @param abortSignal 중단 신호
      * @returns 프로젝트 타입 정보 또는 null
@@ -1562,7 +1691,9 @@ JSON 형식으로 응답하세요:
                     };
                 }
                 return {
-                    command: 'find . -name "*.cpp" -o -name "*.h" | xargs clang-format -i',
+                    command: process.platform === 'win32'
+                        ? 'powershell -Command "Get-ChildItem -Recurse -Include *.cpp,*.h | ForEach-Object { clang-format -i $_.FullName }"'
+                        : 'find . -name "*.cpp" -o -name "*.h" | xargs clang-format -i',
                     description: 'clang-format (전체)'
                 };
 

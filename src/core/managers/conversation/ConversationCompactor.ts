@@ -16,7 +16,7 @@ import { SummarizationOptions } from "../context/types/contextHistory";
 import { AgentConfig } from "../../config/AgentConfig";
 import { StringUtils } from "../../utils/StringUtils";
 import { getCompactSummarizationPrompt } from "../context/prompts/rules";
-import { Part } from "../../../services/llm/GeminiApi";
+import { Part } from "../../../services/types";
 
 export interface ConversationMessage {
   role: "user" | "assistant" | "system";

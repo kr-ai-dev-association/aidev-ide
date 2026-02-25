@@ -4,7 +4,8 @@
  * 요청 보내기 / 응답 받기 / 응답 포맷팅
  */
 
-import { GeminiApi, OllamaApi, BanyaApi, AiModelType } from '../../../services';
+import { OllamaApi, AdminModelApi, AiModelType } from '../../../services';
+import type { AdminModelConfig } from '../../../services/llm/AdminModelApi';
 import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult } from './LLMRetryHelper';
 
 export interface LLMMessagePart {
@@ -36,38 +37,39 @@ export interface LLMResponse {
 
 export class LLMManager {
     private static instance: LLMManager;
-    private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
-    private banyaApi: BanyaApi;
+    private adminModelApi: AdminModelApi;
     private currentModelType: AiModelType;
     private currentCallController: AbortController | null = null;
 
     private constructor(
-        geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
-        banyaApi: BanyaApi,
         initialModelType: AiModelType = AiModelType.OLLAMA
     ) {
-        this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
-        this.banyaApi = banyaApi;
+        this.adminModelApi = new AdminModelApi();
         this.currentModelType = initialModelType;
         console.log('[LLMManager] Initialized');
     }
 
     public static getInstance(
-        geminiApi?: GeminiApi,
         ollamaApi?: OllamaApi,
-        banyaApi?: BanyaApi,
         initialModelType?: AiModelType
     ): LLMManager {
         if (!LLMManager.instance) {
-            if (!geminiApi || !ollamaApi || !banyaApi) {
-                throw new Error('LLMManager requires GeminiApi, OllamaApi, and BanyaApi instances');
+            if (!ollamaApi) {
+                throw new Error('LLMManager requires OllamaApi instance');
             }
-            LLMManager.instance = new LLMManager(geminiApi, ollamaApi, banyaApi, initialModelType);
+            LLMManager.instance = new LLMManager(ollamaApi, initialModelType);
         }
         return LLMManager.instance;
+    }
+
+    /**
+     * 관리자 모델 설정 적용
+     */
+    public setAdminModelConfig(config: AdminModelConfig): void {
+        this.adminModelApi.setConfig(config);
     }
 
     /**
@@ -90,10 +92,8 @@ export class LLMManager {
      */
     public async getCurrentModelName(): Promise<string> {
         try {
-            if (this.currentModelType === AiModelType.GEMINI) {
-                return this.geminiApi.getModelName();
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                return this.banyaApi.getModel?.() || this.banyaApi.getCurrentModelName?.() || 'Banya Model';
+            if (this.currentModelType === AiModelType.ADMIN) {
+                return this.adminModelApi.getModel() || 'Admin Model';
             } else if (this.ollamaApi) {
                 return this.ollamaApi.getModel?.() || this.ollamaApi.getCurrentModelName?.() || 'Ollama Model';
             }
@@ -126,13 +126,8 @@ export class LLMManager {
         const apiCall = async (): Promise<string> => {
             let response: string;
 
-            if (this.currentModelType === AiModelType.GEMINI) {
-                response = await this.geminiApi.sendMessage(prompt, undefined, { signal });
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-                response = await this.banyaApi.sendMessage(prompt, { signal });
+            if (this.currentModelType === AiModelType.ADMIN) {
+                response = await this.adminModelApi.sendMessage(prompt, { signal });
             } else {
                 try {
                     await this.ollamaApi.loadSettingsFromStorage();
@@ -197,43 +192,9 @@ export class LLMManager {
         const apiCall = async (): Promise<string> => {
             let response: string;
 
-            if (this.currentModelType === AiModelType.GEMINI) {
-                // Gemini API 형식으로 변환 (Part 타입)
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                response = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
-
-                // Offline fallback trigger
-                if (typeof response === 'string' && response.startsWith('OFFLINE:')) {
-                    try {
-                        await this.ollamaApi.loadSettingsFromStorage();
-                    } catch { }
-                    // Ollama로 폴백
-                    const ollamaParts = userParts.map(part => ({ text: part.text || '' }));
-                    response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, ollamaParts, { signal });
-                }
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Banya API 형식으로 변환
+            if (this.currentModelType === AiModelType.ADMIN) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                response = await this.banyaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                response = await this.adminModelApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
             } else {
                 try {
                     await this.ollamaApi.loadSettingsFromStorage();
@@ -401,7 +362,7 @@ export class LLMManager {
     /**
      * 특정 모델로 시스템 프롬프트와 함께 메시지를 전송합니다
      * Compactor나 Command 모델 등 메인 모델이 아닌 다른 모델을 사용할 때 호출
-     * @param modelType 사용할 모델 타입 (gemini, ollama, banya)
+     * @param modelType 사용할 모델 타입 (ollama, admin)
      * @param modelName 사용할 모델 이름 (선택사항, 지정하지 않으면 해당 타입의 기본 모델 사용)
      * @param systemPrompt 시스템 프롬프트
      * @param userParts 사용자 메시지 파트
@@ -420,58 +381,9 @@ export class LLMManager {
         try {
             let response: string;
 
-            if (modelType === AiModelType.GEMINI) {
-                // Gemini API 형식으로 변환
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
-                const originalModel = this.geminiApi.getModelName();
-                if (modelName && modelName !== originalModel) {
-                    this.geminiApi.updateModelName(modelName);
-                }
-
-                try {
-                    response = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
-                } finally {
-                    // 원래 모델로 복원
-                    if (modelName && modelName !== originalModel) {
-                        this.geminiApi.updateModelName(originalModel);
-                    }
-                }
-            } else if (modelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-
+            if (modelType === AiModelType.ADMIN) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
-                const originalModel = this.banyaApi.getModel?.() || '';
-                if (modelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(modelName);
-                }
-
-                try {
-                    response = await this.banyaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
-                } finally {
-                    // 원래 모델로 복원
-                    if (modelName && originalModel && this.banyaApi.setModel) {
-                        this.banyaApi.setModel(originalModel);
-                    }
-                }
+                response = await this.adminModelApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
             } else {
                 // Ollama
                 try {
@@ -719,64 +631,6 @@ export class LLMManager {
         userParts: LLMMessagePart[],
         options?: LLMRequestOptions
     ): Promise<string> {
-        // Gemini의 경우 API 키와 모델명 임시 변경
-        if (modelType === AiModelType.GEMINI && apiKey) {
-            const originalApiKey = this.geminiApi.getApiKey();
-            const originalModelName = this.geminiApi.getModelName();
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.geminiApi.updateApiKey(apiKey);
-                if (modelName) {
-                    this.geminiApi.updateModelName(modelName);
-                }
-
-                const response = await this.sendMessageWithSpecificModel(
-                    modelType,
-                    modelName,
-                    systemPrompt,
-                    userParts,
-                    options
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.geminiApi.updateApiKey(originalApiKey);
-                this.geminiApi.updateModelName(originalModelName);
-            }
-        }
-
-        // Banya의 경우도 API 키 임시 변경
-        if (modelType === AiModelType.BANYA && apiKey) {
-            const originalApiKey = this.banyaApi.getApiKey();
-            const originalModelName = this.banyaApi.getModel?.() || '';
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.banyaApi.setApiKey(apiKey);
-                if (modelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(modelName);
-                }
-
-                const response = await this.sendMessageWithSpecificModel(
-                    modelType,
-                    modelName,
-                    systemPrompt,
-                    userParts,
-                    options
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.banyaApi.setApiKey(originalApiKey);
-                if (originalModelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(originalModelName);
-                }
-            }
-        }
-
         // 기본: 기존 설정으로 호출
         return this.sendMessageWithSpecificModel(
             modelType,
@@ -800,80 +654,7 @@ export class LLMManager {
         onChunk: (chunk: string, done: boolean) => void,
         options?: LLMRequestOptions
     ): Promise<string> {
-        // Gemini의 경우 API 키와 모델명 임시 변경
-        if (modelType === AiModelType.GEMINI && apiKey) {
-            const originalApiKey = this.geminiApi.getApiKey();
-            const originalModelName = this.geminiApi.getModelName();
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.geminiApi.updateApiKey(apiKey);
-                if (modelName) {
-                    this.geminiApi.updateModelName(modelName);
-                }
-
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                const response = await this.geminiApi.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
-                    parts,
-                    onChunk,
-                    { signal: options?.signal }
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.geminiApi.updateApiKey(originalApiKey);
-                this.geminiApi.updateModelName(originalModelName);
-            }
-        }
-
-        // Banya의 경우도 API 키 임시 변경
-        if (modelType === AiModelType.BANYA && apiKey) {
-            const originalApiKey = this.banyaApi.getApiKey();
-            const originalModelName = this.banyaApi.getModel?.() || '';
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.banyaApi.setApiKey(apiKey);
-                if (modelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(modelName);
-                }
-
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                const response = await this.banyaApi.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
-                    parts,
-                    onChunk,
-                    { signal: options?.signal }
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.banyaApi.setApiKey(originalApiKey);
-                if (originalModelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(originalModelName);
-                }
-            }
-        }
-
-        // Ollama의 경우 (기본)
+        // Ollama의 경우
         if (modelType === AiModelType.OLLAMA) {
             try {
                 await this.ollamaApi.loadSettingsFromStorage();
@@ -894,13 +675,6 @@ export class LLMManager {
     }
 
     /**
-     * GeminiApi 인스턴스를 가져옵니다
-     */
-    public getGeminiApi(): GeminiApi {
-        return this.geminiApi;
-    }
-
-    /**
      * OllamaApi 인스턴스를 가져옵니다
      */
     public getOllamaApi(): OllamaApi {
@@ -908,10 +682,10 @@ export class LLMManager {
     }
 
     /**
-     * BanyaApi 인스턴스를 가져옵니다
+     * AdminModelApi 인스턴스를 가져옵니다
      */
-    public getBanyaApi(): BanyaApi {
-        return this.banyaApi;
+    public getAdminModelApi(): AdminModelApi {
+        return this.adminModelApi;
     }
 
     /**
@@ -946,53 +720,9 @@ export class LLMManager {
         const apiCall = async (): Promise<string> => {
             let response: string;
 
-            if (this.currentModelType === AiModelType.GEMINI) {
-                // Gemini API 형식으로 변환 (Part 타입)
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                response = await this.geminiApi.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
-                    parts,
-                    onChunk,
-                    { signal }
-                );
-
-                // Offline fallback trigger
-                if (typeof response === 'string' && response.startsWith('OFFLINE:')) {
-                    try {
-                        await this.ollamaApi.loadSettingsFromStorage();
-                    } catch { }
-                    // Ollama로 폴백 (스트리밍)
-                    const ollamaParts = userParts.map(part => ({ text: part.text || '' }));
-                    response = await this.ollamaApi.sendMessageWithSystemPromptStreaming(
-                        systemPrompt,
-                        ollamaParts,
-                        onChunk,
-                        { signal }
-                    );
-                }
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Banya API 형식으로 변환
+            if (this.currentModelType === AiModelType.ADMIN) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                response = await this.banyaApi.sendMessageWithSystemPromptStreaming(
+                response = await this.adminModelApi.sendMessageWithSystemPromptStreaming(
                     systemPrompt,
                     parts,
                     onChunk,

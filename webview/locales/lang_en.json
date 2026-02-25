@@ -119,7 +119,7 @@
   "banyaLicenseDeleteError": "Failed to delete CODEPILOT license:",
   "verifyButton": "Verify",
   "aiModelSelectLabel": "AI Model Selection",
-  "geminiOption": "Google Gemini",
+  "geminiOption": "Google AI",
   "ollamaOption": "Ollama",
   "banyaOption": "Banya",
   "aiModelSaved": "AI model saved successfully.",

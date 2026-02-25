@@ -2,9 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { StateManager } from "../managers/state/StateManager";
 import {
-  GeminiApi,
   NotificationService,
-  LicenseService,
   AiModelType,
   ExternalApiService,
 } from "../../services";
@@ -16,6 +14,8 @@ import { ModelConnectionService } from "../managers/model/ModelConnectionService
 import { LocaleService } from "../../webview/services";
 import { HotLoadManager } from "../managers/hotload";
 import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
+import { AuthService } from "../../services/auth/AuthService";
+import { DEFAULT_OLLAMA_URL } from '../config/ApiDefaults';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -44,8 +44,6 @@ export function openSettingsPanel(
   viewColumn: vscode.ViewColumn,
   configurationService: SettingsManager,
   notificationService: NotificationService,
-  geminiApi: GeminiApi, // GeminiApi 추가
-  licenseService: LicenseService, // LicenseService 추가
   ollamaApi?: any, // OllamaApi 추가
   llmService?: any, // LlmService 추가
   terminalMonitorService?: any, // TerminalMonitorService 추가
@@ -83,16 +81,9 @@ export function openSettingsPanel(
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
-            const banyaLicenseSerial =
-              await stateManager.getBanyaLicenseSerial();
-            const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
-            const geminiModel = await stateManager.getGeminiModel();
-            const banyaApiKey = await stateManager.getBanyaApiKey();
-            const banyaModel = await stateManager.getBanyaModel();
-            const currentAiModel = await stateManager.getCurrentAiModel();
-            // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
-            const modelToUse = currentAiModel || aiModel || "ollama";
+            // UI 표시용 aiModel을 사용 (supported:key, admin:key, ollama 형태)
+            const modelToUse = aiModel || "ollama";
             const language = await stateManager.getLanguage();
             const autoUpdateEnabled =
               await settingsManager.isAutoUpdateEnabled();
@@ -102,6 +93,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoExecuteCommandsEnabled();
             const autoToolExecutionEnabled =
               await settingsManager.isAutoToolExecutionEnabled();
+            const autoMcpToolExecutionEnabled =
+              await settingsManager.isAutoMcpToolExecutionEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
@@ -128,12 +121,11 @@ export function openSettingsPanel(
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
-              geminiModel: geminiModel || "gemini-3-pro-preview",
-              ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
+              ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
               ollamaServerType: ollamaServerType || "local",
-              localOllamaApiUrl: ollamaApiUrl || "http://localhost:11434",
+              localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               localOllamaEndpoint: ollamaEndpoint || "/api/generate",
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
               remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
@@ -144,12 +136,11 @@ export function openSettingsPanel(
               autoUpdateEnabled: autoUpdateEnabled || false,
               autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
               errorRetryCount: errorRetryCount || 2,
-              banyaLicenseSerial: banyaLicenseSerial || "",
-              isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
               autoToolExecutionEnabled: autoToolExecutionEnabled, // 도구 자동 실행 설정 추가
+              autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled, // MCP 도구 자동 실행 설정
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
@@ -163,6 +154,9 @@ export function openSettingsPanel(
               intentApiKeySet: intentApiKeySet,
               chatTheme: chatTheme,
               extensionVersion: extensionVersion,
+              personalBuildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
+              errorReportingEnabled: config.get<boolean>('errorReportingEnabled', false),
+              serverSettings: settingsManager.getAllServerSettings(),
             };
             console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
               compactorModelType,
@@ -186,7 +180,7 @@ export function openSettingsPanel(
           try {
             const apiUrl =
               (await stateManager.getOllamaApiUrl()) ||
-              "http://localhost:11434";
+              DEFAULT_OLLAMA_URL;
             const models = await ModelConnectionService.getOllamaModels(apiUrl);
 
             // console.log('[PanelManager] Successfully retrieved Ollama models:', models);
@@ -213,7 +207,7 @@ export function openSettingsPanel(
           try {
             const apiUrl =
               (await stateManager.getOllamaApiUrl()) ||
-              "http://localhost:11434";
+              DEFAULT_OLLAMA_URL;
             const models = await ModelConnectionService.getOllamaModels(apiUrl);
 
             safePostMessage(panel, {
@@ -235,7 +229,7 @@ export function openSettingsPanel(
           try {
             const apiUrl =
               (await stateManager.getOllamaApiUrl()) ||
-              "http://localhost:11434";
+              DEFAULT_OLLAMA_URL;
             const models = await ModelConnectionService.getOllamaModels(apiUrl);
 
             console.log('[PanelManager] Routing Ollama models retrieved:', models?.length || 0);
@@ -257,34 +251,22 @@ export function openSettingsPanel(
           }
           break;
         }
-        case "saveApiKey": // Gemini API 키 저장 케이스 추가
+        case "saveApiKey":
           const apiKeyToSave = data.apiKey;
           if (apiKeyToSave && typeof apiKeyToSave === "string") {
             try {
               await stateManager.saveApiKey(apiKeyToSave);
-              const initialized = geminiApi.updateApiKey(apiKeyToSave);
-              if (initialized) {
-                safePostMessage(panel, { command: "apiKeySaved" });
-                notificationService.showInfoMessage(
-                  "CODEPILOT: Gemini API Key saved and initialized successfully.",
-                );
-              } else {
-                safePostMessage(panel, {
-                  command: "apiKeySaveError",
-                  error:
-                    "API key saved but initialization failed. Please check your API key.",
-                });
-                notificationService.showWarningMessage(
-                  "CODEPILOT: API key saved but initialization failed. Please verify your API key is correct.",
-                );
-              }
+              safePostMessage(panel, { command: "apiKeySaved" });
+              notificationService.showInfoMessage(
+                "CODEPILOT: API Key saved successfully.",
+              );
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "apiKeySaveError",
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Gemini API Key: ${error.message}`,
+                `Error saving API Key: ${error.message}`,
               );
             }
           } else {
@@ -306,7 +288,7 @@ export function openSettingsPanel(
                 await stateManager.saveCompactorModelName(compactorModelName);
               }
               safePostMessage(panel, { command: "compactorModelSaved" });
-              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[compactorType as string] || compactorType;
+              const typeLabel = { ollama: "Ollama", admin: "Admin" }[compactorType as string] || compactorType;
               const modelInfo = compactorModelName ? ` (${compactorModelName})` : "";
               notificationService.showInfoMessage(
                 `CODEPILOT: Compactor 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
@@ -334,7 +316,7 @@ export function openSettingsPanel(
             if (compactorApiKey) {
               await stateManager.saveCompactorApiKey(compactorApiKey);
               safePostMessage(panel, { command: "compactorApiKeySaved" });
-              const typeLabel = { gemini: "Gemini", banya: "Banya" }[compactorApiType as string] || "";
+              const typeLabel = { admin: "Admin" }[compactorApiType as string] || "";
               notificationService.showInfoMessage(
                 `CODEPILOT: Compactor ${typeLabel} API 키가 저장되었습니다.`,
               );
@@ -381,7 +363,7 @@ export function openSettingsPanel(
                 await stateManager.saveCommandModelName(commandModelName);
               }
               safePostMessage(panel, { command: "commandModelSaved" });
-              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[commandType as string] || commandType;
+              const typeLabel = { ollama: "Ollama", admin: "Admin" }[commandType as string] || commandType;
               const modelInfo = commandModelName ? ` (${commandModelName})` : "";
               notificationService.showInfoMessage(
                 `CODEPILOT: Command 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
@@ -409,7 +391,7 @@ export function openSettingsPanel(
             if (commandApiKey) {
               await stateManager.saveCommandApiKey(commandApiKey);
               safePostMessage(panel, { command: "commandApiKeySaved" });
-              const typeLabel = { gemini: "Gemini", banya: "Banya" }[commandApiType as string] || "";
+              const typeLabel = { admin: "Admin" }[commandApiType as string] || "";
               notificationService.showInfoMessage(
                 `CODEPILOT: Command ${typeLabel} API 키가 저장되었습니다.`,
               );
@@ -455,7 +437,7 @@ export function openSettingsPanel(
                 await stateManager.saveIntentModelName(intentModelName);
               }
               safePostMessage(panel, { command: "intentModelSaved" });
-              const typeLabel = { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[intentType as string] || intentType;
+              const typeLabel = { ollama: "Ollama", admin: "Admin" }[intentType as string] || intentType;
               const modelInfo = intentModelName ? ` (${intentModelName})` : "";
               notificationService.showInfoMessage(
                 `CODEPILOT: Intent 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
@@ -483,7 +465,7 @@ export function openSettingsPanel(
             if (intentApiKey) {
               await stateManager.saveIntentApiKey(intentApiKey);
               safePostMessage(panel, { command: "intentApiKeySaved" });
-              const typeLabel = { gemini: "Gemini", banya: "Banya" }[intentApiType as string] || "";
+              const typeLabel = { admin: "Admin" }[intentApiType as string] || "";
               notificationService.showInfoMessage(
                 `CODEPILOT: Intent ${typeLabel} API 키가 저장되었습니다.`,
               );
@@ -517,110 +499,6 @@ export function openSettingsPanel(
               command: "intentModelClearError",
               error: error.message,
             });
-          }
-          break;
-        case "saveGeminiModel": // Gemini 모델 저장 케이스 추가
-          const geminiModelToSave = data.model;
-          if (geminiModelToSave && typeof geminiModelToSave === "string") {
-            try {
-              await stateManager.saveGeminiModel(geminiModelToSave);
-              // GeminiApi 인스턴스 업데이트
-              if (geminiApi) {
-                geminiApi.updateModelName(geminiModelToSave);
-              }
-              safePostMessage(panel, { command: "geminiModelSaved" });
-
-              // 채팅 패널에도 모델 변경 알림
-              if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
-                chatViewProvider.postMessageToWebview({
-                  command: 'ollamaModelChanged',
-                  model: geminiModelToSave
-                });
-              }
-
-              notificationService.showInfoMessage(
-                `CODEPILOT: Gemini Model saved as ${geminiModelToSave}.`,
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "geminiModelSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Gemini Model: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "geminiModelSaveError",
-              error: "Invalid Gemini Model",
-            });
-            notificationService.showErrorMessage("Invalid Gemini Model provided.");
-          }
-          break;
-        case "saveBanyaApiKey": // Banya API 키 저장 케이스 추가
-          const banyaApiKeyToSave = data.apiKey;
-          if (banyaApiKeyToSave && typeof banyaApiKeyToSave === "string") {
-            try {
-              await stateManager.saveBanyaApiKey(banyaApiKeyToSave);
-              safePostMessage(panel, { command: "banyaApiKeySaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Banya API Key saved successfully.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "banyaApiKeySaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Banya API Key: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "banyaApiKeySaveError",
-              error: "Invalid API key",
-            });
-            notificationService.showErrorMessage("Invalid Banya API key provided.");
-          }
-          break;
-        case "saveBanyaModel": // Banya 모델 저장 케이스 추가
-          const banyaModelToSave = data.model;
-          if (banyaModelToSave && typeof banyaModelToSave === "string") {
-            try {
-              await stateManager.saveBanyaModel(banyaModelToSave);
-              safePostMessage(panel, { command: "banyaModelSaved" });
-
-              // 채팅 패널에도 모델 변경 알림
-              console.log('[SettingsPanel] chatViewProvider:', chatViewProvider ? 'exists' : 'undefined');
-              if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
-                console.log('[SettingsPanel] Sending ollamaModelChanged to chat panel:', banyaModelToSave);
-                chatViewProvider.postMessageToWebview({
-                  command: 'ollamaModelChanged',
-                  model: banyaModelToSave
-                });
-              } else {
-                console.warn('[SettingsPanel] chatViewProvider not available or postMessageToWebview not a function');
-              }
-
-              notificationService.showInfoMessage(
-                `CODEPILOT: Banya Model saved as ${banyaModelToSave}.`,
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "banyaModelSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Banya Model: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "banyaModelSaveError",
-              error: "Invalid Banya Model",
-            });
-            notificationService.showErrorMessage("Invalid Banya Model provided.");
           }
           break;
         case "saveOllamaApiUrl": // Ollama API URL 저장 케이스 추가
@@ -908,115 +786,6 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               "Invalid Remote Ollama Model provided.",
-            );
-          }
-          break;
-        case "saveBanyaLicenseSerial": // Banya 라이선스 시리얼 저장 케이스 추가
-          const banyaLicenseSerialToSave = data.banyaLicenseSerial;
-          if (
-            banyaLicenseSerialToSave &&
-            typeof banyaLicenseSerialToSave === "string"
-          ) {
-            try {
-              await stateManager.saveBanyaLicenseSerial(
-                banyaLicenseSerialToSave,
-              );
-              safePostMessage(panel, { command: "banyaLicenseSerialSaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Banya License Serial saved.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "banyaLicenseSerialSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Banya License Serial: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "banyaLicenseSerialSaveError",
-              error: "Invalid Banya License Serial",
-            });
-            notificationService.showErrorMessage(
-              "Invalid Banya License Serial provided.",
-            );
-          }
-          break;
-        case "verifyBanyaLicense": // Banya 라이선스 검증 케이스 추가
-          const banyaLicenseSerialToVerify =
-            data.banyaLicenseSerial ?? data.licenseSerial;
-          if (
-            banyaLicenseSerialToVerify &&
-            typeof banyaLicenseSerialToVerify === "string"
-          ) {
-            try {
-              const verificationResult = await licenseService.verifyLicense(
-                banyaLicenseSerialToVerify,
-              );
-              if (verificationResult.success) {
-                await stateManager.saveIsLicenseVerified(true);
-                // 검증 성공 시 시리얼을 저장하여 CODE/ASK 탭에서 즉시 인식되도록 함
-                await stateManager.saveBanyaLicenseSerial(
-                  banyaLicenseSerialToVerify,
-                );
-                safePostMessage(panel, {
-                  command: "banyaLicenseVerified",
-                  success: true,
-                  message: verificationResult.message,
-                });
-                notificationService.showInfoMessage(
-                  `CODEPILOT: License verified successfully. ${verificationResult.message}`,
-                );
-              } else {
-                await stateManager.saveIsLicenseVerified(false);
-                safePostMessage(panel, {
-                  command: "banyaLicenseVerified",
-                  success: false,
-                  message: verificationResult.message,
-                });
-                notificationService.showErrorMessage(
-                  `CODEPILOT: License verification failed. ${verificationResult.message}`,
-                );
-              }
-            } catch (error: any) {
-              await stateManager.saveIsLicenseVerified(false);
-              safePostMessage(panel, {
-                command: "banyaLicenseVerified",
-                success: false,
-                message: error.message,
-              });
-              notificationService.showErrorMessage(
-                `CODEPILOT: License verification error. ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "banyaLicenseVerified",
-              success: false,
-              message: "Invalid license serial provided.",
-            });
-            notificationService.showErrorMessage(
-              "Invalid license serial provided.",
-            );
-          }
-          break;
-        case "deleteBanyaLicense": // Banya 라이선스 삭제 케이스 추가
-          try {
-            await stateManager.deleteBanyaLicenseSerial();
-            await stateManager.saveIsLicenseVerified(false);
-            safePostMessage(panel, { command: "banyaLicenseDeleted" });
-            notificationService.showInfoMessage(
-              "CODEPILOT: Banya License Serial deleted.",
-            );
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "banyaLicenseDeleteError",
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `Error deleting Banya License Serial: ${error.message}`,
             );
           }
           break;
@@ -1332,6 +1101,28 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setAutoMcpToolExecutionEnabled": { // MCP 도구 자동 실행 설정
+          const autoMcpToolVal = data.enabled;
+          if (typeof autoMcpToolVal === "boolean") {
+            try {
+              await settingsManager.updateAutoMcpToolExecutionEnabled(autoMcpToolVal);
+              safePostMessage(panel, { command: "autoMcpToolExecutionEnabledSet" });
+              console.log(`[PanelManager] Auto MCP Tool Execution 설정 저장됨: ${autoMcpToolVal}`);
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "autoMcpToolExecutionEnabledSetError",
+                error: error.message,
+              });
+              notificationService.showErrorMessage(`Error setting Auto MCP Tool Execution: ${error.message}`);
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "autoMcpToolExecutionEnabledSetError",
+              error: "Invalid setting",
+            });
+          }
+          break;
+        }
         case "setStreamingEnabled": // 스트리밍 설정 저장 케이스 추가
           const streamingEnabledToSet = data.enabled;
           if (typeof streamingEnabledToSet === "boolean") {
@@ -1369,40 +1160,156 @@ export function openSettingsPanel(
           const aiModelToSave = data.aiModel || data.model;
           if (aiModelToSave && typeof aiModelToSave === "string") {
             try {
-              // UI 표시에 쓰는 키와 런타임에서 사용하는 키를 모두 저장
-              await stateManager.saveAiModel(aiModelToSave);
-
-              // 'ollama' 관련 세부 타입 매핑 제거 및 'ollama' 타입으로 통일
+              // 관리자 모델 처리: "admin:key" 또는 "supported:key" 형식
+              const isAdminModel = aiModelToSave.startsWith('admin:');
+              const isSupportedModel = aiModelToSave.startsWith('supported:');
               let toRuntime = aiModelToSave;
-              if (aiModelToSave.toLowerCase() === "ollama") {
+              let modelName = aiModelToSave;
+
+              if (isSupportedModel) {
+                const presetKey = aiModelToSave.substring('supported:'.length);
+                toRuntime = 'admin'; // 런타임은 AdminModelApi 사용
+
+                // 서버 설정에서 지원 모델 config 추출
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const presetSetting = aiModelSettings.find(
+                  (s: any) => s.key === presetKey
+                );
+
+                if (presetSetting && presetSetting.value) {
+                  const v = presetSetting.value;
+                  const customHeaders = v.customHeaders || v.custom_headers || {};
+                  // 사용자가 IDE에서 저장한 API 키 우선 사용
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: presetKey,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof customHeaders === 'string' ? JSON.parse(customHeaders || '{}') : customHeaders,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
+                  modelName = adminConfig.model || presetKey;
+
+                  // LLMManager에 즉시 적용
+                  try {
+                    const { LLMManager } = await import('../managers/model/LLMManager');
+                    const llmManager = LLMManager.getInstance();
+                    llmManager.setAdminModelConfig(adminConfig as any);
+                    llmManager.setCurrentModel(AiModelType.ADMIN);
+                  } catch { }
+
+                  // 토큰 제한 동적 업데이트
+                  try {
+                    const { updateAdminTokenLimits } = await import('../../utils/tokenUtils');
+                    updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
+                  } catch { }
+                } else {
+                  throw new Error(`지원 모델 '${presetKey}'을 찾을 수 없습니다.`);
+                }
+              } else if (isAdminModel) {
+                const adminKey = aiModelToSave.substring('admin:'.length);
+                toRuntime = 'admin';
+
+                // 서버 설정에서 해당 관리자 모델 설정 추출
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const adminSetting = aiModelSettings.find(
+                  (s: any) => s.key === adminKey
+                );
+
+                if (adminSetting && adminSetting.value) {
+                  const v = adminSetting.value;
+                  const customHeaders = v.customHeaders || v.custom_headers || {};
+                  const userApiKeyForAdmin = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: adminKey,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKeyForAdmin || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof customHeaders === 'string' ? JSON.parse(customHeaders || '{}') : customHeaders,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  // 관리자 모델 설정 저장
+                  await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
+                  modelName = adminConfig.model || adminKey;
+
+                  // LLMManager에 즉시 적용
+                  try {
+                    const { LLMManager } = await import('../managers/model/LLMManager');
+                    const llmManager = LLMManager.getInstance();
+                    llmManager.setAdminModelConfig(adminConfig as any);
+                    llmManager.setCurrentModel(AiModelType.ADMIN);
+                  } catch { }
+
+                  // 토큰 제한 동적 업데이트
+                  try {
+                    const { updateAdminTokenLimits } = await import('../../utils/tokenUtils');
+                    updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
+                  } catch { }
+                } else {
+                  throw new Error(`관리자 모델 '${adminKey}'을 찾을 수 없습니다.`);
+                }
+              } else if (aiModelToSave.toLowerCase() === "ollama") {
                 toRuntime = "ollama";
               }
+
+              // UI 표시에 쓰는 키와 런타임에서 사용하는 키를 모두 저장
+              await stateManager.saveAiModel(aiModelToSave);
               await stateManager.saveCurrentAiModel(toRuntime);
+
+              // 런타임 모델 타입도 즉시 업데이트
+              if (!isAdminModel && !isSupportedModel) {
+                try {
+                  const { LLMManager } = await import('../managers/model/LLMManager');
+                  const llmManager = LLMManager.getInstance();
+                  const modelTypeMap: Record<string, AiModelType> = {
+                    'ollama': AiModelType.OLLAMA,
+                    'admin': AiModelType.ADMIN,
+                  };
+                  const runtimeType = modelTypeMap[toRuntime];
+                  if (runtimeType) {
+                    llmManager.setCurrentModel(runtimeType);
+                  }
+                } catch { }
+              }
 
               safePostMessage(panel, { command: "aiModelSaved" });
 
               // 채팅 패널에도 모델 변경 알림
               if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
-                // 현재 모델 이름을 가져와서 전달 (Gemini, Banya, Ollama 구분)
-                let modelName = aiModelToSave;
-                if (aiModelToSave === 'gemini') {
-                  const geminiModel = await stateManager.getGeminiModel();
-                  modelName = geminiModel || 'gemini-3-pro-preview';
-                } else if (aiModelToSave === 'banya') {
-                  const config = vscode.workspace.getConfiguration('codepilot');
-                  modelName = config.get<string>('banyaModel') || 'Banya-Solar:100b';
-                } else if (aiModelToSave === 'ollama') {
+                let chatModel = aiModelToSave;
+                // Ollama인 경우 실제 ollama 모델명을 보냄 (채팅 드롭박스 매칭용)
+                if (aiModelToSave === 'ollama') {
                   const ollamaModel = await stateManager.getOllamaModel();
-                  modelName = ollamaModel || '';
+                  chatModel = ollamaModel || 'ollama';
                 }
 
                 chatViewProvider.postMessageToWebview({
                   command: 'ollamaModelChanged',
-                  model: modelName
+                  model: chatModel
                 });
               }
 
-              notificationService.showInfoMessage("CODEPILOT: AI Model saved.");
+              // 웹뷰 내 상태 메시지로 대체 (알림 팝업 제거)
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "aiModelSaveError",
@@ -1462,7 +1369,7 @@ export function openSettingsPanel(
           try {
             const apiUrl =
               (await stateManager.getOllamaApiUrl()) ||
-              "http://localhost:11434";
+              DEFAULT_OLLAMA_URL;
             const result =
               await ModelConnectionService.testOllamaConnection(apiUrl);
             safePostMessage(panel, {
@@ -1488,99 +1395,6 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               `CODEPILOT: Ollama connection test failed: ${error.message}`,
-            );
-          }
-          break;
-        case "testGeminiConnection": // Gemini 연결 테스트 케이스 추가
-          try {
-            const apiKey = await stateManager.getApiKey();
-            if (!apiKey) {
-              safePostMessage(panel, {
-                command: "geminiConnectionTestResult",
-                success: false,
-                error: "No API key found",
-              });
-              notificationService.showErrorMessage(
-                "CODEPILOT: No Gemini API key found.",
-              );
-              return;
-            }
-
-            const testResult =
-              await ModelConnectionService.testGeminiConnection(
-                apiKey,
-                geminiApi,
-              );
-            safePostMessage(panel, {
-              command: "geminiConnectionTestResult",
-              success: testResult.success,
-              data: testResult.data,
-              error: testResult.error,
-            });
-            if (testResult.success) {
-              notificationService.showInfoMessage(
-                "CODEPILOT: Gemini connection test successful.",
-              );
-            } else {
-              notificationService.showErrorMessage(
-                `CODEPILOT: Gemini connection test failed: ${testResult.error}`,
-              );
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "geminiConnectionTestResult",
-              success: false,
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `CODEPILOT: Gemini connection test failed: ${error.message}`,
-            );
-          }
-          break;
-        case "testBanyaLicenseConnection": // Banya 라이선스 연결 테스트 케이스 추가
-          try {
-            const licenseSerial = await stateManager.getBanyaLicenseSerial();
-            if (!licenseSerial) {
-              safePostMessage(panel, {
-                command: "banyaLicenseConnectionTestResult",
-                success: false,
-                error: "No Banya License Serial found",
-              });
-              notificationService.showErrorMessage(
-                "CODEPILOT: No Banya License Serial found.",
-              );
-              return;
-            }
-
-            const testResult =
-              await licenseService.verifyLicense(licenseSerial);
-            if (testResult.success) {
-              safePostMessage(panel, {
-                command: "banyaLicenseConnectionTestResult",
-                success: true,
-                data: testResult,
-              });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Banya License connection test successful.",
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "banyaLicenseConnectionTestResult",
-                success: false,
-                error: testResult.message,
-              });
-              notificationService.showErrorMessage(
-                `CODEPILOT: Banya License connection test failed: ${testResult.message}`,
-              );
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "banyaLicenseConnectionTestResult",
-              success: false,
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `CODEPILOT: Banya License connection test failed: ${error.message}`,
             );
           }
           break;
@@ -1622,57 +1436,21 @@ export function openSettingsPanel(
         case "testAllConnections": // 모든 연결 테스트 케이스 추가
           try {
             const results = {
-              gemini: false,
               ollama: false,
-              banyaLicense: false,
               terminalDaemon: false,
             };
-
-            // Gemini 연결 테스트
-            try {
-              const apiKey = await stateManager.getApiKey();
-              if (apiKey) {
-                const geminiTest =
-                  await ModelConnectionService.testGeminiConnection(
-                    apiKey,
-                    geminiApi,
-                  );
-                results.gemini = geminiTest.success;
-              }
-            } catch (e) {
-              /* 무시 */
-            }
 
             // Ollama 연결 테스트
             try {
               const apiUrl =
                 (await stateManager.getOllamaApiUrl()) ||
-                "http://localhost:11434";
+                DEFAULT_OLLAMA_URL;
               const ollamaTest =
                 await ModelConnectionService.testOllamaConnection(apiUrl);
               results.ollama = ollamaTest.success;
             } catch (e) {
               /* 무시 */
             }
-
-            // 기상청 API 연결 테스트
-            try {
-            } catch (e) {
-              /* 무시 */
-            }
-
-            // Banya 라이선스 연결 테스트
-            try {
-              const licenseSerial = await stateManager.getBanyaLicenseSerial();
-              if (licenseSerial) {
-                const licenseTest =
-                  await licenseService.verifyLicense(licenseSerial);
-                results.banyaLicense = licenseTest.success;
-              }
-            } catch (e) {
-              /* 무시 */
-            }
-
 
             // Terminal Daemon 연결 테스트
             try {
@@ -1720,25 +1498,16 @@ export function openSettingsPanel(
             const autoCorrectionEnabled =
               await stateManager.getAutoCorrectionEnabled();
             const errorRetryCount = await stateManager.getErrorRetryCount();
-            const banyaLicenseSerial =
-              await stateManager.getBanyaLicenseSerial();
-            const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
-            const geminiModel = await stateManager.getGeminiModel();
-            const banyaApiKey = await stateManager.getBanyaApiKey();
-            const banyaModel = await stateManager.getBanyaModel();
 
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
-              geminiModel: geminiModel || "gemini-3-pro-preview",
-              banyaApiKey: banyaApiKey || "",
-              banyaModel: banyaModel || "Banya-Solar:100b",
-              ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
+              ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
               ollamaServerType: ollamaServerType || "local",
-              localOllamaApiUrl: ollamaApiUrl || "http://localhost:11434",
+              localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               localOllamaEndpoint: ollamaEndpoint || "/api/generate",
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
               remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
@@ -1747,9 +1516,7 @@ export function openSettingsPanel(
               testRetryCount: testRetryCount || 2,
               autoCorrectionEnabled: autoCorrectionEnabled || false,
               errorRetryCount: errorRetryCount || 2,
-              banyaLicenseSerial: banyaLicenseSerial || "",
-              isLicenseVerified: isLicenseVerified, // 라이선스 검증 상태 추가
-              aiModel: aiModel || "gemini", // AI 모델 정보 추가
+              aiModel: aiModel || "ollama",
             };
             // console.log('Sending currentApiKeys message:', messageToSend);
             safePostMessage(panel, messageToSend);
@@ -1791,30 +1558,22 @@ export function openSettingsPanel(
               await settingsManager.isAutoExecuteCommandsEnabled();
             const autoToolExecutionEnabled =
               await settingsManager.isAutoToolExecutionEnabled();
+            const autoMcpToolExecutionEnabled =
+              await settingsManager.isAutoMcpToolExecutionEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
-            const banyaLicenseSerial =
-              await stateManager.getBanyaLicenseSerial();
-            const isLicenseVerified = await stateManager.getIsLicenseVerified();
             const aiModel = await stateManager.getAiModel();
-            const geminiModel = await stateManager.getGeminiModel();
-            const banyaApiKey = await stateManager.getBanyaApiKey();
-            const banyaModel = await stateManager.getBanyaModel();
-            const currentAiModel = await stateManager.getCurrentAiModel();
-            // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
-            const modelToUse = currentAiModel || aiModel || "ollama";
+            // UI 표시용 aiModel을 사용 (supported:key, admin:key, ollama 형태)
+            const modelToUse = aiModel || "ollama";
 
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",
-              geminiModel: geminiModel || "gemini-3-pro-preview",
-              banyaApiKey: banyaApiKey || "",
-              banyaModel: banyaModel || "Banya-Solar:100b",
-              ollamaApiUrl: ollamaApiUrl || "http://localhost:11434",
+              ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
               ollamaServerType: ollamaServerType || "local",
-              localOllamaApiUrl: ollamaApiUrl || "http://localhost:11434",
+              localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               localOllamaEndpoint: ollamaEndpoint || "/api/generate",
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
               remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
@@ -1828,10 +1587,10 @@ export function openSettingsPanel(
               autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled ?? true,
               autoToolExecutionEnabled: autoToolExecutionEnabled ?? true,
+              autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled ?? false,
               streamingEnabled: streamingEnabled || false,
-              banyaLicenseSerial: banyaLicenseSerial || "",
-              isLicenseVerified: isLicenseVerified,
               aiModel: modelToUse,
+              serverSettings: settingsManager.getAllServerSettings(),
             };
             console.log('[PanelManager] loadSettings - sending currentSettings with toggles');
             safePostMessage(panel, messageToSend);
@@ -1845,8 +1604,8 @@ export function openSettingsPanel(
           break;
         case "loadApiKeys": // API 키 로드
           try {
-            const geminiApiKey = await stateManager.getApiKey();
-            safePostMessage(panel, { command: "apiKeysLoaded", geminiApiKey });
+            const apiKey = await stateManager.getApiKey();
+            safePostMessage(panel, { command: "apiKeysLoaded", apiKey });
           } catch (error: any) {
             console.error("Error loading API keys:", error);
             safePostMessage(panel, {
@@ -1858,12 +1617,9 @@ export function openSettingsPanel(
         case "loadAiModel": // AI 모델 로드
           try {
             const aiModel = await stateManager.getAiModel();
-            const currentAiModel = await stateManager.getCurrentAiModel();
-            // currentAiModel이 있으면 우선 사용, 없으면 aiModel 사용
-            const modelToSend = currentAiModel || aiModel;
             safePostMessage(panel, {
               command: "currentAiModel",
-              model: modelToSend,
+              model: aiModel || "ollama",
             });
           } catch (error: any) {
             console.error("Error loading AI model:", error);
@@ -2579,15 +2335,29 @@ export function openSettingsPanel(
         case "getMcpServers": // MCP 서버 목록 로드
           try {
             const servers = await stateManager.getMcpServers();
+            const { MCPManager: MCPMgrGet } = await import('../mcp/MCPManager');
+            const mcpMgrGet = MCPMgrGet.getInstance();
+            const adminServers = mcpMgrGet.getAdminServers();
+            // 라이브 연결 상태를 MCPManager에서 병합 (autoConnect 결과 반영)
+            const liveServers = mcpMgrGet.getServers();
+            const mergedServers = servers.map((s: any) => {
+              const live = liveServers.find((ls: any) => ls.id === s.id);
+              if (live) {
+                return { ...s, status: live.status, tools: live.tools || s.tools };
+              }
+              return s;
+            });
             safePostMessage(panel, {
               command: 'mcpServers',
-              servers: servers
+              servers: mergedServers,
+              adminServers: adminServers,
             });
           } catch (error: any) {
             console.error('[SettingsPanel] Failed to get MCP servers:', error);
             safePostMessage(panel, {
               command: 'mcpServers',
               servers: [],
+              adminServers: [],
               error: error.message
             });
           }
@@ -2661,7 +2431,7 @@ export function openSettingsPanel(
             });
           }
           break;
-        case "toggleMcpServer": // MCP 서버 활성화/비활성화
+        case "toggleMcpServer": // MCP 서버 활성화/비활성화 (개인 서버)
           try {
             const toggleServerId = data.serverId;
             const enabled = data.enabled;
@@ -2669,42 +2439,26 @@ export function openSettingsPanel(
               throw new Error('서버 ID가 필요합니다.');
             }
 
-            // StateManager에 enabled 상태 저장
-            await stateManager.updateMcpServer(toggleServerId, { enabled });
-
-            // MCPManager에서 연결/해제 처리
             const { MCPManager: MCPMgr } = await import('../mcp/MCPManager');
             const mcpMgr = MCPMgr.getInstance();
-            await mcpMgr.initialize(context);
 
-            if (enabled) {
-              // 활성화: MCPManager에 서버 등록 (연결은 수동으로)
-              const existingServers = mcpMgr.getServers();
-              if (!existingServers.find(s => s.id === toggleServerId)) {
-                const allServers = await stateManager.getMcpServers();
-                const serverConfig = allServers.find((s: any) => s.id === toggleServerId);
-                if (serverConfig) {
-                  await mcpMgr.addServer(serverConfig);
-                }
-              }
-              await mcpMgr.updateServer(toggleServerId, { enabled: true });
-              console.log(`[SettingsPanel] MCP server enabled: ${toggleServerId}`);
-            } else {
-              // 비활성화: 연결 해제
-              try {
-                await mcpMgr.disconnectFromServer(toggleServerId);
-              } catch (e) {
-                // 이미 연결 해제된 경우 무시
-              }
-              await stateManager.updateMcpServer(toggleServerId, { status: 'disconnected', tools: [] });
-              console.log(`[SettingsPanel] MCP server disabled: ${toggleServerId}`);
+            let resultStatus = 'disconnected';
+            let resultTools: any[] = [];
+
+            // updateServer가 메모리 업데이트 → disconnect → save를 일관되게 처리
+            const updated = await mcpMgr.updateServer(toggleServerId, { enabled });
+            if (updated) {
+              resultStatus = updated.status || (enabled ? 'connected' : 'disconnected');
+              resultTools = updated.tools || [];
             }
+            console.log(`[SettingsPanel] MCP server ${enabled ? 'enabled' : 'disabled'}: ${toggleServerId}`);
 
             safePostMessage(panel, {
               command: 'mcpServerToggled',
               serverId: toggleServerId,
               enabled,
-              status: 'disconnected'
+              status: resultStatus,
+              tools: resultTools,
             });
             notificationService.showInfoMessage(`CODEPILOT: MCP 서버 ${enabled ? '활성화' : '비활성화'}됨`);
           } catch (error: any) {
@@ -2717,48 +2471,72 @@ export function openSettingsPanel(
             });
           }
           break;
-        case "testMcpServer": // MCP 서버 연결 테스트
+        case "toggleAdminMcpServer": // 관리자 MCP 서버 토글 (권장만)
+          try {
+            const adminServerId = data.serverId;
+            const adminEnabled = data.enabled;
+            if (!adminServerId) {
+              throw new Error('서버 ID가 필요합니다.');
+            }
+
+            const { MCPManager: MCPMgrAdmin } = await import('../mcp/MCPManager');
+            const mcpMgrAdmin = MCPMgrAdmin.getInstance();
+            const toggled = await mcpMgrAdmin.toggleAdminServer(adminServerId, adminEnabled);
+
+            if (toggled) {
+              safePostMessage(panel, {
+                command: 'adminMcpServerToggled',
+                serverId: adminServerId,
+                enabled: adminEnabled,
+                status: toggled.status || 'disconnected',
+                tools: toggled.tools || [],
+              });
+              notificationService.showInfoMessage(`CODEPILOT: 관리자 MCP 서버 ${adminEnabled ? '활성화' : '비활성화'}됨`);
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to toggle admin MCP server:', error);
+          }
+          break;
+        case "testMcpServer": // MCP 서버 연결 테스트 (개인 + 관리자 모두)
           try {
             const serverId = data.serverId;
             if (!serverId) {
               throw new Error('서버 ID가 필요합니다.');
             }
 
-            const servers = await stateManager.getMcpServers();
-            const server = servers.find((s: any) => s.id === serverId);
-            if (!server) {
-              throw new Error('서버를 찾을 수 없습니다.');
-            }
-
-            // MCPManager를 통한 연결 테스트
             const { MCPManager } = await import('../mcp/MCPManager');
             const mcpManager = MCPManager.getInstance();
 
-            // MCPManager 초기화 (아직 안 되어 있으면)
-            await mcpManager.initialize(context);
+            // 개인 서버에서 찾기
+            const personalServers = await stateManager.getMcpServers();
+            const personalServer = personalServers.find((s: any) => s.id === serverId);
+            const isAdmin = !personalServer;
 
-            // 서버가 아직 등록되지 않았으면 추가 (ID 유지)
-            const existingServers = mcpManager.getServers();
-            const existingServer = existingServers.find(s => s.id === serverId);
-            if (!existingServer) {
-              const addedServer = await mcpManager.addServer(server);
-              console.log(`[SettingsPanel] MCP server registered: ${addedServer.id}`);
+            if (personalServer) {
+              // 개인 서버: MCPManager에 등록 후 연결
+              const existingServers = mcpManager.getServers();
+              if (!existingServers.find(s => s.id === serverId)) {
+                await mcpManager.addServer(personalServer);
+              }
             }
+            // 관리자 서버는 이미 MCPManager.adminServers에 있음
 
-            // 연결 및 도구 목록 가져오기
+            // 연결 테스트
             await mcpManager.connectToServer(serverId);
 
-            // 업데이트된 서버에서 도구 가져오기
-            const updatedServers = mcpManager.getServers();
-            const connectedServer = updatedServers.find(s => s.id === serverId);
+            // 도구 목록 가져오기 (개인 + 관리자 모두에서 검색)
+            const allServers = [...mcpManager.getServers(), ...mcpManager.getAdminServers()];
+            const connectedServer = allServers.find(s => s.id === serverId);
             const tools = connectedServer?.tools || [];
 
-            // 서버 상태 업데이트
-            await stateManager.updateMcpServer(serverId, {
-              status: 'connected',
-              tools: tools,
-              lastConnected: Date.now()
-            });
+            // 개인 서버만 StateManager에 상태 저장
+            if (!isAdmin) {
+              await stateManager.updateMcpServer(serverId, {
+                status: 'connected',
+                tools: tools,
+                lastConnected: Date.now()
+              });
+            }
 
             safePostMessage(panel, {
               command: 'mcpTestResult',
@@ -2771,11 +2549,14 @@ export function openSettingsPanel(
           } catch (error: any) {
             console.error('[SettingsPanel] Failed to test MCP server:', error);
 
-            // 서버 상태 업데이트
+            // 개인 서버만 StateManager에 에러 상태 저장
             if (data.serverId) {
-              await stateManager.updateMcpServer(data.serverId, {
-                status: 'error'
-              });
+              const pServers = await stateManager.getMcpServers();
+              if (pServers.find((s: any) => s.id === data.serverId)) {
+                await stateManager.updateMcpServer(data.serverId, {
+                  status: 'error'
+                });
+              }
             }
 
             safePostMessage(panel, {
@@ -2994,18 +2775,21 @@ export function openSettingsPanel(
               DEFAULT_PROTECTED_FILES,
               updateCustomBlockedCommands,
               updateCustomProtectedFiles,
+              updateCustomHiddenFiles,
               updateDisabledBlockedCommands,
               updateDisabledProtectedFiles,
             } = await import('../tools/PreToolUseValidator');
 
             const customCommands: string[] = context.globalState.get('securityBlockedCommands', []);
             const customFiles: string[] = context.globalState.get('securityProtectedFiles', []);
+            const customHidden: string[] = context.globalState.get('securityHiddenFiles', []);
             const disabledCommands: string[] = context.globalState.get('securityDisabledBlockedCommands', []);
             const disabledFiles: string[] = context.globalState.get('securityDisabledProtectedFiles', []);
 
             // 캐시 업데이트
             updateCustomBlockedCommands(customCommands);
             updateCustomProtectedFiles(customFiles);
+            updateCustomHiddenFiles(customHidden);
             updateDisabledBlockedCommands(disabledCommands);
             updateDisabledProtectedFiles(disabledFiles);
 
@@ -3015,6 +2799,7 @@ export function openSettingsPanel(
               defaultProtectedFiles: DEFAULT_PROTECTED_FILES,
               customBlockedCommands: customCommands,
               customProtectedFiles: customFiles,
+              customHiddenFiles: customHidden,
               disabledBlockedCommands: disabledCommands,
               disabledProtectedFiles: disabledFiles,
             });
@@ -3106,6 +2891,75 @@ export function openSettingsPanel(
             console.error("[SettingsPanelProvider] deleteProtectedFile error:", error);
             safePostMessage(panel, {
               command: "protectedFileDeleteError",
+              error: error.message,
+            });
+          }
+          break;
+
+        // 통합 보안 규칙 추가/삭제 (유형별 분기)
+        case "addSecurityRule":
+          try {
+            const rulePattern = (data.pattern || '').trim();
+            const ruleType = data.type || 'blocked_command';
+            if (!rulePattern) {
+              throw new Error('패턴을 입력해주세요.');
+            }
+            const storageKeyMap: Record<string, string> = {
+              blocked_command: 'securityBlockedCommands',
+              protected_file: 'securityProtectedFiles',
+              hidden_file: 'securityHiddenFiles',
+            };
+            const cacheUpdateMap: Record<string, string> = {
+              blocked_command: 'updateCustomBlockedCommands',
+              protected_file: 'updateCustomProtectedFiles',
+              hidden_file: 'updateCustomHiddenFiles',
+            };
+            const storageKey = storageKeyMap[ruleType] || storageKeyMap.blocked_command;
+            const currentRules: string[] = context.globalState.get(storageKey, []);
+            if (currentRules.includes(rulePattern)) {
+              throw new Error('이미 등록된 패턴입니다.');
+            }
+            currentRules.push(rulePattern);
+            await context.globalState.update(storageKey, currentRules);
+            const validatorModule = await import('../tools/PreToolUseValidator');
+            const updateFn = cacheUpdateMap[ruleType] || cacheUpdateMap.blocked_command;
+            (validatorModule as any)[updateFn](currentRules);
+            safePostMessage(panel, { command: "securityRuleAdded" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] addSecurityRule error:", error);
+            safePostMessage(panel, {
+              command: "securityRuleAddError",
+              error: error.message,
+            });
+          }
+          break;
+
+        case "deleteSecurityRule":
+          try {
+            const delPattern = data.pattern;
+            const delType = data.type || 'blocked_command';
+            const delStorageKeyMap: Record<string, string> = {
+              blocked_command: 'securityBlockedCommands',
+              protected_file: 'securityProtectedFiles',
+              hidden_file: 'securityHiddenFiles',
+            };
+            const delCacheMap: Record<string, string> = {
+              blocked_command: 'updateCustomBlockedCommands',
+              protected_file: 'updateCustomProtectedFiles',
+              hidden_file: 'updateCustomHiddenFiles',
+            };
+            const delKey = delStorageKeyMap[delType] || delStorageKeyMap.blocked_command;
+            const existingRules: string[] = context.globalState.get(delKey, []);
+            const filtered = existingRules.filter(p => p !== delPattern);
+            await context.globalState.update(delKey, filtered);
+            const delValidatorModule = await import('../tools/PreToolUseValidator');
+            const delUpdateFn = delCacheMap[delType] || delCacheMap.blocked_command;
+            (delValidatorModule as any)[delUpdateFn](filtered);
+            safePostMessage(panel, { command: "securityRuleDeleted" });
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] deleteSecurityRule error:", error);
+            safePostMessage(panel, {
+              command: "securityRuleDeleteError",
               error: error.message,
             });
           }
@@ -3219,11 +3073,277 @@ export function openSettingsPanel(
           }
           break;
 
+        // ═══════════ 인증 게이트 핸들러 ═══════════
+        case "checkAuthState": {
+          try {
+            const auth = AuthService.getInstance();
+            const state = auth.getAuthState();
+            const user = state.loggedIn ? auth.getUserInfo() : undefined;
+            safePostMessage(panel, {
+              command: "authState",
+              loggedIn: state.loggedIn,
+              user,
+            });
+          } catch {
+            safePostMessage(panel, {
+              command: "authState",
+              loggedIn: false,
+            });
+          }
+          break;
+        }
+        case "loginWithGoogle": {
+          try {
+            const auth = AuthService.getInstance();
+            await auth.loginWithGoogle();
+            // OAuth 콜백이 handleOAuthCallback → onDidChangeAuth → authState 메시지로 처리됨
+          } catch (e: any) {
+            safePostMessage(panel, {
+              command: "loginError",
+              message: e?.message || "로그인 실패",
+            });
+          }
+          break;
+        }
+        case "logout": {
+          try {
+            const auth = AuthService.getInstance();
+            await auth.logout();
+          } catch { /* ignore */ }
+          break;
+        }
+        case "changeApiKey": {
+          try {
+            const newKey = (data.apiKey || "").trim();
+            if (!newKey) {
+              safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: "API 키를 입력하세요." });
+              break;
+            }
+
+            const auth = AuthService.getInstance();
+
+            // 서버에 API 키 검증 요청 (/license/join/)
+            try {
+              const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
+              const api = CodePilotApiClient.getInstance();
+              const result: any = await api.post("/license/join/", { api_key: newKey });
+
+              // 서버 검증 성공 → 반환된 사용자 정보로 업데이트
+              const apiKeyName = result?.api_key_name || "조직 연결됨";
+              const apiKeyMasked = result?.api_key_masked || (newKey.length > 8
+                ? newKey.slice(0, 4) + "..." + newKey.slice(-4) : "****");
+
+              const updatedInfo = {
+                ...(auth.getUserInfo() || {}),
+                apiKeyName,
+                apiKeyMasked,
+                organization_id: result?.organization_id || result?.organization,
+                organization_name: result?.organization_name,
+              };
+              await context.globalState.update("codepilot.userInfo", updatedInfo);
+              await context.globalState.update("codepilot.apiKey", newKey);
+              safePostMessage(panel, { command: "changeApiKeyResult", success: true });
+              (auth as any)._onDidChangeAuth?.fire(true);
+            } catch (apiError: any) {
+              const errorMsg = apiError?.message || "유효하지 않은 API 키입니다";
+              safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: errorMsg });
+            }
+          } catch (e: any) {
+            const msg = e?.message || "API 키 변경 실패";
+            safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: msg });
+          }
+          break;
+        }
+
+        case "clearApiKey": {
+          try {
+            // globalState에서 API 키 관련 데이터 제거
+            await context.globalState.update("codepilot.apiKey", undefined);
+            const auth = AuthService.getInstance();
+            const currentInfo = auth.getUserInfo() || {};
+            const cleaned = { ...currentInfo } as any;
+            delete cleaned.apiKeyName;
+            delete cleaned.apiKeyMasked;
+            await context.globalState.update("codepilot.userInfo", cleaned);
+            safePostMessage(panel, { command: "clearApiKeyResult", success: true });
+          } catch {
+            safePostMessage(panel, { command: "clearApiKeyResult", success: false });
+          }
+          break;
+        }
+
+        // ===== 빌드/테스트 개인 설정 CRUD =====
+        case "saveBuildTestSetting": {
+          try {
+            const type = data.type || 'validation_command';
+            const language = data.language || '';
+            const description = data.description || '';
+            const command = data.value || '';
+            if (!command) {
+              safePostMessage(panel, { command: 'buildTestSettingsUpdated', success: false, error: '명령어를 입력하세요', settings: context.globalState.get<any[]>('personalBuildTestSettings', []) });
+              break;
+            }
+            const keySuffix = language ? `-${language.toLowerCase().replace(/[^a-z0-9]+/g, '')}` : '';
+            const key = `${type}${keySuffix}`;
+            const settings = context.globalState.get<any[]>('personalBuildTestSettings', []);
+            const existing = settings.findIndex((s: any) => s.key === key);
+            const entry = { key, description, value: { command, language } };
+            if (existing >= 0) {
+              settings[existing] = entry;
+            } else {
+              settings.push(entry);
+            }
+            await context.globalState.update('personalBuildTestSettings', settings);
+            console.log(`[SettingsPanel] Build/test setting saved: ${key} = ${command}`);
+            safePostMessage(panel, { command: 'buildTestSettingsUpdated', success: true, settings });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to save build/test setting:', error);
+            safePostMessage(panel, { command: 'buildTestSettingsUpdated', success: false, error: error.message, settings: context.globalState.get<any[]>('personalBuildTestSettings', []) });
+          }
+          break;
+        }
+        case "deleteBuildTestSetting": {
+          try {
+            const key = data.key;
+            const settings = context.globalState.get<any[]>('personalBuildTestSettings', []);
+            const filtered = settings.filter((s: any) => s.key !== key);
+            await context.globalState.update('personalBuildTestSettings', filtered);
+            console.log(`[SettingsPanel] Build/test setting deleted: ${key}`);
+            safePostMessage(panel, { command: 'buildTestSettingsUpdated', success: true, settings: filtered });
+          } catch (error: any) {
+            console.error('[SettingsPanel] Failed to delete build/test setting:', error);
+            safePostMessage(panel, { command: 'buildTestSettingsUpdated', success: false, error: error.message, settings: context.globalState.get<any[]>('personalBuildTestSettings', []) });
+          }
+          break;
+        }
+        case "leaveTeam": {
+          try {
+            const confirm = await vscode.window.showWarningMessage(
+              '정말 현재 조직에서 탈퇴하시겠습니까? 조직 설정에 더 이상 접근할 수 없습니다.',
+              { modal: true },
+              '탈퇴',
+            );
+            if (confirm !== '탈퇴') break;
+
+            const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
+            const api = CodePilotApiClient.getInstance();
+            await api.post("/auth/me/leave-organization/", {});
+
+            // 로컬 userInfo 갱신 (조직 정보 제거)
+            const auth = AuthService.getInstance();
+            const userInfo = auth.getUserInfo();
+            if (userInfo) {
+              userInfo.organization = "";
+              await context.globalState.update("codepilot.userInfo", userInfo);
+            }
+
+            safePostMessage(panel, { command: 'leaveTeamResult', success: true });
+            vscode.window.showInformationMessage('조직에서 탈퇴했습니다.');
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`팀 탈퇴 실패: ${e?.message || '알 수 없는 오류'}`);
+            safePostMessage(panel, { command: 'leaveTeamResult', success: false });
+          }
+          break;
+        }
+        case "toggleErrorReporting": {
+          try {
+            const config = vscode.workspace.getConfiguration('codepilot');
+            await config.update('errorReportingEnabled', !!data.value, vscode.ConfigurationTarget.Global);
+          } catch { /* ignore */ }
+          break;
+        }
+        case "syncSettings": {
+          try {
+            const { SettingsManager } = await import("../../core/managers/state/SettingsManager");
+            const sm = SettingsManager.getInstance();
+            await sm.syncServerSettings();
+            // 동기화 후 서버 설정도 다시 전송
+            safePostMessage(panel, {
+              command: 'serverSettingsLoaded',
+              settings: sm.getAllServerSettings(),
+            });
+          } catch { /* ignore */ }
+          break;
+        }
+
+        case "getServerSettings": {
+          try {
+            // 캐시가 비어있으면 먼저 동기화
+            let serverSettings = settingsManager.getAllServerSettings();
+            if (!serverSettings || Object.keys(serverSettings).length === 0) {
+              await settingsManager.syncServerSettings();
+              serverSettings = settingsManager.getAllServerSettings();
+            }
+            safePostMessage(panel, {
+              command: 'serverSettingsLoaded',
+              settings: serverSettings,
+            });
+          } catch { /* ignore */ }
+          break;
+        }
+
+        case "toggleServerSetting": {
+          try {
+            const { category, key, disabled } = data;
+            await settingsManager.toggleRecommendedSetting(category, key, !!disabled);
+            // 변경 후 전체 서버 설정 다시 전송
+            safePostMessage(panel, {
+              command: 'serverSettingsLoaded',
+              settings: settingsManager.getAllServerSettings(),
+            });
+          } catch { /* ignore */ }
+          break;
+        }
+
+        case "saveAdminApiKey": {
+          try {
+            const key = (data.apiKey || "").trim();
+            if (!key) {
+              safePostMessage(panel, { command: "adminApiKeySaveError", error: "API 키를 입력하세요." });
+              break;
+            }
+            // globalState에 저장
+            await context.globalState.update("codepilot.adminApiKey", key);
+
+            // 현재 adminConfig에 API 키 반영 + LLMManager 업데이트
+            try {
+              const configJson = await stateManager.getAdminModelConfig();
+              if (configJson) {
+                const adminConfig = JSON.parse(configJson);
+                adminConfig.apiKey = key;
+                await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
+                const { LLMManager } = await import('../managers/model/LLMManager');
+                const llmManager = LLMManager.getInstance();
+                llmManager.setAdminModelConfig(adminConfig);
+              }
+            } catch { }
+
+            safePostMessage(panel, { command: "adminApiKeySaved" });
+          } catch (e: any) {
+            safePostMessage(panel, { command: "adminApiKeySaveError", error: e?.message || "저장 실패" });
+          }
+          break;
+        }
+
         default:
           console.log("Unknown command:", data.command);
       }
     },
   );
+
+  // 인증 상태 변경 시 웹뷰에 자동 전달
+  try {
+    const authService = AuthService.getInstance();
+    const authDisposable = authService.onDidChangeAuth(async (loggedIn) => {
+      const user = loggedIn ? authService.getUserInfo() : undefined;
+      safePostMessage(panel, {
+        command: "authState",
+        loggedIn,
+        user,
+      });
+    });
+    context.subscriptions.push(authDisposable);
+  } catch { /* AuthService 미초기화 시 무시 */ }
 
   // webview를 전역 배열에 등록
   allWebviews.push(panel.webview);

@@ -60,19 +60,30 @@ export class ToolParser {
                 // JSON 이후 CODE 블록 찾기
                 const afterJson = content.substring(jsonEndIndex);
                 const codeStartIndex = afterJson.indexOf(this.CODE_START_MARKER);
-                const codeEndIndex = afterJson.indexOf(this.CODE_END_MARKER);
+                const codeEndIndex = afterJson.lastIndexOf(this.CODE_END_MARKER);
 
                 let codeContent: string | undefined;
 
-                // CODE 블록이 있고, 다음 JSON 이전에 있는 경우에만 사용
                 if (codeStartIndex !== -1 && codeEndIndex !== -1 && codeStartIndex < codeEndIndex) {
-                    // 다음 tool JSON이 CODE 블록 전에 있는지 확인
+                    // 정상: <file_content> ... </file_content> 쌍이 있는 경우
                     const nextToolMatch = /\{\s*["']tool["']\s*:/.exec(afterJson);
                     if (!nextToolMatch || nextToolMatch.index > codeEndIndex) {
-                        // CODE 블록이 현재 도구에 속함
                         const codeStart = codeStartIndex + this.CODE_START_MARKER.length;
                         codeContent = afterJson.substring(codeStart, codeEndIndex).trim();
                     }
+                } else if (codeStartIndex !== -1 && codeEndIndex === -1) {
+                    // Fallback: <file_content> 열림만 있고 </file_content> 닫힘 없음
+                    // (LLM이 닫는 태그를 누락했거나 max_tokens로 잘린 경우)
+                    const nextToolMatch = /\{\s*["']tool["']\s*:/.exec(afterJson.substring(codeStartIndex + this.CODE_START_MARKER.length));
+                    const codeStart = codeStartIndex + this.CODE_START_MARKER.length;
+                    if (nextToolMatch) {
+                        // 다음 도구 호출 전까지를 content로 사용
+                        codeContent = afterJson.substring(codeStart, codeStartIndex + this.CODE_START_MARKER.length + nextToolMatch.index).trim();
+                    } else {
+                        // 나머지 전체를 content로 사용
+                        codeContent = afterJson.substring(codeStart).trim();
+                    }
+                    console.log(`[ToolParser] Fallback: </file_content> 닫는 태그 없음, content length=${codeContent.length}`);
                 }
 
                 // ToolUse 생성
@@ -292,7 +303,7 @@ export class ToolParser {
     static parseToolCallsUnified(
         content: string,
         _nativeResponse?: any,
-        _provider?: 'gemini' | 'openai' | 'ollama',
+        _provider?: 'gemini' | 'chat_completions' | 'ollama',
         warnings?: string[]
     ): ToolUse[] {
         // CODE 블록 형식 파싱

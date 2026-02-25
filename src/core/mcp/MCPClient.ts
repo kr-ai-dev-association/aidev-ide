@@ -51,6 +51,12 @@ export class MCPClient {
         }
 
         this._status = 'connecting';
+
+        // transport type 추론: 서버 설정에 type이 없는 경우 url/command로 판별
+        if (!this.config.type) {
+            this.config.type = this.config.command ? 'stdio' : 'http';
+        }
+
         console.log(`[MCPClient] Connecting to ${this.config.name} (${this.config.type})...`);
 
         try {

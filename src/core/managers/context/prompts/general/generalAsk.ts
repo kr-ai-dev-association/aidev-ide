@@ -13,6 +13,9 @@ export interface GeneralAskPromptOptions {
   selectedFilesContent?: string; // 사용자가 선택한 파일들의 내용
   terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
   diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics
+  frameworkRulesPrompt?: string; // 프레임워크 규칙
+  hotLoadPrompt?: string; // Hot Load 프롬프트
+  ragContext?: string; // 서버 RAG 검색 결과
 }
 
 export function getGeneralAskPrompt(options: GeneralAskPromptOptions): string {
@@ -26,6 +29,9 @@ export function getGeneralAskPrompt(options: GeneralAskPromptOptions): string {
     selectedFilesContent = "",
     terminalContextContent = "",
     diagnosticsContextContent = "",
+    frameworkRulesPrompt = "",
+    hotLoadPrompt = "",
+    ragContext = "",
   } = options;
 
   // 사용자가 선택한 파일 섹션 - 강한 지시
@@ -64,6 +70,17 @@ ${diagnosticsContextContent}
 `
     : "";
 
+  // RAG 문서 섹션
+  const ragSection = ragContext
+    ? `
+## 참고 문서 (RAG) — 반드시 우선 활용
+아래는 사용자 질문과 관련하여 조직 내부 문서에서 검색된 내용입니다.
+**중요**: 아래 RAG 문서의 내용을 최우선으로 활용하여 답변하세요. 문서 출처를 명시하고, 문서에 없는 내용은 추측하지 마세요.
+
+${ragContext}
+`
+    : "";
+
   // 첨부 컨텍스트 존재 여부
   const hasAttachedContext =
     selectedFilesContent || terminalContextContent || diagnosticsContextContent;
@@ -79,8 +96,33 @@ ${diagnosticsContextContent}
 `
     : "";
 
+  // Skills 통합 로드: 로컬(.agent/rules) + 서버(dev_rules)
+  // 필수(required) 서버 규칙은 로컬보다 우선, 권장(recommended)은 로컬 우선
+  let skillsSection = '';
+  try {
+    const { PromptComposer } = require('../PromptComposer');
+    const { text: agentRulesRaw, ruleKeys: localRuleKeys } = PromptComposer.loadAgentRulesWithKeys();
+    const { text: serverRules, overrideKeys } = PromptComposer.loadServerPromptTemplates(localRuleKeys);
+
+    // 서버 필수 규칙이 덮어쓴 로컬 규칙 제거
+    let agentRules = agentRulesRaw;
+    if (overrideKeys.size > 0 && agentRulesRaw) {
+      for (const key of overrideKeys) {
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const sectionRegex = new RegExp(`\\*\\*[^*]*${escapedKey}[^*]*\\(강제 규칙\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`, 'gi');
+        agentRules = agentRules.replace(sectionRegex, '').trim();
+      }
+      agentRules = agentRules.replace(/(\n---\n)+/g, '\n---\n').replace(/^\n---\n|\n---\n$/g, '').trim();
+    }
+
+    const parts = [agentRules, serverRules].filter(Boolean);
+    if (parts.length > 0) {
+      skillsSection = `\n\n## 프로젝트 개발 규칙\n아래 규칙을 반드시 준수하세요:\n\n${parts.join('\n\n')}`;
+    }
+  } catch { /* Skills 로드 실패 시 무시 */ }
+
   return `당신은 전문적인 소프트웨어 개발자이자 기술 전문가입니다.
-${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}
+${hotLoadPrompt}${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}${ragSection}${skillsSection}
 주요 지침:
 ${gitContext}
 ${languageInstruction}`;

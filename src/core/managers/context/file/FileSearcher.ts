@@ -87,10 +87,11 @@ export class FileSearcher {
                 // VS Code ripgrep 없음
             }
 
-            // 시스템 PATH에서 찾기
-            const { stdout } = await exec('which rg');
+            // 시스템 PATH에서 찾기 (Windows: where, Unix: which)
+            const whichCmd = process.platform === 'win32' ? 'where rg' : 'which rg';
+            const { stdout } = await exec(whichCmd);
             if (stdout.trim()) {
-                this.ripgrepPath = stdout.trim();
+                this.ripgrepPath = stdout.trim().split(/\r?\n/)[0]; // Windows where는 여러 줄 반환 가능
                 return;
             }
         } catch (error) {
@@ -277,7 +278,7 @@ export class FileSearcher {
             for (const file of files.slice(0, maxResults)) {
                 try {
                     const content = await fs.readFile(file, 'utf-8');
-                    const lines = content.split('\n');
+                    const lines = content.split(/\r?\n/);
                     const matches: Match[] = [];
 
                     lines.forEach((line: string, index: number) => {
@@ -387,7 +388,7 @@ export class FileSearcher {
         const regex = new RegExp(
             '^' + pattern
                 .replace(/\*\*/g, '.*')
-                .replace(/\*/g, '[^/]*')
+                .replace(/\*/g, '[^\\\\/]*')
                 .replace(/\?/g, '.')
             + '$'
         );
@@ -404,7 +405,7 @@ export class FileSearcher {
     ): Promise<Match[]> {
         try {
             const content = await fs.readFile(filePath, 'utf-8');
-            const lines = content.split('\n');
+            const lines = content.split(/\r?\n/);
             const regex = new RegExp(pattern, 'gi');
             const context = contextLines ?? 2;
             const matches: Match[] = [];

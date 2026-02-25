@@ -42,43 +42,6 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
             switch (data.command) {
                 case 'sendMessage':
-                    // 시리얼 번호 검증
-                    const stateManager = StateManager.getInstance(this.context);
-                    const licenseSerial = await stateManager.getBanyaLicenseSerial();
-                    if (!licenseSerial || licenseSerial.trim() === '') {
-                        // 다국어 메시지 가져오기
-                        const currentLanguage = await stateManager.getLanguage();
-                        const languageFilePath = vscode.Uri.joinPath(this.extensionUri, 'webview', 'locales', `lang_${currentLanguage}.json`);
-                        let licenseNotSetMessage = '시리얼 번호가 설정되지 않았습니다. 설정에서 AIDEV 시리얼 번호를 입력하고 검증해주세요.';
-
-                        try {
-                            const fileContent = await vscode.workspace.fs.readFile(languageFilePath);
-                            const languageData = JSON.parse(Buffer.from(fileContent).toString('utf8'));
-                            licenseNotSetMessage = languageData.licenseNotSetMessage || licenseNotSetMessage;
-                        } catch (error) {
-                            console.error('Error loading language data for license message:', error);
-                        }
-
-                        webviewView.webview.postMessage({
-                            command: 'receiveMessage',
-                            sender: 'CODEPILOT',
-                            text: licenseNotSetMessage
-                        });
-                        return;
-                    }
-
-                    // 시리얼 번호 검증
-                    const licenseService = new (await import('../../services')).LicenseService();
-                    const verificationResult = await licenseService.verifyLicense(licenseSerial);
-                    if (!verificationResult.success) {
-                        webviewView.webview.postMessage({
-                            command: 'receiveMessage',
-                            sender: 'CODEPILOT',
-                            text: `시리얼 번호 검증 실패: ${verificationResult.message}`
-                        });
-                        return;
-                    }
-
                     // ConversationService를 통해 메시지 처리
                     await ConversationService.handleUserMessage({
                         userQuery: data.text,
@@ -245,21 +208,9 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
             let shellPath: string;
             let terminalName: string;
 
-            if (userOS === 'windows') {
-                shellPath = 'powershell.exe';
-                terminalName = 'CODEPILOT PowerShell Commands';
-            } else if (userOS === 'macos') {
-                shellPath = '/bin/bash';
-                terminalName = 'CODEPILOT Bash Commands';
-            } else if (userOS === 'linux') {
-                shellPath = '/bin/bash';
-                terminalName = 'CODEPILOT Bash Commands';
-            } else {
-                // 기본값 (unknown OS)
-                const osAdapter = ExecutionManager.getInstance().getOSAdapter();
-                shellPath = osAdapter.osType === 'win32' ? 'powershell.exe' : '/bin/bash';
-                terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Bash Commands';
-            }
+            const osAdapter = ExecutionManager.getInstance().getOSAdapter();
+            shellPath = osAdapter.getDefaultShell();
+            terminalName = osAdapter.osType === 'win32' ? 'CODEPILOT PowerShell Commands' : 'CODEPILOT Shell Commands';
 
             // ConfigurationService.getProjectRoot()는 항상 워크스페이스 루트만 반환합니다.
             const terminalCwd = await this.configurationService.getProjectRoot();

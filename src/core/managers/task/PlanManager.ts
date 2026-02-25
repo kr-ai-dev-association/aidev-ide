@@ -24,7 +24,7 @@ export interface PlanItem {
 export class PlanManager {
     private static instance: PlanManager;
     private llmService?: LLMApiClient;
-    private currentModelType: AiModelType = AiModelType.GEMINI;
+    private currentModelType: AiModelType = AiModelType.ADMIN;
 
     private constructor() {
         console.log('[PlanManager] Initialized');
@@ -51,7 +51,6 @@ export class PlanManager {
     public async splitUserInstructionIntoActions(
         userQuery: string,
         extensionContext?: any,
-        geminiApi?: any,
         ollamaApi?: any,
         abortSignal?: AbortSignal
     ): Promise<string[]> {
@@ -69,19 +68,13 @@ export class PlanManager {
             const parts = [{ text: splitPrompt }];
             const systemPromptForSplit = getSplitInstructionSystemPrompt(forceKorean);
 
-            if (!geminiApi && !ollamaApi) {
+            if (!ollamaApi) {
                 return [userQuery];
             }
 
             let response: string;
-            if (this.currentModelType === AiModelType.GEMINI && geminiApi) {
-                response = await geminiApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
-            } else if (ollamaApi) {
-                try { await ollamaApi.loadSettingsFromStorage(); } catch { }
-                response = await ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
-            } else {
-                return [userQuery];
-            }
+            try { await ollamaApi.loadSettingsFromStorage(); } catch { }
+            response = await ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
 
             // JSON 파싱
             const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -317,7 +310,6 @@ export class PlanManager {
      */
     public async summarizePlanItemsForQueue(
         items: Array<{ title: string, detail?: string }>,
-        geminiApi?: any,
         ollamaApi?: any,
         abortSignal?: AbortSignal
     ): Promise<Array<{ title: string, detail?: string }> | null> {
@@ -332,19 +324,13 @@ export class PlanManager {
             const parts = [{ text: summaryPrompt }];
             const systemPrompt = getSummarizePlanSystemPrompt(forceKorean);
 
-            if (!geminiApi && !ollamaApi) {
+            if (!ollamaApi) {
                 return null;
             }
 
             let response: string;
-            if (this.currentModelType === AiModelType.GEMINI && geminiApi) {
-                response = await geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
-            } else if (ollamaApi) {
-                try { await ollamaApi.loadSettingsFromStorage(); } catch { }
-                response = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
-            } else {
-                return null;
-            }
+            try { await ollamaApi.loadSettingsFromStorage(); } catch { }
+            response = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
 
             if (!response || !response.trim()) {
                 return null;

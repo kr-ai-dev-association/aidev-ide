@@ -184,9 +184,7 @@ export interface ExtensionStats {
  */
 export interface UserSettings {
     // LLM 설정
-    aiModel?: 'gemini' | 'ollama';
-    geminiApiKey?: string;
-    geminiModel?: string;
+    aiModel?: 'ollama' | 'admin';
     ollamaUrl?: string;
     ollamaModel?: string;
     useRemoteOllama?: boolean;

@@ -1,11 +1,19 @@
 export enum AiModelType {
-    GEMINI = 'gemini',
     OLLAMA = 'ollama',
-    BANYA = 'banya'
+    ADMIN = 'admin'
 }
 
 export enum PromptType {
     CODE_GENERATION = 'code_generation',
     GENERAL_ASK = 'general_ask'
+}
+
+/** LLM 메시지 파트 (텍스트 또는 인라인 데이터) */
+export interface Part {
+    text?: string;
+    inlineData?: {
+        mimeType: string;
+        data: string;
+    };
 }
 

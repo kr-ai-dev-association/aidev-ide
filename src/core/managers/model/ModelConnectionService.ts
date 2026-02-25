@@ -1,7 +1,7 @@
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
-import { GeminiApi } from '../../../services';
+import { DEFAULT_OLLAMA_URL } from '../../config/ApiDefaults';
 
 export interface ConnectionTestResult {
     success: boolean;
@@ -14,7 +14,7 @@ export class ModelConnectionService {
      * Ollama 모델 목록을 조회합니다.
      */
     static async getOllamaModels(apiUrl?: string): Promise<string[]> {
-        const resolvedApiUrl = apiUrl || 'http://localhost:11434';
+        const resolvedApiUrl = apiUrl || DEFAULT_OLLAMA_URL;
         const url = new URL('/api/tags', resolvedApiUrl);
         const client = url.protocol === 'https:' ? https : http;
 
@@ -53,7 +53,7 @@ export class ModelConnectionService {
      */
     static async testOllamaConnection(apiUrl?: string): Promise<ConnectionTestResult> {
         try {
-            const resolvedApiUrl = apiUrl || 'http://localhost:11434';
+            const resolvedApiUrl = apiUrl || DEFAULT_OLLAMA_URL;
             const url = new URL('/api/tags', resolvedApiUrl);
             const client = url.protocol === 'https:' ? https : http;
 
@@ -97,7 +97,7 @@ export class ModelConnectionService {
         apiUrl?: string,
         onProgress?: (progress: number, status?: string) => void,
     ): Promise<void> {
-        const resolvedApiUrl = apiUrl || 'http://localhost:11434';
+        const resolvedApiUrl = apiUrl || DEFAULT_OLLAMA_URL;
         const url = new URL('/api/pull', resolvedApiUrl);
         const client = url.protocol === 'https:' ? https : http;
         const requestData = JSON.stringify({ name: modelName });
@@ -145,17 +145,5 @@ export class ModelConnectionService {
         });
     }
 
-    /**
-     * Gemini 연결을 테스트합니다.
-     */
-    static async testGeminiConnection(apiKey?: string, geminiApi?: GeminiApi): Promise<ConnectionTestResult> {
-        try {
-            const api = geminiApi ?? new GeminiApi(apiKey);
-            const result = await api.testConnection();
-            return result.success ? { success: true, data: result.data } : { success: false, error: result.error };
-        } catch (error: any) {
-            return { success: false, error: error?.message || String(error) };
-        }
-    }
 }
 

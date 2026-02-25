@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
 import { StateManager } from '../../core/managers/state/StateManager';
+import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 
 type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean };
 
@@ -13,7 +14,7 @@ export class OllamaApi {
     private extensionContext: vscode.ExtensionContext | undefined;
 
     constructor(apiUrl?: string, endpoint?: string, extensionContext?: vscode.ExtensionContext) {
-        this.apiUrl = apiUrl || 'http://localhost:11434';
+        this.apiUrl = apiUrl || DEFAULT_OLLAMA_URL;
         this.endpoint = endpoint || '/api/generate';
         this.extensionContext = extensionContext;
     }
@@ -30,8 +31,9 @@ export class OllamaApi {
         return this.modelName;
     }
 
+    /** @deprecated getModel() 사용 */
     public getCurrentModelName(): string {
-        return this.modelName;
+        return this.getModel();
     }
 
     public setModel(modelName: string): void {

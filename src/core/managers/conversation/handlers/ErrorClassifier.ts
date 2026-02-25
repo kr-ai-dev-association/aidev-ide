@@ -208,9 +208,9 @@ export class ErrorClassifier {
         const groups = this.groupBySourceAndCode(diagnostics);
 
         // Step 3: 설정 파일에만 에러가 있는지 확인
-        const normalizedConfigFiles = configFiles.map(f => f.replace(/^\.\//, ''));
+        const normalizedConfigFiles = configFiles.map(f => f.replace(/^\.[\\/]/, ''));
         const allInConfig = diagnostics.every(d =>
-            normalizedConfigFiles.some(cf => d.file === cf || d.file.endsWith('/' + cf))
+            normalizedConfigFiles.some(cf => d.file === cf || d.file.endsWith('/' + cf) || d.file.endsWith('\\' + cf))
         );
         if (allInConfig && diagnostics.length > 0) {
             for (const g of groups) {

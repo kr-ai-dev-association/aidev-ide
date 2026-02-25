@@ -276,3 +276,15 @@ export function getStreamingState() {
 export function getStreamingMessageElement() {
   return streamingMessageElement;
 }
+
+/**
+ * 마지막 메시지 제거
+ * 자연어 재시도 시 이미 스트리밍된 메시지를 UI에서 제거
+ */
+export function removeLastMessage() {
+  if (!chatMessages) return;
+  const lastMessage = chatMessages.querySelector('.codepilot-message-container:last-child');
+  if (lastMessage) {
+    lastMessage.remove();
+  }
+}

@@ -534,87 +534,60 @@ export class RelevantFilesFinder {
    * 사용자 쿼리에서 명시적으로 언급된 파일 경로를 추출하고 읽습니다.
    * 예: "design.md 파일 읽고", "App.tsx 수정", "package.json 확인" 등
    */
-  private async findExplicitFilesInQuery(
+  public static async findExplicitFiles(
+    userQuery: string,
+    projectRoot: string,
+    abortSignal?: AbortSignal,
+  ): Promise<string[]> {
+    return RelevantFilesFinder._findExplicitFilesInQuery(userQuery, projectRoot, abortSignal);
+  }
+
+  private static async _findExplicitFilesInQuery(
     userQuery: string,
     projectRoot: string,
     abortSignal?: AbortSignal,
   ): Promise<string[]> {
     const explicitFiles: string[] = [];
 
-    // 파일명 패턴 추출 (예: design.md, App.tsx, package.json, 환급금조회_요구사항정의서.md 등)
-    // 정규식: 파일명.확장자 형식 (공백, 따옴표, 백틱 등으로 구분)
     const filePatterns = [
-      // 백틱으로 감싼 파일명: `design.md`, `App.tsx`
       /`([^\s`]+\.\w+)`/g,
-      // 따옴표로 감싼 파일명: "design.md", 'App.tsx'
       /["']([^\s"']+\.\w+)["']/g,
-      // 일반 파일명 패턴: design.md, App.tsx, 환급금조회_요구사항정의서.md (앞뒤에 공백이나 특수문자)
-      // 언더스코어, 하이픈, 한글, 영문, 숫자 모두 포함
       /\b([a-zA-Z0-9가-힣_\-]+\.(md|ts|tsx|js|jsx|json|css|html|py|java|xml|yml|yaml|txt|sh|bat|ps1))\b/gi,
     ];
-
-    console.log(`[RelevantFilesFinder] 명시적 파일 찾기 시작: "${userQuery}"`);
 
     const foundFileNames = new Set<string>();
 
     for (const pattern of filePatterns) {
       let match;
-      // 정규식의 lastIndex를 초기화하기 위해 새로 생성
       const regex = new RegExp(pattern.source, pattern.flags);
       while ((match = regex.exec(userQuery)) !== null) {
         const fileName = match[1];
-        console.log(`[RelevantFilesFinder] 파일명 패턴 매칭: ${fileName}`);
         if (fileName && !foundFileNames.has(fileName.toLowerCase())) {
           foundFileNames.add(fileName.toLowerCase());
-          console.log(
-            `[RelevantFilesFinder] 명시적으로 언급된 파일: ${fileName}`,
-          );
 
-          // 프로젝트 루트에서 파일 찾기
           const possiblePaths = [
-            path.join(projectRoot, fileName), // 루트에 직접
-            path.join(projectRoot, "src", fileName), // src/ 하위
-            path.join(projectRoot, "src", "**", fileName), // src/ 하위 어디든
+            path.join(projectRoot, fileName),
+            path.join(projectRoot, "src", fileName),
+            path.join(projectRoot, "src", "**", fileName),
           ];
 
           for (const filePath of possiblePaths) {
-            if (abortSignal?.aborted) {
-              break;
-            }
-
+            if (abortSignal?.aborted) break;
             try {
-              const fs = await import("fs/promises");
-              // glob 패턴이면 glob으로 검색
               if (filePath.includes("**")) {
-                const glob = await import("glob");
-                const files = await glob.glob(filePath, {
-                  cwd: projectRoot,
-                  nodir: true,
-                });
+                const files = await glob(filePath, { cwd: projectRoot, nodir: true });
                 if (files.length > 0) {
-                  const foundPath = path.join(projectRoot, files[0]);
-                  explicitFiles.push(foundPath);
-                  console.log(
-                    `[RelevantFilesFinder] 파일 찾기 성공 (glob): ${foundPath}`,
-                  );
+                  explicitFiles.push(path.join(projectRoot, files[0]));
                   break;
                 }
               } else {
-                // 직접 경로 확인 - fs.existsSync 사용 (동기 방식이지만 파일 존재 확인에는 충분)
-                const fsSync = await import("fs");
+                const fsSync = require("fs");
                 if (fsSync.existsSync(filePath)) {
                   explicitFiles.push(filePath);
-                  console.log(
-                    `[RelevantFilesFinder] 파일 찾기 성공: ${filePath}`,
-                  );
                   break;
                 }
               }
-            } catch (error) {
-              // 파일이 없으면 다음 경로 시도
-              console.log(
-                `[RelevantFilesFinder] 파일 찾기 실패 (다음 경로 시도): ${filePath}`,
-              );
+            } catch {
               continue;
             }
           }
@@ -622,10 +595,18 @@ export class RelevantFilesFinder {
       }
     }
 
-    console.log(
-      `[RelevantFilesFinder] 명시적으로 언급된 파일: ${explicitFiles.map((f) => path.relative(projectRoot, f)).join(", ")}`,
-    );
     return explicitFiles;
+  }
+
+  /**
+   * (인스턴스 메서드 - 기존 호환, static 위임)
+   */
+  private async findExplicitFilesInQuery(
+    userQuery: string,
+    projectRoot: string,
+    abortSignal?: AbortSignal,
+  ): Promise<string[]> {
+    return RelevantFilesFinder._findExplicitFilesInQuery(userQuery, projectRoot, abortSignal);
   }
 
   /**

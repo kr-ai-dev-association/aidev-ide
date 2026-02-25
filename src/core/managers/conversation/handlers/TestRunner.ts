@@ -12,12 +12,14 @@ import { ProjectType } from "../../project/types";
 import { ProjectManager } from "../../project/ProjectManager";
 import { LLMManager } from "../../model/LLMManager";
 import { ExecutionManager } from "../../execution/ExecutionManager";
-import { AiModelType } from "../../../../services";
+
 import { AgentConfig } from "../../../config/AgentConfig";
+import { UsageMetricsManager } from "../../state/UsageMetricsManager";
 import { StringUtils } from "../../../utils/StringUtils";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
 import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory, ExecutionOutcome } from "./ErrorClassifier";
 import { AutoRemediator } from "./AutoRemediator";
+import { extractErrorMessage } from "./HandlerUtils";
 
 export interface TestResult {
   success: boolean;
@@ -66,12 +68,11 @@ export class TestRunner {
         const currentProject = ProjectManager.getInstance().getCurrentProject();
         const llmManager = LLMManager.getInstance();
         const currentModelType = llmManager.getCurrentModel();
-        const geminiApi = llmManager.getGeminiApi();
         const ollamaApi = llmManager.getOllamaApi();
 
         const llmResult = await detector.detectWithLLMFallback(
           workspaceRoot,
-          currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi,
+          ollamaApi,
           currentModelType,
         );
 
@@ -267,7 +268,7 @@ export class TestRunner {
       }
 
       // 3. Lint Check: 프로젝트 타입별 컴파일/빌드 검사 (CLI)
-      let validationCmd = detector.getValidationCommand(
+      let validationCmd = await detector.getValidationCommand(
         projectInfo.type,
         workspaceRoot,
         createdFiles,
@@ -321,6 +322,7 @@ export class TestRunner {
           "executing",
           "테스트 검증 실패",
         );
+        UsageMetricsManager.getInstance().recordVerification(false);
         return { success: false, errorMessage, classification: cliClassification };
       }
 
@@ -330,10 +332,11 @@ export class TestRunner {
         "executing",
         "테스트 검증 통과",
       );
+      UsageMetricsManager.getInstance().recordVerification(true);
       return { success: true };
     } catch (error) {
       console.error("[TestRunner] Error running automated tests:", error);
-      const errorMsg = `자동 테스트 실행 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`;
+      const errorMsg = `자동 테스트 실행 중 오류 발생: ${extractErrorMessage(error)}`;
       return { success: false, errorMessage: errorMsg };
     }
   }
@@ -358,15 +361,6 @@ export class TestRunner {
     );
 
     const llmManager = LLMManager.getInstance();
-    const currentModelType = llmManager.getCurrentModel();
-    const geminiApi = llmManager.getGeminiApi();
-    const ollamaApi = llmManager.getOllamaApi();
-    const llmApi =
-      currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi;
-
-    if (!llmApi) {
-      return null;
-    }
 
     try {
       const prompt = getValidationCommandPrompt({
@@ -376,7 +370,7 @@ export class TestRunner {
         modifiedFiles,
       });
 
-      const response = await llmApi.sendMessage(prompt);
+      const response = await llmManager.sendMessage(prompt);
 
       // JSON 파싱
       const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -471,7 +465,7 @@ export class TestRunner {
         return { message, classification };
       }
     } catch (error) {
-      const message = `${validationCmd.description} 실행 실패: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `${validationCmd.description} 실행 실패: ${extractErrorMessage(error)}`;
       WebviewBridge.sendProcessingStatus(
         webview,
         "executing",

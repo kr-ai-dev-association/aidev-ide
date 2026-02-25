@@ -92,8 +92,8 @@ export class StackTraceAnalyzer {
             }
         }
 
-        // 프로젝트 루트의 직접 파일
-        if (!file.includes('/') || file.split('/').length <= 2) {
+        // 프로젝트 루트의 직접 파일 (Windows \ 및 Unix / 모두 처리)
+        if ((!file.includes('/') && !file.includes('\\')) || file.split(/[\\/]/).length <= 2) {
             return true;
         }
 

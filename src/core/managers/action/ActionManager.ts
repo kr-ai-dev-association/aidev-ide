@@ -376,8 +376,8 @@ export class ActionManager {
 
         for (const action of actions) {
             // 파일 경로가 상대 경로인 경우 프로젝트 루트 기준으로 변환
-            if (action.params.filePath && !action.params.filePath.startsWith('/')) {
-                action.params.filePath = `${this.context.projectRoot}/${action.params.filePath}`;
+            if (action.params.filePath && !path.isAbsolute(action.params.filePath)) {
+                action.params.filePath = path.join(this.context.projectRoot, action.params.filePath);
             }
 
             // CWD 설정
@@ -561,6 +561,12 @@ export class ActionManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing code generation:`, error);
+
+            // 에러 리포팅
+            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                ErrorReportingService.getInstance().reportFileError(filePath, errorMessage);
+            }).catch(() => {});
+
             return this.createErrorResult(
                 action.id,
                 'EXECUTION_ERROR',
@@ -1029,6 +1035,12 @@ export class ActionManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing file operation:`, error);
+
+            // 에러 리포팅
+            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                ErrorReportingService.getInstance().reportFileError(sourcePath || 'unknown', errorMessage, { operation });
+            }).catch(() => {});
+
             return {
                 success: false,
                 actionId: action.id,

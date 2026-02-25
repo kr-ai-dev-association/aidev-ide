@@ -33,6 +33,7 @@ export interface PromptBuilderOptions {
   frameworkRulesPrompt?: string; // v9.2.1: 동적 프레임워크 규칙 프롬프트
   hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
   mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
+  ragContext?: string; // 서버 RAG 검색 결과
 }
 
 export class PromptBuilder {
@@ -60,7 +61,9 @@ export class PromptBuilder {
         languageInstruction,
         selectedFilesContent: options.selectedFilesContent,
         terminalContextContent: options.terminalContextContent,
-        diagnosticsContextContent: options.diagnosticsContextContent
+        diagnosticsContextContent: options.diagnosticsContextContent,
+        hotLoadPrompt: options.hotLoadPrompt,
+        ragContext: options.ragContext,
       });
     }
 
@@ -81,6 +84,7 @@ export class PromptBuilder {
       frameworkRulesPrompt: options.frameworkRulesPrompt, // v9.2.1: 동적 프레임워크 규칙
       hotLoadPrompt: options.hotLoadPrompt, // Hot Load 프롬프트
       mcpCustomPrompts: options.mcpCustomPrompts, // MCP 커스텀 프롬프트
+      ragContext: options.ragContext, // 서버 RAG 문서 컨텍스트
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

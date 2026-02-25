@@ -17,6 +17,7 @@ import * as path from "path";
 import { WebviewBridge } from "../../../webview/WebviewBridge";
 import { ExecutionManager } from "../../execution/ExecutionManager";
 import { ClassificationResult, ErrorCategory } from "./ErrorClassifier";
+import { extractErrorMessage } from "./HandlerUtils";
 
 export interface RemediationResult {
     attempted: boolean;
@@ -118,7 +119,7 @@ export class AutoRemediator {
                 };
             }
         } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
+            const errorMsg = extractErrorMessage(error);
             console.error(`[AutoRemediator] Install command threw: ${errorMsg}`);
 
             return {
@@ -225,7 +226,7 @@ export class AutoRemediator {
                 };
             }
         } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
+            const errorMsg = extractErrorMessage(error);
             console.error(`[AutoRemediator] Clean command threw: ${errorMsg}`);
 
             return {

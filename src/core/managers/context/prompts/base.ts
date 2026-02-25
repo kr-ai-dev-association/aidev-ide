@@ -267,6 +267,15 @@ export function getFileOperationsRules(): string {
   export default function App() { return <div>Hello</div>; }
   </file_content>
 
+**⚠️ 파일 수정 규칙 (필수)**
+- **기존 파일을 삭제하고 새로 만들지 마세요.** 반드시 기존 파일을 직접 수정(update_file)하세요.
+  - 파일 삭제 후 재생성은 git diff가 깨지고 변경 히스토리가 손실됩니다.
+  - 전체 덮어쓰기(create_file)보다 부분 수정(update_file)을 우선하세요.
+- **파일 분리가 필요한 경우:**
+  - 원본 파일은 유지한 채 새 파일을 생성하세요.
+  - 원본에서는 이동한 코드만 제거하고, 나머지는 그대로 보존하세요.
+  - 새 파일에 대한 import/export를 원본에 추가하세요.
+
 **프레임워크 인식 규칙 (중요)**
 - 작업 전 프로젝트 설정 파일을 먼저 확인하세요:
   * Node.js/TypeScript: package.json, tsconfig.json

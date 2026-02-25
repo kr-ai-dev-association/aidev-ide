@@ -6,4 +6,5 @@
 export { SafeSettingsHelper } from './SafeSettingsHelper';
 export * from './FileExclusionConstants';
 export * from './AsyncFileUtils';
+export { StringUtils } from './StringUtils';
 

@@ -397,6 +397,7 @@ export interface ExecutionPhaseContextOptions {
   currentTaskDetail?: string;
   projectInventoryContext: string;
   preloadedFilesContext: string;
+  ragContext?: string; // RAG 컨텍스트 재주입
 }
 
 /**
@@ -410,7 +411,15 @@ export function getExecutionPhaseContextPrompt(
     currentTaskDetail,
     projectInventoryContext,
     preloadedFilesContext,
+    ragContext,
   } = options;
+
+  // RAG 컨텍스트가 있으면 실행 단계에서 재주입 (파일 읽기 결과보다 가까운 위치)
+  const ragSection = ragContext
+    ? `\n\n## ⚠️ 참고 문서 (RAG) — 반드시 우선 활용\n` +
+      `아래는 조직 내부 문서에서 검색된 내용입니다. 파일 생성/수정 시 아래 내용을 최우선으로 반영하세요.\n\n` +
+      `${ragContext}\n`
+    : '';
 
   return (
     `\n\n[EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)]\n` +
@@ -418,6 +427,7 @@ export function getExecutionPhaseContextPrompt(
     (currentTaskDetail ? `\nDETAIL: ${currentTaskDetail}` : "") +
     projectInventoryContext +
     preloadedFilesContext +
+    ragSection +
     `\n\n** ABSOLUTELY FORBIDDEN (시스템이 자동으로 무시함):**\n` +
     `- NO thinking, reasoning, explanation, or meta-analysis\n` +
     `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +

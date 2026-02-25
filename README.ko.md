@@ -6,6 +6,60 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v10.0.0 (CodePilot Backend 통합 — 인증, 설정 동기화, 사용량 보고)
+
+### 인증 시스템 (Google OAuth)
+- **AuthService**: Google OAuth 기반 로그인/로그아웃 시스템을 추가했습니다.
+  - VS Code URI Handler를 통한 OAuth 콜백 처리 (`codepilot://auth/callback`)
+  - JWT 토큰 관리 (access/refresh), SecretStorage에 안전하게 저장
+  - 로그인 상태 변경 이벤트 (`onLoginStateChanged`) 발행
+  - `codepilot.login` / `codepilot.logout` 명령어 등록
+- **로그인 화면**: 채팅/설정 패널에 Google 로그인 화면을 추가했습니다.
+  - 미인증 시 로그인 화면 표시, 인증 후 채팅 앱으로 전환
+  - `webview/shared/login-screen.html` 공유 컴포넌트
+
+### 백엔드 API 클라이언트
+- **CodePilotApiClient**: 백엔드 REST API 클라이언트를 신규 구현했습니다.
+  - 모든 설정/모니터링/RAG API 호출 지원
+  - JWT 자동 갱신 (401 응답 시 refresh token으로 재시도)
+  - `getAllEffectiveSettings()`, `reportUsage()`, `reportError()` 등
+
+### 설정 동기화 (SettingsManager 확장)
+- **서버 설정 동기화**: 백엔드의 effective settings를 IDE에 실시간 동기화합니다.
+  - 로그인 시 자동 동기화, 5분 TTL 캐시 + globalState 오프라인 캐시
+  - `required` 설정은 사용자가 변경 불가, `recommended`는 비활성화 가능
+  - 카테고리: ai_model, mcp_server, dev_rules, build_test, hotload, security_rules, exclude_patterns
+- **Admin 모델 지원**: `AiModelType.ADMIN` 추가 — 관리자가 설정한 AI 모델을 IDE에서 자동 사용
+  - `AdminModelApi`: 백엔드에서 받은 모델 설정(API URL, 모델명, API 키)으로 OpenAI 호환 API 호출
+  - Gemini/Banya 직접 통합 제거 → Ollama(로컬) + Admin(서버 관리) 2가지 모드로 단순화
+
+### MCP 서버 관리자 연동
+- **관리자 MCP 서버**: 백엔드에서 관리되는 MCP 서버를 개인 서버와 분리 관리합니다.
+  - `MCPManager.adminServers[]`: 관리자 서버 별도 배열로 관리
+  - `required` 서버는 비활성화 불가, `recommended` 서버는 토글 가능
+  - Settings UI에 "관리자 설정 / 개인 설정" 섹션 분리 표시
+  - 관리자 서버 연결 테스트 및 도구 목록 확인 지원
+
+### 사용량 보고 (UsageMetricsManager 확장)
+- **백엔드 사용량 보고**: LLM 호출 시 자동으로 사용량을 백엔드에 보고합니다.
+  - `reportToBackend()`: 모델명, 입력/출력 토큰, API 호출 수 보고
+  - 코드 검증 통계 추가: `verificationCount`, `verificationSuccess`, `verificationFailure`
+
+### 에러 리포팅
+- **ErrorReportingService**: IDE 에러를 백엔드에 자동 보고합니다.
+  - `codepilot.errorReportingEnabled` 설정으로 on/off 제어
+  - MCP 연결 실패, LLM 호출 에러, 도구 실행 에러 등 자동 수집
+  - 소스 태깅: `ide`, `ide-llm`, `ide-tool`, `ide-mcp`, `ide-auth`, `ide-sync`
+
+### 코드 정리 및 구조 개선
+- **레거시 API 제거**: `GeminiApi`, `BanyaApi`, `LicenseService`, `cryptoUtils` 삭제
+  - `ILLMAdapter`, `GptAdapter`, `GemmaAdapter` 인터페이스 삭제 (직접 통합으로 불필요)
+- **LLM 프롬프트 통합**: `llmPrompts.ts`, `osPrompts.ts`로 개별 파일 통합
+- **커맨드 모듈 분리**: `src/commands/` 디렉토리로 명령어 등록 로직 분리
+  - `gitCommands.ts`, `mcpCommands.ts`, `sessionCommands.ts`, `diagnosticCommands.ts`
+- **.js/.js.map 소스 파일 삭제**: `src/` 내 컴파일된 `.js` 및 `.js.map` 파일 일괄 정리 (webpack 빌드 출력은 `dist/`에만 유지)
+- **Settings UI 라이트 테마 개선**: 버튼 스타일 세분화 (주요 액션 버튼만 강조, 일반 버튼은 배경 동화)
+
 ## v9.7.3 (타입 안전성 강화 및 싱글톤 격리)
 - **ConversationManager any 타입 제거**: 50개 이상의 `any` 타입을 명시적 타입으로 교체했습니다.
   - `userParts: any[]` → `UserPart[]` (Part 타입 재사용)

@@ -1,8 +1,6 @@
 // settings.js
 import {
   showStatus,
-  bindGeminiApiKeyEvents,
-  bindBanyaApiKeyEvents,
 } from "./settings/api-keys.js";
 import {
   bindToggleEvents,
@@ -26,6 +24,660 @@ const vscode = window.vscode || null;
 
 // 설정 로드 중 플래그 (자동 저장 방지용)
 let isLoadingSettings = false;
+
+// 서버(조직) 설정 캐시
+let cachedServerSettings = {};
+
+// 조직 소속 여부: window.userHasOrganization (settings.html에서 설정)
+
+// ===== 조직 설정 렌더링 =====
+
+const ORG_CATEGORY_LABELS = {
+  mcp_server: 'MCP 서버',
+  rag: 'RAG',
+  build_test: '빌드/테스트',
+  hotload: 'Hot Load',
+  dev_rules: 'Skills',
+  exclude_patterns: '제외 패턴',
+  security_rules: '보안 규칙',
+  ai_model: 'AI 모델',
+};
+
+const PERSONAL_LABEL_MAP = {
+  // mcp_server는 mcp-settings.js에서 별도 관리
+  rag: 'personal-label-rag',
+  build_test: 'personal-label-build_test',
+  hotload: 'personal-label-hotload',
+  dev_rules: 'personal-label-dev_rules',
+  exclude_patterns: 'personal-label-exclude_patterns',
+  security_rules: 'personal-label-security_rules',
+};
+
+/**
+ * 조직 설정 값을 사람이 읽기 좋은 형태로 변환 (기본 폴백)
+ */
+function formatSettingValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean') return value ? '사용' : '사용 안 함';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+  return String(value);
+}
+
+/**
+ * 카테고리별 카드 내용 HTML 생성
+ * 각 카테고리의 value 구조에 맞게 보기 좋은 카드를 렌더링
+ */
+function renderSettingCard(s, category) {
+  const isRequired = s.enforcement === 'required';
+  const isDisabled = !!s.is_disabled;
+  const itemClass = isRequired ? 'org-setting-item is-locked' : (isDisabled ? 'org-setting-item is-excluded' : 'org-setting-item');
+  const badge = isRequired
+    ? '<span class="badge-required">필수</span>'
+    : '<span class="badge-recommended">권장</span>';
+
+  // ai_model은 아래 드롭다운에서 선택하므로 토글 불가
+  const clickAttr = (isRequired || category === 'ai_model') ? '' : ` data-org-toggle-cat="${category}" data-org-toggle-key="${escapeHtml(s.key)}"`;
+  let html = `<div class="${itemClass}"${clickAttr}>`;
+  html += badge;
+  html += `<div class="setting-info">`;
+  // RAG: 소스 이름을 키 대신 표시
+  const displayKey = (category === 'rag' && s.value && s.value.name) ? s.value.name : s.key;
+  html += `<div class="setting-key">${escapeHtml(displayKey)}`;
+  // security_rules: 이름 옆에 유형 배지
+  if (category === 'security_rules' && s.value && typeof s.value === 'object') {
+    const typeLabel = s.value.type === 'hidden_file' ? '파일 은닉' : s.value.type === 'protected_file' ? '보호 파일' : '차단 명령어';
+    html += ` <span style="background:#2563eb;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;margin-left:4px;">${typeLabel}</span>`;
+  }
+  html += `</div>`;
+
+  // 카테고리별 상세 렌더링
+  const v = s.value;
+  if (category === 'mcp_server' && v && typeof v === 'object') {
+    const rows = [];
+    if (v.type) rows.push(`<b>타입:</b> ${escapeHtml(v.type)}`);
+    if (v.command) rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
+    if (v.url) rows.push(`<b>URL:</b> ${escapeHtml(v.url)}`);
+    if (v.args && Array.isArray(v.args)) rows.push(`<b>인수:</b> <code>${escapeHtml(v.args.join(' '))}</code>`);
+    if (v.env && typeof v.env === 'object') {
+      const envKeys = Object.keys(v.env);
+      if (envKeys.length) rows.push(`<b>환경변수:</b> ${envKeys.map(k => escapeHtml(k)).join(', ')}`);
+    }
+    if (v.prompt) rows.push(`<b>프롬프트:</b> ${escapeHtml(String(v.prompt).substring(0, 100))}${String(v.prompt).length > 100 ? '...' : ''}`);
+    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+
+  } else if (category === 'hotload' && v && typeof v === 'object') {
+    const rows = [];
+    if (v.keywords) rows.push(`<b>키워드:</b> ${escapeHtml(Array.isArray(v.keywords) ? v.keywords.join(', ') : String(v.keywords))}`);
+    if (v.description) rows.push(`<b>설명:</b> ${escapeHtml(v.description)}`);
+    if (v.command) rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
+    if (v.condition) rows.push(`<b>조건:</b> ${escapeHtml(v.condition)}`);
+    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+
+  } else if (category === 'dev_rules' && v && typeof v === 'object') {
+    const rows = [];
+    if (v.title) rows.push(`<b>제목:</b> ${escapeHtml(v.title)}`);
+    if (v.content) {
+      const preview = String(v.content).substring(0, 200);
+      rows.push(`<div class="setting-content-preview">${escapeHtml(preview)}${String(v.content).length > 200 ? '...' : ''}</div>`);
+    }
+    if (v.category_sub) rows.push(`<b>하위분류:</b> ${escapeHtml(v.category_sub)}`);
+    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+
+  } else if (category === 'ai_model' && v && typeof v === 'object') {
+    const rows = [];
+    if (v.provider) rows.push(`<b>제공자:</b> ${escapeHtml(v.provider)}`);
+    if (v.model || v.model_name) rows.push(`<b>모델:</b> ${escapeHtml(v.model || v.model_name)}`);
+    const cw = v.context_window || v.contextWindow;
+    rows.push(`<b>Context Window:</b> ${cw ? Number(cw).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`);
+    const mt = v.max_tokens || v.maxTokens;
+    rows.push(`<b>Max Tokens:</b> ${mt ? Number(mt).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`);
+    if (rows.length) {
+      html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+    } else {
+      html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
+    }
+
+  } else if (category === 'build_test' && v && typeof v === 'object') {
+    const rows = [];
+    if (s.description) rows.push(`<b>설명:</b> ${escapeHtml(s.description)}`);
+    if (v.command) rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
+    if (v.language) rows.push(`<b>언어:</b> ${escapeHtml(v.language)}`);
+    // 레거시 필드 fallback
+    if (!v.command) {
+      if (v.validate_command) rows.push(`<b>검증:</b> <code>${escapeHtml(v.validate_command)}</code>`);
+      if (v.format_command) rows.push(`<b>포맷:</b> <code>${escapeHtml(v.format_command)}</code>`);
+      if (v.build_command) rows.push(`<b>빌드:</b> <code>${escapeHtml(v.build_command)}</code>`);
+      if (v.test_command) rows.push(`<b>테스트:</b> <code>${escapeHtml(v.test_command)}</code>`);
+    }
+    if (rows.length) {
+      html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+    } else {
+      html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
+    }
+
+  } else if (category === 'security_rules' && v && typeof v === 'object') {
+    const rows = [];
+    if (v.blocked_commands && Array.isArray(v.blocked_commands)) rows.push(`<b>차단 명령어:</b> <code>${v.blocked_commands.map(c => escapeHtml(c)).join('</code>, <code>')}</code>`);
+    if (v.protected_files && Array.isArray(v.protected_files)) rows.push(`<b>보호 파일:</b> <code>${v.protected_files.map(f => escapeHtml(f)).join('</code>, <code>')}</code>`);
+    if (v.pattern) rows.push(`<b>패턴:</b> <code>${escapeHtml(v.pattern)}</code>`);
+    if (v.description) rows.push(`<b>설명:</b> ${escapeHtml(v.description)}`);
+    if (rows.length) {
+      html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+    } else {
+      html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
+    }
+
+  } else if (category === 'exclude_patterns') {
+    if (Array.isArray(v)) {
+      html += `<div class="setting-detail"><code>${v.map(p => escapeHtml(p)).join('</code>, <code>')}</code></div>`;
+    } else if (typeof v === 'string') {
+      html += `<div class="setting-desc"><code>${escapeHtml(v)}</code></div>`;
+    } else if (v && typeof v === 'object') {
+      const rows = [];
+      if (v.pattern) rows.push(`<b>패턴:</b> <code>${escapeHtml(v.pattern)}</code>`);
+      if (v.patterns && Array.isArray(v.patterns)) rows.push(`<b>패턴:</b> <code>${v.patterns.map(p => escapeHtml(p)).join('</code>, <code>')}</code>`);
+      if (v.description) rows.push(`<b>설명:</b> ${escapeHtml(v.description)}`);
+      if (v.type) rows.push(`<b>유형:</b> ${escapeHtml(v.type)}`);
+      if (rows.length) {
+        html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+      } else {
+        html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
+      }
+    } else {
+      html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
+    }
+
+  } else if (category === 'rag' && v && typeof v === 'object') {
+    const rows = [];
+    if (v.description) rows.push(`${escapeHtml(v.description)}`);
+    const docCount = v.document_count != null ? v.document_count : 0;
+    const vecCount = v.vector_count != null ? v.vector_count : 0;
+    rows.push(`<b>문서:</b> ${docCount}개 &nbsp; <b>벡터:</b> ${vecCount.toLocaleString()}개`);
+    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+
+  } else {
+    // 범용 폴백
+    const valueStr = formatSettingValue(v);
+    if (valueStr) {
+      html += `<div class="setting-desc">${escapeHtml(valueStr)}</div>`;
+    }
+  }
+
+  html += `</div>`; // .setting-info
+
+  if (isRequired) {
+    html += `<span class="badge-locked">🔒</span>`;
+  } else {
+    html += `<span class="badge-locked" style="visibility:hidden">🔒</span>`;
+  }
+  html += `</div>`; // .org-setting-item
+  return html;
+}
+
+/**
+ * 단일 카테고리의 조직 설정 렌더링
+ */
+function renderOrgSettings(category) {
+  // MCP는 별도 관리자 MCP 섹션에서 처리
+  if (category === 'mcp_server') return;
+  const container = document.getElementById(`org-settings-${category}`);
+  if (!container) return;
+
+  let settings;
+  let headerLabel;
+  if (window.userHasOrganization) {
+    // 조직 사용자: 프리셋 제외, 관리자 설정만 표시
+    settings = (cachedServerSettings[category] || []).filter(s => s.source !== 'preset');
+    headerLabel = '관리자 설정';
+  } else {
+    // 개인 사용자: 프리셋(super에서 개인 활성화한 설정) 표시
+    settings = (cachedServerSettings[category] || []).filter(s => s.source === 'preset');
+    headerLabel = '기본 설정';
+  }
+
+  // RAG 빈 상태 메시지 처리
+  const ragEmptyMsg = document.getElementById('rag-empty-message');
+  if (category === 'rag' && ragEmptyMsg) {
+    ragEmptyMsg.style.display = settings.length === 0 ? 'block' : 'none';
+  }
+
+  if (settings.length === 0) {
+    container.style.display = 'none';
+    const personalLabel = document.getElementById(PERSONAL_LABEL_MAP[category]);
+    if (personalLabel) personalLabel.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+  const personalLabel = document.getElementById(PERSONAL_LABEL_MAP[category]);
+  if (personalLabel) personalLabel.style.display = 'flex';
+
+  let html = `<div class="org-settings-section">`;
+  html += `<div class="org-settings-header">${headerLabel} <span class="org-count">(${settings.length})</span></div>`;
+
+  for (const s of settings) {
+    html += renderSettingCard(s, category);
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+/**
+ * 전체 카테고리 조직 설정 렌더링
+ */
+function renderAllOrgSettings() {
+  // 조직/개인 모두: 카테고리별 설정 카드 렌더링
+  // (renderOrgSettings 내부에서 조직→관리자설정, 개인→프리셋 분기)
+  const categories = Object.keys(PERSONAL_LABEL_MAP);
+  for (const cat of categories) {
+    renderOrgSettings(cat);
+  }
+  if (window.userHasOrganization) {
+    // 서버에서 온 추가 카테고리도 렌더링
+    for (const cat of Object.keys(cachedServerSettings)) {
+      if (!PERSONAL_LABEL_MAP[cat]) {
+        renderOrgSettings(cat);
+      }
+    }
+    // 관리자 AI 모델을 드롭다운에 추가
+    populateAdminModelsInDropdown();
+  }
+  // 지원 모델은 조직/개인 모두 표시 (프리셋 기반)
+  populateSupportedModels();
+  // 라우팅 셀렉트에 지원 모델 추가
+  populateRoutingModelOptions();
+}
+
+/**
+ * 지원 모델을 그룹 단위로 메인 드롭다운에 추가
+ * 메인 드롭다운: 그룹명 선택 → 서브 셀렉트에서 모델 선택
+ */
+function populateSupportedModels() {
+  const mainSelect = document.getElementById("ai-model-select");
+  if (!mainSelect) return;
+  const adminOpt = mainSelect.querySelector('option[value="admin"]');
+
+  // 기존 동적 옵션 제거
+  mainSelect.querySelectorAll('optgroup[data-supported-group]').forEach(o => o.remove());
+  mainSelect.querySelectorAll('option[data-supported]').forEach(o => o.remove());
+
+  const aiModels = cachedServerSettings['ai_model'] || [];
+  const supportedModels = aiModels.filter(s => s.source === 'preset');
+
+  // 그룹별로 분류
+  const groups = {};
+  for (const s of supportedModels) {
+    const g = s.group || 'default';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(s);
+  }
+
+  // 각 그룹을 메인 드롭다운에 추가 (group:xxx 형식)
+  for (const groupName of Object.keys(groups)) {
+    const option = document.createElement('option');
+    option.value = `group:${groupName}`;
+    option.textContent = groupName.charAt(0).toUpperCase() + groupName.slice(1);
+    option.setAttribute('data-supported', 'true');
+    if (adminOpt) {
+      mainSelect.insertBefore(option, adminOpt);
+    } else {
+      mainSelect.appendChild(option);
+    }
+  }
+}
+
+/**
+ * supported:key에서 해당 모델의 그룹명을 찾아 반환
+ */
+function findGroupForSupportedKey(supportedKey) {
+  const aiModels = cachedServerSettings['ai_model'] || [];
+  const preset = aiModels.find(s => s.key === supportedKey && s.source === 'preset');
+  return preset ? (preset.group || 'default') : null;
+}
+
+/**
+ * 관리자 설정 AI 모델을 서브 드롭다운에 추가 (preset 제외 — 순수 admin 모델만)
+ */
+function populateAdminModelsInDropdown() {
+  const subSelect = document.getElementById("admin-model-select");
+  if (!subSelect) return;
+
+  subSelect.innerHTML = '';
+
+  const aiModels = cachedServerSettings['ai_model'] || [];
+  // source가 'admin'인 것만 = 순수 관리자 모델 (preset, builtin 제외)
+  const adminOnlyModels = aiModels.filter(s => {
+    const v = s.value;
+    return v && v.enabled !== false && s.source === 'admin';
+  });
+
+  const mainSelect = document.getElementById("ai-model-select");
+  if (adminOnlyModels.length === 0) {
+    if (mainSelect) {
+      const adminOpt = mainSelect.querySelector('option[value="admin"]');
+      if (adminOpt) adminOpt.style.display = 'none';
+    }
+    return;
+  }
+
+  if (mainSelect) {
+    const adminOpt = mainSelect.querySelector('option[value="admin"]');
+    if (adminOpt) adminOpt.style.display = '';
+  }
+
+  for (const s of adminOnlyModels) {
+    const v = s.value;
+    const option = document.createElement('option');
+    option.value = s.key;
+    const model = v.model || v.model_name || s.key;
+    const badge = s.enforcement === 'required' ? ' 🔒' : '';
+    option.textContent = `${model}${badge}`;
+    subSelect.appendChild(option);
+  }
+
+  const pendingKey = subSelect.getAttribute('data-pending-admin-key');
+  if (pendingKey) {
+    subSelect.value = pendingKey;
+    subSelect.removeAttribute('data-pending-admin-key');
+  }
+}
+
+/**
+ * 모델 라우팅 셀렉트에 지원/관리자 모델 동적 추가
+ */
+function populateRoutingModelOptions() {
+  const routingSelects = [
+    document.getElementById('compactor-model-type-select'),
+    document.getElementById('command-model-type-select'),
+    document.getElementById('intent-model-type-select'),
+  ];
+
+  const aiModels = cachedServerSettings['ai_model'] || [];
+
+  // 지원 모델 그룹
+  const supportedModels = aiModels.filter(s => s.source === 'preset');
+  const groups = {};
+  for (const s of supportedModels) {
+    const g = s.group || 'default';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(s);
+  }
+
+  // 관리자 모델
+  const adminModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+
+  for (const select of routingSelects) {
+    if (!select) continue;
+
+    // 기존 동적 옵션 제거
+    select.querySelectorAll('option[data-dynamic]').forEach(o => o.remove());
+
+    // 지원 모델 그룹 추가
+    for (const groupName of Object.keys(groups)) {
+      const option = document.createElement('option');
+      option.value = `group:${groupName}`;
+      option.textContent = groupName.charAt(0).toUpperCase() + groupName.slice(1);
+      option.setAttribute('data-dynamic', 'true');
+      select.appendChild(option);
+    }
+
+    // 관리자 모델 추가
+    if (adminModels.length > 0) {
+      const adminOpt = document.createElement('option');
+      adminOpt.value = 'admin';
+      adminOpt.textContent = '관리자';
+      adminOpt.setAttribute('data-dynamic', 'true');
+      select.appendChild(adminOpt);
+    }
+  }
+}
+
+/**
+ * 모델 라우팅 UI 복원 (설정 로드 시 compactor/command/intent 공통)
+ */
+function restoreRoutingModelUI(prefix, modelType, modelName) {
+  const typeSelect = document.getElementById(`${prefix}-model-type-select`);
+  const submodelContainer = document.getElementById(`${prefix}-submodel-container`);
+  const apikeyContainer = document.getElementById(`${prefix}-apikey-container`);
+  const submodelSelect = document.getElementById(`${prefix}-submodel-select`);
+  const modelStatus = document.getElementById(`${prefix}-model-status`);
+
+  if (typeSelect) typeSelect.value = modelType || '';
+
+  if (!modelType) {
+    if (submodelContainer) submodelContainer.style.display = 'none';
+    if (apikeyContainer) apikeyContainer.style.display = 'none';
+    if (modelStatus) {
+      modelStatus.textContent = '';
+    }
+    return;
+  }
+
+  if (submodelContainer) submodelContainer.style.display = 'block';
+  if (apikeyContainer) apikeyContainer.style.display = 'none';
+
+  // 서브 모델 목록 채우기
+  if (submodelSelect) {
+    submodelSelect.innerHTML = '';
+    const aiModels = cachedServerSettings['ai_model'] || [];
+
+    if (modelType === 'ollama') {
+      const cache = window.routingOllamaModelsCache || [];
+      if (cache.length > 0) {
+        cache.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          submodelSelect.appendChild(opt);
+        });
+      } else {
+        vscode.postMessage({ command: 'getRoutingOllamaModels' });
+        if (modelName) {
+          const opt = document.createElement('option');
+          opt.value = modelName;
+          opt.textContent = modelName;
+          submodelSelect.appendChild(opt);
+        } else {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '모델 로딩 중...';
+          submodelSelect.appendChild(opt);
+        }
+      }
+    } else if (modelType.startsWith('group:')) {
+      const groupName = modelType.substring('group:'.length);
+      const groupModels = aiModels.filter(s =>
+        s.source === 'preset' && (s.group || 'default') === groupName
+      );
+      groupModels.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.key;
+        opt.textContent = s.value?.name || s.key;
+        submodelSelect.appendChild(opt);
+      });
+    } else if (modelType === 'admin') {
+      const adminModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+      adminModels.forEach(s => {
+        const v = s.value || {};
+        const opt = document.createElement('option');
+        opt.value = s.key;
+        const badge = s.enforcement === 'required' ? ' 🔒' : '';
+        opt.textContent = `${v.model || v.model_name || v.name || s.key}${badge}`;
+        submodelSelect.appendChild(opt);
+      });
+    }
+
+    // 저장된 모델명 선택
+    if (modelName) {
+      const exists = Array.from(submodelSelect.options).some(o => o.value === modelName);
+      if (!exists) {
+        const opt = document.createElement('option');
+        opt.value = modelName;
+        opt.textContent = modelName + ' (저장됨)';
+        submodelSelect.appendChild(opt);
+      }
+      submodelSelect.value = modelName;
+    }
+  }
+
+  // 상태 표시
+  if (modelStatus) {
+    let typeLabel = modelType;
+    if (modelType === 'ollama') typeLabel = 'Ollama';
+    else if (modelType === 'admin') typeLabel = '관리자';
+    else if (modelType.startsWith('group:')) {
+      const g = modelType.substring('group:'.length);
+      typeLabel = g.charAt(0).toUpperCase() + g.slice(1);
+    }
+    const modelInfo = modelName ? ` (${modelName})` : '';
+    modelStatus.textContent = `현재: ${typeLabel}${modelInfo}`;
+    modelStatus.className = 'info-message success-message';
+  }
+}
+
+/**
+ * 지원 모델 설정 섹션 업데이트
+ * @param {string} groupName - 그룹명
+ * @param {string} [selectedKey] - 선택할 모델 key (없으면 첫번째 모델)
+ */
+function showSupportedModelSettings(groupName, selectedKey) {
+  if (!supportedModelSection) return;
+
+  const aiModels = cachedServerSettings['ai_model'] || [];
+  const groupModels = aiModels.filter(s =>
+    s.source === 'preset' && (s.group || 'default') === groupName
+  );
+  if (groupModels.length === 0) return;
+
+  // pending key가 있으면 우선 사용
+  const pendingKey = supportedModelSubselect?.getAttribute('data-pending-supported-key');
+  const resolvedKey = selectedKey || pendingKey;
+  if (pendingKey && supportedModelSubselect) {
+    supportedModelSubselect.removeAttribute('data-pending-supported-key');
+  }
+
+  // 선택할 모델 결정 (지정된 key 또는 첫번째)
+  const activePreset = resolvedKey
+    ? groupModels.find(s => s.key === resolvedKey) || groupModels[0]
+    : groupModels[0];
+  const v = activePreset.value || {};
+
+  supportedModelSection.style.display = "block";
+  currentSupportedModelKey = activePreset.key;
+
+  // 제목: 그룹명
+  if (supportedModelTitle) {
+    const displayGroup = groupName.charAt(0).toUpperCase() + groupName.slice(1);
+    supportedModelTitle.textContent = `${displayGroup} 설정`;
+  }
+  if (supportedModelDesc) {
+    supportedModelDesc.textContent = `${groupName} 모델의 API 설정을 구성하세요.`;
+  }
+
+  // 모델 서브 셀렉트 (항상 표시)
+  if (supportedModelSubselect && supportedModelSubselectGroup) {
+    supportedModelSubselectGroup.style.display = 'block';
+    supportedModelSubselect.innerHTML = '';
+    for (const s of groupModels) {
+      const opt = document.createElement('option');
+      opt.value = s.key;
+      opt.textContent = s.value?.name || s.key;
+      if (s.key === activePreset.key) opt.selected = true;
+      supportedModelSubselect.appendChild(opt);
+    }
+  }
+
+  // authType에 따라 API 키 입력 표시/숨김
+  updateSupportedModelApiKeySection(v);
+  // 스트리밍 지원 여부에 따라 토글 업데이트
+  updateStreamingToggle(v);
+}
+
+/**
+ * API 키 섹션 업데이트 (모델의 authType 기반)
+ */
+function updateSupportedModelApiKeySection(modelValue) {
+  const authType = modelValue.authType || modelValue.auth_type || 'bearer';
+  if (supportedModelApikeyGroup) {
+    supportedModelApikeyGroup.style.display = authType === 'none' ? 'none' : 'block';
+  }
+}
+
+/**
+ * 스트리밍 토글 업데이트 (모델의 streamingSupported 기반)
+ */
+function updateStreamingToggle(modelValue) {
+  if (!streamingToggle) return;
+  const supported = modelValue?.streamingSupported ?? modelValue?.streaming_supported;
+  if (supported === false || supported === 'false') {
+    streamingToggle.checked = false;
+    streamingToggle.disabled = true;
+    if (streamingStatus) {
+      streamingStatus.textContent = '이 모델은 스트리밍을 지원하지 않습니다.';
+      streamingStatus.className = 'info-message';
+    }
+    vscode.postMessage({ command: 'toggleStreaming', value: false });
+  } else {
+    streamingToggle.disabled = false;
+    if (streamingStatus) {
+      streamingStatus.textContent = '';
+    }
+  }
+}
+
+/**
+ * 조직 권장 설정 토글 (사용/제외 전환)
+ */
+function toggleOrgSetting(category, key) {
+  const settings = cachedServerSettings[category];
+  if (!settings) return;
+  const setting = settings.find(s => s.key === key);
+  if (!setting || setting.enforcement === 'required') return;
+
+  const newDisabled = !setting.is_disabled;
+  if (vscode) {
+    vscode.postMessage({
+      command: 'toggleServerSetting',
+      category,
+      key,
+      disabled: newDisabled,
+    });
+  }
+}
+
+// 조직 설정 항목 클릭 이벤트 위임 (권장 설정 토글)
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('[data-org-toggle-cat]');
+  if (!item) return;
+  const category = item.getAttribute('data-org-toggle-cat');
+  const key = item.getAttribute('data-org-toggle-key');
+  if (category && key) {
+    toggleOrgSetting(category, key);
+  }
+});
+
+// ===== 탭 네비게이션 =====
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.settings-tab');
+  if (!tab) return;
+  const tabId = tab.getAttribute('data-tab');
+  if (!tabId) return;
+
+  // 탭 버튼 활성화
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+
+  // 탭 패널 표시
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById(`tab-${tabId}`);
+  if (panel) panel.classList.add('active');
+});
 
 // 테마를 body에 적용하는 함수
 function applyThemeToBody(theme) {
@@ -70,8 +722,24 @@ const autoExecuteStatus = document.getElementById("auto-execute-status");
 const autoToolToggle = document.getElementById("auto-tool-toggle");
 const autoToolStatus = document.getElementById("auto-tool-status");
 
+const autoMcpToolToggle = document.getElementById("auto-mcp-tool-toggle");
+const autoMcpToolStatus = document.getElementById("auto-mcp-tool-status");
+
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
+
+// 빌드/테스트 개인 설정 요소
+const btTypeSelect = document.getElementById("bt-type-select");
+const btLanguageSelect = document.getElementById("bt-language-select");
+const btDescriptionInput = document.getElementById("bt-description-input");
+const btCommandInput = document.getElementById("bt-command-input");
+const btAddButton = document.getElementById("bt-add-button");
+const btCancelButton = document.getElementById("bt-cancel-button");
+const btAddToggleButton = document.getElementById("bt-add-toggle-button");
+const btAddStatus = document.getElementById("bt-add-status");
+const btListEmpty = document.getElementById("bt-list-empty");
+const buildTestAddForm = document.getElementById("build-test-add-form");
+const personalBuildTestList = document.getElementById("personal-build-test-list");
 
 // 토글 이벤트 바인딩 (모듈 함수 사용)
 bindToggleEvents({
@@ -82,6 +750,7 @@ bindToggleEvents({
   autoCorrectionToggle,
   autoExecuteToggle,
   autoToolToggle,
+  autoMcpToolToggle,
   vscode,
 });
 
@@ -92,27 +761,96 @@ bindSpinnerEvents({
   vscode,
 });
 
+// 빌드/테스트 개인 설정 이벤트 바인딩
+function renderPersonalBuildTestList(settings) {
+  if (!personalBuildTestList) return;
+  if (!settings || settings.length === 0) {
+    personalBuildTestList.innerHTML = '';
+    if (btListEmpty) btListEmpty.style.display = '';
+    return;
+  }
+  if (btListEmpty) btListEmpty.style.display = 'none';
+  let html = '';
+  for (const s of settings) {
+    const v = s.value || {};
+    const typeLabel = s.key.includes('formatter') ? '포맷터' : '검증';
+    const typeBg = 'background: #2563eb; color: #fff;';
+    html += `<div class="api-key-section" style="margin-bottom: 10px;">`;
+    html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
+    html += `<div style="display: flex; align-items: center; gap: 8px;">`;
+    html += `<strong style="font-size: 0.9em;">${escapeHtml(s.description || v.command || s.key)}</strong>`;
+    html += `<span style="font-size: 11px; padding: 1px 6px; border-radius: 3px; font-weight: 600; ${typeBg}">${escapeHtml(typeLabel)}</span>`;
+    if (v.language) {
+      html += `<span style="font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #e3f2fd; color: #1565c0;">${escapeHtml(v.language)}</span>`;
+    }
+    html += `</div>`;
+    html += `<button data-bt-delete-key="${escapeHtml(s.key)}" title="삭제">삭제</button>`;
+    html += `</div>`;
+    html += `<p style="margin-top: 5px; font-size: 0.85em; color: var(--vscode-descriptionForeground); font-family: monospace;">${escapeHtml(v.command || '')}</p>`;
+    html += `</div>`;
+  }
+  personalBuildTestList.innerHTML = html;
+
+  // 삭제 버튼 이벤트
+  personalBuildTestList.querySelectorAll('[data-bt-delete-key]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (vscode) {
+        vscode.postMessage({ command: 'deleteBuildTestSetting', key: btn.getAttribute('data-bt-delete-key') });
+      }
+    });
+  });
+}
+
+function showBuildTestForm() {
+  if (buildTestAddForm) buildTestAddForm.style.display = '';
+  if (btAddToggleButton) btAddToggleButton.style.display = 'none';
+}
+function hideBuildTestForm() {
+  if (buildTestAddForm) buildTestAddForm.style.display = 'none';
+  if (btAddToggleButton) btAddToggleButton.style.display = '';
+  if (btCommandInput) btCommandInput.value = '';
+  if (btDescriptionInput) btDescriptionInput.value = '';
+  if (btTypeSelect) btTypeSelect.selectedIndex = 0;
+  if (btLanguageSelect) btLanguageSelect.selectedIndex = 0;
+  if (btAddStatus) btAddStatus.textContent = '';
+}
+
+if (btAddToggleButton) {
+  btAddToggleButton.addEventListener("click", showBuildTestForm);
+}
+if (btCancelButton) {
+  btCancelButton.addEventListener("click", hideBuildTestForm);
+}
+
+if (btAddButton && btCommandInput && vscode) {
+  btAddButton.addEventListener("click", () => {
+    const command = btCommandInput.value.trim();
+    if (!command) {
+      if (btAddStatus) { btAddStatus.textContent = '명령어를 입력하세요.'; btAddStatus.style.color = '#e53935'; }
+      return;
+    }
+    const type = btTypeSelect ? btTypeSelect.value : 'validation_command';
+    const language = btLanguageSelect ? btLanguageSelect.value : '';
+    const description = btDescriptionInput ? btDescriptionInput.value.trim() : '';
+    vscode.postMessage({ command: 'saveBuildTestSetting', type, language, description, value: command });
+  });
+}
+
 // API 키 관련 요소들
 
-// Gemini API 키 관련 요소들
-const geminiApiKeyInput = document.getElementById("gemini-api-key-input");
-const saveGeminiApiKeyButton = document.getElementById(
-  "save-gemini-api-key-button",
-);
-const geminiApiKeyStatus = document.getElementById("gemini-api-key-status");
-const geminiModelSelect = document.getElementById("gemini-model-select");
-const saveGeminiModelButton = document.getElementById(
-  "save-gemini-model-button",
-);
+// 지원 모델 관련 요소들 (동적 — 서버 프리셋 기반)
+const supportedModelSection = document.getElementById("supported-model-section");
+const supportedModelTitle = document.getElementById("supported-model-title");
+const supportedModelDesc = document.getElementById("supported-model-desc");
+const supportedModelSubselectGroup = document.getElementById("supported-model-subselect-group");
+const supportedModelSubselect = document.getElementById("supported-model-subselect");
+const supportedModelApikeyGroup = document.getElementById("supported-model-apikey-group");
+const supportedModelApiKeyInput = document.getElementById("supported-model-api-key-input");
+const saveSupportedModelApiKeyButton = document.getElementById("save-supported-model-api-key-button");
+const supportedModelStatus = document.getElementById("supported-model-status");
 
-// Banya API 키 관련 요소들
-const banyaApiKeyInput = document.getElementById("banya-api-key-input");
-const saveBanyaApiKeyButton = document.getElementById(
-  "save-banya-api-key-button",
-);
-const banyaApiKeyStatus = document.getElementById("banya-api-key-status");
-const banyaModelSelect = document.getElementById("banya-model-select");
-const saveBanyaModelButton = document.getElementById("save-banya-model-button");
+// 현재 선택된 지원 모델 키 추적
+let currentSupportedModelKey = null;
 
 // Ollama 설정 그룹
 const ollamaSettingsGroup = document.getElementById("ollama-settings-group");
@@ -190,31 +928,13 @@ const saveOllamaModelButton = document.getElementById(
 );
 const ollamaModelStatus = document.getElementById("ollama-model-status");
 
-// AIDEV 시리얼 번호 관련 요소들
-const banyaLicenseSerialInput = document.getElementById(
-  "banya-license-serial-input",
-);
-const saveBanyaLicenseButton = document.getElementById(
-  "save-banya-license-button",
-);
-const verifyBanyaLicenseButton = document.getElementById(
-  "verify-banya-license-button",
-);
-const deleteBanyaLicenseButton = document.getElementById(
-  "delete-banya-license-button",
-);
-const banyaLicenseStatus = document.getElementById("banya-license-status");
-
 // AI 모델 선택 관련 요소들
 const aiModelSelect = document.getElementById("ai-model-select");
 const saveAiModelButton = document.getElementById("save-ai-model-button");
 const aiModelStatus = document.getElementById("ai-model-status");
 const sourcePathStatus = document.getElementById("source-path-status");
 const sourcePathsList = document.getElementById("source-paths-list");
-const geminiSettingsSection = document.getElementById(
-  "gemini-settings-section",
-);
-const banyaSettingsSection = document.getElementById("banya-settings-section");
+// (legacy settings sections removed — replaced by supported-model-section)
 const localOllamaSettingsSection = document.getElementById(
   "local-ollama-settings-section",
 );
@@ -222,23 +942,13 @@ const remoteOllamaSettingsSection = document.getElementById(
   "remote-ollama-settings-section",
 );
 
-// 시리얼 번호 검증 상태 추적
-let isLicenseVerified = false;
 let storedOllamaModel = null; // 저장된 Ollama 모델 값
 let currentSettingsOllamaModel = null; // currentSettings에서 받은 Ollama 모델 값
 
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
-  // 시리얼 번호 검증이 필요한 버튼들 (API 키 관련)
-  const licenseRequiredButtons = [
-    saveGeminiApiKeyButton,
-    saveGeminiModelButton,
-    saveBanyaApiKeyButton,
-    saveBanyaModelButton,
-  ];
-
-  // 시리얼 번호 검증이 필요하지 않은 버튼들 (설정 관련)
-  const alwaysEnabledButtons = [
+  const allButtons = [
+    saveSupportedModelApiKeyButton,
     saveLocalOllamaApiUrlButton,
     saveLocalOllamaEndpointButton,
     saveRemoteOllamaModelButton,
@@ -248,87 +958,13 @@ function updateSaveButtonsState() {
     saveOllamaModelButton,
   ];
 
-  // console.log('Updating save buttons state. Serial number verified:', isLicenseVerified);
-
-  // 시리얼 번호 검증이 필요한 버튼들 처리
-  licenseRequiredButtons.forEach((button) => {
-    if (button) {
-      if (isLicenseVerified) {
-        button.disabled = false;
-        button.style.opacity = "1";
-        button.style.cursor = "pointer";
-      } else {
-        button.disabled = true;
-        button.style.opacity = "0.5";
-        button.style.cursor = "not-allowed";
-      }
-    }
-  });
-
-  // 항상 활성화되는 버튼들 처리
-  alwaysEnabledButtons.forEach((button) => {
+  allButtons.forEach((button) => {
     if (button) {
       button.disabled = false;
       button.style.opacity = "1";
       button.style.cursor = "pointer";
     }
-    // 선택 변경 시에도 즉시 저장(자동 저장)
-    try {
-      if (aiModelStatus) {
-        aiModelStatus.textContent = "AI 모델 자동 저장 중...";
-        aiModelStatus.className = "info-message";
-      }
-      if (aiModelSelect && aiModelSelect.value) {
-        const selectedModel = aiModelSelect.value;
-        vscode.postMessage({ command: "saveAiModel", model: selectedModel });
-      }
-    } catch (e) {
-      console.warn("Failed to autosave AI model:", e);
-    }
   });
-}
-
-// 라이센스 버튼들의 활성화/비활성화를 제어하는 함수
-function updateLicenseButtonsState() {
-  const hasStoredLicense =
-    banyaLicenseSerialInput && banyaLicenseSerialInput.value.trim() !== "";
-
-  // 라이센스 저장 버튼: 검증이 완료되어야 활성화
-  if (saveBanyaLicenseButton) {
-    if (isLicenseVerified) {
-      saveBanyaLicenseButton.disabled = false;
-      saveBanyaLicenseButton.style.opacity = "1";
-      saveBanyaLicenseButton.style.cursor = "pointer";
-    } else {
-      saveBanyaLicenseButton.disabled = true;
-      saveBanyaLicenseButton.style.opacity = "0.5";
-      saveBanyaLicenseButton.style.cursor = "not-allowed";
-    }
-  }
-
-  // 라이센스 삭제 버튼: 저장된 라이센스가 있어야 활성화
-  if (deleteBanyaLicenseButton) {
-    if (hasStoredLicense) {
-      deleteBanyaLicenseButton.disabled = false;
-      deleteBanyaLicenseButton.style.opacity = "1";
-      deleteBanyaLicenseButton.style.cursor = "pointer";
-    } else {
-      deleteBanyaLicenseButton.disabled = true;
-      deleteBanyaLicenseButton.style.opacity = "0.5";
-      deleteBanyaLicenseButton.style.cursor = "not-allowed";
-    }
-  }
-
-  // 라이센스 검증 버튼: 항상 활성화 (입력값이 있을 때만)
-  if (verifyBanyaLicenseButton) {
-    const hasInputValue =
-      banyaLicenseSerialInput && banyaLicenseSerialInput.value.trim() !== "";
-    verifyBanyaLicenseButton.disabled = !hasInputValue;
-    verifyBanyaLicenseButton.style.opacity = hasInputValue ? "1" : "0.5";
-    verifyBanyaLicenseButton.style.cursor = hasInputValue
-      ? "pointer"
-      : "not-allowed";
-  }
 }
 
 // 언어별 텍스트 로딩 및 적용
@@ -383,81 +1019,7 @@ function applyLanguage() {
       languageData["aiModelSettingsDescription"];
   }
 
-  // Gemini API 키 라벨
-  const geminiApiKeyLabel = document.getElementById("gemini-api-key-label");
-  if (geminiApiKeyLabel && languageData["geminiApiKeyLabel"]) {
-    geminiApiKeyLabel.textContent = languageData["geminiApiKeyLabel"];
-  }
-
-  // Gemini API 설명 (기존 변수 사용)
-  const geminiApiDescriptionForLabel = document.querySelector(
-    "#gemini-api-key-label + p",
-  );
-  if (geminiApiDescriptionForLabel && languageData["geminiApiDescription"]) {
-    geminiApiDescriptionForLabel.textContent =
-      languageData["geminiApiDescription"];
-  }
-
-  // Gemini API 등록 방법 (기존 변수 사용)
-  const geminiApiRegistrationMethodForLabel = document.querySelector(
-    "#gemini-api-key-label + p + p",
-  );
-  if (
-    geminiApiRegistrationMethodForLabel &&
-    languageData["geminiApiRegistrationMethod"]
-  ) {
-    const linkMatch =
-      geminiApiRegistrationMethodForLabel.innerHTML.match(
-        /<a[^>]*>([^<]*)<\/a>/,
-      );
-    if (linkMatch) {
-      const linkText = linkMatch[1];
-      const newText = languageData["geminiApiRegistrationMethod"].replace(
-        "Google AI Studio API 키 페이지",
-        `<a href="https://aistudio.google.com/app/apikey" target="_blank">${linkText}</a>`,
-      );
-      geminiApiRegistrationMethodForLabel.innerHTML = newText;
-    } else {
-      geminiApiRegistrationMethodForLabel.textContent =
-        languageData["geminiApiRegistrationMethod"];
-    }
-  }
-
-  // Gemini 저장 버튼
-  const saveGeminiApiKeyButton = document.getElementById(
-    "save-gemini-api-key-button",
-  );
-  if (saveGeminiApiKeyButton && languageData["saveGeminiApiKeyButton"]) {
-    saveGeminiApiKeyButton.textContent = languageData["saveGeminiApiKeyButton"];
-  }
-
-  // Gemini 저장 상태 - 현재 상태에 따라 업데이트
-  const geminiApiKeyStatus = document.getElementById("gemini-api-key-status");
-  if (geminiApiKeyStatus) {
-    const currentText = geminiApiKeyStatus.textContent;
-    if (
-      currentText.includes("저장됨") ||
-      currentText.includes("Saved") ||
-      currentText.includes("Gespeichert") ||
-      currentText.includes("Guardado") ||
-      currentText.includes("Enregistré") ||
-      currentText.includes("保存済み") ||
-      currentText.includes("已保存")
-    ) {
-      geminiApiKeyStatus.textContent = languageData["geminiApiKeyStatusSaved"];
-    } else if (
-      currentText.includes("미저장") ||
-      currentText.includes("Not Saved") ||
-      currentText.includes("Nicht gespeichert") ||
-      currentText.includes("No guardado") ||
-      currentText.includes("Non enregistré") ||
-      currentText.includes("未保存") ||
-      currentText.includes("未保存")
-    ) {
-      geminiApiKeyStatus.textContent =
-        languageData["geminiApiKeyStatusNotSaved"];
-    }
-  }
+  // (legacy API key UI sections removed — now using supported-model-section)
 
   // 공통 저장 버튼들
   document.querySelectorAll(".save-button").forEach((btn) => {
@@ -576,27 +1138,6 @@ function applyLanguage() {
       }
     } else if (
       text &&
-      (text.includes("CODEPILOT의 AI 기능을 사용하기 위한 모델 설정합니다") ||
-        text.includes(
-          "Set the Gemini API key to use CODEPILOT's AI features",
-        ) ||
-        text.includes(
-          "Establece la clave API de Gemini para usar las funciones de IA de ACODEPILOT",
-        ) ||
-        text.includes(
-          "Définissez la clé API Gemini pour utiliser les fonctionnalités IA de CODEPILOT",
-        ) ||
-        text.includes("设置 Gemini API 密钥以使用 CODEPILOT 的 AI 功能") ||
-        text.includes(
-          "CODEPILOTのAI機能を使用するためのGemini APIキーを設定します",
-        ))
-    ) {
-      // Gemini API 설명
-      if (languageData["geminiApiDescription"]) {
-        msg.textContent = languageData["geminiApiDescription"];
-      }
-    } else if (
-      text &&
       (text.includes("AI 코드 생성 및 분석 기능을 활성화합니다") ||
         text.includes("Enables AI code generation and analysis features") ||
         text.includes(
@@ -608,9 +1149,9 @@ function applyLanguage() {
         text.includes("启用 AI 代码生成和分析功能") ||
         text.includes("AIコード生成と分析機能を有効にします"))
     ) {
-      // Gemini API 기능 설명
-      if (languageData["geminiApiFunctionDescription"]) {
-        msg.textContent = languageData["geminiApiFunctionDescription"];
+      // AI 기능 설명
+      if (languageData["geminiApiFunctionDescription"] || languageData["aiFunctionDescription"]) {
+        msg.textContent = languageData["aiFunctionDescription"] || languageData["geminiApiFunctionDescription"];
       }
     } else if (
       text &&
@@ -674,37 +1215,7 @@ function applyLanguage() {
     }
   }
 
-  // Gemini API 설명
-  const geminiApiDescription = document.querySelector(
-    "#api-key-section-title + p",
-  );
-  if (geminiApiDescription && languageData["geminiApiDescription"]) {
-    geminiApiDescription.textContent = languageData["geminiApiDescription"];
-  }
-
-  // Gemini API 등록 방법
-  const geminiApiRegistrationMethod = document.querySelector(
-    "#api-key-section-title + p + p",
-  );
-  if (
-    geminiApiRegistrationMethod &&
-    languageData["geminiApiRegistrationMethod"]
-  ) {
-    // 링크는 유지하면서 텍스트만 업데이트
-    const linkMatch =
-      geminiApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
-    if (linkMatch) {
-      const linkText = linkMatch[1];
-      const newText = languageData["geminiApiRegistrationMethod"].replace(
-        "Google AI Studio API 키 페이지",
-        `<a href="https://aistudio.google.com/app/apikey" target="_blank">${linkText}</a>`,
-      );
-      geminiApiRegistrationMethod.innerHTML = newText;
-    } else {
-      geminiApiRegistrationMethod.textContent =
-        languageData["geminiApiRegistrationMethod"];
-    }
-  }
+  // (legacy API description/registration UI removed)
 
   // AI 모델 설정 제목
   const aiModelSettingsTitle = document.getElementById("api-key-section-title");
@@ -740,104 +1251,6 @@ function applyLanguage() {
     saveOllamaApiUrlButton.textContent = languageData["saveOllamaApiUrlButton"];
   }
 
-  // Banya 라이센스 제목
-  const banyaLicenseTitle = document.getElementById("banya-license-title");
-  if (banyaLicenseTitle && languageData["banyaLicenseTitle"]) {
-    banyaLicenseTitle.textContent = languageData["banyaLicenseTitle"];
-  }
-
-  // Banya 라이센스 설명
-  const banyaLicenseDescription = document.querySelector(
-    "#banya-license-title + p",
-  );
-  if (banyaLicenseDescription && languageData["banyaLicenseDescription"]) {
-    banyaLicenseDescription.textContent =
-      languageData["banyaLicenseDescription"];
-  }
-
-  // Banya 라이센스 라벨
-  const banyaLicenseLabel = document.getElementById("banya-license-label");
-  if (banyaLicenseLabel && languageData["banyaLicenseLabel"]) {
-    banyaLicenseLabel.textContent = languageData["banyaLicenseLabel"];
-  }
-
-  // Banya 라이센스 설명 (섹션 내)
-  const banyaLicenseSectionDescription = document.querySelector(
-    "#banya-license-label + p",
-  );
-  if (
-    banyaLicenseSectionDescription &&
-    languageData["banyaLicenseSectionDescription"]
-  ) {
-    banyaLicenseSectionDescription.textContent =
-      languageData["banyaLicenseSectionDescription"];
-  }
-
-  // Banya 라이센스 저장 버튼
-  const saveBanyaLicenseButton = document.getElementById(
-    "save-banya-license-button",
-  );
-  if (saveBanyaLicenseButton && languageData["saveBanyaLicenseButton"]) {
-    saveBanyaLicenseButton.textContent = languageData["saveBanyaLicenseButton"];
-  }
-
-  // Banya 라이센스 검증 버튼
-  const verifyBanyaLicenseButton = document.getElementById(
-    "verify-banya-license-button",
-  );
-  if (verifyBanyaLicenseButton && languageData["verifyButton"]) {
-    verifyBanyaLicenseButton.textContent = languageData["verifyButton"];
-  }
-
-  // Banya 라이센스 삭제 버튼
-  const deleteBanyaLicenseButton = document.getElementById(
-    "delete-banya-license-button",
-  );
-  if (deleteBanyaLicenseButton && languageData["deleteBanyaLicenseButton"]) {
-    deleteBanyaLicenseButton.textContent =
-      languageData["deleteBanyaLicenseButton"];
-  }
-
-  // Banya 라이센스 입력 필드 placeholder
-  const banyaLicenseSerialInput = document.getElementById(
-    "banya-license-serial-input",
-  );
-  if (banyaLicenseSerialInput && languageData["pleaseEnterBanyaLicense"]) {
-    banyaLicenseSerialInput.placeholder =
-      languageData["pleaseEnterBanyaLicense"];
-  }
-
-  // Banya 라이센스 상태 메시지 업데이트
-  const banyaLicenseStatus = document.getElementById("banya-license-status");
-  if (banyaLicenseStatus && banyaLicenseStatus.textContent) {
-    const currentText = banyaLicenseStatus.textContent;
-    if (
-      currentText.includes("설정되지 않았습니다") ||
-      currentText.includes("not set") ||
-      currentText.includes("nicht festgelegt") ||
-      currentText.includes("no está configurada") ||
-      currentText.includes("n'est pas définie") ||
-      currentText.includes("設定されていません") ||
-      currentText.includes("未设置")
-    ) {
-      banyaLicenseStatus.textContent =
-        languageData["banyaLicenseNotSet"] ||
-        "Banya 라이센스가 설정되지 않았습니다.";
-    } else if (
-      currentText.includes("설정되어 있습니다") ||
-      currentText.includes("is set") ||
-      currentText.includes("ist festgelegt") ||
-      currentText.includes("está configurada") ||
-      currentText.includes("est définie") ||
-      currentText.includes("設定されています") ||
-      currentText.includes("已设置")
-    ) {
-      banyaLicenseStatus.textContent =
-        languageData["banyaLicenseSet"] ||
-        "Banya 라이센스가 설정되어 있습니다.";
-    }
-  }
-
   // AI 모델 선택 라벨
   const aiModelSelectLabel = document.getElementById("ai-model-select-label");
   if (aiModelSelectLabel && languageData["aiModelSelectLabel"]) {
@@ -846,22 +1259,16 @@ function applyLanguage() {
 
   // AI 모델 선택 옵션들
   const aiModelSelect = document.getElementById("ai-model-select");
-  if (aiModelSelect && languageData["geminiOption"]) {
-    const geminiOption = aiModelSelect.querySelector('option[value="gemini"]');
-    if (geminiOption) {
-      geminiOption.textContent = languageData["geminiOption"];
-    }
-  }
   if (aiModelSelect && languageData["ollamaOption"]) {
     const ollamaOption = aiModelSelect.querySelector('option[value="ollama"]');
     if (ollamaOption) {
       ollamaOption.textContent = languageData["ollamaOption"];
     }
   }
-  if (aiModelSelect && languageData["banyaOption"]) {
-    const banyaOption = aiModelSelect.querySelector('option[value="banya"]');
-    if (banyaOption) {
-      banyaOption.textContent = languageData["banyaOption"];
+  if (aiModelSelect && languageData["adminOption"]) {
+    const adminOption = aiModelSelect.querySelector('option[value="admin"]');
+    if (adminOption) {
+      adminOption.textContent = languageData["adminOption"];
     }
   }
 
@@ -886,11 +1293,6 @@ function applyLanguage() {
   }
 
   // 모든 placeholder 업데이트
-  // Gemini API 키 입력 필드
-  if (geminiApiKeyInput && languageData["pleaseEnterApiKey"]) {
-    geminiApiKeyInput.placeholder = languageData["pleaseEnterApiKey"];
-  }
-
   // Ollama API URL 입력 필드
   const localOllamaApiUrlInput = document.getElementById(
     "local-ollama-api-url-input",
@@ -908,35 +1310,6 @@ function applyLanguage() {
   }
 
   // 모든 상태 메시지 업데이트
-  // Gemini API 키 상태
-  if (geminiApiKeyStatus && geminiApiKeyStatus.textContent) {
-    const currentText = geminiApiKeyStatus.textContent;
-    if (
-      currentText.includes("설정되어 있습니다") ||
-      currentText.includes("is set") ||
-      currentText.includes("ist festgelegt") ||
-      currentText.includes("está configurada") ||
-      currentText.includes("est définie") ||
-      currentText.includes("設定されています") ||
-      currentText.includes("已设置")
-    ) {
-      geminiApiKeyStatus.textContent =
-        languageData["geminiApiKeySet"] || "Gemini API 키가 설정되어 있습니다.";
-    } else if (
-      currentText.includes("설정되지 않았습니다") ||
-      currentText.includes("not set") ||
-      currentText.includes("nicht festgelegt") ||
-      currentText.includes("no está configurada") ||
-      currentText.includes("n'est pas définie") ||
-      currentText.includes("設定されていません") ||
-      currentText.includes("未设置")
-    ) {
-      geminiApiKeyStatus.textContent =
-        languageData["geminiApiKeyNotSet"] ||
-        "Gemini API 키가 설정되지 않았습니다.";
-    }
-  }
-
   // Ollama API URL 상태
   const localOllamaApiUrlStatus = document.getElementById(
     "local-ollama-api-url-status",
@@ -1125,35 +1498,6 @@ if (ollamaServerTypeSelect) {
 }
 
 // API 키 저장 이벤트 리스너들
-// Gemini API 키 저장 이벤트 리스너
-if (saveGeminiApiKeyButton) {
-  saveGeminiApiKeyButton.addEventListener("click", () => {
-    const apiKey = geminiApiKeyInput.value.trim();
-    if (apiKey) {
-      vscode.postMessage({ command: "saveApiKey", apiKey: apiKey });
-      const savingText =
-        languageData["apiKeysLoading"] || "Gemini API 키 저장 중...";
-      showStatus(geminiApiKeyStatus, savingText, "info");
-    } else {
-      const pleaseEnterText =
-        languageData["pleaseEnterApiKey"] || "API 키를 입력해주세요.";
-      showStatus(geminiApiKeyStatus, pleaseEnterText, "error");
-    }
-    // 선택 변경 시에도 즉시 저장(자동 저장)
-    try {
-      if (aiModelStatus) {
-        aiModelStatus.textContent = "AI 모델 자동 저장 중...";
-        aiModelStatus.className = "info-message";
-      }
-      if (aiModelSelect && aiModelSelect.value) {
-        const selectedModel = aiModelSelect.value;
-        vscode.postMessage({ command: "saveAiModel", model: selectedModel });
-      }
-    } catch (e) {
-      console.warn("Failed to autosave AI model:", e);
-    }
-  });
-}
 
 // 로컬 Ollama API URL 저장 이벤트 리스너
 if (saveLocalOllamaApiUrlButton) {
@@ -1379,128 +1723,40 @@ if (saveRemoteOllamaModelButton) {
   });
 }
 
-// Banya 라이센스 저장 이벤트 리스너
-if (saveBanyaLicenseButton) {
-  saveBanyaLicenseButton.addEventListener("click", () => {
-    const licenseSerial = banyaLicenseSerialInput.value.trim();
-    if (licenseSerial) {
-      vscode.postMessage({
-        command: "saveBanyaLicenseSerial",
-        banyaLicenseSerial: licenseSerial,
-      });
-      const savingText =
-        languageData["banyaLicenseSaving"] || "Banya 라이센스 저장 중...";
-      showStatus(banyaLicenseStatus, savingText, "info");
-    } else {
-      const pleaseEnterText =
-        languageData["pleaseEnterBanyaLicense"] ||
-        "라이센스 시리얼을 입력해주세요.";
-      showStatus(banyaLicenseStatus, pleaseEnterText, "error");
-    }
-    // 선택 변경 시에도 즉시 저장(자동 저장)
-    try {
-      if (aiModelStatus) {
-        aiModelStatus.textContent = "AI 모델 자동 저장 중...";
-        aiModelStatus.className = "info-message";
-      }
-      if (aiModelSelect && aiModelSelect.value) {
-        const selectedModel = aiModelSelect.value;
-        vscode.postMessage({
-          command: "saveAiModel",
-          model: selectedModel,
-        });
-      }
-    } catch (e) {
-      console.warn("Failed to autosave AI model:", e);
-    }
-  });
-}
-
-// Banya 라이센스 검증 이벤트 리스너
-if (verifyBanyaLicenseButton) {
-  verifyBanyaLicenseButton.addEventListener("click", () => {
-    const licenseSerial = banyaLicenseSerialInput.value.trim();
-    if (licenseSerial) {
-      vscode.postMessage({
-        command: "verifyBanyaLicense",
-        licenseSerial: licenseSerial,
-      });
-      const verifyingText =
-        languageData["banyaLicenseVerifying"] || "Banya 라이센스 검증 중...";
-      showStatus(banyaLicenseStatus, verifyingText, "info");
-    } else {
-      const pleaseEnterText =
-        languageData["pleaseEnterBanyaLicense"] ||
-        "라이센스 시리얼을 입력해주세요.";
-      showStatus(banyaLicenseStatus, pleaseEnterText, "error");
-    }
-    // 선택 변경 시에도 즉시 저장(자동 저장)
-    try {
-      if (aiModelStatus) {
-        aiModelStatus.textContent = "AI 모델 자동 저장 중...";
-        aiModelStatus.className = "info-message";
-      }
-      if (aiModelSelect && aiModelSelect.value) {
-        const selectedModel = aiModelSelect.value;
-        vscode.postMessage({ command: "saveAiModel", model: selectedModel });
-      }
-    } catch (e) {
-      console.warn("Failed to autosave AI model:", e);
-    }
-  });
-}
-
-// Banya 라이센스 삭제 이벤트 리스너
-if (deleteBanyaLicenseButton) {
-  deleteBanyaLicenseButton.addEventListener("click", () => {
-    vscode.postMessage({ command: "deleteBanyaLicense" });
-    const deletingText =
-      languageData["banyaLicenseDeleting"] || "Banya 라이센스 삭제 중...";
-    showStatus(banyaLicenseStatus, deletingText, "info");
-  });
-}
-
-// 라이센스 입력 필드 변경 이벤트 리스너
-if (banyaLicenseSerialInput) {
-  banyaLicenseSerialInput.addEventListener("input", () => {
-    updateLicenseButtonsState();
-  });
-}
-
 // AI 모델 선택 이벤트 리스너
 if (aiModelSelect) {
   aiModelSelect.addEventListener("change", () => {
     const selectedModel = aiModelSelect.value;
-    // console.log('AI model selected:', selectedModel);
+    const adminSettingsSection = document.getElementById("admin-settings-section");
+
+    // 모든 설정 섹션 초기 숨김
+    function hideAllModelSections() {
+      if (supportedModelSection) {
+        supportedModelSection.style.display = "none";
+      }
+      if (ollamaSettingsGroup) {
+        ollamaSettingsGroup.style.display = "none";
+      }
+      if (adminSettingsSection) {
+        adminSettingsSection.style.display = "none";
+      }
+    }
 
     // 선택된 모델에 따라 설정 섹션 활성화/비활성화 및 표시 제어
-    if (selectedModel === "gemini") {
-      geminiSettingsSection.style.display = "block";
-      geminiSettingsSection.classList.remove("disabled");
-      if (banyaSettingsSection) {
-        banyaSettingsSection.style.display = "none";
-        banyaSettingsSection.classList.add("disabled");
+    if (selectedModel === "admin") {
+      hideAllModelSections();
+      if (adminSettingsSection) {
+        adminSettingsSection.style.display = "block";
       }
-      if (ollamaSettingsGroup) {
-        ollamaSettingsGroup.style.display = "none";
-      }
-    } else if (selectedModel === "banya") {
-      if (banyaSettingsSection) {
-        banyaSettingsSection.style.display = "block";
-        banyaSettingsSection.classList.remove("disabled");
-      }
-      geminiSettingsSection.style.display = "none";
-      geminiSettingsSection.classList.add("disabled");
-      if (ollamaSettingsGroup) {
-        ollamaSettingsGroup.style.display = "none";
-      }
+      updateStreamingToggle({}); // 제한 해제
+    } else if (selectedModel.startsWith("group:")) {
+      hideAllModelSections();
+      // 그룹 선택 → 지원 모델 설정 표시
+      const groupName = selectedModel.substring("group:".length);
+      showSupportedModelSettings(groupName);
     } else if (selectedModel === "ollama") {
-      geminiSettingsSection.style.display = "none";
-      geminiSettingsSection.classList.add("disabled");
-      if (banyaSettingsSection) {
-        banyaSettingsSection.style.display = "none";
-        banyaSettingsSection.classList.add("disabled");
-      }
+      hideAllModelSections();
+      updateStreamingToggle({}); // 제한 해제
       if (ollamaSettingsGroup) {
         ollamaSettingsGroup.style.display = "block";
       }
@@ -1529,13 +1785,22 @@ if (aiModelSelect) {
     }
 
     // 선택 변경 시에도 즉시 저장(자동 저장) - 단, 설정 로드 중이 아닐 때만
-    if (!isLoadingSettings) {
+    // admin은 서브 드롭다운에서 모델 선택 시 저장
+    // group:xxx는 서브 드롭다운에서 모델 선택 시 저장 (첫번째 모델 자동 저장)
+    if (!isLoadingSettings && selectedModel !== "admin") {
       try {
-        if (aiModelStatus) {
-          aiModelStatus.textContent = "AI 모델 자동 저장 중...";
-          aiModelStatus.className = "info-message";
+        let modelToSave = selectedModel;
+        if (selectedModel.startsWith("group:")) {
+          // 그룹 선택 → 현재 서브 셀렉트의 첫번째 모델 저장
+          modelToSave = currentSupportedModelKey ? `supported:${currentSupportedModelKey}` : null;
         }
-        vscode.postMessage({ command: "saveAiModel", model: selectedModel });
+        if (modelToSave) {
+          if (aiModelStatus) {
+            aiModelStatus.textContent = "AI 모델 자동 저장 중...";
+            aiModelStatus.className = "info-message";
+          }
+          vscode.postMessage({ command: "saveAiModel", model: modelToSave });
+        }
       } catch (e) {
         console.warn("Failed to autosave AI model:", e);
       }
@@ -1543,87 +1808,65 @@ if (aiModelSelect) {
   });
 }
 
-// Gemini 모델 선택 이벤트 리스너 추가
-if (geminiModelSelect) {
-  geminiModelSelect.addEventListener("change", () => {
-    const selectedGeminiModel = geminiModelSelect.value;
+// 관리자 모델 서브 드롭다운 이벤트 리스너
+const adminModelSelect = document.getElementById("admin-model-select");
+const adminModelStatus = document.getElementById("admin-model-status");
+if (adminModelSelect) {
+  adminModelSelect.addEventListener("change", () => {
+    const selectedKey = adminModelSelect.value;
+    if (!selectedKey) return;
     try {
-      if (geminiApiKeyStatus) {
-        geminiApiKeyStatus.textContent = "Gemini 모델 자동 저장 중...";
-        geminiApiKeyStatus.className = "info-message";
+      if (adminModelStatus) {
+        adminModelStatus.textContent = "관리자 모델 저장 중...";
+        adminModelStatus.className = "info-message";
       }
-      vscode.postMessage({
-        command: "saveGeminiModel",
-        model: selectedGeminiModel,
-      });
+      // admin:key 형식으로 저장
+      vscode.postMessage({ command: "saveAiModel", model: `admin:${selectedKey}` });
     } catch (e) {
-      console.warn("Failed to autosave Gemini model:", e);
+      console.warn("Failed to autosave admin model:", e);
     }
   });
 }
 
-// Gemini 모델 저장 버튼 이벤트 리스너
-if (saveGeminiModelButton) {
-  saveGeminiModelButton.addEventListener("click", () => {
-    const selectedGeminiModel = geminiModelSelect.value;
-    if (geminiApiKeyStatus) {
-      geminiApiKeyStatus.textContent = "Gemini 모델 저장 중...";
-      geminiApiKeyStatus.className = "info-message";
+// 지원 모델 서브셀렉트 이벤트 리스너
+if (supportedModelSubselect) {
+  supportedModelSubselect.addEventListener("change", () => {
+    const newKey = supportedModelSubselect.value;
+    if (!newKey) return;
+    currentSupportedModelKey = newKey;
+    // 선택된 모델의 authType에 따라 API 키 섹션 업데이트
+    const aiModels = cachedServerSettings['ai_model'] || [];
+    const preset = aiModels.find(s => s.key === newKey);
+    if (preset) {
+      updateSupportedModelApiKeySection(preset.value || {});
+      updateStreamingToggle(preset.value || {});
     }
-    vscode.postMessage({
-      command: "saveGeminiModel",
-      model: selectedGeminiModel,
-    });
-  });
-}
-
-// Banya API 키 저장 이벤트 리스너
-if (saveBanyaApiKeyButton) {
-  saveBanyaApiKeyButton.addEventListener("click", () => {
-    const apiKey = banyaApiKeyInput.value.trim();
-    if (apiKey) {
-      vscode.postMessage({ command: "saveBanyaApiKey", apiKey: apiKey });
-      const savingText =
-        languageData["apiKeysLoading"] || "Banya API 키 저장 중...";
-      showStatus(banyaApiKeyStatus, savingText, "info");
-    } else {
-      const pleaseEnterText =
-        languageData["pleaseEnterApiKey"] || "API 키를 입력해주세요.";
-      showStatus(banyaApiKeyStatus, pleaseEnterText, "error");
+    if (!isLoadingSettings) {
+      vscode.postMessage({ command: "saveAiModel", model: `supported:${newKey}` });
     }
   });
 }
 
-// Banya 모델 선택 이벤트 리스너
-if (banyaModelSelect) {
-  banyaModelSelect.addEventListener("change", () => {
-    const selectedBanyaModel = banyaModelSelect.value;
-    try {
-      if (banyaApiKeyStatus) {
-        banyaApiKeyStatus.textContent = "Banya 모델 자동 저장 중...";
-        banyaApiKeyStatus.className = "info-message";
+// 지원 모델 API 키 저장
+if (saveSupportedModelApiKeyButton) {
+  saveSupportedModelApiKeyButton.addEventListener("click", () => {
+    const apiKey = supportedModelApiKeyInput ? supportedModelApiKeyInput.value.trim() : '';
+    if (!apiKey) {
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = "API 키를 입력해주세요.";
+        supportedModelStatus.className = "info-message error-message";
       }
-      vscode.postMessage({
-        command: "saveBanyaModel",
-        model: selectedBanyaModel,
-      });
-    } catch (e) {
-      console.warn("Failed to autosave Banya model:", e);
+      return;
     }
-  });
-}
+    if (!currentSupportedModelKey) return;
 
-if (saveBanyaModelButton) {
-  saveBanyaModelButton.addEventListener("click", () => {
-    const selectedBanyaModel = banyaModelSelect.value;
-    if (banyaApiKeyStatus) {
-      banyaApiKeyStatus.textContent = "Banya 모델 저장 중...";
-      banyaApiKeyStatus.className = "info-message";
+    // admin 모델 API 키 저장
+    vscode.postMessage({ command: "saveAdminApiKey", apiKey: apiKey });
+
+    if (supportedModelStatus) {
+      supportedModelStatus.textContent = "API 키 저장 중...";
+      supportedModelStatus.className = "info-message";
     }
-    vscode.postMessage({
-      command: "saveBanyaModel",
-      model: selectedBanyaModel,
-    });
   });
 }
 
@@ -1654,7 +1897,12 @@ window.addEventListener("message", (event) => {
       console.log("[Settings] aiModelSaved received from extension.");
       if (aiModelStatus) {
         aiModelStatus.textContent = "AI 모델이 저장되었습니다.";
-        aiModelStatus.className = "success-message";
+        aiModelStatus.className = "info-message success-message";
+      }
+      const _adminStatus = document.getElementById("admin-model-status");
+      if (_adminStatus && aiModelSelect && aiModelSelect.value === "admin") {
+        _adminStatus.textContent = "관리자 모델이 저장되었습니다.";
+        _adminStatus.className = "info-message success-message";
       }
       break;
     }
@@ -1667,53 +1915,40 @@ window.addEventListener("message", (event) => {
         aiModelStatus.textContent = `AI 모델 저장 실패: ${message.error}`;
         aiModelStatus.className = "error-message";
       }
-      break;
-    }
-    case "geminiModelSaved": {
-      if (geminiApiKeyStatus) {
-        geminiApiKeyStatus.textContent = "Gemini 모델이 저장되었습니다.";
-        geminiApiKeyStatus.className = "success-message";
+      const _adminErrStatus = document.getElementById("admin-model-status");
+      if (_adminErrStatus && aiModelSelect && aiModelSelect.value === "admin") {
+        _adminErrStatus.textContent = `저장 실패: ${message.error}`;
+        _adminErrStatus.className = "info-message error-message";
       }
       break;
     }
-    case "geminiModelSaveError": {
-      if (geminiApiKeyStatus) {
-        geminiApiKeyStatus.textContent = `Gemini 모델 저장 실패: ${message.error}`;
-        geminiApiKeyStatus.className = "error-message";
+    case "adminModelSaved":
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = "모델이 저장되었습니다.";
+        supportedModelStatus.className = "info-message success-message";
       }
       break;
-    }
-    case "banyaApiKeySaved": {
-      if (banyaApiKeyStatus) {
-        banyaApiKeyStatus.textContent = "Banya API 키가 저장되었습니다.";
-        banyaApiKeyStatus.className = "success-message";
-      }
-      if (banyaApiKeyInput) {
-        banyaApiKeyInput.value = "";
+    case "adminModelSaveError":
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = `모델 저장 실패: ${message.error}`;
+        supportedModelStatus.className = "info-message error-message";
       }
       break;
-    }
-    case "banyaApiKeySaveError": {
-      if (banyaApiKeyStatus) {
-        banyaApiKeyStatus.textContent = `Banya API 키 저장 실패: ${message.error}`;
-        banyaApiKeyStatus.className = "error-message";
+    case "adminApiKeySaved":
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = "API 키가 저장되었습니다.";
+        supportedModelStatus.className = "info-message success-message";
+      }
+      if (supportedModelApiKeyInput) {
+        supportedModelApiKeyInput.value = "";
       }
       break;
-    }
-    case "banyaModelSaved": {
-      if (banyaApiKeyStatus) {
-        banyaApiKeyStatus.textContent = "Banya 모델이 저장되었습니다.";
-        banyaApiKeyStatus.className = "success-message";
+    case "adminApiKeySaveError":
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = `API 키 저장 실패: ${message.error}`;
+        supportedModelStatus.className = "info-message error-message";
       }
       break;
-    }
-    case "banyaModelSaveError": {
-      if (banyaApiKeyStatus) {
-        banyaApiKeyStatus.textContent = `Banya 모델 저장 실패: ${message.error}`;
-        banyaApiKeyStatus.className = "error-message";
-      }
-      break;
-    }
     case "ollamaModels": {
       // console.log('[Settings] Received ollamaModels message:', message);
       const sel = document.getElementById("ollama-model-select");
@@ -1722,10 +1957,6 @@ window.addEventListener("message", (event) => {
         const currentModel = sel.value;
 
         sel.innerHTML = "";
-        const def = document.createElement("option");
-        def.value = "";
-        def.textContent = "모델을 선택하세요";
-        sel.appendChild(def);
         if (Array.isArray(message.models)) {
           message.models.forEach((name) => {
             const opt = document.createElement("option");
@@ -1753,6 +1984,9 @@ window.addEventListener("message", (event) => {
           currentSettingsOllamaModel = null;
         } else if (currentModel && currentModel !== "") {
           sel.value = currentModel;
+        } else if (sel.options.length > 0) {
+          // 저장된 모델이 없으면 첫 번째 모델 자동 선택
+          sel.value = sel.options[0].value;
         }
       }
 
@@ -1803,23 +2037,6 @@ window.addEventListener("message", (event) => {
     case "currentSettings":
       // 설정 로드 시작 - 자동 저장 방지
       isLoadingSettings = true;
-
-      // AI 모델 엔진 설정 처리
-      if (message.aiModel && aiModelSelect) {
-        aiModelSelect.value = message.aiModel;
-        // AI 모델 선택에 따른 섹션 표시 업데이트
-        aiModelSelect.dispatchEvent(new Event("change"));
-      }
-
-      // Gemini 모델 설정 처리
-      if (message.geminiModel && geminiModelSelect) {
-        geminiModelSelect.value = message.geminiModel;
-      }
-
-      // Banya 모델 설정 처리
-      if (message.banyaModel && banyaModelSelect) {
-        banyaModelSelect.value = message.banyaModel;
-      }
 
       // 언어 설정 처리
       if (message.language && languageSelect) {
@@ -1897,6 +2114,12 @@ window.addEventListener("message", (event) => {
       ) {
         autoToolToggle.checked = message.autoToolExecutionEnabled;
       }
+      if (
+        typeof message.autoMcpToolExecutionEnabled === "boolean" &&
+        autoMcpToolToggle
+      ) {
+        autoMcpToolToggle.checked = message.autoMcpToolExecutionEnabled;
+      }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
       }
@@ -1916,25 +2139,38 @@ window.addEventListener("message", (event) => {
         testRetrySpinner.value = message.testRetryCount;
       }
 
+      // ===== 빌드/테스트 개인 설정 적용 =====
+      if (Array.isArray(message.personalBuildTestSettings)) {
+        renderPersonalBuildTestList(message.personalBuildTestSettings);
+      }
+
+      // ===== 오류 보고 상태 적용 =====
+      if (typeof message.errorReportingEnabled === "boolean") {
+        const errToggle = document.getElementById("error-reporting-toggle");
+        if (errToggle) errToggle.checked = message.errorReportingEnabled;
+      }
+
       // ===== AI 모델 설정 적용 =====
       if (aiModelSelect && typeof message.aiModel === "string") {
         // 저장된 모델을 UI 표시용으로 변환
         let displayModel = message.aiModel;
         if (message.aiModel.startsWith("ollama")) {
           displayModel = "ollama";
-        } else if (message.aiModel === "gemini") {
-          displayModel = "gemini";
+        } else if (message.aiModel.startsWith("supported:")) {
+          const sk = message.aiModel.substring("supported:".length);
+          const gn = findGroupForSupportedKey(sk);
+          if (gn) {
+            displayModel = `group:${gn}`;
+            if (supportedModelSubselect) {
+              supportedModelSubselect.setAttribute('data-pending-supported-key', sk);
+            }
+          }
         }
 
         aiModelSelect.value = displayModel;
 
         // 모델에 따라 섹션 활성화/비활성화
-        if (displayModel === "gemini") {
-          geminiSettingsSection.classList.remove("disabled");
-          localOllamaSettingsSection.classList.add("disabled");
-          remoteOllamaSettingsSection.classList.add("disabled");
-        } else if (displayModel === "ollama") {
-          geminiSettingsSection.classList.add("disabled");
+        if (displayModel === "ollama") {
           // 서버 타입에 따라 활성 섹션 결정
           const serverType = message.ollamaServerType || "local";
           if (serverType === "remote") {
@@ -1974,7 +2210,7 @@ window.addEventListener("message", (event) => {
         showStatus(ollamaServerTypeStatus, setText, "success");
 
         // AI 모델이 'ollama'인 경우에만 섹션 활성화/비활성화
-        const currentAiModel = aiModelSelect ? aiModelSelect.value : "gemini";
+        const currentAiModel = aiModelSelect ? aiModelSelect.value : "ollama";
         if (currentAiModel === "ollama") {
           // 섹션 가시성 + disabled 클래스 동기화
           if (message.ollamaServerType === "remote") {
@@ -2095,422 +2331,44 @@ window.addEventListener("message", (event) => {
         }
       }
 
-      // 모델 라우팅 설정 적용
-      console.log("[Settings] Received routing model settings:", {
-        compactorModelType: message.compactorModelType,
-        compactorModelName: message.compactorModelName,
-        commandModelType: message.commandModelType,
-        commandModelName: message.commandModelName,
-        intentModelType: message.intentModelType,
-        intentModelName: message.intentModelName,
-      });
-      {
-        const compactorTypeSelect = document.getElementById(
-          "compactor-model-type-select",
-        );
-        const compactorSubmodelContainer = document.getElementById(
-          "compactor-submodel-container",
-        );
-        const compactorApikeyContainer = document.getElementById(
-          "compactor-apikey-container",
-        );
-        const compactorSubmodelSelect = document.getElementById(
-          "compactor-submodel-select",
-        );
-        const compactorModelStatus = document.getElementById(
-          "compactor-model-status",
-        );
+      // 모델 라우팅 설정 적용 (공통 함수로 처리)
+      restoreRoutingModelUI('compactor', message.compactorModelType, message.compactorModelName);
+      restoreRoutingModelUI('command', message.commandModelType, message.commandModelName);
+      restoreRoutingModelUI('intent', message.intentModelType, message.intentModelName);
 
-        console.log(
-          "[Settings] compactorTypeSelect element:",
-          compactorTypeSelect,
-        );
-        console.log(
-          "[Settings] compactorTypeSelect options:",
-          compactorTypeSelect
-            ? Array.from(compactorTypeSelect.options).map((o) => o.value)
-            : "N/A",
-        );
-        if (compactorTypeSelect) {
-          compactorTypeSelect.value = message.compactorModelType || "";
-          console.log(
-            "[Settings] compactorTypeSelect.value after set:",
-            compactorTypeSelect.value,
-          );
-        }
-
-        // 하위 UI 표시 및 값 설정
-        if (message.compactorModelType) {
-          // 타입 선택 시 하위 모델 표시
-          if (compactorSubmodelContainer) {
-            compactorSubmodelContainer.style.display = "block";
-          }
-          if (compactorApikeyContainer) {
-            compactorApikeyContainer.style.display =
-              message.compactorModelType === "gemini" ||
-              message.compactorModelType === "banya"
-                ? "block"
-                : "none";
-          }
-          // 하위 모델 셀렉트 채우기 (ollama는 동적으로 가져옴)
-          if (compactorSubmodelSelect && message.compactorModelType) {
-            const submodelOptionsForLoad = {
-              gemini: [
-                {
-                  value: "gemini-3-flash-preview",
-                  label: "Gemini 3 Flash Preview (권장)",
-                },
-                {
-                  value: "gemini-3-pro-preview",
-                  label: "Gemini 3 Pro Preview",
-                },
-              ],
-              banya: [
-                { value: "Banya Solar:100b", label: "Banya Solar:100b" },
-                {
-                  value: "Banya Qwen-Coder:32b",
-                  label: "Banya Qwen-Coder:32b",
-                },
-              ],
-              ollama: (window.routingOllamaModelsCache || []).map((name) => ({
-                value: name,
-                label: name,
-              })),
-            };
-            compactorSubmodelSelect.innerHTML = "";
-            let options =
-              submodelOptionsForLoad[message.compactorModelType] || [];
-
-            // ollama인데 캐시가 비어있으면 모델 리스트 요청
-            if (
-              message.compactorModelType === "ollama" &&
-              options.length === 0
-            ) {
-              vscode.postMessage({ command: "getRoutingOllamaModels" });
-              // 저장된 모델명이 있으면 일단 추가
-              if (message.compactorModelName) {
-                const customOption = document.createElement("option");
-                customOption.value = message.compactorModelName;
-                customOption.textContent = message.compactorModelName;
-                compactorSubmodelSelect.appendChild(customOption);
-                compactorSubmodelSelect.value = message.compactorModelName;
-              } else {
-                const loadingOption = document.createElement("option");
-                loadingOption.value = "";
-                loadingOption.textContent = "모델 로딩 중...";
-                compactorSubmodelSelect.appendChild(loadingOption);
-              }
-            } else {
-              options.forEach((opt) => {
-                const option = document.createElement("option");
-                option.value = opt.value;
-                option.textContent = opt.label;
-                compactorSubmodelSelect.appendChild(option);
-              });
-              // 저장된 모델명 선택 (목록에 없으면 추가)
-              if (message.compactorModelName) {
-                const exists = options.some(
-                  (opt) => opt.value === message.compactorModelName,
-                );
-                if (!exists) {
-                  const customOption = document.createElement("option");
-                  customOption.value = message.compactorModelName;
-                  customOption.textContent =
-                    message.compactorModelName + " (저장됨)";
-                  compactorSubmodelSelect.appendChild(customOption);
-                }
-                compactorSubmodelSelect.value = message.compactorModelName;
-              }
-            }
-          }
-        } else {
-          if (compactorSubmodelContainer) {
-            compactorSubmodelContainer.style.display = "none";
-          }
-          if (compactorApikeyContainer) {
-            compactorApikeyContainer.style.display = "none";
-          }
-        }
-
-        if (compactorModelStatus) {
-          if (message.compactorModelType) {
-            const typeLabel =
-              { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[
-                message.compactorModelType
-              ] || message.compactorModelType;
-            const modelInfo = message.compactorModelName
-              ? ` (${message.compactorModelName})`
-              : "";
-            const apiKeyInfo = message.compactorApiKeySet
-              ? " | API 키 설정됨"
-              : "";
-            compactorModelStatus.textContent = `현재: ${typeLabel}${modelInfo}${apiKeyInfo}`;
-            compactorModelStatus.className = "info-message success-message";
-          } else {
-            compactorModelStatus.textContent = "현재: 메인 모델 사용";
-            compactorModelStatus.className = "info-message";
-          }
-        }
+      // ===== 서버(조직) 설정 렌더링 =====
+      if (message.serverSettings && typeof message.serverSettings === 'object') {
+        cachedServerSettings = message.serverSettings;
+        renderAllOrgSettings();
       }
-      {
-        const commandTypeSelect = document.getElementById(
-          "command-model-type-select",
-        );
-        const commandSubmodelContainer = document.getElementById(
-          "command-submodel-container",
-        );
-        const commandApikeyContainer = document.getElementById(
-          "command-apikey-container",
-        );
-        const commandSubmodelSelect = document.getElementById(
-          "command-submodel-select",
-        );
-        const commandModelStatus = document.getElementById(
-          "command-model-status",
-        );
 
-        if (commandTypeSelect) {
-          commandTypeSelect.value = message.commandModelType || "";
-        }
-
-        // 하위 UI 표시 및 값 설정
-        if (message.commandModelType) {
-          if (commandSubmodelContainer) {
-            commandSubmodelContainer.style.display = "block";
+      // ===== AI 모델 드롭박스 설정 (option 동적 추가 후 실행) =====
+      if (message.aiModel && aiModelSelect) {
+        if (message.aiModel.startsWith('admin:')) {
+          aiModelSelect.value = 'admin';
+          const adminSubSelect = document.getElementById("admin-model-select");
+          if (adminSubSelect) {
+            const adminKey = message.aiModel.substring('admin:'.length);
+            adminSubSelect.setAttribute('data-pending-admin-key', adminKey);
+            const opts = Array.from(adminSubSelect.options).map(o => o.value);
+            if (opts.includes(adminKey)) {
+              adminSubSelect.value = adminKey;
+              adminSubSelect.removeAttribute('data-pending-admin-key');
+            }
           }
-          if (commandApikeyContainer) {
-            commandApikeyContainer.style.display =
-              message.commandModelType === "gemini" ||
-              message.commandModelType === "banya"
-                ? "block"
-                : "none";
-          }
-          // 하위 모델 셀렉트 채우기 (ollama는 동적으로 가져옴)
-          if (commandSubmodelSelect && message.commandModelType) {
-            const submodelOptionsForLoad = {
-              gemini: [
-                {
-                  value: "gemini-3-flash-preview",
-                  label: "Gemini 3 Flash Preview (권장)",
-                },
-                {
-                  value: "gemini-3-pro-preview",
-                  label: "Gemini 3 Pro Preview",
-                },
-              ],
-              banya: [
-                { value: "Banya Solar:100b", label: "Banya Solar:100b" },
-                {
-                  value: "Banya Qwen-Coder:32b",
-                  label: "Banya Qwen-Coder:32b",
-                },
-              ],
-              ollama: (window.routingOllamaModelsCache || []).map((name) => ({
-                value: name,
-                label: name,
-              })),
-            };
-            commandSubmodelSelect.innerHTML = "";
-            let options =
-              submodelOptionsForLoad[message.commandModelType] || [];
-
-            // ollama인데 캐시가 비어있으면 모델 리스트 요청
-            if (message.commandModelType === "ollama" && options.length === 0) {
-              vscode.postMessage({ command: "getRoutingOllamaModels" });
-              // 저장된 모델명이 있으면 일단 추가
-              if (message.commandModelName) {
-                const customOption = document.createElement("option");
-                customOption.value = message.commandModelName;
-                customOption.textContent = message.commandModelName;
-                commandSubmodelSelect.appendChild(customOption);
-                commandSubmodelSelect.value = message.commandModelName;
-              } else {
-                const loadingOption = document.createElement("option");
-                loadingOption.value = "";
-                loadingOption.textContent = "모델 로딩 중...";
-                commandSubmodelSelect.appendChild(loadingOption);
-              }
-            } else {
-              options.forEach((opt) => {
-                const option = document.createElement("option");
-                option.value = opt.value;
-                option.textContent = opt.label;
-                commandSubmodelSelect.appendChild(option);
-              });
-              // 저장된 모델명 선택 (목록에 없으면 추가)
-              if (message.commandModelName) {
-                const exists = options.some(
-                  (opt) => opt.value === message.commandModelName,
-                );
-                if (!exists) {
-                  const customOption = document.createElement("option");
-                  customOption.value = message.commandModelName;
-                  customOption.textContent =
-                    message.commandModelName + " (저장됨)";
-                  commandSubmodelSelect.appendChild(customOption);
-                }
-                commandSubmodelSelect.value = message.commandModelName;
-              }
+        } else if (message.aiModel.startsWith('supported:')) {
+          const supportedKey = message.aiModel.substring('supported:'.length);
+          const groupName = findGroupForSupportedKey(supportedKey);
+          if (groupName) {
+            aiModelSelect.value = `group:${groupName}`;
+            if (supportedModelSubselect) {
+              supportedModelSubselect.setAttribute('data-pending-supported-key', supportedKey);
             }
           }
         } else {
-          if (commandSubmodelContainer) {
-            commandSubmodelContainer.style.display = "none";
-          }
-          if (commandApikeyContainer) {
-            commandApikeyContainer.style.display = "none";
-          }
+          aiModelSelect.value = message.aiModel;
         }
-
-        if (commandModelStatus) {
-          if (message.commandModelType) {
-            const typeLabel =
-              { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[
-                message.commandModelType
-              ] || message.commandModelType;
-            const modelInfo = message.commandModelName
-              ? ` (${message.commandModelName})`
-              : "";
-            const apiKeyInfo = message.commandApiKeySet
-              ? " | API 키 설정됨"
-              : "";
-            commandModelStatus.textContent = `현재: ${typeLabel}${modelInfo}${apiKeyInfo}`;
-            commandModelStatus.className = "info-message success-message";
-          } else {
-            commandModelStatus.textContent = "현재: 메인 모델 사용";
-            commandModelStatus.className = "info-message";
-          }
-        }
-      }
-      // Intent 모델 설정 적용
-      {
-        const intentTypeSelect = document.getElementById(
-          "intent-model-type-select",
-        );
-        const intentSubmodelContainer = document.getElementById(
-          "intent-submodel-container",
-        );
-        const intentApikeyContainer = document.getElementById(
-          "intent-apikey-container",
-        );
-        const intentSubmodelSelect = document.getElementById(
-          "intent-submodel-select",
-        );
-        const intentModelStatus = document.getElementById(
-          "intent-model-status",
-        );
-
-        if (intentTypeSelect) {
-          intentTypeSelect.value = message.intentModelType || "";
-        }
-
-        // 하위 UI 표시 및 값 설정
-        if (message.intentModelType) {
-          if (intentSubmodelContainer) {
-            intentSubmodelContainer.style.display = "block";
-          }
-          if (intentApikeyContainer) {
-            intentApikeyContainer.style.display =
-              message.intentModelType === "gemini" ||
-              message.intentModelType === "banya"
-                ? "block"
-                : "none";
-          }
-          // 하위 모델 셀렉트 채우기 (ollama는 동적으로 가져옴)
-          if (intentSubmodelSelect && message.intentModelType) {
-            const submodelOptionsForLoad = {
-              gemini: [
-                {
-                  value: "gemini-3-flash-preview",
-                  label: "Gemini 3 Flash Preview",
-                },
-                {
-                  value: "gemini-3-pro-preview",
-                  label: "Gemini 3 Pro Preview",
-                },
-              ],
-              banya: [
-                { value: "Banya Solar:100b", label: "Banya Solar:100b" },
-                {
-                  value: "Banya Qwen-Coder:32b",
-                  label: "Banya Qwen-Coder:32b",
-                },
-              ],
-              ollama: (window.routingOllamaModelsCache || []).map((name) => ({
-                value: name,
-                label: name,
-              })),
-            };
-            intentSubmodelSelect.innerHTML = "";
-            let options = submodelOptionsForLoad[message.intentModelType] || [];
-
-            // ollama인데 캐시가 비어있으면 모델 리스트 요청
-            if (message.intentModelType === "ollama" && options.length === 0) {
-              vscode.postMessage({ command: "getRoutingOllamaModels" });
-              // 저장된 모델명이 있으면 일단 추가
-              if (message.intentModelName) {
-                const customOption = document.createElement("option");
-                customOption.value = message.intentModelName;
-                customOption.textContent = message.intentModelName;
-                intentSubmodelSelect.appendChild(customOption);
-                intentSubmodelSelect.value = message.intentModelName;
-              } else {
-                const loadingOption = document.createElement("option");
-                loadingOption.value = "";
-                loadingOption.textContent = "모델 로딩 중...";
-                intentSubmodelSelect.appendChild(loadingOption);
-              }
-            } else {
-              options.forEach((opt) => {
-                const option = document.createElement("option");
-                option.value = opt.value;
-                option.textContent = opt.label;
-                intentSubmodelSelect.appendChild(option);
-              });
-              // 저장된 모델명 선택 (목록에 없으면 추가)
-              if (message.intentModelName) {
-                const exists = options.some(
-                  (opt) => opt.value === message.intentModelName,
-                );
-                if (!exists) {
-                  const customOption = document.createElement("option");
-                  customOption.value = message.intentModelName;
-                  customOption.textContent =
-                    message.intentModelName + " (저장됨)";
-                  intentSubmodelSelect.appendChild(customOption);
-                }
-                intentSubmodelSelect.value = message.intentModelName;
-              }
-            }
-          }
-        } else {
-          if (intentSubmodelContainer) {
-            intentSubmodelContainer.style.display = "none";
-          }
-          if (intentApikeyContainer) {
-            intentApikeyContainer.style.display = "none";
-          }
-        }
-
-        if (intentModelStatus) {
-          if (message.intentModelType) {
-            const typeLabel =
-              { ollama: "Ollama", gemini: "Google Gemini", banya: "Banya" }[
-                message.intentModelType
-              ] || message.intentModelType;
-            const modelInfo = message.intentModelName
-              ? ` (${message.intentModelName})`
-              : "";
-            const apiKeyInfo = message.intentApiKeySet
-              ? " | API 키 설정됨"
-              : "";
-            intentModelStatus.textContent = `현재: ${typeLabel}${modelInfo}${apiKeyInfo}`;
-            intentModelStatus.className = "info-message success-message";
-          } else {
-            intentModelStatus.textContent = "현재: 메인 모델 사용";
-            intentModelStatus.className = "info-message";
-          }
-        }
+        aiModelSelect.dispatchEvent(new Event("change"));
       }
 
       // 설정 로드 완료 - 자동 저장 다시 활성화
@@ -2552,7 +2410,7 @@ window.addEventListener("message", (event) => {
         if (compactorModelStatus) {
           compactorModelStatus.textContent =
             "Compactor 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
-          compactorModelStatus.className = "info-message";
+          compactorModelStatus.className = "info-message success-message";
         }
       }
       break;
@@ -2592,7 +2450,7 @@ window.addEventListener("message", (event) => {
         if (commandModelStatus) {
           commandModelStatus.textContent =
             "Command 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
-          commandModelStatus.className = "info-message";
+          commandModelStatus.className = "info-message success-message";
         }
       }
       break;
@@ -2659,37 +2517,33 @@ window.addEventListener("message", (event) => {
         let displayModel = message.model;
         if (message.model.startsWith("ollama")) {
           displayModel = "ollama";
-        } else if (message.model === "gemini") {
-          displayModel = "gemini";
+        } else if (message.model.startsWith("supported:")) {
+          const sk = message.model.substring("supported:".length);
+          const gn = findGroupForSupportedKey(sk);
+          if (gn) {
+            displayModel = `group:${gn}`;
+            if (supportedModelSubselect) {
+              supportedModelSubselect.setAttribute('data-pending-supported-key', sk);
+            }
+          }
+        } else if (message.model.startsWith("admin:")) {
+          // admin:key → 그룹 검색 후 group:XXX 로 변환
+          const ak = message.model.substring("admin:".length);
+          const agn = findGroupForSupportedKey(ak);
+          if (agn) {
+            displayModel = `group:${agn}`;
+            if (supportedModelSubselect) {
+              supportedModelSubselect.setAttribute('data-pending-supported-key', ak);
+            }
+          }
         }
+        // group:XXX는 그대로 사용 (드롭박스 option value와 일치)
 
         aiModelSelect.value = displayModel;
-
-        // 모델에 따라 섹션 활성화/비활성화
-        if (displayModel === "gemini") {
-          geminiSettingsSection.classList.remove("disabled");
-          localOllamaSettingsSection.classList.add("disabled");
-          remoteOllamaSettingsSection.classList.add("disabled");
-        } else if (displayModel === "ollama") {
-          geminiSettingsSection.classList.add("disabled");
-          // 서버 타입에 따라 활성 섹션 결정
-          const serverType = ollamaServerTypeSelect
-            ? ollamaServerTypeSelect.value
-            : "local";
-          if (serverType === "remote") {
-            localOllamaSettingsSection.classList.add("disabled");
-            remoteOllamaSettingsSection.classList.remove("disabled");
-          } else {
-            localOllamaSettingsSection.classList.remove("disabled");
-            remoteOllamaSettingsSection.classList.add("disabled");
-          }
-          // Ollama 모델 목록 로드
-          try {
-            loadOllamaModels();
-          } catch (e) {
-            console.warn("loadOllamaModels failed:", e);
-          }
-        }
+        // change 이벤트 발생시켜 하위 섹션 활성화 (자동 저장 방지)
+        isLoadingSettings = true;
+        aiModelSelect.dispatchEvent(new Event("change"));
+        isLoadingSettings = false;
       }
       break;
     case "autoUpdateStatusChanged":
@@ -2716,34 +2570,7 @@ window.addEventListener("message", (event) => {
       }
       break;
     case "currentApiKeys":
-      // API 키 상태 로드
-      // Gemini API 키 상태 로드
-      if (geminiApiKeyInput && typeof message.geminiApiKey === "string") {
-        geminiApiKeyInput.value = message.geminiApiKey;
-        const geminiApiKeySetText = message.geminiApiKey
-          ? languageData["geminiApiKeySet"] ||
-            "Gemini API 키가 설정되어 있습니다."
-          : languageData["geminiApiKeyNotSet"] ||
-            "Gemini API 키가 설정되지 않았습니다.";
-        showStatus(
-          geminiApiKeyStatus,
-          geminiApiKeySetText,
-          message.geminiApiKey ? "success" : "info",
-        );
-      }
-
-      // Banya API 키 로드
-      if (banyaApiKeyInput && typeof message.banyaApiKey === "string") {
-        banyaApiKeyInput.value = message.banyaApiKey;
-        const banyaApiKeySetText = message.banyaApiKey
-          ? "Banya API 키가 설정되어 있습니다."
-          : "Banya API 키가 설정되지 않았습니다.";
-        showStatus(
-          banyaApiKeyStatus,
-          banyaApiKeySetText,
-          message.banyaApiKey ? "success" : "info",
-        );
-      }
+      // API 키 상태 로드 (지원 모델에서 통합 관리)
       // 로컬 Ollama API URL 상태 로드 (기본값 폴백)
       if (
         localOllamaApiUrlInput &&
@@ -2907,70 +2734,39 @@ window.addEventListener("message", (event) => {
           "[Settings] No valid ollamaModel in currentSettings message",
         );
       }
-      // Banya 라이센스 상태 로드
-      if (
-        banyaLicenseSerialInput &&
-        typeof message.banyaLicenseSerial === "string"
-      ) {
-        // 추가 검증 - 잘못된 데이터 필터링
-        const isValidLicense =
-          message.banyaLicenseSerial &&
-          message.banyaLicenseSerial.trim() !== "" &&
-          !message.banyaLicenseSerial.includes("/") &&
-          !message.banyaLicenseSerial.includes("\\") &&
-          !message.banyaLicenseSerial.includes("프로젝트") &&
-          !message.banyaLicenseSerial.includes("Project") &&
-          !message.banyaLicenseSerial.includes("설정") &&
-          !message.banyaLicenseSerial.includes("Setting") &&
-          message.banyaLicenseSerial.length > 5;
-
-        if (isValidLicense) {
-          banyaLicenseSerialInput.value = message.banyaLicenseSerial.trim();
-          banyaLicenseSerialInput.readOnly = true; // 저장된 라이센스는 읽기 전용으로 설정
-          const banyaLicenseSetText =
-            languageData["banyaLicenseSet"] ||
-            "Banya 라이센스가 설정되어 있습니다.";
-          showStatus(banyaLicenseStatus, banyaLicenseSetText, "success");
-        } else {
-          banyaLicenseSerialInput.value = "";
-          banyaLicenseSerialInput.readOnly = false; // 라이센스가 없으면 편집 가능
-          const banyaLicenseNotSetText =
-            languageData["banyaLicenseNotSet"] ||
-            "Banya 라이센스가 설정되지 않았습니다.";
-          showStatus(banyaLicenseStatus, banyaLicenseNotSetText, "info");
-        }
-      }
-
-      // 라이선스 검증 상태 처리
-      if (typeof message.isLicenseVerified === "boolean") {
-        isLicenseVerified = message.isLicenseVerified;
-        // console.log('License verification status received:', isLicenseVerified);
-      } else {
-        console.log(
-          "No license verification status received, message:",
-          message,
-        );
-      }
-
-      // API 키 로드 완료 후 저장 버튼 상태 재확인
+      // API 키 로드 완료 후 저장 버튼 상태 갱신
       setTimeout(() => {
-        // console.log('Final button state update after API keys load, isLicenseVerified:', isLicenseVerified);
         updateSaveButtonsState();
-        updateLicenseButtonsState();
       }, 100);
       break;
+    case "apiKeysLoaded":
+      // loadApiKeys 응답: API 키 로드 완료 후 상태 표시
+      if (message.apiKey) {
+        showStatus(
+          supportedModelStatus,
+          languageData["apiKeySet"] || "API 키가 설정되어 있습니다.",
+          "success",
+        );
+      } else {
+        showStatus(
+          supportedModelStatus,
+          languageData["apiKeyNotSet"] || "API 키가 설정되지 않았습니다.",
+          "info",
+        );
+      }
+      break;
     case "apiKeySaved":
-      const geminiApiKeySavedText =
-        languageData["geminiApiKeySaved"] || "Gemini API 키가 저장되었습니다.";
-      showStatus(geminiApiKeyStatus, geminiApiKeySavedText, "success");
-      geminiApiKeyInput.value = "";
+      const apiKeySavedText =
+        languageData["apiKeySaved"] || "API 키가 저장되었습니다.";
+      showStatus(supportedModelStatus, apiKeySavedText, "success");
+      if (supportedModelApiKeyInput) supportedModelApiKeyInput.value = "";
       break;
     case "apiKeySaveError":
-      const geminiApiKeyErrorText =
-        languageData["geminiApiKeyError"] || "Gemini API 키 저장 실패:";
+      const apiKeyErrorText =
+        languageData["apiKeyError"] || "API 키 저장 실패:";
       showStatus(
-        geminiApiKeyStatus,
-        `${geminiApiKeyErrorText} ${message.error}`,
+        supportedModelStatus,
+        `${apiKeyErrorText} ${message.error}`,
         "error",
       );
       break;
@@ -3066,21 +2862,6 @@ window.addEventListener("message", (event) => {
         "error",
       );
       break;
-    case "banyaLicenseSaved":
-      const banyaLicenseSavedText =
-        languageData["banyaLicenseSaved"] || "Banya 라이센스가 저장되었습니다.";
-      showStatus(banyaLicenseStatus, banyaLicenseSavedText, "success");
-      banyaLicenseSerialInput.value = "";
-      break;
-    case "banyaLicenseError":
-      const banyaLicenseErrorText =
-        languageData["banyaLicenseError"] || "Banya 라이센스 저장 실패:";
-      showStatus(
-        banyaLicenseStatus,
-        `${banyaLicenseErrorText} ${message.error}`,
-        "error",
-      );
-      break;
     case "errorRetryCountSaved":
       const errorRetryCountSavedText =
         languageData["errorRetryCountSaved"] ||
@@ -3093,51 +2874,6 @@ window.addEventListener("message", (event) => {
       showStatus(
         errorRetryStatus,
         `${errorRetryCountSaveErrorText} ${message.error}`,
-        "error",
-      );
-      break;
-    case "banyaLicenseVerified":
-      const banyaLicenseVerifiedText =
-        languageData["banyaLicenseVerified"] || "Banya 라이센스가 유효합니다.";
-      showStatus(banyaLicenseStatus, banyaLicenseVerifiedText, "success");
-      isLicenseVerified = true;
-      console.log("License verification successful, enabling save buttons");
-      updateSaveButtonsState();
-      updateLicenseButtonsState();
-      break;
-    case "banyaLicenseVerificationFailed":
-      const banyaLicenseVerificationFailedText =
-        languageData["banyaLicenseVerificationFailed"] ||
-        "Banya 라이센스 검증 실패:";
-      showStatus(
-        banyaLicenseStatus,
-        `${banyaLicenseVerificationFailedText} ${message.error}`,
-        "error",
-      );
-      isLicenseVerified = false;
-      console.log("License verification failed, disabling save buttons");
-      updateSaveButtonsState();
-      updateLicenseButtonsState();
-      break;
-    case "banyaLicenseDeleted":
-      const banyaLicenseDeletedText =
-        languageData["banyaLicenseDeleted"] ||
-        "Banya 라이센스가 삭제되었습니다.";
-      showStatus(banyaLicenseStatus, banyaLicenseDeletedText, "success");
-      if (banyaLicenseSerialInput) {
-        banyaLicenseSerialInput.value = "";
-        banyaLicenseSerialInput.readOnly = false; // 라이센스 삭제 시 편집 가능하게 설정
-      }
-      isLicenseVerified = false;
-      updateSaveButtonsState();
-      updateLicenseButtonsState();
-      break;
-    case "banyaLicenseDeleteError":
-      const banyaLicenseDeleteErrorText =
-        languageData["banyaLicenseDeleteError"] || "Banya 라이센스 삭제 실패:";
-      showStatus(
-        banyaLicenseStatus,
-        `${banyaLicenseDeleteErrorText} ${message.error}`,
         "error",
       );
       break;
@@ -3261,6 +2997,18 @@ window.addEventListener("message", (event) => {
         }
       }
       break;
+    case "buildTestSettingsUpdated":
+      if (Array.isArray(message.settings)) {
+        renderPersonalBuildTestList(message.settings);
+      }
+      if (message.success) {
+        hideBuildTestForm();
+      } else if (btAddStatus) {
+        btAddStatus.textContent = message.error || "";
+        btAddStatus.style.color = '#e53935';
+        setTimeout(() => { if (btAddStatus) btAddStatus.textContent = ''; }, 2000);
+      }
+      break;
     case "languageSaveError":
       const languageSaveErrorText =
         languageData["languageSaveError"] || "언어 저장 실패:";
@@ -3361,37 +3109,31 @@ window.addEventListener("message", (event) => {
   }
 
   // MCP 관련 메시지는 별도 모듈에서 처리
-  if (message.command && message.command.startsWith("mcp")) {
+  if (message.command && (message.command.startsWith("mcp") || message.command.startsWith("adminMcp"))) {
     handleMcpMessage(message);
   }
 });
 
-// Webview 로드 시 초기 설정값 요청 (제거 - 중복 방지)
+// Webview 로드 시 초기 설정값 요청
 vscode.postMessage({ command: "loadApiKeys" });
-vscode.postMessage({ command: "loadAiModel" });
+// loadAiModel 제거: currentSettings에서 aiModel + serverSettings 함께 처리
 vscode.postMessage({ command: "loadOllamaModel" });
 
 const apiKeysLoadingText =
   languageData["apiKeysLoading"] || "API 키 로드 중...";
-showStatus(geminiApiKeyStatus, apiKeysLoadingText, "info");
+showStatus(supportedModelStatus, apiKeysLoadingText, "info");
 if (localOllamaApiUrlStatus) {
   showStatus(localOllamaApiUrlStatus, apiKeysLoadingText, "info");
 }
 if (remoteOllamaApiUrlStatus) {
   showStatus(remoteOllamaApiUrlStatus, apiKeysLoadingText, "info");
 }
-showStatus(banyaLicenseStatus, apiKeysLoadingText, "info");
-
 // API 키 로드 후 저장 버튼 상태 업데이트는 currentApiKeys 메시지를 받은 후에 수행됨
-// 여기서는 초기화만 하고, 실제 업데이트는 서버 응답 후에 수행
 
 // Ollama 모델 목록 불러오기
 loadOllamaModels();
 
-// 초기 상태: Gemini가 기본값이므로 Gemini 설정 섹션 활성화, Ollama 설정 섹션 비활성화
-if (geminiSettingsSection) {
-  geminiSettingsSection.classList.remove("disabled");
-}
+// 초기 상태: 지원 모델 섹션은 모델 선택 시 동적으로 표시됨
 // 초기 활성화 상태는 AI 모델과 서버 타입에 따라 결정
 if (aiModelSelect && aiModelSelect.value === "ollama") {
   const serverType = ollamaServerTypeSelect
@@ -3420,9 +3162,6 @@ if (aiModelSelect && aiModelSelect.value === "ollama") {
     remoteOllamaSettingsSection.classList.add("disabled");
   }
 }
-
-// 초기 상태: 라이선스 검증 상태는 서버에서 받아올 때까지 대기
-// isLicenseVerified는 서버에서 전송된 값으로 설정됨
 
 // Ollama 모델 목록을 확장 호스트에 요청하여 수신
 async function loadOllamaModels() {
@@ -3456,6 +3195,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // 3. 전체 설정 로드
   vscode.postMessage({ command: "getCurrentSettings" });
 
+  // 3-1. 서버(조직) 설정 로드
+  vscode.postMessage({ command: "getServerSettings" });
+
   // 4. API 키 로드
   vscode.postMessage({ command: "loadApiKeys" });
 
@@ -3466,10 +3208,6 @@ document.addEventListener("DOMContentLoaded", () => {
   vscode.postMessage({ command: "loadOllamaModel" });
 
   // 7. 라이센스 입력 필드 초기 상태 설정
-  if (banyaLicenseSerialInput) {
-    banyaLicenseSerialInput.readOnly = false;
-  }
-
   console.log("[Settings] DOMContentLoaded - Initial load sequence completed");
 
   // AgentPolicy XML 파일 로드
@@ -3480,19 +3218,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== 모델 라우팅 설정 버튼 이벤트 리스너 =====
 
-  // 하위 모델 옵션 정의 (gemini, banya는 고정, ollama는 동적으로 가져옴)
+  // 하위 모델 옵션 정의 (ollama는 동적으로 가져옴)
   const submodelOptions = {
-    gemini: [
-      {
-        value: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash Preview (권장)",
-      },
-      { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
-    ],
-    banya: [
-      { value: "Banya Solar:100b", label: "Banya Solar:100b" },
-      { value: "Banya Qwen-Coder:32b", label: "Banya Qwen-Coder:32b" },
-    ],
     ollama: [], // 동적으로 채워짐
   };
 
@@ -3582,18 +3309,52 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // 하위 모델 셀렉트 업데이트 및 표시
-    if (submodelSelect) {
+    // 지원 모델 그룹 선택 시 해당 그룹 모델 리스트
+    if (modelType.startsWith("group:")) {
+      const groupName = modelType.substring("group:".length);
+      const aiModels = cachedServerSettings['ai_model'] || [];
+      const groupModels = aiModels.filter(s =>
+        s.source === 'preset' && (s.group || 'default') === groupName
+      );
+      if (submodelSelect) {
+        submodelSelect.innerHTML = '';
+        for (const s of groupModels) {
+          const opt = document.createElement('option');
+          opt.value = s.key;
+          opt.textContent = s.value?.name || s.key;
+          submodelSelect.appendChild(opt);
+        }
+      }
+    }
+
+    // 관리자 모델 선택 시 관리자 모델 리스트
+    if (modelType === "admin") {
+      const aiModels = cachedServerSettings['ai_model'] || [];
+      const adminModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+      if (submodelSelect) {
+        submodelSelect.innerHTML = '';
+        for (const s of adminModels) {
+          const v = s.value || {};
+          const opt = document.createElement('option');
+          opt.value = s.key;
+          const badge = s.enforcement === 'required' ? ' 🔒' : '';
+          opt.textContent = `${v.model || v.model_name || v.name || s.key}${badge}`;
+          submodelSelect.appendChild(opt);
+        }
+      }
+    }
+
+    // ollama일 때만 기존 updateSubmodelSelect 사용
+    if (modelType === "ollama" && submodelSelect) {
       updateSubmodelSelect(submodelSelect, modelType);
     }
     if (submodelContainer) {
       submodelContainer.style.display = "block";
     }
 
-    // API 키 입력은 gemini, banya만 표시 (ollama는 로컬이므로 필요 없음)
+    // API 키 입력은 숨김 (모델에 이미 설정됨)
     if (apikeyContainer) {
-      apikeyContainer.style.display =
-        modelType === "gemini" || modelType === "banya" ? "block" : "none";
+      apikeyContainer.style.display = "none";
     }
   }
 
@@ -4185,13 +3946,8 @@ window.addEventListener("message", (event) => {
     case "hotLoadAdded":
     case "hotLoadUpdated":
     case "hotLoadDeleted":
-      // 폼 초기화
-      clearHotLoadForm();
-      showStatus(
-        document.getElementById("hotload-add-status"),
-        "성공적으로 처리되었습니다.",
-        "success",
-      );
+      // 폼 숨김 + 초기화
+      hideHotLoadForm();
       // 목록 새로고침
       vscode.postMessage({ command: "getHotLoads" });
       break;
@@ -4217,12 +3973,11 @@ window.addEventListener("message", (event) => {
       break;
 
     case "contextExclusionAdded":
+      hideContextExclusionForm();
+      // 목록 새로고침
+      vscode.postMessage({ command: "getContextExclusions" });
+      break;
     case "contextExclusionDeleted":
-      showStatus(
-        document.getElementById("context-exclusion-status"),
-        "성공적으로 처리되었습니다.",
-        "success",
-      );
       // 목록 새로고침
       vscode.postMessage({ command: "getContextExclusions" });
       break;
@@ -4250,30 +4005,27 @@ window.addEventListener("message", (event) => {
         message.defaultProtectedFiles,
         message.customBlockedCommands,
         message.customProtectedFiles,
+        message.customHiddenFiles,
         message.disabledBlockedCommands,
         message.disabledProtectedFiles,
       );
       break;
 
+    case "securityRuleAdded":
     case "blockedCommandAdded":
+      hideSecurityRuleForm();
+      vscode.postMessage({ command: "getSecurityRules" });
+      break;
+    case "securityRuleDeleted":
     case "blockedCommandDeleted":
-      showStatus(
-        document.getElementById("blocked-command-status"),
-        "성공적으로 처리되었습니다.",
-        "success",
-      );
-      // 목록 새로고침
       vscode.postMessage({ command: "getSecurityRules" });
       break;
 
     case "protectedFileAdded":
+      hideSecurityRuleForm();
+      vscode.postMessage({ command: "getSecurityRules" });
+      break;
     case "protectedFileDeleted":
-      showStatus(
-        document.getElementById("protected-file-status"),
-        "성공적으로 처리되었습니다.",
-        "success",
-      );
-      // 목록 새로고침
       vscode.postMessage({ command: "getSecurityRules" });
       break;
 
@@ -4284,21 +4036,16 @@ window.addEventListener("message", (event) => {
       break;
 
     case "securityRulesError":
+    case "securityRuleAddError":
+    case "securityRuleDeleteError":
     case "blockedCommandAddError":
     case "blockedCommandDeleteError":
     case "blockedCommandToggleError":
-      showStatus(
-        document.getElementById("blocked-command-status"),
-        message.error || "오류가 발생했습니다.",
-        "error",
-      );
-      break;
-
     case "protectedFileAddError":
     case "protectedFileDeleteError":
     case "protectedFileToggleError":
       showStatus(
-        document.getElementById("protected-file-status"),
+        document.getElementById("security-rule-status"),
         message.error || "오류가 발생했습니다.",
         "error",
       );
@@ -4334,33 +4081,32 @@ function clearHotLoadForm() {
   const conditionValue = document.getElementById("hotload-condition-value");
   const maxRetries = document.getElementById("hotload-max-retries");
   const onFailure = document.getElementById("hotload-on-failure");
+  const formTitle = document.getElementById("hotload-form-title");
 
-  if (keywordsInput) {
-    keywordsInput.value = "";
-  }
-  if (descriptionInput) {
-    descriptionInput.value = "";
-  }
-  if (commandInput) {
-    commandInput.value = "";
-  }
-  if (conditionType) {
-    conditionType.value = "none";
-  }
-  if (conditionValue) {
-    conditionValue.value = "";
-    conditionValue.style.display = "none";
-  }
-  if (maxRetries) {
-    maxRetries.value = "0";
-  }
-  if (onFailure) {
-    onFailure.value = "stop";
-  }
-  if (addButton) {
-    addButton.textContent = "Hot Load 추가";
-    delete addButton.dataset.editId;
-  }
+  if (keywordsInput) keywordsInput.value = "";
+  if (descriptionInput) descriptionInput.value = "";
+  if (commandInput) commandInput.value = "";
+  if (conditionType) conditionType.value = "none";
+  if (conditionValue) { conditionValue.value = ""; conditionValue.style.display = "none"; }
+  if (maxRetries) maxRetries.value = "0";
+  if (onFailure) onFailure.value = "stop";
+  if (addButton) { addButton.textContent = "저장"; delete addButton.dataset.editId; }
+  if (formTitle) formTitle.textContent = "Hot Load 추가";
+}
+
+function showHotLoadForm() {
+  const form = document.getElementById("hotload-add-form");
+  const toggleBtn = document.getElementById("hotload-add-toggle-button");
+  if (form) form.style.display = "";
+  if (toggleBtn) toggleBtn.style.display = "none";
+}
+
+function hideHotLoadForm() {
+  const form = document.getElementById("hotload-add-form");
+  const toggleBtn = document.getElementById("hotload-add-toggle-button");
+  if (form) form.style.display = "none";
+  if (toggleBtn) toggleBtn.style.display = "";
+  clearHotLoadForm();
 }
 
 /**
@@ -4374,7 +4120,10 @@ function renderHotLoadList(hotLoads) {
     return;
   }
 
-  if (!hotLoads || hotLoads.length === 0) {
+  // 관리자 항목(immutable/fromServer)은 org-settings-hotload에서 별도 표시 → 개인 목록에서 제외
+  const personalHotLoads = (hotLoads || []).filter(h => !h.immutable && !h.fromServer);
+
+  if (personalHotLoads.length === 0) {
     listContainer.innerHTML = "";
     if (emptyMessage) {
       emptyMessage.style.display = "block";
@@ -4386,12 +4135,12 @@ function renderHotLoadList(hotLoads) {
     emptyMessage.style.display = "none";
   }
 
-  listContainer.innerHTML = hotLoads
+  listContainer.innerHTML = personalHotLoads
     .map((item) => {
       // 확장 필드 표시 텍스트
       let extraInfo = "";
       if (item.maxRetries && item.maxRetries > 0) {
-        extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; opacity: 0.8;">재시도: ${item.maxRetries}회</span>`;
+        extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; color: var(--vscode-descriptionForeground);">재시도: ${item.maxRetries}회</span>`;
       }
       if (item.completionCondition) {
         const condLabels = {
@@ -4403,27 +4152,27 @@ function renderHotLoadList(hotLoads) {
         const condLabel =
           condLabels[item.completionCondition.type] ||
           item.completionCondition.type;
-        extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; opacity: 0.8;">${condLabel}: ${escapeHtml(item.completionCondition.value)}</span>`;
+        extraInfo += `<span style="margin-right: 8px; font-size: 0.8em; color: var(--vscode-descriptionForeground);">${condLabel}: ${escapeHtml(item.completionCondition.value)}</span>`;
       }
       if (item.onFailure && item.onFailure !== "stop") {
         const failLabels = { notify: "알림", pass_to_llm: "LLM전달" };
-        extraInfo += `<span style="font-size: 0.8em; opacity: 0.8;">실패: ${failLabels[item.onFailure] || item.onFailure}</span>`;
+        extraInfo += `<span style="font-size: 0.8em; color: var(--vscode-descriptionForeground);">실패: ${failLabels[item.onFailure] || item.onFailure}</span>`;
       }
 
       return `
-    <div class="policy-file-item" data-id="${item.id}" style="flex-direction: column; align-items: stretch;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
-        <div style="flex: 1;">
-          <strong style="color: var(--vscode-foreground);">${escapeHtml(item.keywords)}</strong>
-          <p style="margin: 4px 0; font-size: 0.9em; color: var(--vscode-descriptionForeground);">${escapeHtml(item.description)}</p>
-          <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.85em;">${escapeHtml(item.command)}</code>
-          ${extraInfo ? `<div style="margin-top: 4px;">${extraInfo}</div>` : ""}
+    <div class="api-key-section" data-id="${item.id}" style="margin-bottom: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <strong style="font-size: 0.9em;">${escapeHtml(item.keywords)}</strong>
+          <span style="font-size: 0.85em; color: var(--vscode-descriptionForeground);">${escapeHtml(item.description)}</span>
         </div>
-        <div style="display: flex; gap: 5px; margin-left: 10px;">
-          <button class="edit-hotload-btn delete-file-btn" data-id="${item.id}" style="background-color: var(--vscode-button-secondaryBackground);">편집</button>
-          <button class="delete-hotload-btn delete-file-btn" data-id="${item.id}">삭제</button>
+        <div style="display: flex; gap: 5px;">
+          <button class="edit-hotload-btn" data-id="${item.id}">수정</button>
+          <button class="delete-hotload-btn" data-id="${item.id}">삭제</button>
         </div>
       </div>
+      <p style="margin-top: 5px; font-size: 0.85em; color: var(--vscode-descriptionForeground); font-family: monospace;">${escapeHtml(item.command)}</p>
+      ${extraInfo ? `<div style="margin-top: 4px;">${extraInfo}</div>` : ""}
     </div>
   `;
     })
@@ -4489,11 +4238,14 @@ function renderHotLoadList(hotLoads) {
         }
 
         if (addButton) {
-          addButton.textContent = "Hot Load 수정";
+          addButton.textContent = "저장 (수정)";
           addButton.dataset.editId = id;
         }
+        const formTitle = document.getElementById("hotload-form-title");
+        if (formTitle) formTitle.textContent = "Hot Load 수정";
 
-        // 폼으로 스크롤
+        // 폼 표시 + 스크롤
+        showHotLoadForm();
         keywordsInput?.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     });
@@ -4514,10 +4266,20 @@ function escapeHtml(text) {
  */
 function initializeHotLoad() {
   const addButton = document.getElementById("add-hotload-button");
+  const cancelButton = document.getElementById("cancel-hotload-button");
+  const toggleButton = document.getElementById("hotload-add-toggle-button");
   const conditionTypeSelect = document.getElementById("hotload-condition-type");
   const conditionValueInput = document.getElementById(
     "hotload-condition-value",
   );
+
+  // 추가/취소 버튼
+  if (toggleButton) {
+    toggleButton.addEventListener("click", showHotLoadForm);
+  }
+  if (cancelButton) {
+    cancelButton.addEventListener("click", hideHotLoadForm);
+  }
 
   // 완료 조건 타입 변경 시 value input 표시/숨김
   if (conditionTypeSelect && conditionValueInput) {
@@ -4633,9 +4395,11 @@ function renderContextExclusionLists(
       customList.innerHTML = customPatterns
         .map(
           (pattern) => `
-        <div class="policy-file-item" style="display: flex; justify-content: space-between; align-items: center;">
-          <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
-          <button class="delete-context-exclusion-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
+        <div class="api-key-section" style="margin-bottom: 8px; padding: 10px 15px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <code style="font-size: 0.9em;">${escapeHtml(pattern)}</code>
+            <button class="delete-context-exclusion-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
+          </div>
         </div>
       `,
         )
@@ -4656,21 +4420,22 @@ function renderContextExclusionLists(
     }
   }
 
-  // 기본 패턴 목록 (토글 가능, 개별 태그로 표시)
+  // 기본 패턴 목록 (토글 가능, 개인 사용자만)
   const defaultList = document.getElementById("context-exclusion-default-list");
-  if (defaultList && defaultPatterns) {
+  if (defaultList && defaultPatterns && !window.userHasOrganization) {
     defaultList.innerHTML = defaultPatterns
       .map((p) => {
         const isDisabled = disabled.includes(p);
         const bg = isDisabled
-          ? "var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1))"
+          ? "rgba(127,127,127,0.1)"
           : "var(--vscode-badge-background)";
         const color = isDisabled
-          ? "var(--vscode-errorForeground, #f44)"
+          ? "var(--vscode-disabledForeground, #888)"
           : "var(--vscode-badge-foreground)";
         const textDecoration = isDisabled ? "line-through" : "none";
+        const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-exclusion-tag" data-pattern="${escapeHtml(p)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 2px 4px; padding: 2px 8px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; user-select: none; transition: opacity 0.2s;">${escapeHtml(p)}</span>`;
+        return `<span class="default-exclusion-tag" data-pattern="${escapeHtml(p)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 2px 4px; padding: 2px 8px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(p)}</span>`;
       })
       .join("");
 
@@ -4698,9 +4463,33 @@ function renderContextExclusionLists(
 /**
  * 컨텍스트 제외 패턴 초기화
  */
+function showContextExclusionForm() {
+  const form = document.getElementById("context-exclusion-form");
+  const toggle = document.getElementById("add-context-exclusion-toggle");
+  if (form) form.style.display = "";
+  if (toggle) toggle.style.display = "none";
+}
+function hideContextExclusionForm() {
+  const form = document.getElementById("context-exclusion-form");
+  const toggle = document.getElementById("add-context-exclusion-toggle");
+  const input = document.getElementById("context-exclusion-input");
+  if (form) form.style.display = "none";
+  if (toggle) toggle.style.display = "";
+  if (input) input.value = "";
+}
+
 function initializeContextExclusion() {
   const addButton = document.getElementById("add-context-exclusion-button");
+  const cancelButton = document.getElementById("cancel-context-exclusion-button");
+  const toggleButton = document.getElementById("add-context-exclusion-toggle");
   const input = document.getElementById("context-exclusion-input");
+
+  if (toggleButton) {
+    toggleButton.addEventListener("click", showContextExclusionForm);
+  }
+  if (cancelButton) {
+    cancelButton.addEventListener("click", hideContextExclusionForm);
+  }
 
   if (addButton && input) {
     addButton.addEventListener("click", () => {
@@ -4714,7 +4503,6 @@ function initializeContextExclusion() {
         return;
       }
       vscode.postMessage({ command: "addContextExclusion", pattern: pattern });
-      input.value = "";
     });
 
     // Enter 키로도 추가 가능
@@ -4734,231 +4522,207 @@ initializeContextExclusion();
 
 // ========== 도구 실행 보안 규칙 관련 함수 ==========
 
+const SECURITY_TYPE_LABELS = {
+  blocked_command: '차단 명령어',
+  protected_file: '보호 파일',
+  hidden_file: '파일 은닉',
+};
+
+const SECURITY_TYPE_BADGE_COLORS = {
+  blocked_command: 'background:#2563eb;color:#fff;',
+  protected_file: 'background:#2563eb;color:#fff;',
+  hidden_file: 'background:#2563eb;color:#fff;',
+};
+
+const SECURITY_TYPE_PLACEHOLDERS = {
+  blocked_command: { label: '명령어 패턴', placeholder: '예: docker rm, kubectl delete' },
+  protected_file: { label: '파일 패턴', placeholder: '예: config/production.json, *.secret' },
+  hidden_file: { label: '파일 패턴', placeholder: '예: .env*, credentials.json' },
+};
+
 /**
- * 보안 규칙 목록 렌더링
+ * 보안 규칙 목록 렌더링 (통합)
  */
 function renderSecurityRulesLists(
   defaultBlockedCommands,
   defaultProtectedFiles,
   customBlockedCommands,
   customProtectedFiles,
+  customHiddenFiles,
   disabledBlockedCommands,
   disabledProtectedFiles,
 ) {
   const disabledCmds = disabledBlockedCommands || [];
   const disabledFiles = disabledProtectedFiles || [];
 
-  // 커스텀 차단 명령어 목록
-  const customCmdList = document.getElementById("blocked-command-custom-list");
-  const customCmdEmpty = document.getElementById(
-    "blocked-command-custom-empty",
-  );
+  // 통합 커스텀 보안 규칙 목록
+  const customList = document.getElementById("security-rule-custom-list");
+  const customEmpty = document.getElementById("security-rule-custom-empty");
 
-  if (customCmdList) {
-    if (!customBlockedCommands || customBlockedCommands.length === 0) {
-      customCmdList.innerHTML = "";
-      if (customCmdEmpty) {
-        customCmdEmpty.style.display = "block";
-      }
+  const allCustomRules = [];
+  if (customBlockedCommands) {
+    customBlockedCommands.forEach((p) => allCustomRules.push({ pattern: p, type: 'blocked_command' }));
+  }
+  if (customProtectedFiles) {
+    customProtectedFiles.forEach((p) => allCustomRules.push({ pattern: p, type: 'protected_file' }));
+  }
+  if (customHiddenFiles) {
+    customHiddenFiles.forEach((p) => allCustomRules.push({ pattern: p, type: 'hidden_file' }));
+  }
+
+  if (customList) {
+    if (allCustomRules.length === 0) {
+      customList.innerHTML = "";
+      if (customEmpty) customEmpty.style.display = "block";
     } else {
-      if (customCmdEmpty) {
-        customCmdEmpty.style.display = "none";
-      }
-      customCmdList.innerHTML = customBlockedCommands
-        .map(
-          (pattern) => `
-        <div class="policy-file-item" style="display: flex; justify-content: space-between; align-items: center;">
-          <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
-          <button class="delete-blocked-command-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
+      if (customEmpty) customEmpty.style.display = "none";
+      customList.innerHTML = allCustomRules
+        .map((rule) => `
+        <div class="api-key-section" style="margin-bottom: 8px; padding: 10px 15px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <code style="font-size: 0.9em;">${escapeHtml(rule.pattern)}</code>
+              <span style="${SECURITY_TYPE_BADGE_COLORS[rule.type] || SECURITY_TYPE_BADGE_COLORS.blocked_command}padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;">${SECURITY_TYPE_LABELS[rule.type] || '차단 명령어'}</span>
+            </div>
+            <button class="delete-security-rule-btn" data-pattern="${escapeHtml(rule.pattern)}" data-type="${rule.type}">삭제</button>
+          </div>
         </div>
-      `,
-        )
+      `)
         .join("");
 
       // 삭제 버튼 이벤트 바인딩
-      customCmdList
-        .querySelectorAll(".delete-blocked-command-btn")
-        .forEach((btn) => {
-          btn.addEventListener("click", (e) => {
-            const pattern = e.currentTarget.dataset.pattern;
-            vscode.postMessage({
-              command: "deleteBlockedCommand",
-              pattern: pattern,
-            });
-          });
+      customList.querySelectorAll(".delete-security-rule-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const pattern = e.currentTarget.dataset.pattern;
+          const type = e.currentTarget.dataset.type;
+          vscode.postMessage({ command: "deleteSecurityRule", pattern, type });
         });
+      });
     }
   }
 
-  // 커스텀 보호 파일 목록
-  const customFileList = document.getElementById("protected-file-custom-list");
-  const customFileEmpty = document.getElementById(
-    "protected-file-custom-empty",
-  );
-
-  if (customFileList) {
-    if (!customProtectedFiles || customProtectedFiles.length === 0) {
-      customFileList.innerHTML = "";
-      if (customFileEmpty) {
-        customFileEmpty.style.display = "block";
-      }
-    } else {
-      if (customFileEmpty) {
-        customFileEmpty.style.display = "none";
-      }
-      customFileList.innerHTML = customProtectedFiles
-        .map(
-          (pattern) => `
-        <div class="policy-file-item" style="display: flex; justify-content: space-between; align-items: center;">
-          <code style="background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${escapeHtml(pattern)}</code>
-          <button class="delete-protected-file-btn delete-file-btn" data-pattern="${escapeHtml(pattern)}">삭제</button>
-        </div>
-      `,
-        )
-        .join("");
-
-      // 삭제 버튼 이벤트 바인딩
-      customFileList
-        .querySelectorAll(".delete-protected-file-btn")
-        .forEach((btn) => {
-          btn.addEventListener("click", (e) => {
-            const pattern = e.currentTarget.dataset.pattern;
-            vscode.postMessage({
-              command: "deleteProtectedFile",
-              pattern: pattern,
-            });
-          });
-        });
-    }
-  }
-
-  // 기본 차단 명령어 목록 (토글 가능)
-  const defaultCmdList = document.getElementById(
-    "blocked-command-default-list",
-  );
-  if (defaultCmdList && defaultBlockedCommands) {
+  // 기본 차단 명령어 목록 (토글 가능, 개인 사용자만)
+  const defaultCmdList = document.getElementById("blocked-command-default-list");
+  if (defaultCmdList && defaultBlockedCommands && !window.userHasOrganization) {
     defaultCmdList.innerHTML = defaultBlockedCommands
       .map((rule) => {
         const isDisabled = disabledCmds.includes(rule.id);
-        const bg = isDisabled
-          ? "var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1))"
-          : "var(--vscode-badge-background)";
-        const color = isDisabled
-          ? "var(--vscode-errorForeground, #f44)"
-          : "var(--vscode-badge-foreground)";
+        const bg = isDisabled ? "rgba(127,127,127,0.1)" : "var(--vscode-badge-background)";
+        const color = isDisabled ? "var(--vscode-disabledForeground, #888)" : "var(--vscode-badge-foreground)";
         const textDecoration = isDisabled ? "line-through" : "none";
+        const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-blocked-cmd-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
+        return `<span class="default-blocked-cmd-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
       })
       .join("");
 
-    // 토글 이벤트 바인딩
-    defaultCmdList
-      .querySelectorAll(".default-blocked-cmd-tag")
-      .forEach((tag) => {
-        tag.addEventListener("click", (e) => {
-          const id = e.currentTarget.dataset.id;
-          const isDisabled = e.currentTarget.dataset.disabled === "true";
-          if (isDisabled) {
-            vscode.postMessage({ command: "enableBlockedCommand", id: id });
-          } else {
-            vscode.postMessage({ command: "disableBlockedCommand", id: id });
-          }
-        });
+    defaultCmdList.querySelectorAll(".default-blocked-cmd-tag").forEach((tag) => {
+      tag.addEventListener("click", (e) => {
+        const id = e.currentTarget.dataset.id;
+        const isDisabled = e.currentTarget.dataset.disabled === "true";
+        if (isDisabled) {
+          vscode.postMessage({ command: "enableBlockedCommand", id: id });
+        } else {
+          vscode.postMessage({ command: "disableBlockedCommand", id: id });
+        }
       });
+    });
   }
 
-  // 기본 보호 파일 목록 (토글 가능)
-  const defaultFileList = document.getElementById(
-    "protected-file-default-list",
-  );
-  if (defaultFileList && defaultProtectedFiles) {
+  // 기본 보호 파일 목록 (토글 가능, 개인 사용자만)
+  const defaultFileList = document.getElementById("protected-file-default-list");
+  if (defaultFileList && defaultProtectedFiles && !window.userHasOrganization) {
     defaultFileList.innerHTML = defaultProtectedFiles
       .map((rule) => {
         const isDisabled = disabledFiles.includes(rule.id);
-        const bg = isDisabled
-          ? "var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1))"
-          : "var(--vscode-badge-background)";
-        const color = isDisabled
-          ? "var(--vscode-errorForeground, #f44)"
-          : "var(--vscode-badge-foreground)";
+        const bg = isDisabled ? "rgba(127,127,127,0.1)" : "var(--vscode-badge-background)";
+        const color = isDisabled ? "var(--vscode-disabledForeground, #888)" : "var(--vscode-badge-foreground)";
         const textDecoration = isDisabled ? "line-through" : "none";
+        const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
+        return `<span class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
       })
       .join("");
 
-    // 토글 이벤트 바인딩
-    defaultFileList
-      .querySelectorAll(".default-protected-file-tag")
-      .forEach((tag) => {
-        tag.addEventListener("click", (e) => {
-          const id = e.currentTarget.dataset.id;
-          const isDisabled = e.currentTarget.dataset.disabled === "true";
-          if (isDisabled) {
-            vscode.postMessage({ command: "enableProtectedFile", id: id });
-          } else {
-            vscode.postMessage({ command: "disableProtectedFile", id: id });
-          }
-        });
+    defaultFileList.querySelectorAll(".default-protected-file-tag").forEach((tag) => {
+      tag.addEventListener("click", (e) => {
+        const id = e.currentTarget.dataset.id;
+        const isDisabled = e.currentTarget.dataset.disabled === "true";
+        if (isDisabled) {
+          vscode.postMessage({ command: "enableProtectedFile", id: id });
+        } else {
+          vscode.postMessage({ command: "disableProtectedFile", id: id });
+        }
       });
+    });
   }
 }
 
 /**
- * 보안 규칙 초기화
+ * 통합 보안 규칙 폼 토글
  */
+function showSecurityRuleForm() {
+  const form = document.getElementById("security-rule-form");
+  const toggle = document.getElementById("add-security-rule-toggle");
+  if (form) form.style.display = "";
+  if (toggle) toggle.style.display = "none";
+}
+function hideSecurityRuleForm() {
+  const form = document.getElementById("security-rule-form");
+  const toggle = document.getElementById("add-security-rule-toggle");
+  const input = document.getElementById("security-rule-input");
+  const typeSelect = document.getElementById("security-rule-type");
+  if (form) form.style.display = "none";
+  if (toggle) toggle.style.display = "";
+  if (input) input.value = "";
+  if (typeSelect) typeSelect.value = "blocked_command";
+  updateSecurityRuleFormLabels();
+}
+
+function updateSecurityRuleFormLabels() {
+  const typeSelect = document.getElementById("security-rule-type");
+  const label = document.getElementById("security-rule-input-label");
+  const input = document.getElementById("security-rule-input");
+  if (!typeSelect) return;
+  const type = typeSelect.value;
+  const info = SECURITY_TYPE_PLACEHOLDERS[type] || SECURITY_TYPE_PLACEHOLDERS.blocked_command;
+  if (label) label.textContent = info.label;
+  if (input) input.placeholder = info.placeholder;
+}
+
 function initializeSecurityRules() {
-  // 차단 명령어 추가
-  const addCmdButton = document.getElementById("add-blocked-command-button");
-  const cmdInput = document.getElementById("blocked-command-input");
+  // 토글/취소
+  const toggleBtn = document.getElementById("add-security-rule-toggle");
+  const cancelBtn = document.getElementById("cancel-security-rule-button");
+  if (toggleBtn) toggleBtn.addEventListener("click", showSecurityRuleForm);
+  if (cancelBtn) cancelBtn.addEventListener("click", hideSecurityRuleForm);
 
-  if (addCmdButton && cmdInput) {
-    addCmdButton.addEventListener("click", () => {
-      const pattern = cmdInput.value.trim();
+  // 유형 변경 시 라벨/플레이스홀더 업데이트
+  const typeSelect = document.getElementById("security-rule-type");
+  if (typeSelect) typeSelect.addEventListener("change", updateSecurityRuleFormLabels);
+
+  // 추가
+  const addBtn = document.getElementById("add-security-rule-button");
+  const ruleInput = document.getElementById("security-rule-input");
+
+  if (addBtn && ruleInput) {
+    addBtn.addEventListener("click", () => {
+      const pattern = ruleInput.value.trim();
       if (!pattern) {
         showStatus(
-          document.getElementById("blocked-command-status"),
+          document.getElementById("security-rule-status"),
           "패턴을 입력해주세요.",
           "error",
         );
         return;
       }
-      vscode.postMessage({ command: "addBlockedCommand", pattern: pattern });
-      cmdInput.value = "";
+      const type = (document.getElementById("security-rule-type") || {}).value || "blocked_command";
+      vscode.postMessage({ command: "addSecurityRule", pattern, type });
     });
 
-    // Enter 키로도 추가 가능
-    cmdInput.addEventListener("keydown", (e) => {
+    ruleInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        addCmdButton.click();
-      }
-    });
-  }
-
-  // 보호 파일 추가
-  const addFileButton = document.getElementById("add-protected-file-button");
-  const fileInput = document.getElementById("protected-file-input");
-
-  if (addFileButton && fileInput) {
-    addFileButton.addEventListener("click", () => {
-      const pattern = fileInput.value.trim();
-      if (!pattern) {
-        showStatus(
-          document.getElementById("protected-file-status"),
-          "패턴을 입력해주세요.",
-          "error",
-        );
-        return;
-      }
-      vscode.postMessage({ command: "addProtectedFile", pattern: pattern });
-      fileInput.value = "";
-    });
-
-    // Enter 키로도 추가 가능
-    fileInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        addFileButton.click();
+        addBtn.click();
       }
     });
   }
@@ -5067,3 +4831,30 @@ function initializeUsageMetrics() {
 
 // 사용량 메트릭 초기화 실행
 initializeUsageMetrics();
+
+// ===== 서버(조직) 설정 메시지 핸들러 =====
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (message.command === "serverSettingsLoaded") {
+    if (message.settings && typeof message.settings === "object") {
+      cachedServerSettings = message.settings;
+      renderAllOrgSettings();
+      // 현재 선택된 AI 모델 그룹이면 서브 셀렉트도 갱신
+      const mainSelect = document.getElementById("ai-model-select");
+      if (mainSelect && mainSelect.value.startsWith("group:")) {
+        mainSelect.dispatchEvent(new Event("change"));
+      }
+    }
+    // 동기화 버튼 복원
+    const syncBtn = document.getElementById("settings-sync-btn");
+    const syncLabel = document.getElementById("settings-sync-label");
+    if (syncBtn) {
+      syncBtn.disabled = false;
+      syncBtn.classList.remove("syncing");
+    }
+    if (syncLabel) {
+      const count = Object.values(cachedServerSettings).reduce((s, arr) => s + arr.length, 0);
+      syncLabel.textContent = count > 0 ? `${count}개 설정` : "";
+    }
+  }
+});

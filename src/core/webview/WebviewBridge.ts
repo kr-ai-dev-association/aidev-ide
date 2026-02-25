@@ -192,6 +192,18 @@ export class WebviewBridge {
     }
 
     /**
+     * 마지막 메시지 제거
+     * 자연어 재시도 시 이미 스트리밍된 메시지를 UI에서 제거
+     */
+    public static removeLastMessage(webview: vscode.Webview | undefined): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'removeLastMessage'
+            });
+        }
+    }
+
+    /**
      * 🔥 텍스트를 스트리밍 효과로 전송 (타이핑 효과)
      * receiveMessage 대신 사용하여 한 번에 보이지 않고 점진적으로 표시
      */

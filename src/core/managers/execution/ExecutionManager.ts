@@ -374,7 +374,7 @@ export class ExecutionManager {
                     console.warn(`[ExecutionManager] Timeout after ${timeout}ms for PID=${pid}`);
                     
                     if (killOnTimeout) {
-                        childProcess.kill('SIGTERM');
+                        childProcess.kill(process.platform === 'win32' ? undefined : 'SIGTERM');
                     }
 
                     doResolve({

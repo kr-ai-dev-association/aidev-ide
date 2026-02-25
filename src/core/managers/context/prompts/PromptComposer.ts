@@ -10,14 +10,15 @@ import { AiModelType } from '../../../../services';
 import { OSAdapterFactory } from '../../execution/os/OSAdapterFactory';
 import { ProjectManager } from '../../project/ProjectManager';
 import * as base from './base';
-import * as os from './os';
-import * as llm from './llm';
+import { getOSPrompt as getOSPromptByName } from './osPrompts';
+import { getLLMPrompt as getLLMPromptByKey } from './llmPrompts';
 import { getCodeWorkPrompt, getExecutionWorkPrompt } from './task';
 import { Tool } from '../../../tools/types';
 
 export interface PromptComposerOptions {
     userOS: string;
     modelType: AiModelType;
+    provider?: string; // API provider 키 (chat_completions, gemini, ollama). 설정 시 modelType보다 우선
     taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
     projectType?: string; // 프로젝트 타입 정보
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
@@ -28,6 +29,7 @@ export interface PromptComposerOptions {
     frameworkRulesPrompt?: string; // v9.2.1: 동적 프레임워크 규칙 프롬프트
     hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
     mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
+    ragContext?: string; // 서버 RAG 문서 컨텍스트
 }
 
 export class PromptComposer {
@@ -36,11 +38,12 @@ export class PromptComposer {
      * 각 카테고리는 디렉토리로 구성되며, 디렉토리 내 모든 .md 파일을 읽습니다.
      * 기존 단일 파일 형식(stable-version.md)도 하위 호환성을 위해 지원합니다.
      */
-    private static loadAgentRules(): string {
+    public static loadAgentRulesWithKeys(): { text: string; ruleKeys: Set<string> } {
+        const ruleKeys = new Set<string>();
         try {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders || workspaceFolders.length === 0) {
-                return '';
+                return { text: '', ruleKeys };
             }
 
             const workspaceRoot = workspaceFolders[0].uri.fsPath;
@@ -48,7 +51,7 @@ export class PromptComposer {
 
             // 디렉토리 존재 여부 확인
             if (!fs.existsSync(agentRulesDir)) {
-                return '';
+                return { text: '', ruleKeys };
             }
 
             const ruleCategories = [
@@ -78,6 +81,8 @@ export class PromptComposer {
                                 const content = fs.readFileSync(filePath, 'utf8').trim();
                                 if (content) {
                                     categoryRules.push(`[${file}]\n${content}`);
+                                    // 파일명(확장자 제거)과 디렉토리명을 ruleKeys에 추가
+                                    ruleKeys.add(file.replace(/\.(md|markdown)$/, ''));
                                 }
                             } catch (error) {
                                 console.warn(`[PromptComposer] Failed to read ${filePath}:`, error);
@@ -106,22 +111,96 @@ export class PromptComposer {
 
                 // 카테고리에 규칙이 있으면 추가
                 if (categoryRules.length > 0) {
+                    ruleKeys.add(category.dir);
                     rules.push(`**${category.title} (강제 규칙):**\n${categoryRules.join('\n\n')}`);
                 }
             }
 
             // 규칙이 하나도 없으면 빈 문자열 반환 (프롬프트에 포함하지 않음)
             if (rules.length === 0) {
-                return '';
+                return { text: '', ruleKeys };
             }
 
-            return `**⚠️ 개발 규칙 (반드시 준수해야 할 강제 규칙):**
-아래 규칙들은 프로젝트의 개발 규칙으로, 모든 작업에서 반드시 준수해야 합니다. 이 규칙들을 위반하는 코드나 작업은 절대 생성하지 마세요.
+            return {
+                text: `**⚠️ Skills (반드시 준수해야 할 강제 규칙):**
+아래 규칙들은 프로젝트의 Skills(개발 규칙)으로, 모든 작업에서 반드시 준수해야 합니다. 이 규칙들을 위반하는 코드나 작업은 절대 생성하지 마세요.
 
-${rules.join('\n\n---\n\n')}`;
+${rules.join('\n\n---\n\n')}`,
+                ruleKeys,
+            };
         } catch (error) {
             console.warn('[PromptComposer] Failed to load agent rules:', error);
-            return '';
+            return { text: '', ruleKeys };
+        }
+    }
+
+    /**
+     * 서버 관리자 Skills(dev_rules)를 로드합니다.
+     * 로컬 규칙 키와 중복되는 서버 규칙은 제외합니다.
+     * @param localRuleKeys 이미 로드된 로컬 규칙 키 Set (중복 제거용)
+     */
+    /**
+     * 서버 관리자 Skills(dev_rules)를 로드합니다.
+     * - required(필수): 로컬 중복이 있어도 서버 규칙 사용 (로컬 제외 키 반환)
+     * - recommended(권장): 로컬 중복이 있으면 서버 규칙 제외 (로컬 우선)
+     * @param localRuleKeys 이미 로드된 로컬 규칙 키 Set (중복 제거용)
+     * @returns { text: string, overrideKeys: Set<string> } overrideKeys = 서버 필수가 덮어쓴 로컬 키
+     */
+    public static loadServerPromptTemplates(localRuleKeys: Set<string>): { text: string; overrideKeys: Set<string> } {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { SettingsManager } = require('../../state/SettingsManager');
+            const settingsManager = SettingsManager.getInstance();
+            const rules = settingsManager.getServerDevRules();
+
+            if (!rules || rules.length === 0) {
+                return { text: '', overrideKeys: new Set() };
+            }
+
+            const overrideKeys = new Set<string>(); // 서버 필수가 덮어쓴 로컬 키
+
+            const filteredRules = rules.filter((r: { key: string; enforcement: string; title?: string }) => {
+                const rKey = r.key.toLowerCase().replace(/[-_\s]/g, '');
+                const rTitle = (r.title || '').toLowerCase().replace(/[-_\s]/g, '');
+
+                // 로컬 중복 확인
+                let hasLocalDuplicate = false;
+                let matchedLocalKey = '';
+                for (const localKey of localRuleKeys) {
+                    const lk = localKey.toLowerCase().replace(/[-_\s]/g, '');
+                    if (lk === rKey || (rTitle && lk === rTitle)) {
+                        hasLocalDuplicate = true;
+                        matchedLocalKey = localKey;
+                        break;
+                    }
+                }
+
+                if (hasLocalDuplicate) {
+                    if (r.enforcement === 'required') {
+                        // 필수: 서버 규칙 사용, 로컬 제외 대상으로 기록
+                        overrideKeys.add(matchedLocalKey);
+                        return true;
+                    } else {
+                        // 권장: 로컬 우선, 서버 제외
+                        return false;
+                    }
+                }
+                return true;
+            });
+
+            if (filteredRules.length === 0) {
+                return { text: '', overrideKeys };
+            }
+
+            const formattedRules = filteredRules.map((r: { key: string; content: string; enforcement: string; title?: string }) => {
+                const label = r.enforcement === 'required' ? '[필수]' : '[권장]';
+                const name = r.title || r.key;
+                return `${label} **${name}**:\n${r.content}`;
+            }).join('\n\n');
+
+            return { text: formattedRules, overrideKeys };
+        } catch (error) {
+            return { text: '', overrideKeys: new Set() };
         }
     }
 
@@ -129,7 +208,7 @@ ${rules.join('\n\n---\n\n')}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts } = options;
+        const { userOS, modelType, provider, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -152,8 +231,8 @@ ${rules.join('\n\n---\n\n')}`;
         // OS별 프롬프트
         const osPrompt = this.getOSPrompt(userOS);
 
-        // LLM별 프롬프트
-        const llmPrompt = this.getLLMPrompt(modelType);
+        // LLM별 프롬프트 (provider 우선, 없으면 modelType fallback)
+        const llmPrompt = this.getLLMPrompt(provider || modelType);
 
         // 작업 타입별 프롬프트
         const taskPrompt = taskType ? this.getTaskPrompt(taskType) : '';
@@ -208,11 +287,34 @@ ${diagnosticsContextContent}
 다른 파일을 먼저 읽거나 프로젝트 탐색을 하지 마세요.
 ` : '';
 
-        // 개발 규칙 로드 (.agent/rules 디렉토리의 md 파일들)
-        const agentRules = this.loadAgentRules();
+        // Skills 통합 로드: 로컬(.agent/rules) + 서버(dev_rules)
+        // 필수(required) 서버 규칙은 로컬보다 우선, 권장(recommended)은 로컬 우선
+        const { text: agentRulesRaw, ruleKeys: localRuleKeys } = this.loadAgentRulesWithKeys();
+        const { text: serverPromptTemplates, overrideKeys } = this.loadServerPromptTemplates(localRuleKeys);
+
+        // 서버 필수 규칙이 덮어쓴 로컬 규칙 제거
+        let agentRules = agentRulesRaw;
+        if (overrideKeys.size > 0 && agentRulesRaw) {
+            // 로컬 규칙 텍스트에서 덮어쓰인 카테고리 섹션 제거
+            for (const key of overrideKeys) {
+                // "**카테고리 제목 (강제 규칙):**" 블록을 제거
+                const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const sectionRegex = new RegExp(`\\*\\*[^*]*${escapedKey}[^*]*\\(강제 규칙\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`, 'gi');
+                agentRules = agentRules.replace(sectionRegex, '').trim();
+            }
+            // 남은 구분선 정리
+            agentRules = agentRules.replace(/(\n---\n)+/g, '\n---\n').replace(/^\n---\n|\n---\n$/g, '').trim();
+        }
 
         // v9.2.1: 프레임워크 규칙 섹션 (동적 감지된 스택 기반)
         const frameworkRulesSection = frameworkRulesPrompt || '';
+
+        // RAG 문서 섹션
+        const ragSection = ragContext ? `## 참고 문서 (RAG) — 반드시 우선 활용
+아래는 사용자 질문과 관련하여 조직 내부 문서에서 검색된 내용입니다.
+**중요**: 아래 RAG 문서의 내용을 최우선으로 활용하여 작업하세요. 파일을 새로 조사하거나 내용을 추측하지 말고, 아래 문서에 포함된 정보를 그대로 사용하세요.
+
+${ragContext}` : '';
 
         // 조합 (Hot Load 프롬프트와 첨부 컨텍스트 경고를 최상단에 배치)
         const parts = [
@@ -221,8 +323,10 @@ ${diagnosticsContextContent}
             osContextInfo,
             basePrompt,
             mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
-            agentRules, // 개발 규칙을 강력하게 포함
+            agentRules, // 개발 규칙 (서버 필수가 덮어쓴 것 제거)
+            serverPromptTemplates, // 서버 관리자 프롬프트 템플릿
             frameworkRulesSection, // v9.2.1: 동적 프레임워크 규칙
+            ragSection, // 서버 RAG 문서 컨텍스트
             terminalCommandRules,
             taskPrompt,
             // 사용자가 첨부한 컨텍스트 (터미널, 파일, Diagnostics)를 코드베이스보다 앞에 배치
@@ -242,32 +346,16 @@ ${diagnosticsContextContent}
      * public으로 노출하여 어댑터의 fallback 경로에서도 사용 가능
      */
     public static getOSPrompt(userOS: string): string {
-        const osLower = userOS.toLowerCase();
-        if (osLower.includes('windows')) {
-            return os.getWindowsPrompt();
-        } else if (osLower.includes('mac') || osLower.includes('darwin')) {
-            return os.getMacOSPrompt();
-        } else if (osLower.includes('linux')) {
-            return os.getLinuxPrompt();
-        } else {
-            return os.getDefaultOSPrompt();
-        }
+        return getOSPromptByName(userOS);
     }
 
     /**
      * LLM별 프롬프트 가져오기
      */
-    private static getLLMPrompt(modelType: AiModelType): string {
-        switch (modelType) {
-            case AiModelType.GEMINI:
-                return llm.getGeminiPrompt();
-            case AiModelType.BANYA:
-                return llm.getBanyaPrompt();
-            case AiModelType.OLLAMA:
-                return llm.getGPTOSSPrompt(); // Ollama 기본 프롬프트로 GPT-OSS 스타일 사용
-            default:
-                return llm.getDefaultLLMPrompt();
-        }
+    private static getLLMPrompt(providerOrModelType: string): string {
+        // provider(chat_completions, gemini, ollama) 또는 legacy AiModelType(gemini, banya, ollama, admin)
+        // 모두 llmPrompts.ts의 getLLMPrompt()가 내부에서 처리
+        return getLLMPromptByKey(providerOrModelType);
     }
 
     /**

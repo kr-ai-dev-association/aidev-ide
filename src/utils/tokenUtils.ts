@@ -4,22 +4,32 @@ import { AgentConfig } from '../core/config/AgentConfig';
 
 // 모델별 토큰 제한
 export const MODEL_TOKEN_LIMITS = {
-    [AiModelType.GEMINI]: {
-        maxInputTokens: 1000000, // Gemini 3.0 Flash/Pro의 입력 토큰 제한
-        maxOutputTokens: 500000, // 현재 설정된 출력 토큰 제한
-        maxTotalTokens: 1500000  // 총 토큰 제한
-    },
     [AiModelType.OLLAMA]: {
         maxInputTokens: 128000,  // 일반 Ollama 모델의 보수적 기본값
         maxOutputTokens: 128000,
         maxTotalTokens: 128000
     },
-    [AiModelType.BANYA]: {
-        maxInputTokens: 128000,  // Banya Solar 모델의 입력 토큰 제한
-        maxOutputTokens: 128000, // Banya Solar 모델의 출력 토큰 제한
-        maxTotalTokens: 128000   // 총 토큰 제한
+    [AiModelType.ADMIN]: {
+        maxInputTokens: 128000,  // 관리자 모델 기본값 (동적 업데이트 가능)
+        maxOutputTokens: 128000,
+        maxTotalTokens: 128000
     }
 };
+
+/**
+ * 관리자 모델의 토큰 제한을 동적으로 업데이트합니다.
+ * AdminModelConfig의 contextWindow, maxTokens 값을 반영합니다.
+ */
+export function updateAdminTokenLimits(contextWindow?: number, maxTokens?: number): void {
+    const adminLimits = MODEL_TOKEN_LIMITS[AiModelType.ADMIN];
+    if (contextWindow && contextWindow > 0) {
+        adminLimits.maxInputTokens = contextWindow;
+        adminLimits.maxTotalTokens = contextWindow;
+    }
+    if (maxTokens && maxTokens > 0) {
+        adminLimits.maxOutputTokens = maxTokens;
+    }
+}
 
 /**
  * 텍스트의 대략적인 토큰 수를 계산합니다.
@@ -44,21 +54,14 @@ export function estimateTokens(text: string): number {
 }
 
 /**
- * @deprecated estimateTokens() 사용 권장
- */
-export function estimateTokenCount(text: string): number {
-    return estimateTokens(text);
-}
-
-/**
  * 시스템 프롬프트와 사용자 메시지의 총 토큰 수를 계산합니다.
  */
 export function calculateTotalTokens(systemPrompt: string, userParts: any[]): number {
-    let totalTokens = estimateTokenCount(systemPrompt);
+    let totalTokens = estimateTokens(systemPrompt);
 
     for (const part of userParts) {
         if (part.text) {
-            totalTokens += estimateTokenCount(part.text);
+            totalTokens += estimateTokens(part.text);
         }
         // 이미지 데이터는 토큰으로 계산하지 않음 (별도 처리)
     }
@@ -76,7 +79,7 @@ export function checkTokenLimit(
     actualModelName?: string
 ): { isExceeded: boolean; currentTokens: number; maxTokens: number; message: string } {
     // 안전 가드: 알 수 없는 모델 타입 대비
-    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
 
     const isExceeded = currentTokens > limits.maxInputTokens;
@@ -103,12 +106,10 @@ export function checkTokenLimit(
  */
 function getDefaultModelName(modelType: AiModelType): string {
     switch (modelType) {
-        case AiModelType.GEMINI:
-            return 'Gemini 3.0 Pro';
         case AiModelType.OLLAMA:
             return 'Ollama Local Model';
-        case AiModelType.BANYA:
-            return 'Banya Solar 100B';
+        case AiModelType.ADMIN:
+            return 'Admin Model';
         default:
             return 'Unknown Model';
     }
@@ -124,7 +125,7 @@ export function logTokenUsage(
     actualModelName?: string
 ): void {
     // 안전 가드: 알 수 없는 모델 타입 대비
-    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
 

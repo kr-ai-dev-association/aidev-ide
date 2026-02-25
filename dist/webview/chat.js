@@ -23188,6 +23188,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   getStreamingMessageElement: () => (/* binding */ getStreamingMessageElement),
 /* harmony export */   getStreamingState: () => (/* binding */ getStreamingState),
 /* harmony export */   initStreaming: () => (/* binding */ initStreaming),
+/* harmony export */   removeLastMessage: () => (/* binding */ removeLastMessage),
 /* harmony export */   setThinkingBubbleElement: () => (/* binding */ setThinkingBubbleElement),
 /* harmony export */   startStreamingMessage: () => (/* binding */ startStreamingMessage)
 /* harmony export */ });
@@ -23461,6 +23462,18 @@ function getStreamingState() {
  */
 function getStreamingMessageElement() {
   return streamingMessageElement;
+}
+
+/**
+ * 마지막 메시지 제거
+ * 자연어 재시도 시 이미 스트리밍된 메시지를 UI에서 제거
+ */
+function removeLastMessage() {
+  if (!chatMessages) return;
+  const lastMessage = chatMessages.querySelector('.codepilot-message-container:last-child');
+  if (lastMessage) {
+    lastMessage.remove();
+  }
 }
 
 /***/ }),
@@ -23913,6 +23926,49 @@ if (typeof window.vscode === "undefined" && typeof acquireVsCodeApi !== "undefin
 }
 const vscode = window.vscode || null;
 
+// ═══════════ 로그인 게이트 (Google OAuth) ═══════════
+(function initLoginGate() {
+  const loginScreen = document.getElementById("chat-login-screen");
+  const chatApp = document.getElementById("chat-app");
+  const googleBtn = document.getElementById("chat-google-login-btn");
+  const loginError = document.getElementById("chat-login-error");
+  if (!loginScreen || !chatApp || !googleBtn) return;
+
+  // Google 로그인 버튼 클릭
+  googleBtn.addEventListener("click", () => {
+    if (!vscode) return;
+    googleBtn.disabled = true;
+    googleBtn.style.opacity = "0.7";
+    if (loginError) loginError.style.display = "none";
+    vscode.postMessage({
+      command: "loginWithGoogle"
+    });
+  });
+
+  // 부팅 시 인증 상태 확인 요청
+  if (vscode) {
+    vscode.postMessage({
+      command: "checkAuthState"
+    });
+  }
+
+  // 전역 함수: 로그인/채팅 화면 전환
+  window._showChat = function () {
+    loginScreen.style.display = "none";
+    chatApp.style.display = "";
+  };
+  window._showLogin = function (errorMsg) {
+    loginScreen.style.display = "flex";
+    chatApp.style.display = "none";
+    googleBtn.disabled = false;
+    googleBtn.style.opacity = "1";
+    if (errorMsg && loginError) {
+      loginError.textContent = errorMsg;
+      loginError.style.display = "block";
+    }
+  };
+})();
+
 // ===== 처리 단계 및 스크롤 관련 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/processing-steps.js 모듈에 있음
 
@@ -23949,6 +24005,9 @@ function appendStreamingChunk(chunk) {
 }
 function endStreamingMessage() {
   (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.endStreamingMessage)();
+}
+function removeLastMessage() {
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.removeLastMessage)();
 }
 
 // ===== 스트리밍 메시지 처리 함수들 끝 =====
@@ -25336,34 +25395,16 @@ function setModelLabel(name, modelType) {
   }
   // 모델 타입에 따라 버튼의 data-model-type 속성 설정 (색상 포인트용)
   if (modelSelectorButton) {
-    if (modelType === "gemini") {
-      modelSelectorButton.setAttribute("data-model-type", "gemini");
-    } else if (modelType === "banya") {
-      modelSelectorButton.setAttribute("data-model-type", "banya");
+    if (modelType === "supported") {
+      modelSelectorButton.setAttribute("data-model-type", "supported");
+    } else if (modelType === "admin") {
+      modelSelectorButton.setAttribute("data-model-type", "admin");
     } else {
       modelSelectorButton.setAttribute("data-model-type", "ollama");
     }
   }
 }
-function populateModelDropdown(models, current) {
-  // Gemini 모델 정의
-  const geminiModels = [{
-    name: "gemini-3-pro-preview",
-    displayName: "Gemini 3.0 Pro"
-  }, {
-    name: "gemini-3-flash-preview",
-    displayName: "Gemini 3.0 Flash"
-  }];
-
-  // Banya 모델 정의
-  const banyaModels = [{
-    name: "Banya Solar:100b",
-    displayName: "Banya Solar 100B"
-  }, {
-    name: "Banya Qwen-Coder:32b",
-    displayName: "Banya Qwen-Coder 32B"
-  }];
-
+function populateModelDropdown(models, current, adminModels, supportedModels) {
   // models: [{name, displayName}] 또는 ["name", ...]
   availableOllamaModels = (models || []).map(m => {
     if (typeof m === "string") {
@@ -25383,70 +25424,119 @@ function populateModelDropdown(models, current) {
   }
   modelDropdown.innerHTML = "";
 
-  // Gemini 모델 먼저 추가
-  geminiModels.forEach(m => {
-    const item = document.createElement("div");
-    item.className = "dropdown-option";
-    if (m.name === currentOllamaModel) {
-      item.classList.add("selected");
-    }
-    item.dataset.model = m.name;
-    item.textContent = m.displayName;
-    item.style.padding = "4px 8px";
-    item.style.cursor = "pointer";
-    item.style.fontSize = "10px";
-    item.style.borderRadius = "4px";
-    item.addEventListener("click", () => {
-      currentOllamaModel = m.name;
-      setModelLabel(m.displayName, "gemini");
-      if (modelDropdown) {
-        modelDropdown.classList.add("hidden");
-        modelDropdown.style.display = "none";
-      }
-      vscode.postMessage({
-        command: "setGeminiModel",
-        model: m.name
-      });
+  // 지원 모델 (서버 프리셋 기반 — 그룹별 표시)
+  const supportedModelList = supportedModels || [];
+  if (supportedModelList.length > 0) {
+    // group별로 분류
+    const groups = {};
+    supportedModelList.forEach(m => {
+      const g = m.group || 'default';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(m);
     });
-    modelDropdown.appendChild(item);
-  });
+    let isFirstGroup = true;
+    for (const [groupName, groupModels] of Object.entries(groups)) {
+      // 그룹 사이 구분선 (첫 그룹 제외)
+      if (!isFirstGroup) {
+        const divider = document.createElement("div");
+        divider.style.height = "1px";
+        divider.style.backgroundColor = "var(--vscode-panel-border)";
+        divider.style.margin = "2px 0";
+        modelDropdown.appendChild(divider);
+      }
+      isFirstGroup = false;
 
-  // Gemini와 Banya 사이 구분선
-  if (banyaModels.length > 0) {
+      // 그룹 헤더 (모델이 2개 이상일 때만)
+      if (groupModels.length > 1 || Object.keys(groups).length > 1) {
+        const header = document.createElement("div");
+        header.style.padding = "3px 8px 1px";
+        header.style.fontSize = "9px";
+        header.style.fontWeight = "600";
+        header.style.textTransform = "uppercase";
+        header.style.color = "var(--vscode-descriptionForeground)";
+        header.style.letterSpacing = "0.5px";
+        header.textContent = groupName;
+        modelDropdown.appendChild(header);
+      }
+
+      // 그룹 내 모델
+      groupModels.forEach(m => {
+        const item = document.createElement("div");
+        item.className = "dropdown-option";
+        if (m.name === currentOllamaModel) {
+          item.classList.add("selected");
+        }
+        item.dataset.model = m.name;
+        item.textContent = m.displayName;
+        item.style.padding = "4px 8px";
+        item.style.cursor = "pointer";
+        item.style.fontSize = "10px";
+        item.style.borderRadius = "4px";
+        item.addEventListener("click", () => {
+          currentOllamaModel = m.name;
+          setModelLabel(m.displayName, "supported");
+          if (modelDropdown) {
+            modelDropdown.querySelectorAll(".dropdown-option").forEach(o => o.classList.remove("selected"));
+            item.classList.add("selected");
+            modelDropdown.classList.add("hidden");
+            modelDropdown.style.display = "none";
+          }
+          vscode.postMessage({
+            command: "setSupportedModel",
+            key: m.key
+          });
+        });
+        modelDropdown.appendChild(item);
+      });
+    }
+  }
+
+  // 관리자 모델 추가
+  const adminModelList = adminModels || [];
+  if (adminModelList.length > 0) {
     const divider = document.createElement("div");
     divider.style.height = "1px";
     divider.style.backgroundColor = "var(--vscode-panel-border)";
     divider.style.margin = "4px 0";
     modelDropdown.appendChild(divider);
-  }
-
-  // Banya 모델 추가
-  banyaModels.forEach(m => {
-    const item = document.createElement("div");
-    item.className = "dropdown-option";
-    if (m.name === currentOllamaModel) {
-      item.classList.add("selected");
-    }
-    item.dataset.model = m.name;
-    item.textContent = m.displayName;
-    item.style.padding = "4px 8px";
-    item.style.cursor = "pointer";
-    item.style.fontSize = "10px";
-    item.style.borderRadius = "4px";
-    item.addEventListener("click", () => {
-      currentOllamaModel = m.name;
-      setModelLabel(m.displayName, "banya");
-      if (modelDropdown) {
-        modelDropdown.classList.add("hidden");
-        modelDropdown.style.display = "none";
+    const adminHeader = document.createElement("div");
+    adminHeader.style.padding = "3px 8px 1px";
+    adminHeader.style.fontSize = "9px";
+    adminHeader.style.fontWeight = "600";
+    adminHeader.style.textTransform = "uppercase";
+    adminHeader.style.color = "var(--vscode-descriptionForeground)";
+    adminHeader.style.letterSpacing = "0.5px";
+    adminHeader.textContent = "Admin";
+    modelDropdown.appendChild(adminHeader);
+    adminModelList.forEach(m => {
+      const item = document.createElement("div");
+      item.className = "dropdown-option";
+      if (m.name === currentOllamaModel) {
+        item.classList.add("selected");
       }
-      vscode.postMessage({
-        command: "setBanyaModel",
-        model: m.name
+      item.dataset.model = m.name;
+      item.textContent = m.displayName;
+      item.style.padding = "4px 8px";
+      item.style.cursor = "pointer";
+      item.style.fontSize = "10px";
+      item.style.borderRadius = "4px";
+      item.addEventListener("click", () => {
+        currentOllamaModel = m.name;
+        setModelLabel(m.displayName, "admin");
+        if (modelDropdown) {
+          modelDropdown.querySelectorAll(".dropdown-option").forEach(o => o.classList.remove("selected"));
+          item.classList.add("selected");
+          modelDropdown.classList.add("hidden");
+          modelDropdown.style.display = "none";
+        }
+        vscode.postMessage({
+          command: "setAdminModel",
+          key: m.key
+        });
       });
+      modelDropdown.appendChild(item);
     });
-    modelDropdown.appendChild(item);
-  });
+  }
 
   // 구분선 (Ollama 모델이 있을 경우에만)
   if (availableOllamaModels.length > 0) {
@@ -25458,6 +25548,17 @@ function populateModelDropdown(models, current) {
   }
 
   // Ollama 모델 추가
+  if (availableOllamaModels.length > 0) {
+    const ollamaHeader = document.createElement("div");
+    ollamaHeader.style.padding = "3px 8px 1px";
+    ollamaHeader.style.fontSize = "9px";
+    ollamaHeader.style.fontWeight = "600";
+    ollamaHeader.style.textTransform = "uppercase";
+    ollamaHeader.style.color = "var(--vscode-descriptionForeground)";
+    ollamaHeader.style.letterSpacing = "0.5px";
+    ollamaHeader.textContent = "Ollama";
+    modelDropdown.appendChild(ollamaHeader);
+  }
   availableOllamaModels.forEach(m => {
     const display = m.displayName || m.name;
     const item = document.createElement("div");
@@ -25475,6 +25576,8 @@ function populateModelDropdown(models, current) {
       currentOllamaModel = m.name;
       setModelLabel(display, "ollama");
       if (modelDropdown) {
+        modelDropdown.querySelectorAll(".dropdown-option").forEach(o => o.classList.remove("selected"));
+        item.classList.add("selected");
         modelDropdown.classList.add("hidden");
         modelDropdown.style.display = "none";
       }
@@ -25487,14 +25590,14 @@ function populateModelDropdown(models, current) {
   });
 
   // 현재 선택된 모델 라벨 업데이트
-  const allModels = [...geminiModels, ...banyaModels, ...availableOllamaModels];
+  const allModels = [...supportedModelList, ...adminModelList, ...availableOllamaModels];
   const currentModel = allModels.find(m => m.name === currentOllamaModel);
   const currentDisplay = currentModel?.displayName || currentOllamaModel || "Model";
   let modelType = "ollama";
-  if (geminiModels.some(m => m.name === currentOllamaModel)) {
-    modelType = "gemini";
-  } else if (banyaModels.some(m => m.name === currentOllamaModel)) {
-    modelType = "banya";
+  if (supportedModelList.some(m => m.name === currentOllamaModel)) {
+    modelType = "supported";
+  } else if (adminModelList.some(m => m.name === currentOllamaModel)) {
+    modelType = "admin";
   }
   setModelLabel(currentDisplay, modelType);
   if (!allModels.length) {
@@ -25700,6 +25803,24 @@ document.addEventListener("DOMContentLoaded", () => {
 window.addEventListener("message", event => {
   const message = event.data;
   switch (message.command) {
+    // ═══════════ 인증 상태 메시지 ═══════════
+    case "authState":
+      {
+        if (message.loggedIn) {
+          if (typeof window._showChat === "function") window._showChat();
+        } else {
+          if (typeof window._showLogin === "function") window._showLogin();
+        }
+        break;
+      }
+    case "loginError":
+      {
+        // Google 로그인 에러 → 로그인 화면에 에러 표시
+        if (typeof window._showLogin === "function") {
+          window._showLogin(message.message || "로그인 실패");
+        }
+        break;
+      }
     case "priorityErrorPrompt":
       // 확장 측에서 파일 작업/터미널 에러 우선 처리 요청 → 확장으로 전달하여 즉시 LLM 호출
       if (typeof message.text === "string" && message.text.trim().length > 0) {
@@ -25766,51 +25887,34 @@ window.addEventListener("message", event => {
       }
       break;
     case "ollamaModels":
-      populateModelDropdown(message.models || [], message.current || "");
+      populateModelDropdown(message.models || [], message.current || "", message.adminModels || [], message.supportedModels || []);
       break;
     case "ollamaModelChanged":
       console.log("[chat] ollamaModelChanged received:", message.model);
       if (message.model) {
-        const _geminiModels = [{
-          name: "gemini-3-pro-preview",
-          displayName: "Gemini 3.0 Pro"
-        }, {
-          name: "gemini-3-flash-preview",
-          displayName: "Gemini 3.0 Flash"
-        }];
-        const _banyaModels = [{
-          name: "Banya Solar:100b",
-          displayName: "Banya Solar 100B"
-        }, {
-          name: "Banya Qwen-Coder:32b",
-          displayName: "Banya Qwen-Coder 32B"
-        }];
-        const _allModels = [..._geminiModels, ..._banyaModels, ...availableOllamaModels];
-        const currentModel = _allModels.find(m => m.name === message.model);
-        const display = currentModel?.displayName || message.model;
         currentOllamaModel = message.model;
-        let modelType = "ollama";
-        if (_geminiModels.some(m => m.name === message.model)) {
-          modelType = "gemini";
-        } else if (_banyaModels.some(m => m.name === message.model)) {
-          modelType = "banya";
-        }
-        console.log("[chat] Setting model label:", display, modelType);
-        setModelLabel(display, modelType);
 
-        // 드롭다운의 selected 클래스 업데이트
+        // 드롭다운에서 일치하는 아이템을 찾아 displayName과 modelType 결정
+        let display = message.model;
+        let modelType = "ollama";
         if (modelDropdown) {
           const allItems = modelDropdown.querySelectorAll(".dropdown-option");
-          console.log("[chat] Updating dropdown items, total:", allItems.length);
           allItems.forEach(item => {
             if (item.dataset.model === message.model) {
-              console.log("[chat] Marking item as selected:", item.dataset.model);
+              display = item.textContent || message.model;
               item.classList.add("selected");
             } else {
               item.classList.remove("selected");
             }
           });
         }
+        if (message.model.startsWith("supported:")) {
+          modelType = "supported";
+        } else if (message.model.startsWith("admin:")) {
+          modelType = "admin";
+        }
+        console.log("[chat] Setting model label:", display, modelType);
+        setModelLabel(display, modelType);
       }
       if (message.error) {
         console.warn("[chat] ollamaModelChanged error:", message.error);
@@ -25968,6 +26072,10 @@ window.addEventListener("message", event => {
     case "endStreamingMessage":
       console.log("[Streaming] Ending streaming message");
       endStreamingMessage();
+      break;
+    case "removeLastMessage":
+      console.log("[Streaming] Removing last message (natural language retry)");
+      removeLastMessage();
       break;
   }
 });
@@ -26130,7 +26238,7 @@ function handleClearHistory() {
     `;
   warningContent.innerHTML = `
         <div style="margin-bottom: 16px;">
-            <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">⚠️ 대화 기록 삭제</h3>
+            <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">대화 기록 삭제</h3>
             <p style="margin: 0; color: var(--vscode-foreground); line-height: 1.4;">
                 저장된 모든 대화 기록이 사라집니다.<br>
                 이 작업은 되돌릴 수 없습니다.

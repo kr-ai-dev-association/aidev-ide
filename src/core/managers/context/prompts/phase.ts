@@ -84,6 +84,7 @@ export function getInvestigationPrompt(userQuery: string): string {
   - \`list_files\`: 디렉토리 목록 확인
   - \`search_files\`: 정규식으로 파일 검색
   - \`ripgrep_search\`: 고성능 키워드 검색 (예: "어떤 파일들이 useState를 쓰나?", "API 엔드포인트가 어디 있나?")
+  - **다국어 검색**: 한글 키워드 검색 시 영문 동의어도 OR(\`|\`)로 병행하세요. 예: \`onboarding|온보딩\`, \`auth|인증|login\`
 
 ⚠️ **함수 위치 찾기 규칙 (중요)**:
 - 사용자가 "함수 X가 어디에 있어?" 또는 "X 함수 위치" 같은 질문을 할 때는 **반드시 \`ripgrep_search\`만 사용**하세요.

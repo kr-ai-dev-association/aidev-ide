@@ -114,7 +114,7 @@
   "banyaLicenseDeleteError": "Banyaライセンスの削除に失敗しました：",
   "verifyButton": "検証",
   "aiModelSelectLabel": "AIモデル選択",
-  "geminiOption": "Gemini 2.5 Pro Flash",
+  "geminiOption": "Google AI",
   "ollamaOption": "Ollama",
   "banyaOption": "Banya",
   "aiModelSaved": "AIモデルが正常に保存されました。",
