@@ -21,7 +21,7 @@ class CodePilotApiClient {
         // vscode import를 지연로딩
         const vscode = __webpack_require__(1);
         const config = vscode.workspace.getConfiguration("codepilot");
-        this.baseUrl = config.get("backendUrl") || "http://localhost:8000/api/v1";
+        this.baseUrl = config.get("backendUrl") || "https://api-codepilot.banya.ai/api/v1";
     }
     static getInstance() {
         if (!CodePilotApiClient.instance) {

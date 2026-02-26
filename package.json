@@ -185,7 +185,7 @@
         },
         "codepilot.backendUrl": {
           "type": "string",
-          "default": "http://localhost:8000/api/v1",
+          "default": "https://api-codepilot.banya.ai/api/v1",
           "description": "CodePilot 백엔드 서버 URL",
           "scope": "resource"
         },
