@@ -3078,7 +3078,32 @@ export function openSettingsPanel(
           try {
             const auth = AuthService.getInstance();
             const state = auth.getAuthState();
-            const user = state.loggedIn ? auth.getUserInfo() : undefined;
+            let user = state.loggedIn ? auth.getUserInfo() : undefined;
+
+            // 로그인 상태면 서버에서 최신 유저 정보 동기화
+            if (state.loggedIn) {
+              try {
+                const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
+                const api = CodePilotApiClient.getInstance();
+                const meRaw: any = await api.get("/auth/me/");
+                const me = meRaw?.data || meRaw;
+                if (me?.id) {
+                  const orgName = me.organization_name || (user as any)?.organization_name || "";
+                  const updated = {
+                    ...(user || {}),
+                    ...me,
+                    organization: orgName,
+                    organization_id: me.organization_id || me.organization || (user as any)?.organization_id,
+                    organization_name: orgName,
+                  };
+                  await context.globalState.update("codepilot.userInfo", updated);
+                  user = updated;
+                }
+              } catch {
+                // 서버 연결 실패 시 캐시된 정보 사용
+              }
+            }
+
             safePostMessage(panel, {
               command: "authState",
               loggedIn: state.loggedIn,
@@ -3133,17 +3158,26 @@ export function openSettingsPanel(
               const apiKeyMasked = result?.api_key_masked || (newKey.length > 8
                 ? newKey.slice(0, 4) + "..." + newKey.slice(-4) : "****");
 
+              const orgName = result?.organization_name || "";
               const updatedInfo = {
                 ...(auth.getUserInfo() || {}),
                 apiKeyName,
                 apiKeyMasked,
+                organization: orgName,
                 organization_id: result?.organization_id || result?.organization,
-                organization_name: result?.organization_name,
+                organization_name: orgName,
               };
               await context.globalState.update("codepilot.userInfo", updatedInfo);
               await context.globalState.update("codepilot.apiKey", newKey);
               safePostMessage(panel, { command: "changeApiKeyResult", success: true });
               (auth as any)._onDidChangeAuth?.fire(true);
+
+              // 조직 설정 즉시 동기화
+              try {
+                const { SettingsManager } = await import("../../core/managers/state/SettingsManager");
+                const settingsManager = SettingsManager.getInstance(context);
+                await settingsManager.syncServerSettings();
+              } catch {};
             } catch (apiError: any) {
               const errorMsg = apiError?.message || "유효하지 않은 API 키입니다";
               safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: errorMsg });
@@ -3229,13 +3263,19 @@ export function openSettingsPanel(
             const api = CodePilotApiClient.getInstance();
             await api.post("/auth/me/leave-organization/", {});
 
-            // 로컬 userInfo 갱신 (조직 정보 제거)
+            // 로컬 userInfo 갱신 (조직 + API 키 정보 제거)
             const auth = AuthService.getInstance();
             const userInfo = auth.getUserInfo();
             if (userInfo) {
-              userInfo.organization = "";
-              await context.globalState.update("codepilot.userInfo", userInfo);
+              const cleaned = { ...userInfo } as any;
+              cleaned.organization = "";
+              cleaned.organization_id = null;
+              cleaned.organization_name = "";
+              delete cleaned.apiKeyName;
+              delete cleaned.apiKeyMasked;
+              await context.globalState.update("codepilot.userInfo", cleaned);
             }
+            await context.globalState.update("codepilot.apiKey", undefined);
 
             safePostMessage(panel, { command: 'leaveTeamResult', success: true });
             vscode.window.showInformationMessage('조직에서 탈퇴했습니다.');

@@ -1138,8 +1138,8 @@
           <div id="settings-apikey-current" style="display:flex; align-items:center; gap:8px; margin-top:12px;">
             <code id="settings-apikey-display"
               style="font-size:12px; background:var(--vscode-textCodeBlock-background); padding:4px 10px; border-radius:4px; flex:1;">미설정</code>
-            <button id="settings-change-apikey-btn" class="button" style="padding:5px 12px; font-size:12px;">변경</button>
-            <button id="settings-clear-apikey-btn" class="button" style="padding:5px 12px; font-size:12px; background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); display:none;">초기화</button>
+            <button id="settings-change-apikey-btn" class="button" style="padding:5px 12px; font-size:12px;">등록</button>
+            <button id="settings-clear-apikey-btn" class="button" style="padding:5px 12px; font-size:12px; background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); display:none;">탈퇴</button>
           </div>
           <div id="settings-apikey-change" style="display:none; margin-top:12px;">
             <div style="display:flex; gap:8px; align-items:center;">
@@ -2462,7 +2462,7 @@
           const apikeyCurrentDiv = document.getElementById('settings-apikey-current');
           if (apikeySection) {
             if (hasOrg) {
-              // 이미 조직 소속 → 연결 정보 표시, 변경 버튼 숨김
+              // 이미 조직 소속 → 연결 정보 표시, 등록 버튼 숨김, 탈퇴 버튼 표시
               if (apikeyDesc) apikeyDesc.textContent = '현재 조직에 연결되어 있습니다.';
               if (apikeyDisplay) {
                 apikeyDisplay.textContent = user.apiKeyName
@@ -2470,18 +2470,13 @@
                   : user.organization || '조직 연결됨';
               }
               if (changeApikeyBtn) changeApikeyBtn.style.display = 'none';
+              if (clearApikeyBtn) clearApikeyBtn.style.display = '';
             } else {
               // 개인 사용자 → 키 입력 안내
               if (apikeyDesc) apikeyDesc.textContent = '조직 관리자에게 받은 API 키를 입력하면 해당 조직에 가입됩니다.';
-              const hasApiKeyData = !!(user.apiKeyName || user.apiKeyMasked);
-              if (apikeyDisplay) {
-                apikeyDisplay.textContent = hasApiKeyData
-                  ? user.apiKeyName + (user.apiKeyMasked ? ' (' + user.apiKeyMasked + ')' : '')
-                  : '미설정';
-              }
+              if (apikeyDisplay) apikeyDisplay.textContent = '미설정';
               if (changeApikeyBtn) changeApikeyBtn.style.display = '';
-              // 잘못된 키 데이터가 있으면 초기화 버튼 표시
-              if (clearApikeyBtn) clearApikeyBtn.style.display = hasApiKeyData ? '' : 'none';
+              if (clearApikeyBtn) clearApikeyBtn.style.display = 'none';
             }
           }
           // API 키 변경 섹션 초기 숨김
@@ -2558,10 +2553,10 @@
         });
       }
 
-      // ── API 키 초기화 버튼 ──
+      // ── 조직 탈퇴 버튼 ──
       if (clearApikeyBtn) {
         clearApikeyBtn.addEventListener('click', function () {
-          vscode.postMessage({ command: 'clearApiKey' });
+          vscode.postMessage({ command: 'leaveTeam' });
         });
       }
 
