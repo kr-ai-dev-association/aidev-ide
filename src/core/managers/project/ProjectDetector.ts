@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import {
     ProjectType,
     BuildTool
@@ -15,6 +16,58 @@ import { EnvironmentHealth } from '../conversation/handlers/ErrorClassifier';
 import { fileExistsAsync, readFileAsync, readdirAsync, readJsonFileAsync } from '../../utils';
 
 export class ProjectDetector {
+    /**
+     * Python 런타임 감지 캐시 (세션 당 한 번만 감지)
+     */
+    private static pythonRuntimeCache: string | null = null;
+
+    /**
+     * Python 런타임을 감지합니다.
+     * 감지 순서: python3 → python → uv run python → .venv → 기본값(python3)
+     */
+    public static async detectPythonRuntime(workspaceRoot: string): Promise<string> {
+        if (ProjectDetector.pythonRuntimeCache !== null) {
+            return ProjectDetector.pythonRuntimeCache;
+        }
+
+        // 1순위: 시스템 python3 / python
+        for (const cmd of ['python3', 'python']) {
+            try {
+                execSync(`${cmd} --version`, { timeout: 3000, stdio: 'pipe' });
+                ProjectDetector.pythonRuntimeCache = cmd;
+                console.log(`[ProjectDetector] Python runtime detected: ${cmd}`);
+                return cmd;
+            } catch {}
+        }
+
+        // 2순위: uv (빠른 패키지 매니저)
+        try {
+            execSync('uv run python --version', { timeout: 3000, stdio: 'pipe' });
+            ProjectDetector.pythonRuntimeCache = 'uv run python';
+            console.log('[ProjectDetector] Python runtime detected: uv run python');
+            return 'uv run python';
+        } catch {}
+
+        // 3순위: 프로젝트 로컬 venv
+        const venvPaths = [
+            '.venv/bin/python', 'venv/bin/python',                    // macOS/Linux
+            '.venv/Scripts/python.exe', 'venv/Scripts/python.exe',    // Windows
+        ];
+        for (const vp of venvPaths) {
+            const fullPath = path.join(workspaceRoot, vp);
+            if (fs.existsSync(fullPath)) {
+                ProjectDetector.pythonRuntimeCache = fullPath;
+                console.log(`[ProjectDetector] Python runtime detected: ${vp}`);
+                return fullPath;
+            }
+        }
+
+        // 기본값
+        ProjectDetector.pythonRuntimeCache = 'python3';
+        console.log('[ProjectDetector] Python runtime not found, using default: python3');
+        return 'python3';
+    }
+
     /**
      * 프로젝트 타입을 감지합니다
      */
@@ -632,11 +685,11 @@ export class ProjectDetector {
             case ProjectType.PYTHON:
             case ProjectType.DJANGO:
             case ProjectType.FLASK:
-            case ProjectType.FASTAPI:
+            case ProjectType.FASTAPI: {
                 // =========================================================
                 // Python 프로젝트: 린터 → 타입 체커 → 문법 검사 순으로 실행
                 // =========================================================
-
+                const pythonCmd = await ProjectDetector.detectPythonRuntime(projectRoot);
                 const pythonFiles = allFiles.filter(f => f.endsWith('.py'));
 
                 if (pythonFiles.length > 0) {
@@ -649,7 +702,7 @@ export class ProjectDetector {
                         fs.existsSync(path.join(projectRoot, '.ruff.toml')) ||
                         fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
                         return {
-                            command: `ruff check ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `ruff check ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Ruff Lint + Python Syntax Check'
                         };
                     }
@@ -658,7 +711,7 @@ export class ProjectDetector {
                     if (fs.existsSync(path.join(projectRoot, '.flake8')) ||
                         fs.existsSync(path.join(projectRoot, 'setup.cfg'))) {
                         return {
-                            command: `flake8 ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `flake8 ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Flake8 Lint + Python Syntax Check'
                         };
                     }
@@ -667,7 +720,7 @@ export class ProjectDetector {
                     if (fs.existsSync(path.join(projectRoot, '.pylintrc')) ||
                         fs.existsSync(path.join(projectRoot, 'pylintrc'))) {
                         return {
-                            command: `pylint ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `pylint ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Pylint + Python Syntax Check'
                         };
                     }
@@ -676,7 +729,7 @@ export class ProjectDetector {
                     if (fs.existsSync(path.join(projectRoot, 'mypy.ini')) ||
                         fs.existsSync(path.join(projectRoot, '.mypy.ini'))) {
                         return {
-                            command: `mypy ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `mypy ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Mypy Type Check + Python Syntax Check'
                         };
                     }
@@ -685,7 +738,7 @@ export class ProjectDetector {
                     if (fs.existsSync(path.join(projectRoot, '.bandit')) ||
                         fs.existsSync(path.join(projectRoot, 'bandit.yaml'))) {
                         return {
-                            command: `bandit -r ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `bandit -r ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Bandit Security Check + Python Syntax Check'
                         };
                     }
@@ -693,7 +746,7 @@ export class ProjectDetector {
                     // 6순위: Pyright (타입 체커 - 빠름)
                     if (fs.existsSync(path.join(projectRoot, 'pyrightconfig.json'))) {
                         return {
-                            command: `pyright ${relativePaths} && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `pyright ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Pyright Type Check + Python Syntax Check'
                         };
                     }
@@ -701,26 +754,27 @@ export class ProjectDetector {
                     // 7순위: Poetry/Pipenv 환경 검사
                     if (fs.existsSync(path.join(projectRoot, 'poetry.lock'))) {
                         return {
-                            command: `poetry check && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `poetry check && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Poetry Check + Python Syntax Check'
                         };
                     }
 
                     if (fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
                         return {
-                            command: `pipenv check && python3 -m compileall -q -j 0 ${relativePaths}`,
+                            command: `pipenv check && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                             description: 'Pipenv Check + Python Syntax Check'
                         };
                     }
 
                     // 기본: 문법 검사만 수행
                     return {
-                        command: `python3 -m compileall -q -j 0 ${relativePaths}`,
+                        command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                         description: 'Python Syntax Check'
                     };
                 }
 
                 return null;
+            }
 
             case ProjectType.GO:
                 // Go 확장 검증 옵션
