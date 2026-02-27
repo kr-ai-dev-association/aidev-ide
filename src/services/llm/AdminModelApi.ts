@@ -41,7 +41,9 @@ export class AdminModelApi {
             key: config.key,
             provider: config.provider,
             model: config.model,
-            endpoint: config.endpoint
+            endpoint: config.endpoint,
+            maxOutputTokens: config.maxOutputTokens,
+            contextWindow: config.contextWindow,
         });
     }
 
@@ -125,10 +127,9 @@ export class AdminModelApi {
             top_p: this.config!.topP ?? 0.9,
             stream: false
         };
-        const maxTok = this.config!.maxOutputTokens || this.config!.maxTokens;
-        if (maxTok) {
-            requestBody.max_tokens = maxTok;
-        }
+        // max_tokens 기본값 설정 (Gemini OpenAI-compatible 엔드포인트는 기본값이 매우 낮음)
+        const maxTok = this.config!.maxOutputTokens || this.config!.maxTokens || 16384;
+        requestBody.max_tokens = maxTok;
 
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 
@@ -266,10 +267,9 @@ export class AdminModelApi {
             top_p: this.config!.topP ?? 0.9,
             stream: true
         };
-        const maxTok = this.config!.maxOutputTokens || this.config!.maxTokens;
-        if (maxTok) {
-            requestBody.max_tokens = maxTok;
-        }
+        // max_tokens 기본값 설정 (Gemini OpenAI-compatible 엔드포인트는 기본값이 매우 낮음)
+        const maxTok = this.config!.maxOutputTokens || this.config!.maxTokens || 16384;
+        requestBody.max_tokens = maxTok;
 
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 

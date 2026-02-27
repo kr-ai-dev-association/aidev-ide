@@ -412,7 +412,7 @@ export async function activate(context: vscode.ExtensionContext) {
         llmApiClient.setAdminModelConfig(adminConfig);
         // 토큰 제한 동적 업데이트
         const { updateAdminTokenLimits } = await import("./utils/tokenUtils");
-        updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxTokens);
+        updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
         console.log('[Extension] Admin model config loaded:', adminConfig.model);
       }
     } catch (e) {

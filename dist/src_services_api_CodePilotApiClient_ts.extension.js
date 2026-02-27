@@ -24,7 +24,7 @@ class CodePilotApiClient {
         // vscode import를 지연로딩
         const vscode = __webpack_require__(/*! vscode */ "vscode");
         const config = vscode.workspace.getConfiguration("codepilot");
-        this.baseUrl = config.get("backendUrl") || "http://localhost:8000/api/v1";
+        this.baseUrl = config.get("backendUrl") || "https://api-codepilot.banya.ai/api/v1";
     }
     static getInstance() {
         if (!CodePilotApiClient.instance) {
@@ -79,7 +79,10 @@ class CodePilotApiClient {
      * 전체 유효 설정 조회
      */
     async getAllEffectiveSettings(orgId) {
-        return this.get("/settings/effective/all/", { org_id: orgId });
+        const params = {};
+        if (orgId)
+            params.org_id = orgId;
+        return this.get("/settings/effective/all/", params);
     }
     /**
      * 사용자 설정 업데이트
@@ -91,24 +94,35 @@ class CodePilotApiClient {
      * RAG 검색
      */
     async searchRag(query, orgId, sourceIds, topK = 5) {
-        return this.post("/rag/search/", {
-            query,
-            org_id: orgId,
-            source_ids: sourceIds,
-            top_k: topK,
-        });
+        const body = { query, top_k: topK };
+        if (orgId)
+            body.org_id = orgId;
+        if (sourceIds)
+            body.source_ids = sourceIds;
+        return this.post("/rag/search/", body);
     }
     /**
-     * 조직의 RAG 소스 목록 조회
+     * RAG 소스 목록 조회 (조직 또는 개인)
      */
     async getRagSources(orgId) {
-        return this.get("/rag/sources/", { org_id: orgId });
+        const params = {};
+        if (orgId)
+            params.org_id = orgId;
+        return this.get("/rag/sources/", params);
     }
     /**
      * 사용량 보고 (IDE → 백엔드)
      */
     async reportUsage(data) {
-        await this.post("/monitoring/usage/report/", data);
+        const body = {
+            model_name: data.model_name,
+            token_input: data.token_input,
+            token_output: data.token_output,
+            api_calls: data.api_calls,
+        };
+        if (data.org_id)
+            body.org_id = data.org_id;
+        await this.post("/monitoring/usage/report/", body);
     }
     /**
      * 에러 로그 전송 (IDE → 백엔드)
@@ -116,7 +130,7 @@ class CodePilotApiClient {
     async reportError(data) {
         await this.post("/monitoring/error-logs/", {
             ...data,
-            source: "ide",
+            source: data.source || "ide",
         });
     }
     // ── 내부 메서드 ──────────────────────────────────────────

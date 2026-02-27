@@ -60,7 +60,7 @@ export class ToolParser {
                 // JSON 이후 CODE 블록 찾기
                 const afterJson = content.substring(jsonEndIndex);
                 const codeStartIndex = afterJson.indexOf(this.CODE_START_MARKER);
-                const codeEndIndex = afterJson.lastIndexOf(this.CODE_END_MARKER);
+                const codeEndIndex = afterJson.indexOf(this.CODE_END_MARKER, codeStartIndex !== -1 ? codeStartIndex + this.CODE_START_MARKER.length : 0);
 
                 let codeContent: string | undefined;
 

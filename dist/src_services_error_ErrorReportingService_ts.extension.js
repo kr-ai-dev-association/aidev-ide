@@ -151,6 +151,7 @@ class ErrorReportingService {
                 level: entry.level,
                 message: entry.message,
                 stack_trace: entry.stack_trace,
+                source: entry.source,
                 metadata: entry.metadata,
             }).catch(() => {
                 // 개별 전송 실패 시 무시

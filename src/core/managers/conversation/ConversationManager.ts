@@ -123,6 +123,7 @@ export class ConversationManager implements IConversationHandler {
   private stateManager: StateManager | null = null;
   private completionJudge: CompletionJudge; // A4: 완료 판단기
   private _lastBuildTestPassed = false;
+  private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
 
   private constructor(
     userOS: string,
@@ -452,6 +453,7 @@ export class ConversationManager implements IConversationHandler {
 
       // A4: CompletionJudge 리셋 (새 요청 시작)
       this.completionJudge.reset();
+      this._retryGaveUp = false;
 
       // 탈출 시도 카운터 리셋 (새 대화 시작)
       this.escapeAttemptCount = 0;
@@ -1784,9 +1786,6 @@ export class ConversationManager implements IConversationHandler {
           }
         } else {
           // plan에 실행 도구가 없을 때: plan item을 기반으로 LLM을 1회 호출하여 tool call 생성
-          // 단, 이미 파일이 생성된 경우는 제외 (설명용 호출 방지)
-          const hasAnyFileChange =
-            createdFiles.length > 0 || modifiedFiles.length > 0;
 
           // ⚠️ 핵심 수정: investigation item 체크를 LLM 호출 전에 먼저 수행
           // Plan item이 조사 작업인지 확인 (kind 기반, 자동 완료 처리)
@@ -1848,7 +1847,6 @@ export class ConversationManager implements IConversationHandler {
           // ⚠️ 핵심 수정: investigation item이 아닌 execution item에 대해서만 LLM 호출
           // investigation item은 위에서 이미 처리되었으므로 여기서는 execution item만 처리
           if (
-            !hasAnyFileChange &&
             currentPlanItem &&
             currentPlanItem.kind !== "investigation"
           ) {
@@ -2198,9 +2196,9 @@ export class ConversationManager implements IConversationHandler {
               }
             }
           } else {
-            // 이미 파일이 생성된 경우: LLM 호출 없이 plan item 완료 처리
+            // currentPlanItem이 없거나 investigation kind인 경우: LLM 호출 없이 완료 처리
             console.log(
-              "[ConversationManager] EXECUTION phase: plan item has no executable tool calls and files already exist. Marking as done without additional LLM call.",
+              "[ConversationManager] EXECUTION phase: no actionable plan item. Marking as done without additional LLM call.",
             );
 
             if (currentPlanItem) {
@@ -2433,8 +2431,29 @@ export class ConversationManager implements IConversationHandler {
             lastTurnHadSuccessfulToolExecution = false;
             (this as any).naturalLanguageRetry = 0;
 
-            // 스트리밍이 비활성화된 경우에만 별도 출력 (스트리밍 활성화 시 이미 실시간 출력됨)
-            if (!isStreamingEnabled) {
+            // 🔥 v9.7.4: JSON plan 응답이 raw로 노출되는 문제 수정
+            // LLM이 tool call 대신 JSON plan을 반환한 경우 → 스트리밍된 raw JSON 제거 후 정리된 텍스트로 대체
+            const isJsonPlanResponse = /\{\s*"plan"\s*:/.test(llmResponse);
+
+            if (isStreamingEnabled && isJsonPlanResponse) {
+              // 스트리밍으로 이미 표시된 raw JSON 제거
+              WebviewBridge.removeLastMessage(webviewToRespond);
+              console.log(
+                `[ConversationManager] EXECUTION phase: Removed streamed JSON plan from UI`,
+              );
+
+              // plan items에서 사용자 친화적 요약 추출
+              const planItems = ToolParser.parsePlanItems(llmResponse);
+              if (planItems.length > 0) {
+                const summary = planItems.map(item => `- ${item.title}${item.detail ? `: ${item.detail}` : ''}`).join('\n');
+                await WebviewBridge.streamText(
+                  webviewToRespond,
+                  "CODEPILOT",
+                  summary,
+                );
+              }
+            } else if (!isStreamingEnabled) {
+              // 스트리밍 비활성화 시 별도 출력
               let cleanMCPResponse = StringUtils.cleanText(llmResponse, {
                 removeThinking: true,
                 removeNaturalLanguage: false,
@@ -2443,6 +2462,14 @@ export class ConversationManager implements IConversationHandler {
                 removeJsonThinking: true,
                 extractJson: false,
               });
+
+              // JSON plan이면 사용자 친화적 텍스트로 변환
+              if (isJsonPlanResponse) {
+                const planItems = ToolParser.parsePlanItems(llmResponse);
+                if (planItems.length > 0) {
+                  cleanMCPResponse = planItems.map(item => `- ${item.title}${item.detail ? `: ${item.detail}` : ''}`).join('\n');
+                }
+              }
 
               if (cleanMCPResponse && cleanMCPResponse.trim()) {
                 await WebviewBridge.streamText(
@@ -2679,6 +2706,59 @@ export class ConversationManager implements IConversationHandler {
               toolCallsInTurn: [],
               hasInvestigationHistory: true,
             });
+          }
+        } else {
+          // 🔥 v9.7.4: 빈/불완전 플랜 처리
+          // tool call이 같이 있으면 플랜은 무시하고 tool call 처리 계속 진행
+          const hasToolCallInResponse = /\{\s*["']tool["']\s*:\s*["']/.test(llmResponse);
+          if (hasToolCallInResponse) {
+            console.log(
+              "[ConversationManager] Empty/malformed plan but tool calls found. Ignoring plan, continuing to tool execution.",
+            );
+            // 스트리밍으로 이미 표시된 JSON plan 텍스트 제거
+            if (isStreamingEnabled) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
+          } else {
+            // tool call도 없고 플랜도 비어있음 → LLM이 "할 일 없음"으로 판단
+            console.log(
+              "[ConversationManager] Empty plan and no tool calls. LLM determined nothing to do.",
+            );
+
+            // 스트리밍으로 이미 표시된 JSON 제거
+            if (isStreamingEnabled) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
+
+            // LLM 응답에서 JSON을 제외한 텍스트 설명 추출
+            let emptyPlanExplanation = StringUtils.cleanText(llmResponse || "", {
+              removeThinking: true,
+              removeNaturalLanguage: false,
+              removeSystemMessages: false,
+              removeToolTags: false,
+              removeJsonThinking: true,
+              extractJson: false,
+            });
+            // JSON 블록 제거
+            emptyPlanExplanation = emptyPlanExplanation
+              .replace(/```json[\s\S]*?```/gi, "")
+              .replace(/\{[\s\S]*?"plan"\s*:\s*\[[\s\S]*?\][\s\S]*?\}/g, "")
+              .trim();
+
+            if (!emptyPlanExplanation || emptyPlanExplanation.length < 10) {
+              emptyPlanExplanation = "요청하신 작업은 이미 완료되어 있거나, 현재 상태에서 추가로 수행할 작업이 없습니다.";
+            }
+
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              emptyPlanExplanation,
+            );
+            stateManager.transitionTo(AgentPhase.DONE, {});
+            console.log(
+              "[ConversationManager] Empty plan — responded to user and transitioned to DONE.",
+            );
+            break;
           }
         }
       } else if (hasJsonPlanInResponse && isTextOnlyIntent) {
@@ -4536,7 +4616,12 @@ export class ConversationManager implements IConversationHandler {
     const workspaceRoot = currentProject?.root || "";
 
     // A4: 완료 여부 판단 (파일 변경이 있는 경우에만)
-    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+    // RetryCoordinator가 동일 에러 반복으로 포기한 경우 CompletionJudge 스킵 (재실행 방지)
+    if (this._retryGaveUp) {
+      console.log(
+        "[ConversationManager] A4: Skipping CompletionJudge — RetryCoordinator gave up on repeated errors",
+      );
+    } else if (createdFiles.length > 0 || modifiedFiles.length > 0) {
       try {
         const judgment = await this.completionJudge.judge(
           userQuery,
@@ -5302,7 +5387,8 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    // 재시도 초과
+    // 재시도 초과 또는 RetryCoordinator give_up
+    this._retryGaveUp = true;
     WebviewBridge.receiveMessage(
       webview,
       "System",

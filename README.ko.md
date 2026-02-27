@@ -6,6 +6,25 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v10.0.1 (빈 플랜 루프 수정, LLM 에러 수집, Gemini max_tokens 기본값)
+
+### 버그 수정
+- **빈 플랜 루프 수정**: LLM이 빈/불완전 플랜 JSON을 반환할 때 무한 루프에 빠지던 문제를 수정했습니다.
+  - tool call이 함께 있으면 플랜을 무시하고 tool call 처리를 계속합니다.
+  - tool call도 없으면 "추가 작업 없음" 메시지를 표시하고 DONE으로 전환합니다.
+- **EXECUTION 단계 JSON 플랜 노출 수정**: `pendingMCPResultInterpretation` 경로에서 LLM이 tool call 대신 JSON 플랜을 반환했을 때 원시 JSON이 채팅에 표시되던 문제를 수정했습니다.
+  - JSON 플랜을 감지하면 파싱된 요약으로 대체 표시합니다.
+- **extension.ts maxOutputTokens 버그**: `updateAdminTokenLimits()`에서 `maxTokens` 대신 `maxOutputTokens`를 사용하도록 수정했습니다.
+
+### LLM 에러 리포팅
+- **LLM 호출 에러 수집**: LLM API 호출 시 발생하는 에러(429, 503 등)를 ErrorReportingService를 통해 자동으로 수집합니다.
+  - `sendMessage`, `sendMessageWithSystemPrompt`, `sendWithSpecificModel`, `streaming` 4개 경로 모두 지원
+  - 소스 태그: `ide-llm`, 상태 코드 자동 추출
+
+### Gemini Chat Completions 호환성
+- **max_tokens 기본값 추가**: OpenAI-compatible 엔드포인트 사용 시 `max_tokens`가 설정되지 않으면 16384를 기본값으로 사용합니다.
+  - 비스트리밍/스트리밍 모두 적용: `maxOutputTokens || maxTokens || 16384`
+
 ## v10.0.0 (CodePilot Backend 통합 — 인증, 설정 동기화, 사용량 보고)
 
 ### 인증 시스템 (Google OAuth)
