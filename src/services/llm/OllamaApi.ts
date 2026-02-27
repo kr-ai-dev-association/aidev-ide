@@ -317,6 +317,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             };
 
             let fullText = '';
+            let ndjsonBuffer = '';
             const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
                 if (res.statusCode && res.statusCode >= 400) {
                     let errorData = '';
@@ -329,9 +330,14 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 }
 
                 res.on('data', (chunk) => {
-                    try {
-                        const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
-                        for (const line of lines) {
+                    ndjsonBuffer += chunk.toString();
+                    const lines = ndjsonBuffer.split('\n');
+                    // 마지막 요소는 불완전할 수 있으므로 버퍼에 보관
+                    ndjsonBuffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
                             const parsed = JSON.parse(line);
                             if (parsed.response) {
                                 fullText += parsed.response;
@@ -340,13 +346,23 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                             if (parsed.done) {
                                 onChunk('', true);
                             }
+                        } catch {
+                            // JSON 파싱 실패는 무시
                         }
-                    } catch (e) {
-                        // JSON 파싱 실패는 무시 (불완전한 청크일 수 있음)
                     }
                 });
 
                 res.on('end', () => {
+                    // 버퍼에 남은 데이터 처리
+                    if (ndjsonBuffer.trim()) {
+                        try {
+                            const parsed = JSON.parse(ndjsonBuffer);
+                            if (parsed.response) {
+                                fullText += parsed.response;
+                                onChunk(parsed.response, false);
+                            }
+                        } catch {}
+                    }
                     onChunk('', true);
                     resolve(fullText);
                 });

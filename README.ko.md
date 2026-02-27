@@ -6,6 +6,24 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v10.0.2 (스트리밍 버퍼 수정, 관리자 UI 개선)
+
+### 스트리밍 파싱 수정
+- **OpenAI-compatible SSE 버퍼링**: `streamOpenAI`에서 네트워크 청크가 SSE 라인 경계와 일치하지 않을 때 토큰이 유실되던 버그를 수정했습니다.
+  - 청크 사이에 `buffer`를 유지하여 불완전한 라인을 다음 청크와 합칩니다.
+  - `data:` prefix 제거를 `slice(5)`로 정확하게 변경했습니다.
+- **Ollama NDJSON 버퍼링**: `sendMessageStreaming`에 동일한 버퍼 패턴을 적용하여 불완전한 JSON 라인 유실을 방지합니다.
+  - `res.on('end')`에서 버퍼에 남은 마지막 데이터도 처리합니다.
+
+### 관리자 UI 개선 (admin-web)
+- **폼 자동 스크롤**: 모든 설정 페이지에서 "추가" 버튼 클릭 시 폼 위치로 자동 스크롤됩니다.
+  - `useFormState` 훅에 `formRef` + `scrollIntoView` 추가
+  - AI 모델, MCP 서버, 제외 패턴, 보안 규칙, Hot Load, 빌드/테스트, RAG 7개 페이지 적용
+
+### 보안 규칙 프리셋 강화 (backend)
+- **seed_presets.py 업데이트**: 보안 규칙 프리셋에 `type` 필드를 추가하여 유형별 분류를 지원합니다.
+  - 차단 명령어 (blocked_command) 31개, 보호 파일 (protected_file) 16개, 파일 은닉 (hidden_file) 15개 — 총 62개
+
 ## v10.0.1 (빈 플랜 루프 수정, LLM 에러 수집, Gemini max_tokens 기본값)
 
 ### 버그 수정

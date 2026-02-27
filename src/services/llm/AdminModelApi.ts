@@ -291,16 +291,21 @@ export class AdminModelApi {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullText = '';
+        let buffer = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n').filter(line => line.trim().startsWith('data:'));
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            // 마지막 요소는 불완전할 수 있으므로 버퍼에 보관
+            buffer = lines.pop() || '';
 
             for (const line of lines) {
-                const data = line.replace('data:', '').trim();
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith('data:')) continue;
+                const data = trimmed.slice(5).trim();
                 if (data === '[DONE]') {
                     onChunk('', true);
                     return fullText;
