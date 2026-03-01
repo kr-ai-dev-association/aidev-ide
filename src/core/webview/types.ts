@@ -66,6 +66,10 @@ export interface ExecuteBashCommandsCommand {
     commands: string[];
 }
 
+export interface StopBashCommandCommand {
+    command: 'stopBashCommand';
+}
+
 export interface DisplayUserMessageCommand {
     command: 'displayUserMessage';
     text: string;

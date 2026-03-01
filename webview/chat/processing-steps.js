@@ -225,31 +225,67 @@ export function updateProcessingStatus(stepName, status, handleScrollFn) {
 }
 
 /**
+ * 버블의 스크롤 영역 내 자연 위치 (position: fixed 적용 전 기준)
+ * chatContainer.scrollTop 에 대한 오프셋
+ */
+let _bubbleNaturalScrollOffset = null;
+
+/**
+ * 자연 위치 오프셋 저장 (버블 생성/재배치 시 호출)
+ */
+export function saveBubbleNaturalOffset() {
+  if (!thinkingBubbleElement || !chatContainer) return;
+  const containerRect = chatContainer.getBoundingClientRect();
+  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+  _bubbleNaturalScrollOffset =
+    chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
+}
+
+/**
  * 스크롤 감지하여 버블 고정/해제 처리
+ * - 위로 스크롤: 버블이 하단 입력영역에 가려지면 상단 고정
+ * - 아래로 스크롤: 버블이 뷰포트 상단을 넘어가면 상단 고정
+ * - 버블이 보이는 영역이면 고정 해제
  */
 export function handleScroll() {
   if (!thinkingBubbleElement || !chatContainer) {
     return;
   }
 
-  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
   const containerRect = chatContainer.getBoundingClientRect();
-
-  // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
   const bottomFixedArea = document.querySelector(".bottom-fixed-area");
   const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
   const visibleBottom = containerRect.bottom - bottomHeight;
 
-  // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
-  if (bubbleRect.top > visibleBottom - 20) {
-    thinkingBubbleElement.classList.add("is-forced-top");
+  const isForced = thinkingBubbleElement.classList.contains("is-forced-top");
+
+  if (!isForced) {
+    // 자연 상태 — 실제 위치로 판단
+    const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+    // 자연 위치 기록 (고정 해제 판단에 사용)
+    _bubbleNaturalScrollOffset =
+      chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
+
+    const isBelow = bubbleRect.top > visibleBottom - 20;
+    const isAbove = bubbleRect.bottom < containerRect.top + 10;
+
+    if (isBelow || isAbove) {
+      thinkingBubbleElement.classList.add("is-forced-top");
+    }
   } else {
-    // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
-    const isAtBottom =
-      chatContainer.scrollHeight - chatContainer.scrollTop <=
-      chatContainer.clientHeight + 100;
-    if (isAtBottom) {
-      thinkingBubbleElement.classList.remove("is-forced-top");
+    // 고정 상태 — 저장된 자연 위치로 해제 여부 판단
+    if (_bubbleNaturalScrollOffset != null) {
+      const naturalViewportTop =
+        _bubbleNaturalScrollOffset - chatContainer.scrollTop + containerRect.top;
+      const isNaturallyVisible =
+        naturalViewportTop >= containerRect.top - 10 &&
+        naturalViewportTop < visibleBottom - 20;
+
+      if (isNaturallyVisible) {
+        thinkingBubbleElement.classList.remove("is-forced-top");
+        const tc = thinkingBubbleElement.querySelector(".thinking-content");
+        if (tc) tc.classList.remove("expanded");
+      }
     }
   }
 }
@@ -260,6 +296,7 @@ export function handleScroll() {
 export function resetProcessingStatuses() {
   processingStepsArray = [];
   lastFullText = "";
+  _bubbleNaturalScrollOffset = null;
 
   const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
   statuses.forEach((step) => {
@@ -272,6 +309,47 @@ export function resetProcessingStatuses() {
       }
     }
   });
+}
+
+/**
+ * LLM thinking 내용을 thinking bubble 하단에 표시
+ * 새로운 thinking이 오면 이전 내용을 교체
+ * @param {string} text - thinking 텍스트
+ */
+export function updateThinkingContent(text) {
+  if (!thinkingBubbleElement) return;
+
+  let thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
+  if (!thinkingContent) {
+    thinkingContent = document.createElement('div');
+    thinkingContent.className = 'thinking-content';
+    // 클릭으로 접기/펼치기 토글
+    thinkingContent.addEventListener('click', () => {
+      thinkingContent.classList.toggle('expanded');
+    });
+    thinkingBubbleElement.appendChild(thinkingContent);
+  }
+
+  // CSS -webkit-line-clamp으로 2줄 접기 처리 → 전체 텍스트 저장 (펼치기 시 사용)
+  thinkingContent.textContent = text;
+  thinkingContent.style.display = '';
+
+  // 스크롤 유지
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * thinking content 영역 숨기기
+ */
+export function clearThinkingContent() {
+  if (!thinkingBubbleElement) return;
+  const thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
+  if (thinkingContent) {
+    thinkingContent.style.display = 'none';
+    thinkingContent.textContent = '';
+  }
 }
 
 /**

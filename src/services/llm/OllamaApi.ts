@@ -5,7 +5,20 @@ import { URL } from 'url';
 import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 
-type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean };
+type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean };
+
+/**
+ * thinking 내용만 있고 response가 비어있을 때 발생하는 에러
+ * sendMessage에서 thinking 내용을 추적하기 위해 사용
+ */
+class ThinkingOnlyError extends Error {
+    thinking: string;
+    constructor(thinking: string) {
+        super(`모델이 생각만 수행했습니다. 도구 호출 또는 텍스트 응답이 필요합니다. (Thinking length: ${thinking.length})`);
+        this.thinking = thinking;
+        this.name = 'ThinkingOnlyError';
+    }
+}
 
 export class OllamaApi {
     private apiUrl: string;
@@ -90,6 +103,7 @@ export class OllamaApi {
     public async sendMessage(message: string, options?: SendOptions): Promise<string> {
         const maxRetries = options?.retries || 3;
         let lastError: Error | null = null;
+        let lastThinking: string | null = null;
         let currentMessage = message;
         let currentOptions = { ...options };
 
@@ -101,6 +115,11 @@ export class OllamaApi {
                 const errorMsg = error.message || '';
                 console.warn(`[OllamaApi] Attempt ${attempt}/${maxRetries} failed:`, errorMsg);
 
+                // thinking-only 에러인 경우 thinking 내용 추적
+                if (error instanceof ThinkingOnlyError) {
+                    lastThinking = error.thinking;
+                }
+
                 // 모델을 찾을 수 없는 경우(404)는 재시도해도 소용없으므로 즉시 중단
                 if (errorMsg.includes('404') && errorMsg.includes('not found')) {
                     console.error(`[OllamaApi] Model '${this.modelName}' not found in Ollama. Please pull the model first.`);
@@ -109,7 +128,7 @@ export class OllamaApi {
 
                 // 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
                 if (attempt < maxRetries) {
-                    if (error.message.includes("생각만 수행")) {
+                    if (error instanceof ThinkingOnlyError) {
                         currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field.
 If you are NOT DONE, you MUST output actual tool calls (e.g., { "tool": "list_files", "path": "..." }) in your FINAL RESPONSE.
 If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE.
@@ -127,6 +146,17 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             }
         }
 
+        // thinking-only로 모든 재시도 실패 시: thinking 안에 tool call JSON이 있으면 추출하여 반환
+        if (lastThinking) {
+            const extractedToolCalls = this.extractToolCallsFromThinking(lastThinking);
+            if (extractedToolCalls) {
+                console.log(`[OllamaApi] Extracted tool calls from thinking content (${extractedToolCalls.length} chars)`);
+                return `<think>${lastThinking}</think>\n${extractedToolCalls}`;
+            }
+            console.log(`[OllamaApi] All ${maxRetries} retries failed with thinking-only. Returning thinking as fallback (length: ${lastThinking.length})`);
+            return `<think>${lastThinking}</think>`;
+        }
+
         throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
     }
 
@@ -135,11 +165,17 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
      */
     private async sendMessageInternal(message: string, options?: SendOptions): Promise<string> {
         const url = new URL(`${this.apiUrl}${this.endpoint}`);
-        const requestData = {
+        const requestData: any = {
             model: this.modelName,
             prompt: message,
             stream: false
         };
+
+        // thinking 비활성화 (tool calling과 충돌 방지)
+        if (options?.disableThinking) {
+            requestData.think = false;
+            console.log(`[OllamaApi] Thinking disabled for this request (tool calling mode)`);
+        }
 
         console.log(`[OllamaApi] Sending request to ${url.toString()} with model ${this.modelName}`);
 
@@ -174,8 +210,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             // response가 완전히 비어있을 때만 에러 (최소한 공백이라도 있으면 허용)
             if (thinkingContent && thinkingContent.length > 0 && (!responseContent || responseContent.trim() === '')) {
                 console.log('[OllamaApi] Thought detected but response is empty. Triggering retry.');
-                // 텔레메트리나 로그를 위해 thinking 내용을 에러에 포함
-                throw new Error(`모델이 생각만 수행했습니다. 도구 호출 또는 텍스트 응답이 필요합니다. (Thinking length: ${thinkingContent.length})`);
+                throw new ThinkingOnlyError(thinkingContent);
             }
 
             // 둘 다 없는 경우
@@ -197,6 +232,58 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
 
         // 만약 여기까지 왔다면, 어쩔 수 없이 thinking이라도 반환 (하지만 이미 에러를 던졌을 것)
         return extractedContent;
+    }
+
+    /**
+     * thinking 내용에서 tool call JSON을 추출
+     * 모델이 tool call을 thinking에 넣고 response를 비우는 경우 fallback으로 사용
+     */
+    private extractToolCallsFromThinking(thinking: string): string | null {
+        // { "tool": "..." } 패턴을 찾아 추출
+        const toolCallPattern = /\{\s*"tool"\s*:\s*"[^"]+"/g;
+        const matches = thinking.match(toolCallPattern);
+        if (!matches || matches.length === 0) {
+            return null;
+        }
+
+        // thinking에서 JSON 블록들을 추출
+        const jsonBlocks: string[] = [];
+        let searchFrom = 0;
+        for (const match of matches) {
+            const startIdx = thinking.indexOf(match, searchFrom);
+            if (startIdx === -1) continue;
+
+            // { 시작부터 매칭되는 } 까지 추출
+            let braceDepth = 0;
+            let endIdx = startIdx;
+            for (let i = startIdx; i < thinking.length; i++) {
+                if (thinking[i] === '{') braceDepth++;
+                if (thinking[i] === '}') {
+                    braceDepth--;
+                    if (braceDepth === 0) {
+                        endIdx = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            if (endIdx > startIdx) {
+                const block = thinking.substring(startIdx, endIdx);
+                try {
+                    JSON.parse(block); // 유효한 JSON인지 확인
+                    jsonBlocks.push(block);
+                } catch {
+                    // 유효하지 않은 JSON은 무시
+                }
+                searchFrom = endIdx;
+            }
+        }
+
+        if (jsonBlocks.length === 0) {
+            return null;
+        }
+
+        return jsonBlocks.join('\n');
     }
 
     /**
@@ -298,11 +385,17 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         options?: SendOptions
     ): Promise<string> {
         const url = new URL(`${this.apiUrl}${this.endpoint}`);
-        const requestData = {
+        const requestData: any = {
             model: this.modelName,
             prompt: message,
             stream: true
         };
+
+        // thinking 비활성화 (tool calling과 충돌 방지)
+        if (options?.disableThinking) {
+            requestData.think = false;
+            console.log(`[OllamaApi] Streaming: Thinking disabled for this request (tool calling mode)`);
+        }
 
         console.log(`[OllamaApi] Sending streaming request to ${url.toString()} with model ${this.modelName}`);
 
@@ -317,6 +410,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             };
 
             let fullText = '';
+            let thinkingText = '';
             let ndjsonBuffer = '';
             const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
                 if (res.statusCode && res.statusCode >= 400) {
@@ -343,6 +437,9 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                                 fullText += parsed.response;
                                 onChunk(parsed.response, false);
                             }
+                            if (parsed.thinking) {
+                                thinkingText += parsed.thinking;
+                            }
                             if (parsed.done) {
                                 onChunk('', true);
                             }
@@ -361,9 +458,32 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                                 fullText += parsed.response;
                                 onChunk(parsed.response, false);
                             }
+                            if (parsed.thinking) {
+                                thinkingText += parsed.thinking;
+                            }
                         } catch {}
                     }
+
                     onChunk('', true);
+
+                    // thinking 내용을 <think> 태그로 래핑하여 resolve 값에 포함
+                    // onChunk에는 response만 전달됐으므로 UI 스트리밍에는 영향 없음
+                    // ConversationManager가 <think> 태그를 추출하여 processing-steps에 표시
+                    if (thinkingText.trim()) {
+                        let responseBody = fullText;
+                        // thinking에 tool call이 있고 response가 비어있으면 추출
+                        if (!fullText.trim()) {
+                            const extracted = this.extractToolCallsFromThinking(thinkingText);
+                            if (extracted) {
+                                console.log(`[OllamaApi] Streaming: Extracted tool calls from thinking (${extracted.length} chars)`);
+                                responseBody = extracted;
+                            }
+                        }
+                        const result = `<think>${thinkingText}</think>${responseBody ? '\n' + responseBody : ''}`;
+                        resolve(result);
+                        return;
+                    }
+
                     resolve(fullText);
                 });
             });

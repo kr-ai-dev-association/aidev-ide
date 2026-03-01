@@ -26,6 +26,8 @@ export interface LLMRequestOptions {
     retry?: Partial<LLMRetryConfig>;
     /** 재시도 비활성화 (기본: false) */
     disableRetry?: boolean;
+    /** thinking 비활성화 — tool calling과 충돌 방지 (Qwen3, DeepSeek 등) */
+    disableThinking?: boolean;
 }
 
 export interface LLMResponse {
@@ -41,6 +43,16 @@ export class LLMManager {
     private adminModelApi: AdminModelApi;
     private currentModelType: AiModelType;
     private currentCallController: AbortController | null = null;
+
+    /** 시스템 프롬프트에 도구 스펙이 포함되어 있는지 감지 */
+    private static hasToolSpecs(systemPrompt: string): boolean {
+        return systemPrompt.includes('사용 가능한 도구') || systemPrompt.includes('"tool"');
+    }
+
+    /** thinking 비활성화 여부 결정 (명시적 설정 우선, 없으면 도구 스펙 유무로 자동 판단) */
+    private static resolveDisableThinking(systemPrompt: string, explicit?: boolean): boolean {
+        return explicit ?? LLMManager.hasToolSpecs(systemPrompt);
+    }
 
     private constructor(
         ollamaApi: OllamaApi,
@@ -189,13 +201,17 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
+        // 도구 스펙 포함 시 자동으로 thinking 비활성화 (명시적 설정 우선)
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
         const apiCall = async (): Promise<string> => {
             let response: string;
 
             if (this.currentModelType === AiModelType.ADMIN) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
-                response = await this.adminModelApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                response = await this.adminModelApi.sendMessageWithSystemPrompt(
+                    systemPrompt, parts, { signal, disableThinking }
+                );
             } else {
                 try {
                     await this.ollamaApi.loadSettingsFromStorage();
@@ -204,7 +220,10 @@ export class LLMManager {
                 // Ollama API 형식으로 변환
                 const parts = userParts.map(part => ({ text: part.text || '' }));
 
-                response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                response = await this.ollamaApi.sendMessageWithSystemPrompt(
+                    systemPrompt, parts,
+                    { signal, disableThinking }
+                );
             }
 
             return response;
@@ -379,13 +398,16 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
         try {
             let response: string;
 
             if (modelType === AiModelType.ADMIN) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
-                response = await this.adminModelApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                response = await this.adminModelApi.sendMessageWithSystemPrompt(
+                    systemPrompt, parts, { signal, disableThinking }
+                );
             } else {
                 // Ollama
                 try {
@@ -401,7 +423,9 @@ export class LLMManager {
                 }
 
                 try {
-                    response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                    response = await this.ollamaApi.sendMessageWithSystemPrompt(
+                        systemPrompt, parts, { signal, disableThinking }
+                    );
                 } finally {
                     // 원래 모델로 복원
                     if (modelName && originalModel && this.ollamaApi.setModel) {
@@ -657,6 +681,8 @@ export class LLMManager {
         onChunk: (chunk: string, done: boolean) => void,
         options?: LLMRequestOptions
     ): Promise<string> {
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+
         // Ollama의 경우
         if (modelType === AiModelType.OLLAMA) {
             try {
@@ -669,7 +695,7 @@ export class LLMManager {
                 systemPrompt,
                 parts,
                 onChunk,
-                { signal: options?.signal }
+                { signal: options?.signal, disableThinking }
             );
         }
 
@@ -719,6 +745,8 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
+        // 도구 스펙 포함 시 자동으로 thinking 비활성화
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
         const apiCall = async (): Promise<string> => {
             let response: string;
@@ -729,7 +757,7 @@ export class LLMManager {
                     systemPrompt,
                     parts,
                     onChunk,
-                    { signal }
+                    { signal, disableThinking }
                 );
             } else {
                 try {
@@ -743,7 +771,7 @@ export class LLMManager {
                     systemPrompt,
                     parts,
                     onChunk,
-                    { signal }
+                    { signal, disableThinking }
                 );
             }
 

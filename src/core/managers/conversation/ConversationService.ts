@@ -9,6 +9,7 @@ import { PromptType, OllamaApi, AiModelType, NotificationService, GitRepositoryS
 import { ConversationManager } from './ConversationManager';
 import { SettingsManager } from '../state/SettingsManager';
 import { StateManager } from '../state/StateManager';
+import { OrchestrationRouter } from '../../orchestration/OrchestrationRouter';
 
 export interface ConversationServiceOptions {
     userQuery: string;
@@ -37,8 +38,6 @@ export class ConversationService {
      * 사용자 메시지를 처리하고 응답을 생성합니다
      */
     public static async handleUserMessage(options: ConversationServiceOptions): Promise<void> {
-        const conversationManager = ConversationManager.getInstance();
-
         // 필요한 정보 수집
         const extensionContext = options.extensionContext;
         let ollamaApi = options.ollamaApi;
@@ -60,8 +59,7 @@ export class ConversationService {
             }
         }
 
-        // ConversationManager에 옵션 전달
-        await conversationManager.handleUserMessageAndRespond({
+        const resolvedOptions = {
             userQuery: options.userQuery,
             webviewToRespond: options.webviewToRespond,
             promptType: options.promptType,
@@ -77,7 +75,12 @@ export class ConversationService {
             notificationService: options.notificationService,
             gitRepositoryService: options.gitRepositoryService,
             abortSignal: options.abortSignal
-        });
+        };
+
+        // OrchestrationRouter를 통해 분기
+        // OFF → ConversationManager 직접 호출 (기존 동작)
+        // ON → Orchestrator 실행 → 단순 작업이면 자동 폴백
+        await OrchestrationRouter.route(resolvedOptions);
     }
 
     /**

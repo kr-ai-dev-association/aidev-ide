@@ -6,6 +6,7 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { FileSearcher } from '../../managers/context/file/FileSearcher';
+import { PreToolUseValidator } from '../PreToolUseValidator';
 import * as path from 'path';
 
 export class RipgrepSearchToolHandler implements IToolHandler {
@@ -43,14 +44,21 @@ export class RipgrepSearchToolHandler implements IToolHandler {
             contextLines: toolUse.params.contextLines ? parseInt(toolUse.params.contextLines) : 2
         });
 
-        const formattedResults = searcher.formatResults(results, context.projectRoot);
+        // 은닉 파일 필터링
+        const filtered = results.filter(r => !PreToolUseValidator.isHiddenFile(r.file, context.projectRoot));
+        const hiddenCount = results.length - filtered.length;
+        if (hiddenCount > 0) {
+            console.log(`[RipgrepSearchToolHandler] Filtered ${hiddenCount} hidden file(s) from results`);
+        }
+
+        const formattedResults = searcher.formatResults(filtered, context.projectRoot);
 
         return {
             success: true,
-            message: `ripgrep found ${results.length} files with matches`,
-            data: { 
-                results: formattedResults,  // 포맷된 문자열 (LLM용)
-                rawResults: results  // 원본 SearchResult[] 배열 (파싱용)
+            message: `ripgrep found ${filtered.length} files with matches${hiddenCount > 0 ? ` (${hiddenCount} hidden files excluded)` : ''}`,
+            data: {
+                results: formattedResults,
+                rawResults: filtered
             }
         };
     }

@@ -3,7 +3,7 @@ exports.id = 2;
 exports.ids = [2];
 exports.modules = {
 
-/***/ 698:
+/***/ 704:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -138,7 +138,7 @@ class CodePilotApiClient {
         };
         // JWT 토큰 첨부
         try {
-            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 665));
+            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 671));
             const auth = AuthService.getInstance();
             const token = await auth.getAccessToken();
             if (token) {
@@ -152,7 +152,7 @@ class CodePilotApiClient {
         // 401 → 토큰 리프레시 시도 (auth 엔드포인트 자체는 재귀 방지)
         if (response.status === 401 && !url.includes("/auth/refresh/") && !url.includes("/auth/logout/")) {
             try {
-                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 665));
+                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 671));
                 const auth = AuthService.getInstance();
                 const newToken = await auth.refreshAccessToken();
                 if (newToken) {

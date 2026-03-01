@@ -41,6 +41,23 @@ export enum Tool {
 }
 
 /**
+ * 읽기 전용 도구 집합 (병렬 실행 안전)
+ * 파일 시스템이나 프로젝트 상태를 변경하지 않는 도구들
+ */
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+    Tool.READ_FILE,
+    Tool.LIST_FILES,
+    Tool.SEARCH_FILES,
+    Tool.RIPGREP_SEARCH,
+    Tool.STAT_FILE,
+    Tool.LIST_IMPORTS,
+    Tool.EXPAND_AROUND_LINE,
+    Tool.GIT_DIFF,
+    Tool.READ_ACTIVE_FILE,
+    Tool.FETCH_URL,
+]);
+
+/**
  * MCP 도구를 포함하는 도구 이름 타입
  * 내장 도구(Tool enum)와 MCP 동적 도구를 모두 지원
  * MCP 도구는 원래 이름 그대로 등록됨 (프리픽스 없음, 충돌 시에만 서버명 접두사)

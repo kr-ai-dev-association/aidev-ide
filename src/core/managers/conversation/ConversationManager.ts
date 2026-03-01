@@ -1050,6 +1050,8 @@ export class ConversationManager implements IConversationHandler {
     }
     let executionNoToolRetryCount = 0; // EXECUTION phase에서 도구 호출 없이 응답 시 재시도 횟수
     const maxExecutionNoToolRetries = 2; // 최대 재시도 횟수
+    let consecutiveEmptyResponses = 0; // thinking-only 등 빈 응답 연속 횟수
+    const maxConsecutiveEmptyResponses = 3; // 빈 응답 최대 재시도
     let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
 
     // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
@@ -1493,6 +1495,12 @@ export class ConversationManager implements IConversationHandler {
       // 현재 활성 계획 아이템 확인
       const currentPlanItem = taskManager.getNextPendingItem();
 
+      // 실행 시작 시 in_progress로 전환 (UI에 파란색 표시)
+      if (currentPlanItem && currentPlanItem.status === 'pending') {
+        taskManager.updatePlanItemStatus(currentPlanItem.id, 'in_progress');
+        WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+      }
+
       // FSM에서 현재 상태 가져오기
       const currentPhase = stateManager.getCurrentState();
       const statusPrefix = currentPlanItem ? `[${currentPlanItem.title}] ` : "";
@@ -1719,15 +1727,9 @@ export class ConversationManager implements IConversationHandler {
             );
           }
 
-          // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
-          // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
-          if (hasBlockedByValidator && blockedMessages.length > 0) {
-            console.log(
-              `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(", ")}`,
-            );
-            stateManager.transitionTo(AgentPhase.REVIEW);
-            break;
-          }
+          // 🔥 PreToolUseValidator에 의해 차단된 경우
+          const blockResult = this.handleBlockedTools(hasBlockedByValidator, blockedMessages, hasSuccessfulPlanExecution, stateManager, accumulatedUserParts);
+          if (blockResult === "break") break;
 
           // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
           if (hasUserSkipped && currentPlanItem) {
@@ -2030,15 +2032,9 @@ export class ConversationManager implements IConversationHandler {
                 );
               }
 
-              // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
-              // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
-              if (hasBlockedByValidator2 && blockedMessages2.length > 0) {
-                console.log(
-                  `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages2.join(", ")}`,
-                );
-                stateManager.transitionTo(AgentPhase.REVIEW);
-                break;
-              }
+              // 🔥 PreToolUseValidator에 의해 차단된 경우
+              const blockResult2 = this.handleBlockedTools(hasBlockedByValidator2, blockedMessages2, hasSuccessfulToolExecution, stateManager, accumulatedUserParts);
+              if (blockResult2 === "break") break;
 
               // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
               if (hasUserSkipped2 && currentPlanItem) {
@@ -2391,6 +2387,15 @@ export class ConversationManager implements IConversationHandler {
           : llmResponse,
       );
 
+      // 0.5. thinking 내용을 UI processing-steps 영역에 표시
+      const thinkingMatch = llmResponse.match(/<think>([\s\S]*?)<\/think>/);
+      if (thinkingMatch) {
+        const thinkingText = thinkingMatch[1].trim();
+        if (thinkingText) {
+          WebviewBridge.sendThinkingContent(webviewToRespond, thinkingText);
+        }
+      }
+
       // 1. 응답 정제 (<think> 태그 및 JSON thinking 제거)
       // 자연어는 모든 단계에서 유지 (마크다운 구조 보존)
       let cleanResponse = StringUtils.cleanText(llmResponse, {
@@ -2720,7 +2725,23 @@ export class ConversationManager implements IConversationHandler {
               WebviewBridge.removeLastMessage(webviewToRespond);
             }
           } else {
-            // tool call도 없고 플랜도 비어있음 → LLM이 "할 일 없음"으로 판단
+            // tool call도 없고 플랜도 비어있음
+            // 🔥 v9.7.5: INVESTIGATION phase에서 코드 인텐트면 빈 플랜이라도 재시도
+            const isCodeIntent = intent && (intent.category === "code" || intent.taskType === "code_work");
+            if (currentPhase === AgentPhase.INVESTIGATION && isCodeIntent && turnCount < maxTurns - 1) {
+              console.log(
+                "[ConversationManager] Empty plan in INVESTIGATION phase with code intent. Nudging LLM to create proper plan.",
+              );
+              if (isStreamingEnabled) {
+                WebviewBridge.removeLastMessage(webviewToRespond);
+              }
+              accumulatedUserParts.push({
+                text: "[시스템 알림] 빈 플랜이 반환되었습니다. 사용자가 요청한 작업(에러 수정, 코드 변경 등)을 수행하기 위한 구체적인 실행 계획을 JSON 형식으로 다시 생성하세요. 반드시 plan 배열 안에 kind: 'execution' 항목을 포함해야 합니다.",
+              });
+              turnCount++;
+              continue;
+            }
+
             console.log(
               "[ConversationManager] Empty plan and no tool calls. LLM determined nothing to do.",
             );
@@ -2857,25 +2878,25 @@ export class ConversationManager implements IConversationHandler {
                 currentPhase === AgentPhase.EXECUTION &&
                 onlyInvestigationTools
               ) {
-                console.warn(
-                  `[ConversationManager] EXECUTION phase: Only investigation tools detected (${toolCalls.map((c) => c.name).join(", ")}). LLM should use update_file/create_file instead.`,
+                // 읽기 도구만 호출: 파일을 읽어야 정확한 SEARCH/REPLACE 가능하므로 실행 허용
+                // 단, 연속 2턴 이상 읽기만 하면 경고 (수정 도구 사용 유도)
+                console.log(
+                  `[ConversationManager] EXECUTION phase: Investigation tools detected (${toolCalls.map((c) => c.name).join(", ")}). Allowing read before edit.`,
                 );
-                // 테스트 실패 후 재시도 중인 경우, 조사 도구 실행 대신 수정 도구 사용 강제
-                if (testFixAttempts > 0) {
-                  console.log(
-                    `[ConversationManager] Test fix attempt ${testFixAttempts}: Blocking investigation tools, requesting modification tools.`,
+                executionNoToolRetryCount++;
+                if (executionNoToolRetryCount > 2) {
+                  console.warn(
+                    `[ConversationManager] EXECUTION phase: ${executionNoToolRetryCount} consecutive read-only turns. Nudging for modification tools.`,
                   );
                   accumulatedUserParts.push({
                     text:
-                      `\n[System] ⚠️ **조사 도구 사용 금지**\n\n` +
-                      `현재 EXECUTION 단계에서 테스트 오류를 수정 중입니다.\n` +
-                      `${toolCalls.map((c) => c.name).join(", ")} 도구는 조사용이며, 이 단계에서는 사용할 수 없습니다.\n\n` +
-                      `**즉시 update_file 도구로 오류를 수정하세요.**\n` +
-                      `파일을 다시 읽지 마세요. 이미 충분한 정보가 있습니다.`,
+                      `\n[System] 파일 읽기를 여러 턴 연속 수행했습니다. 이제 update_file 또는 create_file로 수정을 진행하세요.\n` +
+                      `파일을 완전히 재작성해야 한다면 create_file을 사용하세요.`,
                   });
-                  turnCount++;
-                  continue; // 도구 실행 건너뛰고 재요청
                 }
+              } else if (!onlyInvestigationTools) {
+                // 수정 도구가 포함되어 있으면 카운터 리셋
+                executionNoToolRetryCount = 0;
               }
 
               // 중복 방지를 위해 executedInTurn에 추가
@@ -2923,15 +2944,9 @@ export class ConversationManager implements IConversationHandler {
                 console.log(`[ConversationManager] Tool execution succeeded.`);
               }
 
-              // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
-              // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
-              if (hasBlockedByValidator3 && blockedMessages3.length > 0) {
-                console.log(
-                  `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages3.join(", ")}`,
-                );
-                stateManager.transitionTo(AgentPhase.REVIEW);
-                break;
-              }
+              // 🔥 PreToolUseValidator에 의해 차단된 경우
+              const blockResult3 = this.handleBlockedTools(hasBlockedByValidator3, blockedMessages3, hasSuccessfulExecution, stateManager, accumulatedUserParts);
+              if (blockResult3 === "break") break;
 
               // 🔥 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
               if (hasUserSkipped3) {
@@ -2971,6 +2986,11 @@ export class ConversationManager implements IConversationHandler {
       );
       const totalResponseText =
         this.responseProcessor.extractResponseText(llmResponse);
+
+      // 유효한 응답이 있으면 빈 응답 카운터 리셋
+      if (totalResponseText && totalResponseText.trim()) {
+        consecutiveEmptyResponses = 0;
+      }
 
       // create_file content 누락 등 툴 파싱 경고를 사용자 컨텍스트에 추가
       if (toolParseWarnings.length > 0) {
@@ -3232,8 +3252,7 @@ export class ConversationManager implements IConversationHandler {
             `[ConversationManager] INVESTIGATION phase: Files already modified (created: ${createdFiles.length}, modified: ${modifiedFiles.length}). Transitioning to REVIEW.`,
           );
           stateManager.transitionTo(AgentPhase.REVIEW);
-          // 다음 턴에서 REVIEW 로직 실행
-          turnCount++;
+          // 다음 턴에서 REVIEW 로직 실행 (REVIEW handler가 turnCount++ 처리)
           continue;
         }
 
@@ -3378,6 +3397,20 @@ export class ConversationManager implements IConversationHandler {
           );
           // 빈 응답 체크를 건너뛰고 계속 진행
         } else {
+          // thinking-only 응답 감지: LLM이 thinking만 반환하고 실제 출력 없음
+          // 스트리밍에서 thinking 필드만 있거나, 완전히 빈 응답인 경우
+          consecutiveEmptyResponses++;
+          if (consecutiveEmptyResponses < maxConsecutiveEmptyResponses) {
+            console.log(
+              `[ConversationManager] Empty/thinking-only response (${consecutiveEmptyResponses}/${maxConsecutiveEmptyResponses}), retrying...`,
+            );
+            // 다음 턴에서 더 구체적인 프롬프트 제공
+            accumulatedUserParts.push({
+              text: '[시스템] 이전 응답이 비어있습니다. 도구 호출(```json 코드블록) 또는 텍스트 응답을 반드시 출력하세요.',
+            });
+            turnCount++;
+            continue;
+          }
           // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
           if (investigationDoneToken) {
             console.log(
@@ -3485,8 +3518,9 @@ export class ConversationManager implements IConversationHandler {
           testFixAttempts = testTransition.testFixAttempts;
           if (testTransition.pendingRetryPrompt) {
             pendingRetryPrompt = true;
+            turnCount++; // retry → back to EXECUTION
           }
-          turnCount++;
+          // REVIEW 전환 시 turnCount++ 하지 않음 (REVIEW handler가 처리)
           continue;
         }
       }
@@ -3812,21 +3846,37 @@ export class ConversationManager implements IConversationHandler {
           );
         }
 
-        // EXECUTION phase에서 파일이 생성/수정되었으면 REVIEW로 전환
+        // EXECUTION phase에서 파일이 생성/수정되었으면 테스트 후 REVIEW로 전환
         if (
           currentPhase === AgentPhase.EXECUTION &&
           (createdFiles.length > 0 || modifiedFiles.length > 0)
         ) {
           console.log(
-            "[ConversationManager] EXECUTION phase completed with file changes. Transitioning to REVIEW.",
+            "[ConversationManager] EXECUTION phase completed with file changes. Running tests before REVIEW.",
           );
-          stateManager.transitionTo(AgentPhase.REVIEW);
-          turnCount++;
-          continue; // 다음 루프에서 REVIEW 처리
+          const testTransition = await this.runTestsAndTransition(
+            webviewToRespond,
+            stateManager,
+            retryCoordinator,
+            createdFiles,
+            modifiedFiles,
+            testFixAttempts,
+            maxTestFixAttempts,
+            isAutoTestRetryEnabled,
+            accumulatedUserParts,
+            turnCount,
+          );
+          testFixAttempts = testTransition.testFixAttempts;
+          if (testTransition.pendingRetryPrompt) {
+            pendingRetryPrompt = true;
+            turnCount++; // retry → back to EXECUTION
+          }
+          // REVIEW 전환 시 turnCount++ 하지 않음 (REVIEW handler가 처리)
+          continue;
         }
       }
 
-      // 루프 종료 전 자동 테스트 실행 (파일이 생성/수정된 경우)
+      // 루프 종료 전 자동 테스트 실행 (파일이 생성/수정된 경우, 아직 REVIEW 전환 안 된 경우)
       const hasFileChanges =
         createdFiles.length > 0 || modifiedFiles.length > 0;
       const allPlanItemsCompleted = taskManager.getNextPendingItem() === null;
@@ -3851,14 +3901,37 @@ export class ConversationManager implements IConversationHandler {
         testFixAttempts = testTransition.testFixAttempts;
         if (testTransition.pendingRetryPrompt) {
           pendingRetryPrompt = true;
-        }
-        if (testTransition.turnAction.action === "continue") {
-          turnCount++;
+          turnCount++; // retry → back to EXECUTION
           continue;
         }
+        // REVIEW 전환 시 turnCount++ 하지 않음 (REVIEW handler가 처리)
+        continue;
       }
 
       break;
+    }
+
+    // Safety net: 루프가 maxTurns로 종료됐지만 REVIEW 상태인 경우 리뷰 실행
+    if (
+      stateManager.getCurrentState() === AgentPhase.REVIEW &&
+      turnCount >= maxTurns
+    ) {
+      console.log(
+        "[ConversationManager] Safety net: Loop exited at maxTurns but REVIEW pending. Running review.",
+      );
+      await this.handleReviewPhase(
+        stateManager,
+        webviewToRespond,
+        createdFiles,
+        modifiedFiles,
+        systemPrompt,
+        accumulatedUserParts,
+        abortSignal,
+        options,
+        userQuery,
+        collectedActions,
+        collectedUIMessages,
+      );
     }
 
     // v9.4.0: 파일 트랜잭션 커밋
@@ -4775,6 +4848,36 @@ export class ConversationManager implements IConversationHandler {
       "[ConversationManager] REVIEW completed, transitioning to DONE.",
     );
     return { action: "break" };
+  }
+
+  /**
+   * PreToolUseValidator에 의해 차단된 도구 처리
+   * @returns 'break' (모든 도구 차단 → 루프 종료), 'continue' (일부 성공 → 계속), null (차단 없음)
+   */
+  private handleBlockedTools(
+    hasBlocked: boolean,
+    blockedMessages: string[],
+    hasSuccessful: boolean,
+    stateManager: AgentStateManager,
+    accumulatedUserParts: UserPart[],
+  ): "break" | "continue" | null {
+    if (!hasBlocked || blockedMessages.length === 0) {
+      return null;
+    }
+
+    console.log(
+      `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(", ")}`,
+    );
+
+    if (!hasSuccessful) {
+      stateManager.transitionTo(AgentPhase.REVIEW);
+      return "break";
+    }
+
+    accumulatedUserParts.push({
+      text: `[시스템 알림] 다음 파일은 보안 규칙에 의해 접근이 차단되었습니다: ${blockedMessages.join(", ")}. 해당 파일을 제외하고 나머지 파일로 작업을 계속하세요.`,
+    });
+    return "continue";
   }
 
   /**

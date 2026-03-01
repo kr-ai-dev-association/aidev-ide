@@ -71,6 +71,8 @@ import {
   showErrorCorrection as showErrorCorrectionModule,
   setThinkingBubbleElement as setProcessingThinkingBubble,
   getThinkingBubbleElement,
+  updateThinkingContent as updateThinkingContentModule,
+  clearThinkingContent as clearThinkingContentModule,
 } from "./chat/processing-steps.js";
 // mention-handler.js 모듈은 chat.js 내부 변수(chatInput, selectedFiles)에 의존하여
 // 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
@@ -146,6 +148,10 @@ const vscode = window.vscode || null;
 
 function setProcessingStep(stepName) {
   setProcessingStepModule(stepName);
+  // done 단계에서 thinking content 정리
+  if (stepName === 'done') {
+    clearThinkingContentModule();
+  }
 }
 
 function updateProcessingStatus(stepName, status) {
@@ -2270,6 +2276,11 @@ window.addEventListener("message", (event) => {
             hideAutoCorrectingIndicator();
           }
         }
+      }
+      break;
+    case "updateThinkingContent":
+      if (message.text) {
+        updateThinkingContentModule(message.text);
       }
       break;
     case "showGitInfo":

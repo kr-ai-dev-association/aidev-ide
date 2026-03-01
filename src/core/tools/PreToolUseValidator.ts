@@ -56,6 +56,7 @@ let _serverSecurityRulesLoaded = false;
  */
 export function updateCustomBlockedCommands(patterns: string[]): void {
     customBlockedCommands = patterns;
+    PreToolUseValidator.invalidateCache();
 }
 
 /**
@@ -63,6 +64,7 @@ export function updateCustomBlockedCommands(patterns: string[]): void {
  */
 export function updateCustomProtectedFiles(patterns: string[]): void {
     customProtectedFiles = patterns;
+    PreToolUseValidator.invalidateCache();
 }
 
 /**
@@ -70,6 +72,10 @@ export function updateCustomProtectedFiles(patterns: string[]): void {
  */
 export function updateCustomHiddenFiles(patterns: string[]): void {
     customHiddenFiles = patterns;
+    PreToolUseValidator.invalidateCache();
+    if (patterns.length > 0) {
+        console.log(`[PreToolUseValidator] Custom hidden files updated: [${patterns.join(', ')}]`);
+    }
 }
 
 /**
@@ -77,6 +83,7 @@ export function updateCustomHiddenFiles(patterns: string[]): void {
  */
 export function updateDisabledBlockedCommands(ids: string[]): void {
     disabledBlockedCommands = ids;
+    PreToolUseValidator.invalidateCache();
 }
 
 /**
@@ -84,6 +91,7 @@ export function updateDisabledBlockedCommands(ids: string[]): void {
  */
 export function updateDisabledProtectedFiles(ids: string[]): void {
     disabledProtectedFiles = ids;
+    PreToolUseValidator.invalidateCache();
 }
 
 /**
@@ -144,6 +152,7 @@ export function loadServerSecurityRules(): void {
             }));
 
         _serverSecurityRulesLoaded = true;
+        PreToolUseValidator.invalidateCache();
         console.log(`[PreToolUseValidator] Server security rules loaded: ${_serverBlockedCommands.length} blocked(required), ${_serverRecommendedCommands.length} blocked(recommended), ${_serverProtectedFiles.length} protected, ${_serverHiddenFiles.length} hidden`);
     } catch (error) {
         // SettingsManager 로드 실패 - 서버 규칙 없이 진행
@@ -156,6 +165,44 @@ export function loadServerSecurityRules(): void {
 }
 
 export class PreToolUseValidator {
+    // 캐시된 regex 배열 (invalidateCache()로 초기화)
+    private static _cachedDangerousCommands: RegExp[] | null = null;
+    private static _cachedSensitiveFiles: RegExp[] | null = null;
+    private static _cachedReadOnlyFiles: RegExp[] | null = null;
+    private static _cachedHiddenFilePatterns: RegExp[] | null = null;
+
+    /**
+     * 캐시 무효화 — 규칙 변경 시 호출
+     */
+    static invalidateCache(): void {
+        PreToolUseValidator._cachedDangerousCommands = null;
+        PreToolUseValidator._cachedSensitiveFiles = null;
+        PreToolUseValidator._cachedReadOnlyFiles = null;
+        PreToolUseValidator._cachedHiddenFilePatterns = null;
+    }
+
+    /**
+     * 패턴 문자열 배열로부터 중복 제거된 RegExp 배열 생성
+     */
+    private static buildRegexPatterns(sources: Array<{ pattern: string; skip?: boolean }>): RegExp[] {
+        const patterns: RegExp[] = [];
+        const added = new Set<string>();
+        for (const { pattern: p, skip } of sources) {
+            if (skip || added.has(p)) continue;
+            added.add(p);
+            try {
+                patterns.push(new RegExp(p, 'i'));
+            } catch {
+                const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                if (!added.has(escaped)) {
+                    added.add(escaped);
+                    patterns.push(new RegExp(escaped, 'i'));
+                }
+            }
+        }
+        return patterns;
+    }
+
     // v9.4.0: 셸 메타문자 패턴 (명령어 우회 방지)
     private static readonly SHELL_METACHAR_PATTERNS: RegExp[] = [
         /\$\([^)]+\)/,           // $() 서브셸
@@ -177,55 +224,25 @@ export class PreToolUseValidator {
         /^\s*\/proc/i,           // 프로세스 정보
     ];
 
-    // 위험한 명령어 패턴 (절대 실행 금지) - 기본값 기반으로 동적 생성 (중복 제거)
+    // 위험한 명령어 패턴 (절대 실행 금지) - 기본값 기반으로 동적 생성 (중복 제거, 캐싱)
     private static get DANGEROUS_COMMANDS(): RegExp[] {
-        const patterns: RegExp[] = [];
-        const addedPatterns = new Set<string>(); // 패턴 문자열 기반 중복 방지
+        if (this._cachedDangerousCommands) return this._cachedDangerousCommands;
 
-        const addPattern = (patternStr: string) => {
-            if (addedPatterns.has(patternStr)) return;
-            addedPatterns.add(patternStr);
-            try {
-                patterns.push(new RegExp(patternStr, 'i'));
-            } catch (e) {
-                const escaped = patternStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                if (!addedPatterns.has(escaped)) {
-                    addedPatterns.add(escaped);
-                    patterns.push(new RegExp(escaped, 'i'));
-                }
-            }
-        };
+        if (!_serverSecurityRulesLoaded) loadServerSecurityRules();
 
-        // 기본 규칙 중 비활성화되지 않은 것들
-        for (const rule of DEFAULT_BLOCKED_COMMANDS) {
-            if (!disabledBlockedCommands.includes(rule.id)) {
-                addPattern(rule.pattern);
-            }
-        }
+        const sources: Array<{ pattern: string; skip?: boolean }> = [
+            // 기본 규칙 중 비활성화되지 않은 것들
+            ...DEFAULT_BLOCKED_COMMANDS.map(r => ({ pattern: r.pattern, skip: disabledBlockedCommands.includes(r.id) })),
+            // 커스텀 규칙
+            ...customBlockedCommands.map(p => ({ pattern: p })),
+            // 서버 필수(required) 차단 규칙
+            ..._serverBlockedCommands.map(r => ({ pattern: r.pattern })),
+            // 서버 권장(recommended) 차단 규칙 (비활성화되지 않은 것만)
+            ..._serverRecommendedCommands.map(r => ({ pattern: r.pattern, skip: disabledBlockedCommands.includes(`server:${r.description}`) })),
+        ];
 
-        // 커스텀 규칙 추가
-        for (const pattern of customBlockedCommands) {
-            addPattern(pattern);
-        }
-
-        // 서버 보안 규칙 로드 (최초 1회)
-        if (!_serverSecurityRulesLoaded) {
-            loadServerSecurityRules();
-        }
-
-        // 서버 필수(required) 차단 규칙 추가 (항상 강제 적용)
-        for (const rule of _serverBlockedCommands) {
-            addPattern(rule.pattern);
-        }
-
-        // 서버 권장(recommended) 차단 규칙 추가 (비활성화되지 않은 것만)
-        for (const rule of _serverRecommendedCommands) {
-            if (!disabledBlockedCommands.includes(`server:${rule.description}`)) {
-                addPattern(rule.pattern);
-            }
-        }
-
-        return patterns;
+        this._cachedDangerousCommands = this.buildRegexPatterns(sources);
+        return this._cachedDangerousCommands;
     }
 
     // 주의 필요 명령어 패턴 (경고 후 허용)
@@ -237,80 +254,80 @@ export class PreToolUseValidator {
         /\bkill\s+-9/i,                              // 강제 종료
     ];
 
-    // 민감한 파일 패턴 (수정 차단) - 동적 생성
+    // 민감한 파일 패턴 (수정 차단) - 동적 생성 (캐싱)
     private static get SENSITIVE_FILES(): RegExp[] {
-        const patterns: RegExp[] = [];
+        if (this._cachedSensitiveFiles) return this._cachedSensitiveFiles;
 
-        // 기본 규칙 중 비활성화되지 않은 것들 (읽기 전용 제외)
+        if (!_serverSecurityRulesLoaded) loadServerSecurityRules();
+
         const readOnlyIds = ['package_lock', 'yarn_lock', 'pnpm_lock'];
-        for (const rule of DEFAULT_PROTECTED_FILES) {
-            if (!disabledProtectedFiles.includes(rule.id) && !readOnlyIds.includes(rule.id)) {
-                try {
-                    patterns.push(new RegExp(rule.pattern, 'i'));
-                } catch (e) {
-                    console.warn(`[PreToolUseValidator] Invalid regex pattern: ${rule.pattern}`);
-                }
-            }
-        }
+        const sources: Array<{ pattern: string; skip?: boolean }> = [
+            // 기본 규칙 중 비활성화되지 않은 것들 (읽기 전용 제외)
+            ...DEFAULT_PROTECTED_FILES.map(r => ({
+                pattern: r.pattern,
+                skip: disabledProtectedFiles.includes(r.id) || readOnlyIds.includes(r.id),
+            })),
+            // 커스텀 보호 파일
+            ...customProtectedFiles.map(p => ({ pattern: p })),
+            // 서버 보호 파일
+            ..._serverProtectedFiles.map(r => ({ pattern: r.pattern })),
+            // 서버 은닉 파일 (수정/삭제도 차단)
+            ..._serverHiddenFiles.map(r => ({ pattern: r.pattern })),
+            // 커스텀 은닉 파일 (수정/삭제도 차단)
+            ...customHiddenFiles.map(p => ({ pattern: p })),
+        ];
 
-        // 커스텀 규칙 추가
-        for (const pattern of customProtectedFiles) {
-            try {
-                patterns.push(new RegExp(pattern, 'i'));
-            } catch (e) {
-                patterns.push(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-            }
-        }
-
-        // 서버 보호 파일 규칙 로드
-        if (!_serverSecurityRulesLoaded) {
-            loadServerSecurityRules();
-        }
-        for (const rule of _serverProtectedFiles) {
-            try {
-                patterns.push(new RegExp(rule.pattern, 'i'));
-            } catch (e) {
-                patterns.push(new RegExp(rule.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-            }
-        }
-
-        // 서버 은닉 파일도 수정/삭제 차단 (읽기는 validateFileRead에서 별도 차단)
-        for (const rule of _serverHiddenFiles) {
-            try {
-                patterns.push(new RegExp(rule.pattern, 'i'));
-            } catch (e) {
-                patterns.push(new RegExp(rule.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-            }
-        }
-
-        // 커스텀 은닉 파일도 수정/삭제 차단
-        for (const pattern of customHiddenFiles) {
-            try {
-                patterns.push(new RegExp(pattern, 'i'));
-            } catch (e) {
-                patterns.push(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-            }
-        }
-
-        return patterns;
+        this._cachedSensitiveFiles = this.buildRegexPatterns(sources);
+        return this._cachedSensitiveFiles;
     }
 
-    // 읽기 허용되지만 수정 차단되는 파일 - 동적 생성
+    // 읽기 허용되지만 수정 차단되는 파일 - 동적 생성 (캐싱)
     private static get READ_ONLY_FILES(): RegExp[] {
-        const patterns: RegExp[] = [];
-        const readOnlyIds = ['package_lock', 'yarn_lock', 'pnpm_lock'];
+        if (this._cachedReadOnlyFiles) return this._cachedReadOnlyFiles;
 
-        for (const rule of DEFAULT_PROTECTED_FILES) {
-            if (readOnlyIds.includes(rule.id) && !disabledProtectedFiles.includes(rule.id)) {
-                try {
-                    patterns.push(new RegExp(rule.pattern, 'i'));
-                } catch (e) {
-                    console.warn(`[PreToolUseValidator] Invalid regex pattern: ${rule.pattern}`);
-                }
+        const readOnlyIds = ['package_lock', 'yarn_lock', 'pnpm_lock'];
+        const sources: Array<{ pattern: string; skip?: boolean }> = DEFAULT_PROTECTED_FILES.map(r => ({
+            pattern: r.pattern,
+            skip: !readOnlyIds.includes(r.id) || disabledProtectedFiles.includes(r.id),
+        }));
+
+        this._cachedReadOnlyFiles = this.buildRegexPatterns(sources);
+        return this._cachedReadOnlyFiles;
+    }
+
+    // 은닉 파일 패턴 (읽기 차단용) - 캐싱
+    private static get HIDDEN_FILE_PATTERNS(): RegExp[] {
+        if (this._cachedHiddenFilePatterns) return this._cachedHiddenFilePatterns;
+
+        if (!_serverSecurityRulesLoaded) loadServerSecurityRules();
+
+        const sources: Array<{ pattern: string; skip?: boolean }> = [
+            ..._serverHiddenFiles.map(r => ({ pattern: r.pattern })),
+            ...customHiddenFiles.map(p => ({ pattern: p })),
+        ];
+
+        this._cachedHiddenFilePatterns = this.buildRegexPatterns(sources);
+        return this._cachedHiddenFilePatterns;
+    }
+
+    /**
+     * 은닉 파일 여부 확인 (검색 결과 필터링용)
+     */
+    static isHiddenFile(filePath: string, projectRoot: string): boolean {
+        const patterns = this.HIDDEN_FILE_PATTERNS;
+        if (patterns.length === 0) return false;
+
+        const relativePath = path.isAbsolute(filePath)
+            ? path.relative(projectRoot, filePath)
+            : filePath;
+        const basename = path.basename(filePath);
+
+        for (const pattern of patterns) {
+            if (pattern.test(relativePath) || pattern.test(filePath) || pattern.test(basename)) {
+                return true;
             }
         }
-
-        return patterns;
+        return false;
     }
 
     /**
@@ -326,6 +343,9 @@ export class PreToolUseValidator {
                 return this.validateFileWrite(toolUse.params.path || '', projectRoot);
 
             case Tool.READ_FILE:
+            case Tool.EXPAND_AROUND_LINE:
+            case Tool.LIST_IMPORTS:
+            case Tool.STAT_FILE:
                 return this.validateFileRead(toolUse.params.path || '', projectRoot);
 
             case Tool.REMOVE_FILE:
@@ -530,53 +550,16 @@ export class PreToolUseValidator {
             };
         }
 
-        // 은닉 파일 읽기 차단
-        if (!_serverSecurityRulesLoaded) {
-            loadServerSecurityRules();
-        }
+        // 은닉 파일 읽기 차단 (캐싱된 패턴 사용)
         const relativePath = absolutePath.replace(normalizedProjectRoot + '/', '');
-        for (const rule of _serverHiddenFiles) {
-            try {
-                const regex = new RegExp(rule.pattern, 'i');
-                if (regex.test(relativePath) || regex.test(filePath) || regex.test(path.basename(filePath))) {
-                    return {
-                        allowed: false,
-                        reason: `은닉 파일 읽기 차단: ${filePath} (${rule.description})`,
-                        severity: 'error'
-                    };
-                }
-            } catch {
-                const escaped = rule.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                if (new RegExp(escaped, 'i').test(relativePath) || new RegExp(escaped, 'i').test(filePath)) {
-                    return {
-                        allowed: false,
-                        reason: `은닉 파일 읽기 차단: ${filePath} (${rule.description})`,
-                        severity: 'error'
-                    };
-                }
-            }
-        }
-
-        // 커스텀 은닉 파일 읽기 차단
-        for (const pattern of customHiddenFiles) {
-            try {
-                const regex = new RegExp(pattern, 'i');
-                if (regex.test(relativePath) || regex.test(filePath) || regex.test(path.basename(filePath))) {
-                    return {
-                        allowed: false,
-                        reason: `은닉 파일 읽기 차단: ${filePath} (사용자 설정)`,
-                        severity: 'error'
-                    };
-                }
-            } catch {
-                const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                if (new RegExp(escaped, 'i').test(relativePath) || new RegExp(escaped, 'i').test(filePath)) {
-                    return {
-                        allowed: false,
-                        reason: `은닉 파일 읽기 차단: ${filePath} (사용자 설정)`,
-                        severity: 'error'
-                    };
-                }
+        for (const pattern of this.HIDDEN_FILE_PATTERNS) {
+            if (pattern.test(relativePath) || pattern.test(filePath) || pattern.test(path.basename(filePath))) {
+                console.log(`[PreToolUseValidator] Hidden file match: pattern="${pattern}", file="${filePath}", relativePath="${relativePath}"`);
+                return {
+                    allowed: false,
+                    reason: `은닉 파일 읽기 차단: ${filePath}`,
+                    severity: 'error'
+                };
             }
         }
 

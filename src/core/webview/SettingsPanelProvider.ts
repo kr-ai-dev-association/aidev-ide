@@ -95,6 +95,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoToolExecutionEnabled();
             const autoMcpToolExecutionEnabled =
               await settingsManager.isAutoMcpToolExecutionEnabled();
+            const orchestrationEnabled =
+              await settingsManager.isOrchestrationEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
 
@@ -141,6 +143,7 @@ export function openSettingsPanel(
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
               autoToolExecutionEnabled: autoToolExecutionEnabled, // 도구 자동 실행 설정 추가
               autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled, // MCP 도구 자동 실행 설정
+              orchestrationEnabled: orchestrationEnabled || false, // 멀티 에이전트 설정
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
@@ -1123,6 +1126,27 @@ export function openSettingsPanel(
           }
           break;
         }
+        case "setOrchestrationEnabled": { // 오케스트레이션 설정
+          const orchestrationVal = data.enabled;
+          if (typeof orchestrationVal === "boolean") {
+            try {
+              await settingsManager.updateOrchestrationEnabled(orchestrationVal);
+              safePostMessage(panel, { command: "orchestrationEnabledSet" });
+              console.log(`[PanelManager] Orchestration 설정 저장됨: ${orchestrationVal}`);
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "orchestrationEnabledSetError",
+                error: error.message,
+              });
+            }
+          } else {
+            safePostMessage(panel, {
+              command: "orchestrationEnabledSetError",
+              error: "Invalid setting",
+            });
+          }
+          break;
+        }
         case "setStreamingEnabled": // 스트리밍 설정 저장 케이스 추가
           const streamingEnabledToSet = data.enabled;
           if (typeof streamingEnabledToSet === "boolean") {
@@ -1560,6 +1584,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoToolExecutionEnabled();
             const autoMcpToolExecutionEnabled =
               await settingsManager.isAutoMcpToolExecutionEnabled();
+            const orchestrationEnabled =
+              await settingsManager.isOrchestrationEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
             const aiModel = await stateManager.getAiModel();
@@ -1588,6 +1614,7 @@ export function openSettingsPanel(
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled ?? true,
               autoToolExecutionEnabled: autoToolExecutionEnabled ?? true,
               autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled ?? false,
+              orchestrationEnabled: orchestrationEnabled || false,
               streamingEnabled: streamingEnabled || false,
               aiModel: modelToUse,
               serverSettings: settingsManager.getAllServerSettings(),

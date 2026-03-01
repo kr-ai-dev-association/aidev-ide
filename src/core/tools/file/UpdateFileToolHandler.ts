@@ -186,17 +186,9 @@ export class UpdateFileToolHandler implements IToolHandler {
           `[UpdateFileToolHandler] Search pattern not found in file: ${filePath}`,
         );
 
-        // 단일 블록이고 SEARCH/REPLACE가 실패하면 전체 파일 덮어쓰기 Fallback
-        if (replacements.length === 1) {
-          console.warn(
-            `[UpdateFileToolHandler] Falling back to full overwrite for ${filePath} (SEARCH block not found)`
-          );
-          replacementsToApply.push({
-            start: 0,
-            end: fileContent.length,
-            replace: replacement.replace,
-          });
-        } else {
+        // SEARCH 매칭 실패 → 에러 반환 (파일 내용 포함하여 LLM이 재시도 가능)
+        // ⚠️ 전체 덮어쓰기 Fallback 제거: REPLACE 블록만으로 파일 전체를 대체하면 나머지 코드가 소실됨
+        {
           let errorMessage = `❌ **수정 실패: SEARCH 블록을 찾을 수 없습니다** (파일: ${filePath})\n\n`;
 
           if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
@@ -205,8 +197,14 @@ export class UpdateFileToolHandler implements IToolHandler {
             errorMessage += `에이전트가 제시한 SEARCH 블록의 내용이 실제 파일의 내용과 일치하지 않습니다. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
           }
 
+          // 파일이 짧으면 전체 내용, 길면 앞부분만 제공
+          const maxPreviewLength = 3000;
+          const preview = fileContent.length > maxPreviewLength
+            ? fileContent.substring(0, maxPreviewLength) + `\n... (${fileContent.length - maxPreviewLength}자 생략)`
+            : fileContent;
           errorMessage += `**현재 파일의 실제 내용 (아래 내용을 복사하여 SEARCH 블록에 사용하세요):**\n`;
-          errorMessage += `\`\`\`\n${fileContent}\n\`\`\`\n`;
+          errorMessage += `\`\`\`\n${preview}\n\`\`\`\n`;
+          errorMessage += `\n파일을 완전히 교체하려면 update_file 대신 create_file을 사용하세요.`;
 
           return {
             success: false,

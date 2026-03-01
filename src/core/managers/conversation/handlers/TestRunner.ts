@@ -33,10 +33,11 @@ export class TestRunner {
    */
   public static async runAutomatedTests(
     webview: vscode.Webview,
-    workspaceRoot: string,
+    _workspaceRoot: string,
     createdFiles: string[],
     modifiedFiles: string[],
   ): Promise<TestResult> {
+    let workspaceRoot = _workspaceRoot;
     try {
       // 검증 시작
       WebviewBridge.sendProcessingStep(webview, "executing");
@@ -82,96 +83,124 @@ export class TestRunner {
           );
           Object.assign(projectInfo, llmResult);
         } else {
+          // 루트에서 감지 실패 → 수정된 파일 경로 기반으로 서브디렉토리 탐지
           console.log(
-            "[TestRunner] Unknown project type, skipping automated tests.",
+            "[TestRunner] Unknown project type at root. Trying subdirectory detection based on modified files...",
           );
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            "executing",
-            "프로젝트 타입 미확인 테스트 검증 완료",
+          const subProjectRoot = await TestRunner.findSubProjectRoot(
+            workspaceRoot,
+            createdFiles,
+            modifiedFiles,
+            detector,
           );
-          return { success: true }; // 알 수 없는 프로젝트 타입은 성공으로 간주
+
+          if (subProjectRoot) {
+            console.log(
+              `[TestRunner] Sub-project detected at: ${subProjectRoot.root} (type: ${subProjectRoot.info.type})`,
+            );
+            WebviewBridge.sendProcessingStatus(
+              webview,
+              "executing",
+              `서브 프로젝트 감지: ${path.basename(subProjectRoot.root)} (${subProjectRoot.info.type})`,
+            );
+            Object.assign(projectInfo, subProjectRoot.info);
+            // workspaceRoot를 서브 프로젝트 루트로 교체 (Lint Check 실행 경로)
+            workspaceRoot = subProjectRoot.root;
+          } else {
+            console.log(
+              "[TestRunner] No sub-project found. Smoke Test/Lint Check will be skipped, but Diagnostics will still run.",
+            );
+            WebviewBridge.sendProcessingStatus(
+              webview,
+              "executing",
+              "프로젝트 타입 미확인 — Diagnostics 검사만 실행",
+            );
+          }
+          // 프로젝트 타입 미확인이라도 Diagnostics는 실행 (LSP 기반이라 프로젝트 타입 무관)
         }
       }
 
       const testResults: string[] = [];
+      const isUnknownProject = projectInfo.type === ProjectType.UNKNOWN;
 
-      // 1. Smoke Test: 프로젝트 타입별 필수 파일 존재 확인
-      WebviewBridge.sendProcessingStatus(
-        webview,
-        "executing",
-        "Smoke Test 실행 중 (필수 파일 확인)...",
-      );
-      const criticalFiles = detector.getCriticalFiles(
-        projectInfo.type,
-        workspaceRoot,
-      );
+      // 1. Smoke Test: 프로젝트 타입별 필수 파일 존재 확인 (UNKNOWN이면 스킵)
+      if (!isUnknownProject) {
+        WebviewBridge.sendProcessingStatus(
+          webview,
+          "executing",
+          "Smoke Test 실행 중 (필수 파일 확인)...",
+        );
+        const criticalFiles = detector.getCriticalFiles(
+          projectInfo.type,
+          workspaceRoot,
+        );
 
-      const missingFiles: string[] = [];
-      for (const file of criticalFiles) {
-        try {
-          const filePath = path.isAbsolute(file)
-            ? file
-            : path.join(workspaceRoot, file);
-          await fs.access(filePath);
-        } catch {
-          // build.gradle와 build.gradle.kts는 둘 중 하나만 있으면 됨 (Android, Spring Boot)
-          if (
-            (projectInfo.type === ProjectType.SPRING_BOOT ||
-              projectInfo.type === ProjectType.ANDROID) &&
-            projectInfo.buildTool.toString().includes("gradle") &&
-            (file === "build.gradle" ||
-              file === "build.gradle.kts" ||
-              file === "app/build.gradle" ||
-              file === "app/build.gradle.kts" ||
-              file === "settings.gradle" ||
-              file === "settings.gradle.kts")
-          ) {
-            const otherFile = file.includes(".kts")
-              ? file.replace(".kts", "")
-              : file + ".kts";
-            try {
-              await fs.access(path.join(workspaceRoot, otherFile));
-              continue; // 다른 파일이 있으면 통과
-            } catch {}
+        const missingFiles: string[] = [];
+        for (const file of criticalFiles) {
+          try {
+            const filePath = path.isAbsolute(file)
+              ? file
+              : path.join(workspaceRoot, file);
+            await fs.access(filePath);
+          } catch {
+            // build.gradle와 build.gradle.kts는 둘 중 하나만 있으면 됨 (Android, Spring Boot)
+            if (
+              (projectInfo.type === ProjectType.SPRING_BOOT ||
+                projectInfo.type === ProjectType.ANDROID) &&
+              projectInfo.buildTool.toString().includes("gradle") &&
+              (file === "build.gradle" ||
+                file === "build.gradle.kts" ||
+                file === "app/build.gradle" ||
+                file === "app/build.gradle.kts" ||
+                file === "settings.gradle" ||
+                file === "settings.gradle.kts")
+            ) {
+              const otherFile = file.includes(".kts")
+                ? file.replace(".kts", "")
+                : file + ".kts";
+              try {
+                await fs.access(path.join(workspaceRoot, otherFile));
+                continue; // 다른 파일이 있으면 통과
+              } catch {}
+            }
+            // requirements.txt와 pyproject.toml도 둘 중 하나만 있으면 됨
+            if (
+              (projectInfo.type === ProjectType.PYTHON ||
+                projectInfo.type === ProjectType.DJANGO ||
+                projectInfo.type === ProjectType.FLASK ||
+                projectInfo.type === ProjectType.FASTAPI) &&
+              (file === "requirements.txt" || file === "pyproject.toml")
+            ) {
+              const otherFile =
+                file === "requirements.txt"
+                  ? "pyproject.toml"
+                  : "requirements.txt";
+              try {
+                await fs.access(path.join(workspaceRoot, otherFile));
+                continue; // 다른 파일이 있으면 통과
+              } catch {}
+            }
+            missingFiles.push(file);
           }
-          // requirements.txt와 pyproject.toml도 둘 중 하나만 있으면 됨
-          if (
-            (projectInfo.type === ProjectType.PYTHON ||
-              projectInfo.type === ProjectType.DJANGO ||
-              projectInfo.type === ProjectType.FLASK ||
-              projectInfo.type === ProjectType.FASTAPI) &&
-            (file === "requirements.txt" || file === "pyproject.toml")
-          ) {
-            const otherFile =
-              file === "requirements.txt"
-                ? "pyproject.toml"
-                : "requirements.txt";
-            try {
-              await fs.access(path.join(workspaceRoot, otherFile));
-              continue; // 다른 파일이 있으면 통과
-            } catch {}
-          }
-          missingFiles.push(file);
         }
-      }
 
-      if (missingFiles.length > 0) {
-        testResults.push(
-          `Smoke Test 실패: 다음 파일이 누락되었습니다: ${missingFiles.join(", ")}`,
-        );
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          "executing",
-          "Smoke Test 실패",
-        );
-      } else {
-        testResults.push(`Smoke Test 통과: 모든 필수 파일이 존재합니다.`);
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          "executing",
-          "Smoke Test 통과",
-        );
+        if (missingFiles.length > 0) {
+          testResults.push(
+            `Smoke Test 실패: 다음 파일이 누락되었습니다: ${missingFiles.join(", ")}`,
+          );
+          WebviewBridge.sendProcessingStatus(
+            webview,
+            "executing",
+            "Smoke Test 실패",
+          );
+        } else {
+          testResults.push(`Smoke Test 통과: 모든 필수 파일이 존재합니다.`);
+          WebviewBridge.sendProcessingStatus(
+            webview,
+            "executing",
+            "Smoke Test 통과",
+          );
+        }
       }
 
       // 2. VS Code Diagnostics Check (LSP 기반 빠른 검사)
@@ -267,44 +296,46 @@ export class TestRunner {
         );
       }
 
-      // 3. Lint Check: 프로젝트 타입별 컴파일/빌드 검사 (CLI)
-      let validationCmd = await detector.getValidationCommand(
-        projectInfo.type,
-        workspaceRoot,
-        createdFiles,
-        modifiedFiles,
-      );
+      // 3. Lint Check: 프로젝트 타입별 컴파일/빌드 검사 (CLI) — UNKNOWN이면 스킵
+      let cliClassification: ClassificationResult | undefined;
 
-      // Fallback: getValidationCommand()가 null을 반환하면 LLM에게 질의
-      if (!validationCmd) {
-        validationCmd = await TestRunner.getValidationCommandFromLLM(
-          webview,
-          projectInfo,
+      if (!isUnknownProject) {
+        let validationCmd = await detector.getValidationCommand(
+          projectInfo.type,
           workspaceRoot,
           createdFiles,
           modifiedFiles,
         );
-      }
 
-      let cliClassification: ClassificationResult | undefined;
+        // Fallback: getValidationCommand()가 null을 반환하면 LLM에게 질의
+        if (!validationCmd) {
+          validationCmd = await TestRunner.getValidationCommandFromLLM(
+            webview,
+            projectInfo,
+            workspaceRoot,
+            createdFiles,
+            modifiedFiles,
+          );
+        }
 
-      if (validationCmd) {
-        const lintResult = await TestRunner.runValidationCommand(
-          webview,
-          validationCmd,
-          workspaceRoot,
-        );
-        testResults.push(lintResult.message);
-        cliClassification = lintResult.classification;
-      } else {
-        testResults.push(
-          `컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어를 결정할 수 없습니다. (규칙 기반 및 LLM fallback 모두 실패)`,
-        );
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          "executing",
-          "검증 명령어 없음 (건너뜀)",
-        );
+        if (validationCmd) {
+          const lintResult = await TestRunner.runValidationCommand(
+            webview,
+            validationCmd,
+            workspaceRoot,
+          );
+          testResults.push(lintResult.message);
+          cliClassification = lintResult.classification;
+        } else {
+          testResults.push(
+            `컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어를 결정할 수 없습니다. (규칙 기반 및 LLM fallback 모두 실패)`,
+          );
+          WebviewBridge.sendProcessingStatus(
+            webview,
+            "executing",
+            "검증 명령어 없음 (건너뜀)",
+          );
+        }
       }
 
       // 실패한 테스트 확인
@@ -612,5 +643,50 @@ export class TestRunner {
 
     // 기본 패턴: 첫 100자
     return `GENERIC:${errorMessage.substring(0, 100).replace(/\s+/g, " ")}`;
+  }
+
+  /**
+   * 수정된 파일 경로에서 서브 프로젝트 루트를 찾습니다.
+   * 예: workspaceRoot=/test, modifiedFiles=[frontend/src/App.tsx]
+   *   → frontend/ 디렉토리에서 프로젝트 타입 감지 시도
+   */
+  private static async findSubProjectRoot(
+    workspaceRoot: string,
+    createdFiles: string[],
+    modifiedFiles: string[],
+    detector: ProjectDetector,
+  ): Promise<{ root: string; info: { type: ProjectType; confidence: number; buildTool: any } } | null> {
+    const allFiles = [...createdFiles, ...modifiedFiles];
+    if (allFiles.length === 0) return null;
+
+    // 수정된 파일들의 첫 번째 디렉토리 세그먼트 수집 (중복 제거)
+    const subDirs = new Set<string>();
+    for (const file of allFiles) {
+      const relativePath = path.isAbsolute(file)
+        ? path.relative(workspaceRoot, file)
+        : file;
+      const firstSegment = relativePath.split(path.sep)[0];
+      if (firstSegment && firstSegment !== relativePath) {
+        subDirs.add(firstSegment);
+      }
+    }
+
+    // 각 서브 디렉토리에서 프로젝트 타입 감지 시도
+    for (const subDir of subDirs) {
+      const subRoot = path.join(workspaceRoot, subDir);
+      try {
+        const stat = await fs.stat(subRoot);
+        if (!stat.isDirectory()) continue;
+
+        const subInfo = await detector.detectProjectType(subRoot);
+        if (subInfo.type !== ProjectType.UNKNOWN) {
+          return { root: subRoot, info: subInfo };
+        }
+      } catch {
+        // 디렉토리 접근 실패 시 무시
+      }
+    }
+
+    return null;
   }
 }

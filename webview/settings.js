@@ -725,6 +725,9 @@ const autoToolStatus = document.getElementById("auto-tool-status");
 const autoMcpToolToggle = document.getElementById("auto-mcp-tool-toggle");
 const autoMcpToolStatus = document.getElementById("auto-mcp-tool-status");
 
+const orchestrationToggle = document.getElementById("orchestration-toggle");
+const orchestrationStatus = document.getElementById("orchestration-status");
+
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
@@ -751,6 +754,7 @@ bindToggleEvents({
   autoExecuteToggle,
   autoToolToggle,
   autoMcpToolToggle,
+  orchestrationToggle,
   vscode,
 });
 
@@ -2119,6 +2123,12 @@ window.addEventListener("message", (event) => {
         autoMcpToolToggle
       ) {
         autoMcpToolToggle.checked = message.autoMcpToolExecutionEnabled;
+      }
+      if (
+        typeof message.orchestrationEnabled === "boolean" &&
+        orchestrationToggle
+      ) {
+        orchestrationToggle.checked = message.orchestrationEnabled;
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;

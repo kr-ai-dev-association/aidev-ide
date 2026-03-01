@@ -3,7 +3,7 @@
  * 관리자가 설정한 AI 모델과 통신하는 OpenAI-compatible 클라이언트
  */
 
-type SendOptions = { signal?: AbortSignal };
+type SendOptions = { signal?: AbortSignal; disableThinking?: boolean };
 
 export interface AdminModelMessagePart {
     text?: string;
@@ -130,6 +130,12 @@ export class AdminModelApi {
         // max_tokens 기본값 설정 (Gemini OpenAI-compatible 엔드포인트는 기본값이 매우 낮음)
         const maxTok = this.config!.maxOutputTokens || this.config!.maxTokens || 16384;
         requestBody.max_tokens = maxTok;
+
+        // thinking 비활성화 (tool calling과 충돌 방지 — 네이티브 tool calling이 아닌 텍스트 기반이므로)
+        if (options?.disableThinking) {
+            requestBody.think = false;
+            console.log('[AdminModelApi] Thinking disabled for this request (tool calling mode)');
+        }
 
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 
@@ -270,6 +276,12 @@ export class AdminModelApi {
         // max_tokens 기본값 설정 (Gemini OpenAI-compatible 엔드포인트는 기본값이 매우 낮음)
         const maxTok = this.config!.maxOutputTokens || this.config!.maxTokens || 16384;
         requestBody.max_tokens = maxTok;
+
+        // thinking 비활성화 (tool calling과 충돌 방지)
+        if (options?.disableThinking) {
+            requestBody.think = false;
+            console.log('[AdminModelApi] Streaming: Thinking disabled for this request (tool calling mode)');
+        }
 
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 

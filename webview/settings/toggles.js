@@ -17,6 +17,7 @@ export function bindToggleEvents(elements) {
     autoExecuteToggle,
     autoToolToggle,
     autoMcpToolToggle,
+    orchestrationToggle,
     vscode,
   } = elements;
 
@@ -86,6 +87,16 @@ export function bindToggleEvents(elements) {
       const enabled = autoMcpToolToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setAutoMcpToolExecutionEnabled", enabled });
+      }
+    });
+  }
+
+  // 오케스트레이션 토글
+  if (orchestrationToggle) {
+    orchestrationToggle.addEventListener("change", () => {
+      const enabled = orchestrationToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setOrchestrationEnabled", enabled });
       }
     });
   }

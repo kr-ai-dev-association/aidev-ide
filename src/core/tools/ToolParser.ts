@@ -84,6 +84,19 @@ export class ToolParser {
                         codeContent = afterJson.substring(codeStart).trim();
                     }
                     console.log(`[ToolParser] Fallback: </file_content> 닫는 태그 없음, content length=${codeContent.length}`);
+                } else if (codeStartIndex === -1 && (toolName === Tool.UPDATE_FILE || toolName === Tool.CREATE_FILE)) {
+                    // Fallback: <file_content> 태그 없이 JSON 바로 뒤에 코드가 온 경우
+                    // SEARCH/REPLACE 마커가 있으면 diff로 추출
+                    const trimmedAfter = afterJson.trim();
+                    const hasSearchReplace = trimmedAfter.includes('<<<<<<< SEARCH') && trimmedAfter.includes('>>>>>>> REPLACE');
+                    if (hasSearchReplace) {
+                        // 다음 도구 호출 전까지를 content로 사용
+                        const nextToolMatch = /\{\s*["']tool["']\s*:/.exec(trimmedAfter);
+                        codeContent = nextToolMatch
+                            ? trimmedAfter.substring(0, nextToolMatch.index).trim()
+                            : trimmedAfter;
+                        console.log(`[ToolParser] Fallback: No tags but SEARCH/REPLACE found, content length=${codeContent.length}`);
+                    }
                 }
 
                 // ToolUse 생성

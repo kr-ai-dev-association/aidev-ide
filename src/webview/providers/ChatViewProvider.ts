@@ -28,6 +28,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'codepilot.chatView';
     private _view?: vscode.WebviewView;
     private diffDocumentProvider?: DiffDocumentProvider;
+    private runTerminal: vscode.Terminal | null = null;
 
     constructor(
         private readonly extensionUri: vscode.Uri,
@@ -711,8 +712,14 @@ ${JSON.stringify(errorContext, null, 2)}
                     this.openFilePicker(webviewView.webview);
                     break;
                 case 'executeBashCommands':
-                    // console.log('[Extension Host] Executing bash commands:', data.commands);
                     this.executeBashCommands(data.commands);
+                    break;
+                case 'stopBashCommand':
+                    if (this.runTerminal) {
+                        this.runTerminal.dispose();
+                        this.runTerminal = null;
+                        console.log('[ChatViewProvider] Run terminal stopped');
+                    }
                     break;
                 case 'clearHistory':
                     console.log('[Extension Host] Clearing conversation history for Code tab');
@@ -1531,6 +1538,7 @@ ${JSON.stringify(errorContext, null, 2)}
             }
 
             const terminal = vscode.window.createTerminal({ name: terminalName, shellPath, cwd: terminalCwd });
+            this.runTerminal = terminal;
             terminal.show();
             await new Promise(resolve => setTimeout(resolve, 500));
 

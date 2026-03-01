@@ -6,6 +6,64 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.0.0 (멀티에이전트 오케스트레이션, 도구 병렬실행, Thinking 제어)
+
+### 멀티에이전트 오케스트레이션 시스템
+- **OrchestrationRouter**: 복잡한 작업을 여러 에이전트가 병렬로 분담 처리하는 오케스트레이션 시스템을 신규 구현했습니다.
+  - `TaskSplitter`: LLM으로 작업을 독립적 서브태스크로 분할
+  - `SubAgentLoop`: 각 서브태스크를 독립 에이전트가 병렬 실행 (최대 3개 동시)
+  - `ResultMerger`: 에이전트별 결과를 통합하여 최종 응답 생성
+  - `PromisePool`: 동시성 제한이 있는 Promise 풀 유틸리티
+- **설정 연동**: `codepilot.orchestration` 설정으로 활성화/비활성화 (기본값: off)
+  - Settings UI에 "멀티 에이전트" 토글 섹션 추가
+
+### 도구 병렬 실행
+- **ToolExecutor 개선**: 읽기 전용 도구(read_file, list_files, search_files 등)를 `Promise.all`로 병렬 실행합니다.
+  - 쓰기 도구는 기존과 동일하게 순차 실행 유지
+  - 결과 순서는 원본 입력 순서 보장
+
+### Thinking 모드 제어 (Tool Calling 충돌 방지)
+- **LLMManager**: 시스템 프롬프트에 도구 스펙이 포함되면 자동으로 `think: false`를 설정합니다.
+  - `resolveDisableThinking()` 헬퍼로 4개 호출 경로에서 일관되게 적용
+- **OllamaApi**: `think: false`를 최상위 레벨에 전달하도록 수정 (`options` 내부가 아닌 `requestData.think`)
+  - Thinking-only 응답 시 `ThinkingOnlyError` 전용 에러 클래스로 복구 로직 개선
+  - `extractToolCallsFromThinking()`: thinking 블록 안에 갇힌 tool call JSON을 자동 추출
+  - 스트리밍 시 thinking 텍스트 누적 및 UI 전달
+
+### 차단된 도구 처리 개선
+- **handleBlockedTools() 헬퍼**: PreToolUseValidator가 일부 도구를 차단했을 때, 성공한 도구가 있으면 차단 파일을 알리고 나머지로 계속 진행합니다.
+  - 기존: 차단 발생 시 전체 중단 → 개선: 부분 차단 시 계속 진행
+- **PreToolUseValidator 성능 최적화**: Regex 패턴 캐싱으로 매 호출마다 재생성하지 않습니다.
+  - `invalidateCache()`: 규칙 변경 시만 캐시 무효화
+  - `buildRegexPatterns()`: 중복 패턴 빌드 로직 헬퍼로 추출
+  - `isHiddenFile()`: 파일 숨김 패턴 확인 공개 API 추가
+
+### TestRunner 개선 (모노레포/UNKNOWN 프로젝트 지원)
+- **UNKNOWN 프로젝트 타입 처리 수정**: Diagnostics(LSP 기반 검사)가 프로젝트 타입과 무관하게 항상 실행됩니다.
+  - 기존: UNKNOWN이면 모든 검증 건너뜀 → 개선: Smoke Test/Lint Check만 건너뛰고 Diagnostics는 실행
+- **서브 프로젝트 자동 감지**: 워크스페이스 루트가 UNKNOWN일 때, 수정된 파일 경로에서 첫 번째 디렉토리 세그먼트를 추출하여 서브 프로젝트 루트를 자동 감지합니다.
+  - `findSubProjectRoot()`: 범용적 감지 (하드코딩 없음)
+
+### ConversationManager 안정성 개선
+- **연속 빈 응답 가드**: LLM이 thinking만 반환하고 실제 응답이 없을 때 최대 3회까지 재시도합니다.
+- **빈 플랜 재시도**: INVESTIGATION 단계에서 빈 플랜을 반환하면 코드 의도 시 실행 플랜 재생성을 요청합니다.
+- **EXECUTION 단계 읽기 도구 허용**: 테스트 수정 중에도 읽기 전용 도구를 허용하고, 쓰기 도구 없이 2턴 이상 지속 시에만 넛지합니다.
+- **REVIEW 안전망**: maxTurns 도달 시에도 REVIEW 단계가 실행되어 요약이 누락되지 않습니다.
+- **Thinking 내용 UI 전달**: LLM 응답의 `<think>` 블록을 추출하여 thinking bubble에 표시합니다.
+
+### Thinking Bubble 스크롤 수정
+- **양방향 스크롤 고정**: 위로 스크롤(bubble이 아래에 있을 때)과 아래로 스크롤(bubble이 위에 있을 때) 모두 상단 고정이 동작합니다.
+  - `_bubbleNaturalScrollOffset` 패턴으로 고정/해제 판단
+  - `position: sticky` 제거 → JavaScript 기반 `is-forced-top` 클래스로 전환
+- **Thinking content 표시**: LLM의 thinking 내용을 bubble 하단에 2줄 접기로 표시, 클릭으로 펼치기/접기
+
+### 코드 블록 실행 중지 버튼
+- **Stop 버튼 추가**: 코드 블록의 Run 버튼 클릭 시 Stop 버튼으로 전환되어 실행 중인 명령을 중지할 수 있습니다.
+
+### 설정 UI 개선
+- **자동 테스트 검증 설명 보강**: 관리자 빌드/테스트 설정에 검증 명령어가 등록되어 있으면 해당 명령어가 우선 실행된다는 안내 추가
+- **섹션 순서 변경**: "멀티 에이전트" 섹션을 "파일 자동 업데이트" 위로 이동
+
 ## v10.0.2 (스트리밍 버퍼 수정, 관리자 UI 개선)
 
 ### 스트리밍 파싱 수정

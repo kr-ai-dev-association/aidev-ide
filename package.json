@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "10.0.2",
+  "version": "11.0.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -318,6 +318,12 @@
           "type": "boolean",
           "default": false,
           "description": "Enable or disable automatic error reporting to the backend server. When enabled, IDE errors are sent to the server and visible in codepilot-admin error logs.",
+          "scope": "resource"
+        },
+        "codepilot.orchestration": {
+          "type": "boolean",
+          "default": false,
+          "description": "멀티 에이전트 모드를 활성화합니다. 복잡한 작업을 여러 에이전트가 병렬로 분담하여 처리합니다. 토큰 소모량이 단일 에이전트 대비 많아질 수 있습니다. 비활성화 시 기존 단일 에이전트 방식으로 동작합니다.",
           "scope": "resource"
         },
         "codepilot.chatTheme": {

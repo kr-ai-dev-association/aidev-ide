@@ -6,6 +6,7 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { FileSearcher } from '../../managers/context/file/FileSearcher';
+import { PreToolUseValidator } from '../PreToolUseValidator';
 import * as path from 'path';
 
 export class SearchFilesToolHandler implements IToolHandler {
@@ -40,11 +41,18 @@ export class SearchFilesToolHandler implements IToolHandler {
             maxResults: toolUse.params.maxResults ? parseInt(toolUse.params.maxResults) : 100
         });
 
-        const formattedResults = searcher.formatResults(results, context.projectRoot);
+        // 은닉 파일 필터링
+        const filtered = results.filter(r => !PreToolUseValidator.isHiddenFile(r.file, context.projectRoot));
+        const hiddenCount = results.length - filtered.length;
+        if (hiddenCount > 0) {
+            console.log(`[SearchFilesToolHandler] Filtered ${hiddenCount} hidden file(s) from results`);
+        }
+
+        const formattedResults = searcher.formatResults(filtered, context.projectRoot);
 
         return {
             success: true,
-            message: `Found ${results.length} matches`,
+            message: `Found ${filtered.length} matches${hiddenCount > 0 ? ` (${hiddenCount} hidden files excluded)` : ''}`,
             data: { results: formattedResults }
         };
     }

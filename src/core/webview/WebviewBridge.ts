@@ -114,6 +114,15 @@ export class WebviewBridge {
     }
 
     /**
+     * LLM thinking 내용 전송 (멀티 에이전트 thinking 표시용)
+     */
+    public static sendThinkingContent(webview: vscode.Webview | undefined, text: string): void {
+        if (webview) {
+            safePostMessage(webview, { command: 'updateThinkingContent', text });
+        }
+    }
+
+    /**
      * 처리 단계 콜백 생성
      */
     public static createProcessingStepCallback(webview: vscode.Webview | undefined): ProcessingStepCallback {

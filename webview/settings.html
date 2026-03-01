@@ -365,6 +365,11 @@
       min-width: 0;
     }
 
+    .save-button {
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     .api-key-input-group input[type="password"] {
       padding: 8px;
     }
@@ -1139,7 +1144,8 @@
             <code id="settings-apikey-display"
               style="font-size:12px; background:var(--vscode-textCodeBlock-background); padding:4px 10px; border-radius:4px; flex:1;">미설정</code>
             <button id="settings-change-apikey-btn" class="button" style="padding:5px 12px; font-size:12px;">등록</button>
-            <button id="settings-clear-apikey-btn" class="button" style="padding:5px 12px; font-size:12px; background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); display:none;">탈퇴</button>
+            <button id="settings-clear-apikey-btn" class="button"
+              style="padding:5px 12px; font-size:12px; background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); display:none;">탈퇴</button>
           </div>
           <div id="settings-apikey-change" style="display:none; margin-top:12px;">
             <div style="display:flex; gap:8px; align-items:center;">
@@ -1195,6 +1201,20 @@
           <button id="save-theme-button" class="save-button">테마 저장</button>
         </div>
         <p id="theme-status" class="info-message" style="margin-top: 5px"></p>
+      </div>
+
+      <div class="section-container">
+        <h2>멀티 에이전트</h2>
+        <div class="toggle-switch-container" style="margin-bottom: 8px">
+          <input type="checkbox" id="orchestration-toggle" />
+          <label for="orchestration-toggle">Toggle</label>
+        </div>
+        <p id="orchestration-status" class="info-message"></p>
+        <p class="info-message">
+          복잡한 작업을 여러 에이전트가 병렬로 분담하여 처리합니다.
+          토큰 소모량이 단일 에이전트 대비 많아질 수 있습니다.
+          비활성화 시 단일 에이전트 방식으로 동작합니다.
+        </p>
       </div>
 
       <div class="section-container">
@@ -1276,7 +1296,8 @@
         <p id="auto-test-retry-status" class="info-message"></p>
         <p class="info-message" data-i18n="testRetryDescription">
           자동 테스트 검증(Smoke Test, Diagnostics, Lint Check)이 실패했을 때
-          자동으로 재시도하는 최대 횟수를 설정합니다. (1-10회, 기본값: 5회)
+          자동으로 재시도하는 최대 횟수를 설정합니다.
+          관리자 설정(빌드/테스트)에 검증 명령어가 등록되어 있으면 해당 명령어가 우선 실행됩니다.
         </p>
         <div class="spinner-container">
           <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
@@ -1297,7 +1318,7 @@
         <p id="auto-correction-status" class="info-message"></p>
         <p class="info-message" data-i18n="errorRetryDescription">
           터미널에서 오류가 발생했을 때 자동으로 수정을 시도하는 최대 횟수를
-          설정합니다. (1-10회, 기본값: 5회)
+          설정합니다.
         </p>
         <div class="spinner-container">
           <label for="error-retry-spinner" data-i18n="errorRetrySpinnerLabel">최대 오류 수정 횟수:</label>

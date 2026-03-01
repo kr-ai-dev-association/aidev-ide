@@ -10907,10 +10907,34 @@ function createCopyButton() {
 function createRunButton() {
   const button = document.createElement('button');
   button.classList.add('run-bash-button');
-  button.textContent = 'Run'; // 버튼 텍스트
-  button.title = 'Run commands'; // 툴팁
-
+  button.textContent = 'Run';
+  button.title = 'Run commands';
   return button;
+}
+
+// Stop 버튼을 생성하는 헬퍼 함수
+function createStopButton() {
+  const button = document.createElement('button');
+  button.classList.add('stop-bash-button');
+  button.textContent = 'Stop';
+  button.title = 'Stop running process';
+  button.style.display = 'none'; // 초기엔 숨김
+  return button;
+}
+
+// Stop 버튼에 이벤트 리스너를 등록하는 함수
+function attachStopButtonListener(stopButton, runButton) {
+  stopButton.addEventListener('click', () => {
+    console.log('[codeCopy.js] Stop button clicked');
+    if (vscode) {
+      vscode.postMessage({
+        command: 'stopBashCommand'
+      });
+    }
+    // Stop 숨기고 Run 복원
+    stopButton.style.display = 'none';
+    runButton.style.display = '';
+  });
 }
 
 // 개별 callout 박스에 executing 상태를 표시하는 함수
@@ -11052,7 +11076,7 @@ function extractGenericCommands(rawCode) {
 }
 
 // Run 버튼에 이벤트 리스너를 등록하는 함수
-function attachRunButtonListener(button, codeElement, lang) {
+function attachRunButtonListener(button, codeElement, lang, stopButton) {
   button.addEventListener('click', async () => {
     console.log('[codeCopy.js] Run button clicked');
     const codeText = codeElement.textContent || '';
@@ -11084,14 +11108,11 @@ function attachRunButtonListener(button, codeElement, lang) {
       console.error('[codeCopy.js] VS Code API not available');
     }
 
-    // 버튼 피드백
-    const originalText = button.textContent;
-    button.textContent = 'Running...';
-    button.disabled = true;
-    setTimeout(() => {
-      button.textContent = originalText;
-      button.disabled = false;
-    }, 2000);
+    // Run 숨기고 Stop 표시
+    button.style.display = 'none';
+    if (stopButton) {
+      stopButton.style.display = '';
+    }
   });
 }
 
@@ -11226,11 +11247,14 @@ function addCopyButtonsToCodeBlocks(bubbleElement) {
           buttonContainer.appendChild(copyButton);
           attachCopyButtonListener(copyButton, codeElement);
 
-          // Run 버튼 추가
+          // Run + Stop 버튼 추가
           const runButton = createRunButton();
+          const stopButton = createStopButton();
           buttonContainer.appendChild(runButton);
+          buttonContainer.appendChild(stopButton);
           const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
-          attachRunButtonListener(runButton, codeElement, lang);
+          attachRunButtonListener(runButton, codeElement, lang, stopButton);
+          attachStopButtonListener(stopButton, runButton);
         }
       }
 
@@ -11267,11 +11291,14 @@ function addCopyButtonsToCodeBlocks(bubbleElement) {
         buttonContainer.appendChild(copyButton);
         attachCopyButtonListener(copyButton, codeElement);
 
-        // Run 버튼 추가
+        // Run + Stop 버튼 추가
         const runButton = createRunButton();
+        const stopButton = createStopButton();
         buttonContainer.appendChild(runButton);
+        buttonContainer.appendChild(stopButton);
         const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
-        attachRunButtonListener(runButton, codeElement, lang);
+        attachRunButtonListener(runButton, codeElement, lang, stopButton);
+        attachStopButtonListener(stopButton, runButton);
 
         // 버튼 컨테이너를 <pre> 요소 바로 뒤에 삽입
         preElement.insertAdjacentElement('afterend', buttonContainer);
@@ -23483,18 +23510,21 @@ function removeLastMessage() {
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   clearThinkingContent: () => (/* binding */ clearThinkingContent),
 /* harmony export */   getProcessingStepsArray: () => (/* binding */ getProcessingStepsArray),
 /* harmony export */   getThinkingBubbleElement: () => (/* binding */ getThinkingBubbleElement),
 /* harmony export */   handleScroll: () => (/* binding */ handleScroll),
 /* harmony export */   hideAutoCorrectingIndicator: () => (/* binding */ hideAutoCorrectingIndicator),
 /* harmony export */   initProcessingSteps: () => (/* binding */ initProcessingSteps),
 /* harmony export */   resetProcessingStatuses: () => (/* binding */ resetProcessingStatuses),
+/* harmony export */   saveBubbleNaturalOffset: () => (/* binding */ saveBubbleNaturalOffset),
 /* harmony export */   setProcessingStep: () => (/* binding */ setProcessingStep),
 /* harmony export */   setThinkingBubbleElement: () => (/* binding */ setThinkingBubbleElement),
 /* harmony export */   showAutoCorrectingIndicator: () => (/* binding */ showAutoCorrectingIndicator),
 /* harmony export */   showErrorCorrection: () => (/* binding */ showErrorCorrection),
 /* harmony export */   updateProcessingStatus: () => (/* binding */ updateProcessingStatus),
-/* harmony export */   updateThinkingBubbleText: () => (/* binding */ updateThinkingBubbleText)
+/* harmony export */   updateThinkingBubbleText: () => (/* binding */ updateThinkingBubbleText),
+/* harmony export */   updateThinkingContent: () => (/* binding */ updateThinkingContent)
 /* harmony export */ });
 /**
  * Processing Steps Module
@@ -23702,28 +23732,56 @@ function updateProcessingStatus(stepName, status, handleScrollFn) {
 }
 
 /**
+ * 버블의 스크롤 영역 내 자연 위치 (position: fixed 적용 전 기준)
+ * chatContainer.scrollTop 에 대한 오프셋
+ */
+let _bubbleNaturalScrollOffset = null;
+
+/**
+ * 자연 위치 오프셋 저장 (버블 생성/재배치 시 호출)
+ */
+function saveBubbleNaturalOffset() {
+  if (!thinkingBubbleElement || !chatContainer) return;
+  const containerRect = chatContainer.getBoundingClientRect();
+  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+  _bubbleNaturalScrollOffset = chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
+}
+
+/**
  * 스크롤 감지하여 버블 고정/해제 처리
+ * - 위로 스크롤: 버블이 하단 입력영역에 가려지면 상단 고정
+ * - 아래로 스크롤: 버블이 뷰포트 상단을 넘어가면 상단 고정
+ * - 버블이 보이는 영역이면 고정 해제
  */
 function handleScroll() {
   if (!thinkingBubbleElement || !chatContainer) {
     return;
   }
-  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
   const containerRect = chatContainer.getBoundingClientRect();
-
-  // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
   const bottomFixedArea = document.querySelector(".bottom-fixed-area");
   const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
   const visibleBottom = containerRect.bottom - bottomHeight;
-
-  // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
-  if (bubbleRect.top > visibleBottom - 20) {
-    thinkingBubbleElement.classList.add("is-forced-top");
+  const isForced = thinkingBubbleElement.classList.contains("is-forced-top");
+  if (!isForced) {
+    // 자연 상태 — 실제 위치로 판단
+    const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+    // 자연 위치 기록 (고정 해제 판단에 사용)
+    _bubbleNaturalScrollOffset = chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
+    const isBelow = bubbleRect.top > visibleBottom - 20;
+    const isAbove = bubbleRect.bottom < containerRect.top + 10;
+    if (isBelow || isAbove) {
+      thinkingBubbleElement.classList.add("is-forced-top");
+    }
   } else {
-    // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
-    const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 100;
-    if (isAtBottom) {
-      thinkingBubbleElement.classList.remove("is-forced-top");
+    // 고정 상태 — 저장된 자연 위치로 해제 여부 판단
+    if (_bubbleNaturalScrollOffset != null) {
+      const naturalViewportTop = _bubbleNaturalScrollOffset - chatContainer.scrollTop + containerRect.top;
+      const isNaturallyVisible = naturalViewportTop >= containerRect.top - 10 && naturalViewportTop < visibleBottom - 20;
+      if (isNaturallyVisible) {
+        thinkingBubbleElement.classList.remove("is-forced-top");
+        const tc = thinkingBubbleElement.querySelector(".thinking-content");
+        if (tc) tc.classList.remove("expanded");
+      }
     }
   }
 }
@@ -23734,6 +23792,7 @@ function handleScroll() {
 function resetProcessingStatuses() {
   processingStepsArray = [];
   lastFullText = "";
+  _bubbleNaturalScrollOffset = null;
   const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
   statuses.forEach(step => {
     const statusElement = document.getElementById(`${step}-status`);
@@ -23745,6 +23804,46 @@ function resetProcessingStatuses() {
       }
     }
   });
+}
+
+/**
+ * LLM thinking 내용을 thinking bubble 하단에 표시
+ * 새로운 thinking이 오면 이전 내용을 교체
+ * @param {string} text - thinking 텍스트
+ */
+function updateThinkingContent(text) {
+  if (!thinkingBubbleElement) return;
+  let thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
+  if (!thinkingContent) {
+    thinkingContent = document.createElement('div');
+    thinkingContent.className = 'thinking-content';
+    // 클릭으로 접기/펼치기 토글
+    thinkingContent.addEventListener('click', () => {
+      thinkingContent.classList.toggle('expanded');
+    });
+    thinkingBubbleElement.appendChild(thinkingContent);
+  }
+
+  // CSS -webkit-line-clamp으로 2줄 접기 처리 → 전체 텍스트 저장 (펼치기 시 사용)
+  thinkingContent.textContent = text;
+  thinkingContent.style.display = '';
+
+  // 스크롤 유지
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * thinking content 영역 숨기기
+ */
+function clearThinkingContent() {
+  if (!thinkingBubbleElement) return;
+  const thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
+  if (thinkingContent) {
+    thinkingContent.style.display = 'none';
+    thinkingContent.textContent = '';
+  }
 }
 
 /**
@@ -23974,6 +24073,10 @@ const vscode = window.vscode || null;
 
 function setProcessingStep(stepName) {
   (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.setProcessingStep)(stepName);
+  // done 단계에서 thinking content 정리
+  if (stepName === 'done') {
+    (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.clearThinkingContent)();
+  }
 }
 function updateProcessingStatus(stepName, status) {
   (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.updateProcessingStatus)(stepName, status, handleScroll);
@@ -25867,6 +25970,11 @@ window.addEventListener("message", event => {
             hideAutoCorrectingIndicator();
           }
         }
+      }
+      break;
+    case "updateThinkingContent":
+      if (message.text) {
+        (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.updateThinkingContent)(message.text);
       }
       break;
     case "showGitInfo":
