@@ -183,7 +183,7 @@ export class FileChangeTracker {
             throw new Error('Cannot revert deleted file');
         }
 
-        const contentToRestore = targetChange.afterContent || targetChange.beforeContent;
+        const contentToRestore = targetChange.beforeContent || targetChange.afterContent;
         if (!contentToRestore) {
             throw new Error('No content available to restore');
         }

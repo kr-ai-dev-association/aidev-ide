@@ -45,14 +45,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
-        console.log('[ChatViewProvider] resolveWebviewView called');
         try {
             this._view = webviewView;
-            try { webviewView.title = 'Codepilot'; } catch (e) {
-                console.warn('[ChatViewProvider] Failed to set title:', e);
-            }
+            try { webviewView.title = 'Codepilot'; } catch { }
 
-            console.log('[ChatViewProvider] Setting webview options...');
             webviewView.webview.options = {
                 enableScripts: true,
                 localResourceRoots: [
@@ -64,13 +60,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 ]
             };
 
-            console.log('[ChatViewProvider] Loading HTML content...');
             const htmlContent = getHtmlContentWithUris(this.extensionUri, 'chat', webviewView.webview);
             if (htmlContent && !htmlContent.includes('Error loading')) {
                 webviewView.webview.html = htmlContent;
-                console.log('[ChatViewProvider] HTML content loaded successfully');
             } else {
-                console.error('[ChatViewProvider] Failed to load HTML content:', htmlContent);
                 webviewView.webview.html = `<html><body><h1>Error loading chat view</h1><p>${htmlContent || 'Unknown error'}</p></body></html>`;
             }
         } catch (error) {
@@ -96,12 +89,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // 🆕 VSCode 시작 시 세션 자동 복원
         this.restoreSessionOnStartup(webviewView.webview);
 
+        // 🆕 Turn-level pending changes 이벤트 구독
+        const pendingChangedDisposable = InlineDiffManager.getInstance().onPendingChanged(() => {
+            const diffManager = InlineDiffManager.getInstance();
+            const stats = diffManager.getPendingChangesStats();
+            const turnStats = diffManager.getPendingChangesByTurn();
+            webviewView.webview.postMessage({ command: 'updatePendingChanges', files: stats });
+            webviewView.webview.postMessage({ command: 'updatePendingChangesByTurn', turns: turnStats });
+        });
+        webviewView.onDidDispose(() => pendingChangedDisposable.dispose());
+
         // 🆕 VSCode 설정 변경 감지 (테마 등)
         const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('codepilot.chatTheme')) {
                 const config = vscode.workspace.getConfiguration('codepilot');
                 const theme = config.get<string>('chatTheme') || 'dark';
-                console.log(`[ChatViewProvider] Theme configuration changed: ${theme}`);
                 webviewView.webview.postMessage({
                     command: 'chatTheme',
                     theme: theme
@@ -544,10 +546,26 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     if (data.panel === 'settings') this.openSettingsPanel(panelViewColumn);
                     break;
-                case 'webviewLoaded':
+                case 'webviewLoaded': {
+                    // 웹뷰 초기화 시 pending changes 복원
+                    const sendPendingState = () => {
+                        const diffMgr = InlineDiffManager.getInstance();
+                        const stats = diffMgr.getPendingChangesStats();
+                        const turnStats = diffMgr.getPendingChangesByTurn();
+                        if (stats.length > 0) {
+                            webviewView.webview.postMessage({ command: 'updatePendingChanges', files: stats });
+                        }
+                        if (turnStats.length > 0) {
+                            webviewView.webview.postMessage({ command: 'updatePendingChangesByTurn', turns: turnStats });
+                            webviewView.webview.postMessage({ command: 'showTurnActions', turns: turnStats });
+                        }
+                    };
+                    // 즉시 시도 + loadPersistedState(async)가 아직 안 끝났을 경우 대비 지연 재시도
+                    sendPendingState();
+                    setTimeout(sendPendingState, 2000);
                     break;
+                }
                 case 'cancelGeminiCall':
-                    console.log('[Extension Host] Received cancel call command.');
                     ConversationService.cancelCurrentCall();
                     // 즉시 로딩/처리 상태를 종료
                     webviewView.webview.postMessage({ command: 'hideLoading' });
@@ -633,20 +651,12 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
                 case 'acceptAllChangesForFile': {
-                    console.log('[ChatViewProvider] Received acceptAllChangesForFile command');
                     try {
                         const filePath = data.filePath;
-                        console.log('[ChatViewProvider] File path:', filePath);
-                        if (!filePath) {
-                            console.warn('[ChatViewProvider] No file path provided');
-                            break;
-                        }
-                        console.log('[ChatViewProvider] Importing InlineDiffManager...');
+                        if (!filePath) { break; }
                         const diffModule = await import('../../core/managers/diff/InlineDiffManager');
                         const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
-                        console.log('[ChatViewProvider] Calling acceptAllChanges for:', filePath);
                         await inlineDiffManager.acceptAllChanges(filePath);
-                        console.log('[ChatViewProvider] acceptAllChanges completed for:', filePath);
 
                         // ✅ Pending Changes 드롭다운 업데이트
                         const stats = inlineDiffManager.getPendingChangesStats();
@@ -660,20 +670,12 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
                 case 'rejectAllChangesForFile': {
-                    console.log('[ChatViewProvider] Received rejectAllChangesForFile command');
                     try {
                         const filePath = data.filePath;
-                        console.log('[ChatViewProvider] File path:', filePath);
-                        if (!filePath) {
-                            console.warn('[ChatViewProvider] No file path provided');
-                            break;
-                        }
-                        console.log('[ChatViewProvider] Importing InlineDiffManager...');
+                        if (!filePath) { break; }
                         const diffModule = await import('../../core/managers/diff/InlineDiffManager');
                         const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
-                        console.log('[ChatViewProvider] Calling rejectAllChanges for:', filePath);
                         await inlineDiffManager.rejectAllChanges(filePath);
-                        console.log('[ChatViewProvider] rejectAllChanges completed for:', filePath);
 
                         // ✅ Pending Changes 드롭다운 업데이트
                         const stats = inlineDiffManager.getPendingChangesStats();
@@ -687,7 +689,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
                 case 'cancelAutoCorrection':
-                    console.log('[Extension Host] Received cancelAutoCorrection command.');
                     webviewView.webview.postMessage({
                         command: 'hideAutoCorrecting',
                         message: '자동 오류 수정이 중단되었습니다.'
@@ -701,14 +702,12 @@ ${JSON.stringify(errorContext, null, 2)}
                     });
                     break;
                 case 'stopCommandExecution':
-                    console.log('[Extension Host] Received stopCommandExecution command.');
                     webviewView.webview.postMessage({
                         command: 'hideAutoCorrecting',
                         message: '명령어 실행이 중단되었습니다.'
                     });
                     break;
                 case 'openFilePicker':
-                    console.log('[Extension Host] Opening file picker...');
                     this.openFilePicker(webviewView.webview);
                     break;
                 case 'executeBashCommands':
@@ -722,7 +721,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 case 'clearHistory':
-                    console.log('[Extension Host] Clearing conversation history for Code tab');
                     try {
                         await ConversationService.clearHistory(PromptType.CODE_GENERATION, this.context);
                         webviewView.webview.postMessage({
@@ -749,7 +747,6 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
                     break;
                 case 'displayUserMessage': // 웹뷰 자체에서 사용자 메시지 표시를 요청할 때, 이미지도 포함
-                    console.log('Received command to display user message from webview:', data.text, data.imageData);
                     if (data.text !== undefined || data.imageData !== undefined) {
                         webviewView.webview.postMessage({ command: 'displayUserMessage', text: data.text, imageData: data.imageData });
                     }
@@ -1053,6 +1050,26 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
 
+                case 'acceptChangesByTurn': {
+                    try {
+                        const diffManager = InlineDiffManager.getInstance();
+                        await diffManager.acceptChangesByTurn(data.conversationTurnId);
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`턴 승인 실패: ${error.message || error}`);
+                    }
+                    break;
+                }
+
+                case 'rejectChangesByTurn': {
+                    try {
+                        const diffManager = InlineDiffManager.getInstance();
+                        await diffManager.rejectChangesByTurn(data.conversationTurnId);
+                    } catch (error: any) {
+                        this.notificationService.showErrorMessage(`턴 거부 실패: ${error.message || error}`);
+                    }
+                    break;
+                }
+
                 case 'requestFileList': {
                     try {
                         await this.sendFileList(webviewView.webview);
@@ -1096,7 +1113,6 @@ ${JSON.stringify(errorContext, null, 2)}
                         if (theme && ['dark', 'light', 'auto'].includes(theme)) {
                             const config = vscode.workspace.getConfiguration('codepilot');
                             await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
-                            console.log(`[ChatViewProvider] Chat theme saved: ${theme}`);
                             webviewView.webview.postMessage({
                                 command: 'chatThemeSaved',
                                 theme: theme
@@ -1431,8 +1447,8 @@ ${JSON.stringify(errorContext, null, 2)}
                 for (const diag of diagnostics) {
                     const severity = diag.severity === vscode.DiagnosticSeverity.Error ? 'error'
                         : diag.severity === vscode.DiagnosticSeverity.Warning ? 'warning'
-                        : diag.severity === vscode.DiagnosticSeverity.Information ? 'info'
-                        : 'hint';
+                            : diag.severity === vscode.DiagnosticSeverity.Information ? 'info'
+                                : 'hint';
 
                     if (severity === 'error') errorCount++;
                     else if (severity === 'warning') warningCount++;
@@ -1479,7 +1495,7 @@ ${JSON.stringify(errorContext, null, 2)}
      * Diagnostics 컨텍스트를 문자열로 포맷팅
      */
     private formatDiagnosticsContext(
-        items: Array<{file: string; line: number; column: number; severity: string; message: string; code?: string}>,
+        items: Array<{ file: string; line: number; column: number; severity: string; message: string; code?: string }>,
         errorCount: number,
         warningCount: number
     ): string {

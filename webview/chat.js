@@ -181,8 +181,8 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
 // ===== 스트리밍 메시지 처리 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/streaming.js 모듈에 있음
 
-function startStreamingMessage(sender) {
-  startStreamingMessageModule(sender);
+function startStreamingMessage(sender, meta) {
+  startStreamingMessageModule(sender, meta);
 }
 
 function appendStreamingChunk(chunk) {
@@ -2202,6 +2202,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (vscode) {
     vscode.postMessage({ command: "getChatTheme" });
   }
+
+  // 웹뷰 초기화 완료 알림 (pending changes/turn actions 복원용)
+  if (vscode) {
+    vscode.postMessage({ command: "webviewLoaded" });
+  }
 });
 
 window.addEventListener("message", (event) => {
@@ -2514,7 +2519,7 @@ window.addEventListener("message", (event) => {
         "[Streaming] Starting streaming message from:",
         message.sender,
       );
-      startStreamingMessage(message.sender);
+      startStreamingMessage(message.sender, message.meta);
       break;
 
     case "streamMessageChunk":
@@ -2526,6 +2531,16 @@ window.addEventListener("message", (event) => {
     case "endStreamingMessage":
       console.log("[Streaming] Ending streaming message");
       endStreamingMessage();
+      break;
+
+    case "showTurnActions":
+      // 파일 diff 완료 후, review 스트리밍 전에 턴 액션 삽입
+      if (message.turns) {
+        window._latestTurnStats = message.turns;
+      }
+      if (typeof window._flushPendingTurnActions === "function") {
+        window._flushPendingTurnActions();
+      }
       break;
 
     case "removeLastMessage":

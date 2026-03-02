@@ -55,10 +55,8 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     });
                     break;
                 case 'webviewLoaded':
-                    console.log('[AskViewProvider] Ask webview loaded.');
                     break;
                 case 'cancelGeminiCall':
-                    console.log('[Extension Host] Received cancelGeminiCall command from Ask tab.');
                     ConversationService.cancelCurrentCall();
                     // 즉시 로딩/처리 상태를 종료하고 알림 표시
                     webviewView.webview.postMessage({ command: 'hideLoading' });
@@ -67,7 +65,6 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     this.notificationService.showInfoMessage('전송을 취소하였습니다.');
                     break;
                 case 'cancelAutoCorrection':
-                    console.log('[Extension Host] Received cancelAutoCorrection command from Ask tab.');
                     webviewView.webview.postMessage({
                         command: 'hideAutoCorrecting',
                         message: '자동 오류 수정이 중단되었습니다.'
@@ -81,7 +78,6 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
                     });
                     break;
                 case 'stopCommandExecution':
-                    console.log('[Extension Host] Received stopCommandExecution command from Ask tab.');
                     webviewView.webview.postMessage({
                         command: 'hideAutoCorrecting',
                         message: '명령어 실행이 중단되었습니다.'

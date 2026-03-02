@@ -166,11 +166,16 @@ export class WebviewBridge {
      * 스트리밍 메시지 시작
      * 새로운 스트리밍 응답 시작을 알립니다
      */
-    public static startStreamingMessage(webview: vscode.Webview | undefined, sender: string): void {
+    public static startStreamingMessage(
+        webview: vscode.Webview | undefined,
+        sender: string,
+        meta?: { conversationTurnId?: string },
+    ): void {
         if (webview) {
             safePostMessage(webview, {
                 command: 'startStreamingMessage',
-                sender
+                sender,
+                meta,
             });
         }
     }
@@ -221,14 +226,15 @@ export class WebviewBridge {
         sender: string,
         text: string,
         charsPerTick: number = 30,
-        tickIntervalMs: number = 10
+        tickIntervalMs: number = 10,
+        meta?: { conversationTurnId?: string },
     ): Promise<void> {
         if (!webview || !text) {
             return;
         }
 
         return new Promise((resolve) => {
-            WebviewBridge.startStreamingMessage(webview, sender);
+            WebviewBridge.startStreamingMessage(webview, sender, meta);
 
             let index = 0;
             const interval = setInterval(() => {
@@ -250,11 +256,14 @@ export class WebviewBridge {
      * 스트리밍 청크 콜백 생성
      * LLM 스트리밍 응답에 사용할 콜백 함수를 생성합니다
      */
-    public static createStreamingCallback(webview: vscode.Webview | undefined): (chunk: string, done: boolean) => void {
+    public static createStreamingCallback(
+        webview: vscode.Webview | undefined,
+        meta?: { conversationTurnId?: string },
+    ): (chunk: string, done: boolean) => void {
         let isStarted = false;
         return (chunk: string, done: boolean) => {
             if (!isStarted && !done) {
-                WebviewBridge.startStreamingMessage(webview, 'assistant');
+                WebviewBridge.startStreamingMessage(webview, 'assistant', meta);
                 isStarted = true;
             }
             if (chunk) {
@@ -275,7 +284,8 @@ export class WebviewBridge {
      */
     public static createStreamingCallbackWithToolParsing(
         webview: vscode.Webview | undefined,
-        onToolCallsReady: (result: StreamingParseResult) => void
+        onToolCallsReady: (result: StreamingParseResult) => void,
+        meta?: { conversationTurnId?: string },
     ): {
         onChunk: (chunk: string, done: boolean) => void;
         parser: StreamingToolParser;
@@ -284,7 +294,7 @@ export class WebviewBridge {
 
         const onTextChunk = (text: string) => {
             if (!isStarted && text) {
-                WebviewBridge.startStreamingMessage(webview, 'assistant');
+                WebviewBridge.startStreamingMessage(webview, 'assistant', meta);
                 isStarted = true;
             }
             if (text) {

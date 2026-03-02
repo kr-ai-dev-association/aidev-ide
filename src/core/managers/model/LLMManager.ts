@@ -61,7 +61,6 @@ export class LLMManager {
         this.ollamaApi = ollamaApi;
         this.adminModelApi = new AdminModelApi();
         this.currentModelType = initialModelType;
-        console.log('[LLMManager] Initialized');
     }
 
     public static getInstance(
@@ -89,7 +88,6 @@ export class LLMManager {
      */
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
-        console.log(`[LLMManager] Model type set to: ${modelType}`);
     }
 
     /**
@@ -487,7 +485,6 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용
         if (!modelType) {
-            console.log('[LLMManager] Compactor model not configured, using main model');
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
@@ -498,8 +495,6 @@ export class LLMManager {
         const apiKey = stateManager.getCompactorApiKey
             ? await stateManager.getCompactorApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using compactor model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
 
         // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(
@@ -531,7 +526,6 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용
         if (!modelType) {
-            console.log('[LLMManager] Command model not configured, using main model');
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
@@ -542,8 +536,6 @@ export class LLMManager {
         const apiKey = stateManager.getCommandApiKey
             ? await stateManager.getCommandApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using command model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
 
         // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(
@@ -576,7 +568,6 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용 (스트리밍)
         if (!modelType) {
-            console.log('[LLMManager] Command model not configured, using main model (streaming)');
             return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
         }
 
@@ -587,8 +578,6 @@ export class LLMManager {
         const apiKey = stateManager.getCommandApiKey
             ? await stateManager.getCommandApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using command model (streaming) - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
 
         // API 키가 설정된 경우 해당 API로 직접 호출 (스트리밍)
         return this.sendMessageWithSpecificModelAndApiKeyStreaming(
@@ -621,7 +610,6 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용
         if (!modelType) {
-            console.log('[LLMManager] Intent model not configured, using main model');
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
@@ -632,8 +620,6 @@ export class LLMManager {
         const apiKey = stateManager.getIntentApiKey
             ? await stateManager.getIntentApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using intent model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
 
         // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(

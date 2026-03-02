@@ -32,7 +32,8 @@ export class ToolExecutionCoordinator {
         toolCalls: ToolUse[],
         toolResults: ToolResponse[],
         createdFiles: string[],
-        modifiedFiles: string[]
+        modifiedFiles: string[],
+        deletedFiles?: string[]
     ): void {
         toolCalls.forEach((call, index) => {
             const result = toolResults[index];
@@ -48,6 +49,10 @@ export class ToolExecutionCoordinator {
             } else if (call.name === Tool.UPDATE_FILE) {
                 if (!modifiedFiles.includes(filePath)) {
                     modifiedFiles.push(filePath);
+                }
+            } else if (call.name === Tool.REMOVE_FILE && deletedFiles) {
+                if (!deletedFiles.includes(filePath)) {
+                    deletedFiles.push(filePath);
                 }
             }
         });

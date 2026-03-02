@@ -124,6 +124,8 @@ export class ConversationManager implements IConversationHandler {
   private completionJudge: CompletionJudge; // A4: 완료 판단기
   private _lastBuildTestPassed = false;
   private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
+  private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
+  private _pendingImportCleanupMsg: string | null = null; // 삭제 후 import 정리 메시지
 
   private constructor(
     userOS: string,
@@ -163,9 +165,8 @@ export class ConversationManager implements IConversationHandler {
   public static resetInstance(): void {
     if (process.env.NODE_ENV === "test" || process.env.VSCODE_TEST) {
       ConversationManager.instance = undefined as unknown as ConversationManager;
-      console.log("[ConversationManager] Instance reset for testing");
     } else {
-      console.warn("[ConversationManager] resetInstance() called in non-test environment - ignored");
+      // non-test environment - ignored
     }
   }
 
@@ -178,7 +179,7 @@ export class ConversationManager implements IConversationHandler {
     ollamaApi: OllamaApi,
   ): ConversationManager {
     if (process.env.NODE_ENV !== "test" && !process.env.VSCODE_TEST) {
-      console.warn("[ConversationManager] createIsolatedInstance() called in non-test environment");
+      // non-test environment warning suppressed
     }
     return new ConversationManager(userOS, ollamaApi);
   }
@@ -538,10 +539,8 @@ export class ConversationManager implements IConversationHandler {
         this.promptBuilder.generateSystemPrompt(promptOptions);
 
       // 5. 작업 타입에 따른 실행 분기
-      console.log(`[ConversationManager] promptType check: ${optionsWithAbort.promptType}, CODE_GENERATION=${PromptType.CODE_GENERATION}`);
       if (optionsWithAbort.promptType === PromptType.CODE_GENERATION) {
         // v9.5.0: AGENT 모드에서도 이전 대화 히스토리 포함 (대화 연속성 유지)
-        console.log(`[ConversationManager] Using buildUserPartsWithUrlsAndHistory for AGENT mode`);
         const userParts = await this.buildUserPartsWithUrlsAndHistory(
           userQuery,
           autoFetchedUrlContents,
@@ -741,15 +740,11 @@ export class ConversationManager implements IConversationHandler {
         );
         const currentSession = sessionManager.getCurrentSession();
 
-        console.log(`[ConversationManager] Loading history for AGENT mode: session=${currentSession?.id}, historyCount=${currentSession?.conversationHistory?.length || 0}`);
-
         if (currentSession && currentSession.conversationHistory.length > 0) {
           // 최근 대화 히스토리 (구조화된 메타데이터)
           const history = currentSession.conversationHistory.slice(
             -AgentConfig.MAX_HISTORY_ENTRIES,
           );
-
-          console.log(`[ConversationManager] Including ${history.length} previous conversations in context`);
 
           // 이전 대화를 간결한 컨텍스트로 추가
           for (const entry of history) {
@@ -757,22 +752,26 @@ export class ConversationManager implements IConversationHandler {
               entry.actions && entry.actions.length > 0
                 ? ` [Actions: ${entry.actions.map((a) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
                 : "";
-            const response = entry.assistantResponse
-              ? entry.assistantResponse.slice(
-                  0,
-                  AgentConfig.MAX_HISTORY_ACTION_PREVIEW_LENGTH,
-                )
-              : entry.filesCreated || entry.filesModified
-                ? "파일 변경 완료"
-                : "작업 완료";
-            const historyText = `[Previous] User: ${entry.userRequest}${actions}\nAssistant: ${response}`;
-            console.log(`[ConversationManager] History entry: ${historyText.substring(0, 100)}...`);
+            // 에러/실패가 포함된 응답은 간략화 (LLM이 이전 실패를 현재 작업으로 오해하는 것 방지)
+            let response: string;
+            const hasError = entry.assistantResponse && /오류|에러|실패|error|fail/i.test(entry.assistantResponse);
+            if (hasError) {
+              response = `(이전 작업 - 완료)`;
+            } else {
+              response = entry.assistantResponse
+                ? entry.assistantResponse.slice(
+                    0,
+                    AgentConfig.MAX_HISTORY_ACTION_PREVIEW_LENGTH,
+                  )
+                : entry.filesCreated || entry.filesModified
+                  ? "파일 변경 완료"
+                  : "작업 완료";
+            }
+            const historyText = `[Previous conversation - reference only] User: ${entry.userRequest}${actions}\nAssistant: ${response}`;
             userParts.push({
               text: historyText,
             });
           }
-        } else {
-          console.log(`[ConversationManager] No conversation history found for AGENT mode`);
         }
       } catch (error) {
         console.warn(
@@ -784,8 +783,8 @@ export class ConversationManager implements IConversationHandler {
       console.warn("[ConversationManager] extensionContext not available, cannot load history");
     }
 
-    // 현재 질문 추가
-    userParts.push({ text: userQuery });
+    // 현재 질문 추가 (이전 히스토리와 명확히 구분)
+    userParts.push({ text: `[CURRENT REQUEST - This is what the user is asking NOW. Focus ONLY on this request, NOT on previous conversations above.]\n${userQuery}` });
 
     // URL 내용 추가
     if (autoFetchedUrlContents.length > 0) {
@@ -875,11 +874,7 @@ export class ConversationManager implements IConversationHandler {
 
     // selectedFiles에서 파일 내용 읽기
     let selectedFilesContent = "";
-    console.log("[ConversationManager] Selected files:", options.selectedFiles);
     if (options.selectedFiles && options.selectedFiles.length > 0) {
-      console.log(
-        `[ConversationManager] Reading ${options.selectedFiles.length} selected files...`,
-      );
       const fileContents: string[] = [];
       for (const filePath of options.selectedFiles) {
         try {
@@ -896,9 +891,6 @@ export class ConversationManager implements IConversationHandler {
         }
       }
       selectedFilesContent = fileContents.join("\n\n");
-      console.log(
-        `[ConversationManager] Selected files content length: ${selectedFilesContent.length} chars`,
-      );
     }
 
     // Ask 모드: 메시지에서 언급된 파일명을 자동 감지하여 컨텍스트에 포함
@@ -915,7 +907,6 @@ export class ConversationManager implements IConversationHandler {
           const alreadySelected = new Set((options.selectedFiles || []).map(f => f.toLowerCase()));
           const newFiles = mentionedFiles.filter(f => !alreadySelected.has(f.toLowerCase()));
           if (newFiles.length > 0) {
-            console.log(`[ConversationManager] Ask mode: auto-detected ${newFiles.length} files from message`);
             const fileContents: string[] = [];
             for (const filePath of newFiles) {
               try {
@@ -930,7 +921,6 @@ export class ConversationManager implements IConversationHandler {
             }
             if (fileContents.length > 0) {
               selectedFilesContent += (selectedFilesContent ? "\n\n" : "") + fileContents.join("\n\n");
-              console.log(`[ConversationManager] Ask mode: added ${fileContents.length} auto-detected files to context`);
             }
           }
         }
@@ -1034,6 +1024,8 @@ export class ConversationManager implements IConversationHandler {
     const { webviewToRespond, abortSignal, userQuery } = options;
     const maxTurns = AgentConfig.MAX_TURNS;
     let turnCount = 0;
+    let conversationTurnId = crypto.randomUUID(); // 턴 단위 변경 그룹화용
+    let lastExecutionTurnId = conversationTurnId; // 마지막 tool 실행 시의 turnId (review 메시지에 사용)
     let accumulatedUserParts = [...userParts];
     let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
     let pendingRetryPrompt = false; // retry 프롬프트가 LLM에 전달 대기 중인지
@@ -1175,7 +1167,7 @@ export class ConversationManager implements IConversationHandler {
             { signal: abortSignal },
           );
 
-        console.log(`[ConversationManager] Greeting streaming completed.`);
+
 
         // 인사말 응답도 세션에 저장
         if (options.extensionContext) {
@@ -1245,18 +1237,13 @@ export class ConversationManager implements IConversationHandler {
       // 최종 정제: 앞뒤 공백 제거
       cleanGreetingResponse = cleanGreetingResponse.trim();
 
-      console.log(
-        `[ConversationManager] Sending greeting response to webview (length: ${cleanGreetingResponse.length}): ${cleanGreetingResponse.substring(0, 100)}...`,
-      );
-      console.log(`[ConversationManager] Webview valid: ${!!webviewToRespond}`);
-
       // CODEPILOT 타입으로 전송 (🔥 스트리밍 효과)
       await WebviewBridge.streamText(
         webviewToRespond,
         "CODEPILOT",
         cleanGreetingResponse,
       );
-      console.log(`[ConversationManager] Greeting message sent to webview.`);
+
 
       // 인사말 응답도 세션에 저장
       if (options.extensionContext) {
@@ -1387,6 +1374,8 @@ export class ConversationManager implements IConversationHandler {
     // 파일 변경 추적 (요약 검증용)
     const createdFiles: string[] = [];
     const modifiedFiles: string[] = [];
+    this.deletedFiles = [];
+    this._pendingImportCleanupMsg = null;
 
     // 🔥 대화 시작 시 reviewProcessed 플래그 초기화 (이전 대화에서 남은 값 제거)
     (this as any).reviewProcessed = null;
@@ -1400,8 +1389,17 @@ export class ConversationManager implements IConversationHandler {
         break;
       }
 
+      // 각 턴마다 새로운 conversationTurnId 생성 (턴 단위 변경 그룹화)
+      conversationTurnId = crypto.randomUUID();
+
       // 🔒 메모리 누수 방지: accumulatedUserParts 정리
       accumulatedUserParts = this.trimAccumulatedParts(accumulatedUserParts);
+
+      // 파일 삭제 후 import 정리 메시지 주입
+      if (this._pendingImportCleanupMsg) {
+        accumulatedUserParts.push({ text: this._pendingImportCleanupMsg });
+        this._pendingImportCleanupMsg = null;
+      }
 
       // 🔄 컨텍스트 자동 압축 체크 (토큰 임계값 초과 시 트리거)
       try {
@@ -1522,6 +1520,7 @@ export class ConversationManager implements IConversationHandler {
           userQuery,
           collectedActions,
           collectedUIMessages,
+          lastExecutionTurnId,
         );
         if (reviewResult.action === "break") {
           break;
@@ -1719,9 +1718,12 @@ export class ConversationManager implements IConversationHandler {
             preloadedFiles,
             createdFiles,
             modifiedFiles,
+            false, // includeWebviewInContext
+            conversationTurnId,
           );
           if (hasSuccessfulPlanExecution) {
             lastTurnHadSuccessfulToolExecution = true;
+            lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
             console.log(
               `[ConversationManager] Plan-based tool execution succeeded.`,
             );
@@ -2024,9 +2026,12 @@ export class ConversationManager implements IConversationHandler {
                 preloadedFiles,
                 createdFiles,
                 modifiedFiles,
+                false, // includeWebviewInContext
+                conversationTurnId,
               );
               if (hasSuccessfulToolExecution) {
                 lastTurnHadSuccessfulToolExecution = true;
+                lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(
                   `[ConversationManager] Tool execution (from LLM) succeeded.`,
                 );
@@ -2297,7 +2302,7 @@ export class ConversationManager implements IConversationHandler {
 
         if (shouldStreamToUI) {
           // 스트리밍 시작 알림
-          WebviewBridge.startStreamingMessage(webviewToRespond, "assistant");
+          WebviewBridge.startStreamingMessage(webviewToRespond, "assistant", conversationTurnId ? { conversationTurnId } : undefined);
         }
 
         let accumulatedResponse = "";
@@ -2938,9 +2943,11 @@ export class ConversationManager implements IConversationHandler {
                 createdFiles,
                 modifiedFiles,
                 true, // includeWebviewInContext
+                conversationTurnId,
               );
               if (hasSuccessfulExecution) {
                 lastTurnHadSuccessfulToolExecution = true;
+                lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(`[ConversationManager] Tool execution succeeded.`);
               }
 
@@ -3749,7 +3756,7 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               "[ConversationManager] Streaming mode enabled for analysis response",
             );
-            WebviewBridge.startStreamingMessage(webviewToRespond, "assistant");
+            WebviewBridge.startStreamingMessage(webviewToRespond, "assistant", conversationTurnId ? { conversationTurnId } : undefined);
 
             const onAnalysisChunk = (chunk: string, done: boolean) => {
               if (chunk) {
@@ -3931,6 +3938,7 @@ export class ConversationManager implements IConversationHandler {
         userQuery,
         collectedActions,
         collectedUIMessages,
+        lastExecutionTurnId,
       );
     }
 
@@ -3967,6 +3975,17 @@ export class ConversationManager implements IConversationHandler {
         "done",
         "모든 작업이 완료되었습니다.",
       );
+    }
+
+    // 턴 액션 삽입 (모든 턴이 완료된 후 한 번만 표시)
+    try {
+      const diffMgr = InlineDiffManager.getInstance();
+      const turnStats = diffMgr.getPendingChangesByTurn();
+      if (turnStats.length > 0) {
+        webviewToRespond.postMessage({ command: 'showTurnActions', turns: turnStats });
+      }
+    } catch (e) {
+      console.warn('[ConversationManager] showTurnActions failed:', e);
     }
 
     // 📝 v9.7.0: 루프 종료 후 세션에 저장 (어떤 경로로든 종료 시 보장)
@@ -4438,7 +4457,6 @@ export class ConversationManager implements IConversationHandler {
     try {
       // ✅ 조건부 Formatter 실행 결정
       if (!this.shouldRunFormatter(createdFiles, modifiedFiles)) {
-        console.log("[ConversationManager] Skipping formatter (small changes)");
         return;
       }
 
@@ -4576,6 +4594,51 @@ export class ConversationManager implements IConversationHandler {
   }
 
   /**
+   * 삭제된 파일을 import하는 파일 검색 (import 자동 정리용)
+   */
+  private async findImportingFiles(
+    deletedFiles: string[],
+    workspaceRoot: string,
+  ): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+
+    try {
+      const { FileSearcher } = require('../../managers/context/file/FileSearcher');
+      const searcher = FileSearcher.getInstance();
+      const pathModule = require('path');
+
+      for (const deletedFile of deletedFiles) {
+        const basename = pathModule.basename(deletedFile);
+        const moduleNameNoExt = basename.replace(/\.[^.]+$/, '');
+
+        // import/require/from 패턴으로 검색
+        const pattern = `(import|from|require).*['"\`].*${moduleNameNoExt}['"\`]`;
+
+        try {
+          const searchResults = await searcher.searchFiles(pattern, workspaceRoot, {
+            maxResults: 50,
+            include: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.vue', '*.svelte', '*.py', '*.go', '*.java'],
+          });
+
+          const importingFiles = searchResults
+            .map((r: any) => r.file)
+            .filter((fp: string) => fp !== deletedFile);
+
+          if (importingFiles.length > 0) {
+            result.set(deletedFile, importingFiles);
+          }
+        } catch (e) {
+          console.warn(`[ConversationManager] Import search failed for ${deletedFile}:`, e);
+        }
+      }
+    } catch (e) {
+      console.warn('[ConversationManager] findImportingFiles failed:', e);
+    }
+
+    return result;
+  }
+
+  /**
    * 요약 결과를 그대로 반환 (변환 로직 제거)
    * 명령어는 프롬프트에서 코드 블록 형식으로 출력하도록 지시
    */
@@ -4664,6 +4727,7 @@ export class ConversationManager implements IConversationHandler {
       text: string;
       type?: "action" | "code" | "summary" | "message";
     }>,
+    conversationTurnId?: string,
   ): Promise<TurnAction> {
     // REVIEW가 이미 처리되었는지 확인 (중복 호출 방지)
     const reviewProcessedKey = `review_processed_${createdFiles.join(",")}_${modifiedFiles.join(",")}`;
@@ -4760,7 +4824,7 @@ export class ConversationManager implements IConversationHandler {
 
       if (verifiedSummary && verifiedSummary.trim()) {
         finalResponse = this.parseCommandsInSummary(verifiedSummary);
-        await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
+        await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse, 30, 10, conversationTurnId ? { conversationTurnId } : undefined);
       } else {
         finalResponse =
           `작업이 완료되었습니다.\n\n` +
@@ -4770,11 +4834,11 @@ export class ConversationManager implements IConversationHandler {
           (modifiedFiles.length > 0
             ? `수정된 파일: ${modifiedFiles.join(", ")}\n`
             : "");
-        await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
+        await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse, 30, 10, conversationTurnId ? { conversationTurnId } : undefined);
       }
     } else {
       finalResponse = "작업이 완료되었습니다.";
-      await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
+      await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse, 30, 10, conversationTurnId ? { conversationTurnId } : undefined);
     }
 
     // 📝 v9.7.0: 세션 저장은 루프 종료 후 executeAgentLoop 끝에서 처리
@@ -5141,6 +5205,7 @@ export class ConversationManager implements IConversationHandler {
     createdFiles: string[],
     modifiedFiles: string[],
     includeWebviewInContext: boolean = false,
+    conversationTurnId?: string,
   ): Promise<{
     toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
@@ -5222,6 +5287,7 @@ export class ConversationManager implements IConversationHandler {
       executionManager,
       terminalManager,
       contextManager: this.contextManager,
+      conversationTurnId,
     };
     if (includeWebviewInContext) {
       executionContext.webview = webview;
@@ -5279,6 +5345,7 @@ export class ConversationManager implements IConversationHandler {
       toolResults,
       createdFiles,
       modifiedFiles,
+      this.deletedFiles,
     );
 
     // 성공 여부 추적
@@ -5303,6 +5370,25 @@ export class ConversationManager implements IConversationHandler {
         createdFiles,
         modifiedFiles,
       );
+    }
+
+    // 파일 삭제 후 import 정리 컨텍스트 수집
+    if (this.deletedFiles.length > 0) {
+      try {
+        const importMap = await this.findImportingFiles(this.deletedFiles, workspaceRoot);
+        if (importMap.size > 0) {
+          let cleanupMsg = '[SYSTEM] 삭제된 파일의 import를 사용하는 파일이 감지되었습니다. 해당 import 문을 정리해주세요:\n';
+          for (const [deleted, importers] of importMap) {
+            cleanupMsg += `\n삭제된 파일: ${deleted}\nimport하는 파일: ${importers.join(', ')}\n`;
+          }
+          this._pendingImportCleanupMsg = cleanupMsg;
+          console.log(`[ConversationManager] Import cleanup needed for ${importMap.size} deleted file(s)`);
+        }
+        // 처리 완료 후 deletedFiles 초기화 (중복 검색 방지)
+        this.deletedFiles = [];
+      } catch (e) {
+        console.warn('[ConversationManager] Import cleanup detection failed:', e);
+      }
     }
 
     // 사용자가 스킵한 도구가 있는지 확인
@@ -5555,6 +5641,5 @@ export class ConversationManager implements IConversationHandler {
       // 무시
     }
 
-    console.log('[ConversationManager] Conversation resources cleaned up');
   }
 }

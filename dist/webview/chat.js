@@ -23266,7 +23266,7 @@ function setThinkingBubbleElement(element) {
  * 새로운 스트리밍 응답을 위한 메시지 요소 생성
  * @param {string} sender - 발신자
  */
-function startStreamingMessage(sender) {
+function startStreamingMessage(sender, meta) {
   if (!chatMessages) {
     console.warn("[Streaming] chatMessages element not found");
     return;
@@ -23285,6 +23285,11 @@ function startStreamingMessage(sender) {
   // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
   const messageContainer = document.createElement("div");
   messageContainer.classList.add("codepilot-message-container", "streaming");
+
+  // 턴 ID 스탬프 (턴 레벨 Accept/Reject용)
+  if (meta && meta.conversationTurnId) {
+    messageContainer.setAttribute("data-turn-id", meta.conversationTurnId);
+  }
   const bubbleElement = document.createElement("div");
   bubbleElement.classList.add("message-bubble");
   bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
@@ -24100,8 +24105,8 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
 // ===== 스트리밍 메시지 처리 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/streaming.js 모듈에 있음
 
-function startStreamingMessage(sender) {
-  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.startStreamingMessage)(sender);
+function startStreamingMessage(sender, meta) {
+  (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.startStreamingMessage)(sender, meta);
 }
 function appendStreamingChunk(chunk) {
   (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.appendStreamingChunk)(chunk);
@@ -25902,6 +25907,13 @@ document.addEventListener("DOMContentLoaded", () => {
       command: "getChatTheme"
     });
   }
+
+  // 웹뷰 초기화 완료 알림 (pending changes/turn actions 복원용)
+  if (vscode) {
+    vscode.postMessage({
+      command: "webviewLoaded"
+    });
+  }
 });
 window.addEventListener("message", event => {
   const message = event.data;
@@ -26170,7 +26182,7 @@ window.addEventListener("message", event => {
     // 스트리밍 메시지 처리
     case "startStreamingMessage":
       console.log("[Streaming] Starting streaming message from:", message.sender);
-      startStreamingMessage(message.sender);
+      startStreamingMessage(message.sender, message.meta);
       break;
     case "streamMessageChunk":
       if (message.chunk) {
@@ -26180,6 +26192,15 @@ window.addEventListener("message", event => {
     case "endStreamingMessage":
       console.log("[Streaming] Ending streaming message");
       endStreamingMessage();
+      break;
+    case "showTurnActions":
+      // 파일 diff 완료 후, review 스트리밍 전에 턴 액션 삽입
+      if (message.turns) {
+        window._latestTurnStats = message.turns;
+      }
+      if (typeof window._flushPendingTurnActions === "function") {
+        window._flushPendingTurnActions();
+      }
       break;
     case "removeLastMessage":
       console.log("[Streaming] Removing last message (natural language retry)");

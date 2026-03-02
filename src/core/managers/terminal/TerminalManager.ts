@@ -110,8 +110,6 @@ export class TerminalManager {
      * 새로운 터미널을 생성합니다
      */
     public createTerminal(options?: TerminalCreateOptions): TerminalSession {
-        console.log('[TerminalManager] Creating new terminal');
-
         const sessionId = this.generateSessionId();
         const name = options?.name || `Terminal ${sessionId}`;
 
@@ -133,8 +131,6 @@ export class TerminalManager {
         // TerminalSession 생성
         const session = new TerminalSession(sessionId, vscodeTerminal, options);
         this.sessions.set(sessionId, session);
-
-        console.log(`[TerminalManager] Terminal created: ${sessionId} (${name})`);
 
         return session;
     }
@@ -195,7 +191,6 @@ export class TerminalManager {
         session.dispose();
         this.sessions.delete(sessionId);
 
-        console.log(`[TerminalManager] Terminal closed: ${sessionId}`);
         return true;
     }
 
@@ -203,15 +198,12 @@ export class TerminalManager {
      * 모든 터미널을 닫습니다
      */
     public closeAllTerminals(): void {
-        console.log('[TerminalManager] Closing all terminals');
-
         const sessions = Array.from(this.sessions.values());
         for (const session of sessions) {
             session.dispose();
         }
 
         this.sessions.clear();
-        console.log('[TerminalManager] All terminals closed');
     }
 
     /**
@@ -361,13 +353,10 @@ export class TerminalManager {
     private registerVSCodeEventHandlers(): void {
         // 터미널 닫힘 감지
         const closeDisposable = vscode.window.onDidCloseTerminal((terminal) => {
-            console.log(`[TerminalManager] VS Code terminal closed: ${terminal.name}`);
-
             // 해당 터미널 세션 찾기
             for (const [sessionId, session] of this.sessions.entries()) {
                 if (session.getTerminal() === terminal) {
                     this.sessions.delete(sessionId);
-                    console.log(`[TerminalManager] Removed session: ${sessionId}`);
                     break;
                 }
             }
@@ -375,9 +364,8 @@ export class TerminalManager {
 
         this.disposables.push(closeDisposable);
 
-        // 터미널 열림 감지 (정보 로깅용)
-        const openDisposable = vscode.window.onDidOpenTerminal((terminal) => {
-            console.log(`[TerminalManager] VS Code terminal opened: ${terminal.name}`);
+        const openDisposable = vscode.window.onDidOpenTerminal((_terminal) => {
+            // terminal open event tracked
         });
 
         this.disposables.push(openDisposable);
@@ -395,7 +383,6 @@ export class TerminalManager {
         const onDidEndExecution = windowAny.onDidEndTerminalShellExecution;
 
         if (onDidStartExecution && onDidEndExecution) {
-            console.log('[TerminalManager] Shell Integration API available, registering handlers');
 
             // 명령어 실행 시작 감지
             const startDisposable = onDidStartExecution.call(windowAny, (event: any) => {
@@ -403,8 +390,6 @@ export class TerminalManager {
                 const execution = event.execution;
                 const commandLine = execution.commandLine?.value || '';
                 const terminalName = terminal.name;
-
-                console.log(`[TerminalManager] Shell execution started in "${terminalName}": ${commandLine}`);
 
                 // 명령어 시작 시 기록 (출력은 나중에 업데이트)
                 if (!this.shellIntegrationHistory.has(terminalName)) {
@@ -432,8 +417,6 @@ export class TerminalManager {
                 const execution = event.execution;
                 const terminalName = terminal.name;
                 const exitCode = event.exitCode;
-
-                console.log(`[TerminalManager] Shell execution ended in "${terminalName}" with exit code: ${exitCode}`);
 
                 // 해당 터미널의 히스토리에서 마지막 항목 업데이트
                 const history = this.shellIntegrationHistory.get(terminalName);
@@ -465,7 +448,7 @@ export class TerminalManager {
 
             this.disposables.push(endDisposable);
         } else {
-            console.log('[TerminalManager] Shell Integration API not available (requires VS Code 1.93+)');
+            // Shell Integration API not available (requires VS Code 1.93+)
         }
     }
 
@@ -504,16 +487,12 @@ export class TerminalManager {
      * 정리 작업을 수행합니다
      */
     public dispose(): void {
-        console.log('[TerminalManager] Disposing');
-
         // 모든 터미널 닫기
         this.closeAllTerminals();
 
         // 이벤트 핸들러 정리
         this.disposables.forEach(d => d.dispose());
         this.disposables = [];
-
-        console.log('[TerminalManager] Disposed');
     }
 
     /**
@@ -692,7 +671,6 @@ export class TerminalManager {
             const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === term) {
-                    console.log(`[TerminalManager] 터미널 종료 감지: ${name}`);
                     disposable.dispose();
                     // disposables 배열에서도 제거
                     const idx = instance.disposables.indexOf(disposable);
@@ -706,31 +684,26 @@ export class TerminalManager {
         // 기존 동작 (재사용) 경로
         const existing = vscode.window.terminals.filter(t => t.name === 'codepilot Terminal');
         if (existing.length > 0) {
-            console.log(`[TerminalManager] 기존 터미널 재사용: ${existing.length}개 발견, 첫 번째 터미널 사용`);
             TerminalManager.codePilotTerminal = existing[0];
             // 나머지 중복 터미널 정리
             for (let i = 1; i < existing.length; i++) {
                 try {
-                    console.log(`[TerminalManager] 중복 터미널 정리: ${existing[i].name} dispose`);
                     existing[i].dispose();
                 } catch { }
             }
         }
 
         if (!TerminalManager.codePilotTerminal || TerminalManager.codePilotTerminal.exitStatus !== undefined) {
-            console.log(`[TerminalManager] 새로운 터미널 생성: codepilot Terminal`);
             const terminalOptions: vscode.TerminalOptions = { name: 'codepilot Terminal' };
 
             if (projectRoot) {
                 terminalOptions.cwd = projectRoot;
-                console.log(`[TerminalManager] 터미널 작업 디렉토리 설정: ${projectRoot}`);
             }
 
             TerminalManager.codePilotTerminal = vscode.window.createTerminal(terminalOptions);
             const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === TerminalManager.codePilotTerminal) {
-                    console.log(`[TerminalManager] 터미널 종료 감지: codepilot Terminal`);
                     TerminalManager.codePilotTerminal = undefined;
                     disposable.dispose();
                     // disposables 배열에서도 제거
@@ -842,7 +815,6 @@ export class TerminalManager {
             this.currentWorkingDirectory = projectRoot;
         }
         this.enqueueCommands(commands, priority);
-        console.log('[TerminalManager] enqueueCommandsBatch called with', commands.length, 'commands');
     }
 
     /**
@@ -1028,24 +1000,20 @@ export class TerminalManager {
             try {
                 const effectiveCwd = await this.getEffectiveCwd();
                 const cwd = effectiveCwd || projectRoot;
-                console.log('[TerminalManager] npm install 감지 - esbuild 사전 정리 시작');
-
                 const osAdapter = this.executionManager.getOSAdapter();
                 if (osAdapter.osType === 'win32') {
                     await this.executionManager.runCommandCapture(`if exist node_modules\\esbuild rmdir /s /q node_modules\\esbuild 2>nul`, { cwd });
                 } else {
                     await this.executionManager.runCommandCapture(`rm -rf node_modules/esbuild 2>/dev/null || true`, { cwd });
                 }
-                console.log('[TerminalManager] esbuild 사전 정리 완료');
-            } catch (error) {
-                console.log(`[TerminalManager] esbuild 사전 정리 실패 (계속 진행): ${error}`);
+            } catch {
             }
         }
 
         // 장기 실행 명령어 실행 전 기존 프로세스 종료
         if (isDevLong) {
             try {
-                console.log(`[TerminalManager] 장기 실행 명령어 감지: ${command}, 기존 프로세스 종료 시도`);
+                console.log(`[TerminalManager] 장기 실행 명령어 감지, 기존 프로세스 종료 시도`);
                 const effectiveCwd = await this.getEffectiveCwd();
                 const cwd = effectiveCwd || projectRoot;
 
@@ -1056,18 +1024,12 @@ export class TerminalManager {
                     );
                     for (const terminal of aidevTerminals) {
                         try {
-                            console.log(`[TerminalManager] 기존 codepilot 터미널 종료 시도: ${terminal.name}`);
                             terminal.sendText('\x03'); // Ctrl+C
                             await new Promise(resolve => setTimeout(resolve, 300));
                             terminal.dispose();
-                            console.log(`[TerminalManager] 터미널 종료 완료: ${terminal.name}`);
-                        } catch (e) {
-                            console.log(`[TerminalManager] 터미널 종료 중 오류 (무시): ${e}`);
-                        }
+                        } catch { }
                     }
-                } catch (e) {
-                    console.log(`[TerminalManager] VS Code 터미널 종료 시도 중 오류 (무시): ${e}`);
-                }
+                } catch { }
 
                 // 3. 프로세스 이름 기반 종료
                 const osAdapter = this.executionManager.getOSAdapter();
@@ -1075,13 +1037,10 @@ export class TerminalManager {
                     const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T 2>nul || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T 2>nul || echo "No process found"`;
                     try {
                         await this.executionManager.runCommandCapture(killCommand, { cwd });
-                    } catch (e) {
-                        console.log(`[TerminalManager] Windows 프로세스 종료 시도 완료 (오류 무시): ${e}`);
-                    }
+                    } catch { }
                 } else {
                     try {
                         const absCwd = path.resolve(cwd || '.');
-                        console.log(`[TerminalManager] 현재 디렉토리에서만 프로세스 종료: ${absCwd}`);
 
                         // Unix: lsof로 CWD 기반 프로세스 검색 후 종료
                         const findProcessCmd = `lsof -a -d cwd -c node -F p | grep -E "^p[0-9]+" | head -1 | sed 's/^p//'`;
@@ -1096,10 +1055,7 @@ export class TerminalManager {
                                     const processCwd = cwdResult.stdout.trim();
 
                                     if (processCwd === absCwd) {
-                                        console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid} (CWD: ${processCwd})`);
                                         await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
-                                    } else {
-                                        console.log(`[TerminalManager] 다른 디렉토리 프로세스는 종료하지 않음: PID ${pid} (CWD: ${processCwd}, 현재: ${absCwd})`);
                                     }
                                 } catch (e) {
                                     console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
@@ -1113,17 +1069,13 @@ export class TerminalManager {
                         if (psResult.stdout && psResult.stdout.trim()) {
                             const matchingPids = psResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
                             for (const pid of matchingPids) {
-                                console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid}`);
                                 await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
                             }
                         }
-                    } catch (e) {
-                        console.log(`[TerminalManager] 프로세스 종료 시도 완료 (오류 무시): ${e}`);
-                    }
+                    } catch { }
                 }
 
                 await new Promise(resolve => setTimeout(resolve, 1000));
-                console.log(`[TerminalManager] 기존 프로세스 종료 완료`);
             } catch (error) {
                 console.warn(`[TerminalManager] 기존 프로세스 종료 실패 (계속 진행): ${error}`);
             }

@@ -88,6 +88,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // 서비스 초기화 (순서 중요: 의존성 주입)
   notificationService = new NotificationService();
 
+  // InlineDiffManager에 ExtensionContext 주입 (영구 저장 복원)
+  InlineDiffManager.getInstance().setContext(context);
+
   // CodePilot Backend 인증 서비스 초기화
   authService = AuthService.initialize(context);
 
@@ -454,8 +457,6 @@ export async function activate(context: vscode.ExtensionContext) {
       diffContentProvider,
     ),
   );
-  console.log("[Extension] Diff Content Provider registered");
-
   // 커서 IDE 방식: 인라인 Diff CodeLens Provider 등록
   const diffCodeLensProvider = DiffCodeLensProvider.getInstance();
   context.subscriptions.push(
@@ -464,8 +465,6 @@ export async function activate(context: vscode.ExtensionContext) {
       diffCodeLensProvider,
     ),
   );
-  console.log("[Extension] Diff CodeLens Provider registered");
-
   // 커서 IDE 방식: 인라인 Diff 명령어 등록
   context.subscriptions.push(
     vscode.commands.registerCommand(
@@ -561,11 +560,6 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new GitDiffToolHandler());
   toolRegistry.register(new ReadActiveFileToolHandler());
   toolRegistry.register(new FetchUrlToolHandler());
-  console.log(
-    "[Extension] Tool handlers registered:",
-    toolRegistry.getRegisteredTools(),
-  );
-
   // MCP Manager 초기화 및 도구 등록 브릿지
   const mcpManager = MCPManager.getInstance();
   await mcpManager.initialize(context);
@@ -583,10 +577,8 @@ export async function activate(context: vscode.ExtensionContext) {
           handler.setRegisteredName(registeredName);
         }
       }
-      console.log(`[Extension] MCP tools registered for ${event.serverName}: ${event.tools.length} tools`);
     } else if (event.type === 'disconnected') {
-      const count = toolRegistry.unregisterByServerId(event.serverId);
-      console.log(`[Extension] MCP tools unregistered for ${event.serverName}: ${count} tools`);
+      toolRegistry.unregisterByServerId(event.serverId);
     }
   });
 
@@ -598,9 +590,6 @@ export async function activate(context: vscode.ExtensionContext) {
     if (registeredName !== handler.name) {
       handler.setRegisteredName(registeredName);
     }
-  }
-  if (allMcpTools.length > 0) {
-    console.log(`[Extension] Existing MCP tools registered: ${allMcpTools.length}`);
   }
 
   // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨

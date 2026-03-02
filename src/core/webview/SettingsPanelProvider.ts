@@ -26,12 +26,10 @@ const allWebviews: vscode.Webview[] = [];
 function safePostMessage(panel: vscode.WebviewPanel, message: any): void {
   try {
     if (panel && !panel.webview) {
-      // console.log('[PanelManager] Panel webview is not available, skipping message');
       return;
     }
     panel.webview.postMessage(message);
   } catch (error) {
-    // console.log('[PanelManager] Failed to post message to webview:', error);
   }
 }
 
@@ -58,7 +56,6 @@ export function openSettingsPanel(
     "settings",
     viewColumn,
     async (data, panel: vscode.WebviewPanel) => {
-      // console.log('Settings panel received message:', data.command, data);
       const stateManager = StateManager.getInstance(context); // 모든 case에서 사용
       switch (data.command) {
         case "getCurrentSettings": {
@@ -68,7 +65,6 @@ export function openSettingsPanel(
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
             const ollamaEndpoint = await stateManager.getOllamaEndpoint();
             const ollamaModel = await stateManager.getOllamaModel();
-            // console.log('[PanelManager] Loaded ollamaModel:', ollamaModel);
             const ollamaServerType = await stateManager.getOllamaServerType();
             const remoteOllamaApiUrl =
               await stateManager.getRemoteOllamaApiUrl();
@@ -161,14 +157,6 @@ export function openSettingsPanel(
               errorReportingEnabled: config.get<boolean>('errorReportingEnabled', false),
               serverSettings: settingsManager.getAllServerSettings(),
             };
-            console.log('[SettingsPanelProvider] Sending currentSettings - routing models:', {
-              compactorModelType,
-              compactorModelName,
-              commandModelType,
-              commandModelName,
-              intentModelType,
-              intentModelName,
-            });
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error getting current settings:", error);
@@ -186,7 +174,6 @@ export function openSettingsPanel(
               DEFAULT_OLLAMA_URL;
             const models = await ModelConnectionService.getOllamaModels(apiUrl);
 
-            // console.log('[PanelManager] Successfully retrieved Ollama models:', models);
             safePostMessage(panel, {
               command: "ollamaModels",
               models,
@@ -235,7 +222,6 @@ export function openSettingsPanel(
               DEFAULT_OLLAMA_URL;
             const models = await ModelConnectionService.getOllamaModels(apiUrl);
 
-            console.log('[PanelManager] Routing Ollama models retrieved:', models?.length || 0);
             safePostMessage(panel, {
               command: "routingOllamaModels",
               models,
@@ -665,7 +651,6 @@ export function openSettingsPanel(
           break;
         case "saveOllamaServerType": // Ollama 서버 타입 저장 케이스 추가
           const ollamaServerTypeToSave = data.ollamaServerType;
-          // console.log('[PanelManager] Saving Ollama server type:', ollamaServerTypeToSave);
           if (
             ollamaServerTypeToSave &&
             typeof ollamaServerTypeToSave === "string"
@@ -1110,7 +1095,6 @@ export function openSettingsPanel(
             try {
               await settingsManager.updateAutoMcpToolExecutionEnabled(autoMcpToolVal);
               safePostMessage(panel, { command: "autoMcpToolExecutionEnabledSet" });
-              console.log(`[PanelManager] Auto MCP Tool Execution 설정 저장됨: ${autoMcpToolVal}`);
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "autoMcpToolExecutionEnabledSetError",
@@ -1132,7 +1116,6 @@ export function openSettingsPanel(
             try {
               await settingsManager.updateOrchestrationEnabled(orchestrationVal);
               safePostMessage(panel, { command: "orchestrationEnabledSet" });
-              console.log(`[PanelManager] Orchestration 설정 저장됨: ${orchestrationVal}`);
             } catch (error: any) {
               safePostMessage(panel, {
                 command: "orchestrationEnabledSetError",
@@ -1353,11 +1336,9 @@ export function openSettingsPanel(
           break;
         case "saveLanguage": // 언어 설정 저장 케이스 추가
           const languageToSave = data.language;
-          // console.log('[PanelManager] Saving language:', languageToSave);
           if (languageToSave && typeof languageToSave === "string") {
             try {
               await stateManager.saveLanguage(languageToSave);
-              // console.log('[PanelManager] Language saved successfully:', languageToSave);
               safePostMessage(panel, {
                 command: "languageSaved",
                 language: languageToSave,
@@ -1542,7 +1523,6 @@ export function openSettingsPanel(
               errorRetryCount: errorRetryCount || 2,
               aiModel: aiModel || "ollama",
             };
-            // console.log('Sending currentApiKeys message:', messageToSend);
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error getting current settings:", error);
@@ -1619,7 +1599,6 @@ export function openSettingsPanel(
               aiModel: modelToUse,
               serverSettings: settingsManager.getAllServerSettings(),
             };
-            console.log('[PanelManager] loadSettings - sending currentSettings with toggles');
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
             console.error("Error loading settings:", error);
@@ -1674,9 +1653,7 @@ export function openSettingsPanel(
         case "getLanguage": // 언어 설정 로드
           try {
             const language = await stateManager.getLanguage();
-            // console.log('[PanelManager] Loaded language from storage:', language);
             safePostMessage(panel, { command: "currentLanguage", language });
-            // console.log('[PanelManager] Sent currentLanguage message with language:', language);
           } catch (error: any) {
             console.error("Error getting language:", error);
             safePostMessage(panel, {
@@ -2191,7 +2168,6 @@ export function openSettingsPanel(
         case "deleteAgentPolicyFile": // 카테고리에서 특정 파일 삭제
           try {
             const { category, fileName, isLegacy } = data;
-            console.log(`[SettingsPanel] deleteAgentPolicyFile received - category: ${category}, fileName: ${fileName}, isLegacy: ${isLegacy}`);
 
             if (!category || !fileName) {
               throw new Error("카테고리와 파일명이 필요합니다.");
@@ -2214,26 +2190,22 @@ export function openSettingsPanel(
             if (isLegacy) {
               // 레거시 파일: .agent/rules/{fileName}
               const legacyPath = path.join(workspaceRoot, ".agent", "rules", targetFileName);
-              console.log(`[SettingsPanel] Trying legacy path: ${legacyPath}`);
               try {
                 const legacyUri = vscode.Uri.file(legacyPath);
                 await vscode.workspace.fs.stat(legacyUri);
                 await vscode.workspace.fs.delete(legacyUri);
                 deleted = true;
-                console.log(`[SettingsPanel] Deleted legacy file: ${legacyPath}`);
               } catch (e: any) {
                 console.warn(`[SettingsPanel] Legacy file not found: ${legacyPath}`, e.message);
               }
             } else {
               // 새 구조 파일: .agent/rules/{category}/{fileName}
               const newStructurePath = path.join(workspaceRoot, ".agent", "rules", category, targetFileName);
-              console.log(`[SettingsPanel] Trying new structure path: ${newStructurePath}`);
               try {
                 const newUri = vscode.Uri.file(newStructurePath);
                 await vscode.workspace.fs.stat(newUri);
                 await vscode.workspace.fs.delete(newUri);
                 deleted = true;
-                console.log(`[SettingsPanel] Deleted file from new structure: ${newStructurePath}`);
               } catch (e: any) {
                 console.warn(`[SettingsPanel] New structure file not found: ${newStructurePath}`, e.message);
               }
@@ -2328,7 +2300,6 @@ export function openSettingsPanel(
             if (theme && ['dark', 'light', 'auto'].includes(theme)) {
               const config = vscode.workspace.getConfiguration('codepilot');
               await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
-              console.log(`[SettingsPanel] Chat theme saved: ${theme}`);
               safePostMessage(panel, {
                 command: 'chatThemeSaved',
                 theme: theme
@@ -3425,7 +3396,6 @@ export function openSettingsPanel(
         }
       } catch (error) {
         // Panel이 이미 dispose된 경우 무시 (콘솔 스팸 방지를 위해 주석 처리)
-        // console.log('[PanelManager] Panel already disposed, ignoring error:', error);
       }
     },
     undefined,
@@ -3523,7 +3493,6 @@ export function openPlanPanel(
           break;
         }
         default:
-          // console.log('[PlanPanel] Unknown command:', data.command);
           break;
       }
     },

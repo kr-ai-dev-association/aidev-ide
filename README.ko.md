@@ -6,6 +6,30 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.1.0 (턴 체크포인트 스택, 파일 삭제 Import 정리, 로그 정리)
+
+### 턴 체크포인트 스택 (Cascade Undo)
+- **turnCheckpointStack 도입**: 파일 변경 사항을 턴 단위로 스택에 누적하여, Undo 시 최신 턴부터 순차적으로 되돌릴 수 있습니다.
+  - 이전: 단일 스냅샷만 저장 → 개선: 턴별 스냅샷 스택으로 다단계 Undo 지원
+  - `getPendingChangesByTurn()`에 `isNewFile` 필드 추가로 Created/Updated 라벨 구분
+
+### Keep 버튼 색상 통일
+- **모든 Keep 버튼 색상 `#73c991`로 통일**: Turn actions의 Keep 버튼, 인라인 diff의 Keep 버튼이 동일한 초록색을 사용합니다.
+  - 다크 테마 `.turn-undo-btn` 색상 오버라이드 제거
+  - 라이트 테마 `.turn-undo-btn` 오버라이드 추가 (`color: #333`, `border-color: #999`)
+
+### 파일 삭제 시 Import 자동 정리 (LLM 기반)
+- **ToolExecutionCoordinator**: `trackFileChanges()`에 `deletedFiles` 파라미터 추가로 삭제된 파일 추적
+- **ConversationManager**: `findImportingFiles()` 메서드로 ripgrep 기반 import 참조 검색
+  - 삭제된 파일을 import하는 파일이 감지되면 `accumulatedUserParts`에 cleanup 지시를 주입하여 LLM이 자동으로 import를 정리합니다.
+  - `_pendingImportCleanupMsg` 인스턴스 변수로 다음 턴에 지시 전달
+
+### console.log 정리
+- **11개 파일에서 약 160건의 불필요한 console.log 제거**
+  - 초기화/라이프사이클, 싱글톤 생성, getter/setter 반복 로그, 도구 등록 로그 등 제거
+  - 에러/경고, 기능 흐름, 상태 전이, 재시도 로그는 유지
+  - 대상 파일: SettingsManager, ActionManager, StateManager, LLMManager, extension, ConversationManager, ChatViewProvider, AskViewProvider, SettingsPanelProvider, TerminalManager, tokenUtils 등
+
 ## v11.0.0 (멀티에이전트 오케스트레이션, 도구 병렬실행, Thinking 제어)
 
 ### 멀티에이전트 오케스트레이션 시스템

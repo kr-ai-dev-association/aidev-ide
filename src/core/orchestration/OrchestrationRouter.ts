@@ -285,6 +285,17 @@ export class OrchestrationRouter {
             WebviewBridge.receiveMessage(webview, 'CODEPILOT', summaryMessage);
             collectedUIMessages.push({ sender: 'CODEPILOT', text: summaryMessage, type: 'summary' });
 
+            // 턴 액션 표시 (모든 출력 완료 후)
+            try {
+                const { InlineDiffManager } = await import('../managers/diff/InlineDiffManager');
+                const turnStats = InlineDiffManager.getInstance().getPendingChangesByTurn();
+                if (turnStats.length > 0) {
+                    webview.postMessage({ command: 'showTurnActions', turns: turnStats });
+                }
+            } catch (e) {
+                console.warn('[OrchestrationRouter] showTurnActions failed:', e);
+            }
+
             // UI 정리
             WebviewBridge.sendProcessingStep(webview, 'done');
             WebviewBridge.hideLoading(webview);
@@ -346,8 +357,10 @@ export class OrchestrationRouter {
             },
         };
 
-        // 4. 에이전트 실행
-        const agent = new SubAgentLoop(subtask, toolContext, options.abortSignal, projectContext, callbacks, rulesContext);
+        // 4. 에이전트 실행 (서브태스크별 conversationTurnId 생성)
+        const agentTurnId = `sub_${subtask.id}_${Date.now().toString(36)}`;
+        const agentToolContext: ToolExecutionContext = { ...toolContext, conversationTurnId: agentTurnId };
+        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext);
         const result = await agent.run();
 
         // 5. TaskQueue 상태 → done/failed

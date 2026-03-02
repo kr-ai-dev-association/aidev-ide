@@ -50,7 +50,6 @@ export class StateManager {
     public setState<T>(key: keyof GlobalState, value: T): void {
         this.state[key] = value as any;
         this.saveState();
-        console.log(`[StateManager] State updated: ${String(key)}`);
     }
 
     /**
@@ -65,7 +64,6 @@ export class StateManager {
      */
     public async setWorkspaceState<T>(key: string, value: T): Promise<void> {
         await this.context.workspaceState.update(key, value);
-        console.log(`[StateManager] Workspace state updated: ${key}`);
     }
 
     /**
@@ -196,7 +194,6 @@ export class StateManager {
             const stored = this.context.globalState.get<GlobalState>('codepilot.globalState');
             if (stored) {
                 this.state = stored;
-                console.log('[StateManager] State loaded');
             }
         } catch (error) {
             console.error('[StateManager] Failed to load state:', error);
@@ -237,7 +234,6 @@ export class StateManager {
      */
     public async saveSecret(key: string, value: string): Promise<void> {
         await this.context.secrets.store(key, value);
-        console.log(`[StateManager] Secret saved: ${key}`);
     }
 
     /**
@@ -252,7 +248,6 @@ export class StateManager {
      */
     public async deleteSecret(key: string): Promise<void> {
         await this.context.secrets.delete(key);
-        console.log(`[StateManager] Secret deleted: ${key}`);
     }
 
     // API 키 및 모델 관련 키
@@ -474,7 +469,6 @@ export class StateManager {
      */
     public async saveAgentPolicyStableVersion(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_STABLE_VERSION_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Stable Version saved.');
     }
 
     /**
@@ -496,7 +490,6 @@ export class StateManager {
      */
     public async saveAgentPolicyCodingStyle(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_CODING_STYLE_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Coding Style saved.');
     }
 
     /**
@@ -518,7 +511,6 @@ export class StateManager {
      */
     public async saveAgentPolicyProjectArchitecture(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_PROJECT_ARCHITECTURE_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Project Architecture saved.');
     }
 
     /**
@@ -540,7 +532,6 @@ export class StateManager {
      */
     public async saveAgentPolicyDependencyPolicy(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_DEPENDENCY_POLICY_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Dependency Policy saved.');
     }
 
     /**
@@ -562,7 +553,6 @@ export class StateManager {
      */
     public async saveAgentPolicyDbPolicy(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_DB_POLICY_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy DB Policy saved.');
     }
 
     /**
@@ -586,7 +576,6 @@ export class StateManager {
      */
     public async saveCompactorModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_MODEL_TYPE_KEY, modelType);
-        console.log('[StateManager] Compactor model type saved:', modelType);
     }
 
     /**
@@ -608,7 +597,6 @@ export class StateManager {
      */
     public async saveCompactorModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_MODEL_NAME_KEY, modelName);
-        console.log('[StateManager] Compactor model name saved:', modelName);
     }
 
     /**
@@ -630,7 +618,6 @@ export class StateManager {
      */
     public async saveCommandModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.COMMAND_MODEL_TYPE_KEY, modelType);
-        console.log('[StateManager] Command model type saved:', modelType);
     }
 
     /**
@@ -652,7 +639,6 @@ export class StateManager {
      */
     public async saveCommandModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.COMMAND_MODEL_NAME_KEY, modelName);
-        console.log('[StateManager] Command model name saved:', modelName);
     }
 
     /**
@@ -721,7 +707,6 @@ export class StateManager {
             this.deleteCompactorModelType(),
             this.deleteCompactorModelName()
         ]);
-        console.log('[StateManager] Compactor model config cleared (will use main model)');
     }
 
     /**
@@ -732,7 +717,6 @@ export class StateManager {
             this.deleteCommandModelType(),
             this.deleteCommandModelName()
         ]);
-        console.log('[StateManager] Command model config cleared (will use main model)');
     }
 
     // ===== Compactor/Command API 키 관련 메서드들 =====
@@ -742,7 +726,6 @@ export class StateManager {
      */
     public async saveCompactorApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_API_KEY_KEY, apiKey);
-        console.log('[StateManager] Compactor API key saved');
     }
 
     /**
@@ -757,7 +740,6 @@ export class StateManager {
      */
     public async deleteCompactorApiKey(): Promise<void> {
         await this.deleteSecret(this.COMPACTOR_API_KEY_KEY);
-        console.log('[StateManager] Compactor API key deleted');
     }
 
     /**
@@ -765,7 +747,6 @@ export class StateManager {
      */
     public async saveCommandApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.COMMAND_API_KEY_KEY, apiKey);
-        console.log('[StateManager] Command API key saved');
     }
 
     /**
@@ -780,7 +761,6 @@ export class StateManager {
      */
     public async deleteCommandApiKey(): Promise<void> {
         await this.deleteSecret(this.COMMAND_API_KEY_KEY);
-        console.log('[StateManager] Command API key deleted');
     }
 
     /**
@@ -806,7 +786,6 @@ export class StateManager {
      */
     public async saveIntentModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.INTENT_MODEL_TYPE_KEY, modelType);
-        console.log('[StateManager] Intent model type saved:', modelType);
     }
 
     /**
@@ -828,7 +807,6 @@ export class StateManager {
      */
     public async saveIntentModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.INTENT_MODEL_NAME_KEY, modelName);
-        console.log('[StateManager] Intent model name saved:', modelName);
     }
 
     /**
@@ -850,7 +828,6 @@ export class StateManager {
      */
     public async saveIntentApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.INTENT_API_KEY_KEY, apiKey);
-        console.log('[StateManager] Intent API key saved');
     }
 
     /**
@@ -865,7 +842,6 @@ export class StateManager {
      */
     public async deleteIntentApiKey(): Promise<void> {
         await this.deleteSecret(this.INTENT_API_KEY_KEY);
-        console.log('[StateManager] Intent API key deleted');
     }
 
     /**
@@ -906,7 +882,6 @@ export class StateManager {
             this.deleteIntentModelName(),
             this.deleteIntentApiKey()
         ]);
-        console.log('[StateManager] Intent model config cleared (will use main model)');
     }
 
     // ===== MCP 서버 관련 메서드들 =====
@@ -918,7 +893,6 @@ export class StateManager {
      */
     public async saveMcpServers(servers: any[]): Promise<void> {
         await this.context.workspaceState.update(this.MCP_SERVERS_KEY, servers);
-        console.log('[StateManager] MCP servers saved:', servers.length);
     }
 
     /**
@@ -970,7 +944,6 @@ export class StateManager {
      */
     public async saveMcpApprovedTools(approvedTools: any[]): Promise<void> {
         await this.context.workspaceState.update(this.MCP_APPROVED_TOOLS_KEY, approvedTools);
-        console.log('[StateManager] MCP approved tools saved:', approvedTools.length);
     }
 
     /**
@@ -1000,7 +973,6 @@ export class StateManager {
                 approvedAt: Date.now()
             });
             await this.saveMcpApprovedTools(approvedTools);
-            console.log('[StateManager] MCP tool approved:', serverId, toolName);
         }
     }
 

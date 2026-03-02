@@ -43,7 +43,7 @@ export function setThinkingBubbleElement(element) {
  * 새로운 스트리밍 응답을 위한 메시지 요소 생성
  * @param {string} sender - 발신자
  */
-export function startStreamingMessage(sender) {
+export function startStreamingMessage(sender, meta) {
   if (!chatMessages) {
     console.warn("[Streaming] chatMessages element not found");
     return;
@@ -62,6 +62,11 @@ export function startStreamingMessage(sender) {
   // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
   const messageContainer = document.createElement("div");
   messageContainer.classList.add("codepilot-message-container", "streaming");
+
+  // 턴 ID 스탬프 (턴 레벨 Accept/Reject용)
+  if (meta && meta.conversationTurnId) {
+    messageContainer.setAttribute("data-turn-id", meta.conversationTurnId);
+  }
 
   const bubbleElement = document.createElement("div");
   bubbleElement.classList.add("message-bubble");

@@ -135,15 +135,18 @@
       }
 
       /* Undo 버튼 - 라이트 테마 */
-      body[data-theme="light"] .undo-button {
+      body[data-theme="light"] .undo-button,
+      body[data-theme="light"] .turn-undo-btn {
         background-color: #f3f4f6 !important;
         color: #374151 !important;
         border: none !important;
       }
-      body[data-theme="light"] .undo-button:hover {
+      body[data-theme="light"] .undo-button:hover,
+      body[data-theme="light"] .turn-undo-btn:hover {
         background-color: #e5e7eb !important;
       }
-      body[data-theme="light"] .undo-button:active {
+      body[data-theme="light"] .undo-button:active,
+      body[data-theme="light"] .turn-undo-btn:active {
         background-color: #d1d5db !important;
       }
 
@@ -513,16 +516,7 @@
         background: #00ff00 !important; /* 형광 초록 */
       }
 
-      /* Keep 버튼 - 다크 테마 (그린 계열) */
-      body[data-theme="dark"] .keep-button {
-        background-color: #10b981 !important;
-      }
-      body[data-theme="dark"] .keep-button:hover {
-        background-color: #059669 !important;
-      }
-      body[data-theme="dark"] .keep-button:active {
-        background-color: #047857 !important;
-      }
+      /* Keep 버튼 - 다크 테마: 기본 #73c991 유지 (Keep All과 동일) */
 
       /* ========== 라이트 테마 추가 아이콘 스타일 ========== */
       body[data-theme="light"] .dropdown-icon-img {
@@ -1116,6 +1110,73 @@
         width: 100%;
         box-sizing: border-box;
         flex-shrink: 0;
+      }
+
+      /* Turn-level Accept/Reject */
+      .turn-actions {
+        padding: 4px 0;
+        width: 100%;
+      }
+      .turn-actions-row {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        width: 100%;
+      }
+      .turn-files-label {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground, #888);
+        margin-right: auto;
+      }
+      .turn-keep-btn, .turn-undo-btn {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        font-weight: 500;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: background-color 0.2s ease-in-out;
+      }
+      .turn-keep-btn {
+        background-color: #73c991;
+        color: white;
+      }
+      .turn-keep-btn:hover {
+        background-color: #5fb07d;
+        color: white;
+      }
+      .turn-keep-btn:active {
+        background-color: #4a9968;
+        color: white;
+      }
+      .turn-undo-btn {
+        background-color: #1e1e1e;
+        color: white;
+      }
+      .turn-undo-btn:hover {
+        background-color: #333333;
+        color: white;
+      }
+      .turn-undo-btn:active {
+        background-color: #000000;
+        color: white;
+      }
+      .turn-file-list {
+        margin-top: 2px;
+      }
+      .turn-file-item {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground, #888);
+        padding: 1px 0;
+        cursor: pointer;
+      }
+      .turn-file-item:hover {
+        color: var(--vscode-foreground, #ccc);
       }
 
       .message-bubble {
@@ -2965,7 +3026,88 @@
     </div><!-- /chat-app -->
 
     <script>
-      // console.log("✅ chat.html loaded");
+      // 턴 액션 글로벌 유틸리티
+      window._latestTurnStats = [];
+
+      window._updateTurnActionContent = function(el, turnData) {
+        const tid = turnData.conversationTurnId;
+        const cascade = turnData.cascadeUndoTurnCount || 1;
+        const undoLabel = cascade > 1 ? `Undo Turn (+${cascade - 1})` : "Undo Turn";
+        const undoTitle = cascade > 1
+          ? `이 턴 포함 ${cascade}개 턴의 변경사항 되돌리기`
+          : "이 턴의 모든 변경사항 되돌리기";
+        const fileLabel = `${turnData.totalFiles} file${turnData.totalFiles !== 1 ? "s" : ""} changed`;
+        const fileItems = (turnData.files || []).map(f => {
+          const name = f.fileName || f.filePath.split("/").pop() || f.filePath;
+          const label = f.isNewFile ? "\u2705 [Created]" : "\u{1F4DD} [Updated]";
+          return `<div class="turn-file-item" data-filepath="${f.filePath}" title="${f.filePath}">${label} ${name}</div>`;
+        }).join("");
+
+        el.innerHTML = `
+          <div class="turn-actions-row">
+            <span class="turn-files-label">${fileLabel}</span>
+            <button class="turn-undo-btn" title="${undoTitle}">${undoLabel}</button>
+            <button class="turn-keep-btn" title="이 턴의 모든 변경사항 승인">Keep Turn</button>
+          </div>
+          <div class="turn-file-list">${fileItems}</div>
+        `;
+        el.querySelector(".turn-keep-btn").addEventListener("click", () => {
+          if (window.vscode) window.vscode.postMessage({ command: "acceptChangesByTurn", conversationTurnId: tid });
+        });
+        el.querySelector(".turn-undo-btn").addEventListener("click", () => {
+          if (!window.vscode) return;
+          if (cascade <= 1) {
+            window.vscode.postMessage({ command: "rejectChangesByTurn", conversationTurnId: tid });
+            return;
+          }
+          // cascade > 1: 커스텀 확인 모달
+          const modal = document.createElement("div");
+          modal.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background-color:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:center;z-index:10000;";
+          const box = document.createElement("div");
+          box.style.cssText = "background-color:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 4px 12px rgba(0,0,0,0.3);";
+          box.innerHTML = `
+            <div style="margin-bottom:16px;">
+              <h3 style="margin:0 0 12px 0;color:var(--vscode-foreground);font-size:16px;">턴 되돌리기</h3>
+              <p style="margin:0;color:var(--vscode-foreground);line-height:1.4;">
+                이후 ${cascade - 1}개 턴도 함께 되돌려집니다.<br>이 작업은 되돌릴 수 없습니다.
+              </p>
+            </div>
+            <div style="display:flex;gap:12px;justify-content:flex-end;">
+              <button class="cascade-cancel" style="padding:8px 16px;border:1px solid var(--vscode-panel-border);background-color:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);border-radius:4px;cursor:pointer;font-size:14px;">취소</button>
+              <button class="cascade-confirm" style="padding:8px 16px;border:none;background-color:#dc3545;color:white;border-radius:4px;cursor:pointer;font-size:14px;">확인</button>
+            </div>`;
+          modal.appendChild(box);
+          document.body.appendChild(modal);
+          box.querySelector(".cascade-cancel").addEventListener("click", () => document.body.removeChild(modal));
+          box.querySelector(".cascade-confirm").addEventListener("click", () => {
+            document.body.removeChild(modal);
+            window.vscode.postMessage({ command: "rejectChangesByTurn", conversationTurnId: tid });
+          });
+          modal.addEventListener("click", (e) => { if (e.target === modal) document.body.removeChild(modal); });
+        });
+        el.querySelectorAll(".turn-file-item").forEach(item => {
+          item.addEventListener("click", () => {
+            const fp = item.getAttribute("data-filepath");
+            if (fp && window.vscode) window.vscode.postMessage({ command: "openFile", filePath: fp });
+          });
+        });
+      };
+
+      window._flushPendingTurnActions = function() {
+        const chatMsgs = document.getElementById("chat-messages");
+        if (!chatMsgs) return;
+        for (const turnData of (window._latestTurnStats || [])) {
+          const tid = turnData.conversationTurnId;
+          if (document.querySelector(`.turn-actions[data-turn-id="${tid}"]`)) continue;
+          const el = document.createElement("div");
+          el.classList.add("turn-actions");
+          el.setAttribute("data-turn-id", tid);
+          el.style.display = "block";
+          window._updateTurnActionContent(el, turnData);
+          chatMsgs.appendChild(el);
+        }
+        if (chatMsgs) chatMsgs.scrollTop = chatMsgs.scrollHeight;
+      };
     </script>
     <script src="{{scriptUri}}"></script>
     <script src="{{codeCopyScriptUri}}"></script>
@@ -3194,6 +3336,24 @@
             }
 
             renderDropdownContent();
+          }
+
+          // 턴 레벨 pending changes 업데이트
+          if (data.command === "updatePendingChangesByTurn") {
+            window._latestTurnStats = data.turns || [];
+            const activeTurnIds = new Set((data.turns || []).map(t => t.conversationTurnId));
+
+            // 기존 턴 액션 숨기기/표시 + 라벨 업데이트 (DOM 생성은 showTurnActions에서만)
+            document.querySelectorAll(".turn-actions[data-turn-id]").forEach(div => {
+              const turnId = div.getAttribute("data-turn-id");
+              if (!activeTurnIds.has(turnId)) {
+                div.remove(); // 완료된 턴은 DOM에서 제거
+              } else {
+                div.style.display = "block";
+                const turnData = (data.turns || []).find(t => t.conversationTurnId === turnId);
+                if (turnData) window._updateTurnActionContent(div, turnData);
+              }
+            });
           }
         });
 

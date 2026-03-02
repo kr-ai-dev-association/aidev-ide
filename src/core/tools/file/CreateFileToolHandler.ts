@@ -50,7 +50,7 @@ export class CreateFileToolHandler implements IToolHandler {
         const originalContent = '';
         
         // diff 표시
-        await inlineDiffManager.showInlineDiff(absolutePath, originalContent, cleanedContent);
+        await inlineDiffManager.showInlineDiff(absolutePath, originalContent, cleanedContent, context.conversationTurnId);
 
         // ✅ 디버깅: fileContent 반환 확인
         console.log(`[CreateFileToolHandler] Returning response with fileContent:`, {

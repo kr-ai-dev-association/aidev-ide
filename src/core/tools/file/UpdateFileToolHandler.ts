@@ -278,7 +278,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     }
 
     // diff 표시 (현재 문서 상태를 기준으로)
-    await inlineDiffManager.showInlineDiff(absolutePath, currentDocumentContent, newContent);
+    await inlineDiffManager.showInlineDiff(absolutePath, currentDocumentContent, newContent, context.conversationTurnId);
 
     return {
       success: true,
@@ -451,33 +451,65 @@ export class UpdateFileToolHandler implements IToolHandler {
     const lastLineSearch = searchLines[searchLines.length - 1].trim();
     const searchBlockSize = searchLines.length;
 
+    // 중간 줄 유사도 검증용 (첫 줄/마지막 줄 제외)
+    const middleSearchLines = searchLines.slice(1, -1).map(l => l.trim());
+    const MIDDLE_SIMILARITY_THRESHOLD = 0.6;
+
+    let bestMatch: [number, number] | false = false;
+    let bestSimilarity = -1;
+
     for (let i = 0; i <= originalLines.length - searchBlockSize; i++) {
       // 첫 줄과 마지막 줄이 trim() 기준으로 일치하는지 확인
       if (
-        originalLines[i].trim() === firstLineSearch &&
-        originalLines[i + searchBlockSize - 1].trim() === lastLineSearch
+        originalLines[i].trim() !== firstLineSearch ||
+        originalLines[i + searchBlockSize - 1].trim() !== lastLineSearch
       ) {
-        // 매칭된 시작 인덱스와 끝 인덱스 계산
-        let matchStartIndex = 0;
-        for (let k = 0; k < i; k++) {
-          matchStartIndex += originalLines[k].length + 1;
-        }
-
-        let matchEndIndex = matchStartIndex;
-        for (let k = 0; k < searchBlockSize; k++) {
-          matchEndIndex += originalLines[i + k].length + 1;
-        }
-
-        // 끝에 붙은 \n 보정 (파일 끝이 아닌 경우)
-        if (matchEndIndex > originalContent.length) {
-          matchEndIndex = originalContent.length;
-        }
-
-        return [matchStartIndex, matchEndIndex];
+        continue;
       }
+
+      // 중간 줄 유사도 검사 (false positive 방지)
+      if (middleSearchLines.length > 0) {
+        const middleOriginalLines = originalLines
+          .slice(i + 1, i + searchBlockSize - 1)
+          .map(l => l.trim());
+
+        let matchCount = 0;
+        const compareLen = Math.min(middleSearchLines.length, middleOriginalLines.length);
+        for (let k = 0; k < compareLen; k++) {
+          if (middleSearchLines[k] === middleOriginalLines[k]) matchCount++;
+        }
+        const similarity = compareLen > 0 ? matchCount / compareLen : 1.0;
+
+        if (similarity < MIDDLE_SIMILARITY_THRESHOLD) continue;
+
+        // 가장 유사도 높은 매칭 선택
+        if (similarity <= bestSimilarity) continue;
+        bestSimilarity = similarity;
+      }
+
+      // 매칭된 시작 인덱스와 끝 인덱스 계산
+      let matchStartIndex = 0;
+      for (let k = 0; k < i; k++) {
+        matchStartIndex += originalLines[k].length + 1;
+      }
+
+      let matchEndIndex = matchStartIndex;
+      for (let k = 0; k < searchBlockSize; k++) {
+        matchEndIndex += originalLines[i + k].length + 1;
+      }
+
+      // 끝에 붙은 \n 보정 (파일 끝이 아닌 경우)
+      if (matchEndIndex > originalContent.length) {
+        matchEndIndex = originalContent.length;
+      }
+
+      bestMatch = [matchStartIndex, matchEndIndex];
+
+      // 완벽 매칭이면 즉시 반환
+      if (bestSimilarity === 1.0) return bestMatch;
     }
 
-    return false;
+    return bestMatch;
   }
 
   /**
