@@ -164,11 +164,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Ollama API 초기화
   const initialOllamaUrl = await stateManager.getOllamaApiUrl();
-  const initialOllamaEndpoint = await stateManager.getOllamaEndpoint();
   const initialOllamaModel = await stateManager.getOllamaModel();
   ollamaApi = new OllamaApi(
     initialOllamaUrl || DEFAULT_OLLAMA_URL,
-    initialOllamaEndpoint,
     context,
   );
   ollamaApi.setModel(initialOllamaModel);

@@ -63,13 +63,10 @@ export function openSettingsPanel(
             // 현재 설정들을 가져와서 웹뷰에 전송
             const apiKey = await stateManager.getApiKey();
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
-            const ollamaEndpoint = await stateManager.getOllamaEndpoint();
             const ollamaModel = await stateManager.getOllamaModel();
             const ollamaServerType = await stateManager.getOllamaServerType();
             const remoteOllamaApiUrl =
               await stateManager.getRemoteOllamaApiUrl();
-            const remoteOllamaEndpoint =
-              await stateManager.getRemoteOllamaEndpoint();
             const remoteOllamaModel = await stateManager.getRemoteOllamaModel();
             const autoTestRetryEnabled =
               await settingsManager.isAutoTestRetryEnabled();
@@ -120,13 +117,10 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
               ollamaServerType: ollamaServerType || "local",
               localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              localOllamaEndpoint: ollamaEndpoint || "/api/generate",
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
-              remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
               remoteOllamaModel: remoteOllamaModel || "",
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
@@ -518,37 +512,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "saveOllamaEndpoint": // Ollama 엔드포인트 저장 케이스 추가
-          const ollamaEndpointToSave = data.ollamaEndpoint;
-          if (
-            ollamaEndpointToSave &&
-            typeof ollamaEndpointToSave === "string"
-          ) {
-            try {
-              await stateManager.saveOllamaEndpoint(ollamaEndpointToSave);
-              safePostMessage(panel, { command: "ollamaEndpointSaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Ollama Endpoint saved.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "ollamaEndpointSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Ollama Endpoint: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "ollamaEndpointSaveError",
-              error: "Invalid Ollama Endpoint",
-            });
-            notificationService.showErrorMessage(
-              "Invalid Ollama Endpoint provided.",
-            );
-          }
-          break;
         case "saveLocalOllamaApiUrl": // 로컬 Ollama API URL 저장 케이스 추가
           const localOllamaApiUrlToSave = data.localOllamaApiUrl || data.apiUrl;
           if (
@@ -577,38 +540,6 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               "Invalid Local Ollama API URL provided.",
-            );
-          }
-          break;
-        case "saveLocalOllamaEndpoint": // 로컬 Ollama 엔드포인트 저장 케이스 추가
-          const localOllamaEndpointToSave =
-            data.localOllamaEndpoint || data.endpoint;
-          if (
-            localOllamaEndpointToSave &&
-            typeof localOllamaEndpointToSave === "string"
-          ) {
-            try {
-              await stateManager.saveOllamaEndpoint(localOllamaEndpointToSave);
-              safePostMessage(panel, { command: "localOllamaEndpointSaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Local Ollama Endpoint saved.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "localOllamaEndpointError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Local Ollama Endpoint: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "localOllamaEndpointError",
-              error: "Invalid Local Ollama Endpoint",
-            });
-            notificationService.showErrorMessage(
-              "Invalid Local Ollama Endpoint provided.",
             );
           }
           break;
@@ -710,39 +641,6 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               "Invalid Remote Ollama API URL provided.",
-            );
-          }
-          break;
-        case "saveRemoteOllamaEndpoint": // 원격 Ollama 엔드포인트 저장 케이스 추가
-          const remoteOllamaEndpointToSave = data.remoteOllamaEndpoint;
-          if (
-            remoteOllamaEndpointToSave &&
-            typeof remoteOllamaEndpointToSave === "string"
-          ) {
-            try {
-              await stateManager.saveRemoteOllamaEndpoint(
-                remoteOllamaEndpointToSave,
-              );
-              safePostMessage(panel, { command: "remoteOllamaEndpointSaved" });
-              notificationService.showInfoMessage(
-                "CODEPILOT: Remote Ollama Endpoint saved.",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "remoteOllamaEndpointSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `Error saving Remote Ollama Endpoint: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "remoteOllamaEndpointSaveError",
-              error: "Invalid Remote Ollama Endpoint",
-            });
-            notificationService.showErrorMessage(
-              "Invalid Remote Ollama Endpoint provided.",
             );
           }
           break;
@@ -1489,13 +1387,10 @@ export function openSettingsPanel(
           try {
             const apiKey = await stateManager.getApiKey();
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
-            const ollamaEndpoint = await stateManager.getOllamaEndpoint();
             const ollamaModel = await stateManager.getOllamaModel();
             const ollamaServerType = await stateManager.getOllamaServerType();
             const remoteOllamaApiUrl =
               await stateManager.getRemoteOllamaApiUrl();
-            const remoteOllamaEndpoint =
-              await stateManager.getRemoteOllamaEndpoint();
             const remoteOllamaModel = await stateManager.getRemoteOllamaModel();
             const autoTestRetryEnabled =
               await settingsManager.isAutoTestRetryEnabled();
@@ -1509,13 +1404,10 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
               ollamaServerType: ollamaServerType || "local",
               localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              localOllamaEndpoint: ollamaEndpoint || "/api/generate",
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
-              remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
               remoteOllamaModel: remoteOllamaModel || "",
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
@@ -1539,13 +1431,10 @@ export function openSettingsPanel(
             // initializePanel 케이스와 동일한 로직 사용
             const apiKey = await stateManager.getApiKey();
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
-            const ollamaEndpoint = await stateManager.getOllamaEndpoint();
             const ollamaModel = await stateManager.getOllamaModel();
             const ollamaServerType = await stateManager.getOllamaServerType();
             const remoteOllamaApiUrl =
               await stateManager.getRemoteOllamaApiUrl();
-            const remoteOllamaEndpoint =
-              await stateManager.getRemoteOllamaEndpoint();
             const remoteOllamaModel = await stateManager.getRemoteOllamaModel();
             const autoTestRetryEnabled =
               await settingsManager.isAutoTestRetryEnabled();
@@ -1576,13 +1465,10 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              ollamaEndpoint: ollamaEndpoint || "/api/generate",
               ollamaModel: ollamaModel || "gemma3:27b",
               ollamaServerType: ollamaServerType || "local",
               localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              localOllamaEndpoint: ollamaEndpoint || "/api/generate",
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
-              remoteOllamaEndpoint: remoteOllamaEndpoint || "/api/generate",
               remoteOllamaModel: remoteOllamaModel || "",
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,

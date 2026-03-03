@@ -2129,11 +2129,6 @@ const localOllamaApiUrlInput = document.getElementById("local-ollama-api-url-inp
 const saveLocalOllamaApiUrlButton = document.getElementById("save-local-ollama-api-url-button");
 const localOllamaApiUrlStatus = document.getElementById("local-ollama-api-url-status");
 
-// 로컬 Ollama 엔드포인트 관련 요소들
-const localOllamaEndpointSelect = document.getElementById("local-ollama-endpoint-select");
-const saveLocalOllamaEndpointButton = document.getElementById("save-local-ollama-endpoint-button");
-const localOllamaEndpointStatus = document.getElementById("local-ollama-endpoint-status");
-
 // 원격 서버 모델명 관련 요소들
 const remoteOllamaModelInput = document.getElementById("remote-ollama-model-input");
 const saveRemoteOllamaModelButton = document.getElementById("save-remote-ollama-model-button");
@@ -2143,11 +2138,6 @@ const remoteOllamaModelStatus = document.getElementById("remote-ollama-model-sta
 const remoteOllamaApiUrlInput = document.getElementById("remote-ollama-api-url-input");
 const saveRemoteOllamaApiUrlButton = document.getElementById("save-remote-ollama-api-url-button");
 const remoteOllamaApiUrlStatus = document.getElementById("remote-ollama-api-url-status");
-
-// 원격 서버 엔드포인트 관련 요소들
-const remoteOllamaEndpointSelect = document.getElementById("remote-ollama-endpoint-select");
-const saveRemoteOllamaEndpointButton = document.getElementById("save-remote-ollama-endpoint-button");
-const remoteOllamaEndpointStatus = document.getElementById("remote-ollama-endpoint-status");
 
 // Ollama 모델 선택 관련 요소들
 const ollamaModelSelect = document.getElementById("ollama-model-select");
@@ -2168,7 +2158,7 @@ let currentSettingsOllamaModel = null; // currentSettings에서 받은 Ollama �
 
 // 저장 버튼들의 활성화/비활성화를 제어하는 함수
 function updateSaveButtonsState() {
-  const allButtons = [saveSupportedModelApiKeyButton, saveLocalOllamaApiUrlButton, saveLocalOllamaEndpointButton, saveRemoteOllamaModelButton, saveRemoteOllamaApiUrlButton, saveRemoteOllamaEndpointButton, saveOllamaServerTypeButton, saveOllamaModelButton];
+  const allButtons = [saveSupportedModelApiKeyButton, saveLocalOllamaApiUrlButton, saveRemoteOllamaModelButton, saveRemoteOllamaApiUrlButton, saveOllamaServerTypeButton, saveOllamaModelButton];
   allButtons.forEach(button => {
     if (button) {
       button.disabled = false;
@@ -2718,40 +2708,6 @@ if (ollamaAuthButton) {
   });
 }
 
-// 로컬 Ollama 엔드포인트 저장 이벤트 리스너
-if (saveLocalOllamaEndpointButton) {
-  saveLocalOllamaEndpointButton.addEventListener("click", () => {
-    const endpoint = localOllamaEndpointSelect.value;
-    if (endpoint) {
-      vscode.postMessage({
-        command: "saveLocalOllamaEndpoint",
-        endpoint: endpoint
-      });
-      const savingText = "로컬 Ollama 엔드포인트 저장 중...";
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, savingText, "info");
-    } else {
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, "엔드포인트를 선택해주세요.", "error");
-    }
-  });
-}
-
-// 원격 서버 Ollama 엔드포인트 저장 이벤트 리스너
-if (saveRemoteOllamaEndpointButton) {
-  saveRemoteOllamaEndpointButton.addEventListener("click", () => {
-    const endpoint = remoteOllamaEndpointSelect.value;
-    if (endpoint) {
-      vscode.postMessage({
-        command: "saveRemoteOllamaEndpoint",
-        endpoint: endpoint
-      });
-      const savingText = "원격 서버 엔드포인트 저장 중...";
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, savingText, "info");
-    } else {
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, "엔드포인트를 선택해주세요.", "error");
-    }
-  });
-}
-
 // 원격 서버 모델명 저장 이벤트 리스너
 if (saveRemoteOllamaModelButton) {
   saveRemoteOllamaModelButton.addEventListener("click", () => {
@@ -3263,27 +3219,12 @@ window.addEventListener("message", event => {
           (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, txt, message.localOllamaApiUrl ? "success" : "info");
         }
       }
-      if (localOllamaEndpointSelect && typeof message.localOllamaEndpoint === "string") {
-        localOllamaEndpointSelect.value = message.localOllamaEndpoint || "/api/generate";
-        const txt = message.localOllamaEndpoint ? languageData["ollamaEndpointSet"] || `로컬 엔드포인트가 설정되어 있습니다: ${message.localOllamaEndpoint}` : languageData["ollamaEndpointNotSet"] || "로컬 엔드포인트가 설정되지 않았습니다.";
-        if (localOllamaEndpointStatus) {
-          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, txt, message.localOllamaEndpoint ? "success" : "info");
-        }
-      }
-
       // 원격 Ollama 저장값 적용
       if (remoteOllamaApiUrlInput && typeof message.remoteOllamaApiUrl === "string") {
         remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || "";
         const txt = message.remoteOllamaApiUrl ? languageData["ollamaApiUrlSet"] || "Ollama API URL이 설정되어 있습니다." : languageData["ollamaApiUrlNotSet"] || "Ollama API URL이 설정되지 않았습니다.";
         if (remoteOllamaApiUrlStatus) {
           (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, txt, message.remoteOllamaApiUrl ? "success" : "info");
-        }
-      }
-      if (remoteOllamaEndpointSelect && typeof message.remoteOllamaEndpoint === "string") {
-        remoteOllamaEndpointSelect.value = message.remoteOllamaEndpoint || "/api/chat";
-        const txt = message.remoteOllamaEndpoint ? languageData["ollamaEndpointSet"] || `원격 서버 엔드포인트가 설정되어 있습니다: ${message.remoteOllamaEndpoint}` : languageData["ollamaEndpointNotSet"] || "원격 서버 엔드포인트가 설정되지 않았습니다.";
-        if (remoteOllamaEndpointStatus) {
-          (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, txt, message.remoteOllamaEndpoint ? "success" : "info");
         }
       }
       if (remoteOllamaModelInput && typeof message.remoteOllamaModel === "string") {
@@ -3511,23 +3452,11 @@ window.addEventListener("message", event => {
         const localOllamaApiUrlSetText = message.localOllamaApiUrl ? languageData["ollamaApiUrlSet"] || "로컬 Ollama API URL이 설정되어 있습니다." : languageData["ollamaApiUrlNotSet"] || "로컬 Ollama API URL이 설정되지 않았습니다.";
         (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, localOllamaApiUrlSetText, message.localOllamaApiUrl ? "success" : "info");
       }
-      // 로컬 Ollama 엔드포인트 상태 로드 (기본값 폴백)
-      if (localOllamaEndpointSelect && typeof message.localOllamaEndpoint === "string") {
-        localOllamaEndpointSelect.value = message.localOllamaEndpoint || "/api/generate";
-        const localOllamaEndpointSetText = message.localOllamaEndpoint ? `로컬 Ollama 엔드포인트가 설정되어 있습니다: ${message.localOllamaEndpoint}` : "로컬 Ollama 엔드포인트가 설정되지 않았습니다.";
-        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, localOllamaEndpointSetText, message.localOllamaEndpoint ? "success" : "info");
-      }
       // 원격 서버 API URL 상태 로드
       if (remoteOllamaApiUrlInput && typeof message.remoteOllamaApiUrl === "string") {
         remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || "";
         const remoteOllamaApiUrlSetText = message.remoteOllamaApiUrl ? "원격 서버 API URL이 설정되어 있습니다." : "원격 서버 API URL이 설정되지 않았습니다.";
         (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, remoteOllamaApiUrlSetText, message.remoteOllamaApiUrl ? "success" : "info");
-      }
-      // 원격 서버 엔드포인트 상태 로드
-      if (remoteOllamaEndpointSelect && typeof message.remoteOllamaEndpoint === "string") {
-        remoteOllamaEndpointSelect.value = message.remoteOllamaEndpoint || "/api/generate";
-        const remoteOllamaEndpointSetText = message.remoteOllamaEndpoint ? `원격 서버 엔드포인트가 설정되어 있습니다: ${message.remoteOllamaEndpoint}` : "원격 서버 엔드포인트가 설정되지 않았습니다.";
-        (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, remoteOllamaEndpointSetText, message.remoteOllamaEndpoint ? "success" : "info");
       }
       // 원격 서버 모델명 상태 로드
       if (remoteOllamaModelInput && typeof message.remoteOllamaModel === "string") {
@@ -3620,24 +3549,12 @@ window.addEventListener("message", event => {
       const localOllamaApiUrlErrorText = languageData["ollamaApiUrlError"] || "로컬 Ollama API URL 저장 실패:";
       (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaApiUrlStatus, `${localOllamaApiUrlErrorText} ${message.error}`, "error");
       break;
-    case "localOllamaEndpointSaved":
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, "로컬 Ollama 엔드포인트가 저장되었습니다.", "success");
-      break;
-    case "localOllamaEndpointError":
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(localOllamaEndpointStatus, `로컬 Ollama 엔드포인트 저장 실패: ${message.error}`, "error");
-      break;
     case "remoteOllamaApiUrlSaved":
       (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, "원격 서버 API URL이 저장되었습니다.", "success");
       remoteOllamaApiUrlInput.value = "";
       break;
     case "remoteOllamaApiUrlError":
       (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaApiUrlStatus, `원격 서버 API URL 저장 실패: ${message.error}`, "error");
-      break;
-    case "remoteOllamaEndpointSaved":
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, "원격 서버 엔드포인트가 저장되었습니다.", "success");
-      break;
-    case "remoteOllamaEndpointError":
-      (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaEndpointStatus, `원격 서버 엔드포인트 저장 실패: ${message.error}`, "error");
       break;
     case "remoteOllamaModelSaved":
       (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, "원격 서버 모델명이 저장되었습니다.", "success");

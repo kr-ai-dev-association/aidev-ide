@@ -567,37 +567,37 @@ export class ProjectDetector {
                     fs.existsSync(path.join(projectRoot, 'tsconfig.json'));
 
                 if (hasTypeScript) {
-                    // TypeScript 프로젝트: tsc --noEmit을 먼저 실행하고, 그 다음 린트 실행
+                    // TypeScript 프로젝트: npx tsc --noEmit 사용 (로컬 설치 tsc 보장, 전역 버전 불일치 방지)
                     if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
                         const pm = this.detectPackageManager(projectRoot);
 
                         // Biome (매우 빠른 최신 툴)
                         if (fs.existsSync(path.join(projectRoot, 'biome.json'))) {
-                            return { command: `tsc --noEmit && ${pm} biome check .`, description: 'TypeScript 타입 검사 + Biome 검사' };
+                            return { command: `npx tsc --noEmit && ${pm} biome check .`, description: 'TypeScript 타입 검사 + Biome 검사' };
                         }
 
                         // Deno
                         if (fs.existsSync(path.join(projectRoot, 'deno.json'))) {
-                            return { command: 'tsc --noEmit && deno lint', description: 'TypeScript 타입 검사 + Deno Lint' };
+                            return { command: 'npx tsc --noEmit && deno lint', description: 'TypeScript 타입 검사 + Deno Lint' };
                         }
 
-                        // package.json scripts: tsc --noEmit 후 린트 실행
+                        // package.json scripts: npx tsc --noEmit 후 린트 실행
                         if (this.hasScript(projectRoot, 'lint')) {
-                            return { command: `tsc --noEmit && ${pm} run lint`, description: 'TypeScript 타입 검사 + Lint' };
+                            return { command: `npx tsc --noEmit && ${pm} run lint`, description: 'TypeScript 타입 검사 + Lint' };
                         }
                         if (this.hasScript(projectRoot, 'type-check')) {
-                            return { command: `tsc --noEmit && ${pm} run type-check`, description: 'TypeScript 타입 검사 + Type Check' };
+                            return { command: `npx tsc --noEmit && ${pm} run type-check`, description: 'TypeScript 타입 검사 + Type Check' };
                         }
                         if (this.hasScript(projectRoot, 'validate')) {
-                            return { command: `tsc --noEmit && ${pm} run validate`, description: 'TypeScript 타입 검사 + Validate' };
+                            return { command: `npx tsc --noEmit && ${pm} run validate`, description: 'TypeScript 타입 검사 + Validate' };
                         }
                         if (this.hasScript(projectRoot, 'build')) {
-                            return { command: `tsc --noEmit && ${pm} run build`, description: 'TypeScript 타입 검사 + Build' };
+                            return { command: `npx tsc --noEmit && ${pm} run build`, description: 'TypeScript 타입 검사 + Build' };
                         }
                     }
 
-                    // package.json이 없거나 스크립트가 없는 경우 tsc --noEmit만 실행
-                    return { command: 'tsc --noEmit', description: 'TypeScript 컴파일 검사' };
+                    // package.json이 없거나 스크립트가 없는 경우
+                    return { command: 'npx tsc --noEmit', description: 'TypeScript 컴파일 검사' };
                 }
 
                 // JavaScript만 있는 경우

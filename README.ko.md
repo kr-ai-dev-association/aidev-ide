@@ -6,6 +6,22 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.3.0 (Ollama /api/chat 전환, TypeScript 검증 개선)
+
+### OllamaApi `/api/generate` → `/api/chat` 전환
+- **레거시 엔드포인트 제거**: `/api/generate` (단일 prompt 문자열) → `/api/chat` (messages 배열) 완전 전환
+  - 시스템 프롬프트와 사용자 메시지를 `role: "system"` / `role: "user"`로 분리 전송
+  - 응답 파싱: `response` 필드 → `message.content` / `message.thinking`
+  - 스트리밍: `parsed.response` → `parsed.message?.content`
+- **코드 구조 개선**: retry 로직을 `sendMessageWithRetry()` 공통 메서드로 통합, `sendMessageWithSystemPrompt()`가 system role 그대로 전달
+- **설정 UI 정리**: 엔드포인트 선택 UI(`/api/generate` ↔ `/api/chat`) 제거 — `/api/chat` 고정
+- native tool call 구현을 위한 사전 작업 완료
+
+### TypeScript 자동 검증 명령어 개선
+- **자동감지 시 `npx tsc --noEmit` 사용**: 기존 `tsc --noEmit`(전역) → `npx tsc --noEmit`(프로젝트 로컬)으로 변경
+  - 전역 TypeScript 버전이 프로젝트와 다를 경우 잘못된 타입 에러가 발생하는 문제 방지
+  - Biome, Deno, lint, type-check, validate, build 조합 케이스 모두 적용
+
 ## v11.2.0 (설정 UI 사이드바 개편, MCP 섹션 분리 수정)
 
 ### 설정 화면 VS Code 스타일 사이드바로 개편
