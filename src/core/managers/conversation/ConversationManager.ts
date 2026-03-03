@@ -2260,6 +2260,7 @@ export class ConversationManager implements IConversationHandler {
         `[ConversationManager] Calling LLM for Turn ${turnCount + 1} (Phase: ${currentPhase})`,
       );
       pendingRetryPrompt = false; // LLM에 전달되었으므로 리셋
+      const useErrorFallbackModel = retryCoordinator.consumePendingFallbackModel();
 
       // 🔥 LLM 호출 전 UI 상태 업데이트
       WebviewBridge.sendProcessingStep(webviewToRespond, "thinking");
@@ -2331,8 +2332,20 @@ export class ConversationManager implements IConversationHandler {
           }
         };
 
-        // execution 의도일 때 Command 모델 사용 (스트리밍)
-        if (intent && intent.category === "execution" && this.stateManager) {
+        // 에러 폴백 모델 우선 적용 (동일 에러 3회 반복 시)
+        if (useErrorFallbackModel && this.stateManager) {
+          console.log(
+            "[ConversationManager] Error fallback model triggered (streaming)",
+          );
+          llmResponse =
+            await this.llmManager.sendMessageWithErrorFallbackModel(
+              activeSystemPrompt + planContext,
+              accumulatedUserParts,
+              this.stateManager,
+              { signal: abortSignal },
+            );
+        } else if (intent && intent.category === "execution" && this.stateManager) {
+          // execution 의도일 때 Command 모델 사용 (스트리밍)
           console.log(
             "[ConversationManager] Execution intent detected, using Command model (streaming)",
           );
@@ -2355,8 +2368,19 @@ export class ConversationManager implements IConversationHandler {
         }
       } else {
         // 비스트리밍 모드: 기존 방식
-        // execution 의도일 때 Command 모델 사용
-        if (intent && intent.category === "execution" && this.stateManager) {
+        // 에러 폴백 모델 우선 적용 (동일 에러 3회 반복 시)
+        if (useErrorFallbackModel && this.stateManager) {
+          console.log(
+            "[ConversationManager] Error fallback model triggered",
+          );
+          llmResponse = await this.llmManager.sendMessageWithErrorFallbackModel(
+            activeSystemPrompt + planContext,
+            accumulatedUserParts,
+            this.stateManager,
+            { signal: abortSignal },
+          );
+        } else if (intent && intent.category === "execution" && this.stateManager) {
+          // execution 의도일 때 Command 모델 사용
           console.log(
             "[ConversationManager] Execution intent detected, using Command model",
           );

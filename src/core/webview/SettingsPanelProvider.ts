@@ -111,6 +111,9 @@ export function openSettingsPanel(
             const intentModelType = await stateManager.getIntentModelType();
             const intentModelName = await stateManager.getIntentModelName();
             const intentApiKeySet = await stateManager.hasIntentApiKey();
+            const errorFallbackModelType = await stateManager.getErrorFallbackModelType();
+            const errorFallbackModelName = await stateManager.getErrorFallbackModelName();
+            const errorFallbackApiKeySet = await stateManager.hasErrorFallbackApiKey();
 
             // duplicate removed
             const messageToSend = {
@@ -145,6 +148,9 @@ export function openSettingsPanel(
               intentModelType: intentModelType || "",
               intentModelName: intentModelName || "",
               intentApiKeySet: intentApiKeySet,
+              errorFallbackModelType: errorFallbackModelType || "",
+              errorFallbackModelName: errorFallbackModelName || "",
+              errorFallbackApiKeySet: errorFallbackApiKeySet,
               chatTheme: chatTheme,
               extensionVersion: extensionVersion,
               personalBuildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
@@ -270,6 +276,34 @@ export function openSettingsPanel(
               if (compactorModelName) {
                 await stateManager.saveCompactorModelName(compactorModelName);
               }
+              // group: 또는 admin 선택 시 AdminModelConfig 빌드 및 저장
+              if ((compactorType.startsWith('group:') || compactorType === 'admin') && compactorModelName) {
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const preset = aiModelSettings.find((s: any) => s.key === compactorModelName);
+                if (preset && preset.value) {
+                  const v = preset.value;
+                  const ch = v.customHeaders || v.custom_headers || {};
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: compactorModelName,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof ch === 'string' ? JSON.parse(ch || '{}') : ch,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveCompactorAdminConfig(JSON.stringify(adminConfig));
+                }
+              }
               safePostMessage(panel, { command: "compactorModelSaved" });
               const typeLabel = { ollama: "Ollama", admin: "Admin" }[compactorType as string] || compactorType;
               const modelInfo = compactorModelName ? ` (${compactorModelName})` : "";
@@ -324,6 +358,7 @@ export function openSettingsPanel(
             await stateManager.deleteCompactorModelType();
             await stateManager.deleteCompactorModelName();
             await stateManager.deleteCompactorApiKey();
+            await stateManager.deleteCompactorAdminConfig();
             safePostMessage(panel, { command: "compactorModelCleared" });
             notificationService.showInfoMessage(
               "CODEPILOT: Compactor 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
@@ -344,6 +379,34 @@ export function openSettingsPanel(
               await stateManager.saveCommandModelType(commandType);
               if (commandModelName) {
                 await stateManager.saveCommandModelName(commandModelName);
+              }
+              // group: 또는 admin 선택 시 AdminModelConfig 빌드 및 저장
+              if ((commandType.startsWith('group:') || commandType === 'admin') && commandModelName) {
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const preset = aiModelSettings.find((s: any) => s.key === commandModelName);
+                if (preset && preset.value) {
+                  const v = preset.value;
+                  const ch = v.customHeaders || v.custom_headers || {};
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: commandModelName,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof ch === 'string' ? JSON.parse(ch || '{}') : ch,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveCommandAdminConfig(JSON.stringify(adminConfig));
+                }
               }
               safePostMessage(panel, { command: "commandModelSaved" });
               const typeLabel = { ollama: "Ollama", admin: "Admin" }[commandType as string] || commandType;
@@ -399,6 +462,7 @@ export function openSettingsPanel(
             await stateManager.deleteCommandModelType();
             await stateManager.deleteCommandModelName();
             await stateManager.deleteCommandApiKey();
+            await stateManager.deleteCommandAdminConfig();
             safePostMessage(panel, { command: "commandModelCleared" });
             notificationService.showInfoMessage(
               "CODEPILOT: Command 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
@@ -418,6 +482,34 @@ export function openSettingsPanel(
               await stateManager.saveIntentModelType(intentType);
               if (intentModelName) {
                 await stateManager.saveIntentModelName(intentModelName);
+              }
+              // group: 또는 admin 선택 시 AdminModelConfig 빌드 및 저장
+              if ((intentType.startsWith('group:') || intentType === 'admin') && intentModelName) {
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const preset = aiModelSettings.find((s: any) => s.key === intentModelName);
+                if (preset && preset.value) {
+                  const v = preset.value;
+                  const ch = v.customHeaders || v.custom_headers || {};
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: intentModelName,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof ch === 'string' ? JSON.parse(ch || '{}') : ch,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveIntentAdminConfig(JSON.stringify(adminConfig));
+                }
               }
               safePostMessage(panel, { command: "intentModelSaved" });
               const typeLabel = { ollama: "Ollama", admin: "Admin" }[intentType as string] || intentType;
@@ -473,6 +565,7 @@ export function openSettingsPanel(
             await stateManager.deleteIntentModelType();
             await stateManager.deleteIntentModelName();
             await stateManager.deleteIntentApiKey();
+            await stateManager.deleteIntentAdminConfig();
             safePostMessage(panel, { command: "intentModelCleared" });
             notificationService.showInfoMessage(
               "CODEPILOT: Intent 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
@@ -482,6 +575,72 @@ export function openSettingsPanel(
               command: "intentModelClearError",
               error: error.message,
             });
+          }
+          break;
+        case "saveErrorFallbackModel": // 에러 폴백 모델 저장
+          try {
+            const errorFallbackType = data.modelType;
+            const errorFallbackModelName = data.modelName;
+            if (errorFallbackType) {
+              await stateManager.saveErrorFallbackModelType(errorFallbackType);
+              if (errorFallbackModelName) {
+                await stateManager.saveErrorFallbackModelName(errorFallbackModelName);
+              }
+              // group: 또는 admin 선택 시 AdminModelConfig 빌드 및 저장
+              if ((errorFallbackType.startsWith('group:') || errorFallbackType === 'admin') && errorFallbackModelName) {
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const preset = aiModelSettings.find((s: any) => s.key === errorFallbackModelName);
+                if (preset && preset.value) {
+                  const v = preset.value;
+                  const ch = v.customHeaders || v.custom_headers || {};
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: errorFallbackModelName,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof ch === 'string' ? JSON.parse(ch || '{}') : ch,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveErrorFallbackAdminConfig(JSON.stringify(adminConfig));
+                }
+              }
+              const modelInfo = errorFallbackModelName ? ` (${errorFallbackModelName})` : "";
+              safePostMessage(panel, { command: "errorFallbackModelSaved", modelType: errorFallbackType, modelName: errorFallbackModelName });
+              notificationService.showInfoMessage(`CODEPILOT: 에러 폴백 모델이 저장되었습니다.${modelInfo}`);
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "errorFallbackModelSaveError", error: error.message });
+          }
+          break;
+        case "saveErrorFallbackApiKey": // 에러 폴백 API 키 저장
+          try {
+            const errorFallbackApiKey = data.apiKey;
+            if (errorFallbackApiKey) {
+              await stateManager.saveErrorFallbackApiKey(errorFallbackApiKey);
+              safePostMessage(panel, { command: "errorFallbackApiKeySaved" });
+              notificationService.showInfoMessage("CODEPILOT: 에러 폴백 모델 API 키가 저장되었습니다.");
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "errorFallbackApiKeySaveError", error: error.message });
+          }
+          break;
+        case "clearErrorFallbackModel": // 에러 폴백 모델 초기화
+          try {
+            await stateManager.clearErrorFallbackModelConfig();
+            safePostMessage(panel, { command: "errorFallbackModelCleared" });
+            notificationService.showInfoMessage("CODEPILOT: 에러 폴백 모델이 초기화되었습니다. 메인 모델이 사용됩니다.");
+          } catch (error: any) {
+            safePostMessage(panel, { command: "errorFallbackModelClearError", error: error.message });
           }
           break;
         case "saveOllamaApiUrl": // Ollama API URL 저장 케이스 추가

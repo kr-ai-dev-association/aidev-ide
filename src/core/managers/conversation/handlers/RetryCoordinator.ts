@@ -40,6 +40,16 @@ export interface RetryDecision {
 export class RetryCoordinator {
     private lastFingerprint: string = '';
     private samePatternCount: number = 0;
+    private _pendingFallbackModel: boolean = false;
+
+    /**
+     * 에러 폴백 모델 사용 여부 확인 후 소비 (1회성)
+     */
+    public consumePendingFallbackModel(): boolean {
+        const value = this._pendingFallbackModel;
+        this._pendingFallbackModel = false;
+        return value;
+    }
 
     /**
      * 통합 재시도 처리
@@ -117,18 +127,18 @@ export class RetryCoordinator {
             this.samePatternCount = 1;
         }
 
-        // 5. 동일 패턴 반복 시 조기 종료
-        // 같은 에러가 3회 반복 = 이 접근법으로는 해결 불가 → give_up
-        if (this.samePatternCount >= 3) {
+        // 5. 동일 패턴 반복 시 처리
+        if (this.samePatternCount > 3) {
+            // 에러 폴백 모델도 실패 → give_up
             console.log(
-                `[RetryCoordinator] Same pattern repeated ${this.samePatternCount} times — giving up. ` +
+                `[RetryCoordinator] Fallback model also failed (samePattern=${this.samePatternCount}). ` +
                 `fingerprint=${currentFingerprint}, category=${classification.dominantCategory}`
             );
 
             WebviewBridge.sendProcessingStatus(
                 ctx.webview,
                 'executing',
-                `동일 에러 ${this.samePatternCount}회 반복 — 자동 수정 중단`
+                `에러 폴백 모델도 실패 — 자동 수정 중단`
             );
 
             return {
@@ -136,6 +146,15 @@ export class RetryCoordinator {
                 testFixAttempts,
                 retryFingerprint: currentFingerprint
             };
+        }
+
+        if (this.samePatternCount === 3) {
+            // 3번째 동일 패턴 = 마지막 시도를 에러 폴백 모델로
+            console.log(
+                `[RetryCoordinator] Same pattern 3 times — escalating to error fallback model. ` +
+                `fingerprint=${currentFingerprint}, category=${classification.dominantCategory}`
+            );
+            this._pendingFallbackModel = true;
         }
 
         // 6. 시도 횟수 증가
@@ -157,7 +176,9 @@ export class RetryCoordinator {
         WebviewBridge.sendProcessingStatus(
             ctx.webview,
             'executing',
-            `테스트 실패 - 자동 수정 중 (${newAttempts}/${maxTestFixAttempts})...`
+            this._pendingFallbackModel
+                ? `테스트 실패 - 에러 폴백 모델로 재시도 중 (${newAttempts}/${maxTestFixAttempts})...`
+                : `테스트 실패 - 자동 수정 중 (${newAttempts}/${maxTestFixAttempts})...`
         );
 
         console.log(
@@ -180,6 +201,7 @@ export class RetryCoordinator {
     reset(): void {
         this.lastFingerprint = '';
         this.samePatternCount = 0;
+        this._pendingFallbackModel = false;
     }
 
     /**

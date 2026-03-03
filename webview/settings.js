@@ -396,6 +396,7 @@ function populateRoutingModelOptions() {
     document.getElementById('compactor-model-type-select'),
     document.getElementById('command-model-type-select'),
     document.getElementById('intent-model-type-select'),
+    document.getElementById('error-fallback-model-type-select'),
   ];
 
   const aiModels = cachedServerSettings['ai_model'] || [];
@@ -2245,16 +2246,17 @@ window.addEventListener("message", (event) => {
         }
       }
 
-      // 모델 라우팅 설정 적용 (공통 함수로 처리)
-      restoreRoutingModelUI('compactor', message.compactorModelType, message.compactorModelName);
-      restoreRoutingModelUI('command', message.commandModelType, message.commandModelName);
-      restoreRoutingModelUI('intent', message.intentModelType, message.intentModelName);
-
-      // ===== 서버(조직) 설정 렌더링 =====
+      // ===== 서버(조직) 설정 렌더링 (모델 라우팅 복원 전에 먼저 실행해야 group 옵션이 채워짐) =====
       if (message.serverSettings && typeof message.serverSettings === 'object') {
         cachedServerSettings = message.serverSettings;
         renderAllOrgSettings();
       }
+
+      // 모델 라우팅 설정 적용 (populateRoutingModelOptions 이후에 실행해야 group 옵션이 존재함)
+      restoreRoutingModelUI('compactor', message.compactorModelType, message.compactorModelName);
+      restoreRoutingModelUI('command', message.commandModelType, message.commandModelName);
+      restoreRoutingModelUI('intent', message.intentModelType, message.intentModelName);
+      restoreRoutingModelUI('error-fallback', message.errorFallbackModelType, message.errorFallbackModelName);
 
       // ===== AI 모델 드롭박스 설정 (option 동적 추가 후 실행) =====
       if (message.aiModel && aiModelSelect) {
@@ -2410,6 +2412,53 @@ window.addEventListener("message", (event) => {
         if (commandModelStatus) {
           commandModelStatus.textContent = `Command API 키 저장 오류: ${message.error}`;
           commandModelStatus.className = "info-message error-message";
+        }
+      }
+      break;
+    case "errorFallbackModelSaved":
+      {
+        const efStatus = document.getElementById("error-fallback-model-status");
+        if (efStatus) {
+          efStatus.textContent = "에러 폴백 모델이 저장되었습니다.";
+          efStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "errorFallbackModelSaveError":
+      {
+        const efStatus = document.getElementById("error-fallback-model-status");
+        if (efStatus) {
+          efStatus.textContent = `에러 폴백 모델 저장 오류: ${message.error}`;
+          efStatus.className = "info-message error-message";
+        }
+      }
+      break;
+    case "errorFallbackModelCleared":
+      {
+        const efStatus = document.getElementById("error-fallback-model-status");
+        const efTypeSelect = document.getElementById("error-fallback-model-type-select");
+        if (efTypeSelect) efTypeSelect.value = "";
+        if (efStatus) {
+          efStatus.textContent = "에러 폴백 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          efStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "errorFallbackApiKeySaved":
+      {
+        const efStatus = document.getElementById("error-fallback-model-status");
+        if (efStatus) {
+          efStatus.textContent = "에러 폴백 모델 API 키가 저장되었습니다.";
+          efStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "errorFallbackApiKeySaveError":
+      {
+        const efStatus = document.getElementById("error-fallback-model-status");
+        if (efStatus) {
+          efStatus.textContent = `에러 폴백 모델 API 키 저장 오류: ${message.error}`;
+          efStatus.className = "info-message error-message";
         }
       }
       break;
@@ -3132,6 +3181,7 @@ document.addEventListener("DOMContentLoaded", () => {
         compactor: "clearCompactorModel",
         command: "clearCommandModel",
         intent: "clearIntentModel",
+        "error-fallback": "clearErrorFallbackModel",
       };
       const deleteCommand = commandMap[prefix];
       if (deleteCommand) {
@@ -3390,6 +3440,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // 에러 폴백 모델 타입 선택 변경 이벤트
+  const errorFallbackTypeSelect = document.getElementById("error-fallback-model-type-select");
+  if (errorFallbackTypeSelect) {
+    errorFallbackTypeSelect.addEventListener("change", (e) => {
+      handleModelTypeChange("error-fallback", e.target.value);
+    });
+  }
+
   // Intent 모델 저장 버튼
   const saveIntentModelButton = document.getElementById(
     "save-intent-model-button",
@@ -3458,6 +3516,51 @@ document.addEventListener("DOMContentLoaded", () => {
       if (intentApiKeyInput) {
         intentApiKeyInput.value = "";
       }
+    });
+  }
+
+  // 에러 폴백 모델 저장 버튼
+  const saveErrorFallbackModelButton = document.getElementById("save-error-fallback-model-button");
+  if (saveErrorFallbackModelButton) {
+    saveErrorFallbackModelButton.addEventListener("click", () => {
+      const typeSelect = document.getElementById("error-fallback-model-type-select");
+      const submodelSelect = document.getElementById("error-fallback-submodel-select");
+      const modelType = typeSelect ? typeSelect.value : "";
+      const modelName = submodelSelect ? submodelSelect.value : "";
+
+      if (!modelType) {
+        const statusEl = document.getElementById("error-fallback-model-status");
+        if (statusEl) {
+          statusEl.textContent = "모델 타입을 선택해주세요.";
+          statusEl.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({ command: "saveErrorFallbackModel", modelType, modelName });
+    });
+  }
+
+  // 에러 폴백 API 키 저장 버튼
+  const saveErrorFallbackApiKeyButton = document.getElementById("save-error-fallback-api-key-button");
+  if (saveErrorFallbackApiKeyButton) {
+    saveErrorFallbackApiKeyButton.addEventListener("click", () => {
+      const typeSelect = document.getElementById("error-fallback-model-type-select");
+      const apiKeyInput = document.getElementById("error-fallback-api-key-input");
+      const modelType = typeSelect ? typeSelect.value : "";
+      const apiKey = apiKeyInput ? apiKeyInput.value : "";
+
+      if (!apiKey) {
+        const statusEl = document.getElementById("error-fallback-model-status");
+        if (statusEl) {
+          statusEl.textContent = "API 키를 입력해주세요.";
+          statusEl.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({ command: "saveErrorFallbackApiKey", modelType, apiKey });
+      if (apiKeyInput) apiKeyInput.value = "";
     });
   }
 });

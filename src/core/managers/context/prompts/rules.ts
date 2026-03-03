@@ -233,7 +233,7 @@ export function getTestFailureFixPrompt(errorMessage: string): string {
     `- 자연어 설명, 분석 텍스트 출력 금지\n` +
     `- { "plan": [...] } 재제출 금지\n\n` +
     `**✅ 필수 행동:**\n` +
-    `오류를 분석하고 **즉시 update_file 또는 create_file 도구로 코드를 수정**하세요.\n\n` +
+    `오류를 분석하고 **즉시 update_file 도구로 코드를 수정**하세요. (create_file 사용 금지 — 기존 파일 내용 손실 위험)\n\n` +
     `**예시 (update_file로 오류 수정):**\n` +
     "```\n" +
     `{ "tool": "update_file", "path": "오류가_발생한_파일.tsx" }\n` +
@@ -554,8 +554,8 @@ export function buildClassifiedRetryPrompt(
         `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
         `**사용 가능한 도구:**\n` +
         `- 파일 수정: { "tool": "update_file", "path": "..." }\n` +
-        `- 파일 생성: { "tool": "create_file", "path": "..." }\n` +
-        `- 명령어 실행: { "tool": "run_command", "command": "..." }\n\n` +
+        `- 명령어 실행: { "tool": "run_command", "command": "..." }\n` +
+        `- ❌ create_file 금지: 기존 파일을 새로 생성하면 내용이 손실됩니다. update_file만 사용하세요.\n\n` +
         `**빌드/테스트 도구 설치 절대 금지:**\n` +
         `- "tsc not found", "gradle not found" 등 빌드 도구가 없는 경우\n` +
         `- 절대 npm install -g typescript, brew install gradle 등 도구 설치 명령을 실행하지 마세요\n` +

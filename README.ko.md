@@ -6,6 +6,27 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.4.0 (에러 폴백 모델, 라우팅 모델 그룹 지원 완성)
+
+### 에러 폴백 모델 라우팅
+- **동일 에러 패턴 반복 시 다른 모델로 마지막 재시도**: 같은 에러가 2회 반복되면(samePatternCount=3) 설정된 폴백 모델로 한 번 더 시도
+  - 3회 초과(>3) → give_up (폴백 모델도 실패)
+  - 설정 없으면 메인 모델 그대로 사용
+- **설정 UI**: AI 모델 탭 → "에러 폴백 모델" 섹션 추가 (다른 라우팅 모델과 동일한 그룹/서브모델 선택 방식)
+  - 설명: "동일한 에러가 2회 반복되면 마지막 재시도에 이 모델을 사용합니다. 메인 모델보다 고성능 모델 권장."
+
+### 라우팅 모델 그룹 모델 지원 완성
+- **이전**: `group:google` 같은 그룹 모델을 라우팅 모델로 설정해도 실제 호출 시 메인 모델 config를 사용하거나 Ollama로 잘못 라우팅
+- **수정**: 저장 시 서버 프리셋에서 `AdminModelConfig`를 빌드해 라우팅 모델별 독립 스토리지에 저장, 호출 시 해당 config로 임시 swap 후 복원
+  - 컴팩터 / 명령어 생성 / 의도 분석 / 에러 폴백 4개 모두 정상 동작
+  - API Key 우선순위: 사용자 저장 Admin API Key → 서버 프리셋 기본 Key
+- **Ollama 타입**: 기존과 동일 (정상 동작)
+
+### 재시도 프롬프트 `create_file` 금지
+- **에러 수정 재시도 시 `create_file` 도구 제외**: 파일 새로 생성 시 기존 내용 손실 위험 방지
+  - `buildClassifiedRetryPrompt`, `getTestFailureFixPrompt` 허용 도구 목록에서 `create_file` 제거
+  - 명시적 금지 메시지 추가: "❌ create_file 금지: 기존 파일을 새로 생성하면 내용이 손실됩니다. update_file만 사용하세요."
+
 ## v11.3.0 (Ollama /api/chat 전환, TypeScript 검증 개선)
 
 ### OllamaApi `/api/generate` → `/api/chat` 전환

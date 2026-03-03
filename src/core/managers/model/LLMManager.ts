@@ -401,7 +401,10 @@ export class LLMManager {
         try {
             let response: string;
 
-            if (modelType === AiModelType.ADMIN) {
+            const isAdminRouting = modelType === AiModelType.ADMIN
+                || (modelType as string).startsWith('group:');
+
+            if (isAdminRouting) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
                 response = await this.adminModelApi.sendMessageWithSystemPrompt(
                     systemPrompt, parts, { signal, disableThinking }
@@ -478,6 +481,7 @@ export class LLMManager {
             getCompactorModelType: () => Promise<string | undefined>;
             getCompactorModelName?: () => Promise<string | undefined>;
             getCompactorApiKey?: () => Promise<string | undefined>;
+            getCompactorAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -488,15 +492,31 @@ export class LLMManager {
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCompactorAdminConfig
+                ? await stateManager.getCompactorAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    // 라우팅 전용 API 키가 있으면 덮어쓰기
+                    const routingApiKey = stateManager.getCompactorApiKey
+                        ? await stateManager.getCompactorApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getCompactorModelName
             ? await stateManager.getCompactorModelName()
             : undefined;
         const apiKey = stateManager.getCompactorApiKey
             ? await stateManager.getCompactorApiKey()
             : undefined;
-
-        // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(
             modelType as AiModelType,
             modelName,
@@ -519,6 +539,7 @@ export class LLMManager {
             getCommandModelType: () => Promise<string | undefined>;
             getCommandModelName?: () => Promise<string | undefined>;
             getCommandApiKey?: () => Promise<string | undefined>;
+            getCommandAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -529,15 +550,30 @@ export class LLMManager {
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCommandAdminConfig
+                ? await stateManager.getCommandAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getCommandApiKey
+                        ? await stateManager.getCommandApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getCommandModelName
             ? await stateManager.getCommandModelName()
             : undefined;
         const apiKey = stateManager.getCommandApiKey
             ? await stateManager.getCommandApiKey()
             : undefined;
-
-        // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(
             modelType as AiModelType,
             modelName,
@@ -561,6 +597,7 @@ export class LLMManager {
             getCommandModelType: () => Promise<string | undefined>;
             getCommandModelName?: () => Promise<string | undefined>;
             getCommandApiKey?: () => Promise<string | undefined>;
+            getCommandAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -571,15 +608,30 @@ export class LLMManager {
             return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용 (스트리밍)
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCommandAdminConfig
+                ? await stateManager.getCommandAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getCommandApiKey
+                        ? await stateManager.getCommandApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwapStreaming(adminConfig, systemPrompt, userParts, onChunk, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getCommandModelName
             ? await stateManager.getCommandModelName()
             : undefined;
         const apiKey = stateManager.getCommandApiKey
             ? await stateManager.getCommandApiKey()
             : undefined;
-
-        // API 키가 설정된 경우 해당 API로 직접 호출 (스트리밍)
         return this.sendMessageWithSpecificModelAndApiKeyStreaming(
             modelType as AiModelType,
             modelName,
@@ -603,6 +655,7 @@ export class LLMManager {
             getIntentModelType: () => Promise<string | undefined>;
             getIntentModelName?: () => Promise<string | undefined>;
             getIntentApiKey?: () => Promise<string | undefined>;
+            getIntentAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -613,15 +666,86 @@ export class LLMManager {
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getIntentAdminConfig
+                ? await stateManager.getIntentAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getIntentApiKey
+                        ? await stateManager.getIntentApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getIntentModelName
             ? await stateManager.getIntentModelName()
             : undefined;
         const apiKey = stateManager.getIntentApiKey
             ? await stateManager.getIntentApiKey()
             : undefined;
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
 
-        // API 키가 설정된 경우 해당 API로 직접 호출
+    /**
+     * 에러 폴백 모델로 메시지를 전송합니다
+     * 동일 에러 패턴 3회 반복 시 마지막 재시도에 사용
+     */
+    public async sendMessageWithErrorFallbackModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getErrorFallbackModelType: () => Promise<string | undefined>;
+            getErrorFallbackModelName?: () => Promise<string | undefined>;
+            getErrorFallbackApiKey?: () => Promise<string | undefined>;
+            getErrorFallbackAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getErrorFallbackModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getErrorFallbackAdminConfig
+                ? await stateManager.getErrorFallbackAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getErrorFallbackApiKey
+                        ? await stateManager.getErrorFallbackApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
+        const modelName = stateManager.getErrorFallbackModelName
+            ? await stateManager.getErrorFallbackModelName()
+            : undefined;
+        const apiKey = stateManager.getErrorFallbackApiKey
+            ? await stateManager.getErrorFallbackApiKey()
+            : undefined;
         return this.sendMessageWithSpecificModelAndApiKey(
             modelType as AiModelType,
             modelName,
@@ -694,6 +818,58 @@ export class LLMManager {
      */
     public getOllamaApi(): OllamaApi {
         return this.ollamaApi;
+    }
+
+    /**
+     * AdminModelConfig를 임시로 교체하여 메시지를 전송합니다
+     * group:/admin 라우팅 모델 사용 시 해당 모델의 설정을 적용
+     */
+    private async sendMessageWithAdminConfigSwap(
+        adminConfig: AdminModelConfig,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const originalConfig = this.adminModelApi.getConfig();
+        try {
+            this.adminModelApi.setConfig(adminConfig);
+            const parts = userParts.map(part => ({ text: part.text || '' }));
+            const signal = options?.signal || new AbortController().signal;
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+            return await this.adminModelApi.sendMessageWithSystemPrompt(
+                systemPrompt, parts, { signal, disableThinking }
+            );
+        } finally {
+            if (originalConfig) {
+                this.adminModelApi.setConfig(originalConfig);
+            }
+        }
+    }
+
+    /**
+     * AdminModelConfig를 임시로 교체하여 스트리밍 메시지를 전송합니다
+     */
+    private async sendMessageWithAdminConfigSwapStreaming(
+        adminConfig: AdminModelConfig,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const originalConfig = this.adminModelApi.getConfig();
+        try {
+            this.adminModelApi.setConfig(adminConfig);
+            const parts = userParts.map(part => ({ text: part.text || '' }));
+            const signal = options?.signal || new AbortController().signal;
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+            return await this.adminModelApi.sendMessageWithSystemPromptStreaming(
+                systemPrompt, parts, onChunk, { signal, disableThinking }
+            );
+        } finally {
+            if (originalConfig) {
+                this.adminModelApi.setConfig(originalConfig);
+            }
+        }
     }
 
     /**

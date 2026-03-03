@@ -277,6 +277,15 @@ export class StateManager {
     private readonly INTENT_MODEL_TYPE_KEY = 'codepilot.intentModelType';
     private readonly INTENT_MODEL_NAME_KEY = 'codepilot.intentModelName';
     private readonly INTENT_API_KEY_KEY = 'codepilot.intentApiKey';
+    private readonly ERROR_FALLBACK_MODEL_TYPE_KEY = 'codepilot.errorFallbackModelType';
+    private readonly ERROR_FALLBACK_MODEL_NAME_KEY = 'codepilot.errorFallbackModelName';
+    private readonly ERROR_FALLBACK_API_KEY_KEY = 'codepilot.errorFallbackApiKey';
+
+    // 라우팅 모델별 AdminModelConfig 저장 키 (group:/admin 선택 시)
+    private readonly COMPACTOR_ADMIN_CONFIG_KEY = 'codepilot.compactorAdminConfig';
+    private readonly COMMAND_ADMIN_CONFIG_KEY = 'codepilot.commandAdminConfig';
+    private readonly INTENT_ADMIN_CONFIG_KEY = 'codepilot.intentAdminConfig';
+    private readonly ERROR_FALLBACK_ADMIN_CONFIG_KEY = 'codepilot.errorFallbackAdminConfig';
 
     /**
      * API Key를 저장합니다
@@ -705,7 +714,8 @@ export class StateManager {
     public async clearCompactorModelConfig(): Promise<void> {
         await Promise.all([
             this.deleteCompactorModelType(),
-            this.deleteCompactorModelName()
+            this.deleteCompactorModelName(),
+            this.deleteCompactorAdminConfig(),
         ]);
     }
 
@@ -715,7 +725,8 @@ export class StateManager {
     public async clearCommandModelConfig(): Promise<void> {
         await Promise.all([
             this.deleteCommandModelType(),
-            this.deleteCommandModelName()
+            this.deleteCommandModelName(),
+            this.deleteCommandAdminConfig(),
         ]);
     }
 
@@ -880,8 +891,118 @@ export class StateManager {
         await Promise.all([
             this.deleteIntentModelType(),
             this.deleteIntentModelName(),
-            this.deleteIntentApiKey()
+            this.deleteIntentApiKey(),
+            this.deleteIntentAdminConfig(),
         ]);
+    }
+
+    // ===== 에러 폴백 모델 관련 메서드들 =====
+
+    public async saveErrorFallbackModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_MODEL_TYPE_KEY, modelType);
+    }
+
+    public async getErrorFallbackModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_MODEL_TYPE_KEY);
+    }
+
+    private async deleteErrorFallbackModelType(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_MODEL_TYPE_KEY);
+    }
+
+    public async saveErrorFallbackModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_MODEL_NAME_KEY, modelName);
+    }
+
+    public async getErrorFallbackModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_MODEL_NAME_KEY);
+    }
+
+    private async deleteErrorFallbackModelName(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_MODEL_NAME_KEY);
+    }
+
+    public async saveErrorFallbackApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_API_KEY_KEY, apiKey);
+    }
+
+    public async getErrorFallbackApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_API_KEY_KEY);
+    }
+
+    public async hasErrorFallbackApiKey(): Promise<boolean> {
+        const key = await this.getErrorFallbackApiKey();
+        return !!key;
+    }
+
+    private async deleteErrorFallbackApiKey(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_API_KEY_KEY);
+    }
+
+    public async saveErrorFallbackModelConfig(type: string, name: string): Promise<void> {
+        await Promise.all([
+            this.saveErrorFallbackModelType(type),
+            this.saveErrorFallbackModelName(name)
+        ]);
+    }
+
+    public async clearErrorFallbackModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteErrorFallbackModelType(),
+            this.deleteErrorFallbackModelName(),
+            this.deleteErrorFallbackApiKey(),
+            this.deleteErrorFallbackAdminConfig(),
+        ]);
+    }
+
+    // ===== 라우팅 모델 AdminModelConfig 저장 메서드들 (group:/admin 선택 시 사용) =====
+
+    public async saveCompactorAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.COMPACTOR_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getCompactorAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPACTOR_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteCompactorAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.COMPACTOR_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveCommandAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.COMMAND_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getCommandAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.COMMAND_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteCommandAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.COMMAND_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveIntentAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.INTENT_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getIntentAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.INTENT_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteIntentAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.INTENT_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveErrorFallbackAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getErrorFallbackAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteErrorFallbackAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY);
     }
 
     // ===== MCP 서버 관련 메서드들 =====
