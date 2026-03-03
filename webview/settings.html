@@ -49,13 +49,13 @@
     }
 
     /* 일반 버튼 - 배경과 동화 */
-    body[data-theme="light"] button:not(.settings-tab):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input) {
+    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input) {
       background-color: transparent !important;
       color: #374151 !important;
       border: 1px solid #d1d5db !important;
     }
 
-    body[data-theme="light"] button:not(.settings-tab):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input):hover {
+    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input):hover {
       background-color: rgba(0, 0, 0, 0.04) !important;
     }
 
@@ -70,10 +70,13 @@
       border-color: #fca5a5 !important;
     }
 
-    body[data-theme="light"] h1,
     body[data-theme="light"] h2,
     body[data-theme="light"] h3 {
-      color: #2563eb !important;
+      color: #1f2937 !important;
+    }
+
+    body[data-theme="light"] .settings-main-header h1 {
+      color: #1f2937 !important;
     }
 
     body[data-theme="light"] .api-key-section {
@@ -155,23 +158,18 @@
       font-size: var(--vscode-font-size);
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
-      padding: 20px;
+      padding: 0;
+      margin: 0;
       line-height: 1.5;
-      display: flex;
-      /* <-- 추가: body를 flex 컨테이너로 설정 (세로 스크롤 가능하게) */
-      flex-direction: column;
-      /* <-- 추가: 자식 요소들을 세로로 쌓음 */
       height: 100vh;
-      /* <-- 추가: 뷰포트 높이 전체를 차지하게 함 */
-      overflow: auto;
-      /* <-- 추가: 내용이 넘칠 때 스크롤바 생성 */
+      overflow: hidden;
     }
 
     h1 {
-      color: var(--vscode-textLink-foreground);
-      border-bottom: 1px solid var(--vscode-panel-border);
-      padding-bottom: 10px;
-      margin-bottom: 20px;
+      color: var(--vscode-foreground);
+      border: none;
+      padding: 0;
+      margin: 0;
     }
 
     .section-container {
@@ -182,7 +180,9 @@
 
     .section-container h2 {
       margin-bottom: 10px;
-      color: var(--vscode-textLink-foreground);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--vscode-foreground);
     }
 
     .info-message {
@@ -646,15 +646,16 @@
     /* 버전 정보 푸터 스타일 */
     .version-footer {
       margin-top: 40px;
-      padding-top: 20px;
+      padding: 20px 0;
       border-top: 1px solid var(--vscode-panel-border);
-      text-align: center;
+      text-align: left;
     }
 
     .version-footer p {
       color: var(--vscode-descriptionForeground);
-      font-size: 0.85em;
+      font-size: 0.8em;
       margin: 0;
+      opacity: 0.7;
     }
 
     /* 반응형 레이아웃 */
@@ -1013,38 +1014,108 @@
       background: rgba(0, 0, 0, 0.04);
     }
 
-    /* ========== 탭 네비게이션 ========== */
-    .settings-tabs {
+    /* ========== 사이드바 레이아웃 ========== */
+    .settings-layout {
       display: flex;
-      flex-wrap: wrap;
-      gap: 2px;
-      border-bottom: 2px solid var(--vscode-panel-border, #333);
-      margin-bottom: 20px;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .settings-sidebar {
+      width: 200px;
+      min-width: 200px;
+      background: var(--vscode-sideBar-background, rgba(0, 0, 0, 0.15));
+      border-right: 1px solid var(--vscode-panel-border, #333);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
       padding: 0;
     }
 
-    .settings-tab {
-      padding: 8px 14px;
-      font-size: 12px;
-      font-weight: 500;
+    .settings-sidebar-header {
+      padding: 18px 20px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--vscode-descriptionForeground, #888);
+      font-weight: 600;
+    }
+
+    .settings-nav {
+      display: flex;
+      flex-direction: column;
+      padding: 0 0 16px;
+    }
+
+    .settings-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 20px;
+      font-size: 13px;
       color: var(--vscode-descriptionForeground, #888);
       background: none;
       border: none;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
+      border-left: 2px solid transparent;
       cursor: pointer;
-      transition: color 0.15s, border-color 0.15s;
-      white-space: nowrap;
+      text-align: left;
+      transition: background 0.1s, color 0.1s;
+      font-family: var(--vscode-font-family);
     }
 
-    .settings-tab:hover {
+    .settings-nav-item:hover {
+      background: rgba(255, 255, 255, 0.05);
       color: var(--vscode-foreground);
     }
 
-    .settings-tab.active {
-      color: var(--vscode-textLink-foreground, #3794ff);
-      border-bottom-color: var(--vscode-textLink-foreground, #3794ff);
-      font-weight: 600;
+    .settings-nav-item.active {
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--vscode-foreground);
+      border-left-color: var(--vscode-textLink-foreground, #3794ff);
+      font-weight: 500;
+    }
+
+    .settings-nav-item svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      opacity: 0.6;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .settings-nav-item:hover svg,
+    .settings-nav-item.active svg {
+      opacity: 0.9;
+    }
+
+    .settings-main {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .settings-main-header {
+      padding: 20px 32px 0;
+      flex-shrink: 0;
+    }
+
+    .settings-main-header h1 {
+      font-size: 20px;
+      font-weight: 400;
+      margin: 0 0 16px;
+      color: var(--vscode-foreground);
+    }
+
+    .settings-main-content {
+      padding: 4px 32px 32px;
+      max-width: 750px;
+      flex: 1;
     }
 
     .tab-panel {
@@ -1055,22 +1126,18 @@
       display: block;
     }
 
-    body[data-theme="light"] .settings-tabs {
-      border-bottom-color: #d1d5db;
+    /* 라이트 테마 사이드바 */
+    body[data-theme="light"] .settings-sidebar {
+      background: #eaeaea;
     }
 
-    body[data-theme="light"] .settings-tab {
-      color: #6b7280;
+    body[data-theme="light"] .settings-nav-item:hover {
+      background: rgba(0, 0, 0, 0.04);
     }
 
-    body[data-theme="light"] .settings-tab:hover {
-      color: #1f2937;
-      background: rgba(0, 0, 0, 0.03);
-    }
-
-    body[data-theme="light"] .settings-tab.active {
-      color: #2563eb;
-      border-bottom-color: #2563eb;
+    body[data-theme="light"] .settings-nav-item.active {
+      background: rgba(0, 0, 0, 0.06);
+      border-left-color: #2563eb;
     }
   </style>
 </head>
@@ -1081,22 +1148,61 @@
 
   <!-- ═══════════ 설정 콘텐츠 (인증 시 표시) ═══════════ -->
   <div id="settings-content" style="display:none;">
+    <div class="settings-layout">
 
-    <h1 id="settings-title">CODEPILOT 설정</h1>
+      <!-- ═══════════ 사이드바 네비게이션 ═══════════ -->
+      <aside class="settings-sidebar">
+        <div class="settings-sidebar-header">Settings</div>
+        <nav class="settings-nav" id="settings-tabs">
+          <button class="settings-nav-item active" data-tab="account">
+            <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><path d="M16 3.128a4 4 0 0 1 0 7.744" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><circle cx="9" cy="7" r="4" /></svg>
+            <span>계정</span>
+          </button>
+          <button class="settings-nav-item" data-tab="general">
+            <svg viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></svg>
+            <span>일반</span>
+          </button>
+          <button class="settings-nav-item" data-tab="ai-model">
+            <svg viewBox="0 0 24 24"><path d="M12 18V5" /><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" /><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" /><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" /><path d="M18 18a4 4 0 0 0 2-7.464" /><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" /><path d="M6 18a4 4 0 0 1-2-7.464" /><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" /></svg>
+            <span>AI 모델</span>
+          </button>
+          <button class="settings-nav-item" data-tab="mcp">
+            <svg viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /><rect width="20" height="8" x="2" y="14" rx="2" ry="2" /><line x1="6" x2="6.01" y1="6" y2="6" /><line x1="6" x2="6.01" y1="18" y2="18" /></svg>
+            <span>MCP 서버</span>
+          </button>
+          <button class="settings-nav-item" data-tab="rag">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5V19A9 3 0 0 0 21 19V5" /><path d="M3 12A9 3 0 0 0 21 12" /></svg>
+            <span>RAG</span>
+          </button>
+          <button class="settings-nav-item" data-tab="build-test">
+            <svg viewBox="0 0 24 24"><path d="m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9" /><path d="m18 15 4-4" /><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172v-.344a2 2 0 0 0-.586-1.414l-1.657-1.657A6 6 0 0 0 12.516 3H9l1.243 1.243A6 6 0 0 1 12 8.485V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5" /></svg>
+            <span>빌드/테스트</span>
+          </button>
+          <button class="settings-nav-item" data-tab="hotload">
+            <svg viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></svg>
+            <span>Hot Load</span>
+          </button>
+          <button class="settings-nav-item" data-tab="skills">
+            <svg viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><path d="M10 12.5 8 15l2 2.5" /><path d="m14 12.5 2 2.5-2 2.5" /></svg>
+            <span>Skills</span>
+          </button>
+          <button class="settings-nav-item" data-tab="security">
+            <svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /></svg>
+            <span>보안</span>
+          </button>
+          <button class="settings-nav-item" data-tab="usage">
+            <svg viewBox="0 0 24 24"><path d="M16 7h6v6" /><path d="m22 7-8.5 8.5-5-5L2 17" /></svg>
+            <span>사용량</span>
+          </button>
+        </nav>
+      </aside>
 
-    <!-- ═══════════ 탭 네비게이션 ═══════════ -->
-    <div class="settings-tabs" id="settings-tabs">
-      <button class="settings-tab active" data-tab="account">계정</button>
-      <button class="settings-tab" data-tab="general">일반</button>
-      <button class="settings-tab" data-tab="ai-model">AI 모델</button>
-      <button class="settings-tab" data-tab="mcp">MCP 서버</button>
-      <button class="settings-tab" data-tab="rag">RAG</button>
-      <button class="settings-tab" data-tab="build-test">빌드/테스트</button>
-      <button class="settings-tab" data-tab="hotload">Hot Load</button>
-      <button class="settings-tab" data-tab="skills">Skills</button>
-      <button class="settings-tab" data-tab="security">보안</button>
-      <button class="settings-tab" data-tab="usage">사용량</button>
-    </div>
+      <!-- ═══════════ 메인 콘텐츠 영역 ═══════════ -->
+      <main class="settings-main">
+        <div class="settings-main-header">
+          <h1 id="settings-title">계정</h1>
+        </div>
+        <div class="settings-main-content">
 
     <!-- ═══════════ 탭: 계정 ═══════════ -->
     <div class="tab-panel active" id="tab-account">
@@ -2366,6 +2472,9 @@
       <p id="version-info">CODEPILOT v<span id="version-number">...</span></p>
     </div>
 
+        </div><!-- /.settings-main-content -->
+      </main><!-- /.settings-main -->
+    </div><!-- /.settings-layout -->
   </div><!-- /#settings-content -->
 
   <!-- ═══════════ 로그인 게이트 인라인 스크립트 ═══════════ -->
@@ -2449,7 +2558,7 @@
             if (expiresLabel) expiresLabel.style.display = 'none';
           }
 
-          const hasOrg = !!user.organization;
+          const hasOrg = !!(user.organization || user.organization_id);
           // 전역 변수에 저장 (settings.js, mcp-settings.js에서 조직 여부 확인)
           window.userHasOrganization = hasOrg;
 

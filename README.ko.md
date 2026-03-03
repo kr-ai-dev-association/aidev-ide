@@ -6,6 +6,22 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.2.0 (설정 UI 사이드바 개편, MCP 섹션 분리 수정)
+
+### 설정 화면 VS Code 스타일 사이드바로 개편
+- **2컬럼 레이아웃 전환**: 기존 상단 수평 탭 바 → 왼쪽 세로 사이드바 + 오른쪽 콘텐츠 영역
+  - 사이드바 너비 200px, 각 탭에 SVG 아이콘 + 텍스트
+  - 액티브 탭: 좌측 2px 컬러 보더 + 배경 하이라이트 (VS Code/Cursor 스타일)
+  - 탭 전환 시 메인 헤더 제목 자동 업데이트
+  - 다크/라이트 테마 모두 대응
+
+### MCP 관리자 설정 vs 기본 설정 섹션 분리
+- **조직 등록 MCP (관리자 설정)**: `enforcement: required / recommended` → 별도 섹션으로 표시
+- **시스템 기본 MCP (기본 설정)**: `enforcement: preset` → 별도 섹션으로 표시
+  - 이전: 사용자가 조직 소속이면 모든 admin MCP를 "관리자 설정"으로 표시 (super admin 프리셋도 포함)
+  - 개선: preset과 org admin MCP를 항상 분리 렌더링
+- **조직 소속 여부 판단 수정**: `user.organization`이 빈 문자열이어도 `organization_id`가 있으면 조직 소속으로 판단
+
 ## v11.1.0 (턴 체크포인트 스택, 파일 삭제 Import 정리, 로그 정리)
 
 ### 턴 체크포인트 스택 (Cascade Undo)

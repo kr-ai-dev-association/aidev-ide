@@ -191,11 +191,28 @@ function renderAdminServerList() {
   listEl.style.display = "block";
   if (personalLabel) personalLabel.style.display = "flex";
 
-  const headerLabel = window.userHasOrganization ? '관리자 설정' : '기본 설정';
-  let html = '<div class="org-settings-section">';
-  html += `<div class="org-settings-header">${headerLabel} <span class="org-count">(${adminMcpServers.length})</span></div>`;
-  html += adminMcpServers.map(createAdminServerCard).join("");
-  html += '</div>';
+  // preset(super admin)과 org admin 설정 분리
+  const orgServers = adminMcpServers.filter(s => s.enforcement !== 'preset');
+  const presetServers = adminMcpServers.filter(s => s.enforcement === 'preset');
+
+  let html = '';
+
+  // 조직 관리자 MCP (required/recommended)
+  if (orgServers.length > 0) {
+    html += '<div class="org-settings-section">';
+    html += `<div class="org-settings-header">관리자 설정 <span class="org-count">(${orgServers.length})</span></div>`;
+    html += orgServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
+  // 기본 제공 MCP (preset - super admin 등록)
+  if (presetServers.length > 0) {
+    html += '<div class="org-settings-section">';
+    html += `<div class="org-settings-header">기본 설정 <span class="org-count">(${presetServers.length})</span></div>`;
+    html += presetServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
   listEl.innerHTML = html;
 
   bindAdminServerCardEvents();

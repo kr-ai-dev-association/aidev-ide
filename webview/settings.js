@@ -662,21 +662,30 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ===== 탭 네비게이션 =====
+// ===== 사이드바 네비게이션 =====
 document.addEventListener('click', (e) => {
-  const tab = e.target.closest('.settings-tab');
+  const tab = e.target.closest('.settings-nav-item');
   if (!tab) return;
   const tabId = tab.getAttribute('data-tab');
   if (!tabId) return;
 
-  // 탭 버튼 활성화
-  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  // 사이드바 아이템 활성화
+  document.querySelectorAll('.settings-nav-item').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
 
   // 탭 패널 표시
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById(`tab-${tabId}`);
   if (panel) panel.classList.add('active');
+
+  // 메인 헤더 제목 업데이트
+  const title = document.getElementById('settings-title');
+  const label = tab.querySelector('span');
+  if (title && label) title.textContent = label.textContent;
+
+  // 콘텐츠 영역 스크롤 최상단으로
+  const main = document.querySelector('.settings-main');
+  if (main) main.scrollTop = 0;
 });
 
 // 테마를 body에 적용하는 함수

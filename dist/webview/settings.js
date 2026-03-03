@@ -568,11 +568,27 @@ function renderAdminServerList() {
   }
   listEl.style.display = "block";
   if (personalLabel) personalLabel.style.display = "flex";
-  const headerLabel = window.userHasOrganization ? '관리자 설정' : '기본 설정';
-  let html = '<div class="org-settings-section">';
-  html += `<div class="org-settings-header">${headerLabel} <span class="org-count">(${adminMcpServers.length})</span></div>`;
-  html += adminMcpServers.map(createAdminServerCard).join("");
-  html += '</div>';
+
+  // preset(super admin)과 org admin 설정 분리
+  const orgServers = adminMcpServers.filter(s => s.enforcement !== 'preset');
+  const presetServers = adminMcpServers.filter(s => s.enforcement === 'preset');
+  let html = '';
+
+  // 조직 관리자 MCP (required/recommended)
+  if (orgServers.length > 0) {
+    html += '<div class="org-settings-section">';
+    html += `<div class="org-settings-header">관리자 설정 <span class="org-count">(${orgServers.length})</span></div>`;
+    html += orgServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
+  // 기본 제공 MCP (preset - super admin 등록)
+  if (presetServers.length > 0) {
+    html += '<div class="org-settings-section">';
+    html += `<div class="org-settings-header">기본 설정 <span class="org-count">(${presetServers.length})</span></div>`;
+    html += presetServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
   listEl.innerHTML = html;
   bindAdminServerCardEvents();
 }
@@ -1896,21 +1912,30 @@ document.addEventListener('click', e => {
   }
 });
 
-// ===== 탭 네비게이션 =====
+// ===== 사이드바 네비게이션 =====
 document.addEventListener('click', e => {
-  const tab = e.target.closest('.settings-tab');
+  const tab = e.target.closest('.settings-nav-item');
   if (!tab) return;
   const tabId = tab.getAttribute('data-tab');
   if (!tabId) return;
 
-  // 탭 버튼 활성화
-  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  // 사이드바 아이템 활성화
+  document.querySelectorAll('.settings-nav-item').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
 
   // 탭 패널 표시
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById(`tab-${tabId}`);
   if (panel) panel.classList.add('active');
+
+  // 메인 헤더 제목 업데이트
+  const title = document.getElementById('settings-title');
+  const label = tab.querySelector('span');
+  if (title && label) title.textContent = label.textContent;
+
+  // 콘텐츠 영역 스크롤 최상단으로
+  const main = document.querySelector('.settings-main');
+  if (main) main.scrollTop = 0;
 });
 
 // 테마를 body에 적용하는 함수
