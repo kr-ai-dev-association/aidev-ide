@@ -26,6 +26,7 @@
       --vscode-panel-border: #e5e7eb !important;
       --vscode-descriptionForeground: #6b7280 !important;
       --vscode-focusBorder: #2563eb !important;
+      --vscode-textCodeBlock-background: #eef2f7 !important;
       background-color: #f3f4f6 !important;
       color: #374151 !important;
     }
@@ -82,6 +83,12 @@
     body[data-theme="light"] .api-key-section {
       background-color: #ffffff !important;
       border-color: #e5e7eb !important;
+    }
+
+    /* 사용량 탭 메트릭 카드 라이트 테마 */
+    body[data-theme="light"] #tab-usage [style*="textCodeBlock-background"] {
+      background: #eef2f7 !important;
+      background-color: #eef2f7 !important;
     }
 
     body[data-theme="light"] select,

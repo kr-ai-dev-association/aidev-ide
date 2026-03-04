@@ -6,6 +6,20 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.5.0 (채팅 UI 버그 수정, RAG 응답 개선)
+
+### 채팅 패널 스트리밍 UI 수정
+- **EXECUTION phase `[]` 깜빡거림 완전 제거**: `shouldStreamToUI`를 EXECUTION phase에서 `false`로 설정 — 도구 실행 중 빈 스트리밍 버블이 나타나지 않음
+- **코드 블록 삭제 버그 수정**: EXECUTION phase에서 `removeLastMessage` 호출 시 `shouldStreamToUI` 가드 추가 — 이전 턴의 파일 생성/수정 코드 블록이 실수로 삭제되던 문제 해결
+- **스트리밍 시작 시 stepProcess 자동 숨김 복원**: `startStreamingMessage`에서 thinking bubble 숨기기 재적용 — ask/chat에서 스트리밍 시작 시 "컨텍스트 수집 중" 표시가 함께 남아있던 문제 해결
+
+### 히스토리 복원 시 thinking 내용 노출 방지
+- **`<think>` 태그 내용까지 제거**: `removeToolTags`에서 태그만 제거하던 것을 내용까지 완전 제거로 변경 — 확장 재시작 후 이전 대화 히스토리에 thinking 텍스트가 그대로 출력되던 문제 해결
+
+### RAG 응답 개선
+- **내부 문서 없어도 일반 지식으로 답변**: RAG 문서에 없는 내용에 대해 "안내 드리기 어렵습니다"로 거부하던 동작 수정 — RAG 문서를 우선 활용하되 없는 내용은 일반 학습 지식으로 보충
+  - `generalAsk.ts`, `PromptComposer.ts` 양쪽 RAG 지시사항 수정
+
 ## v11.4.0 (에러 폴백 모델, 라우팅 모델 그룹 지원 완성)
 
 ### 에러 폴백 모델 라우팅

@@ -2280,15 +2280,16 @@ export class ConversationManager implements IConversationHandler {
       let llmResponse: string;
       const llmStartTime = Date.now(); // v9.7.0: LLM 호출 시간 측정
 
+      // REVIEW/DONE 단계에서만 실제 스트리밍 출력, EXECUTION은 제외 ([] 깜빡거림 방지)
+      // 단, pendingMCPResultInterpretation=true면 INVESTIGATION에서도 MCP 결과 해석을 스트리밍
+      // 스코프 밖(removeLastMessage 가드 등)에서도 접근해야 하므로 블록 밖에 선언
+      const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation;
+
       if (isStreamingEnabled) {
         // 스트리밍 모드: 실시간으로 웹뷰에 청크 전송
         console.log(
           `[ConversationManager] Streaming mode enabled for Turn ${turnCount + 1}`,
         );
-
-        // REVIEW/DONE 단계에서만 실제 스트리밍 출력, 그 외에는 조용히 수집
-        // 단, pendingMCPResultInterpretation=true면 INVESTIGATION에서도 MCP 결과 해석을 스트리밍
-        const shouldStreamToUI = shouldSendCodePilotText(currentPhase) || pendingMCPResultInterpretation;
 
         // 🔥 채팅 패널 타이핑 효과 (자연어 텍스트만, 코드 블록은 ToolExecutor가 처리)
         let textStreamer: StreamingCodeApplier | null = null;
@@ -2450,6 +2451,11 @@ export class ConversationManager implements IConversationHandler {
           console.log(
             `[ConversationManager] EXECUTION phase: Tool call detected`,
           );
+          // 스트리밍 모드에서 tool call JSON이 chat에 빈 버블로 남지 않도록 제거
+          // shouldStreamToUI=false(EXECUTION)면 버블이 없으므로 제거하지 않음 → 이전 코드블록 삭제 방지
+          if (isStreamingEnabled && shouldStreamToUI) {
+            WebviewBridge.removeLastMessage(webviewToRespond);
+          }
         } else {
           // 도구 호출이 없으면 자연어 응답으로 간주
           console.warn(
@@ -2527,8 +2533,8 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution and no remaining plan items. Skipping completion confirmation and transitioning to REVIEW.`,
             );
-            // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거
-            if (isStreamingEnabled) {
+            // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+            if (isStreamingEnabled && shouldStreamToUI) {
               WebviewBridge.removeLastMessage(webviewToRespond);
             }
             // "완료 확인" 호출 없이 바로 REVIEW로 전환
@@ -2541,8 +2547,8 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution but remaining plan items exist. Continuing to next item.`,
             );
-            // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거
-            if (isStreamingEnabled) {
+            // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+            if (isStreamingEnabled && shouldStreamToUI) {
               WebviewBridge.removeLastMessage(webviewToRespond);
             }
             lastTurnHadSuccessfulToolExecution = false; // 리셋
@@ -2559,8 +2565,8 @@ export class ConversationManager implements IConversationHandler {
               console.log(
                 `[ConversationManager] EXECUTION phase: Natural language response detected. Requesting tool call (attempt ${currentRetryCount + 1}/3)`,
               );
-              // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거
-              if (isStreamingEnabled) {
+              // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+              if (isStreamingEnabled && shouldStreamToUI) {
                 WebviewBridge.removeLastMessage(webviewToRespond);
               }
               accumulatedUserParts.push({ text: getExecutionNudgePrompt() });

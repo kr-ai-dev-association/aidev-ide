@@ -34,6 +34,9 @@ export interface ConversationServiceOptions {
  * ConversationManager를 사용하여 사용자 메시지를 처리하는 진입점
  */
 export class ConversationService {
+    /** 현재 진행 중인 메시지 처리 AbortController */
+    private static _currentAbortController: AbortController | null = null;
+
     /**
      * 사용자 메시지를 처리하고 응답을 생성합니다
      */
@@ -43,6 +46,13 @@ export class ConversationService {
         let ollamaApi = options.ollamaApi;
         let currentModelType = options.currentModelType;
         let userOS = options.userOS;
+
+        // 이전 호출 취소 후 새 AbortController 생성
+        if (ConversationService._currentAbortController) {
+            ConversationService._currentAbortController.abort();
+        }
+        const abortController = new AbortController();
+        ConversationService._currentAbortController = abortController;
 
         // extensionContext가 있으면 설정에서 정보 가져오기
         if (extensionContext) {
@@ -74,19 +84,33 @@ export class ConversationService {
             userOS: userOS,
             notificationService: options.notificationService,
             gitRepositoryService: options.gitRepositoryService,
-            abortSignal: options.abortSignal
+            abortSignal: options.abortSignal ?? abortController.signal
         };
 
-        // OrchestrationRouter를 통해 분기
-        // OFF → ConversationManager 직접 호출 (기존 동작)
-        // ON → Orchestrator 실행 → 단순 작업이면 자동 폴백
-        await OrchestrationRouter.route(resolvedOptions);
+        try {
+            // OrchestrationRouter를 통해 분기
+            // OFF → ConversationManager 직접 호출 (기존 동작)
+            // ON → Orchestrator 실행 → 단순 작업이면 자동 폴백
+            await OrchestrationRouter.route(resolvedOptions);
+        } finally {
+            // 완료 후 정리
+            if (ConversationService._currentAbortController === abortController) {
+                ConversationService._currentAbortController = null;
+            }
+        }
     }
 
     /**
      * 현재 호출을 취소합니다
      */
     public static cancelCurrentCall(): void {
+        // OrchestrationRouter AbortSignal 취소
+        if (ConversationService._currentAbortController) {
+            ConversationService._currentAbortController.abort();
+            ConversationService._currentAbortController = null;
+            console.log('[ConversationService] AbortController signal aborted');
+        }
+        // ConversationManager (non-orchestration) 취소
         try {
             const conversationManager = ConversationManager.getInstance();
             conversationManager.cancelCurrentCall();

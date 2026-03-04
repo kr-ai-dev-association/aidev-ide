@@ -49,7 +49,8 @@ export function startStreamingMessage(sender, meta) {
     return;
   }
 
-  // thinking bubble 숨기기
+  // 스트리밍 시작 시 thinking bubble 숨김
+  // EXECUTION phase는 shouldStreamToUI=false라 이 함수가 호출되지 않으므로 안전
   if (thinkingBubbleElement) {
     thinkingBubbleElement.style.display = "none";
   }

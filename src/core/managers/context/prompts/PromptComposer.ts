@@ -310,9 +310,9 @@ ${diagnosticsContextContent}
         const frameworkRulesSection = frameworkRulesPrompt || '';
 
         // RAG 문서 섹션
-        const ragSection = ragContext ? `## 참고 문서 (RAG) — 반드시 우선 활용
+        const ragSection = ragContext ? `## 참고 문서 (RAG) — 우선 활용
 아래는 사용자 질문과 관련하여 조직 내부 문서에서 검색된 내용입니다.
-**중요**: 아래 RAG 문서의 내용을 최우선으로 활용하여 작업하세요. 파일을 새로 조사하거나 내용을 추측하지 말고, 아래 문서에 포함된 정보를 그대로 사용하세요.
+**중요**: 아래 RAG 문서의 내용을 최우선으로 활용하여 작업하세요. 문서에 포함된 정보를 우선 사용하고, 문서에 없는 내용은 일반 지식을 바탕으로 보충하세요.
 
 ${ragContext}` : '';
 

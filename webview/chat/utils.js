@@ -155,11 +155,11 @@ export function removeToolTags(text) {
     }
   }
 
-  // 기타 XML 태그 제거 (thinking, function_calls 등)
-  result = result.replace(/<thinking>\s?/g, "");
-  result = result.replace(/\s?<\/thinking>/g, "");
-  result = result.replace(/<think>\s?/g, "");
-  result = result.replace(/\s?<\/think>/g, "");
+  // think/thinking 태그와 내용 모두 제거 (태그만 제거하면 thinking 내용이 그대로 노출됨)
+  result = result.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+  result = result.replace(/<thinking>[\s\S]*$/gi, ""); // 닫히지 않은 태그
+  result = result.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  result = result.replace(/<think>[\s\S]*$/gi, ""); // 닫히지 않은 태그
   result = result.replace(/<function_calls>\s?/g, "");
   result = result.replace(/\s?<\/function_calls>/g, "");
 

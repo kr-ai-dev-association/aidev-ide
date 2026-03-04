@@ -216,6 +216,11 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         }
 
         if (responseContent && !isJunkResponse) {
+            // thinking content가 있으면 <think> 태그로 wrap해서 반환
+            // SubAgentLoop가 onThinking 콜백으로 UI에 전달할 수 있도록
+            if (thinkingContent) {
+                return `<think>${thinkingContent}</think>\n${responseContent}`;
+            }
             return responseContent;
         }
 

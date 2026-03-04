@@ -719,52 +719,113 @@
       /* Pending question queue area */
       #pending-queue-area {
         display: none;
-        flex-direction: row;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
+        flex-direction: column;
         background-color: var(--vscode-input-background);
         border-bottom: 1px solid var(--vscode-panel-border);
-        overflow-x: auto;
       }
 
       #pending-queue-area.visible {
         display: flex;
       }
 
-      .pending-item {
+      .queue-header {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .queue-toggle-btn {
+        background: none;
+        border: none;
+        padding: 0;
         display: inline-flex;
         align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: var(--vscode-foreground);
+        opacity: 0.6;
+        flex-shrink: 0;
+        transition: transform 0.15s;
+      }
+
+      #pending-queue-area.collapsed .queue-toggle-btn {
+        transform: rotate(-90deg);
+      }
+
+      .queue-header-label {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        font-weight: 500;
+      }
+
+      .queue-header-count {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.7;
+      }
+
+      .queue-items-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 0 8px 6px;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+
+      #pending-queue-area.collapsed .queue-items-list {
+        display: none;
+      }
+
+      .pending-item {
+        display: flex;
+        align-items: center;
         gap: 6px;
-        padding: 4px 8px;
+        padding: 3px 8px;
         border: 1px solid var(--vscode-panel-border);
-        border-radius: 12px;
+        border-radius: 6px;
         background: transparent;
         color: var(--vscode-foreground);
         font-size: 12px;
-        white-space: nowrap;
-        max-width: 260px;
+        min-width: 0;
+      }
+
+      .pending-item .queue-index {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.6;
+        flex-shrink: 0;
+        min-width: 14px;
       }
 
       .pending-item .text {
+        flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .pending-item .cancel-btn {
         background: none;
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 50%;
-        width: 16px;
-        height: 16px;
-        line-height: 14px;
-        text-align: center;
+        border: none;
+        border-radius: 4px;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         cursor: pointer;
         color: var(--vscode-foreground);
+        opacity: 0.4;
         padding: 0;
+        flex-shrink: 0;
       }
 
       .pending-item .cancel-btn:hover {
+        opacity: 1;
         background: var(--vscode-button-secondary-hoverBackground);
       }
 
@@ -2732,7 +2793,18 @@
 
     <div class="bottom-fixed-area">
       <!-- Pending Question Queue Area -->
-      <div id="pending-queue-area" class="hidden"></div>
+      <div id="pending-queue-area" class="hidden">
+        <div class="queue-header" id="queue-header">
+          <button class="queue-toggle-btn" id="queue-toggle-btn" title="큐 접기/펼치기">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1.5 5.5l6.5 6 6.5-6-1-1.1L8 9.9 2.5 4.4z"/>
+            </svg>
+          </button>
+          <span class="queue-header-label">대기 중</span>
+          <span class="queue-header-count" id="queue-header-count"></span>
+        </div>
+        <div class="queue-items-list" id="queue-items-list"></div>
+      </div>
       <!-- File Selection Area - 입력창과 채팅 출력창 사이로 이동 -->
       <!-- 파일 선택 영역 제거됨 - 입력창에 @filename 블록으로 표시 -->
 
@@ -2979,6 +3051,9 @@
               title="중지"
             >
               <img src="{{stopIconUri}}" class="icon-img" alt="stop" />
+            </button>
+            <button id="queue-send-button" class="input-icon-button" title="다시 보내기" style="display:none;">
+              <img src="{{sendIconUri}}" class="icon-img" alt="queue send" />
             </button>
             <button id="send-button" class="input-icon-button" title="전송">
               <img src="{{sendIconUri}}" class="icon-img" alt="send" />

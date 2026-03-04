@@ -75,6 +75,15 @@ export interface ToolUse {
 }
 
 /**
+ * 툴 파싱 결과 (구조화된 실패 정보 포함)
+ */
+export interface ToolParseResult {
+    tools: ToolUse[];
+    warnings: string[];
+    hasErrors: boolean;
+}
+
+/**
  * 툴 응답
  */
 export interface ToolResponse {
