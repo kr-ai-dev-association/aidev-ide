@@ -6,6 +6,37 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.6.0 (2026-03-05)
+
+### 스트리밍 네이티브 툴 콜링 (전 프로바이더 지원)
+
+- **OllamaApi** — 스트리밍 경로에 `tools` 전송, NDJSON 루프에서 `tool_calls` 누적 후 텍스트 JSON 변환 (`resolve`)
+- **AdminModelApi `streamOpenAI()`** — Continue CLI 패턴 적용: `Map<index,id>` + `argumentsStr` 누적 → `[DONE]` 시 변환
+- **AdminModelApi `streamGemini()`** — `parts[].functionCall` 누적 → 스트림 종료 후 변환
+- **LLMManager** — `sendMessageWithSystemPromptStreaming()`에 `nativeTools` 전달 추가
+- **ConversationManager** — 스트리밍 호출에 `nativeTools: nativeToolsForCall` 전달
+
+### Thinking 제어 개선
+
+- `resolveDisableThinking()` — `explicit ?? false` 로 변경 (이전: 시스템 프롬프트에 도구 키워드 있으면 자동 비활성화)
+- 도구 호출 중에도 Thinking ON 유지 (Cline/Continue/OpenCode 업계 표준과 동일)
+- SubAgentLoop의 `disableThinking: true`는 유지 (경량 서브에이전트, 의도적)
+
+### 멀티에이전트 안정성
+
+- **SubAgentLoop** — 연속 동일 `run_command` 반복 가드 추가
+  - 같은 명령어 2회 실행 후 3번째부터 자동 차단
+  - 차단 시 LLM에 "이미 실행 중, 다음 단계로 진행" 메시지 전달
+- **RunCommandToolHandler** — 장기 실행 명령어 응답 개선
+  - UI 표시(`data.output`): 깔끔한 "백그라운드에서 시작됨" 메시지
+  - LLM 전달(`data.llmNote`): "다시 실행하지 마세요" 지시 (UI에 노출 안 됨)
+
+### UI 수정
+
+- 초기 로드/재시작 시 중지 버튼 → disabled 전송 버튼으로 표시 수정
+- Review 페이즈 진입 시 stepsProcess에 "결과 요약 생성 중......" 상태 표시 추가
+
+---
 ## v11.5.0 (채팅 UI 버그 수정, RAG 응답 개선)
 
 ### 채팅 패널 스트리밍 UI 수정

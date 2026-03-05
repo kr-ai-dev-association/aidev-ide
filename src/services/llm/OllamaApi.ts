@@ -5,7 +5,7 @@ import { URL } from 'url';
 import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 
-type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean };
+type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; nativeTools?: any[] };
 type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type MessageBuilder = (userContent: string) => OllamaMessage[];
 
@@ -184,11 +184,33 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             console.log(`[OllamaApi] Thinking disabled for this request (tool calling mode)`);
         }
 
+        // 네이티브 툴 콜링: tools 배열 추가
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestData.tools = options.nativeTools;
+            console.log(`[OllamaApi] Native tool calling enabled, tools count: ${options.nativeTools.length}`);
+        }
+
         console.log(`[OllamaApi] Sending request to ${url.toString()} with model ${this.modelName}`);
 
         const rawResponse = await this.makeHttpRequest(url, requestData, options);
 
         console.log('[OllamaApi] Raw response received:', JSON.stringify(rawResponse).length > 500 ? JSON.stringify(rawResponse).substring(0, 500) + '...' : JSON.stringify(rawResponse));
+
+        // 네이티브 tool_calls가 있으면 텍스트 JSON 형식으로 변환 (기존 ToolParser 호환)
+        const nativeToolCalls = rawResponse.message?.tool_calls;
+        if (nativeToolCalls && nativeToolCalls.length > 0) {
+            const thinkingForTools = rawResponse.message?.thinking || '';
+            console.log('[OllamaApi] Native tool_calls received, count:', nativeToolCalls.length);
+            const converted = nativeToolCalls.map((tc: any) => {
+                const fn = tc.function;
+                const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
+                return JSON.stringify({ tool: fn.name, ...args });
+            }).join('\n');
+            if (thinkingForTools) {
+                return `<think>${thinkingForTools}</think>\n${converted}`;
+            }
+            return converted;
+        }
 
         const responseContent = this.parseResponseFormat(rawResponse);
         const thinkingContent = rawResponse.message?.thinking || '';
@@ -394,6 +416,11 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             console.log(`[OllamaApi] Streaming: Thinking disabled for this request (tool calling mode)`);
         }
 
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestData.tools = options.nativeTools;
+            console.log(`[OllamaApi] Streaming: Native tool calling enabled, tools count: ${options.nativeTools.length}`);
+        }
+
         console.log(`[OllamaApi] Sending streaming request to ${url.toString()} with model ${this.modelName}`);
 
         return new Promise((resolve, reject) => {
@@ -409,6 +436,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             let fullText = '';
             let thinkingText = '';
             let ndjsonBuffer = '';
+            const streamingToolCalls: Array<{ name: string; arguments: Record<string, any> }> = [];
             const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
                 if (res.statusCode && res.statusCode >= 400) {
                     let errorData = '';
@@ -439,6 +467,16 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                             if (thinkChunk) {
                                 thinkingText += thinkChunk;
                             }
+                            const nativeToolCalls = parsed.message?.tool_calls;
+                            if (nativeToolCalls?.length) {
+                                for (const tc of nativeToolCalls) {
+                                    const fn = tc.function;
+                                    const args = typeof fn.arguments === 'string'
+                                        ? JSON.parse(fn.arguments)
+                                        : (fn.arguments || {});
+                                    streamingToolCalls.push({ name: fn.name, arguments: args });
+                                }
+                            }
                             if (parsed.done) {
                                 onChunk('', true);
                             }
@@ -463,10 +501,32 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                             if (thinkChunk) {
                                 thinkingText += thinkChunk;
                             }
+                            const nativeToolCallsEnd = parsed.message?.tool_calls;
+                            if (nativeToolCallsEnd?.length) {
+                                for (const tc of nativeToolCallsEnd) {
+                                    const fn = tc.function;
+                                    const args = typeof fn.arguments === 'string'
+                                        ? JSON.parse(fn.arguments)
+                                        : (fn.arguments || {});
+                                    streamingToolCalls.push({ name: fn.name, arguments: args });
+                                }
+                            }
                         } catch {}
                     }
 
                     onChunk('', true);
+
+                    if (streamingToolCalls.length > 0) {
+                        const converted = streamingToolCalls
+                            .map(tc => JSON.stringify({ tool: tc.name, ...tc.arguments }))
+                            .join('\n');
+                        const fullResult = thinkingText.trim()
+                            ? `<think>${thinkingText}</think>\n${converted}`
+                            : converted;
+                        console.log(`[OllamaApi] Streaming: Native tool_calls converted, count: ${streamingToolCalls.length}`);
+                        resolve(fullResult);
+                        return;
+                    }
 
                     if (thinkingText.trim()) {
                         let responseBody = fullText;

@@ -18,6 +18,7 @@ import { ActionManager } from "../action/ActionManager";
 import { ExecutionManager } from "../execution/ExecutionManager";
 import { TerminalManager } from "../terminal/TerminalManager";
 import { Tool } from "../../tools/types";
+import { ToolSpecBuilder } from "../../tools/ToolSpecBuilder";
 import { IntentDetector } from "../action/IntentDetector";
 import { ProjectManager } from "../project/ProjectManager";
 import { ProjectDetector } from "../project/ProjectDetector";
@@ -1024,6 +1025,7 @@ export class ConversationManager implements IConversationHandler {
     const { webviewToRespond, abortSignal, userQuery } = options;
     const maxTurns = AgentConfig.MAX_TURNS;
     let turnCount = 0;
+    let nativeToolCallingNoticeShown = false; // 네이티브 툴 콜링 미지원 안내 한 번만 표시
     let conversationTurnId = crypto.randomUUID(); // 턴 단위 변경 그룹화용
     let lastExecutionTurnId = conversationTurnId; // 마지막 tool 실행 시의 turnId (review 메시지에 사용)
     let accumulatedUserParts = [...userParts];
@@ -1550,6 +1552,7 @@ export class ConversationManager implements IConversationHandler {
       // 페이즈별 프롬프트 보정 및 도구 제한
       let activeSystemPrompt = systemPrompt;
       let allowedTools: Tool[] | undefined = undefined;
+      let nativeToolsForCall: any[] | undefined = undefined; // 네이티브 툴 콜링용 (나중에 설정됨)
 
       if (currentPhase === AgentPhase.INVESTIGATION) {
         const investigationPrompt = investigationManager.getInvestigationPrompt(
@@ -1990,7 +1993,7 @@ export class ConversationManager implements IConversationHandler {
                 await this.llmManager.sendMessageWithSystemPrompt(
                   activeSystemPrompt + planContextForExecution,
                   accumulatedUserParts,
-                  { signal: abortSignal },
+                  { signal: abortSignal, nativeTools: nativeToolsForCall },
                 );
             }
 
@@ -2277,6 +2280,36 @@ export class ConversationManager implements IConversationHandler {
           ).isStreamingEnabled()
         : false;
 
+      // 네이티브 툴 콜링 설정 확인 (INVESTIGATION/EXECUTION 단계에서만 tools 배열 전달)
+      const isToolCallingPhase = (currentPhase as AgentPhase) === AgentPhase.INVESTIGATION || (currentPhase as AgentPhase) === AgentPhase.EXECUTION;
+      if (isToolCallingPhase) {
+        const isNativeToolCallingEnabled = options.extensionContext
+          ? await SettingsManager.getInstance(options.extensionContext).isNativeToolCallingEnabled()
+          : true;
+        if (isNativeToolCallingEnabled) {
+          const modelType = this.llmManager.getCurrentModel();
+          if (modelType === AiModelType.ADMIN) {
+            const adminConfig = this.llmManager.getAdminModelConfig();
+            if (adminConfig?.nativeToolCallingSupported === true) {
+              nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+              console.log(`[ConversationManager] Native tool calling enabled for admin model: ${adminConfig.model}`);
+            } else if (adminConfig && !nativeToolCallingNoticeShown) {
+              // admin 모델이지만 native tool calling 미지원 → 1회 안내
+              nativeToolCallingNoticeShown = true;
+              WebviewBridge.receiveMessage(
+                webviewToRespond,
+                'SYSTEM_INFO',
+                `ℹ️ 현재 모델(${adminConfig.model})은 네이티브 툴 콜링을 지원하지 않습니다. 설정에서 [네이티브 툴 콜링]을 OFF 하세요. (텍스트 기반 파싱으로 동작 중)`
+              );
+            }
+          } else {
+            // Ollama 로컬 모델: 항상 시도 (미지원 시 텍스트 파싱으로 자동 폴백)
+            nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+            console.log(`[ConversationManager] Native tool calling enabled for Ollama model`);
+          }
+        }
+      }
+
       let llmResponse: string;
       const llmStartTime = Date.now(); // v9.7.0: LLM 호출 시간 측정
 
@@ -2364,7 +2397,7 @@ export class ConversationManager implements IConversationHandler {
               activeSystemPrompt + planContext,
               accumulatedUserParts,
               onChunk,
-              { signal: abortSignal },
+              { signal: abortSignal, nativeTools: nativeToolsForCall },
             );
         }
       } else {
@@ -2395,7 +2428,7 @@ export class ConversationManager implements IConversationHandler {
           llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
             activeSystemPrompt + planContext,
             accumulatedUserParts,
-            { signal: abortSignal },
+            { signal: abortSignal, nativeTools: nativeToolsForCall },
           );
         }
       }
@@ -4839,6 +4872,9 @@ export class ConversationManager implements IConversationHandler {
 
     // 요약 생성 (파일이 생성/수정된 경우)
     let finalResponse = "";
+
+    WebviewBridge.sendProcessingStep(webview, "review");
+    WebviewBridge.sendProcessingStatus(webview, "review", "결과 요약 생성 중......");
 
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
       const verifiedSummary =

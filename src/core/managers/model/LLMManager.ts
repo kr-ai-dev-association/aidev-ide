@@ -28,6 +28,8 @@ export interface LLMRequestOptions {
     disableRetry?: boolean;
     /** thinking 비활성화 — tool calling과 충돌 방지 (Qwen3, DeepSeek 등) */
     disableThinking?: boolean;
+    /** 네이티브 툴 콜링용 tools 배열 (OpenAI/Ollama 포맷) */
+    nativeTools?: any[];
 }
 
 export interface LLMResponse {
@@ -49,9 +51,9 @@ export class LLMManager {
         return systemPrompt.includes('사용 가능한 도구') || systemPrompt.includes('"tool"');
     }
 
-    /** thinking 비활성화 여부 결정 (명시적 설정 우선, 없으면 도구 스펙 유무로 자동 판단) */
+    /** thinking 비활성화 여부 결정 (명시적 설정만 적용 — 도구 스펙 자동 감지 제거) */
     private static resolveDisableThinking(systemPrompt: string, explicit?: boolean): boolean {
-        return explicit ?? LLMManager.hasToolSpecs(systemPrompt);
+        return explicit ?? false;
     }
 
     private constructor(
@@ -81,6 +83,13 @@ export class LLMManager {
      */
     public setAdminModelConfig(config: AdminModelConfig): void {
         this.adminModelApi.setConfig(config);
+    }
+
+    /**
+     * 현재 관리자 모델 설정을 가져옵니다
+     */
+    public getAdminModelConfig(): AdminModelConfig | null {
+        return this.adminModelApi.getConfig();
     }
 
     /**
@@ -208,7 +217,7 @@ export class LLMManager {
             if (this.currentModelType === AiModelType.ADMIN) {
                 const parts = userParts.map(part => ({ text: part.text || '' }));
                 response = await this.adminModelApi.sendMessageWithSystemPrompt(
-                    systemPrompt, parts, { signal, disableThinking }
+                    systemPrompt, parts, { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             } else {
                 try {
@@ -220,7 +229,7 @@ export class LLMManager {
 
                 response = await this.ollamaApi.sendMessageWithSystemPrompt(
                     systemPrompt, parts,
-                    { signal, disableThinking }
+                    { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             }
 
@@ -919,7 +928,7 @@ export class LLMManager {
                     systemPrompt,
                     parts,
                     onChunk,
-                    { signal, disableThinking }
+                    { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             } else {
                 try {
@@ -933,7 +942,7 @@ export class LLMManager {
                     systemPrompt,
                     parts,
                     onChunk,
-                    { signal, disableThinking }
+                    { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             }
 

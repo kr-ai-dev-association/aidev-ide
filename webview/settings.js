@@ -741,6 +741,8 @@ const orchestrationStatus = document.getElementById("orchestration-status");
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
+const nativeToolCallingToggle = document.getElementById("native-tool-calling-toggle");
+
 // 빌드/테스트 개인 설정 요소
 const btTypeSelect = document.getElementById("bt-type-select");
 const btLanguageSelect = document.getElementById("bt-language-select");
@@ -759,6 +761,7 @@ bindToggleEvents({
   autoUpdateToggle,
   autoDeleteToggle,
   streamingToggle,
+  nativeToolCallingToggle,
   autoTestRetryToggle,
   autoCorrectionToggle,
   autoExecuteToggle,
@@ -2076,6 +2079,9 @@ window.addEventListener("message", (event) => {
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
+      }
+      if (typeof message.nativeToolCallingEnabled === "boolean" && nativeToolCallingToggle) {
+        nativeToolCallingToggle.checked = message.nativeToolCallingEnabled;
       }
       if (
         typeof message.autoCorrectionEnabled === "boolean" &&

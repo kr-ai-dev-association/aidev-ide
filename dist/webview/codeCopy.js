@@ -1,2 +1,496 @@
-!function(e,t){if("object"==typeof exports&&"object"==typeof module)module.exports=t();else if("function"==typeof define&&define.amd)define([],t);else{var n=t();for(var o in n)("object"==typeof exports?exports:e)[o]=n[o]}}(self,()=>(()=>{"use strict";var e={d:(t,n)=>{for(var o in n)e.o(n,o)&&!e.o(t,o)&&Object.defineProperty(t,o,{enumerable:!0,get:n[o]})},o:(e,t)=>Object.prototype.hasOwnProperty.call(e,t),r:e=>{"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})}},t={};e.r(t),e.d(t,{addCopyButtonsToCodeBlocks:()=>d}),void 0===window.vscode&&"undefined"!=typeof acquireVsCodeApi&&(window.vscode=acquireVsCodeApi());const n=window.vscode||null;function o(){const e=document.createElement("button");return e.classList.add("copy-code-button"),e.textContent="Copy",e.title="Copy code to clipboard",e}function s(){const e=document.createElement("button");return e.classList.add("run-bash-button"),e.textContent="Run",e.title="Run commands",e}function c(){const e=document.createElement("button");return e.classList.add("stop-bash-button"),e.textContent="Stop",e.title="Stop running process",e.style.display="none",e}function i(e,t){e.addEventListener("click",()=>{console.log("[codeCopy.js] Stop button clicked"),n&&n.postMessage({command:"stopBashCommand"}),e.style.display="none",t.style.display=""})}function l(e){let t=!1,n="",o=!1;for(let s=0;s<e.length;s++){const c=e[s];if(o)o=!1;else if("\\"!==c)if(t||'"'!==c&&"'"!==c){if(t&&c===n)t=!1,n="";else if(!t&&"#"===c)return e.substring(0,s).trim()}else t=!0,n=c;else o=!0}return e.trim()}function a(e,t,o,s){e.addEventListener("click",async()=>{console.log("[codeCopy.js] Run button clicked");const c=t.textContent||"";let i=[];"bash"===o||"sh"===o||"shell"===o?(console.log("[codeCopy.js] Bash code:",c),i=function(e){const t=function(e){const t=e.split("\n");let n=[],o=0;const s=e=>{const t=l(e.trim());t&&!t.startsWith("#")&&(/^exit(\s+\d+)?$/i.test(t)||/^echo\s*"?"?$/i.test(t)||n.push(t))};for(let e of t){const t=l(e.trim());if(!t||t.startsWith("#"))continue;if(/^(then|fi|else|elif\b)/.test(t)&&0===o)continue;const n=/^(if\b|if\s*\[|if\s*\[\[|if\s+test\b)/.test(t),c=/;\s*then\s*$/.test(t)||/\bthen\b\s*$/.test(t);if(n){o+=1;let e=t;c||(e=t.replace(/;?\s*$/," ; then")),s(e);continue}o>0&&/^(elif\b|else\b)/.test(t)?s(t):/^fi\b/.test(t)?(o=Math.max(0,o-1),s("fi")):s(t)}return n.join("; ")}(e);return t?[t]:[]}(c)):(console.log("[codeCopy.js] Non-bash code (powershell/cmd):",o),i=function(e){const t=(e||"").trim();return t?[t]:[]}(c)),console.log("[codeCopy.js] Extracted commands:",i),0!==i.length?(function(e,t){const n=t.closest("pre")||t.closest(".code-block");if(!n)return;const o=document.createElement("div");o.className="callout-executing-indicator",o.innerHTML='\n        <div class="callout-executing-content">\n            <div class="callout-executing-spinner"></div>\n            <span class="callout-executing-text">Executing...</span>\n        </div>\n    ',o.style.cssText="\n        position: absolute;\n        top: 0;\n        left: 0;\n        right: 0;\n        bottom: 0;\n        background: rgba(0, 0, 0, 0.8);\n        color: white;\n        display: flex;\n        align-items: center;\n        justify-content: center;\n        z-index: 10;\n        border-radius: 4px;\n    ",n.style.position="relative",n.appendChild(o),setTimeout(()=>{o.parentNode&&o.parentNode.removeChild(o)},3e3)}(0,t),n?(console.log("[codeCopy.js] Sending executeBashCommands message:",i),n.postMessage({command:"executeBashCommands",commands:i})):console.error("[codeCopy.js] VS Code API not available"),e.style.display="none",s&&(s.style.display="")):console.log("[codeCopy.js] No valid bash commands found")})}function r(e,t){e.addEventListener("click",async()=>{const n=t.textContent||"",o=await async function(e){try{return navigator.clipboard&&navigator.clipboard.writeText?(await navigator.clipboard.writeText(e),!0):(console.warn("Clipboard API not available."),!1)}catch(e){return console.error("Failed to copy code:",e),!1}}(n),s=e.textContent;e.textContent=o?"Copied!":"Failed!",setTimeout(()=>{e.textContent=s},2e3)})}function d(e){e&&(e.querySelectorAll(".code-block-container").forEach(e=>{const t=e.getAttribute("data-file-path"),n=e.querySelector("code");if(n){const l=e.querySelector(".code-language"),d=l&&l.textContent?l.textContent.toLowerCase():"",u="bash"===d||"sh"===d||"shell"===d,p="powershell"===d||"pwsh"===d||"ps1"===d,f="cmd"===d||"batch"===d||"bat"===d,b=document.createElement("div");if(b.classList.add("bash-button-container"),t){const e=function(e){const t=document.createElement("a");t.classList.add("undo-button"),t.textContent="Undo",t.title=`Undo all changes for ${e}`;const n=encodeURIComponent(e);return t.href=`codepilot://rejectAll?path=${n}`,t.style.cssText="\n        display: flex;\n        justify-content: center;\n        align-items: center;\n        margin-top: 5px;\n        margin-bottom: 10px;\n        padding: 4px 12px;\n        font-size: 11px;\n        line-height: 1;\n        border: none;\n        border-radius: 3px;\n        cursor: pointer;\n        opacity: 1;\n        transition: background-color 0.2s ease-in-out;\n        z-index: 2;\n        font-weight: 500;\n        background-color: #1e1e1e;\n        color: white;\n        text-decoration: none;\n    ",t}(t);b.appendChild(e);const n=function(e){const t=document.createElement("a");t.classList.add("keep-button"),t.textContent="Keep",t.title=`Keep all changes for ${e}`;const n=encodeURIComponent(e);return t.href=`codepilot://acceptAll?path=${n}`,t.style.cssText="\n        display: flex;\n        justify-content: center;\n        align-items: center;\n        margin-top: 5px;\n        margin-bottom: 10px;\n        padding: 4px 12px;\n        font-size: 11px;\n        line-height: 1;\n        border: none;\n        border-radius: 3px;\n        cursor: pointer;\n        opacity: 1;\n        transition: background-color 0.2s ease-in-out;\n        z-index: 2;\n        font-weight: 500;\n        background-color: #73c991;\n        color: white;\n        text-decoration: none;\n    ",t}(t);b.appendChild(n)}else if(u||p||f){const e=o();b.appendChild(e),r(e,n);const t=s(),l=c();b.appendChild(t),b.appendChild(l),a(t,n,u?"bash":p?"powershell":"cmd",l),i(l,t)}b.children.length>0&&e.insertAdjacentElement("afterend",b)}}),e.querySelectorAll("pre:not(.code-block-container pre)").forEach(e=>{if(e.closest(".code-block-container"))return;const t=e.querySelector("code");if(t){const n=t.className||"",l=n.includes("language-bash")||n.includes("language-sh")||n.includes("language-shell"),d=n.includes("language-powershell")||n.includes("language-pwsh")||n.includes("language-ps1"),u=n.includes("language-cmd")||n.includes("language-batch")||n.includes("language-bat");if(l||d||u){const n=document.createElement("div");n.classList.add("bash-button-container");const u=o();n.appendChild(u),r(u,t);const p=s(),f=c();n.appendChild(p),n.appendChild(f),a(p,t,l?"bash":d?"powershell":"cmd",f),i(f,p),e.insertAdjacentElement("afterend",n)}}}))}return t})());
+(function webpackUniversalModuleDefinition(root, factory) {
+	if(typeof exports === 'object' && typeof module === 'object')
+		module.exports = factory();
+	else if(typeof define === 'function' && define.amd)
+		define([], factory);
+	else {
+		var a = factory();
+		for(var i in a) (typeof exports === 'object' ? exports : root)[i] = a[i];
+	}
+})(self, () => {
+return /******/ (() => { // webpackBootstrap
+/******/ 	"use strict";
+/******/ 	// The require scope
+/******/ 	var __webpack_require__ = {};
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__webpack_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/make namespace object */
+/******/ 	(() => {
+/******/ 		// define __esModule on exports
+/******/ 		__webpack_require__.r = (exports) => {
+/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 			}
+/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+var __webpack_exports__ = {};
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   addCopyButtonsToCodeBlocks: () => (/* binding */ addCopyButtonsToCodeBlocks)
+/* harmony export */ });
+// VS Code API를 전역으로 획득 (ask.js와 공유)
+if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
+  window.vscode = acquireVsCodeApi();
+}
+const vscode = window.vscode || null;
+
+// 클립보드 복사 기능을 위한 헬퍼 함수
+// Webview에서는 navigator.clipboard 사용 가능
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      // console.log('Code copied to clipboard!');
+      return true; // 성공
+    } else {
+      console.warn('Clipboard API not available.');
+      // Fallback 방법 (document.execCommand('copy'))은 보안상 권장되지 않아 생략
+      return false; // 실패
+    }
+  } catch (err) {
+    console.error('Failed to copy code:', err);
+    return false; // 실패
+  }
+}
+
+// 복사 버튼을 생성하는 헬퍼 함수
+function createCopyButton() {
+  const button = document.createElement('button');
+  button.classList.add('copy-code-button');
+  button.textContent = 'Copy'; // 버튼 텍스트
+  button.title = 'Copy code to clipboard'; // 툴팁
+
+  return button;
+}
+
+// Run 버튼을 생성하는 헬퍼 함수
+function createRunButton() {
+  const button = document.createElement('button');
+  button.classList.add('run-bash-button');
+  button.textContent = 'Run';
+  button.title = 'Run commands';
+  return button;
+}
+
+// Stop 버튼을 생성하는 헬퍼 함수
+function createStopButton() {
+  const button = document.createElement('button');
+  button.classList.add('stop-bash-button');
+  button.textContent = 'Stop';
+  button.title = 'Stop running process';
+  button.style.display = 'none'; // 초기엔 숨김
+  return button;
+}
+
+// Stop 버튼에 이벤트 리스너를 등록하는 함수
+function attachStopButtonListener(stopButton, runButton) {
+  stopButton.addEventListener('click', () => {
+    console.log('[codeCopy.js] Stop button clicked');
+    if (vscode) {
+      vscode.postMessage({
+        command: 'stopBashCommand'
+      });
+    }
+    // Stop 숨기고 Run 복원
+    stopButton.style.display = 'none';
+    runButton.style.display = '';
+  });
+}
+
+// 개별 callout 박스에 executing 상태를 표시하는 함수
+function showCalloutExecutingState(button, codeElement) {
+  // callout 박스 찾기 (codeElement의 부모 요소)
+  const calloutBox = codeElement.closest('pre') || codeElement.closest('.code-block');
+  if (!calloutBox) return;
+
+  // executing 상태 표시 요소 생성
+  const executingIndicator = document.createElement('div');
+  executingIndicator.className = 'callout-executing-indicator';
+  executingIndicator.innerHTML = `
+        <div class="callout-executing-content">
+            <div class="callout-executing-spinner"></div>
+            <span class="callout-executing-text">Executing...</span>
+        </div>
+    `;
+
+  // 스타일 적용
+  executingIndicator.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 4px;
+    `;
+
+  // callout 박스를 relative positioning으로 설정
+  calloutBox.style.position = 'relative';
+
+  // executing 상태 표시
+  calloutBox.appendChild(executingIndicator);
+
+  // 3초 후 자동으로 제거 (실제 실행 완료 시에는 다른 로직에서 제거)
+  setTimeout(() => {
+    if (executingIndicator.parentNode) {
+      executingIndicator.parentNode.removeChild(executingIndicator);
+    }
+  }, 3000);
+}
+
+// 명령어에서 인라인 주석을 제거하는 함수
+function removeInlineComment(command) {
+  // 따옴표 안의 #은 주석이 아니므로 보호
+  let inQuotes = false;
+  let quoteChar = '';
+  let escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (!inQuotes && (char === '"' || char === "'")) {
+      inQuotes = true;
+      quoteChar = char;
+      continue;
+    }
+    if (inQuotes && char === quoteChar) {
+      inQuotes = false;
+      quoteChar = '';
+      continue;
+    }
+    if (!inQuotes && char === '#') {
+      return command.substring(0, i).trim();
+    }
+  }
+  return command.trim();
+}
+
+// bash 블록을 단일 명령으로 병합 (if/then/elif/else/fi 유지)
+function mergeBashBlockToSingleCommand(bashCode) {
+  const lines = bashCode.split('\n');
+  let buffer = [];
+  let ifDepth = 0;
+  const pushLine = l => {
+    const clean = removeInlineComment(l.trim());
+    if (!clean || clean.startsWith('#')) return;
+    if (/^exit(\s+\d+)?$/i.test(clean)) return; // 비정상 종료/종료 라인 제거
+    if (/^echo\s*"?"?$/i.test(clean)) return; // 빈 echo 제거
+    buffer.push(clean);
+  };
+  for (let raw of lines) {
+    const line = removeInlineComment(raw.trim());
+    if (!line || line.startsWith('#')) continue;
+
+    // 고아 제어토큰 방지
+    if (/^(then|fi|else|elif\b)/.test(line) && ifDepth === 0) {
+      continue;
+    }
+    const startsIf = /^(if\b|if\s*\[|if\s*\[\[|if\s+test\b)/.test(line);
+    const endsWithThen = /;\s*then\s*$/.test(line) || /\bthen\b\s*$/.test(line);
+    if (startsIf) {
+      ifDepth += 1;
+      let normalized = line;
+      if (!endsWithThen) normalized = line.replace(/;?\s*$/, ' ; then');
+      pushLine(normalized);
+      continue;
+    }
+    if (ifDepth > 0 && /^(elif\b|else\b)/.test(line)) {
+      pushLine(line);
+      continue;
+    }
+    if (/^fi\b/.test(line)) {
+      ifDepth = Math.max(0, ifDepth - 1);
+      pushLine('fi');
+      continue;
+    }
+
+    // 일반 라인
+    pushLine(line);
+  }
+
+  // 세미콜론으로 한 줄로 결합
+  return buffer.join('; ');
+}
+
+// bash 명령어를 추출하고 정리하는 함수 (단일 명령으로 병합하여 반환)
+function extractBashCommands(bashCode) {
+  const merged = mergeBashBlockToSingleCommand(bashCode);
+  return merged ? [merged] : [];
+}
+
+// powershell/cmd 블록은 원문을 단일 명령으로 전달 (터미널에서 그대로 실행)
+function extractGenericCommands(rawCode) {
+  const text = (rawCode || '').trim();
+  return text ? [text] : [];
+}
+
+// Run 버튼에 이벤트 리스너를 등록하는 함수
+function attachRunButtonListener(button, codeElement, lang, stopButton) {
+  button.addEventListener('click', async () => {
+    console.log('[codeCopy.js] Run button clicked');
+    const codeText = codeElement.textContent || '';
+    let commands = [];
+    if (lang === 'bash' || lang === 'sh' || lang === 'shell') {
+      console.log('[codeCopy.js] Bash code:', codeText);
+      commands = extractBashCommands(codeText);
+    } else {
+      console.log('[codeCopy.js] Non-bash code (powershell/cmd):', lang);
+      commands = extractGenericCommands(codeText);
+    }
+    console.log('[codeCopy.js] Extracted commands:', commands);
+    if (commands.length === 0) {
+      console.log('[codeCopy.js] No valid bash commands found');
+      return;
+    }
+
+    // 개별 callout 박스에 executing 상태 표시
+    showCalloutExecutingState(button, codeElement);
+
+    // VS Code API를 통해 확장에 명령어 실행 요청 (단일 명령으로 동일 셸 세션에서 실행)
+    if (vscode) {
+      console.log('[codeCopy.js] Sending executeBashCommands message:', commands);
+      vscode.postMessage({
+        command: 'executeBashCommands',
+        commands: commands
+      });
+    } else {
+      console.error('[codeCopy.js] VS Code API not available');
+    }
+
+    // Run 숨기고 Stop 표시
+    button.style.display = 'none';
+    if (stopButton) {
+      stopButton.style.display = '';
+    }
+  });
+}
+
+// 단일 복사 버튼에 이벤트 리스너를 등록하는 함수
+// 클릭된 버튼과 해당 코드 엘리먼트를 연결합니다.
+function attachCopyButtonListener(button, codeElement) {
+  button.addEventListener('click', async () => {
+    const codeText = codeElement.textContent || '';
+    const success = await copyToClipboard(codeText);
+
+    // 복사 성공/실패 시 버튼 텍스트 변경 피드백
+    const originalText = button.textContent;
+    if (success) {
+      button.textContent = 'Copied!';
+    } else {
+      button.textContent = 'Failed!';
+    }
+    setTimeout(() => {
+      button.textContent = originalText;
+    }, 2000); // 2초 후 복원
+
+    // TODO: VS Code API를 통해 사용자에게 알림 표시 고려 (선택 사항)
+    // 웹뷰에서 확장으로 메시지를 보내 알림 표시를 요청하는 방식 사용
+    // 예: vscode.postMessage({ command: 'showInfoNotification', message: 'Code copied!' });
+  });
+}
+
+// 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
+// Keep 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+function createKeepButton(filePath) {
+  const button = document.createElement('a');
+  button.classList.add('keep-button');
+  button.textContent = 'Keep';
+  button.title = `Keep all changes for ${filePath}`;
+
+  // ✅ codepilot://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+  const encodedPath = encodeURIComponent(filePath);
+  button.href = `codepilot://acceptAll?path=${encodedPath}`;
+  button.style.cssText = `
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color 0.2s ease-in-out;
+        z-index: 2;
+        font-weight: 500;
+        background-color: #73c991;
+        color: white;
+        text-decoration: none;
+    `;
+  return button;
+}
+
+// Undo 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
+function createUndoButton(filePath) {
+  const button = document.createElement('a');
+  button.classList.add('undo-button');
+  button.textContent = 'Undo';
+  button.title = `Undo all changes for ${filePath}`;
+
+  // ✅ codepilot://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+  const encodedPath = encodeURIComponent(filePath);
+  button.href = `codepilot://rejectAll?path=${encodedPath}`;
+  button.style.cssText = `
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color 0.2s ease-in-out;
+        z-index: 2;
+        font-weight: 500;
+        background-color: #1e1e1e;
+        color: white;
+        text-decoration: none;
+    `;
+  return button;
+}
+function addCopyButtonsToCodeBlocks(bubbleElement) {
+  // <-- export 키워드 유지 (함수명은 유지하되 기능 변경)
+  if (!bubbleElement) return;
+
+  // 새로운 코드 블록 컨테이너 구조에서 버튼 추가
+  const codeBlockContainers = bubbleElement.querySelectorAll('.code-block-container');
+  codeBlockContainers.forEach(container => {
+    // 파일 경로 확인
+    const filePath = container.getAttribute('data-file-path');
+
+    // 코드 컨테이너 내부의 code 요소를 찾습니다
+    const codeElement = container.querySelector('code');
+    if (codeElement) {
+      // 언어 라벨 확인 (bash인지 체크)
+      const languageLabel = container.querySelector('.code-language');
+      const labelText = languageLabel && languageLabel.textContent ? languageLabel.textContent.toLowerCase() : '';
+      const isBash = labelText === 'bash' || labelText === 'sh' || labelText === 'shell';
+      const isPwsh = labelText === 'powershell' || labelText === 'pwsh' || labelText === 'ps1';
+      const isCmd = labelText === 'cmd' || labelText === 'batch' || labelText === 'bat';
+
+      // 버튼 컨테이너 생성
+      const buttonContainer = document.createElement('div');
+      buttonContainer.classList.add('bash-button-container');
+
+      // 파일 경로가 있는 경우: Undo/Keep 버튼 추가
+      if (filePath) {
+        // Undo 버튼 생성 (먼저)
+        const undoButton = createUndoButton(filePath);
+        buttonContainer.appendChild(undoButton);
+
+        // Keep 버튼 생성 (나중)
+        const keepButton = createKeepButton(filePath);
+        buttonContainer.appendChild(keepButton);
+      } else {
+        // 파일 경로가 없는 경우: Bash/PowerShell/Cmd 블록에만 Copy와 Run 버튼 추가
+        if (isBash || isPwsh || isCmd) {
+          // Copy 버튼 추가
+          const copyButton = createCopyButton();
+          buttonContainer.appendChild(copyButton);
+          attachCopyButtonListener(copyButton, codeElement);
+
+          // Run + Stop 버튼 추가
+          const runButton = createRunButton();
+          const stopButton = createStopButton();
+          buttonContainer.appendChild(runButton);
+          buttonContainer.appendChild(stopButton);
+          const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
+          attachRunButtonListener(runButton, codeElement, lang, stopButton);
+          attachStopButtonListener(stopButton, runButton);
+        }
+      }
+
+      // 버튼이 있는 경우에만 컨테이너 삽입
+      if (buttonContainer.children.length > 0) {
+        container.insertAdjacentElement('afterend', buttonContainer);
+      }
+    }
+  });
+
+  // 기존 구조의 pre 요소들도 처리 (bash 블록에만 Copy 버튼 추가)
+  const preElements = bubbleElement.querySelectorAll('pre:not(.code-block-container pre)');
+  preElements.forEach(preElement => {
+    // 이미 코드 블록 컨테이너의 자식인 경우 건너뛰기
+    if (preElement.closest('.code-block-container')) {
+      return;
+    }
+
+    // <pre> 태그 안에 <code> 태그가 있는지 확인
+    const codeElement = preElement.querySelector('code');
+    if (codeElement) {
+      // 언어 확인 (bash/powershell/cmd인 경우에만 버튼 추가)
+      const codeClass = codeElement.className || '';
+      const isBash = codeClass.includes('language-bash') || codeClass.includes('language-sh') || codeClass.includes('language-shell');
+      const isPwsh = codeClass.includes('language-powershell') || codeClass.includes('language-pwsh') || codeClass.includes('language-ps1');
+      const isCmd = codeClass.includes('language-cmd') || codeClass.includes('language-batch') || codeClass.includes('language-bat');
+      if (isBash || isPwsh || isCmd) {
+        // 버튼 컨테이너 생성
+        const buttonContainer = document.createElement('div');
+        buttonContainer.classList.add('bash-button-container');
+
+        // Copy 버튼 추가
+        const copyButton = createCopyButton();
+        buttonContainer.appendChild(copyButton);
+        attachCopyButtonListener(copyButton, codeElement);
+
+        // Run + Stop 버튼 추가
+        const runButton = createRunButton();
+        const stopButton = createStopButton();
+        buttonContainer.appendChild(runButton);
+        buttonContainer.appendChild(stopButton);
+        const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
+        attachRunButtonListener(runButton, codeElement, lang, stopButton);
+        attachStopButtonListener(stopButton, runButton);
+
+        // 버튼 컨테이너를 <pre> 요소 바로 뒤에 삽입
+        preElement.insertAdjacentElement('afterend', buttonContainer);
+      }
+    }
+  });
+}
+
+// TODO: 필요하다면 이 파일에서 VS Code API와 통신하는 함수 추가 (예: 알림 표시 요청)
+// 현재는 attachCopyButtonListener 내부에서 직접 navigator.clipboard를 사용하므로 필요 없을 수 있습니다.
+/******/ 	return __webpack_exports__;
+/******/ })()
+;
+});
 //# sourceMappingURL=codeCopy.js.map

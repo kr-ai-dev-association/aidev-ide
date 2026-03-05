@@ -92,6 +92,8 @@ export function openSettingsPanel(
               await settingsManager.isOrchestrationEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
+            const nativeToolCallingEnabled =
+              await settingsManager.isNativeToolCallingEnabled();
 
             // 채팅 테마 설정 로드
             const config = vscode.workspace.getConfiguration('codepilot');
@@ -138,6 +140,7 @@ export function openSettingsPanel(
               autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled, // MCP 도구 자동 실행 설정
               orchestrationEnabled: orchestrationEnabled || false, // 멀티 에이전트 설정
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
+              nativeToolCallingEnabled: nativeToolCallingEnabled, // 네이티브 툴 콜링 설정
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
               compactorModelName: compactorModelName || "",
@@ -1220,6 +1223,22 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setNativeToolCallingEnabled": {
+          const nativeToolCallingEnabledToSet = data.enabled;
+          if (typeof nativeToolCallingEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateNativeToolCallingEnabled(
+                nativeToolCallingEnabledToSet,
+              );
+              console.log(
+                `[PanelManager] 네이티브 툴 콜링 설정 저장됨: ${nativeToolCallingEnabledToSet}`,
+              );
+            } catch (error: any) {
+              console.error('[PanelManager] 네이티브 툴 콜링 설정 저장 오류:', error);
+            }
+          }
+          break;
+        }
         case "saveAiModel": // AI 모델 저장 케이스 추가
           const aiModelToSave = data.aiModel || data.model;
           if (aiModelToSave && typeof aiModelToSave === "string") {
@@ -1616,6 +1635,8 @@ export function openSettingsPanel(
               await settingsManager.isOrchestrationEnabled();
             const streamingEnabled =
               await settingsManager.isStreamingEnabled();
+            const nativeToolCallingEnabled2 =
+              await settingsManager.isNativeToolCallingEnabled();
             const aiModel = await stateManager.getAiModel();
             // UI 표시용 aiModel을 사용 (supported:key, admin:key, ollama 형태)
             const modelToUse = aiModel || "ollama";
@@ -1641,6 +1662,7 @@ export function openSettingsPanel(
               autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled ?? false,
               orchestrationEnabled: orchestrationEnabled || false,
               streamingEnabled: streamingEnabled || false,
+              nativeToolCallingEnabled: nativeToolCallingEnabled2,
               aiModel: modelToUse,
               serverSettings: settingsManager.getAllServerSettings(),
             };

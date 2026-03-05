@@ -12,6 +12,7 @@ export function bindToggleEvents(elements) {
     autoUpdateToggle,
     autoDeleteToggle,
     streamingToggle,
+    nativeToolCallingToggle,
     autoTestRetryToggle,
     autoCorrectionToggle,
     autoExecuteToggle,
@@ -57,6 +58,16 @@ export function bindToggleEvents(elements) {
       const enabled = streamingToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setStreamingEnabled", enabled });
+      }
+    });
+  }
+
+  // 네이티브 툴 콜링 토글
+  if (nativeToolCallingToggle) {
+    nativeToolCallingToggle.addEventListener("change", () => {
+      const enabled = nativeToolCallingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setNativeToolCallingEnabled", enabled });
       }
     });
   }

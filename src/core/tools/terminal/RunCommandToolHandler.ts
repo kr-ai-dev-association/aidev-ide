@@ -61,15 +61,18 @@ export class RunCommandToolHandler implements IToolHandler {
 
                 // 타임아웃 발생 시에도 성공 메시지 반환
                 const isTimeout = initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE';
+                // UI 표시용: 깔끔하게
                 const outputMessage = isTimeout
-                    ? `명령어가 백그라운드에서 실행 중입니다. ${initialResult.stdout ? `현재까지의 출력:\n${initialResult.stdout}` : ''}`
-                    : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}...`);
+                    ? `백그라운드에서 시작되었습니다.${initialResult.stdout ? `\n${initialResult.stdout}` : ''}`
+                    : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}.`);
 
                 return {
                     success: true,
                     message: `Long-running command started: ${command}${pid ? ` (PID: ${pid})` : ''}`,
                     data: {
                         output: outputMessage,
+                        // LLM 전용 힌트: UI에는 표시되지 않음 (ToolExecutionCoordinator는 data.output만 읽음)
+                        llmNote: '이 명령어는 장기 실행 프로세스입니다. 이미 백그라운드에서 실행 중이므로 동일 명령어를 다시 실행하지 마세요. 다음 단계로 진행하거나 작업 완료를 선언하세요.',
                         error: initialResult.stderr,
                         exitCode: undefined // 장기 실행 프로세스는 exitCode 없음
                     }

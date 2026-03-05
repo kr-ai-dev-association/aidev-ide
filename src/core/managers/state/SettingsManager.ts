@@ -861,6 +861,22 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
+     * 네이티브 툴 콜링 On/Off 상태를 읽습니다
+     */
+    public async isNativeToolCallingEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('nativeToolCallingEnabled')?.globalValue;
+        return globalValue ?? (config.get('nativeToolCallingEnabled') as boolean) ?? true;
+    }
+
+    /**
+     * 네이티브 툴 콜링 On/Off 상태를 저장합니다
+     */
+    public async updateNativeToolCallingEnabled(enabled: boolean): Promise<void> {
+        await ConfigurationService.updateConfig('nativeToolCallingEnabled', enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
      * 디버그 모드 On/Off 상태를 가져옵니다
      */
     public async isDebugEnabled(): Promise<boolean> {

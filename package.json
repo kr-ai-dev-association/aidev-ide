@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "11.5.0",
+  "version": "11.6.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -215,6 +215,12 @@
           "type": "boolean",
           "default": false,
           "description": "LLM 응답을 스트리밍 방식으로 받을지 여부를 설정합니다. 활성화하면 응답이 실시간으로 표시됩니다.",
+          "scope": "resource"
+        },
+        "codepilot.nativeToolCallingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "네이티브 툴 콜링 활성화. ON이면 모델이 지원하는 경우 native tool_calls 사용, OFF이면 텍스트 기반 파싱만 사용합니다.",
           "scope": "resource"
         },
         "codepilot.autoUpdateFiles": {

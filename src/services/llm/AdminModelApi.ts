@@ -3,7 +3,7 @@
  * 관리자가 설정한 AI 모델과 통신하는 OpenAI-compatible 클라이언트
  */
 
-type SendOptions = { signal?: AbortSignal; disableThinking?: boolean };
+type SendOptions = { signal?: AbortSignal; disableThinking?: boolean; nativeTools?: any[] };
 
 export interface AdminModelMessagePart {
     text?: string;
@@ -25,6 +25,7 @@ export interface AdminModelConfig {
     topP?: number;
     customHeaders?: Record<string, string>;
     streamingSupported?: boolean;
+    nativeToolCallingSupported?: boolean;
 }
 
 export class AdminModelApi {
@@ -137,10 +138,17 @@ export class AdminModelApi {
             console.log('[AdminModelApi] Thinking disabled for this request (tool calling mode)');
         }
 
+        // 네이티브 툴 콜링: tools 배열 추가
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestBody.tools = options.nativeTools;
+            requestBody.tool_choice = 'auto';
+            console.log('[AdminModelApi] Native tool calling enabled, tools count:', options.nativeTools.length);
+        }
+
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 
         console.log('[AdminModelApi] OpenAI request:', {
-            endpoint: url, model: this.config!.model, messageCount: messages.length
+            endpoint: url, model: this.config!.model, messageCount: messages.length, nativeTools: !!options?.nativeTools
         });
 
         const response = await fetch(url, {
@@ -156,6 +164,17 @@ export class AdminModelApi {
 
         if (!data.choices || data.choices.length === 0) {
             throw new Error('Invalid response from Admin Model API: no choices');
+        }
+
+        // 네이티브 tool_calls가 있으면 텍스트 JSON 형식으로 변환 (기존 ToolParser 호환)
+        const toolCalls = data.choices[0]?.message?.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+            console.log('[AdminModelApi] Native tool_calls received, count:', toolCalls.length);
+            return toolCalls.map((tc: any) => {
+                const fn = tc.function;
+                const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
+                return JSON.stringify({ tool: fn.name, ...args });
+            }).join('\n');
         }
 
         return data.choices[0]?.message?.content || '';
@@ -187,12 +206,21 @@ export class AdminModelApi {
             body.systemInstruction = { parts: [{ text: systemPrompt }] };
         }
 
+        // 네이티브 툴 콜링: Gemini tools 배열 추가
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            // OpenAI format({type:'function', function:{...}}) → Gemini format({functionDeclarations:[...]})
+            const functionDeclarations = options.nativeTools.map((t: any) => t.function || t);
+            body.tools = [{ functionDeclarations }];
+            body.tool_config = { function_calling_config: { mode: 'AUTO' } };
+            console.log('[AdminModelApi] Gemini native tool calling enabled, tools count:', options.nativeTools.length);
+        }
+
         const endpoint = this.config!.endpoint.replace(/\/+$/, '');
         const model = this.config!.model;
         const { url, headers } = this.buildRequest(`${endpoint}/models/${model}:generateContent`);
 
         console.log('[AdminModelApi] Gemini request:', {
-            endpoint: url, model
+            endpoint: url, model, nativeTools: !!options?.nativeTools
         });
 
         const response = await fetch(url, {
@@ -205,6 +233,20 @@ export class AdminModelApi {
         }
 
         const data: any = await response.json();
+
+        // 네이티브 functionCall parts가 있으면 텍스트 JSON 형식으로 변환
+        const parts = data.candidates?.[0]?.content?.parts;
+        if (parts) {
+            const functionCallParts = parts.filter((p: any) => p.functionCall);
+            if (functionCallParts.length > 0) {
+                console.log('[AdminModelApi] Gemini native functionCall received, count:', functionCallParts.length);
+                return functionCallParts.map((p: any) => {
+                    const fc = p.functionCall;
+                    return JSON.stringify({ tool: fc.name, ...fc.args });
+                }).join('\n');
+            }
+        }
+
         return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     }
 
@@ -283,6 +325,12 @@ export class AdminModelApi {
             console.log('[AdminModelApi] Streaming: Thinking disabled for this request (tool calling mode)');
         }
 
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestBody.tools = options.nativeTools;
+            requestBody.tool_choice = 'auto';
+            console.log('[AdminModelApi] Streaming OpenAI: Native tool calling enabled');
+        }
+
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 
         const response = await fetch(url, {
@@ -304,6 +352,8 @@ export class AdminModelApi {
         const decoder = new TextDecoder();
         let fullText = '';
         let buffer = '';
+        const indexToIdMap = new Map<number, string>();
+        const toolCallsMap = new Map<string, { id: string; name: string; argumentsStr: string }>();
 
         while (true) {
             const { done, value } = await reader.read();
@@ -319,6 +369,19 @@ export class AdminModelApi {
                 if (!trimmed || !trimmed.startsWith('data:')) continue;
                 const data = trimmed.slice(5).trim();
                 if (data === '[DONE]') {
+                    if (toolCallsMap.size > 0) {
+                        const converted = [...toolCallsMap.values()]
+                            .filter(tc => tc.name && tc.argumentsStr)
+                            .map(tc => {
+                                const args = JSON.parse(tc.argumentsStr);
+                                return JSON.stringify({ tool: tc.name, ...args });
+                            }).join('\n');
+                        if (converted) {
+                            console.log(`[AdminModelApi] Streaming OpenAI: Native tool_calls converted, count: ${toolCallsMap.size}`);
+                            onChunk('', true);
+                            return converted;
+                        }
+                    }
                     onChunk('', true);
                     return fullText;
                 }
@@ -328,6 +391,24 @@ export class AdminModelApi {
                     if (content) {
                         fullText += content;
                         onChunk(content, false);
+                    }
+                    const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
+                    if (toolCallDeltas) {
+                        for (const tc of toolCallDeltas) {
+                            let id = tc.id as string | undefined;
+                            if (id) {
+                                indexToIdMap.set(tc.index, id);
+                            } else {
+                                id = indexToIdMap.get(tc.index);
+                            }
+                            if (!id) { continue; }
+                            if (!toolCallsMap.has(id)) {
+                                toolCallsMap.set(id, { id, name: '', argumentsStr: '' });
+                            }
+                            const entry = toolCallsMap.get(id)!;
+                            if (tc.function?.name) { entry.name += tc.function.name; }
+                            if (tc.function?.arguments) { entry.argumentsStr += tc.function.arguments; }
+                        }
                     }
                 } catch {
                     // JSON parse error - skip
@@ -363,6 +444,13 @@ export class AdminModelApi {
             body.systemInstruction = { parts: [{ text: systemPrompt }] };
         }
 
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            const functionDeclarations = options.nativeTools.map((t: any) => t.function || t);
+            body.tools = [{ functionDeclarations }];
+            body.tool_config = { function_calling_config: { mode: 'AUTO' } };
+            console.log('[AdminModelApi] Streaming Gemini: Native tool calling enabled');
+        }
+
         const endpoint = this.config!.endpoint.replace(/\/+$/, '');
         const model = this.config!.model;
         const { url, headers } = this.buildRequest(`${endpoint}/models/${model}:streamGenerateContent`);
@@ -386,6 +474,7 @@ export class AdminModelApi {
         const decoder = new TextDecoder('utf-8');
         let fullText = '';
         let buffer = '';
+        const streamingFunctionCalls: Array<{ name: string; args: any }> = [];
 
         while (true) {
             const { done, value } = await reader.read();
@@ -422,10 +511,15 @@ export class AdminModelApi {
 
                 try {
                     const json = JSON.parse(buffer.substring(objStart, objEnd + 1));
-                    const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                    if (text) {
-                        fullText += text;
-                        onChunk(text, false);
+                    const parts = json.candidates?.[0]?.content?.parts || [];
+                    for (const part of parts) {
+                        if (part.text) {
+                            fullText += part.text;
+                            onChunk(part.text, false);
+                        }
+                        if (part.functionCall) {
+                            streamingFunctionCalls.push({ name: part.functionCall.name, args: part.functionCall.args || {} });
+                        }
                     }
                 } catch { /* skip */ }
 
@@ -435,6 +529,15 @@ export class AdminModelApi {
             if (startIdx > 0) {
                 buffer = buffer.substring(startIdx);
             }
+        }
+
+        if (streamingFunctionCalls.length > 0) {
+            const converted = streamingFunctionCalls
+                .map(fc => JSON.stringify({ tool: fc.name, ...fc.args }))
+                .join('\n');
+            console.log(`[AdminModelApi] Streaming Gemini: Native functionCalls converted, count: ${streamingFunctionCalls.length}`);
+            onChunk('', true);
+            return converted;
         }
 
         onChunk('', true);

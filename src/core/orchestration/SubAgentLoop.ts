@@ -62,6 +62,8 @@ export class SubAgentLoop {
         let completedNormally = false;
         let hasExecutedTools = false;
         let hasExecutedWriteTools = false;
+        let lastRunCommand = '';
+        let consecutiveRunCommandCount = 0;
 
         // 이 에이전트의 대화 컨텍스트
         const conversationParts: LLMMessagePart[] = [
@@ -158,30 +160,55 @@ export class SubAgentLoop {
                     continue;
                 }
 
-                // 4. 도구 실행 (UI 콜백 연결)
-                const results = await this.toolExecutor.executeTools(
-                    allowedCalls,
-                    this.toolContext,
-                    this.callbacks?.onToolComplete,
-                    this.callbacks?.onToolStart,
-                );
+                // 4. 연속 동일 run_command 가드 — 3회차부터 자동 차단
+                const blockedCommandMessages: string[] = [];
+                const deduplicatedCalls = allowedCalls.filter(call => {
+                    if (call.name !== 'run_command') { return true; }
+                    const cmd = (call.params.command as string) || '';
+                    if (cmd === lastRunCommand) {
+                        consecutiveRunCommandCount++;
+                    } else {
+                        lastRunCommand = cmd;
+                        consecutiveRunCommandCount = 1;
+                    }
+                    if (consecutiveRunCommandCount >= 3) {
+                        console.warn(`[SubAgentLoop:${this.subtask.id}] Auto-blocking repeated run_command (${consecutiveRunCommandCount}x): ${cmd}`);
+                        blockedCommandMessages.push(
+                            `[run_command] BLOCKED\n` +
+                            `[시스템] "${cmd}"가 이미 ${consecutiveRunCommandCount - 1}회 실행되어 백그라운드에서 실행 중입니다. ` +
+                            `동일 명령어를 반복 호출하지 마세요. 서버가 정상 실행 중이므로 다음 단계로 진행하거나 작업 완료를 선언하세요.`
+                        );
+                        return false;
+                    }
+                    return true;
+                });
+
+                // 5. 도구 실행 (UI 콜백 연결)
+                const results = deduplicatedCalls.length > 0
+                    ? await this.toolExecutor.executeTools(
+                        deduplicatedCalls,
+                        this.toolContext,
+                        this.callbacks?.onToolComplete,
+                        this.callbacks?.onToolStart,
+                    )
+                    : [];
 
                 // 도구가 실행됐으므로 실패 카운터 리셋
                 consecutiveFailures = 0;
 
                 // 도구 성공 플래그 설정
-                for (let i = 0; i < allowedCalls.length; i++) {
+                for (let i = 0; i < deduplicatedCalls.length; i++) {
                     if (results[i]?.success) {
                         hasExecutedTools = true;
-                        if (!READ_ONLY_TOOLS.has(allowedCalls[i].name)) {
+                        if (!READ_ONLY_TOOLS.has(deduplicatedCalls[i].name)) {
                             hasExecutedWriteTools = true;
                         }
                     }
                 }
 
-                // 5. 파일 변경 추적 (ToolResponse.filePath 기반 — 도구 이름 하드코딩 없음)
-                for (let i = 0; i < allowedCalls.length; i++) {
-                    const call = allowedCalls[i];
+                // 6. 파일 변경 추적 (ToolResponse.filePath 기반 — 도구 이름 하드코딩 없음)
+                for (let i = 0; i < deduplicatedCalls.length; i++) {
+                    const call = deduplicatedCalls[i];
                     const result = results[i];
                     if (result?.success && result.filePath) {
                         if (result.fileContent !== undefined) {
@@ -197,8 +224,11 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 6. 도구 결과를 다음 턴 컨텍스트에 추가
-                const toolResultsText = this.formatToolResults(allowedCalls, results);
+                // 7. 도구 결과를 다음 턴 컨텍스트에 추가 (차단된 명령어 메시지 포함)
+                let toolResultsText = this.formatToolResults(deduplicatedCalls, results);
+                if (blockedCommandMessages.length > 0) {
+                    toolResultsText += (toolResultsText ? '\n\n' : '') + blockedCommandMessages.join('\n\n');
+                }
                 conversationParts.push({ text: response });
                 conversationParts.push({ text: toolResultsText });
 

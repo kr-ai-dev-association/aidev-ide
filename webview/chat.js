@@ -2747,22 +2747,14 @@ function updateSendCancelButtons(isSending) {
       queueSendButton.classList.add("hidden");
       queueSendButton.style.display = "none";
     }
-    if (hasContent) {
-      cancelButton.classList.add("hidden");
-      cancelButton.style.display = "none";
-      cancelButton.disabled = true;
-      cancelButton.style.order = "0";
-      sendButton.classList.remove("hidden");
-      sendButton.style.display = "inline-flex";
-      sendButton.style.order = "99";
-    } else {
-      sendButton.classList.add("hidden");
-      sendButton.style.display = "none";
-      cancelButton.classList.remove("hidden");
-      cancelButton.style.display = "inline-flex";
-      cancelButton.style.order = "99";
-      cancelButton.disabled = true;
-    }
+    cancelButton.classList.add("hidden");
+    cancelButton.style.display = "none";
+    cancelButton.disabled = true;
+    cancelButton.style.order = "0";
+    sendButton.classList.remove("hidden");
+    sendButton.style.display = "inline-flex";
+    sendButton.style.order = "99";
+    sendButton.disabled = !hasContent;
   }
 }
 
