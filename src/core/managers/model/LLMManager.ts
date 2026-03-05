@@ -56,6 +56,18 @@ export class LLMManager {
         return explicit ?? false;
     }
 
+    /** LLMMessagePart 배열을 API 전송 형식으로 변환 */
+    private static normalizeParts(userParts: LLMMessagePart[]): Array<{ text: string }> {
+        return userParts.map(part => ({ text: part.text || '' }));
+    }
+
+    /** Ollama 설정 로드 (실패해도 무시) */
+    private async loadOllamaSettingsSafe(): Promise<void> {
+        try {
+            await this.ollamaApi.loadSettingsFromStorage();
+        } catch { }
+    }
+
     private constructor(
         ollamaApi: OllamaApi,
         initialModelType: AiModelType = AiModelType.OLLAMA
@@ -148,9 +160,7 @@ export class LLMManager {
             if (this.currentModelType === AiModelType.ADMIN) {
                 response = await this.adminModelApi.sendMessage(prompt, { signal });
             } else {
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
+                await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessage(prompt, { signal });
             }
 
@@ -215,20 +225,13 @@ export class LLMManager {
             let response: string;
 
             if (this.currentModelType === AiModelType.ADMIN) {
-                const parts = userParts.map(part => ({ text: part.text || '' }));
                 response = await this.adminModelApi.sendMessageWithSystemPrompt(
-                    systemPrompt, parts, { signal, disableThinking, nativeTools: options?.nativeTools }
+                    systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             } else {
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Ollama API 형식으로 변환
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
+                await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessageWithSystemPrompt(
-                    systemPrompt, parts,
+                    systemPrompt, LLMManager.normalizeParts(userParts),
                     { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             }
@@ -368,17 +371,6 @@ export class LLMManager {
     /**
      * 에러 이벤트를 채팅용 포맷으로 변환합니다
      */
-    public formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
-        const header = `터미널 에러 감지 (${new Date(evt.time).toLocaleString()}):\n소스: ${evt.source}\n메시지: ${evt.message}`;
-        const tail = evt.recentLogs && evt.recentLogs.length > 0
-            ? '\n\n최근 로그 (최대 10줄):\n' + evt.recentLogs.slice(-10).map((l: any) => `- ${l.message || l.rawOutput || ''}`).join('\n')
-            : '';
-        return header + tail;
-    }
-
-    /**
-     * 에러 이벤트를 채팅용 포맷으로 변환합니다 (static 메서드)
-     */
     public static formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
         const header = `터미널 에러 감지 (${new Date(evt.time).toLocaleString()}):\n소스: ${evt.source}\n메시지: ${evt.message}`;
         const tail = evt.recentLogs && evt.recentLogs.length > 0
@@ -414,17 +406,13 @@ export class LLMManager {
                 || (modelType as string).startsWith('group:');
 
             if (isAdminRouting) {
-                const parts = userParts.map(part => ({ text: part.text || '' }));
                 response = await this.adminModelApi.sendMessageWithSystemPrompt(
-                    systemPrompt, parts, { signal, disableThinking }
+                    systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking }
                 );
             } else {
                 // Ollama
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
-
-                const parts = userParts.map(part => ({ text: part.text || '' }));
+                await this.loadOllamaSettingsSafe();
+                const parts = LLMManager.normalizeParts(userParts);
 
                 // 모델명이 지정된 경우 임시로 모델 변경 후 호출
                 const originalModel = this.ollamaApi.getModel?.() || '';
@@ -804,15 +792,10 @@ export class LLMManager {
 
         // Ollama의 경우
         if (modelType === AiModelType.OLLAMA) {
-            try {
-                await this.ollamaApi.loadSettingsFromStorage();
-            } catch { }
-
-            const parts = userParts.map(part => ({ text: part.text || '' }));
-
+            await this.loadOllamaSettingsSafe();
             return this.ollamaApi.sendMessageWithSystemPromptStreaming(
                 systemPrompt,
-                parts,
+                LLMManager.normalizeParts(userParts),
                 onChunk,
                 { signal: options?.signal, disableThinking }
             );
@@ -842,11 +825,10 @@ export class LLMManager {
         const originalConfig = this.adminModelApi.getConfig();
         try {
             this.adminModelApi.setConfig(adminConfig);
-            const parts = userParts.map(part => ({ text: part.text || '' }));
             const signal = options?.signal || new AbortController().signal;
             const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
             return await this.adminModelApi.sendMessageWithSystemPrompt(
-                systemPrompt, parts, { signal, disableThinking }
+                systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking }
             );
         } finally {
             if (originalConfig) {
@@ -868,11 +850,10 @@ export class LLMManager {
         const originalConfig = this.adminModelApi.getConfig();
         try {
             this.adminModelApi.setConfig(adminConfig);
-            const parts = userParts.map(part => ({ text: part.text || '' }));
             const signal = options?.signal || new AbortController().signal;
             const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
             return await this.adminModelApi.sendMessageWithSystemPromptStreaming(
-                systemPrompt, parts, onChunk, { signal, disableThinking }
+                systemPrompt, LLMManager.normalizeParts(userParts), onChunk, { signal, disableThinking }
             );
         } finally {
             if (originalConfig) {
@@ -923,24 +904,17 @@ export class LLMManager {
             let response: string;
 
             if (this.currentModelType === AiModelType.ADMIN) {
-                const parts = userParts.map(part => ({ text: part.text || '' }));
                 response = await this.adminModelApi.sendMessageWithSystemPromptStreaming(
                     systemPrompt,
-                    parts,
+                    LLMManager.normalizeParts(userParts),
                     onChunk,
                     { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
             } else {
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Ollama API 형식으로 변환
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
+                await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessageWithSystemPromptStreaming(
                     systemPrompt,
-                    parts,
+                    LLMManager.normalizeParts(userParts),
                     onChunk,
                     { signal, disableThinking, nativeTools: options?.nativeTools }
                 );
