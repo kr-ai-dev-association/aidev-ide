@@ -35,6 +35,7 @@ export interface RetryDecision {
     prompt?: string;
     testFixAttempts: number;
     retryFingerprint: string;
+    giveUpReason?: 'exceeded' | 'non_retryable' | 'same_pattern' | 'disabled';
 }
 
 export class RetryCoordinator {
@@ -68,7 +69,8 @@ export class RetryCoordinator {
             return {
                 action: 'give_up',
                 testFixAttempts,
-                retryFingerprint: ''
+                retryFingerprint: '',
+                giveUpReason: !isAutoTestRetryEnabled ? 'disabled' : 'exceeded',
             };
         }
 
@@ -92,7 +94,8 @@ export class RetryCoordinator {
             return {
                 action: 'give_up',
                 testFixAttempts,
-                retryFingerprint: classification.retryFingerprint
+                retryFingerprint: classification.retryFingerprint,
+                giveUpReason: 'non_retryable',
             };
         }
 
@@ -144,7 +147,8 @@ export class RetryCoordinator {
             return {
                 action: 'give_up',
                 testFixAttempts,
-                retryFingerprint: currentFingerprint
+                retryFingerprint: currentFingerprint,
+                giveUpReason: 'same_pattern',
             };
         }
 

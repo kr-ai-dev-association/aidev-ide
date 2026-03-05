@@ -481,7 +481,7 @@ export class OrchestrationRouter {
             }
 
             // 검증 실패
-            console.warn(`[OrchestrationRouter] Validation failed (attempt ${attempt}): ${testResult.errorMessage?.substring(0, 200)}`);
+            console.log(`[OrchestrationRouter] Validation failed (attempt ${attempt}): ${testResult.errorMessage?.substring(0, 100).replace(/\n/g, ' ')}`);
 
             if (attempt >= MAX_REPAIR_RETRIES) {
                 WebviewBridge.sendProcessingStatus(webview, 'review',

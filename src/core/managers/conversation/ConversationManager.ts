@@ -2290,9 +2290,11 @@ export class ConversationManager implements IConversationHandler {
           const modelType = this.llmManager.getCurrentModel();
           if (modelType === AiModelType.ADMIN) {
             const adminConfig = this.llmManager.getAdminModelConfig();
-            if (adminConfig?.nativeToolCallingSupported === true) {
+            const nativeSupported = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
+            console.log(`[ConversationManager] nativeToolCallingSupported=${adminConfig?.nativeToolCallingSupported} (resolved=${nativeSupported}) model=${adminConfig?.model}`);
+            if (nativeSupported) {
               nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
-              console.log(`[ConversationManager] Native tool calling enabled for admin model: ${adminConfig.model}`);
+              console.log(`[ConversationManager] Native tool calling enabled for admin model: ${adminConfig?.model}`);
             } else if (adminConfig && !nativeToolCallingNoticeShown) {
               // admin 모델이지만 native tool calling 미지원 → 1회 안내
               nativeToolCallingNoticeShown = true;
@@ -5644,14 +5646,17 @@ export class ConversationManager implements IConversationHandler {
 
     // 재시도 초과 또는 RetryCoordinator give_up
     this._retryGaveUp = true;
-    WebviewBridge.receiveMessage(
-      webview,
-      "System",
-      getTestRetryExceededMessage(
-        maxTestFixAttempts,
-        testResult.errorMessage || "",
-      ),
-    );
+    if (retryDecision.giveUpReason !== 'disabled') {
+      WebviewBridge.receiveMessage(
+        webview,
+        "System",
+        getTestRetryExceededMessage(
+          maxTestFixAttempts,
+          testResult.errorMessage || "",
+          retryDecision.giveUpReason,
+        ),
+      );
+    }
     const action = this.transitionToReview(
       stateManager,
       webview,

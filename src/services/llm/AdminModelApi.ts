@@ -83,7 +83,46 @@ export class AdminModelApi {
     }
 
     /**
-     * 내부 메시지 전송 로직 (provider에 따라 OpenAI/Gemini 분기)
+     * URL + provider 필드 기반 provider 자동 감지
+     * 우선순위: explicit provider 필드 > URL 패턴
+     */
+    private detectProvider(): 'gemini_native' | 'anthropic_native' | 'openai_compat' {
+        const endpoint = (this.config!.endpoint || '').toLowerCase();
+        const explicit = (this.config!.provider || '').toLowerCase();
+
+        // explicit override — provider 필드 명시 시 URL 감지보다 우선
+        if (explicit === 'gemini') return 'gemini_native';
+        if (explicit === 'vertex' || explicit === 'vertex_ai') return 'gemini_native';
+        if (explicit === 'anthropic' || explicit === 'claude') return 'anthropic_native';
+        // OpenAI 호환 계열 명시 (openai, azure, groq, deepseek, mistral, together,
+        //                       xai, fireworks, perplexity, chat_completions, custom 등)
+        if (explicit && explicit !== '') return 'openai_compat';
+
+        // URL 기반 자동 감지 (구체적인 패턴 먼저)
+        // Gemini OpenAI-compat: /openai/ 경로가 있으면 먼저 체크
+        if (endpoint.includes('generativelanguage.googleapis.com') && endpoint.includes('/openai/')) {
+            return 'openai_compat';
+        }
+        // Gemini native
+        if (endpoint.includes('generativelanguage.googleapis.com')) {
+            return 'gemini_native';
+        }
+        // Vertex AI (Gemini native 포맷 동일)
+        if (endpoint.includes('aiplatform.googleapis.com') && !endpoint.includes('openapi')) {
+            return 'gemini_native';
+        }
+        // Anthropic
+        if (endpoint.includes('anthropic.com')) {
+            return 'anthropic_native';
+        }
+        // 그 외 (api.openai.com, api.groq.com, api.deepseek.com, api.together.xyz,
+        //        api.fireworks.ai, api.mistral.ai, api.perplexity.ai, api.x.ai,
+        //        api.cerebras.ai, api.sambanova.ai, *.openai.azure.com, 커스텀 프록시 등)
+        return 'openai_compat';
+    }
+
+    /**
+     * 내부 메시지 전송 로직 (provider에 따라 분기)
      */
     private async sendMessageInternal(
         messageOrParts: string | AdminModelMessagePart[],
@@ -94,8 +133,14 @@ export class AdminModelApi {
             throw new Error('Admin model is not configured.');
         }
 
-        if (this.config.provider === 'gemini') {
+        const provider = this.detectProvider();
+        console.log(`[AdminModelApi] detectProvider=${provider} endpoint=${this.config.endpoint}`);
+
+        if (provider === 'gemini_native') {
             return this.sendGemini(messageOrParts, systemPrompt, options);
+        }
+        if (provider === 'anthropic_native') {
+            return this.sendAnthropic(messageOrParts, systemPrompt, options);
         }
         return this.sendOpenAI(messageOrParts, systemPrompt, options);
     }
@@ -142,14 +187,11 @@ export class AdminModelApi {
         if (options?.nativeTools && options.nativeTools.length > 0) {
             requestBody.tools = options.nativeTools;
             requestBody.tool_choice = 'auto';
-            console.log('[AdminModelApi] Native tool calling enabled, tools count:', options.nativeTools.length);
         }
 
         const { url, headers } = this.buildRequest(this.config!.endpoint);
 
-        console.log('[AdminModelApi] OpenAI request:', {
-            endpoint: url, model: this.config!.model, messageCount: messages.length, nativeTools: !!options?.nativeTools
-        });
+        console.log(`[AdminModelApi] model=${this.config!.model} streaming=false nativeTools=${!!options?.nativeTools}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
@@ -181,6 +223,211 @@ export class AdminModelApi {
     }
 
     /**
+     * Anthropic API 헤더 빌드 (x-api-key + anthropic-version)
+     */
+    private buildAnthropicHeaders(): Record<string, string> {
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'anthropic-version': '2023-06-01',
+        };
+        if (this.config?.apiKey) {
+            headers['x-api-key'] = this.config.apiKey;
+        }
+        if (this.config?.customHeaders) {
+            Object.assign(headers, this.config.customHeaders);
+        }
+        return headers;
+    }
+
+    /**
+     * Anthropic endpoint URL 빌드
+     * admin이 base URL만 설정해도 /v1/messages 자동 추가
+     */
+    private buildAnthropicUrl(): string {
+        const base = this.config!.endpoint.replace(/\/+$/, '');
+        if (base.endsWith('/messages')) return base;
+        if (base.endsWith('/v1')) return `${base}/messages`;
+        return `${base}/v1/messages`;
+    }
+
+    /**
+     * Anthropic Messages API (비스트리밍)
+     */
+    private async sendAnthropic(
+        messageOrParts: string | AdminModelMessagePart[],
+        systemPrompt?: string,
+        options?: SendOptions
+    ): Promise<string> {
+        const userText = typeof messageOrParts === 'string'
+            ? messageOrParts
+            : messageOrParts.map(p => p.text || '').join('\n');
+
+        const body: any = {
+            model: this.config!.model,
+            max_tokens: this.config!.maxOutputTokens || this.config!.maxTokens || 16384,
+            messages: [{ role: 'user', content: userText }],
+        };
+        if (systemPrompt) {
+            body.system = systemPrompt;
+        }
+        // Anthropic tool format: input_schema (not parameters like OpenAI)
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            body.tools = options.nativeTools.map((t: any) => ({
+                name: t.function?.name || t.name,
+                description: t.function?.description || t.description || '',
+                input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} },
+            }));
+        }
+
+        const url = this.buildAnthropicUrl();
+        const headers = this.buildAnthropicHeaders();
+        console.log(`[AdminModelApi] model=${this.config!.model} streaming=false nativeTools=${!!options?.nativeTools} provider=anthropic`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Admin Model API (Anthropic) error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const data: any = await response.json();
+        const content: any[] = data.content || [];
+
+        // tool_use 블록 우선 처리
+        const toolUseParts = content.filter((c: any) => c.type === 'tool_use');
+        if (toolUseParts.length > 0) {
+            console.log('[AdminModelApi] Anthropic native tool_use received, count:', toolUseParts.length);
+            return toolUseParts.map((c: any) =>
+                JSON.stringify({ tool: c.name, ...c.input })
+            ).join('\n');
+        }
+
+        return content.find((c: any) => c.type === 'text')?.text || '';
+    }
+
+    /**
+     * Anthropic Messages API 스트리밍 (named SSE events)
+     */
+    private async streamAnthropic(
+        systemPrompt: string,
+        userParts: AdminModelMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: SendOptions
+    ): Promise<string> {
+        const userText = userParts.map(p => p.text || '').join('\n');
+
+        const body: any = {
+            model: this.config!.model,
+            max_tokens: this.config!.maxOutputTokens || this.config!.maxTokens || 16384,
+            messages: [{ role: 'user', content: userText }],
+            stream: true,
+        };
+        if (systemPrompt) {
+            body.system = systemPrompt;
+        }
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            body.tools = options.nativeTools.map((t: any) => ({
+                name: t.function?.name || t.name,
+                description: t.function?.description || t.description || '',
+                input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} },
+            }));
+        }
+
+        const url = this.buildAnthropicUrl();
+        const headers = this.buildAnthropicHeaders();
+        console.log(`[AdminModelApi] model=${this.config!.model} streaming=true nativeTools=${!!options?.nativeTools} provider=anthropic`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            onChunk('', true);
+            throw new Error(`Admin Model API (Anthropic) error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        if (!response.body) {
+            onChunk('', true);
+            throw new Error('No response body for streaming');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let fullText = '';
+        let thinkingText = '';
+        let buffer = '';
+        // tool_use 블록: index → {id, name, partialJson}
+        const toolBlocks: Array<{ id: string; name: string; partialJson: string }> = [];
+        let currentEvent = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+
+                if (trimmed.startsWith('event:')) {
+                    currentEvent = trimmed.slice(6).trim();
+                    continue;
+                }
+                if (!trimmed.startsWith('data:')) continue;
+
+                try {
+                    const evt = JSON.parse(trimmed.slice(5).trim());
+
+                    if (currentEvent === 'content_block_start') {
+                        if (evt.content_block?.type === 'tool_use') {
+                            toolBlocks[evt.index] = {
+                                id: evt.content_block.id,
+                                name: evt.content_block.name,
+                                partialJson: '',
+                            };
+                        }
+                    } else if (currentEvent === 'content_block_delta') {
+                        const delta = evt.delta;
+                        if (delta?.type === 'text_delta') {
+                            fullText += delta.text;
+                            onChunk(delta.text, false);
+                        } else if (delta?.type === 'thinking_delta') {
+                            thinkingText += delta.thinking;
+                        } else if (delta?.type === 'input_json_delta') {
+                            const block = toolBlocks[evt.index];
+                            if (block) { block.partialJson += delta.partial_json; }
+                        }
+                    }
+                } catch { /* skip malformed events */ }
+            }
+        }
+
+        const validTools = toolBlocks.filter(t => t?.name);
+        if (validTools.length > 0) {
+            const converted = validTools.map(t => {
+                const args = t.partialJson ? JSON.parse(t.partialJson) : {};
+                return JSON.stringify({ tool: t.name, ...args });
+            }).join('\n');
+            console.log(`[AdminModelApi] Streaming Anthropic: Native tool_use converted, count: ${validTools.length}`);
+            onChunk('', true);
+            const thinkPrefix = thinkingText.trim() ? `<think>${thinkingText}</think>\n` : '';
+            return thinkPrefix + converted;
+        }
+
+        onChunk('', true);
+        if (thinkingText.trim()) {
+            return `<think>${thinkingText}</think>\n${fullText}`;
+        }
+        return fullText;
+    }
+
+    /**
      * Gemini REST API 요청
      */
     private async sendGemini(
@@ -206,22 +453,27 @@ export class AdminModelApi {
             body.systemInstruction = { parts: [{ text: systemPrompt }] };
         }
 
+        const hasNativeTools = options?.nativeTools && options.nativeTools.length > 0;
+
+        // Gemini 2.5 thinking (tool calling과 함께 사용 불가)
+        if (!options?.disableThinking && !hasNativeTools) {
+            body.generationConfig.thinkingConfig = { thinkingBudget: -1 };
+        }
+
         // 네이티브 툴 콜링: Gemini tools 배열 추가
-        if (options?.nativeTools && options.nativeTools.length > 0) {
+        if (hasNativeTools) {
             // OpenAI format({type:'function', function:{...}}) → Gemini format({functionDeclarations:[...]})
-            const functionDeclarations = options.nativeTools.map((t: any) => t.function || t);
+            const functionDeclarations = options!.nativeTools!.map((t: any) => t.function || t);
             body.tools = [{ functionDeclarations }];
             body.tool_config = { function_calling_config: { mode: 'AUTO' } };
-            console.log('[AdminModelApi] Gemini native tool calling enabled, tools count:', options.nativeTools.length);
+            console.log('[AdminModelApi] Gemini native tool calling enabled, tools count:', options!.nativeTools!.length);
         }
 
         const endpoint = this.config!.endpoint.replace(/\/+$/, '');
         const model = this.config!.model;
         const { url, headers } = this.buildRequest(`${endpoint}/models/${model}:generateContent`);
 
-        console.log('[AdminModelApi] Gemini request:', {
-            endpoint: url, model, nativeTools: !!options?.nativeTools
-        });
+        console.log(`[AdminModelApi] model=${model} streaming=false nativeTools=${!!options?.nativeTools}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
@@ -288,8 +540,12 @@ export class AdminModelApi {
             throw new Error('Admin model is not configured.');
         }
 
-        if (this.config.provider === 'gemini') {
+        const provider = this.detectProvider();
+        if (provider === 'gemini_native') {
             return this.streamGemini(systemPrompt, userParts, onChunk, options);
+        }
+        if (provider === 'anthropic_native') {
+            return this.streamAnthropic(systemPrompt, userParts, onChunk, options);
         }
         return this.streamOpenAI(systemPrompt, userParts, onChunk, options);
     }
@@ -328,10 +584,10 @@ export class AdminModelApi {
         if (options?.nativeTools && options.nativeTools.length > 0) {
             requestBody.tools = options.nativeTools;
             requestBody.tool_choice = 'auto';
-            console.log('[AdminModelApi] Streaming OpenAI: Native tool calling enabled');
         }
 
         const { url, headers } = this.buildRequest(this.config!.endpoint);
+        console.log(`[AdminModelApi] model=${this.config!.model} streaming=true nativeTools=${!!options?.nativeTools}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
@@ -351,9 +607,10 @@ export class AdminModelApi {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullText = '';
+        let thinkingText = '';
         let buffer = '';
-        const indexToIdMap = new Map<number, string>();
-        const toolCallsMap = new Map<string, { id: string; name: string; argumentsStr: string }>();
+        // OpenCode 방식: 배열 위치 기반 (Gemini는 index 필드를 안 보냄 → index ?? length 폴백)
+        const streamingToolCalls: Array<{ id: string; name: string; argumentsStr: string }> = [];
 
         while (true) {
             const { done, value } = await reader.read();
@@ -369,20 +626,21 @@ export class AdminModelApi {
                 if (!trimmed || !trimmed.startsWith('data:')) continue;
                 const data = trimmed.slice(5).trim();
                 if (data === '[DONE]') {
-                    if (toolCallsMap.size > 0) {
-                        const converted = [...toolCallsMap.values()]
-                            .filter(tc => tc.name && tc.argumentsStr)
-                            .map(tc => {
-                                const args = JSON.parse(tc.argumentsStr);
-                                return JSON.stringify({ tool: tc.name, ...args });
-                            }).join('\n');
-                        if (converted) {
-                            console.log(`[AdminModelApi] Streaming OpenAI: Native tool_calls converted, count: ${toolCallsMap.size}`);
-                            onChunk('', true);
-                            return converted;
-                        }
+                    const validToolCalls = streamingToolCalls.filter(tc => tc.name);
+                    if (validToolCalls.length > 0) {
+                        const converted = validToolCalls.map(tc => {
+                            const args = tc.argumentsStr ? JSON.parse(tc.argumentsStr) : {};
+                            return JSON.stringify({ tool: tc.name, ...args });
+                        }).join('\n');
+                        console.log(`[AdminModelApi] Streaming OpenAI: Native tool_calls converted, count: ${validToolCalls.length}`);
+                        onChunk('', true);
+                        const thinkPrefixTool = thinkingText.trim() ? `<think>${thinkingText}</think>\n` : '';
+                        return thinkPrefixTool + converted;
                     }
                     onChunk('', true);
+                    if (thinkingText.trim()) {
+                        return `<think>${thinkingText}</think>\n${fullText}`;
+                    }
                     return fullText;
                 }
                 try {
@@ -392,22 +650,26 @@ export class AdminModelApi {
                         fullText += content;
                         onChunk(content, false);
                     }
+                    // DeepSeek-R1 등 OpenAI compat 모델의 thinking (reasoning_content)
+                    const reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content;
+                    if (reasoningContent) {
+                        thinkingText += reasoningContent;
+                    }
                     const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
                     if (toolCallDeltas) {
                         for (const tc of toolCallDeltas) {
-                            let id = tc.id as string | undefined;
-                            if (id) {
-                                indexToIdMap.set(tc.index, id);
+                            // Gemini는 index를 안 보냄 → 현재 배열 길이를 위치 폴백으로 사용 (OpenCode 패턴)
+                            const pos = (tc.index as number | undefined) ?? streamingToolCalls.length;
+                            if (streamingToolCalls[pos] == null) {
+                                streamingToolCalls[pos] = {
+                                    id: tc.id ?? `tc_${pos}`,
+                                    name: tc.function?.name ?? '',
+                                    argumentsStr: tc.function?.arguments ?? '',
+                                };
                             } else {
-                                id = indexToIdMap.get(tc.index);
+                                if (tc.function?.name) { streamingToolCalls[pos].name += tc.function.name; }
+                                if (tc.function?.arguments) { streamingToolCalls[pos].argumentsStr += tc.function.arguments; }
                             }
-                            if (!id) { continue; }
-                            if (!toolCallsMap.has(id)) {
-                                toolCallsMap.set(id, { id, name: '', argumentsStr: '' });
-                            }
-                            const entry = toolCallsMap.get(id)!;
-                            if (tc.function?.name) { entry.name += tc.function.name; }
-                            if (tc.function?.arguments) { entry.argumentsStr += tc.function.arguments; }
                         }
                     }
                 } catch {
@@ -444,16 +706,23 @@ export class AdminModelApi {
             body.systemInstruction = { parts: [{ text: systemPrompt }] };
         }
 
-        if (options?.nativeTools && options.nativeTools.length > 0) {
-            const functionDeclarations = options.nativeTools.map((t: any) => t.function || t);
+        const hasNativeToolsStream = options?.nativeTools && options.nativeTools.length > 0;
+
+        // Gemini 2.5 thinking (tool calling과 함께 사용 불가)
+        if (!options?.disableThinking && !hasNativeToolsStream) {
+            body.generationConfig.thinkingConfig = { thinkingBudget: -1 };
+        }
+
+        if (hasNativeToolsStream) {
+            const functionDeclarations = options!.nativeTools!.map((t: any) => t.function || t);
             body.tools = [{ functionDeclarations }];
             body.tool_config = { function_calling_config: { mode: 'AUTO' } };
-            console.log('[AdminModelApi] Streaming Gemini: Native tool calling enabled');
         }
 
         const endpoint = this.config!.endpoint.replace(/\/+$/, '');
         const model = this.config!.model;
         const { url, headers } = this.buildRequest(`${endpoint}/models/${model}:streamGenerateContent`);
+        console.log(`[AdminModelApi] model=${model} streaming=true nativeTools=${!!options?.nativeTools}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
@@ -473,6 +742,7 @@ export class AdminModelApi {
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let fullText = '';
+        let thinkingText = '';
         let buffer = '';
         const streamingFunctionCalls: Array<{ name: string; args: any }> = [];
 
@@ -513,7 +783,10 @@ export class AdminModelApi {
                     const json = JSON.parse(buffer.substring(objStart, objEnd + 1));
                     const parts = json.candidates?.[0]?.content?.parts || [];
                     for (const part of parts) {
-                        if (part.text) {
+                        if (part.thought === true && part.text) {
+                            // Gemini 2.5 thinking tokens — UI에 스트림하지 않고 누적
+                            thinkingText += part.text;
+                        } else if (part.text) {
                             fullText += part.text;
                             onChunk(part.text, false);
                         }
@@ -537,10 +810,14 @@ export class AdminModelApi {
                 .join('\n');
             console.log(`[AdminModelApi] Streaming Gemini: Native functionCalls converted, count: ${streamingFunctionCalls.length}`);
             onChunk('', true);
-            return converted;
+            const thinkPrefix = thinkingText.trim() ? `<think>${thinkingText}</think>\n` : '';
+            return thinkPrefix + converted;
         }
 
         onChunk('', true);
+        if (thinkingText.trim()) {
+            return `<think>${thinkingText}</think>\n${fullText}`;
+        }
         return fullText;
     }
 }

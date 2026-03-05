@@ -337,6 +337,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                 maxTokens: v.max_tokens || v.maxTokens || undefined,
                                 contextWindow: v.context_window || v.contextWindow || undefined,
                                 enabled: v.enabled !== false,
+                                streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                                nativeToolCallingSupported: (v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === true || String(v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === 'true',
                             };
                             await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
                             // LLMManager에 즉시 적용
@@ -391,6 +393,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                 defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
                                 topP: v.topP ?? v.top_p ?? 0.9,
                                 streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                                nativeToolCallingSupported: (v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === true || String(v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === 'true',
                             };
                             await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
                             // LLMManager에 즉시 적용

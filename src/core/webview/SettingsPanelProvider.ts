@@ -1280,6 +1280,7 @@ export function openSettingsPanel(
                     defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
                     topP: v.topP ?? v.top_p ?? 0.9,
                     streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                    nativeToolCallingSupported: (v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === true || String(v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === 'true',
                   };
                   await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
                   modelName = adminConfig.model || presetKey;
@@ -1330,6 +1331,7 @@ export function openSettingsPanel(
                     defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
                     topP: v.topP ?? v.top_p ?? 0.9,
                     streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                    nativeToolCallingSupported: (v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === true || String(v.nativeToolCallingSupported ?? v.native_tool_calling_supported) === 'true',
                   };
                   // 관리자 모델 설정 저장
                   await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));

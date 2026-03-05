@@ -126,8 +126,16 @@ export function getSimpleErrorRetryPrompt(errorMessage: string): string {
 export function getTestRetryExceededMessage(
   maxTestFixAttempts: number,
   errorMessage: string,
+  giveUpReason?: 'exceeded' | 'non_retryable' | 'same_pattern' | 'disabled',
 ): string {
-  return `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${errorMessage || "알 수 없는 오류"}`;
+  const error = errorMessage || "알 수 없는 오류";
+  if (giveUpReason === 'non_retryable') {
+    return `⚠️ 자동 수정 불가 — 도구 미설치 또는 타임아웃. 최종 오류:\n${error}`;
+  }
+  if (giveUpReason === 'same_pattern') {
+    return `⚠️ 동일 에러 반복으로 자동 수정 중단. 최종 오류:\n${error}`;
+  }
+  return `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${error}`;
 }
 
 // ==================== Nudge Prompts ====================

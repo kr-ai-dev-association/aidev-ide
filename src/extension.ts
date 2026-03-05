@@ -410,12 +410,25 @@ export async function activate(context: vscode.ExtensionContext) {
         if (userAdminApiKey && !adminConfig.apiKey) {
           adminConfig.apiKey = userAdminApiKey;
         }
+        // nativeToolCallingSupported 누락 시 서버 설정 캐시에서 보완
+        if (adminConfig.nativeToolCallingSupported === undefined && adminConfig.key) {
+          try {
+            const aiModelSettings = settingsManager.getServerSettings('ai_model');
+            const serverEntry = aiModelSettings.find((s: any) => s.key === adminConfig.key);
+            if (serverEntry?.value) {
+              const v = serverEntry.value;
+              const rawNative = v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
+              adminConfig.nativeToolCallingSupported = rawNative === true || String(rawNative) === 'true';
+              adminConfig.streamingSupported = adminConfig.streamingSupported ?? v.streamingSupported ?? v.streaming_supported ?? true;
+            }
+          } catch { /* ignore */ }
+        }
         llmManager.setAdminModelConfig(adminConfig);
         llmApiClient.setAdminModelConfig(adminConfig);
         // 토큰 제한 동적 업데이트
         const { updateAdminTokenLimits } = await import("./utils/tokenUtils");
         updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
-        console.log('[Extension] Admin model config loaded:', adminConfig.model);
+        console.log('[Extension] Admin model config loaded:', adminConfig.model, `nativeToolCalling=${adminConfig.nativeToolCallingSupported}`);
       }
     } catch (e) {
       console.warn('[Extension] Failed to load admin model config:', e);

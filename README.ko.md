@@ -6,6 +6,38 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.8.0 (Gemini/Anthropic 네이티브 스트리밍 툴 콜링, 프로바이더 선택 UI)
+
+### Gemini Native API 지원
+
+- **`AdminModelApi.streamGemini()`** — `thinkingConfig: { thinkingBudget: -1 }` 추가 (tool calling 없는 턴에서 thinking 활성화)
+- **`AdminModelApi.sendGemini()`** — 동일하게 thinking 활성화, tool calling 시 자동 비활성화
+- **`ToolSpecBuilder`** — 중복 tool 선언 6개 제거 (`expand_around_line`, `list_imports`, `stat_file`, `git_diff`, `read_active_file`, `fetch_url`)
+  - Gemini API가 "Duplicate function declaration found" 에러 반환하던 문제 수정
+
+### Anthropic Native API 지원 추가
+
+- **`AdminModelApi.streamAnthropic()`** — named SSE events (`content_block_start/delta`), `thinking_delta`, `input_json_delta` 파싱
+- **`AdminModelApi.sendAnthropic()`** — 비스트리밍 Anthropic Claude native 호출
+- **`AdminModelApi.buildAnthropicHeaders()` / `buildAnthropicUrl()`** — Anthropic 전용 헤더/URL 빌더
+
+### 프로바이더 자동 감지 (`detectProvider()`)
+
+- URL 패턴 + 명시적 `provider` 필드 기반으로 `gemini_native` / `anthropic_native` / `openai_compat` 자동 분류
+- Admin 모델 등록 시 프로바이더 선택 UI 추가 (14종: openai, gemini, anthropic, vertex, azure, groq, deepseek, mistral, together, xai, fireworks, perplexity, chat_completions, custom)
+- Super Admin 프리셋 페이지에도 동일 프로바이더 선택 및 동적 placeholder 추가
+
+### OpenAI 호환 스트리밍 개선
+
+- **`streamOpenAI()`** — tool_calls index 누락 시 `index ?? streamingToolCalls.length` 패턴으로 Gemini OpenAI-compat 호환성 확보 (OpenCode 패턴)
+- **DeepSeek-R1** — `delta.reasoning_content` thinking 파싱 추가
+
+### 기타 수정
+
+- `nativeToolCallingSupported` 문자열 `"true"` vs boolean `true` 불일치 수정 (서버 → IDE 매핑 전 구간)
+- 디버그 콘솔 핑크 배경 로그 제거: `console.warn` → `console.log` + 개행 제거 (`OrchestrationRouter` 검증 실패 로그)
+
+---
 ## v11.7.0 (신규 도구 3종 추가, SubAgent Thinking 활성화)
 
 ### 신규 도구
