@@ -85,7 +85,7 @@ export class SubAgentLoop {
                 const response = await this.llmManager.sendMessageWithSystemPrompt(
                     systemPrompt,
                     conversationParts,
-                    { signal: this.abortSignal, disableThinking: true }
+                    { signal: this.abortSignal, disableThinking: false }
                 );
 
                 tokenEstimate += this.estimateTokens(response);

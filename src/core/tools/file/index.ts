@@ -8,5 +8,6 @@ export * from './RipgrepSearchToolHandler';
 export * from './ExpandAroundLineToolHandler';
 export * from './ListImportsToolHandler';
 export * from './StatFileToolHandler';
+export * from './ListCodeDefinitionsToolHandler';
 
 

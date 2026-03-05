@@ -11555,12 +11555,14 @@ function sanitizeLastResort(text) {
   // <<<<<<< SEARCH로 시작하고 끝나지 않은 패턴
   result = result.replace(/<{3,}\s*SEARCH[\s\S]*$/gi, "");
 
-  // 🔥 핵심: 도구 호출 JSON 패턴이 포함된 응답에서 전체 텍스트 제거
+  // 🔥 핵심: 도구 호출 JSON 패턴 제거
   // LLM이 "We need to run..." 같은 자연어와 함께 { "tool": ... }을 반환하는 경우
   // 예: "We need to run read_file for src/App.tsx.{ \"tool\": \"read_file\", ... }"
+  // 전체 응답을 비우는 대신 tool JSON이 있는 줄만 제거 (나머지 텍스트 보존)
   if (/\{\s*["']tool["']\s*:/.test(result)) {
-    // 도구 호출이 감지되면 전체 응답 비우기 (도구 결과는 UI에 별도로 표시됨)
-    result = "";
+    const filteredLines = result.split('\n').filter(line => !/"tool"\s*:/.test(line));
+    result = filteredLines.join('\n').trim();
+    // 필터 후에도 전체가 tool JSON이었다면 (단일 줄인 경우) 빈 문자열이 됨
   }
   return result.trim();
 }

@@ -37,7 +37,10 @@ export enum Tool {
     // Git 및 IDE 연동 도구들
     GIT_DIFF = 'git_diff',
     READ_ACTIVE_FILE = 'read_active_file',
-    FETCH_URL = 'fetch_url'
+    FETCH_URL = 'fetch_url',
+    // 코드 인텔리전스 도구들
+    LSP = 'lsp',
+    LIST_CODE_DEFINITIONS = 'list_code_definitions',
 }
 
 /**
@@ -55,6 +58,8 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
     Tool.GIT_DIFF,
     Tool.READ_ACTIVE_FILE,
     Tool.FETCH_URL,
+    Tool.LSP,
+    Tool.LIST_CODE_DEFINITIONS,
 ]);
 
 /**

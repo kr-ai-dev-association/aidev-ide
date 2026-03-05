@@ -35,6 +35,12 @@ export class ResultMerger {
                 cleaned = cleaned.replace(/```[\s\S]*?```/g, '').trim();
                 // <file_content>...</file_content> 태그 제거
                 cleaned = cleaned.replace(/<file_content>[\s\S]*?<\/file_content>/g, '').trim();
+                // JSON tool call 패턴 제거 (native tool_calls 미파싱 케이스 — sanitizeLastResort 오탐 방지)
+                // 예: {"tool":"unknown_name","pattern":"..."} 가 lastResponse에 남아있는 경우
+                cleaned = cleaned.split('\n')
+                    .filter(line => !/"tool"\s*:/.test(line))
+                    .join('\n')
+                    .trim();
                 // 연속 빈 줄 정리
                 cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
                 if (cleaned) {

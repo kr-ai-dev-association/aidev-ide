@@ -55,8 +55,9 @@ import {
 } from "./core/tools/file";
 import { RunCommandToolHandler } from "./core/tools/terminal";
 import { GitDiffToolHandler } from "./core/tools/git";
-import { ReadActiveFileToolHandler } from "./core/tools/ide";
+import { ReadActiveFileToolHandler, LspToolHandler } from "./core/tools/ide";
 import { FetchUrlToolHandler } from "./core/tools/web";
+import { ListCodeDefinitionsToolHandler } from "./core/tools/file";
 import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
 import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
@@ -558,6 +559,9 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new GitDiffToolHandler());
   toolRegistry.register(new ReadActiveFileToolHandler());
   toolRegistry.register(new FetchUrlToolHandler());
+  // 코드 인텔리전스 도구들
+  toolRegistry.register(new LspToolHandler());
+  toolRegistry.register(new ListCodeDefinitionsToolHandler());
   // MCP Manager 초기화 및 도구 등록 브릿지
   const mcpManager = MCPManager.getInstance();
   await mcpManager.initialize(context);

@@ -6,9 +6,29 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
-## v11.6.0 (2026-03-05)
+## v11.7.0 (신규 도구 3종 추가, SubAgent Thinking 활성화)
 
-### 스트리밍 네이티브 툴 콜링 (전 프로바이더 지원)
+### 신규 도구
+
+- **`lsp`** (`ide/LspToolHandler.ts`) — VSCode Language Server Protocol API 직접 호출
+  - `goToDefinition` / `findReferences` / `hover` / `documentSymbol` / `workspaceSymbol` / `goToImplementation`
+  - `line` 파라미터 1-based (사용자 친화적) → 내부에서 0-based 변환
+  - 결과: `상대경로:줄번호:컬럼` 형식
+- **`list_code_definitions`** (`file/ListCodeDefinitionsToolHandler.ts`) — 디렉토리 전체 코드 정의 맵
+  - 함수 / 클래스 / 인터페이스 / 타입 / enum 추출 (6개 언어: TS/JS/Python/Java/Kotlin/Go/Rust)
+  - `recursive` 옵션, `extensions` 필터, MAX_FILES=100, MAX_FILE_LINES=5000
+  - node_modules / .git / dist / build 자동 스킵
+
+### SubAgent Thinking 활성화
+
+- **`SubAgentLoop` `disableThinking: false`로 변경** (이전: `true`)
+  - `disableThinking: true` 상태에서도 모델이 `<think>` 생성 → actual content 비어있음 → retry 3회 낭비 발생
+  - thinking 허용 시: 자연 사고 흐름 → actual content 정상 생성 → retry 없음
+  - Cline / Continue / OpenCode 업계 표준과 동일 (tool calling 중 thinking 비활성화 안 함)
+  - SubAgentLoop에는 이미 `onThinking` 콜백으로 thinking 내용 UI 전달 코드 존재 — 비활성화가 오히려 모순이었음
+
+---
+## v11.6.0 (스트리밍 네이티브 툴 콜링 (전 프로바이더 지원))
 
 - **OllamaApi** — 스트리밍 경로에 `tools` 전송, NDJSON 루프에서 `tool_calls` 누적 후 텍스트 JSON 변환 (`resolve`)
 - **AdminModelApi `streamOpenAI()`** — Continue CLI 패턴 적용: `Map<index,id>` + `argumentsStr` 누적 → `[DONE]` 시 변환
@@ -20,7 +40,7 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
 - `resolveDisableThinking()` — `explicit ?? false` 로 변경 (이전: 시스템 프롬프트에 도구 키워드 있으면 자동 비활성화)
 - 도구 호출 중에도 Thinking ON 유지 (Cline/Continue/OpenCode 업계 표준과 동일)
-- SubAgentLoop의 `disableThinking: true`는 유지 (경량 서브에이전트, 의도적)
+- SubAgentLoop의 `disableThinking: true`는 이 버전 기준 유지 — v11.7.0에서 `false`로 변경
 
 ### 멀티에이전트 안정성
 

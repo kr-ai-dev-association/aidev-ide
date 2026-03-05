@@ -284,6 +284,34 @@ export class ToolSpecBuilder {
             });
         }
 
+        // lsp
+        if (!allowedTools || allowedTools.includes(Tool.LSP)) {
+            specs.push({
+                name: Tool.LSP,
+                description: 'Language Server Protocol(LSP)을 통해 코드 인텔리전스 정보를 조회합니다. 심볼 정의 위치, 참조 검색, 타입 정보, 파일/워크스페이스 심볼 목록 등을 제공합니다.',
+                parameters: [
+                    { name: 'operation', required: true, description: '수행할 작업: goToDefinition (정의로 이동) | findReferences (참조 검색) | hover (타입/문서 정보) | documentSymbol (파일 내 심볼 목록) | workspaceSymbol (워크스페이스 심볼 검색) | goToImplementation (구현체 검색)', type: 'string' },
+                    { name: 'file_path', required: false, description: '대상 파일 경로 (workspaceSymbol 제외 필수)', type: 'string' },
+                    { name: 'line', required: false, description: '커서 라인 번호 (1-based, 위치 기반 작업에 필요)', type: 'string' },
+                    { name: 'character', required: false, description: '커서 컬럼 번호 (0-based, 위치 기반 작업에 필요)', type: 'string' },
+                    { name: 'query', required: false, description: 'workspaceSymbol 검색어', type: 'string' },
+                ]
+            });
+        }
+
+        // list_code_definitions
+        if (!allowedTools || allowedTools.includes(Tool.LIST_CODE_DEFINITIONS)) {
+            specs.push({
+                name: Tool.LIST_CODE_DEFINITIONS,
+                description: '디렉토리 내 모든 파일에서 최상위 코드 정의(함수, 클래스, 인터페이스, 타입 등)를 추출하여 코드베이스 구조를 빠르게 파악합니다. 지원 언어: TypeScript, JavaScript, Python, Java, Kotlin, Go, Rust.',
+                parameters: [
+                    { name: 'path', required: true, description: '스캔할 디렉토리 경로', type: 'string' },
+                    { name: 'recursive', required: false, description: '하위 디렉토리 재귀 스캔 여부 (기본: false)', type: 'string' },
+                    { name: 'extensions', required: false, description: '필터할 파일 확장자 (쉼표 구분, 예: "ts,tsx,js")', type: 'string' },
+                ]
+            });
+        }
+
         // MCP 도구 추가
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
