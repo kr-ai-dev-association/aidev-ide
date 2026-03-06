@@ -82,6 +82,7 @@ export interface ConversationOptions {
   imageData?: string;
   imageMimeType?: string;
   selectedFiles?: string[];
+  selectedCode?: string; // 에디터에서 선택된 코드 (RAG 쿼리 보강용)
   terminalContext?: string;
   diagnosticsContext?: string;
   extensionContext?: vscode.ExtensionContext;
@@ -894,6 +895,14 @@ export class ConversationManager implements IConversationHandler {
       selectedFilesContent = fileContents.join("\n\n");
     }
 
+    // 에디터에서 선택된 코드 스니펫 포함
+    if (options.selectedCode) {
+      const codeBlock = `=== 에디터 선택 코드 ===\n${options.selectedCode}\n`;
+      selectedFilesContent = selectedFilesContent
+        ? `${selectedFilesContent}\n\n${codeBlock}`
+        : codeBlock;
+    }
+
     // Ask 모드: 메시지에서 언급된 파일명을 자동 감지하여 컨텍스트에 포함
     if (options.promptType === PromptType.GENERAL_ASK && options.userQuery) {
       try {
@@ -971,8 +980,15 @@ export class ConversationManager implements IConversationHandler {
         const userInfo = authService.getUserInfo();
         const orgId = userInfo?.organization_id;
         if (options.userQuery) {
+          // 에디터 선택 코드가 있으면 쿼리에 보강 (최대 500자로 제한)
+          const codeSnippet = options.selectedCode
+            ? options.selectedCode.substring(0, 500)
+            : null;
+          const ragQuery = codeSnippet
+            ? `${options.userQuery}\n\n${codeSnippet}`
+            : options.userQuery;
           const ragRaw = await CodePilotApiClient.getInstance().searchRag(
-            options.userQuery,
+            ragQuery,
             orgId || undefined,
             undefined,
             5,

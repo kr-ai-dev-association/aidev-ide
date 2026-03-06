@@ -6,6 +6,30 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.9.0 (에디터 선택 코드 컨텍스트, RAG 쿼리 보강, LLMManager 리팩토링)
+
+### 에디터 선택 코드 컨텍스트 (VS Code Selection)
+- 에디터에서 코드를 선택하면 채팅 입력창 위에 dismiss 가능한 chip 자동 표시 (`⌥ 파일명 L줄번호`)
+- `×` 클릭으로 제거 가능 — 의도치 않은 드래그 선택 포함 방지
+- 5자 미만 / 5000자 초과 선택은 자동 무시
+- 전송 시 선택 코드가 LLM 컨텍스트(`=== 에디터 선택 코드 ===`)에 포함됨
+- 채팅 메시지 버블에 인라인 badge로 표시 (파일 멘션과 동일 스타일)
+- 히스토리 복원 시에도 `파일명 줄번호 질의내용` 형식으로 텍스트 보존
+
+### RAG 쿼리 보강
+- 선택 코드가 있을 때 RAG 검색 쿼리를 `userQuery + 선택코드(최대 500자)`로 자동 보강
+- 현재 작업 중인 파일/코드와 관련성 높은 문서 우선 검색
+
+### LLMManager 리팩토링
+- `normalizeParts()` static 헬퍼 추출 — 5개 메서드의 중복 `userParts.map(...)` 제거
+- `loadOllamaSettingsSafe()` 헬퍼 추출 — try/catch 중복 제거
+- 중복 instance `formatErrorForChat` 메서드 제거 (static만 유지)
+- `sendMessageWithSystemPromptStreaming` Ollama 경로 헬퍼 적용
+
+### 기타
+- 기능 비교 분석 문서 추가: `docs/FEATURE_COMPARISON.md`
+- 코드 품질 이슈 분석 문서 추가: `docs/CODE_QUALITY_ISSUES.md`
+
 ## v11.8.0 (Gemini/Anthropic 네이티브 스트리밍 툴 콜링, 프로바이더 선택 UI)
 
 ### Gemini Native API 지원

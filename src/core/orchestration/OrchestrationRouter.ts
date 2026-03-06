@@ -41,6 +41,7 @@ export interface RouteOptions {
     imageData?: string;
     imageMimeType?: string;
     selectedFiles?: string[];
+    selectedCode?: string;
     terminalContext?: string;
     diagnosticsContext?: string;
     extensionContext?: vscode.ExtensionContext;

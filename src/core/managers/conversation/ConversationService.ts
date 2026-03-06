@@ -18,6 +18,7 @@ export interface ConversationServiceOptions {
     imageData?: string;
     imageMimeType?: string;
     selectedFiles?: string[];
+    selectedCode?: string; // 에디터에서 선택된 코드
     terminalContext?: string;
     diagnosticsContext?: string;
     extensionContext?: vscode.ExtensionContext;
@@ -76,6 +77,7 @@ export class ConversationService {
             imageData: options.imageData,
             imageMimeType: options.imageMimeType,
             selectedFiles: options.selectedFiles,
+            selectedCode: options.selectedCode,
             terminalContext: options.terminalContext,
             diagnosticsContext: options.diagnosticsContext,
             extensionContext: options.extensionContext,

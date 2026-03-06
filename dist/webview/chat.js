@@ -24159,6 +24159,7 @@ let thinkingBubbleElement = null;
 let selectedImageBase64 = null; // Base64 인코딩된 이미지 데이터를 저장할 변수
 let selectedImageMimeType = null; // 이미지 MIME 타입 저장
 let selectedFiles = []; // 선택된 파일 목록
+let selectedEditorCode = null; // 에디터에서 선택된 코드 { text, fileName, lineStart, lineEnd }
 let loadingDepth = 0; // 중첩 로딩 상태(에러 우선 처리 대비)
 let isPendingSend = false; // doSendUserMessage 호출 후 showLoading 수신 전 Race Condition 방지
 let pendingQuestions = []; // 대기 중 사용자 질문 큐
@@ -24637,6 +24638,7 @@ function doSendUserMessage(payload) {
   const img = payload.imageData || null;
   const imgMime = payload.imageMimeType || null;
   const files = payload.selectedFiles || [];
+  const selectedCode = payload.selectedCode || null;
   const mode = payload.mode || currentMode || "CODE";
   const terminalCtx = payload.terminalContext || null;
   const diagnosticsCtx = payload.diagnosticsContext || null;
@@ -24648,7 +24650,12 @@ function doSendUserMessage(payload) {
   if (!alreadyDisplayed) {
     // payload.displayText 우선, 없으면 입력창 내용 사용 (큐 메시지는 payload에 저장됨)
     const displayText = (payload.displayText || getChatInputDisplayContent()).trimEnd();
-    window.displayUserMessage(displayText, img);
+    const codeInfo = payload.selectedCode ? {
+      fileName: payload.selectedCodeFileName || "",
+      lineStart: payload.selectedCodeLineStart || 0,
+      lineEnd: payload.selectedCodeLineEnd || 0
+    } : null;
+    window.displayUserMessage(displayText, img, codeInfo);
   }
   window.showLoading();
   vscode.postMessage({
@@ -24657,6 +24664,7 @@ function doSendUserMessage(payload) {
     imageData: img,
     imageMimeType: imgMime,
     selectedFiles: files,
+    selectedCode: selectedCode,
     terminalContext: terminalCtx,
     diagnosticsContext: diagnosticsCtx,
     mode
@@ -25452,18 +25460,28 @@ function handleSendMessage() {
     return;
   }
   const text = getChatInputText().trimEnd(); // 파일 멘션 제외하고 텍스트만 추출
-  if (text || selectedImageBase64 || selectedFiles.length > 0 || selectedTerminalContext || selectedDiagnosticsContext) {
+  if (text || selectedImageBase64 || selectedFiles.length > 0 || selectedTerminalContext || selectedDiagnosticsContext || selectedEditorCode) {
     // 텍스트, 이미지, 선택된 파일, 터미널 컨텍스트, 또는 Diagnostics 컨텍스트가 있을 때만 전송
     // 큐 진입 시 표시할 텍스트를 미리 캡처 (입력창 클리어 전)
     const displayText = getChatInputDisplayContent().trimEnd();
+    // 에디터 선택이 있으면 text(userQuery)에 라벨 접두어 추가 → 히스토리에 보존
+    let finalText = text;
+    if (selectedEditorCode) {
+      const li = selectedEditorCode.lineStart === selectedEditorCode.lineEnd ? `L${selectedEditorCode.lineStart}` : `L${selectedEditorCode.lineStart}-${selectedEditorCode.lineEnd}`;
+      finalText = `[${selectedEditorCode.fileName} ${li}] ${text}`;
+    }
     const payload = {
       id: (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.generateId)(),
-      text: text,
+      text: finalText,
       displayText: displayText,
       // 큐에서 꺼낼 때 채팅창 표시용
       imageData: selectedImageBase64,
       imageMimeType: selectedImageMimeType,
       selectedFiles: selectedFiles.map(file => file.path),
+      selectedCode: selectedEditorCode ? selectedEditorCode.text : null,
+      selectedCodeFileName: selectedEditorCode ? selectedEditorCode.fileName : null,
+      selectedCodeLineStart: selectedEditorCode ? selectedEditorCode.lineStart : null,
+      selectedCodeLineEnd: selectedEditorCode ? selectedEditorCode.lineEnd : null,
       terminalContext: selectedTerminalContext ? selectedTerminalContext.contextString : null,
       diagnosticsContext: selectedDiagnosticsContext ? selectedDiagnosticsContext.contextString : null,
       mode: currentMode
@@ -25485,6 +25503,10 @@ function handleSendMessage() {
     selectedTerminalContext = null;
     // Diagnostics 컨텍스트 초기화
     selectedDiagnosticsContext = null;
+    // 에디터 선택 코드 chip 초기화
+    selectedEditorCode = null;
+    const chipEl = document.getElementById("editor-selection-chip");
+    if (chipEl) chipEl.classList.remove("visible");
     autoResizeTextarea();
     chatInput.focus();
     // 스크롤은 showLoading 시 처리됨
@@ -25961,6 +25983,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // 에디터 선택 chip dismiss 버튼
+  const editorSelectionChip = document.getElementById("editor-selection-chip");
+  const editorSelectionDismiss = document.getElementById("editor-selection-chip-dismiss");
+  if (editorSelectionDismiss) {
+    editorSelectionDismiss.addEventListener("click", () => {
+      selectedEditorCode = null;
+      if (editorSelectionChip) editorSelectionChip.classList.remove("visible");
+      updateChatContainerPadding();
+    });
+  }
+
   // 웹뷰 초기화 완료 알림 (pending changes/turn actions 복원용)
   if (vscode) {
     vscode.postMessage({
@@ -25998,6 +26031,34 @@ window.addEventListener("message", event => {
         });
       }
       break;
+    case "editorSelectionChanged":
+      {
+        selectedEditorCode = {
+          text: message.text,
+          fileName: message.fileName,
+          lineStart: message.lineStart,
+          lineEnd: message.lineEnd
+        };
+        const chip = document.getElementById("editor-selection-chip");
+        const chipLabel = document.getElementById("editor-selection-chip-label");
+        if (chip && chipLabel) {
+          const lineInfo = message.lineStart === message.lineEnd ? `L${message.lineStart}` : `L${message.lineStart}-${message.lineEnd}`;
+          chipLabel.textContent = `${message.fileName} ${lineInfo}`;
+          chip.classList.add("visible");
+          updateChatContainerPadding();
+        }
+        break;
+      }
+    case "editorSelectionCleared":
+      {
+        selectedEditorCode = null;
+        const chip = document.getElementById("editor-selection-chip");
+        if (chip) {
+          chip.classList.remove("visible");
+          updateChatContainerPadding();
+        }
+        break;
+      }
     case "showLoading":
       console.log("Received showLoading command.");
       isPendingSend = false; // 정상적으로 showLoading 받음
@@ -26268,8 +26329,18 @@ window.addEventListener("message", event => {
 // 메시지 표시 함수들 - 모듈 래퍼
 
 // 사용자 메시지 표시
-function displayUserMessage(text, imageData = null) {
-  return (0,_chat_message_display_js__WEBPACK_IMPORTED_MODULE_10__.displayUserMessage)(text, imageData, chatMessages, scrollToUserMessage);
+function displayUserMessage(text, imageData = null, selectedCodeInfo = null) {
+  const container = (0,_chat_message_display_js__WEBPACK_IMPORTED_MODULE_10__.displayUserMessage)(text, imageData, chatMessages, scrollToUserMessage);
+  // 에디터 선택 코드가 있으면 메시지 버블 아래에 badge 추가
+  if (container && selectedCodeInfo) {
+    const badge = document.createElement("span");
+    badge.className = "editor-selection-badge";
+    const lineInfo = selectedCodeInfo.lineStart === selectedCodeInfo.lineEnd ? `L${selectedCodeInfo.lineStart}` : `L${selectedCodeInfo.lineStart}-${selectedCodeInfo.lineEnd}`;
+    badge.textContent = `⌥ ${selectedCodeInfo.fileName} ${lineInfo}`;
+    const msgEl = container.querySelector(".user-plain-message");
+    if (msgEl) msgEl.prepend(badge);
+  }
+  return container;
 }
 
 // 시스템 메시지 표시

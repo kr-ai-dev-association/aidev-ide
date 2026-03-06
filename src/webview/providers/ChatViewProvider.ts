@@ -89,6 +89,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // 🆕 VSCode 시작 시 세션 자동 복원
         this.restoreSessionOnStartup(webviewView.webview);
 
+        // 🆕 에디터 텍스트 선택 감지 → WebView에 chip 표시용으로 전달
+        const selectionDisposable = vscode.window.onDidChangeTextEditorSelection((e) => {
+            if (!webviewView.visible) return;
+            const editor = e.textEditor;
+            const selection = editor.selection;
+            if (selection.isEmpty) {
+                // 선택 해제 시 WebView에 알림
+                webviewView.webview.postMessage({ command: 'editorSelectionCleared' });
+            } else {
+                const selectedText = editor.document.getText(selection);
+                // 너무 짧거나(5자 미만) 너무 길면(5000자 초과) 무시
+                if (selectedText.trim().length < 5 || selectedText.length > 5000) return;
+                const fileName = path.basename(editor.document.fileName);
+                webviewView.webview.postMessage({
+                    command: 'editorSelectionChanged',
+                    text: selectedText,
+                    fileName,
+                    lineStart: selection.start.line + 1,
+                    lineEnd: selection.end.line + 1,
+                });
+            }
+        });
+        webviewView.onDidDispose(() => selectionDisposable.dispose());
+
         // 🆕 Turn-level pending changes 이벤트 구독
         const pendingChangedDisposable = InlineDiffManager.getInstance().onPendingChanged(() => {
             const diffManager = InlineDiffManager.getInstance();
@@ -535,6 +559,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         imageData: data.imageData,
                         imageMimeType: data.imageMimeType,
                         selectedFiles: data.selectedFiles,
+                        selectedCode: data.selectedCode,
                         terminalContext: data.terminalContext,
                         diagnosticsContext: data.diagnosticsContext,
                         extensionContext: this.context,
