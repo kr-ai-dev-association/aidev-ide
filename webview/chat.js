@@ -74,6 +74,24 @@ import {
   updateThinkingContent as updateThinkingContentModule,
   clearThinkingContent as clearThinkingContentModule,
 } from "./chat/processing-steps.js";
+import {
+  setCurrentOllamaModel,
+  requestOllamaModels,
+  setModelLabel,
+  populateModelDropdown,
+  bindModelDropdownEvents,
+} from "./chat/model-selector.js";
+import {
+  applyTheme,
+  updateSendButtonStyle,
+  updateChatContainerPadding,
+  loadLanguage,
+  applyLanguage,
+  setCurrentLanguage,
+  setLanguageData,
+  initLanguageSelect,
+} from "./chat/theme-language.js";
+
 // mention-handler.js 모듈은 chat.js 내부 변수(chatInput, selectedFiles)에 의존하여
 // 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
 // import { initMentionHandler, ... } from "./chat/mention-handler.js";
@@ -217,9 +235,7 @@ const imagePreviewContainer = document.getElementById(
 );
 const imagePreview = document.getElementById("image-preview");
 const removeImageButton = document.getElementById("remove-image-button");
-const modelSelectorButton = document.getElementById("model-selector");
 const modelDropdown = document.getElementById("model-dropdown");
-const modelLabel = document.getElementById("model-label");
 
 // 파일 선택 관련 요소들 (상단 영역은 더 이상 사용하지 않음)
 // const fileSelectionArea = document.getElementById("file-selection-area");
@@ -227,8 +243,6 @@ const modelLabel = document.getElementById("model-label");
 // const clearFilesButton = document.getElementById("clear-files-button");
 const filePickerButton = document.getElementById("file-picker-button");
 let currentMode = window.chatMode || "CODE";
-let currentOllamaModel = "";
-let availableOllamaModels = [];
 
 // 채팅 컨테이너 참조 추가
 const chatContainer = document.getElementById("chat-container");
@@ -1836,276 +1850,6 @@ function autoResizeTextarea() {
   updateChatContainerPadding();
 }
 
-function requestOllamaModels() {
-  if (vscode) {
-    vscode.postMessage({ command: "getOllamaModels" });
-  }
-}
-
-function setModelLabel(name, modelType) {
-  if (modelLabel) {
-    modelLabel.textContent = name || "Model";
-  }
-  // 모델 타입에 따라 버튼의 data-model-type 속성 설정 (색상 포인트용)
-  if (modelSelectorButton) {
-    if (modelType === "supported") {
-      modelSelectorButton.setAttribute("data-model-type", "supported");
-    } else if (modelType === "admin") {
-      modelSelectorButton.setAttribute("data-model-type", "admin");
-    } else {
-      modelSelectorButton.setAttribute("data-model-type", "ollama");
-    }
-  }
-}
-
-function populateModelDropdown(models, current, adminModels, supportedModels) {
-
-  // models: [{name, displayName}] 또는 ["name", ...]
-  availableOllamaModels = (models || [])
-    .map((m) => {
-      if (typeof m === "string") {
-        return { name: m, displayName: m };
-      }
-      return {
-        name: m?.name || "",
-        displayName: m?.displayName || m?.name || "",
-      };
-    })
-    .filter((m) => m.name);
-
-  currentOllamaModel = current || "";
-
-  if (!modelDropdown) {
-    return;
-  }
-  modelDropdown.innerHTML = "";
-
-  // 지원 모델 (서버 프리셋 기반 — 그룹별 표시)
-  const supportedModelList = supportedModels || [];
-  if (supportedModelList.length > 0) {
-    // group별로 분류
-    const groups = {};
-    supportedModelList.forEach((m) => {
-      const g = m.group || 'default';
-      if (!groups[g]) groups[g] = [];
-      groups[g].push(m);
-    });
-
-    let isFirstGroup = true;
-    for (const [groupName, groupModels] of Object.entries(groups)) {
-      // 그룹 사이 구분선 (첫 그룹 제외)
-      if (!isFirstGroup) {
-        const divider = document.createElement("div");
-        divider.style.height = "1px";
-        divider.style.backgroundColor = "var(--vscode-panel-border)";
-        divider.style.margin = "2px 0";
-        modelDropdown.appendChild(divider);
-      }
-      isFirstGroup = false;
-
-      // 그룹 헤더 (모델이 2개 이상일 때만)
-      if (groupModels.length > 1 || Object.keys(groups).length > 1) {
-        const header = document.createElement("div");
-        header.style.padding = "3px 8px 1px";
-        header.style.fontSize = "9px";
-        header.style.fontWeight = "600";
-        header.style.textTransform = "uppercase";
-        header.style.color = "var(--vscode-descriptionForeground)";
-        header.style.letterSpacing = "0.5px";
-        header.textContent = groupName;
-        modelDropdown.appendChild(header);
-      }
-
-      // 그룹 내 모델
-      groupModels.forEach((m) => {
-        const item = document.createElement("div");
-        item.className = "dropdown-option";
-        if (m.name === currentOllamaModel) {
-          item.classList.add("selected");
-        }
-        item.dataset.model = m.name;
-        item.textContent = m.displayName;
-        item.style.padding = "4px 8px";
-        item.style.cursor = "pointer";
-        item.style.fontSize = "10px";
-        item.style.borderRadius = "4px";
-        item.addEventListener("click", () => {
-          currentOllamaModel = m.name;
-          setModelLabel(m.displayName, "supported");
-          if (modelDropdown) {
-            modelDropdown.querySelectorAll(".dropdown-option").forEach(o => o.classList.remove("selected"));
-            item.classList.add("selected");
-            modelDropdown.classList.add("hidden");
-            modelDropdown.style.display = "none";
-          }
-          vscode.postMessage({ command: "setSupportedModel", key: m.key });
-        });
-        modelDropdown.appendChild(item);
-      });
-    }
-  }
-
-  // 관리자 모델 추가
-  const adminModelList = adminModels || [];
-  if (adminModelList.length > 0) {
-    const divider = document.createElement("div");
-    divider.style.height = "1px";
-    divider.style.backgroundColor = "var(--vscode-panel-border)";
-    divider.style.margin = "4px 0";
-    modelDropdown.appendChild(divider);
-
-    const adminHeader = document.createElement("div");
-    adminHeader.style.padding = "3px 8px 1px";
-    adminHeader.style.fontSize = "9px";
-    adminHeader.style.fontWeight = "600";
-    adminHeader.style.textTransform = "uppercase";
-    adminHeader.style.color = "var(--vscode-descriptionForeground)";
-    adminHeader.style.letterSpacing = "0.5px";
-    adminHeader.textContent = "Admin";
-    modelDropdown.appendChild(adminHeader);
-
-    adminModelList.forEach((m) => {
-      const item = document.createElement("div");
-      item.className = "dropdown-option";
-      if (m.name === currentOllamaModel) {
-        item.classList.add("selected");
-      }
-      item.dataset.model = m.name;
-      item.textContent = m.displayName;
-      item.style.padding = "4px 8px";
-      item.style.cursor = "pointer";
-      item.style.fontSize = "10px";
-      item.style.borderRadius = "4px";
-      item.addEventListener("click", () => {
-        currentOllamaModel = m.name;
-        setModelLabel(m.displayName, "admin");
-        if (modelDropdown) {
-          modelDropdown.querySelectorAll(".dropdown-option").forEach(o => o.classList.remove("selected"));
-          item.classList.add("selected");
-          modelDropdown.classList.add("hidden");
-          modelDropdown.style.display = "none";
-        }
-        vscode.postMessage({ command: "setAdminModel", key: m.key });
-      });
-      modelDropdown.appendChild(item);
-    });
-  }
-
-  // 구분선 (Ollama 모델이 있을 경우에만)
-  if (availableOllamaModels.length > 0) {
-    const divider = document.createElement("div");
-    divider.style.height = "1px";
-    divider.style.backgroundColor = "var(--vscode-panel-border)";
-    divider.style.margin = "4px 0";
-    modelDropdown.appendChild(divider);
-  }
-
-  // Ollama 모델 추가
-  if (availableOllamaModels.length > 0) {
-    const ollamaHeader = document.createElement("div");
-    ollamaHeader.style.padding = "3px 8px 1px";
-    ollamaHeader.style.fontSize = "9px";
-    ollamaHeader.style.fontWeight = "600";
-    ollamaHeader.style.textTransform = "uppercase";
-    ollamaHeader.style.color = "var(--vscode-descriptionForeground)";
-    ollamaHeader.style.letterSpacing = "0.5px";
-    ollamaHeader.textContent = "Ollama";
-    modelDropdown.appendChild(ollamaHeader);
-  }
-  availableOllamaModels.forEach((m) => {
-    const display = m.displayName || m.name;
-    const item = document.createElement("div");
-    item.className = "dropdown-option";
-    if (m.name === currentOllamaModel) {
-      item.classList.add("selected");
-    }
-    item.dataset.model = m.name;
-    item.textContent = display;
-    item.style.padding = "4px 8px";
-    item.style.cursor = "pointer";
-    item.style.fontSize = "10px";
-    item.style.borderRadius = "4px";
-    item.addEventListener("click", () => {
-      currentOllamaModel = m.name;
-      setModelLabel(display, "ollama");
-      if (modelDropdown) {
-        modelDropdown.querySelectorAll(".dropdown-option").forEach(o => o.classList.remove("selected"));
-        item.classList.add("selected");
-        modelDropdown.classList.add("hidden");
-        modelDropdown.style.display = "none";
-      }
-      vscode.postMessage({ command: "setOllamaModel", model: m.name });
-    });
-    modelDropdown.appendChild(item);
-  });
-
-  // 현재 선택된 모델 라벨 업데이트
-  const allModels = [...supportedModelList, ...adminModelList, ...availableOllamaModels];
-  const currentModel = allModels.find((m) => m.name === currentOllamaModel);
-  const currentDisplay =
-    currentModel?.displayName || currentOllamaModel || "Model";
-
-  let modelType = "ollama";
-  if (supportedModelList.some((m) => m.name === currentOllamaModel)) {
-    modelType = "supported";
-  } else if (adminModelList.some((m) => m.name === currentOllamaModel)) {
-    modelType = "admin";
-  }
-
-  setModelLabel(currentDisplay, modelType);
-
-  if (!allModels.length) {
-    const empty = document.createElement("div");
-    empty.className = "dropdown-option";
-    empty.textContent = "모델을 불러올 수 없습니다";
-    empty.style.padding = "6px 10px";
-    modelDropdown.appendChild(empty);
-  }
-}
-
-function bindModelDropdownEvents() {
-  if (!modelSelectorButton || !modelDropdown) {
-    return;
-  }
-
-  const closeDropdown = () => {
-    modelDropdown.classList.add("hidden");
-    modelDropdown.style.display = "none";
-  };
-
-  modelSelectorButton.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const willShow = modelDropdown.classList.contains("hidden");
-    if (willShow) {
-      // 모델 선택 버튼의 위치에 맞춰 드롭다운 위치 조정
-      const buttonRect = modelSelectorButton.getBoundingClientRect();
-      const parentRect =
-        modelSelectorButton.parentElement.getBoundingClientRect();
-
-      // 버튼의 왼쪽 위치를 기준으로 드롭다운 위치 설정
-      const leftOffset = buttonRect.left - parentRect.left;
-      modelDropdown.style.left = leftOffset + "px";
-      modelDropdown.style.right = "auto";
-      modelDropdown.style.width = buttonRect.width + "px";
-
-      modelDropdown.classList.remove("hidden");
-      modelDropdown.style.display = "block";
-
-      // 모델 목록이 비어 있으면 재요청 (Ollama 재시작 후 복구)
-      if (availableOllamaModels.length === 0) {
-        requestOllamaModels();
-      }
-    } else {
-      closeDropdown();
-    }
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!modelDropdown.contains(e.target) && e.target !== modelSelectorButton) {
-      closeDropdown();
-    }
-  });
-}
 
 // 모드 변경 이벤트 수신
 window.addEventListener("chat-mode-changed", () => {
@@ -2114,124 +1858,7 @@ window.addEventListener("chat-mode-changed", () => {
   updateSendButtonStyle();
 });
 
-// 하단 고정 영역의 높이를 계산하고 채팅 컨테이너의 패딩을 조정하는 함수
-function updateChatContainerPadding() {
-  if (!chatContainer) {
-    return;
-  }
 
-  // 하단 고정 영역의 요소들
-  const bottomFixedArea = document.querySelector(".bottom-fixed-area");
-  const fileSelectionArea = document.getElementById("file-selection-area");
-  const chatInputArea = document.getElementById("chat-input-area");
-  const pendingArea = document.getElementById("pending-queue-area");
-
-  if (!bottomFixedArea || !chatInputArea) {
-    return;
-  }
-
-  // 파일 선택 영역의 높이 (숨겨져 있으면 0)
-  const fileSelectionHeight =
-    fileSelectionArea && !fileSelectionArea.classList.contains("hidden")
-      ? fileSelectionArea.offsetHeight
-      : 0;
-
-  // 대기 큐 영역의 높이 (보이지 않으면 0)
-  let pendingHeight = 0;
-  if (pendingArea) {
-    const isVisible = pendingArea.classList.contains("visible");
-    pendingHeight = isVisible ? pendingArea.offsetHeight : 0;
-  }
-
-  // 입력 영역의 높이
-  const chatInputHeight = chatInputArea.offsetHeight;
-
-  // 전체 하단 고정 영역 높이 계산 (여유 공간 포함)
-  const totalBottomHeight =
-    pendingHeight + fileSelectionHeight + chatInputHeight + 20; // 20px 여유 공간
-
-  // 채팅 컨테이너의 하단 패딩을 동적으로 설정
-  chatContainer.style.paddingBottom = `${totalBottomHeight}px`;
-
-  // console.log(`Bottom area height: ${totalBottomHeight}px (pending: ${pendingHeight}px, file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
-}
-
-// 현재 테마 저장 (전역)
-let currentTheme = "dark";
-
-// 테마 적용 함수
-function applyTheme(theme) {
-  console.log("[Chat] applyTheme called with:", theme);
-  let effectiveTheme = theme;
-
-  if (theme === "auto") {
-    // VS Code 테마 감지 - body의 data-vscode-theme-kind 속성 확인
-    const vscodeThemeKind = document.body.getAttribute(
-      "data-vscode-theme-kind",
-    );
-    console.log("[Chat] VSCode theme kind:", vscodeThemeKind);
-    if (vscodeThemeKind && vscodeThemeKind.includes("light")) {
-      effectiveTheme = "light";
-    } else {
-      effectiveTheme = "dark";
-    }
-  }
-
-  // 현재 테마 저장
-  currentTheme = effectiveTheme;
-
-  // html 요소에 data-theme 속성 설정
-  document.documentElement.setAttribute("data-theme", effectiveTheme);
-  // body에도 설정 (일부 스타일이 body를 기준으로 할 수 있음)
-  document.body.setAttribute("data-theme", effectiveTheme);
-
-  // ASK 모드 보내기 버튼 색상 업데이트
-  updateSendButtonStyle();
-
-  console.log(
-    "[Chat] Theme applied:",
-    effectiveTheme,
-    "html data-theme:",
-    document.documentElement.getAttribute("data-theme"),
-  );
-}
-
-// ASK 모드 보내기 버튼 스타일 업데이트
-function updateSendButtonStyle() {
-  const sendBtn = document.getElementById("send-button");
-  const modeSelector = document.getElementById("mode-selector");
-  if (!sendBtn) {
-    return;
-  }
-
-  const isAskMode = currentMode === "ASK";
-  const iconImg = sendBtn.querySelector(".icon-img");
-
-  if (isAskMode) {
-    // ASK 모드: 테마에 따라 색상 변경
-    sendBtn.classList.add("ask-mode");
-    if (currentTheme === "light") {
-      // 라이트 테마: 블루 계열
-      sendBtn.style.backgroundColor = "#2563EB";
-      sendBtn.style.borderRadius = "50%";
-    } else {
-      // 다크 테마: 그린 계열
-      sendBtn.style.backgroundColor = "#10B981";
-      sendBtn.style.borderRadius = "50%";
-    }
-    if (iconImg) {
-      iconImg.style.filter = "brightness(0) invert(1)";
-    }
-  } else {
-    // CODE 모드: 기본 스타일 복원
-    sendBtn.classList.remove("ask-mode");
-    sendBtn.style.backgroundColor = "transparent";
-    sendBtn.style.borderRadius = "6px";
-    if (iconImg) {
-      iconImg.style.filter = ""; // CSS가 처리하도록 인라인 스타일 제거
-    }
-  }
-}
 
 document.addEventListener("DOMContentLoaded", () => {
   // 모듈 초기화
@@ -2275,6 +1902,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // 모델 목록 요청 및 드롭다운 초기화
   bindModelDropdownEvents();
   requestOllamaModels();
+
+  // 언어 선택 초기화 (이벤트 바인딩 + 초기 언어 요청)
+  initLanguageSelect();
 
   // 테마 설정 요청
   if (vscode) {
@@ -2438,7 +2068,7 @@ window.addEventListener("message", (event) => {
     case "ollamaModelChanged":
       console.log("[chat] ollamaModelChanged received:", message.model);
       if (message.model) {
-        currentOllamaModel = message.model;
+        setCurrentOllamaModel(message.model);
 
         // 드롭다운에서 일치하는 아이템을 찾아 displayName과 modelType 결정
         let display = message.model;
@@ -2600,17 +2230,17 @@ window.addEventListener("message", (event) => {
       break;
     case "currentLanguage":
       if (message.language) {
-        currentLanguage = message.language;
-        if (languageSelect) {
-          languageSelect.value = currentLanguage;
+        setCurrentLanguage(message.language);
+        const langSel = document.getElementById("language-select");
+        if (langSel) {
+          langSel.value = message.language;
         }
-        loadLanguage(currentLanguage);
+        loadLanguage(message.language);
       }
       break;
     case "languageDataReceived":
       if (message.language && message.data) {
-        languageData = message.data;
-        currentLanguage = message.language;
+        setLanguageData(message.data, message.language);
         sessionStorage.setItem("codepilotLang", message.language);
 
         applyLanguage();
@@ -3498,85 +3128,6 @@ function removeSelectedFile(filePath) {
     autoResizeTextarea();
   }
 }
-
-// 언어별 텍스트 로딩 및 적용
-const languageSelect = document.getElementById("language-select");
-let currentLanguage = "ko"; // 기본값
-let languageData = {};
-
-async function loadLanguage(lang) {
-  try {
-    // console.log('Requesting language data from extension:', lang);
-    // 확장 프로그램에 언어 데이터 요청
-    vscode.postMessage({ command: "getLanguageData", language: lang });
-  } catch (e) {
-    console.error("Failed to load language:", lang, e);
-  }
-}
-
-function applyLanguage() {
-  // 타이틀
-  const chatTitle = document.getElementById("chat-title");
-  if (chatTitle && languageData["chatTitle"]) {
-    chatTitle.textContent = languageData["chatTitle"];
-  }
-
-  // 언어 라벨
-  const languageLabel = document.getElementById("language-label");
-  if (languageLabel && languageData["languageLabel"]) {
-    languageLabel.textContent = languageData["languageLabel"];
-  }
-
-  // Send 버튼
-  const sendButton = document.getElementById("send-button");
-  if (sendButton && languageData["sendButton"]) {
-    sendButton.textContent = languageData["sendButton"];
-  }
-
-  // Clear 버튼
-  const clearButton = document.getElementById("clean-history-button");
-  if (clearButton && languageData["clearButton"]) {
-    clearButton.textContent = languageData["clearButton"];
-  }
-
-  // Cancel 버튼
-  const cancelButton = document.getElementById("cancel-call-button");
-  if (cancelButton && languageData["cancelButton"]) {
-    cancelButton.textContent = languageData["cancelButton"];
-  }
-
-  // 입력창 placeholder
-  const chatInput = document.getElementById("chat-input");
-  if (chatInput && languageData["inputPlaceholder"]) {
-    chatInput.placeholder = languageData["inputPlaceholder"];
-  }
-
-  // 파일 선택 버튼
-  const filePickerButton = document.getElementById("file-picker-button");
-  if (filePickerButton && languageData["filePickerButton"]) {
-    filePickerButton.textContent = languageData["filePickerButton"];
-  }
-
-  console.log("=== applyLanguage completed ===");
-}
-
-if (languageSelect) {
-  languageSelect.addEventListener("change", (e) => {
-    const lang = e.target.value;
-    console.log("Language changed to:", lang);
-    currentLanguage = lang;
-    loadLanguage(lang);
-
-    // 언어 변경 시 즉시 저장 요청
-    vscode.postMessage({ command: "saveLanguage", language: lang });
-  });
-}
-
-// 페이지 로드 시 기본 언어 적용
-window.addEventListener("DOMContentLoaded", () => {
-  // VS Code 설정에서 언어를 가져오도록 요청
-  vscode.postMessage({ command: "getLanguage" });
-});
 
 // --- Link click interception for opening files from AI messages ---
 // 🔥 이벤트 위임 방식 - anchor 태그 클릭 처리

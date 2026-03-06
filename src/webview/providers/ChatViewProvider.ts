@@ -3,6 +3,7 @@ import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
 import { PromptType, NotificationService, GitRepositoryService, AiModelType } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager, SessionManager } from '../../core';
+import { AgentConfig } from '../../core/config/AgentConfig';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
 import { getAllExclusionPaths } from '../../core/utils/FileExclusionConstants';
@@ -99,8 +100,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 webviewView.webview.postMessage({ command: 'editorSelectionCleared' });
             } else {
                 const selectedText = editor.document.getText(selection);
-                // 너무 짧거나(5자 미만) 너무 길면(5000자 초과) 무시
-                if (selectedText.trim().length < 5 || selectedText.length > 5000) return;
+                // 너무 짧거나 너무 길면 무시
+                if (selectedText.trim().length < AgentConfig.EDITOR_SELECTION_MIN_LENGTH || selectedText.length > AgentConfig.EDITOR_SELECTION_MAX_LENGTH) return;
                 const fileName = path.basename(editor.document.fileName);
                 webviewView.webview.postMessage({
                     command: 'editorSelectionChanged',
@@ -590,7 +591,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     };
                     // 즉시 시도 + loadPersistedState(async)가 아직 안 끝났을 경우 대비 지연 재시도
                     sendPendingState();
-                    setTimeout(sendPendingState, 2000);
+                    setTimeout(sendPendingState, AgentConfig.WEBVIEW_RESTORE_DELAY_MS);
                     break;
                 }
                 case 'cancelGeminiCall':

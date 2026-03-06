@@ -48,12 +48,15 @@ export class LLMManager {
 
     /** 시스템 프롬프트에 도구 스펙이 포함되어 있는지 감지 */
     private static hasToolSpecs(systemPrompt: string): boolean {
-        return systemPrompt.includes('사용 가능한 도구') || systemPrompt.includes('"tool"');
+        return systemPrompt.includes('사용 가능한 도구');
     }
 
-    /** thinking 비활성화 여부 결정 (명시적 설정만 적용 — 도구 스펙 자동 감지 제거) */
+    /** thinking 비활성화 여부 결정 */
     private static resolveDisableThinking(systemPrompt: string, explicit?: boolean): boolean {
-        return explicit ?? false;
+        if (explicit !== undefined) return explicit;
+        // 도구 스펙이 포함된 시스템 프롬프트 → thinking 자동 비활성화
+        // thinking 모드에서는 모델이 tool call을 thinking 블록 안에 넣어 content가 비어버리는 문제 방지
+        return LLMManager.hasToolSpecs(systemPrompt);
     }
 
     /** LLMMessagePart 배열을 API 전송 형식으로 변환 */

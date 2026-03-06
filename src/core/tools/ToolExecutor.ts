@@ -161,9 +161,9 @@ export class ToolExecutor {
 
         console.log(`[ToolExecutor] Parallel mode: ${readBatch.length} read-only, ${writeBatch.length} write tools`);
 
-        // Phase 1: 읽기 도구 병렬 실행
+        // Phase 1: 읽기 도구 병렬 실행 (부분 실패 허용 — Promise.allSettled)
         if (readBatch.length > 0) {
-            await Promise.all(readBatch.map(async ({ toolUse, idx }) => {
+            const settled = await Promise.allSettled(readBatch.map(async ({ toolUse, idx }) => {
                 if (onToolStart) {
                     onToolStart(toolUse, idx);
                 }
@@ -175,6 +175,11 @@ export class ToolExecutor {
                     onToolComplete(toolUse, result, idx);
                 }
             }));
+            settled.forEach((s) => {
+                if (s.status === 'rejected') {
+                    console.warn(`[ToolExecutor] Parallel read tool failed:`, s.reason);
+                }
+            });
         }
 
         // Phase 2: 쓰기 도구 순차 실행

@@ -1,0 +1,205 @@
+/**
+ * OpenAI-compatible Provider
+ * OpenAI, Azure, Groq, DeepSeek, Mistral, Together, xAI, Fireworks,
+ * Perplexity, Cerebras, SambaNova 등 /chat/completions 엔드포인트
+ */
+
+import { AdminModelConfig, AdminModelMessagePart, SendOptions, ChunkCallback } from '../AdminModelTypes';
+import { ILLMProvider } from './ILLMProvider';
+import { buildRequest } from './providerUtils';
+
+export class OpenAICompatProvider implements ILLMProvider {
+    constructor(private config: AdminModelConfig) {}
+
+    async send(
+        messageOrParts: string | AdminModelMessagePart[],
+        systemPrompt?: string,
+        options?: SendOptions
+    ): Promise<string> {
+        const messages: Array<{ role: string; content: string }> = [];
+
+        if (systemPrompt) {
+            messages.push({ role: 'system', content: systemPrompt });
+        }
+
+        if (typeof messageOrParts === 'string') {
+            messages.push({ role: 'user', content: messageOrParts });
+        } else {
+            const userContent = messageOrParts.map(part => part.text || '').join('\n');
+            messages.push({ role: 'user', content: userContent });
+        }
+
+        const requestBody: Record<string, unknown> = {
+            model: this.config.model,
+            messages,
+            temperature: this.config.defaultTemperature ?? 0.7,
+            top_p: this.config.topP ?? 0.9,
+            stream: false,
+            max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
+        };
+
+        if (options?.disableThinking) {
+            requestBody.think = false;
+            console.log('[OpenAICompatProvider] Thinking disabled (tool calling mode)');
+        }
+
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestBody.tools = options.nativeTools;
+            requestBody.tool_choice = 'auto';
+        }
+
+        const { url, headers } = buildRequest(this.config, this.config.endpoint);
+        console.log(`[OpenAICompatProvider] model=${this.config.model} streaming=false nativeTools=${!!options?.nativeTools}`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Admin Model API error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const data = await response.json() as { choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ function: { name: string; arguments: string | Record<string, unknown> } }> } }> };
+
+        if (!data.choices || data.choices.length === 0) {
+            throw new Error('Invalid response from Admin Model API: no choices');
+        }
+
+        const toolCalls = data.choices[0]?.message?.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+            console.log('[OpenAICompatProvider] Native tool_calls received, count:', toolCalls.length);
+            return toolCalls.map(tc => {
+                const fn = tc.function;
+                const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
+                return JSON.stringify({ tool: fn.name, ...args });
+            }).join('\n');
+        }
+
+        return data.choices[0]?.message?.content || '';
+    }
+
+    async stream(
+        systemPrompt: string,
+        userParts: AdminModelMessagePart[],
+        onChunk: ChunkCallback,
+        options?: SendOptions
+    ): Promise<string> {
+        const messages: Array<{ role: string; content: string }> = [];
+        if (systemPrompt) {
+            messages.push({ role: 'system', content: systemPrompt });
+        }
+        messages.push({ role: 'user', content: userParts.map(p => p.text || '').join('\n') });
+
+        const requestBody: Record<string, unknown> = {
+            model: this.config.model,
+            messages,
+            temperature: this.config.defaultTemperature ?? 0.7,
+            top_p: this.config.topP ?? 0.9,
+            stream: true,
+            max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
+        };
+
+        if (options?.disableThinking) {
+            requestBody.think = false;
+            console.log('[OpenAICompatProvider] Streaming: Thinking disabled (tool calling mode)');
+        }
+
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestBody.tools = options.nativeTools;
+            requestBody.tool_choice = 'auto';
+        }
+
+        const { url, headers } = buildRequest(this.config, this.config.endpoint);
+        console.log(`[OpenAICompatProvider] model=${this.config.model} streaming=true nativeTools=${!!options?.nativeTools}`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            onChunk('', true);
+            throw new Error(`Admin Model API error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        if (!response.body) {
+            onChunk('', true);
+            throw new Error('No response body for streaming');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let thinkingText = '';
+        let buffer = '';
+        // OpenCode 방식: 배열 위치 기반 (Gemini는 index 필드를 안 보냄 → length 폴백)
+        const streamingToolCalls: Array<{ id: string; name: string; argumentsStr: string }> = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith('data:')) continue;
+                const data = trimmed.slice(5).trim();
+                if (data === '[DONE]') {
+                    const validToolCalls = streamingToolCalls.filter(tc => tc.name);
+                    if (validToolCalls.length > 0) {
+                        const converted = validToolCalls.map(tc => {
+                            const args = tc.argumentsStr ? JSON.parse(tc.argumentsStr) : {};
+                            return JSON.stringify({ tool: tc.name, ...args });
+                        }).join('\n');
+                        console.log(`[OpenAICompatProvider] Streaming: Native tool_calls converted, count: ${validToolCalls.length}`);
+                        onChunk('', true);
+                        const thinkPrefix = thinkingText.trim() ? `<think>${thinkingText}</think>\n` : '';
+                        return thinkPrefix + converted;
+                    }
+                    onChunk('', true);
+                    if (thinkingText.trim()) {
+                        return `<think>${thinkingText}</think>\n${fullText}`;
+                    }
+                    return fullText;
+                }
+                try {
+                    const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string; reasoning_content?: string; tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }> } }> };
+                    const content = parsed.choices?.[0]?.delta?.content;
+                    if (content) {
+                        fullText += content;
+                        onChunk(content, false);
+                    }
+                    const reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content;
+                    if (reasoningContent) {
+                        thinkingText += reasoningContent;
+                    }
+                    const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
+                    if (toolCallDeltas) {
+                        for (const tc of toolCallDeltas) {
+                            const pos = (tc.index as number | undefined) ?? streamingToolCalls.length;
+                            if (streamingToolCalls[pos] == null) {
+                                streamingToolCalls[pos] = {
+                                    id: tc.id ?? `tc_${pos}`,
+                                    name: tc.function?.name ?? '',
+                                    argumentsStr: tc.function?.arguments ?? '',
+                                };
+                            } else {
+                                if (tc.function?.name) { streamingToolCalls[pos].name += tc.function.name; }
+                                if (tc.function?.arguments) { streamingToolCalls[pos].argumentsStr += tc.function.arguments; }
+                            }
+                        }
+                    }
+                } catch {
+                    // JSON parse error - skip
+                }
+            }
+        }
+
+        onChunk('', true);
+        return fullText;
+    }
+}

@@ -45,7 +45,7 @@ export interface CompactorConfig {
 }
 
 const DEFAULT_CONFIG: CompactorConfig = {
-  tokenThreshold: 0.9, // 90% of max tokens
+  tokenThreshold: AgentConfig.COMPACTION_TOKEN_THRESHOLD,
   keepRecentCount: 12,
   summarizationOptions: {
     includeTechnicalDetails: true,

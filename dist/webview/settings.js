@@ -12,7 +12,7 @@ return /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 156:
+/***/ 158:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -183,7 +183,7 @@ function bindBanyaApiKeyEvents(elements, languageData) {
 
 /***/ }),
 
-/***/ 157:
+/***/ 159:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -419,7 +419,7 @@ function updateSpinnerValue(spinnerElement, value) {
 
 /***/ }),
 
-/***/ 158:
+/***/ 160:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -429,7 +429,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   updateMcpServerStatus: () => (/* binding */ updateMcpServerStatus),
 /* harmony export */   updateMcpServers: () => (/* binding */ updateMcpServers)
 /* harmony export */ });
-/* harmony import */ var _api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(156);
+/* harmony import */ var _api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(158);
 /**
  * MCP Settings Module
  * MCP 서버 설정 관련 기능
@@ -1309,9 +1309,9 @@ var __webpack_exports__ = {};
 // This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
 (() => {
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(156);
-/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(157);
-/* harmony import */ var _settings_mcp_settings_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(158);
+/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(158);
+/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(159);
+/* harmony import */ var _settings_mcp_settings_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(160);
 // settings.js
 
 

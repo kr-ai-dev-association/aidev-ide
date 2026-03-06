@@ -19,7 +19,6 @@ import { ExecutionManager } from "../execution/ExecutionManager";
 import { TerminalManager } from "../terminal/TerminalManager";
 import { Tool } from "../../tools/types";
 import { ToolSpecBuilder } from "../../tools/ToolSpecBuilder";
-import { IntentDetector } from "../action/IntentDetector";
 import { ProjectManager } from "../project/ProjectManager";
 import { ProjectDetector } from "../project/ProjectDetector";
 import { ProjectType } from "../project/types";
@@ -62,16 +61,16 @@ import {
 } from "../context/prompts/rules";
 import { RetryCoordinator } from "./handlers/RetryCoordinator";
 import { CompletionJudge } from "./handlers/CompletionJudge";
+import { LoopStateTracker } from "./handlers/LoopStateTracker";
+import { ContextGatherer } from "./handlers/ContextGatherer";
 import { getGeneralAnalysisPrompt } from "../context/prompts/analysis/generalAnalysis";
 import { ConversationCompactor } from "./ConversationCompactor";
-import { MCPManager } from "../../mcp/MCPManager";
 import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
 import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, CollectedUIMessage } from "./types/TurnContext";
 import { IntentDetectionResult } from "../action/IntentDetector";
 import { ToolUse, ToolResponse } from "../../tools/types";
 import { FileTransactionManager } from "../action/file/FileTransactionManager";
-import { RelevantFilesFinder } from "../context/file/RelevantFilesFinder";
 import * as crypto from "crypto";
 
 export interface ConversationOptions {
@@ -128,6 +127,8 @@ export class ConversationManager implements IConversationHandler {
   private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
   private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
   private _pendingImportCleanupMsg: string | null = null; // 삭제 후 import 정리 메시지
+  private loopStateTracker = new LoopStateTracker();
+  private contextGatherer!: ContextGatherer;
 
   private constructor(
     userOS: string,
@@ -138,6 +139,7 @@ export class ConversationManager implements IConversationHandler {
     this.llmManager = LLMManager.getInstance(ollamaApi);
     this.responseProcessor = new ResponseProcessor(this.llmManager);
     this.completionJudge = new CompletionJudge(this.llmManager); // A4
+    this.contextGatherer = new ContextGatherer(this.contextManager, this.llmManager);
   }
 
   public static getInstance(
@@ -194,25 +196,16 @@ export class ConversationManager implements IConversationHandler {
       this.promptBuilder.setModelType(model);
     }
   }
-  /** @deprecated 사용되지 않음 */
-  public setSessionManager(_manager: unknown): void {}
   public setPromptBuilder(builder: PromptBuilder): void {
     this.promptBuilder = builder;
   }
-  /** @deprecated 사용되지 않음 */
-  public setIntentDetector(_detector: unknown): void {}
   public setStateManager(stateManager: StateManager): void {
     this.stateManager = stateManager;
+    this.contextGatherer.setStateManager(stateManager);
     console.log(
       "[ConversationManager] StateManager configured for model routing",
     );
   }
-  /** @deprecated 사용되지 않음 */
-  public setExternalApiService(_service: unknown): void {}
-  /** @deprecated 사용되지 않음 */
-  public configurePlanManager(_client: unknown, _model: unknown): void {}
-  /** @deprecated 사용되지 않음 */
-  public setContextHistoryManager(_manager: unknown): void {}
 
   /**
    * 현재 진행 중인 LLM 호출을 취소합니다
@@ -223,207 +216,6 @@ export class ConversationManager implements IConversationHandler {
       this.currentAbortController.abort();
       this.currentAbortController = null;
     }
-  }
-
-  /**
-   * LoopState 초기화
-   * v9.4.0: 무한 루프 감지 메커니즘
-   */
-  private initializeLoopState(): LoopState {
-    return {
-      lastPhase: AgentPhase.INVESTIGATION,
-      lastPlanItemId: null,
-      lastToolCalls: [],
-      lastResponseHash: "",
-      consecutiveNoProgressTurns: 0,
-      consecutiveSamePhase: 0,
-      consecutiveSamePlanItem: 0,
-    };
-  }
-
-  /**
-   * LLM 응답의 간단한 해시 생성 (중복 응답 감지용)
-   */
-  private computeResponseHash(response: string): string {
-    // 응답에서 도구 호출과 핵심 텍스트만 추출하여 해시 생성
-    const normalized = response
-      .replace(/\s+/g, " ")
-      .trim()
-      .substring(0, 500); // 처음 500자만 사용
-    return crypto.createHash("md5").update(normalized).digest("hex");
-  }
-
-  /**
-   * LoopState 업데이트 및 무한 루프 감지
-   * @returns 무한 루프가 감지되었는지 여부
-   */
-  private updateAndCheckLoopState(
-    loopState: LoopState,
-    currentPhase: AgentPhase,
-    currentPlanItemId: string | null,
-    toolCalls: string[],
-    llmResponse: string,
-    hasProgress: boolean,
-  ): { isLoop: boolean; reason?: string } {
-    const responseHash = this.computeResponseHash(llmResponse);
-
-    // Phase 연속 카운트 업데이트
-    if (currentPhase === loopState.lastPhase) {
-      loopState.consecutiveSamePhase++;
-    } else {
-      loopState.consecutiveSamePhase = 1;
-      loopState.lastPhase = currentPhase;
-    }
-
-    // Plan Item 연속 카운트 업데이트
-    if (
-      currentPlanItemId !== null &&
-      currentPlanItemId === loopState.lastPlanItemId
-    ) {
-      loopState.consecutiveSamePlanItem++;
-    } else {
-      loopState.consecutiveSamePlanItem = 1;
-      loopState.lastPlanItemId = currentPlanItemId;
-    }
-
-    // 진전 없음 카운트 업데이트
-    const sameToolCalls =
-      JSON.stringify(toolCalls) === JSON.stringify(loopState.lastToolCalls);
-    const sameResponse = responseHash === loopState.lastResponseHash;
-
-    if (!hasProgress && (sameToolCalls || sameResponse)) {
-      loopState.consecutiveNoProgressTurns++;
-    } else if (hasProgress) {
-      loopState.consecutiveNoProgressTurns = 0;
-    }
-
-    loopState.lastToolCalls = toolCalls;
-    loopState.lastResponseHash = responseHash;
-
-    // 무한 루프 감지 조건 체크
-    if (
-      loopState.consecutiveNoProgressTurns >=
-      AgentConfig.LOOP_DETECTION_NO_PROGRESS_THRESHOLD
-    ) {
-      return {
-        isLoop: true,
-        reason: `진전 없이 ${loopState.consecutiveNoProgressTurns}턴 연속 반복`,
-      };
-    }
-
-    if (
-      loopState.consecutiveSamePlanItem >=
-      AgentConfig.LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD
-    ) {
-      return {
-        isLoop: true,
-        reason: `동일 Plan Item에서 ${loopState.consecutiveSamePlanItem}턴 연속 미완료`,
-      };
-    }
-
-    if (
-      loopState.consecutiveSamePhase >=
-      AgentConfig.LOOP_DETECTION_SAME_PHASE_THRESHOLD
-    ) {
-      return {
-        isLoop: true,
-        reason: `동일 Phase(${currentPhase})에서 ${loopState.consecutiveSamePhase}턴 연속`,
-      };
-    }
-
-    return { isLoop: false };
-  }
-
-  /**
-   * 무한 루프 탈출 처리
-   * @returns 루프를 종료해야 하는지 여부
-   */
-  private escapeAttemptCount = 0;
-  private static readonly MAX_ESCAPE_ATTEMPTS = 3;
-
-  private handleInfiniteLoopEscape(
-    reason: string,
-    loopState: LoopState,
-    stateManager: AgentStateManager,
-    taskManager: TaskManager,
-    webview: vscode.Webview,
-  ): { shouldBreak: boolean; message: string } {
-    console.warn(
-      `[ConversationManager] 무한 루프 감지: ${reason}`,
-    );
-
-    // 탈출 시도 횟수 제한 체크
-    this.escapeAttemptCount++;
-    if (this.escapeAttemptCount >= ConversationManager.MAX_ESCAPE_ATTEMPTS) {
-      console.error(`[ConversationManager] 최대 탈출 시도 횟수(${ConversationManager.MAX_ESCAPE_ATTEMPTS}) 초과 - 강제 종료`);
-      WebviewBridge.receiveMessage(
-        webview,
-        "SYSTEM_WARNING",
-        `⚠️ 작업이 반복적으로 멈춰 자동으로 중단되었습니다.`,
-      );
-      return {
-        shouldBreak: true,
-        message: `탈출 시도 횟수 초과로 작업을 중단합니다.`,
-      };
-    }
-
-    // 1단계: 현재 Plan Item 스킵 시도
-    const currentPlanItem = taskManager.getNextPendingItem();
-    if (
-      currentPlanItem &&
-      loopState.consecutiveSamePlanItem >=
-        AgentConfig.LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD
-    ) {
-      console.log(
-        `[ConversationManager] Plan Item "${currentPlanItem.title}" 스킵 처리`,
-      );
-      taskManager.updatePlanItemStatus(currentPlanItem.id, "skipped");
-      WebviewBridge.updateTaskQueue(webview, taskManager.listPlanItems());
-
-      // 다음 Plan Item이 있으면 계속 진행
-      const nextItem = taskManager.getNextPendingItem();
-      if (nextItem) {
-        loopState.consecutiveSamePlanItem = 0;
-        loopState.consecutiveNoProgressTurns = 0;
-        return {
-          shouldBreak: false,
-          message: `작업 "${currentPlanItem.title}"을(를) 건너뛰고 다음 작업으로 진행합니다.`,
-        };
-      }
-    }
-
-    // 2단계: Phase 전환 강제
-    const currentPhase = stateManager.getCurrentState();
-    if (
-      currentPhase === AgentPhase.INVESTIGATION ||
-      currentPhase === AgentPhase.EXECUTION
-    ) {
-      console.log(
-        `[ConversationManager] ${currentPhase} → REVIEW 강제 전환`,
-      );
-      stateManager.transitionTo(AgentPhase.REVIEW);
-
-      // REVIEW로 전환 후 한 번 더 시도
-      loopState.consecutiveSamePhase = 0;
-      loopState.consecutiveNoProgressTurns = 0;
-      return {
-        shouldBreak: false,
-        message: `반복이 감지되어 검토 단계로 전환합니다.`,
-      };
-    }
-
-    // 3단계: 최종 탈출 - 사용자에게 알림 및 종료
-    console.log(`[ConversationManager] 무한 루프 탈출 불가 - 대화 종료`);
-    WebviewBridge.receiveMessage(
-      webview,
-      "SYSTEM_WARNING",
-      `⚠️ 작업이 반복되어 자동으로 중단되었습니다. (${reason})`,
-    );
-
-    return {
-      shouldBreak: true,
-      message: `무한 루프가 감지되어 작업을 중단합니다: ${reason}`,
-    };
   }
 
   /**
@@ -452,14 +244,14 @@ export class ConversationManager implements IConversationHandler {
 
     try {
       // 1. 초기화 및 준비
-      this.prepareUI(webviewToRespond);
+      this.contextGatherer.prepareUI(webviewToRespond);
 
       // A4: CompletionJudge 리셋 (새 요청 시작)
       this.completionJudge.reset();
       this._retryGaveUp = false;
 
       // 탈출 시도 카운터 리셋 (새 대화 시작)
-      this.escapeAttemptCount = 0;
+      this.loopStateTracker.resetEscapeCount();
 
       // v9.4.0: 파일 트랜잭션 시작 (롤백 지원)
       const fileTransactionManager = FileTransactionManager.getInstance();
@@ -496,10 +288,10 @@ export class ConversationManager implements IConversationHandler {
 
       // 2. 의도 파악 및 프로젝트 분석
       // 현재 선택된 모델 타입을 사용하여 의도 파악 수행
-      const intent = await this.detectIntent(userQuery);
+      const intent = await this.contextGatherer.detectIntent(userQuery);
 
       // 3. 컨텍스트 수집
-      const context = await this.gatherContext(optionsWithAbort, intent);
+      const context = await this.contextGatherer.gatherContext(optionsWithAbort, intent);
 
       // 4. 시스템 프롬프트 생성
       // Hot Load 프롬프트 로드 (최우선 규칙)
@@ -520,7 +312,7 @@ export class ConversationManager implements IConversationHandler {
       }
 
       // MCP 커스텀 프롬프트 수집
-      const mcpCustomPrompts = this.collectMcpCustomPrompts();
+      const mcpCustomPrompts = this.contextGatherer.collectMcpCustomPrompts();
 
       // URL 자동 감지 + fetch (HotLoad 전용 짧은 메시지는 제외)
       const autoFetchedUrlContents = await this.extractAndFetchUrls(
@@ -797,236 +589,6 @@ export class ConversationManager implements IConversationHandler {
       }
     }
     return userParts;
-  }
-
-  /**
-   * UI 초기 상태 설정
-   */
-  private prepareUI(webview: vscode.Webview): void {
-    WebviewBridge.sendProcessingStep(webview, "intent");
-    WebviewBridge.sendProcessingStatus(
-      webview,
-      "intent",
-      "사용자 요청 분석 중...",
-    );
-
-    // 새로운 요청이 시작되면 기존 작업 큐 초기화 및 UI 숨김
-    const taskManager = TaskManager.getInstance();
-    taskManager.clearPlanQueue();
-    WebviewBridge.clearTaskQueue(webview);
-  }
-
-  /**
-   * 활성화된 MCP 서버의 커스텀 프롬프트를 수집하여 결합
-   */
-  private collectMcpCustomPrompts(): string {
-    try {
-      const mcpManager = MCPManager.getInstance();
-      const mcpServers = mcpManager.getServers();
-      const mcpPromptParts = mcpServers
-        .filter((s) => s.enabled && s.customPrompt?.trim())
-        .map((s) => `**[MCP: ${s.name}]**\n${s.customPrompt!.trim()}`);
-      if (mcpPromptParts.length > 0) {
-        return `## MCP 도구 사용 지침\n\n${mcpPromptParts.join("\n\n")}`;
-      }
-    } catch (error) {
-      console.warn(
-        "[ConversationManager] Failed to collect MCP custom prompts:",
-        error,
-      );
-    }
-    return "";
-  }
-
-  /**
-   * 사용자 의도 및 작업 타입 감지
-   * Intent 모델이 설정된 경우 해당 모델 사용, 미설정 시 메인 모델 사용
-   */
-  private async detectIntent(query: string): Promise<any> {
-    const detector = new IntentDetector(this.llmManager);
-
-    // StateManager가 있으면 Intent 모델 라우팅 설정
-    if (this.stateManager) {
-      detector.setStateManager(this.stateManager);
-    }
-
-    const intent = await detector.detectIntent(query);
-
-    console.log(
-      `[ConversationManager] Intent detected: ${intent.category}/${intent.subtype} (confidence: ${intent.confidence})`,
-    );
-    return intent;
-  }
-
-  /**
-   * 필요한 컨텍스트 수집
-   */
-  private async gatherContext(
-    options: ConversationOptions,
-    intent: IntentDetectionResult,
-  ): Promise<GatheredContext> {
-    WebviewBridge.sendProcessingStep(options.webviewToRespond, "assembling");
-    WebviewBridge.sendProcessingStatus(
-      options.webviewToRespond,
-      "assembling",
-      "컨텍스트 수집 중...",
-    );
-
-    const contextData = await this.contextManager.collectContext({});
-
-    // selectedFiles에서 파일 내용 읽기
-    let selectedFilesContent = "";
-    if (options.selectedFiles && options.selectedFiles.length > 0) {
-      const fileContents: string[] = [];
-      for (const filePath of options.selectedFiles) {
-        try {
-          const uri = vscode.Uri.file(filePath);
-          const document = await vscode.workspace.openTextDocument(uri);
-          const content = document.getText();
-          const fileName = filePath.split(/[/\\]/).pop() || filePath;
-          fileContents.push(`=== ${fileName} (${filePath}) ===\n${content}\n`);
-        } catch (error) {
-          console.warn(
-            `[ConversationManager] Failed to read file ${filePath}:`,
-            error,
-          );
-        }
-      }
-      selectedFilesContent = fileContents.join("\n\n");
-    }
-
-    // 에디터에서 선택된 코드 스니펫 포함
-    if (options.selectedCode) {
-      const codeBlock = `=== 에디터 선택 코드 ===\n${options.selectedCode}\n`;
-      selectedFilesContent = selectedFilesContent
-        ? `${selectedFilesContent}\n\n${codeBlock}`
-        : codeBlock;
-    }
-
-    // Ask 모드: 메시지에서 언급된 파일명을 자동 감지하여 컨텍스트에 포함
-    if (options.promptType === PromptType.GENERAL_ASK && options.userQuery) {
-      try {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (workspaceRoot) {
-          const mentionedFiles = await RelevantFilesFinder.findExplicitFiles(
-            options.userQuery,
-            workspaceRoot,
-            options.abortSignal,
-          );
-          // selectedFiles에 이미 포함된 파일은 제외
-          const alreadySelected = new Set((options.selectedFiles || []).map(f => f.toLowerCase()));
-          const newFiles = mentionedFiles.filter(f => !alreadySelected.has(f.toLowerCase()));
-          if (newFiles.length > 0) {
-            const fileContents: string[] = [];
-            for (const filePath of newFiles) {
-              try {
-                const uri = vscode.Uri.file(filePath);
-                const document = await vscode.workspace.openTextDocument(uri);
-                const content = document.getText();
-                const fileName = filePath.split(/[/\\]/).pop() || filePath;
-                fileContents.push(`=== ${fileName} (${filePath}) ===\n${content}\n`);
-              } catch (error) {
-                console.warn(`[ConversationManager] Failed to read auto-detected file ${filePath}:`, error);
-              }
-            }
-            if (fileContents.length > 0) {
-              selectedFilesContent += (selectedFilesContent ? "\n\n" : "") + fileContents.join("\n\n");
-            }
-          }
-        }
-      } catch (error) {
-        console.warn("[ConversationManager] Ask mode auto file detection failed:", error);
-      }
-    }
-
-    // 터미널 컨텍스트 (사용자가 @terminal로 선택한 터미널 히스토리)
-    const terminalContextContent = options.terminalContext || "";
-    if (terminalContextContent) {
-      console.log(
-        "[ConversationManager] Terminal context included in system prompt",
-      );
-    }
-
-    // Diagnostics 컨텍스트 (사용자가 @diagnostics로 선택한 에러/경고)
-    const diagnosticsContextContent = options.diagnosticsContext || "";
-    if (diagnosticsContextContent) {
-      console.log(
-        "[ConversationManager] Diagnostics context included in system prompt",
-      );
-    }
-
-    // v9.2.1: 프레임워크 세부 스택 규칙 생성
-    let frameworkRulesPrompt = "";
-    try {
-      frameworkRulesPrompt =
-        await this.contextManager.getFrameworkRulesPrompt();
-      if (frameworkRulesPrompt) {
-        console.log("[ConversationManager] Framework rules prompt generated");
-      }
-    } catch (error) {
-      console.warn(
-        "[ConversationManager] Failed to generate framework rules:",
-        error,
-      );
-    }
-
-    // 서버 RAG 검색: 사용자 질문으로 관련 문서 검색
-    let ragContext = "";
-    try {
-      const { AuthService } = await import("../../../services/auth/AuthService");
-      const { CodePilotApiClient } = await import("../../../services/api/CodePilotApiClient");
-      const authService = AuthService.getInstance();
-      if (authService.isLoggedIn()) {
-        const userInfo = authService.getUserInfo();
-        const orgId = userInfo?.organization_id;
-        if (options.userQuery) {
-          // 에디터 선택 코드가 있으면 쿼리에 보강 (최대 500자로 제한)
-          const codeSnippet = options.selectedCode
-            ? options.selectedCode.substring(0, 500)
-            : null;
-          const ragQuery = codeSnippet
-            ? `${options.userQuery}\n\n${codeSnippet}`
-            : options.userQuery;
-          const ragRaw = await CodePilotApiClient.getInstance().searchRag(
-            ragQuery,
-            orgId || undefined,
-            undefined,
-            5,
-          );
-          const ragResults = Array.isArray(ragRaw) ? ragRaw : ((ragRaw as any)?.data || (ragRaw as any)?.results || []);
-          if (ragResults && ragResults.length > 0) {
-            ragContext = ragResults
-              .map((r: any, i: number) => {
-                const source = r.source_name || r.source || '';
-                const doc = r.document_name || r.document || '';
-                const sim = r.similarity != null ? ` (유사도: ${(r.similarity * 100).toFixed(0)}%)` : '';
-                return `[문서 ${i + 1}] ${source} > ${doc}${sim}\n${r.content}`;
-              })
-              .join("\n\n---\n\n");
-            console.log(`[ConversationManager] RAG: ${ragResults.length}개 문서 청크 포함 (${ragContext.length} chars)`);
-          } else {
-            console.log(`[ConversationManager] RAG: 검색 결과 없음`);
-          }
-        }
-      }
-    } catch (error) {
-      console.warn("[ConversationManager] RAG search failed (non-critical):", error);
-    }
-
-    // ContextData의 속성들을 PromptBuilderOptions 형식에 맞게 변환
-    return {
-      codebaseContext: contextData.file?.content,
-      realTimeInfo: contextData.terminal?.lastOutput,
-      profileContext: contextData.project?.structure,
-      intentContext: JSON.stringify(intent),
-      gitContext: "",
-      languageInstruction: "반드시 한국어로 답변하세요.",
-      selectedFilesContent: selectedFilesContent,
-      terminalContextContent: terminalContextContent,
-      diagnosticsContextContent: diagnosticsContextContent,
-      frameworkRulesPrompt: frameworkRulesPrompt,
-      ragContext: ragContext,
-    };
   }
 
   private async executeAgentLoop(
@@ -1399,7 +961,7 @@ export class ConversationManager implements IConversationHandler {
     (this as any).reviewProcessed = null;
 
     // v9.4.0: 무한 루프 감지 상태 초기화
-    const loopState = this.initializeLoopState();
+    const loopState = this.loopStateTracker.initializeLoopState();
     loopState.lastPhase = initialState;
 
     while (turnCount < maxTurns) {
@@ -1593,7 +1155,7 @@ export class ConversationManager implements IConversationHandler {
         }
 
         // MCP 커스텀 프롬프트 수집
-        const mcpCustomPromptsForInvestigation = this.collectMcpCustomPrompts();
+        const mcpCustomPromptsForInvestigation = this.contextGatherer.collectMcpCustomPrompts();
 
         const promptOptions: PromptBuilderOptions = {
           userOS: options.userOS || process.platform,
@@ -3127,7 +2689,7 @@ export class ConversationManager implements IConversationHandler {
       const toolCallSignatures = totalToolCalls.map(
         (tc: ToolUse) => `${tc.name}:${JSON.stringify(tc.params || {})}`,
       );
-      const loopCheck = this.updateAndCheckLoopState(
+      const loopCheck = this.loopStateTracker.updateAndCheckLoopState(
         loopState,
         currentPhase,
         currentPlanItem?.id || null,
@@ -3137,7 +2699,7 @@ export class ConversationManager implements IConversationHandler {
       );
 
       if (loopCheck.isLoop) {
-        const escapeResult = this.handleInfiniteLoopEscape(
+        const escapeResult = this.loopStateTracker.handleInfiniteLoopEscape(
           loopCheck.reason!,
           loopState,
           stateManager,
@@ -5468,10 +5030,11 @@ export class ConversationManager implements IConversationHandler {
           this._pendingImportCleanupMsg = cleanupMsg;
           console.log(`[ConversationManager] Import cleanup needed for ${importMap.size} deleted file(s)`);
         }
-        // 처리 완료 후 deletedFiles 초기화 (중복 검색 방지)
-        this.deletedFiles = [];
       } catch (e) {
         console.warn('[ConversationManager] Import cleanup detection failed:', e);
+      } finally {
+        // 처리 완료 후 deletedFiles 초기화 (중복 검색 방지, 메모리 누수 방지)
+        this.deletedFiles = [];
       }
     }
 

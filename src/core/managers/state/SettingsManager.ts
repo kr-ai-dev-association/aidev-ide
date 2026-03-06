@@ -13,6 +13,7 @@ import {
 } from './types';
 import { BaseManager } from '../base/BaseManager';
 import { ConfigurationService } from './ConfigurationService';
+import { SETTINGS_CACHE_TTL_MS } from '../../config/ApiDefaults';
 
 /**
  * 백엔드에서 받은 effective setting 항목
@@ -37,7 +38,7 @@ export class SettingsManager extends BaseManager {
     private listeners: Set<SettingChangeListener> = new Set();
     private _context: vscode.ExtensionContext;
     private serverSettingsCache: ServerSettingsCache | null = null;
-    private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5분 캐시
+    private readonly CACHE_TTL_MS = SETTINGS_CACHE_TTL_MS;
     private readonly OFFLINE_CACHE_KEY = 'codepilot.serverSettingsCache';
     private readonly DISABLED_SETTINGS_KEY = 'codepilot.disabledRecommendedSettings';
     private syncInProgress = false;

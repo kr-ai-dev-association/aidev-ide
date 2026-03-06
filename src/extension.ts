@@ -28,9 +28,6 @@ import {
 import { PromptBuilder } from "./core/managers/context/PromptBuilder";
 import { ConversationManager } from "./core/managers/conversation/ConversationManager";
 import { LLMApiClient } from "./core/managers/model/LLMApiClient";
-import { IntentDetector } from "./core/managers/action/IntentDetector";
-import { ExternalApiService } from "./services/external/ExternalApiService";
-import { ContextHistoryManager } from "./core/managers/context/ContextHistoryManager";
 import { FileChangeTracker } from "./core/managers/action/file/FileChangeTracker";
 import { FileContextTracker } from "./core/managers/context/file/FileContextTracker";
 import { ToolRegistry } from "./core/tools/ToolRegistry";
@@ -435,21 +432,9 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // promptBuilder는 이미 위에서 선언됨
-  const intentDetector = new IntentDetector(llmManager);
-  const externalApiService = new ExternalApiService(context);
-
   conversationManager.setLLMService(llmApiClient);
-  conversationManager.setSessionManager(sessionManager);
   conversationManager.setPromptBuilder(promptBuilder);
-  conversationManager.setIntentDetector(intentDetector);
-  conversationManager.setExternalApiService(externalApiService);
-  conversationManager.configurePlanManager(llmApiClient, currentAiModel);
   conversationManager.setStateManager(stateManager);
-
-  // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
-  const contextHistoryManager = ContextHistoryManager.getInstance(context);
-  conversationManager.setContextHistoryManager(contextHistoryManager);
 
   // LLM Manager를 ContextManager에 설정 (내용 기반 relevance scoring용)
   contextManager.setLLMManager(llmManager);

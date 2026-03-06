@@ -8,6 +8,7 @@ import * as pathModule from 'path';
 import { Tool, ToolUse, ToolResponse } from '../../../tools/types';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
 import { InlineDiffManager } from '../../diff/InlineDiffManager';
+import { AgentConfig } from '../../../config/AgentConfig';
 
 /** read_file 도구의 파일 결과 항목 */
 interface ReadFileResultItem {
@@ -51,7 +52,7 @@ export class ToolExecutionCoordinator {
                     modifiedFiles.push(filePath);
                 }
             } else if (call.name === Tool.REMOVE_FILE && deletedFiles) {
-                if (!deletedFiles.includes(filePath)) {
+                if (!deletedFiles.includes(filePath) && deletedFiles.length < AgentConfig.MAX_DELETED_FILES) {
                     deletedFiles.push(filePath);
                 }
             }

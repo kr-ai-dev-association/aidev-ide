@@ -106,4 +106,20 @@ export class AgentConfig {
     static readonly MIN_RESPONSE_LENGTH = 2;
     static readonly DEFAULT_GREETING_MESSAGE = '안녕하세요! 무엇을 도와드릴까요?';
     static readonly DEFAULT_COMPLETION_MESSAGE = '작업이 완료되었습니다.';
+
+    // ===== 오케스트레이션 =====
+    static readonly MAX_CONCURRENT_AGENTS = 3; // 병렬 Sub-Agent 최대 수
+
+    // ===== 대화 압축 =====
+    static readonly COMPACTION_TOKEN_THRESHOLD = 0.9; // 압축 트리거 토큰 임계값 (90%)
+
+    // ===== 메모리 누수 방지 =====
+    static readonly MAX_DELETED_FILES = 100; // deletedFiles 배열 최대 크기
+
+    // ===== 에디터 선택 컨텍스트 =====
+    static readonly EDITOR_SELECTION_MIN_LENGTH = 5;    // 무시할 최소 선택 길이
+    static readonly EDITOR_SELECTION_MAX_LENGTH = 5000; // 최대 허용 선택 길이
+
+    // ===== 웹뷰 =====
+    static readonly WEBVIEW_RESTORE_DELAY_MS = 2000; // 상태 복원 재시도 딜레이 (ms)
 }

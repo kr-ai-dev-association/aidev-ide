@@ -153,6 +153,8 @@ export class InlineDiffManager {
     private saveTimer: NodeJS.Timeout | undefined;
     private storedFileHashes: Map<string, string> = new Map();
     private restorationDisposable: vscode.Disposable | undefined;
+    // 병렬 에이전트 race condition 방지 — 파일별 Promise-chain 직렬화
+    private readonly fileLocks = new Map<string, Promise<void>>();
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Turn Checkpoint Stack (표준 체크포인트)
@@ -928,8 +930,27 @@ export class InlineDiffManager {
     }
 
     /**
+     * 파일별 Promise-chain mutex — 병렬 에이전트가 같은 파일을 동시 수정할 때 직렬화
+     */
+    private async withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+        const current = this.fileLocks.get(filePath) ?? Promise.resolve();
+        let release!: () => void;
+        const next = new Promise<void>(r => { release = r; });
+        this.fileLocks.set(filePath, next);
+        try {
+            await current;
+            return await fn();
+        } finally {
+            release();
+            if (this.fileLocks.get(filePath) === next) {
+                this.fileLocks.delete(filePath);
+            }
+        }
+    }
+
+    /**
      * 파일의 변경사항을 인라인 diff로 표시
-     * 
+     *
      * STEP 1: Checkpoint 생성 (AI가 파일을 수정하기 직전의 전체 스냅샷)
      * STEP 2: LLM 응답을 문서에 즉시 적용
      * STEP 3: Diff 계산 (checkpoint.content vs document.getText())
@@ -944,6 +965,7 @@ export class InlineDiffManager {
         newContent: string,
         conversationTurnId: string = 'legacy',
     ): Promise<void> {
+        return this.withFileLock(filePath, async () => {
         const uri = vscode.Uri.file(filePath);
 
         // ✅ 새 파일 여부를 명확히 판단
@@ -1286,6 +1308,7 @@ export class InlineDiffManager {
         this.updateFileHash(filePath);
         this.scheduleSave();
         this._onPendingChangedEmitter.fire();
+        }); // end withFileLock
     }
 
     /**
@@ -2542,10 +2565,10 @@ export class InlineDiffManager {
 
     private scheduleSave(): void {
         if (this.saveTimer) { clearTimeout(this.saveTimer); }
-        this.saveTimer = setTimeout(() => this.savePersistedState(), 100);
+        this.saveTimer = setTimeout(() => { void this.savePersistedState(); }, 100);
     }
 
-    private savePersistedState(): void {
+    private async savePersistedState(): Promise<void> {
         if (!this.extensionContext) { return; }
         try {
             // pending 상태가 있는 파일만 저장
@@ -2586,7 +2609,7 @@ export class InlineDiffManager {
             }
 
             if (pendingEntries.length === 0) {
-                this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
+                await this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
                 return;
             }
 
@@ -2608,7 +2631,7 @@ export class InlineDiffManager {
                 fileHashes: hashEntries,
                 turnCheckpointStack: serializedTurnStack,
             };
-            this.extensionContext.globalState.update('inlineDiffState_v2', state);
+            await this.extensionContext.globalState.update('inlineDiffState_v2', state);
             console.log(`[InlineDiffManager] Persisted state: ${pendingEntries.length} files, ${serializedTurnStack.length} turn checkpoints`);
         } catch (e) {
             console.error('[InlineDiffManager] Failed to persist state:', e);
@@ -2625,7 +2648,7 @@ export class InlineDiffManager {
             const MAX_AGE = 24 * 60 * 60 * 1000;
             if (Date.now() - state.savedAt > MAX_AGE) {
                 console.log('[InlineDiffManager] Persisted state expired (>24h), discarding');
-                this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
+                await this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
                 return;
             }
 
@@ -2691,7 +2714,7 @@ export class InlineDiffManager {
             }
 
             // 복원 완료 후 저장된 상태 제거 (다음 변경 시 다시 저장됨)
-            this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
+            await this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
         } catch (e) {
             console.error('[InlineDiffManager] Failed to load persisted state:', e);
         }

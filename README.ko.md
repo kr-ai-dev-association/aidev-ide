@@ -6,6 +6,66 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v11.12.0 (치명 이슈 3건 수정: Diff 비동기 저장, Race Condition, God Class 분리)
+
+### InlineDiffManager 비동기 저장 버그 수정
+- `savePersistedState()` → `async` 전환
+- `globalState.update()` 4곳 모두 `await` 추가 (extension 종료 시 데이터 유실 방지)
+- `scheduleSave` setTimeout 콜백에 `void` 명시화
+
+### 병렬 에이전트 Race Condition 수정 (`InlineDiffManager`)
+- `private readonly fileLocks = new Map<string, Promise<void>>()` 추가
+- `private async withFileLock<T>(filePath, fn)` — Promise-chain Mutex 구현
+- `showInlineDiff()` 전체 바디를 `withFileLock`으로 래핑 → 동일 파일 동시 수정 직렬화
+
+### ConversationManager God Class 부분 분리
+- `handlers/LoopStateTracker.ts` 신규 (~160줄): 무한 루프 감지·탈출 로직 (`initializeLoopState`, `updateAndCheckLoopState`, `handleInfiniteLoopEscape`, `resetEscapeCount`)
+- `handlers/ContextGatherer.ts` 신규 (~210줄): UI 준비·MCP 프롬프트·Intent 감지·Context 수집 (`prepareUI`, `collectMcpCustomPrompts`, `detectIntent`, `gatherContext`)
+- ConversationManager에서 ~430줄 제거, `IntentDetector`/`MCPManager`/`RelevantFilesFinder` import 정리
+- `executeAgentLoop` FSM(3,076줄) — 테스트 없이 건드리기 위험하여 v13.x 과제로 보류
+
+---
+
+## v11.11.0 (코드 품질 개선 2차: Provider 어댑터, chat.js 모듈 분리, Promise.allSettled)
+
+### AdminModelApi Provider 어댑터 패턴
+- `AdminModelApi.ts` (834줄) → 얇은 디스패처 (~130줄)로 축소
+- 새 파일: `providers/ILLMProvider.ts`, `OpenAICompatProvider.ts`, `AnthropicProvider.ts`, `GeminiProvider.ts`
+- `AdminModelTypes.ts`로 공유 타입 분리 (순환 import 방지)
+- 공개 API 및 LLMManager 호출부 변경 없음
+
+### chat.js 모듈 분리
+- `webview/chat/model-selector.js` 신규 생성: 모델 선택 드롭다운 로직 분리 (`requestOllamaModels`, `setModelLabel`, `populateModelDropdown`, `bindModelDropdownEvents`)
+- `webview/chat/theme-language.js` 신규 생성: 테마/언어 로직 분리 (`applyTheme`, `updateSendButtonStyle`, `updateChatContainerPadding`, `loadLanguage`, `applyLanguage`)
+- chat.js에서 해당 함수 제거 후 ES module import로 대체
+
+### Promise.allSettled 전환 (`ToolExecutor`)
+- 병렬 읽기 도구 실행 시 `Promise.all` → `Promise.allSettled`로 교체
+- 1개 도구 실패 시 나머지 결과는 그대로 보존
+
+### 잔존 any 타입 제거 (`OrchestrationRouter`)
+- `McpServerInfo`, `RagResult` 로컬 인터페이스 추가
+- `s: any` → 타입 캐스트, `ragRaw: any` → 유니온 타입으로 교체
+
+---
+
+## v11.10.0 (코드 품질 개선: 상수 중앙화, 메모리 누수 수정, 타입 강화)
+
+### 상수 중앙화 (`AgentConfig.ts` 확장)
+- `MAX_CONCURRENT_AGENTS`, `COMPACTION_TOKEN_THRESHOLD`, `MAX_DELETED_FILES` 등 6개 상수 추가
+- `OrchestrationRouter.ts`, `ConversationCompactor.ts`, `ChatViewProvider.ts`, `SettingsManager.ts`의 매직 넘버 제거
+
+### 메모리 누수 수정 (`deletedFiles`)
+- `ConversationManager.deletedFiles` 배열: `catch` 블록에서도 반드시 초기화되도록 `finally` 블록으로 이동
+- `ToolExecutionCoordinator`: `deletedFiles.length < AgentConfig.MAX_DELETED_FILES` 상한 추가
+
+### 타입 안전성 강화 (`RouteOptions`)
+- `OrchestrationRouter.RouteOptions`의 `promptType: any`, `ollamaApi?: any`, `currentModelType?: any`, `notificationService?: any`, `gitRepositoryService?: any` → 실제 타입으로 교체
+
+### `@deprecated` 메서드 제거
+- `ConversationManager`: `setSessionManager`, `setIntentDetector`, `setExternalApiService`, `configurePlanManager`, `setContextHistoryManager` 5개 빈 메서드 제거
+- `extension.ts`: 대응하는 호출부 및 미사용 import(`IntentDetector`, `ExternalApiService`, `ContextHistoryManager`) 제거
+
 ## v11.9.0 (에디터 선택 코드 컨텍스트, RAG 쿼리 보강, LLMManager 리팩토링)
 
 ### 에디터 선택 코드 컨텍스트 (VS Code Selection)

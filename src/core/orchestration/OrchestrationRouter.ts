@@ -31,13 +31,15 @@ import { PromisePool } from './PromisePool';
 import { SubTask, AggregatedResult, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from './types';
 import { LLMManager } from '../managers/model/LLMManager';
 import { PromptComposer } from '../managers/context/prompts/PromptComposer';
+import { AgentConfig } from '../config/AgentConfig';
+import { PromptType, OllamaApi, AiModelType, NotificationService, GitRepositoryService } from '../../services';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export interface RouteOptions {
     userQuery: string;
     webviewToRespond: vscode.Webview;
-    promptType: any;
+    promptType: PromptType;
     imageData?: string;
     imageMimeType?: string;
     selectedFiles?: string[];
@@ -45,15 +47,15 @@ export interface RouteOptions {
     terminalContext?: string;
     diagnosticsContext?: string;
     extensionContext?: vscode.ExtensionContext;
-    ollamaApi?: any;
-    currentModelType?: any;
+    ollamaApi?: OllamaApi;
+    currentModelType?: AiModelType;
     userOS?: string;
-    notificationService?: any;
-    gitRepositoryService?: any;
+    notificationService?: NotificationService;
+    gitRepositoryService?: GitRepositoryService;
     abortSignal?: AbortSignal;
 }
 
-const MAX_CONCURRENT_AGENTS = 3;
+const MAX_CONCURRENT_AGENTS = AgentConfig.MAX_CONCURRENT_AGENTS;
 
 /** TaskQueue 아이템 (webview 전달용) */
 interface TaskQueueItem {
@@ -62,6 +64,11 @@ interface TaskQueueItem {
     detail?: string;
     status: 'pending' | 'in_progress' | 'done' | 'failed';
 }
+
+/** MCP 서버 최소 타입 (gatherRulesContext 내부용) */
+interface McpServerInfo { enabled: boolean; customPrompt?: string; name: string; }
+/** RAG 검색 결과 최소 타입 (gatherRulesContext 내부용) */
+interface RagResult { source_name?: string; source?: string; document_name?: string; document?: string; similarity?: number; content: string; }
 
 export class OrchestrationRouter {
     /**
@@ -705,10 +712,10 @@ export class OrchestrationRouter {
         // 3. MCP 커스텀 프롬프트
         try {
             const { MCPManager } = await import('../mcp/MCPManager');
-            const mcpServers = MCPManager.getInstance().getServers();
+            const mcpServers = MCPManager.getInstance().getServers() as McpServerInfo[];
             const mcpParts = mcpServers
-                .filter((s: any) => s.enabled && s.customPrompt?.trim())
-                .map((s: any) => `**[MCP: ${s.name}]**\n${s.customPrompt!.trim()}`);
+                .filter(s => s.enabled && s.customPrompt?.trim())
+                .map(s => `**[MCP: ${s.name}]**\n${s.customPrompt!.trim()}`);
             if (mcpParts.length > 0) {
                 parts.push(`## MCP 도구 사용 지침\n\n${mcpParts.join('\n\n')}`);
             }
@@ -733,15 +740,15 @@ export class OrchestrationRouter {
                 const userInfo = auth.getUserInfo();
                 const orgId = userInfo?.organization_id;
                 const { CodePilotApiClient } = await import('../../services/api/CodePilotApiClient');
-                const ragRaw: any = await CodePilotApiClient.getInstance().searchRag(
+                const ragRaw = await CodePilotApiClient.getInstance().searchRag(
                     userQuery, orgId || undefined, undefined, 5,
-                );
-                const ragResults = Array.isArray(ragRaw)
+                ) as RagResult[] | { data?: RagResult[]; results?: RagResult[] };
+                const ragResults: RagResult[] = Array.isArray(ragRaw)
                     ? ragRaw
-                    : (ragRaw?.data || ragRaw?.results || []);
+                    : ((ragRaw as { data?: RagResult[]; results?: RagResult[] }).data || (ragRaw as { data?: RagResult[]; results?: RagResult[] }).results || []);
                 if (ragResults.length > 0) {
                     const ragText = ragResults
-                        .map((r: any, i: number) => {
+                        .map((r, i) => {
                             const source = r.source_name || r.source || '';
                             const doc = r.document_name || r.document || '';
                             const sim = r.similarity != null ? ` (유사도: ${(r.similarity * 100).toFixed(0)}%)` : '';
