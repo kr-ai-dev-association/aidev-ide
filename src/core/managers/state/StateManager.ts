@@ -280,12 +280,16 @@ export class StateManager {
     private readonly ERROR_FALLBACK_MODEL_TYPE_KEY = 'codepilot.errorFallbackModelType';
     private readonly ERROR_FALLBACK_MODEL_NAME_KEY = 'codepilot.errorFallbackModelName';
     private readonly ERROR_FALLBACK_API_KEY_KEY = 'codepilot.errorFallbackApiKey';
+    private readonly COMPLETION_MODEL_TYPE_KEY = 'codepilot.completionModelType';
+    private readonly COMPLETION_MODEL_NAME_KEY = 'codepilot.completionModelName';
+    private readonly COMPLETION_API_KEY_KEY = 'codepilot.completionApiKey';
 
     // 라우팅 모델별 AdminModelConfig 저장 키 (group:/admin 선택 시)
     private readonly COMPACTOR_ADMIN_CONFIG_KEY = 'codepilot.compactorAdminConfig';
     private readonly COMMAND_ADMIN_CONFIG_KEY = 'codepilot.commandAdminConfig';
     private readonly INTENT_ADMIN_CONFIG_KEY = 'codepilot.intentAdminConfig';
     private readonly ERROR_FALLBACK_ADMIN_CONFIG_KEY = 'codepilot.errorFallbackAdminConfig';
+    private readonly COMPLETION_ADMIN_CONFIG_KEY = 'codepilot.completionAdminConfig';
 
     /**
      * API Key를 저장합니다
@@ -1003,6 +1007,70 @@ export class StateManager {
 
     public async deleteErrorFallbackAdminConfig(): Promise<void> {
         await this.deleteSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveCompletionAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getCompletionAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteCompletionAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_ADMIN_CONFIG_KEY);
+    }
+
+    // ===== 소스코드 자동완성 모델 관련 메서드들 =====
+
+    public async saveCompletionModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_MODEL_TYPE_KEY, modelType);
+    }
+
+    public async getCompletionModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_MODEL_TYPE_KEY);
+    }
+
+    private async deleteCompletionModelType(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_MODEL_TYPE_KEY);
+    }
+
+    public async saveCompletionModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_MODEL_NAME_KEY, modelName);
+    }
+
+    public async getCompletionModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_MODEL_NAME_KEY);
+    }
+
+    private async deleteCompletionModelName(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_MODEL_NAME_KEY);
+    }
+
+    public async saveCompletionApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_API_KEY_KEY, apiKey);
+    }
+
+    public async getCompletionApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_API_KEY_KEY);
+    }
+
+    public async hasCompletionApiKey(): Promise<boolean> {
+        const key = await this.getCompletionApiKey();
+        return !!key;
+    }
+
+    private async deleteCompletionApiKey(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_API_KEY_KEY);
+    }
+
+    public async clearCompletionModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteCompletionModelType(),
+            this.deleteCompletionModelName(),
+            this.deleteCompletionApiKey(),
+            this.deleteCompletionAdminConfig(),
+        ]);
     }
 
     // ===== MCP 서버 관련 메서드들 =====

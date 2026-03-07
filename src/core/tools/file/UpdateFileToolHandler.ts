@@ -12,6 +12,13 @@ import {
 import { FileMutationManager, PatchStrategy } from "../../managers/file/FileMutationManager";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { z } from "zod";
+
+const UpdateFileParamsSchema = z.object({
+  path: z.string().min(1),
+  diff: z.string().optional(),
+  content: z.string().optional(),
+});
 
 export class UpdateFileToolHandler implements IToolHandler {
   readonly name = Tool.UPDATE_FILE;
@@ -20,11 +27,16 @@ export class UpdateFileToolHandler implements IToolHandler {
     toolUse: ToolUse,
     context: ToolExecutionContext,
   ): Promise<ToolResponse> {
-    const filePath = toolUse.params.path;
-    let diff = toolUse.params.diff;
+    const parseResult = UpdateFileParamsSchema.safeParse(toolUse.params);
+    if (!parseResult.success) {
+      const msg = parseResult.error.errors[0]?.message ?? 'Invalid params';
+      return { success: false, message: msg, error: { code: 'INVALID_PARAMS', message: msg } };
+    }
+    const filePath = parseResult.data.path;
+    let diff = parseResult.data.diff;
 
     // LLM이 diff 대신 content를 보낸 경우 처리 (전체 파일 덮어쓰기로 폴백)
-    if (!diff && toolUse.params.content) {
+    if (!diff && parseResult.data.content) {
       console.log(`[UpdateFileToolHandler] ⚠️ LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
       // content가 있으면 create_file처럼 전체 파일 덮어쓰기로 처리
       const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
@@ -34,7 +46,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         name: Tool.CREATE_FILE,
         params: {
           path: filePath,
-          content: toolUse.params.content
+          content: parseResult.data.content
         }
       }, context);
     }

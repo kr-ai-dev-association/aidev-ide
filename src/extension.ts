@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 
 import {
   NotificationService,
@@ -26,6 +27,7 @@ import {
   LLMManager,
 } from "./core";
 import { PromptBuilder } from "./core/managers/context/PromptBuilder";
+import { PromptComposer } from "./core/managers/context/prompts/PromptComposer";
 import { ConversationManager } from "./core/managers/conversation/ConversationManager";
 import { LLMApiClient } from "./core/managers/model/LLMApiClient";
 import { FileChangeTracker } from "./core/managers/action/file/FileChangeTracker";
@@ -36,6 +38,7 @@ import {
   DIFF_VIEW_URI_SCHEME,
 } from "./core/managers/diff/DiffContentProvider";
 import { DiffManager } from "./core/managers/diff/DiffManager";
+import { InlineCompletionProvider } from "./core/completion/InlineCompletionProvider";
 import { DiffCodeLensProvider } from "./core/managers/diff/DiffCodeLensProvider";
 import { InlineDiffManager } from "./core/managers/diff/InlineDiffManager";
 import {
@@ -88,6 +91,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // InlineDiffManager에 ExtensionContext 주입 (영구 저장 복원)
   InlineDiffManager.getInstance().setContext(context);
+
+  // Skills 파일을 storageUri (프로젝트 폴더 외부)에 저장
+  if (context.storageUri) {
+    const skillsDir = path.join(context.storageUri.fsPath, 'rules');
+    PromptComposer.setSkillsDir(skillsDir);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(skillsDir));
+  }
 
   // CodePilot Backend 인증 서비스 초기화
   authService = AuthService.initialize(context);
@@ -462,6 +472,15 @@ export async function activate(context: vscode.ExtensionContext) {
       diffCodeLensProvider,
     ),
   );
+  // 소스코드 자동완성 Provider 등록 (Ghost Text / Tab Completion)
+  const inlineCompletionProvider = new InlineCompletionProvider(llmManager, stateManager);
+  context.subscriptions.push(
+    vscode.languages.registerInlineCompletionItemProvider(
+      { scheme: 'file' },
+      inlineCompletionProvider
+    )
+  );
+
   // 커서 IDE 방식: 인라인 Diff 명령어 등록
   context.subscriptions.push(
     vscode.commands.registerCommand(

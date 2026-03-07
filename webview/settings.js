@@ -396,6 +396,7 @@ function populateRoutingModelOptions() {
     document.getElementById('compactor-model-type-select'),
     document.getElementById('command-model-type-select'),
     document.getElementById('intent-model-type-select'),
+    document.getElementById('completion-model-type-select'),
     document.getElementById('error-fallback-model-type-select'),
   ];
 
@@ -737,6 +738,8 @@ const autoMcpToolStatus = document.getElementById("auto-mcp-tool-status");
 
 const orchestrationToggle = document.getElementById("orchestration-toggle");
 const orchestrationStatus = document.getElementById("orchestration-status");
+const inlineCompletionToggle = document.getElementById("inline-completion-toggle");
+const inlineCompletionStatus = document.getElementById("inline-completion-status");
 
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
@@ -768,6 +771,7 @@ bindToggleEvents({
   autoToolToggle,
   autoMcpToolToggle,
   orchestrationToggle,
+  inlineCompletionToggle,
   vscode,
 });
 
@@ -1955,7 +1959,7 @@ window.addEventListener("message", (event) => {
         window.routingOllamaModelsCache = message.models;
 
         // 현재 ollama가 선택된 모든 라우팅 모델 셀렉트 업데이트
-        const prefixes = ["compactor", "command", "intent"];
+        const prefixes = ["compactor", "command", "intent", "completion", "error-fallback"];
         prefixes.forEach((prefix) => {
           const typeSelect = document.getElementById(
             `${prefix}-model-type-select`,
@@ -2076,6 +2080,9 @@ window.addEventListener("message", (event) => {
         orchestrationToggle
       ) {
         orchestrationToggle.checked = message.orchestrationEnabled;
+      }
+      if (typeof message.inlineCompletionEnabled === "boolean" && inlineCompletionToggle) {
+        inlineCompletionToggle.checked = message.inlineCompletionEnabled;
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
@@ -2262,6 +2269,7 @@ window.addEventListener("message", (event) => {
       restoreRoutingModelUI('compactor', message.compactorModelType, message.compactorModelName);
       restoreRoutingModelUI('command', message.commandModelType, message.commandModelName);
       restoreRoutingModelUI('intent', message.intentModelType, message.intentModelName);
+      restoreRoutingModelUI('completion', message.completionModelType, message.completionModelName);
       restoreRoutingModelUI('error-fallback', message.errorFallbackModelType, message.errorFallbackModelName);
 
       // ===== AI 모델 드롭박스 설정 (option 동적 추가 후 실행) =====
@@ -2419,6 +2427,52 @@ window.addEventListener("message", (event) => {
           commandModelStatus.textContent = `Command API 키 저장 오류: ${message.error}`;
           commandModelStatus.className = "info-message error-message";
         }
+      }
+      break;
+    case "completionModelSaved":
+      {
+        const cmStatus = document.getElementById("completion-model-status");
+        if (cmStatus) {
+          cmStatus.textContent = "자동완성 모델이 저장되었습니다.";
+          cmStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "completionModelSaveError":
+      {
+        const cmStatus = document.getElementById("completion-model-status");
+        if (cmStatus) {
+          cmStatus.textContent = `자동완성 모델 저장 오류: ${message.error}`;
+          cmStatus.className = "info-message error-message";
+        }
+      }
+      break;
+    case "completionModelCleared":
+      {
+        const cmStatus = document.getElementById("completion-model-status");
+        const cmTypeSelect = document.getElementById("completion-model-type-select");
+        if (cmTypeSelect) cmTypeSelect.value = "";
+        if (cmStatus) {
+          cmStatus.textContent = "자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          cmStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "completionApiKeySaved":
+      {
+        const cmStatus = document.getElementById("completion-model-status");
+        if (cmStatus) {
+          cmStatus.textContent = "자동완성 API 키가 저장되었습니다.";
+          cmStatus.className = "info-message success-message";
+        }
+      }
+      break;
+    case "inlineCompletionEnabledSet":
+      if (inlineCompletionStatus) {
+        inlineCompletionStatus.textContent = inlineCompletionToggle && inlineCompletionToggle.checked
+          ? "소스코드 자동완성이 활성화되었습니다."
+          : "소스코드 자동완성이 비활성화되었습니다.";
+        inlineCompletionStatus.className = "info-message success-message";
       }
       break;
     case "errorFallbackModelSaved":
@@ -3187,6 +3241,7 @@ document.addEventListener("DOMContentLoaded", () => {
         compactor: "clearCompactorModel",
         command: "clearCommandModel",
         intent: "clearIntentModel",
+        completion: "clearCompletionModel",
         "error-fallback": "clearErrorFallbackModel",
       };
       const deleteCommand = commandMap[prefix];
@@ -3569,6 +3624,59 @@ document.addEventListener("DOMContentLoaded", () => {
       if (apiKeyInput) apiKeyInput.value = "";
     });
   }
+
+  // 소스코드 자동완성 모델 타입 선택 변경 이벤트
+  const completionTypeSelect = document.getElementById("completion-model-type-select");
+  if (completionTypeSelect) {
+    completionTypeSelect.addEventListener("change", (e) => {
+      handleModelTypeChange("completion", e.target.value);
+    });
+  }
+
+  // 소스코드 자동완성 모델 저장 버튼
+  const saveCompletionModelButton = document.getElementById("save-completion-model-button");
+  if (saveCompletionModelButton) {
+    saveCompletionModelButton.addEventListener("click", () => {
+      const typeSelect = document.getElementById("completion-model-type-select");
+      const submodelSelect = document.getElementById("completion-submodel-select");
+      const modelType = typeSelect ? typeSelect.value : "";
+      const modelName = submodelSelect ? submodelSelect.value : "";
+
+      if (!modelType) {
+        const statusEl = document.getElementById("completion-model-status");
+        if (statusEl) {
+          statusEl.textContent = "모델 타입을 선택해주세요.";
+          statusEl.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({ command: "saveCompletionModel", modelType, modelName });
+    });
+  }
+
+  // 소스코드 자동완성 API 키 저장 버튼
+  const saveCompletionApiKeyButton = document.getElementById("save-completion-api-key-button");
+  if (saveCompletionApiKeyButton) {
+    saveCompletionApiKeyButton.addEventListener("click", () => {
+      const typeSelect = document.getElementById("completion-model-type-select");
+      const apiKeyInput = document.getElementById("completion-api-key-input");
+      const modelType = typeSelect ? typeSelect.value : "";
+      const apiKey = apiKeyInput ? apiKeyInput.value : "";
+
+      if (!apiKey) {
+        const statusEl = document.getElementById("completion-model-status");
+        if (statusEl) {
+          statusEl.textContent = "API 키를 입력해주세요.";
+          statusEl.className = "info-message error-message";
+        }
+        return;
+      }
+
+      vscode.postMessage({ command: "saveCompletionApiKey", modelType, apiKey });
+      if (apiKeyInput) apiKeyInput.value = "";
+    });
+  }
 });
 
 // ===== AgentPolicy 관련 함수들 (다중 파일 지원) =====
@@ -3816,6 +3924,39 @@ setupAgentPolicyFileUpload(
   "db-policy",
 );
 
+// AgentPolicy 경로 입력 설정
+function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
+  const pathInput = document.getElementById(pathInputId);
+  const addButton = document.getElementById(buttonId);
+  const statusElement = document.getElementById(statusId);
+  if (!pathInput || !addButton) return;
+
+  addButton.addEventListener("click", () => {
+    const filePath = pathInput.value.trim();
+    if (!filePath) {
+      if (statusElement) showStatus(statusElement, "파일 경로를 입력하세요.", "error");
+      return;
+    }
+    if (!filePath.endsWith(".md") && !filePath.endsWith(".markdown")) {
+      if (statusElement) showStatus(statusElement, "Markdown 파일(.md)만 추가할 수 있습니다.", "error");
+      return;
+    }
+    if (statusElement) showStatus(statusElement, "추가 중...", "info");
+    addButton.disabled = true;
+    vscode.postMessage({ command: "addPathAgentPolicy", category, filePath });
+  });
+
+  pathInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addButton.click();
+  });
+}
+
+setupAgentPolicyPathInput("stable-version", "path-stable-version-input", "add-path-stable-version-button", "stable-version-status");
+setupAgentPolicyPathInput("coding-style", "path-coding-style-input", "add-path-coding-style-button", "coding-style-status");
+setupAgentPolicyPathInput("project-architecture", "path-project-architecture-input", "add-path-project-architecture-button", "project-architecture-status");
+setupAgentPolicyPathInput("dependency-policy", "path-dependency-policy-input", "add-path-dependency-policy-button", "dependency-policy-status");
+setupAgentPolicyPathInput("db-policy", "path-db-policy-input", "add-path-db-policy-button", "db-policy-status");
+
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", (event) => {
   const message = event.data;
@@ -3846,6 +3987,11 @@ window.addEventListener("message", (event) => {
             "success",
           );
         }
+        // 경로 입력 초기화 및 버튼 활성화
+        const addPathBtn = document.getElementById(`add-path-${message.category}-button`);
+        const pathInput = document.getElementById(`path-${message.category}-input`);
+        if (addPathBtn) addPathBtn.disabled = false;
+        if (pathInput) pathInput.value = "";
         // 파일 목록 새로고침
         vscode.postMessage({ command: "listAllAgentPolicyFiles" });
       }
@@ -3861,14 +4007,28 @@ window.addEventListener("message", (event) => {
             `저장 실패: ${message.error}`,
             "error",
           );
-          // 업로드 버튼 다시 활성화
+          // 업로드 버튼 및 경로 추가 버튼 다시 활성화
           const uploadBtnId = `upload-${message.category}-button`;
           const uploadBtn = document.getElementById(uploadBtnId);
-          if (uploadBtn) {
-            uploadBtn.disabled = false;
-          }
+          if (uploadBtn) uploadBtn.disabled = false;
+          const addPathBtn = document.getElementById(`add-path-${message.category}-button`);
+          if (addPathBtn) addPathBtn.disabled = false;
         }
       }
+      break;
+
+    // Skills 전체 초기화 완료
+    case "allSkillsReset":
+      // 모든 파일 목록 UI 비우기
+      document.querySelectorAll(".policy-file-list").forEach((el) => {
+        el.innerHTML = "";
+      });
+      // 상태 메시지 초기화
+      ["stable-version-status", "coding-style-status", "project-architecture-status",
+        "dependency-policy-status", "db-policy-status"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) showStatus(el, "초기화 완료", "success");
+      });
       break;
 
     // 파일 삭제 완료
@@ -4794,6 +4954,16 @@ function initializeUsageMetrics() {
 
 // 사용량 메트릭 초기화 실행
 initializeUsageMetrics();
+
+// Skills 초기화 버튼
+const resetSkillsButton = document.getElementById("reset-skills-button");
+if (resetSkillsButton) {
+  resetSkillsButton.addEventListener("click", () => {
+    if (confirm("모든 Skills 파일을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) {
+      vscode.postMessage({ command: "resetAllSkills" });
+    }
+  });
+}
 
 // ===== 서버(조직) 설정 메시지 핸들러 =====
 window.addEventListener("message", (event) => {

@@ -116,6 +116,11 @@ export function openSettingsPanel(
             const errorFallbackModelType = await stateManager.getErrorFallbackModelType();
             const errorFallbackModelName = await stateManager.getErrorFallbackModelName();
             const errorFallbackApiKeySet = await stateManager.hasErrorFallbackApiKey();
+            const completionModelType = await stateManager.getCompletionModelType();
+            const completionModelName = await stateManager.getCompletionModelName();
+            const completionApiKeySet = await stateManager.hasCompletionApiKey();
+            const inlineCompletionEnabled = vscode.workspace.getConfiguration('codepilot')
+              .get<boolean>('inlineCompletion', false);
 
             // duplicate removed
             const messageToSend = {
@@ -154,6 +159,10 @@ export function openSettingsPanel(
               errorFallbackModelType: errorFallbackModelType || "",
               errorFallbackModelName: errorFallbackModelName || "",
               errorFallbackApiKeySet: errorFallbackApiKeySet,
+              completionModelType: completionModelType || "",
+              completionModelName: completionModelName || "",
+              completionApiKeySet: completionApiKeySet,
+              inlineCompletionEnabled: inlineCompletionEnabled,
               chatTheme: chatTheme,
               extensionVersion: extensionVersion,
               personalBuildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
@@ -646,6 +655,101 @@ export function openSettingsPanel(
             safePostMessage(panel, { command: "errorFallbackModelClearError", error: error.message });
           }
           break;
+
+        case "saveCompletionModel": // 소스코드 자동완성 모델 저장
+          try {
+            const completionType = data.modelType;
+            const completionModelNameSave = data.modelName;
+            if (completionType) {
+              await stateManager.saveCompletionModelType(completionType);
+              if (completionModelNameSave) {
+                await stateManager.saveCompletionModelName(completionModelNameSave);
+              }
+              if ((completionType.startsWith('group:') || completionType === 'admin') && completionModelNameSave) {
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const preset = aiModelSettings.find((s: any) => s.key === completionModelNameSave);
+                if (preset && preset.value) {
+                  const v = preset.value;
+                  const ch = v.customHeaders || v.custom_headers || {};
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: completionModelNameSave,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof ch === 'string' ? JSON.parse(ch || '{}') : ch,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveCompletionAdminConfig(JSON.stringify(adminConfig));
+                }
+              }
+              safePostMessage(panel, { command: "completionModelSaved" });
+              const typeLabel = { ollama: "Ollama", admin: "Admin" }[completionType as string] || completionType;
+              const modelInfo = completionModelNameSave ? ` (${completionModelNameSave})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: 자동완성 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, { command: "completionModelSaveError", error: "모델 타입을 선택해주세요." });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "completionModelSaveError", error: error.message });
+            notificationService.showErrorMessage(`자동완성 모델 저장 오류: ${error.message}`);
+          }
+          break;
+
+        case "saveCompletionApiKey": // 소스코드 자동완성 API 키 저장
+          try {
+            const completionApiKey = data.apiKey;
+            const completionApiType = data.modelType;
+            if (completionApiKey) {
+              await stateManager.saveCompletionApiKey(completionApiKey);
+              safePostMessage(panel, { command: "completionApiKeySaved" });
+              const typeLabel = { admin: "Admin" }[completionApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: 자동완성 ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, { command: "completionApiKeySaveError", error: "API 키를 입력해주세요." });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "completionApiKeySaveError", error: error.message });
+            notificationService.showErrorMessage(`자동완성 API 키 저장 오류: ${error.message}`);
+          }
+          break;
+
+        case "clearCompletionModel": // 소스코드 자동완성 모델 초기화
+          try {
+            await stateManager.clearCompletionModelConfig();
+            safePostMessage(panel, { command: "completionModelCleared" });
+            notificationService.showInfoMessage("CODEPILOT: 자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.");
+          } catch (error: any) {
+            safePostMessage(panel, { command: "completionModelClearError", error: error.message });
+          }
+          break;
+
+        case "setInlineCompletionEnabled": // 소스코드 자동완성 ON/OFF
+          try {
+            const inlineCompletionVal = data.enabled;
+            if (typeof inlineCompletionVal === "boolean") {
+              await vscode.workspace.getConfiguration('codepilot')
+                .update('inlineCompletion', inlineCompletionVal, vscode.ConfigurationTarget.Global);
+              safePostMessage(panel, { command: "inlineCompletionEnabledSet" });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "inlineCompletionEnabledSetError", error: error.message });
+          }
+          break;
+
         case "saveOllamaApiUrl": // Ollama API URL 저장 케이스 추가
           const ollamaApiUrlToSave = data.ollamaApiUrl;
           if (ollamaApiUrlToSave && typeof ollamaApiUrlToSave === "string") {
@@ -1758,8 +1862,8 @@ export function openSettingsPanel(
                 throw new Error("워크스페이스가 열려있지 않습니다.");
               }
 
-              // ./.agent/rules 디렉토리 생성
-              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              // storageUri/rules 디렉토리 생성
+              const agentDir = path.join(context.storageUri!.fsPath, "rules");
               const agentDirUri = vscode.Uri.file(agentDir);
               await vscode.workspace.fs.createDirectory(agentDirUri);
 
@@ -1804,8 +1908,8 @@ export function openSettingsPanel(
                 throw new Error("워크스페이스가 열려있지 않습니다.");
               }
 
-              // ./.agent/rules 디렉토리 생성
-              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              // storageUri/rules 디렉토리 생성
+              const agentDir = path.join(context.storageUri!.fsPath, "rules");
               const agentDirUri = vscode.Uri.file(agentDir);
               await vscode.workspace.fs.createDirectory(agentDirUri);
 
@@ -1850,8 +1954,8 @@ export function openSettingsPanel(
                 throw new Error("워크스페이스가 열려있지 않습니다.");
               }
 
-              // ./.agent/rules 디렉토리 생성
-              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              // storageUri/rules 디렉토리 생성
+              const agentDir = path.join(context.storageUri!.fsPath, "rules");
               const agentDirUri = vscode.Uri.file(agentDir);
               await vscode.workspace.fs.createDirectory(agentDirUri);
 
@@ -1896,8 +2000,8 @@ export function openSettingsPanel(
                 throw new Error("워크스페이스가 열려있지 않습니다.");
               }
 
-              // ./.agent/rules 디렉토리 생성
-              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              // storageUri/rules 디렉토리 생성
+              const agentDir = path.join(context.storageUri!.fsPath, "rules");
               const agentDirUri = vscode.Uri.file(agentDir);
               await vscode.workspace.fs.createDirectory(agentDirUri);
 
@@ -1942,8 +2046,8 @@ export function openSettingsPanel(
                 throw new Error("워크스페이스가 열려있지 않습니다.");
               }
 
-              // ./.agent/rules 디렉토리 생성
-              const agentDir = path.join(workspaceRoot, ".agent", "rules");
+              // storageUri/rules 디렉토리 생성
+              const agentDir = path.join(context.storageUri!.fsPath, "rules");
               const agentDirUri = vscode.Uri.file(agentDir);
               await vscode.workspace.fs.createDirectory(agentDirUri);
 
@@ -2062,7 +2166,7 @@ export function openSettingsPanel(
           try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
-              const filePath = path.join(workspaceRoot, ".agent", "rules", "stable-version.md");
+              const filePath = path.join(context.storageUri!.fsPath, "rules", "stable-version.md");
               const fileUri = vscode.Uri.file(filePath);
               try {
                 await vscode.workspace.fs.delete(fileUri);
@@ -2086,7 +2190,7 @@ export function openSettingsPanel(
           try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
-              const filePath = path.join(workspaceRoot, ".agent", "rules", "coding-style.md");
+              const filePath = path.join(context.storageUri!.fsPath, "rules", "coding-style.md");
               const fileUri = vscode.Uri.file(filePath);
               try {
                 await vscode.workspace.fs.delete(fileUri);
@@ -2110,7 +2214,7 @@ export function openSettingsPanel(
           try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
-              const filePath = path.join(workspaceRoot, ".agent", "rules", "project-architecture.md");
+              const filePath = path.join(context.storageUri!.fsPath, "rules", "project-architecture.md");
               const fileUri = vscode.Uri.file(filePath);
               try {
                 await vscode.workspace.fs.delete(fileUri);
@@ -2134,7 +2238,7 @@ export function openSettingsPanel(
           try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
-              const filePath = path.join(workspaceRoot, ".agent", "rules", "dependency-policy.md");
+              const filePath = path.join(context.storageUri!.fsPath, "rules", "dependency-policy.md");
               const fileUri = vscode.Uri.file(filePath);
               try {
                 await vscode.workspace.fs.delete(fileUri);
@@ -2158,7 +2262,7 @@ export function openSettingsPanel(
           try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
-              const filePath = path.join(workspaceRoot, ".agent", "rules", "db-policy.md");
+              const filePath = path.join(context.storageUri!.fsPath, "rules", "db-policy.md");
               const fileUri = vscode.Uri.file(filePath);
               try {
                 await vscode.workspace.fs.delete(fileUri);
@@ -2198,8 +2302,8 @@ export function openSettingsPanel(
               throw new Error("워크스페이스가 열려있지 않습니다.");
             }
 
-            // ./.agent/rules/{category} 디렉토리 생성
-            const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+            // storageUri/rules/{category} 디렉토리 생성
+            const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
             const categoryDirUri = vscode.Uri.file(categoryDir);
             await vscode.workspace.fs.createDirectory(categoryDirUri);
 
@@ -2220,7 +2324,7 @@ export function openSettingsPanel(
               fileName: safeFileName
             });
             notificationService.showInfoMessage(
-              `CODEPILOT: ${safeFileName} saved to .agent/rules/${category}/`,
+              `CODEPILOT: ${safeFileName} saved to skills/${category}/`,
             );
           } catch (error: any) {
             safePostMessage(panel, {
@@ -2230,6 +2334,57 @@ export function openSettingsPanel(
             });
             notificationService.showErrorMessage(
               `Error adding Agent Policy file: ${error.message}`,
+            );
+          }
+          break;
+
+        case "addPathAgentPolicy": // 경로 입력으로 파일 추가
+          try {
+            const { category, filePath: srcFilePath } = data;
+            const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+            if (!category || !validCategories.includes(category)) {
+              throw new Error(`유효하지 않은 카테고리: ${category}`);
+            }
+            if (!srcFilePath || typeof srcFilePath !== 'string') {
+              throw new Error("파일 경로가 필요합니다.");
+            }
+
+            // 파일 읽기
+            const srcUri = vscode.Uri.file(srcFilePath);
+            const rawBytes = await vscode.workspace.fs.readFile(srcUri);
+            const content = Buffer.from(rawBytes).toString('utf8');
+
+            // 파일명 추출 및 정리
+            const baseName = path.basename(srcFilePath);
+            if (!baseName.endsWith('.md') && !baseName.endsWith('.markdown')) {
+              throw new Error("Markdown 파일(.md, .markdown)만 추가할 수 있습니다.");
+            }
+            let safeFileName = baseName.replace(/[<>:"/\\|?*]/g, '_');
+
+            // storageUri/rules/{category} 디렉토리 생성
+            const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(categoryDir));
+
+            // 파일 저장
+            const destPath = path.join(categoryDir, safeFileName);
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(destPath), Buffer.from(content, 'utf8'));
+
+            safePostMessage(panel, {
+              command: "agentPolicyFileAdded",
+              category,
+              fileName: safeFileName,
+            });
+            notificationService.showInfoMessage(
+              `CODEPILOT: ${safeFileName} saved to skills/${category}/`,
+            );
+          } catch (error: any) {
+            safePostMessage(panel, {
+              command: "agentPolicyFileAddError",
+              category: data.category,
+              error: error.message,
+            });
+            notificationService.showErrorMessage(
+              `Error adding Agent Policy file from path: ${error.message}`,
             );
           }
           break;
@@ -2258,7 +2413,7 @@ export function openSettingsPanel(
 
             if (isLegacy) {
               // 레거시 파일: .agent/rules/{fileName}
-              const legacyPath = path.join(workspaceRoot, ".agent", "rules", targetFileName);
+              const legacyPath = path.join(context.storageUri!.fsPath, "rules", targetFileName);
               try {
                 const legacyUri = vscode.Uri.file(legacyPath);
                 await vscode.workspace.fs.stat(legacyUri);
@@ -2269,7 +2424,7 @@ export function openSettingsPanel(
               }
             } else {
               // 새 구조 파일: .agent/rules/{category}/{fileName}
-              const newStructurePath = path.join(workspaceRoot, ".agent", "rules", category, targetFileName);
+              const newStructurePath = path.join(context.storageUri!.fsPath, "rules", category, targetFileName);
               try {
                 const newUri = vscode.Uri.file(newStructurePath);
                 await vscode.workspace.fs.stat(newUri);
@@ -2307,20 +2462,24 @@ export function openSettingsPanel(
 
         case "listAllAgentPolicyFiles": // 모든 카테고리의 파일 목록 조회
           try {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
             const allFiles: Record<string, string[]> = {};
 
             for (const category of categories) {
               allFiles[category] = [];
 
-              if (!workspaceRoot) continue;
-
-              const categoryDir = path.join(workspaceRoot, ".agent", "rules", category);
+              const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
 
               // 디렉토리가 존재하면 파일 목록 조회
               try {
                 const categoryDirUri = vscode.Uri.file(categoryDir);
+                // stat()으로 존재 여부 먼저 확인 — readDirectory 전에 ENOENT 내부 로그 방지
+                try {
+                  await vscode.workspace.fs.stat(categoryDirUri);
+                } catch {
+                  // 디렉토리 없음 — 레거시 파일 확인으로 넘어감
+                  throw Object.assign(new Error('Dir not found'), { code: 'FileNotFound' });
+                }
                 const entries = await vscode.workspace.fs.readDirectory(categoryDirUri);
 
                 for (const [name, type] of entries) {
@@ -2340,7 +2499,7 @@ export function openSettingsPanel(
                   };
                   const legacyFile = legacyFileMap[category];
                   if (legacyFile) {
-                    const legacyPath = path.join(workspaceRoot, ".agent", "rules", legacyFile);
+                    const legacyPath = path.join(context.storageUri!.fsPath, "rules", legacyFile);
                     try {
                       await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
                       allFiles[category].push(legacyFile + ' (레거시)');
@@ -3125,6 +3284,32 @@ export function openSettingsPanel(
               command: "usageMetricsError",
               error: error.message,
             });
+          }
+          break;
+
+        // Skills 전체 초기화
+        case "resetAllSkills":
+          try {
+            const skillsDir = context.storageUri
+              ? path.join(context.storageUri.fsPath, "rules")
+              : null;
+            if (skillsDir) {
+              const skillsDirUri = vscode.Uri.file(skillsDir);
+              try {
+                const entries = await vscode.workspace.fs.readDirectory(skillsDirUri);
+                for (const [name] of entries) {
+                  const entryUri = vscode.Uri.file(path.join(skillsDir, name));
+                  await vscode.workspace.fs.delete(entryUri, { recursive: true });
+                }
+              } catch (e: any) {
+                if (e.code !== "FileNotFound") throw e;
+              }
+            }
+            safePostMessage(panel, { command: "allSkillsReset" });
+            notificationService.showInfoMessage("모든 Skills 파일이 삭제되었습니다.");
+          } catch (error: any) {
+            console.error("[SettingsPanelProvider] resetAllSkills error:", error);
+            notificationService.showErrorMessage(`Skills 초기화 실패: ${error.message}`);
           }
           break;
 

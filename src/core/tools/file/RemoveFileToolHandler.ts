@@ -8,20 +8,22 @@ import { ToolUse, ToolResponse, Tool } from '../types';
 import { ActionType, FileOperationType } from '../../managers/action/types';
 import * as path from 'path';
 import * as fs from 'fs';
+import { z } from 'zod';
+
+const RemoveFileParamsSchema = z.object({
+    path: z.string().min(1),
+});
 
 export class RemoveFileToolHandler implements IToolHandler {
     readonly name = Tool.REMOVE_FILE;
 
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
-        const filePath = toolUse.params.path;
-
-        if (!filePath) {
-            return {
-                success: false,
-                message: 'Path parameter is required',
-                error: { code: 'MISSING_PARAM', message: 'path is required' }
-            };
+        const parseResult = RemoveFileParamsSchema.safeParse(toolUse.params);
+        if (!parseResult.success) {
+            const msg = parseResult.error.errors[0]?.message ?? 'Invalid params';
+            return { success: false, message: msg, error: { code: 'INVALID_PARAMS', message: msg } };
         }
+        const filePath = parseResult.data.path;
 
         // 파일 존재 여부 확인
         const absolutePath = path.isAbsolute(filePath)

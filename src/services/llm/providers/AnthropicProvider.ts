@@ -73,8 +73,8 @@ export class AnthropicProvider implements ILLMProvider {
             throw new Error(`Admin Model API (Anthropic) error: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
-        const data = await response.json() as { content?: Array<{ type: string; name?: string; input?: Record<string, unknown>; text?: string }> };
-        const content = data.content || [];
+        const data: any = await response.json();
+        const content: Array<{ type: string; name?: string; input?: Record<string, unknown>; text?: string }> = data.content || [];
 
         const toolUseParts = content.filter(c => c.type === 'tool_use');
         if (toolUseParts.length > 0) {
@@ -152,11 +152,7 @@ export class AnthropicProvider implements ILLMProvider {
                 if (!trimmed.startsWith('data:')) continue;
 
                 try {
-                    const evt = JSON.parse(trimmed.slice(5).trim()) as {
-                        index?: number;
-                        content_block?: { type: string; id: string; name: string };
-                        delta?: { type: string; text?: string; thinking?: string; partial_json?: string };
-                    };
+                    const evt: any = JSON.parse(trimmed.slice(5).trim());
 
                     if (currentEvent === 'content_block_start') {
                         if (evt.content_block?.type === 'tool_use') {

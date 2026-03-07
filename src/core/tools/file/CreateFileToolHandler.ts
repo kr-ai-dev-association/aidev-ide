@@ -9,13 +9,25 @@ import { ActionType } from '../../managers/action/types';
 import { fixModelHtmlEscaping, removeCDataSections } from '../../../utils/string';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { z } from 'zod';
+
+const CreateFileParamsSchema = z.object({
+    path: z.string().min(1).optional(),
+    absolutePath: z.string().min(1).optional(),
+    content: z.string(),
+});
 
 export class CreateFileToolHandler implements IToolHandler {
     readonly name = Tool.CREATE_FILE;
 
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
-        const filePath = toolUse.params.path || toolUse.params.absolutePath;
-        const content = toolUse.params.content;
+        const parseResult = CreateFileParamsSchema.safeParse(toolUse.params);
+        if (!parseResult.success) {
+            const msg = parseResult.error.errors[0]?.message ?? 'Invalid params';
+            return { success: false, message: msg, error: { code: 'INVALID_PARAMS', message: msg } };
+        }
+        const filePath = parseResult.data.path || parseResult.data.absolutePath;
+        const content = parseResult.data.content;
 
         if (!filePath) {
             return {

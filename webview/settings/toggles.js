@@ -19,6 +19,7 @@ export function bindToggleEvents(elements) {
     autoToolToggle,
     autoMcpToolToggle,
     orchestrationToggle,
+    inlineCompletionToggle,
     vscode,
   } = elements;
 
@@ -118,6 +119,16 @@ export function bindToggleEvents(elements) {
       const enabled = autoExecuteToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setAutoExecuteCommandsEnabled", enabled });
+      }
+    });
+  }
+
+  // 소스코드 자동완성 토글
+  if (inlineCompletionToggle) {
+    inlineCompletionToggle.addEventListener("change", () => {
+      const enabled = inlineCompletionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setInlineCompletionEnabled", enabled });
       }
     });
   }

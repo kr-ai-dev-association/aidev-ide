@@ -160,6 +160,96 @@ export function initAgentPolicyUploads(vscode) {
   policyConfigs.forEach((config) => {
     setupAgentPolicyFileUpload(config, vscode);
   });
+
+  // 경로 입력 버튼 설정
+  const pathConfigs = [
+    { category: "stable-version", pathInputId: "path-stable-version-input", buttonId: "add-path-stable-version-button", statusId: "stable-version-status" },
+    { category: "coding-style", pathInputId: "path-coding-style-input", buttonId: "add-path-coding-style-button", statusId: "coding-style-status" },
+    { category: "project-architecture", pathInputId: "path-project-architecture-input", buttonId: "add-path-project-architecture-button", statusId: "project-architecture-status" },
+    { category: "dependency-policy", pathInputId: "path-dependency-policy-input", buttonId: "add-path-dependency-policy-button", statusId: "dependency-policy-status" },
+    { category: "db-policy", pathInputId: "path-db-policy-input", buttonId: "add-path-db-policy-button", statusId: "db-policy-status" },
+  ];
+  pathConfigs.forEach(({ category, pathInputId, buttonId, statusId }) => {
+    setupAgentPolicyPathInput({ category, pathInputId, buttonId, statusId }, vscode);
+  });
+}
+
+/**
+ * 경로 입력으로 에이전트 정책 파일 추가 설정
+ * @param {Object} config - 설정 객체
+ * @param {Object} vscode - vscode API 객체
+ */
+export function setupAgentPolicyPathInput(config, vscode) {
+  const { category, pathInputId, buttonId, statusId } = config;
+  const pathInput = document.getElementById(pathInputId);
+  const addButton = document.getElementById(buttonId);
+  const statusElement = document.getElementById(statusId);
+
+  if (!pathInput || !addButton) return;
+
+  addButton.addEventListener("click", () => {
+    const filePath = pathInput.value.trim();
+    if (!filePath) {
+      if (statusElement) showStatus(statusElement, "파일 경로를 입력하세요.", "error");
+      return;
+    }
+    if (!filePath.endsWith(".md") && !filePath.endsWith(".markdown")) {
+      if (statusElement) showStatus(statusElement, "Markdown 파일(.md)만 추가할 수 있습니다.", "error");
+      return;
+    }
+    if (statusElement) showStatus(statusElement, "추가 중...", "info");
+    addButton.disabled = true;
+    if (vscode) {
+      vscode.postMessage({ command: "addPathAgentPolicy", category, filePath });
+    }
+  });
+
+  pathInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addButton.click();
+  });
+}
+
+/**
+ * 경로 추가 결과 처리
+ * @param {string} category - 정책 카테고리
+ * @param {boolean} success - 성공 여부
+ * @param {string} message - 결과 메시지
+ */
+export function handleAgentPolicyPathAddResult(category, success, message) {
+  const statusMap = {
+    "stable-version": "stable-version-status",
+    "coding-style": "coding-style-status",
+    "project-architecture": "project-architecture-status",
+    "dependency-policy": "dependency-policy-status",
+    "db-policy": "db-policy-status",
+  };
+  const pathInputMap = {
+    "stable-version": "path-stable-version-input",
+    "coding-style": "path-coding-style-input",
+    "project-architecture": "path-project-architecture-input",
+    "dependency-policy": "path-dependency-policy-input",
+    "db-policy": "path-db-policy-input",
+  };
+  const buttonMap = {
+    "stable-version": "add-path-stable-version-button",
+    "coding-style": "add-path-coding-style-button",
+    "project-architecture": "add-path-project-architecture-button",
+    "dependency-policy": "add-path-dependency-policy-button",
+    "db-policy": "add-path-db-policy-button",
+  };
+
+  const statusElement = document.getElementById(statusMap[category]);
+  const pathInput = document.getElementById(pathInputMap[category]);
+  const addButton = document.getElementById(buttonMap[category]);
+
+  if (addButton) addButton.disabled = false;
+
+  if (success) {
+    if (statusElement) showStatus(statusElement, message || "추가되었습니다.", "success");
+    if (pathInput) pathInput.value = "";
+  } else {
+    if (statusElement) showStatus(statusElement, message || "추가 실패", "error");
+  }
 }
 
 /**

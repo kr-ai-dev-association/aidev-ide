@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "11.12.0",
+  "version": "12.1.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -225,13 +225,13 @@
         },
         "codepilot.autoUpdateFiles": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic updating of files based on LLM's code block suggestions. If disabled, you will be prompted before updating.",
           "scope": "resource"
         },
         "codepilot.autoDeleteFiles": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic deletion of files. If disabled, you will be prompted before deleting any file.",
           "scope": "resource"
         },
@@ -272,13 +272,13 @@
         },
         "codepilot.autoCorrectionEnabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Enable or disable automatic terminal error correction.",
           "scope": "resource"
         },
         "codepilot.autoTestRetryEnabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic retry when automated tests (Smoke Test, Lint Check) fail. When enabled, the system will automatically retry failed tests up to the configured number of times.",
           "scope": "resource"
         },
@@ -316,7 +316,7 @@
         },
         "codepilot.autoMcpToolExecution": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "MCP 도구를 승인 없이 자동 실행할지 여부. 비활성화 시 첫 실행마다 확인 메시지가 표시됩니다.",
           "scope": "resource"
         },
@@ -328,8 +328,14 @@
         },
         "codepilot.orchestration": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "멀티 에이전트 모드를 활성화합니다. 복잡한 작업을 여러 에이전트가 병렬로 분담하여 처리합니다. 토큰 소모량이 단일 에이전트 대비 많아질 수 있습니다. 비활성화 시 기존 단일 에이전트 방식으로 동작합니다.",
+          "scope": "resource"
+        },
+        "codepilot.inlineCompletion": {
+          "type": "boolean",
+          "default": false,
+          "description": "소스코드 인라인 자동완성(Ghost Text)을 활성화합니다. 입력 중 AI가 코드를 자동 완성합니다. Tab 키로 수락합니다.",
           "scope": "resource"
         },
         "codepilot.chatTheme": {

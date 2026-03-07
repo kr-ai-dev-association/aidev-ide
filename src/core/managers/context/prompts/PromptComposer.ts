@@ -33,21 +33,41 @@ export interface PromptComposerOptions {
 }
 
 export class PromptComposer {
+    /** storageUri 기반 스킬 디렉토리 (extension.ts activate 시 설정) */
+    private static _skillsDir: string | null = null;
+
     /**
-     * .agent/rules 디렉토리의 개발 규칙 파일들을 읽어서 반환합니다.
+     * VS Code storageUri 기반 스킬 디렉토리 경로 설정.
+     * activate()에서 호출. 설정되면 .agent/rules 대신 이 경로를 사용.
+     */
+    public static setSkillsDir(dir: string): void {
+        PromptComposer._skillsDir = dir;
+    }
+
+    /**
+     * 스킬 파일 디렉토리 경로 반환.
+     * setSkillsDir로 설정된 경우 그 경로를, 아니면 .agent/rules를 반환.
+     */
+    public static getSkillsDir(): string {
+        if (PromptComposer._skillsDir) {
+            return PromptComposer._skillsDir;
+        }
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        return path.join(workspaceRoot, '.agent', 'rules');
+    }
+
+    /**
+     * 스킬 파일 디렉토리의 개발 규칙 파일들을 읽어서 반환합니다.
      * 각 카테고리는 디렉토리로 구성되며, 디렉토리 내 모든 .md 파일을 읽습니다.
      * 기존 단일 파일 형식(stable-version.md)도 하위 호환성을 위해 지원합니다.
      */
     public static loadAgentRulesWithKeys(): { text: string; ruleKeys: Set<string> } {
         const ruleKeys = new Set<string>();
         try {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (!workspaceFolders || workspaceFolders.length === 0) {
+            const agentRulesDir = PromptComposer.getSkillsDir();
+            if (!agentRulesDir) {
                 return { text: '', ruleKeys };
             }
-
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const agentRulesDir = path.join(workspaceRoot, '.agent', 'rules');
 
             // 디렉토리 존재 여부 확인
             if (!fs.existsSync(agentRulesDir)) {

@@ -6,6 +6,64 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v12.1.0 (자동완성 컨텍스트 강화, 설정 기본값 정비)
+
+### 인라인 자동완성 컨텍스트 확장
+- 커서 앞 컨텍스트: 30줄 → **80줄**, 커서 뒤: 10줄 → **25줄**
+- **열린 탭(Neighboring Tabs) 컨텍스트 추가**: `vscode.window.visibleTextEditors`로 현재 파일 외 열린 탭의 마지막 30줄씩 prefix 앞에 포함
+  - 관련 파일 구조를 LLM이 함께 참고해 완성 품질 향상 (Copilot 방식)
+
+### 설정 UI 순서 정비
+- 일반 탭 토글 순서 재배치:
+  멀티에이전트 → 파일 자동 업데이트 → 자동 파일 삭제 → 도구 자동 실행 → MCP 도구 자동 실행 → 명령어 자동 실행 → 자동 테스트 재시도 → 자동 오류 수정 → **소스코드 자동완성** → 오류 보고 전송
+- 소스코드 자동완성 토글을 자동 오류 수정 아래로 이동
+
+### 설정 기본값 변경 (미설정 사용자 기준)
+| 설정 | 이전 | 이후 |
+|------|------|------|
+| 멀티에이전트 | OFF | **ON** |
+| 파일 자동 업데이트 | OFF | **ON** |
+| 자동 파일 삭제 | OFF | **ON** |
+| MCP 도구 자동 실행 | OFF | **ON** |
+| 자동 테스트 재시도 | OFF | **ON** |
+| 자동 오류 수정 | ON | **OFF** |
+
+---
+
+## v12.0.0 (소스코드 인라인 자동완성, 전용 완성 모델 라우팅)
+
+### 인라인 코드 자동완성 (Ghost Text)
+- `InlineCompletionProvider.ts` 신규 — `vscode.languages.registerInlineCompletionItemProvider` 등록
+- 커서 위치 앞 30줄 + 뒤 10줄 컨텍스트로 LLM 호출, Ghost Text로 완성 제안 (Tab 수락)
+- 150ms 내부 딜레이로 과도한 API 호출 방지, AbortController로 이전 요청 취소
+- 채팅 포맷 프롬프트 — FIM 미지원 모델(Claude/GPT/Ollama 모두) 동작
+
+### 소스코드 자동완성 전용 라우팅 모델
+- 설정 → 라우팅 모델에 "소스코드 자동완성 모델" 슬롯 추가 (기존 Compactor/Command/Intent/Error Fallback과 동일 패턴)
+- `StateManager`: `completionModel` 4개 키 + 메서드 추가
+- `LLMManager.sendMessageWithCompletionModel()` 추가 — 미설정 시 메인 모델 폴백
+
+### ON/OFF 토글
+- 설정 → 일반 → "소스코드 자동완성" 토글 (기본 OFF)
+- `codepilot.inlineCompletion` VS Code 설정값으로 저장
+
+## v11.13.0 (코드 품질 이슈 처리: Provider 런타임 검증, Zod 파라미터 검증, OllamaApi 재시도)
+
+### Provider API 응답 런타임 검증 (4-5)
+- `providerUtils.ts` — `assertResponseField()` 헬퍼 추가 (필수 필드 부재 시 명확한 에러 throw)
+- `OpenAICompatProvider`, `GeminiProvider`: `response.json() as SomeType` → `const data: any` + `assertResponseField` 적용
+- `AnthropicProvider`: `response.json() as SomeType` → `const data: any` 전환 (기존 `data.content || []` fallback 유지)
+- 스트리밍 내부 `JSON.parse() as SomeType` → `const parsed: any` 전환 (try/catch 내부, 이미 안전)
+
+### 쓰기 도구 Zod 파라미터 검증 (4-3)
+- `CreateFileToolHandler`, `UpdateFileToolHandler`, `RemoveFileToolHandler` 3개에 Zod 스키마 추가
+- 잘못된 params(타입 오류, 빈 문자열) 조기 감지 → 명확한 `INVALID_PARAMS` 에러 반환
+
+### OllamaApi 네트워크 재시도 (4-4)
+- `RetryableNetworkError` 클래스 추가 (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT` 등)
+- `makeHttpRequest()`, `sendMessagesStreaming()` 에러 핸들러에서 재시도 가능 에러 분류
+- `sendMessageWithRetry()`에서 `RetryableNetworkError` 감지 시 재시도 로그 출력
+
 ## v11.12.0 (치명 이슈 3건 수정: Diff 비동기 저장, Race Condition, God Class 분리)
 
 ### InlineDiffManager 비동기 저장 버그 수정

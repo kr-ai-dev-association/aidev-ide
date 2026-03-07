@@ -457,7 +457,7 @@ export class OrchestrationRouter {
             return { validated: true, testPassed: true, repairAttempts: 0 };
         }
 
-        const workspaceRoot = ProjectManager.getInstance().getCurrentProject()?.root || '';
+        const workspaceRoot = toolContext.workspaceRoot;
         if (!workspaceRoot) {
             return { validated: false, testPassed: true, repairAttempts: 0 };
         }

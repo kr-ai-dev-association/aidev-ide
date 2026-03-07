@@ -10,6 +10,18 @@ type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type MessageBuilder = (userContent: string) => OllamaMessage[];
 
 /**
+ * 재시도 가능한 네트워크 에러 (ECONNREFUSED, ETIMEDOUT 등)
+ */
+class RetryableNetworkError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'RetryableNetworkError';
+    }
+}
+
+const RETRYABLE_ERROR_CODES = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'];
+
+/**
  * thinking 내용만 있고 response가 비어있을 때 발생하는 에러
  */
 class ThinkingOnlyError extends Error {
@@ -88,6 +100,105 @@ export class OllamaApi {
     }
 
     /**
+     * FIM(Fill-in-the-Middle) 기반 인라인 코드 완성
+     * /api/generate 엔드포인트 사용 — 채팅 포맷 대신 원시 프롬프트
+     */
+    public async sendFimCompletion(prefix: string, suffix: string, options?: SendOptions): Promise<string> {
+        const fim = OllamaApi.getFimTokens(this.modelName);
+        if (!fim) {
+            // FIM 미지원 모델은 빈 문자열 반환 (chat 방식은 툴콜 JSON 내뱉음)
+            console.log(`[OllamaApi] FIM not supported for model: ${this.modelName}`);
+            return '';
+        }
+
+        const prompt = `${fim.prefix}${prefix}${fim.suffix}${suffix}${fim.middle}`;
+        const url = new URL(`${this.apiUrl}/api/generate`);
+        const stopTokens = [fim.prefix, fim.suffix, ...(fim.extraStop ?? [])];
+        const requestData: any = {
+            model: this.modelName,
+            prompt,
+            stream: false,
+            options: { temperature: 0.1, num_predict: 256, stop: stopTokens },
+        };
+
+        console.log(`[OllamaApi] FIM completion request → ${this.modelName}`);
+        const raw = await this.makeHttpRequest(url, requestData, options);
+        const result = (raw.response ?? '').trim();
+        const cleaned = OllamaApi.cleanFimResponse(result, prefix);
+        if (cleaned === null) return '';
+        return cleaned;
+    }
+
+    /**
+     * FIM 응답 정제 + 유효성 검사 (Continue 방식)
+     * null = 버려야 할 응답
+     */
+    private static cleanFimResponse(raw: string, prefix: string): string | null {
+        if (!raw.trim()) return null;
+
+        // 특수 토큰 제거 (stop 토큰이 응답에 섞여 나오는 경우)
+        let text = raw
+            .replace(/<file_sep>/g, '')
+            .replace(/<\|endoftext\|>/g, '')
+            .replace(/<EOT>/g, '')
+            .replace(/<fim_prefix>|<fim_suffix>|<fim_middle>/g, '')
+            .replace(/<\|fim_prefix\|>|<\|fim_suffix\|>|<\|fim_middle\|>/g, '');
+        // 코드 펜스 제거
+        text = text.replace(/^```[\w]*\r?\n?([\s\S]*?)```\s*$/m, '$1').trim();
+        if (!text) return null;
+
+        const firstLine = text.split('\n')[0].trim();
+        const lines = text.split('\n');
+
+        // prose(자연어) 감지 → 버림 (instruct 모델 오동작)
+        if (/^(It |This |Here |Note |The |You |To |In |A |An |I |We |Please |Sure |Certainly)/i.test(firstLine)) {
+            console.log(`[OllamaApi] FIM: prose discarded → use base model (starcoder2:3b, deepseek-coder:1.3b, qwen2.5-coder:1.5b-base)`);
+            return null;
+        }
+        if (firstLine.endsWith('.') && !firstLine.includes(';') && !firstLine.includes('{')) {
+            console.log(`[OllamaApi] FIM: prose (period) discarded`);
+            return null;
+        }
+
+        // 전체 파일 재생성 감지 → 버림
+        if (lines.length > 15 && /^import /.test(firstLine)) {
+            console.log(`[OllamaApi] FIM: full-file regeneration discarded (${lines.length} lines starting with import)`);
+            return null;
+        }
+        // prefix 앞부분을 그대로 반복
+        const prefixStart = prefix.trimStart().slice(0, 40);
+        if (prefixStart && text.trimStart().startsWith(prefixStart)) {
+            console.log(`[OllamaApi] FIM: response repeats prefix, discarded`);
+            return null;
+        }
+        // 20줄 초과 → cursor completion은 짧아야 함
+        if (lines.length > 20) {
+            console.log(`[OllamaApi] FIM: too long (${lines.length} lines), discarded`);
+            return null;
+        }
+
+        return text;
+    }
+
+    /** 모델명으로 FIM 토큰 감지 */
+    private static getFimTokens(modelName: string): { prefix: string; suffix: string; middle: string; extraStop?: string[] } | null {
+        const n = modelName.toLowerCase();
+        if (n.includes('qwen2.5-coder') || n.includes('qwen2.5_coder')) {
+            return { prefix: '<|fim_prefix|>', suffix: '<|fim_suffix|>', middle: '<|fim_middle|>', extraStop: ['<|endoftext|>'] };
+        }
+        if (n.includes('starcoder2') || n.includes('starcoder')) {
+            return { prefix: '<fim_prefix>', suffix: '<fim_suffix>', middle: '<fim_middle>', extraStop: ['<file_sep>', '<|endoftext|>'] };
+        }
+        if (n.includes('deepseek-coder') || n.includes('deepseek_coder')) {
+            return { prefix: '<｜fim▁begin｜>', suffix: '<｜fim▁hole｜>', middle: '<｜fim▁end｜>', extraStop: ['<|endoftext|>'] };
+        }
+        if (n.includes('codellama') || n.includes('code-llama') || n.includes('code_llama')) {
+            return { prefix: '<PRE> ', suffix: ' <SUF>', middle: ' <MID>', extraStop: ['<EOT>'] };
+        }
+        return null;
+    }
+
+    /**
      * 시스템 프롬프트와 사용자 메시지를 별도 role로 전송
      */
     public async sendMessageWithSystemPrompt(systemPrompt: string, userParts: any[], options?: SendOptions): Promise<string> {
@@ -126,12 +237,27 @@ export class OllamaApi {
 
                 if (error instanceof ThinkingOnlyError) {
                     lastThinking = error.thinking;
+                    // thinking이 명시적으로 비활성화된 경우 retry해도 소용없음 → 즉시 빈 문자열 반환
+                    if (options?.disableThinking) {
+                        console.log('[OllamaApi] disableThinking=true but got thinking-only. Returning empty without retry.');
+                        return '';
+                    }
+                }
+
+                // AbortError는 의도적 취소 — 재시도해도 동일하게 취소됨
+                if (error.name === 'AbortError') {
+                    throw error;
                 }
 
                 // 모델을 찾을 수 없는 경우(404)는 재시도해도 소용없으므로 즉시 중단
                 if (errorMsg.includes('404') && errorMsg.includes('not found')) {
                     console.error(`[OllamaApi] Model '${this.modelName}' not found in Ollama. Please pull the model first.`);
                     break;
+                }
+
+                // 네트워크 에러(ECONNREFUSED 등)는 짧은 대기 후 재시도
+                if (error instanceof RetryableNetworkError) {
+                    console.warn(`[OllamaApi] Retryable network error on attempt ${attempt}/${maxRetries}: ${errorMsg}`);
                 }
 
                 // 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
@@ -328,7 +454,13 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 });
             });
 
-            req.on('error', (err) => reject(new Error(`Network error: ${err.message}`)));
+            req.on('error', (err: NodeJS.ErrnoException) => {
+                if (RETRYABLE_ERROR_CODES.includes(err.code || '')) {
+                    reject(new RetryableNetworkError(`Network error (${err.code}): ${err.message}`));
+                } else {
+                    reject(new Error(`Network error: ${err.message}`));
+                }
+            });
 
             if (options?.signal) {
                 options.signal.addEventListener('abort', () => {
@@ -546,9 +678,13 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 });
             });
 
-            req.on('error', (err) => {
+            req.on('error', (err: NodeJS.ErrnoException) => {
                 onChunk('', true);
-                reject(new Error(`Network error: ${err.message}`));
+                if (RETRYABLE_ERROR_CODES.includes(err.code || '')) {
+                    reject(new RetryableNetworkError(`Network error (${err.code}): ${err.message}`));
+                } else {
+                    reject(new Error(`Network error: ${err.message}`));
+                }
             });
 
             if (options?.signal) {

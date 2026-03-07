@@ -6,7 +6,7 @@
 
 import { AdminModelConfig, AdminModelMessagePart, SendOptions, ChunkCallback } from '../AdminModelTypes';
 import { ILLMProvider } from './ILLMProvider';
-import { buildRequest } from './providerUtils';
+import { buildRequest, assertResponseField } from './providerUtils';
 
 const GEMINI_SAFETY_SETTINGS = [
     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -79,14 +79,15 @@ export class GeminiProvider implements ILLMProvider {
             throw new Error(`Admin Model API (Gemini) error: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
-        const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; functionCall?: { name: string; args: Record<string, unknown> }; thought?: boolean }> } }> };
+        const data: any = await response.json();
+        assertResponseField(data, 'candidates');
         const parts = data.candidates?.[0]?.content?.parts;
 
         if (parts) {
-            const functionCallParts = parts.filter(p => p.functionCall);
+            const functionCallParts = parts.filter((p: any) => p.functionCall);
             if (functionCallParts.length > 0) {
                 console.log('[GeminiProvider] Native functionCall received, count:', functionCallParts.length);
-                return functionCallParts.map(p => {
+                return functionCallParts.map((p: any) => {
                     const fc = p.functionCall!;
                     return JSON.stringify({ tool: fc.name, ...fc.args });
                 }).join('\n');
@@ -166,7 +167,7 @@ export class GeminiProvider implements ILLMProvider {
                 if (objEnd === -1) break;
 
                 try {
-                    const json = JSON.parse(buffer.substring(objStart, objEnd + 1)) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean; functionCall?: { name: string; args: Record<string, unknown> } }> } }> };
+                    const json: any = JSON.parse(buffer.substring(objStart, objEnd + 1));
                     const parts = json.candidates?.[0]?.content?.parts || [];
                     for (const part of parts) {
                         if (part.thought === true && part.text) {

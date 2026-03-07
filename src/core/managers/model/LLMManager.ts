@@ -757,6 +757,112 @@ export class LLMManager {
     }
 
     /**
+     * 소스코드 자동완성 모델로 메시지를 전송합니다
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    /**
+     * FIM 기반 인라인 코드 완성 (Continue/Copilot 방식)
+     * - Ollama: /api/generate + FIM 토큰 (qwen2.5-coder, starcoder2, deepseek-coder, codellama 지원)
+     * - 클라우드/admin: chat 방식 fallback
+     */
+    public async sendInlineCompletion(
+        prefix: string,
+        suffix: string,
+        stateManager: {
+            getCompletionModelType: () => Promise<string | undefined>;
+            getCompletionModelName?: () => Promise<string | undefined>;
+            getCompletionApiKey?: () => Promise<string | undefined>;
+            getCompletionAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCompletionModelType();
+        const signal = options?.signal;
+
+        if (!modelType || modelType === AiModelType.OLLAMA) {
+            // Ollama FIM 경로
+            await this.loadOllamaSettingsSafe();
+            const modelName = stateManager.getCompletionModelName
+                ? await stateManager.getCompletionModelName()
+                : undefined;
+
+            const originalModel = this.ollamaApi.getModel?.() || '';
+            if (modelName && this.ollamaApi.setModel) {
+                this.ollamaApi.setModel(modelName);
+            }
+            try {
+                return await this.ollamaApi.sendFimCompletion(prefix, suffix, { signal, retries: 1 });
+            } finally {
+                if (modelName && originalModel && this.ollamaApi.setModel) {
+                    this.ollamaApi.setModel(originalModel);
+                }
+            }
+        }
+
+        // 클라우드/admin 모델 → chat fallback
+        const CHAT_SYSTEM = `You are a code completion assistant. Return ONLY the raw code to insert at the cursor. No markdown, no explanations.`;
+        const userMsg = `[Code before cursor]\n${prefix}\n[Code after cursor]\n${suffix}\nComplete at cursor:`;
+        return this.sendMessageWithCompletionModel(
+            CHAT_SYSTEM,
+            [{ text: userMsg }],
+            stateManager,
+            { ...options, disableThinking: true, disableRetry: true }
+        );
+    }
+
+    public async sendMessageWithCompletionModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getCompletionModelType: () => Promise<string | undefined>;
+            getCompletionModelName?: () => Promise<string | undefined>;
+            getCompletionApiKey?: () => Promise<string | undefined>;
+            getCompletionAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCompletionModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCompletionAdminConfig
+                ? await stateManager.getCompletionAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getCompletionApiKey
+                        ? await stateManager.getCompletionApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
+        const modelName = stateManager.getCompletionModelName
+            ? await stateManager.getCompletionModelName()
+            : undefined;
+        const apiKey = stateManager.getCompletionApiKey
+            ? await stateManager.getCompletionApiKey()
+            : undefined;
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
      * 특정 모델 타입과 API 키로 메시지를 전송합니다
      * API 키가 제공되면 임시로 해당 키를 사용하고, 없으면 기존 설정 사용
      */

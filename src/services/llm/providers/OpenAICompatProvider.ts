@@ -6,7 +6,7 @@
 
 import { AdminModelConfig, AdminModelMessagePart, SendOptions, ChunkCallback } from '../AdminModelTypes';
 import { ILLMProvider } from './ILLMProvider';
-import { buildRequest } from './providerUtils';
+import { buildRequest, assertResponseField } from './providerUtils';
 
 export class OpenAICompatProvider implements ILLMProvider {
     constructor(private config: AdminModelConfig) {}
@@ -60,7 +60,8 @@ export class OpenAICompatProvider implements ILLMProvider {
             throw new Error(`Admin Model API error: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
-        const data = await response.json() as { choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ function: { name: string; arguments: string | Record<string, unknown> } }> } }> };
+        const data: any = await response.json();
+        assertResponseField(data, 'choices');
 
         if (!data.choices || data.choices.length === 0) {
             throw new Error('Invalid response from Admin Model API: no choices');
@@ -69,7 +70,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         const toolCalls = data.choices[0]?.message?.tool_calls;
         if (toolCalls && toolCalls.length > 0) {
             console.log('[OpenAICompatProvider] Native tool_calls received, count:', toolCalls.length);
-            return toolCalls.map(tc => {
+            return toolCalls.map((tc: any) => {
                 const fn = tc.function;
                 const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
                 return JSON.stringify({ tool: fn.name, ...args });
@@ -167,7 +168,7 @@ export class OpenAICompatProvider implements ILLMProvider {
                     return fullText;
                 }
                 try {
-                    const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string; reasoning_content?: string; tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }> } }> };
+                    const parsed: any = JSON.parse(data);
                     const content = parsed.choices?.[0]?.delta?.content;
                     if (content) {
                         fullText += content;
