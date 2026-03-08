@@ -2,7 +2,7 @@
   🇺🇸 <a href="README.md">View in English</a>
 </p>
 
-# aidev-ide README
+# codepilot README
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
@@ -1857,7 +1857,7 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 - **터미널 데몬 통합**:
   - 비대화형/장시간 dev 명령을 Go 기반 terminal-daemon으로 실행(Unix 소켓, 정확한 종료 코드, 실시간 로그)
   - 로그는 `CODEPILOT Terminal Capture` Output 채널로 스트리밍
-  - 진짜 대화형 명령만 단일 재사용 `aidev-ide Terminal`을 사용
+  - 진짜 대화형 명령만 단일 재사용 `codepilot Terminal`을 사용
 - **출력 정제**: PTY ANSI 제어 시퀀스 제거로 Output 렌더링 개선
 - **에러 모니터링 강화**: npm "Missing script:", "Exit status X", "Process exited (code X)" 등 탐지 확장, 챗으로 자동 전달 및 LLM 수정 트리거
 - **Node 컨텍스트 개선**: Node.js 프로젝트에서 `package.json`을 항상 프롬프트 최상단에 포함; 프론트엔드 스택은 `package.json`/`src/**`만 검색하고 `node_modules/` 제외; 검색 파일 리스트는 디버그로 기록
@@ -1934,8 +1934,8 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 ### 개발 환경 설정
 1. **저장소 클론 및 의존성 설치**
    ```bash
-   git clone https://github.com/DAIOSFoundation/aidev-ide.git
-   cd aidev-ide
+   git clone https://github.com/DAIOSFoundation/codepilot.git
+   cd codepilot
    npm install
    ```
 
@@ -1957,7 +1957,7 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 ### 설정
 1. **AI 모델 설정**
    - VS Code 명령 팔레트 열기 (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-   - "aidev-ide: Open Settings Panel" 실행
+   - "codepilot: Open Settings Panel" 실행
    - **Gemini 사용 시**: Gemini API 키 입력 ([Google AI Studio](https://aistudio.google.com/app/apikey)에서 획득)
    - **Ollama 사용 시**: Ollama 설치 후 API URL 설정 (기본값: http://localhost:11434)
 
@@ -1983,25 +1983,25 @@ VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
 ```bash
 # ~/.zshrc
-export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/ollama-blocker"
-export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/terminal-daemon"
+export PATH="$PATH:/Users/tony/Projects/codepilot/assets/ollama-blocker"
+export PATH="$PATH:/Users/tony/Projects/codepilot/assets/terminal-daemon"
 ```
 
 2) alias 정의
 
 ```bash
 # ~/.zshrc
-alias ollama-blocker-embedded="/Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded"
-alias terminal-daemon="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon"
-alias terminal-client="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client"
+alias ollama-blocker-embedded="/Users/tony/Projects/codepilot/assets/ollama-blocker/ollama-blocker-embedded"
+alias terminal-daemon="/Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-daemon"
+alias terminal-client="/Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-client"
 ```
 
 3) 시스템 전역 설치 (선택)
 
 ```bash
-sudo cp /Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded /usr/local/bin/
-sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon /usr/local/bin/
-sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client /usr/local/bin/
+sudo cp /Users/tony/Projects/codepilot/assets/ollama-blocker/ollama-blocker-embedded /usr/local/bin/
+sudo cp /Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-daemon /usr/local/bin/
+sudo cp /Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-client /usr/local/bin/
 sudo chmod +x /usr/local/bin/ollama-blocker-embedded /usr/local/bin/terminal-daemon /usr/local/bin/terminal-client
 ```
 
@@ -2029,7 +2029,7 @@ npm run lint
 1. **확장 활성화**
    - VS Code 열기
    - 확장 뷰로 이동 (`Ctrl+Shift+X`)
-   - 활동 표시줄에서 "aidev-ide" 찾기
+   - 활동 표시줄에서 "codepilot" 찾기
    - CODE와 ASK 탭이 모두 보이는지 확인
 
 2. **CODE 탭 테스트**
@@ -2098,7 +2098,7 @@ npm run lint
 # 디버그 로깅 활성화
 # VS Code settings.json에 추가:
 {
-  "aidev-ide.debug": true
+  "codepilot.debug": true
 }
 
 # 확장 로그 보기

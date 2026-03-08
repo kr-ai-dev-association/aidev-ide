@@ -2,7 +2,7 @@
   🇰🇷 <a href="README.ko.md">한국어로 보기</a>
 </p>
 
-# aidev-ide README
+# codepilot README
 
 VSCode base code assistant plugin with LLM and LM support.
 
@@ -1088,7 +1088,7 @@ VSCode base code assistant plugin with LLM and LM support.
 - **Terminal-Daemon Integration**:
   - Non-interactive and long-running dev commands are now executed via a Go-based terminal-daemon using a Unix domain socket for accurate exit codes and real-time logs
   - Logs stream to the `CODEPILOT Terminal Capture` output channel
-  - Only truly interactive commands open the single reused `aidev-ide Terminal`
+  - Only truly interactive commands open the single reused `codepilot Terminal`
 - **Cleaner Output**: PTY ANSI control sequences are stripped so logs render cleanly in Output
 - **Stronger Error Monitoring**: Expanded detection for npm errors (e.g., "Missing script:"), "Exit status X", and "Process exited (code X)", auto-forwarded to chat and LLM for fixes
 - **Smarter Node Context**: For Node.js projects, `package.json` is always included first in the prompt; Node frontend projects search only `package.json` and `src/**` and exclude `node_modules/`. Searched file list is logged to the debug console
@@ -1165,8 +1165,8 @@ VSCode base code assistant plugin with LLM and LM support.
 ### Development Setup
 1. **Clone and Install Dependencies**
    ```bash
-   git clone https://github.com/DAIOSFoundation/aidev-ide.git
-   cd aidev-ide
+   git clone https://github.com/DAIOSFoundation/codepilot.git
+   cd codepilot
    npm install
    ```
 
@@ -1188,7 +1188,7 @@ VSCode base code assistant plugin with LLM and LM support.
 ### Configuration
 1. **AI Model Setup**
    - Open VS Code Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-   - Run "aidev-ide: Open Settings Panel"
+   - Run "codepilot: Open Settings Panel"
    - **For Gemini**: Enter your Gemini API key (get from [Google AI Studio](https://aistudio.google.com/app/apikey))
    - **For Ollama**: Install Ollama and set API URL (default: http://localhost:11434)
 
@@ -1214,25 +1214,25 @@ To run bundled binaries directly from your terminal, add PATH entries or aliases
 
 ```bash
 # ~/.zshrc
-export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/ollama-blocker"
-export PATH="$PATH:/Users/tony/Projects/aidev-ide/assets/terminal-daemon"
+export PATH="$PATH:/Users/tony/Projects/codepilot/assets/ollama-blocker"
+export PATH="$PATH:/Users/tony/Projects/codepilot/assets/terminal-daemon"
 ```
 
 2) Define aliases
 
 ```bash
 # ~/.zshrc
-alias ollama-blocker-embedded="/Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded"
-alias terminal-daemon="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon"
-alias terminal-client="/Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client"
+alias ollama-blocker-embedded="/Users/tony/Projects/codepilot/assets/ollama-blocker/ollama-blocker-embedded"
+alias terminal-daemon="/Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-daemon"
+alias terminal-client="/Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-client"
 ```
 
 3) System-wide install (optional)
 
 ```bash
-sudo cp /Users/tony/Projects/aidev-ide/assets/ollama-blocker/ollama-blocker-embedded /usr/local/bin/
-sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-daemon /usr/local/bin/
-sudo cp /Users/tony/Projects/aidev-ide/assets/terminal-daemon/terminal-client /usr/local/bin/
+sudo cp /Users/tony/Projects/codepilot/assets/ollama-blocker/ollama-blocker-embedded /usr/local/bin/
+sudo cp /Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-daemon /usr/local/bin/
+sudo cp /Users/tony/Projects/codepilot/assets/terminal-daemon/terminal-client /usr/local/bin/
 sudo chmod +x /usr/local/bin/ollama-blocker-embedded /usr/local/bin/terminal-daemon /usr/local/bin/terminal-client
 ```
 
@@ -1260,7 +1260,7 @@ npm run lint
 1. **Extension Activation**
    - Open VS Code
    - Navigate to Extensions view (`Ctrl+Shift+X`)
-   - Find "aidev-ide" in the activity bar
+   - Find "codepilot" in the activity bar
    - Verify both CODE and ASK tabs are visible
 
 2. **CODE Tab Testing**
@@ -1329,7 +1329,7 @@ npm run lint
 # Enable debug logging
 # Add to VS Code settings.json:
 {
-  "aidev-ide.debug": true
+  "codepilot.debug": true
 }
 
 # View extension logs
