@@ -6,8 +6,7 @@
 import * as vscode from 'vscode';
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
-import { ExecutionResult } from '../../managers/execution/types';
-import { HotLoadManager, HotLoadItem } from '../../managers/hotload/HotLoadManager';
+import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
 
 export class RunCommandToolHandler implements IToolHandler {
     readonly name = Tool.RUN_COMMAND;
@@ -31,68 +30,47 @@ export class RunCommandToolHandler implements IToolHandler {
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
 
-        // ── 명령어 분류 ──────────────────────────────────────────────
-        // 설치 명령어: 완료까지 대기 (exit code 필수, 상한 120초)
-        const INSTALL_PATTERNS = [
-            'npm install', 'npm i ',
-            'yarn install', 'yarn add',
-            'pnpm install', 'pnpm add',
-            'pip install', 'pip3 install',
-            'poetry install',
-            'cargo build', 'cargo install',
-            'mvn install', 'mvn package', 'gradle build',
-            'gem install', 'bundle install',
-            'go get', 'go mod download',
-            'dotnet restore',
-        ];
-        const isInstallCommand = INSTALL_PATTERNS.some(p => command.includes(p));
+        // ── 출력 기반 명령어 분류 (패턴 매칭 없이 동작) ──────────────
+        // 1단계: 짧은 타임아웃으로 실행하여 출력 확인
+        const INITIAL_TIMEOUT = 8000; // 8초 대기
+        const MAX_COMPLETION_TIMEOUT = 120000; // 완료 대기 상한 120초
 
-        // 서버/워처 명령어: 백그라운드 전환 (종료되지 않는 프로세스)
-        const SERVER_PATTERNS = [
-            'npm run dev', 'npm run start', 'npm start',
-            'yarn dev', 'yarn start',
-            'pnpm dev', 'pnpm start',
-            'ng serve', 'next dev',
-            'python manage.py runserver', 'flask run', 'uvicorn',
-            'cargo run', 'go run',
-            'rails server', 'rails s',
-        ];
-        const isServerCommand = SERVER_PATTERNS.some(p => command.includes(p));
-        // ─────────────────────────────────────────────────────────────
+        const initialResult = await context.executionManager.executeCommand(command, {
+            cwd: context.projectRoot,
+            timeout: timeoutSeconds ? timeoutSeconds * 1000 : INITIAL_TIMEOUT,
+            killOnTimeout: false,
+        });
 
-        // 설치 명령어: 완료까지 대기 (최대 120초)
-        if (isInstallCommand) {
-            const installTimeout = 120000;
-            console.log(`[RunCommandToolHandler] Install command detected, waiting for completion (timeout: ${installTimeout}ms): ${command}`);
-            const result = await context.executionManager.executeCommand(command, {
-                cwd: context.projectRoot,
-                timeout: installTimeout,
-                killOnTimeout: true,
-            });
+        // 2단계: 초기 실행에서 완료된 경우 → exit code로 판단
+        if (initialResult.exitCode !== undefined && !initialResult.error) {
+            console.log(`[RunCommandToolHandler] Command completed: ${command} (exit=${initialResult.exitCode})`);
             return {
-                success: result.success,
-                message: result.success ? `Command executed: ${command}` : `Command failed: ${command}`,
+                success: initialResult.success,
+                message: initialResult.success
+                    ? `Command executed: ${command}`
+                    : `Command failed: ${command}`,
                 data: {
-                    output: result.stdout,
-                    error: result.stderr,
-                    exitCode: result.exitCode,
+                    output: initialResult.stdout,
+                    error: initialResult.stderr,
+                    exitCode: initialResult.exitCode,
                 }
             };
         }
 
-        // 서버 명령어: 짧게 확인 후 바로 백그라운드 전환
-        if (isServerCommand) {
-            const initialResult = await context.executionManager.executeCommand(command, {
-                cwd: context.projectRoot,
-                timeout: 5000,
-                killOnTimeout: false,
-            });
-            const pid = initialResult.pid || context.executionManager.getRunningProcesses()
-                .find(p => p.command === command)?.pid;
+        // 3단계: 타임아웃 발생 → 출력 기반으로 장기 실행 여부 판단
+        const pid = initialResult.pid || context.executionManager.getRunningProcesses()
+            .find(p => p.command === command)?.pid;
 
+        let isLongRunning = false;
+        if (pid) {
+            isLongRunning = context.executionManager.isLongRunningCommand(pid);
+        }
+
+        // stdout에 서버/워처 마커가 있으면 → 백그라운드 전환
+        if (isLongRunning) {
             if (pid) {
                 context.executionManager.continueProcess(pid);
-                console.log(`[RunCommandToolHandler] Server command started in background: ${command} (PID: ${pid})`);
+                console.log(`[RunCommandToolHandler] Long-running detected (output-based): ${command} (PID: ${pid})`);
                 return {
                     success: true,
                     message: `Long-running command started: ${command} (PID: ${pid})`,
@@ -106,130 +84,36 @@ export class RunCommandToolHandler implements IToolHandler {
             }
         }
 
-        // 그 외 일반 명령어: 출력 기반으로 판단 (기존 로직)
-        const initialResult = await context.executionManager.executeCommand(command, {
-            cwd: context.projectRoot,
-            timeout: 5000,
-            killOnTimeout: false
-        });
-
-        const pid = initialResult.pid || context.executionManager.getRunningProcesses()
-            .find(p => p.command === command)?.pid;
-
-        let isLongRunning = false;
+        // 서버 마커 없음 → 아직 실행 중인 일반 명령어 (npm install 등)
+        // 완료까지 대기 (상한 120초)
         if (pid) {
-            isLongRunning = context.executionManager.isLongRunningCommand(pid);
-        }
-
-        // 출력 기반으로 장기 실행으로 판단되면 백그라운드 전환
-        if (isLongRunning || initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE') {
-            if (pid) {
-                console.log(`[RunCommandToolHandler] Long-running command detected (output-based/timeout): ${command}, using continue() pattern`);
-                context.executionManager.continueProcess(pid);
-
-                const isTimeout = initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE';
-                const outputMessage = isTimeout
-                    ? `백그라운드에서 시작되었습니다.${initialResult.stdout ? `\n${initialResult.stdout}` : ''}`
-                    : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}.`);
-
-                return {
-                    success: true,
-                    message: `Long-running command started: ${command}${pid ? ` (PID: ${pid})` : ''}`,
-                    data: {
-                        output: outputMessage,
-                        llmNote: '이 명령어는 장기 실행 프로세스입니다. 이미 백그라운드에서 실행 중이므로 동일 명령어를 다시 실행하지 마세요. 다음 단계로 진행하거나 작업 완료를 선언하세요.',
-                        error: initialResult.stderr,
-                        exitCode: undefined,
-                    }
-                };
-            }
-        }
-
-        // 초기 실행에서 완료된 경우 바로 반환
-        if (initialResult.exitCode !== undefined && !initialResult.error) {
-            console.log(`[RunCommandToolHandler] Command completed in initial execution: ${command}`);
+            console.log(`[RunCommandToolHandler] Waiting for completion (max ${MAX_COMPLETION_TIMEOUT}ms): ${command}`);
+            const finalResult = await context.executionManager.executeCommand(command, {
+                cwd: context.projectRoot,
+                timeout: MAX_COMPLETION_TIMEOUT,
+                killOnTimeout: true,
+            });
             return {
-                success: initialResult.success,
-                message: initialResult.success
+                success: finalResult.success,
+                message: finalResult.success
                     ? `Command executed: ${command}`
                     : `Command failed: ${command}`,
                 data: {
-                    output: initialResult.stdout,
-                    error: initialResult.stderr,
-                    exitCode: initialResult.exitCode
+                    output: finalResult.stdout,
+                    error: finalResult.stderr,
+                    exitCode: finalResult.exitCode,
                 }
             };
         }
 
-        // 사용자가 명시적으로 타임아웃을 지정한 경우
-        if (timeoutSeconds && timeoutSeconds > 0) {
-            try {
-                // 타임아웃으로 Promise.race 사용
-                const timeoutPromise = new Promise<ExecutionResult>((_, reject) => {
-                    setTimeout(() => {
-                        reject(new Error('COMMAND_TIMEOUT'));
-                    }, timeoutSeconds * 1000);
-                });
-
-                const executePromise = context.executionManager.executeCommand(command, {
-                    cwd: context.projectRoot
-                });
-
-                const raceResult = await Promise.race([executePromise, timeoutPromise]);
-
-                return {
-                    success: raceResult.success,
-                    message: raceResult.success
-                        ? `Command executed: ${command}`
-                        : `Command failed: ${command}`,
-                    data: {
-                        output: raceResult.stdout,
-                        error: raceResult.stderr,
-                        exitCode: raceResult.exitCode
-                    }
-                };
-            } catch (error) {
-                // 타임아웃 발생 시 continue() 호출
-                if (error instanceof Error && error.message === 'COMMAND_TIMEOUT') {
-                    const runningProcesses = context.executionManager.getRunningProcesses();
-                    const process = runningProcesses.find(p => p.command === command);
-
-                    if (process) {
-                        context.executionManager.continueProcess(process.pid);
-
-                        const buffer = context.executionManager.getProcessOutput(process.pid);
-                        return {
-                            success: true,
-                            message: `Command execution timed out after ${timeoutSeconds} seconds. Command is still running in background.`,
-                            data: {
-                                output: buffer?.stdout || '',
-                                error: buffer?.stderr,
-                                exitCode: undefined
-                            }
-                        };
-                    }
-                }
-
-                // 다른 에러는 그대로 전달
-                throw error;
-            }
-        }
-
-        // 초기 실행에서 타임아웃이 발생했지만 장기 실행이 아닌 경우
-        // 완료될 때까지 대기 (타임아웃 없이)
-        const finalResult = await context.executionManager.executeCommand(command, {
-            cwd: context.projectRoot
-        });
-
+        // pid 없이 타임아웃 → 에러 반환
         return {
-            success: finalResult.success,
-            message: finalResult.success
-                ? `Command executed: ${command}`
-                : `Command failed: ${command}`,
+            success: false,
+            message: `Command timed out: ${command}`,
             data: {
-                output: finalResult.stdout,
-                error: finalResult.stderr,
-                exitCode: finalResult.exitCode
+                output: initialResult.stdout,
+                error: initialResult.stderr || 'Command timed out without producing a process ID',
+                exitCode: undefined,
             }
         };
     }

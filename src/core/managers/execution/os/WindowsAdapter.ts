@@ -64,6 +64,22 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
         return `netstat -ano | findstr :${port}`;
     }
 
+    getFindNodeProcessByCwdCommand(cwd: string): string {
+        // PowerShell: node.exe 프로세스 중 CWD 기반 필터링은 제한적이므로 전체 node 프로세스 PID 반환
+        return `powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object -ExpandProperty ProcessId"`;
+    }
+
+    getProcessCwdCommand(pid: number): string {
+        // PowerShell: 프로세스의 CommandLine에서 작업 디렉토리 추정
+        return `powershell -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=${pid}\\").CommandLine"`;
+    }
+
+    getFindDevServerProcessCommand(cwd: string): string {
+        // PowerShell: dev 서버 패턴 프로세스 검색
+        const escapedCwd = cwd.replace(/\\/g, '\\\\');
+        return `powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'npm run dev|vite|next dev|nuxt dev' } | Select-Object -ExpandProperty ProcessId"`;
+    }
+
     // ==================== 파일 처리 ====================
 
     getPathSeparator(): string {

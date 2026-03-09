@@ -643,7 +643,8 @@ export class ProjectDetector {
                 }
 
                 // JavaScript만 있는 경우 npm run build 시도 (package.json에 build 스크립트가 있는 경우)
-                return { command: 'npm run build --dry-run 2>/dev/null || echo "No build script"', description: 'Node.js 빌드 검사' };
+                const nullDev = process.platform === 'win32' ? '2>nul' : '2>/dev/null';
+                return { command: `npm run build --dry-run ${nullDev} || echo "No build script"`, description: 'Node.js 빌드 검사' };
 
             case ProjectType.ANDROID:
                 // Android 프로젝트 검증 (Gradle 기반)
@@ -942,7 +943,8 @@ export class ProjectDetector {
                 // --- Kotlin (non-Android) ---
                 if (extensions.has('.kt') || extensions.has('.kts')) {
                     if (fs.existsSync(path.join(projectRoot, 'build.gradle.kts'))) {
-                        return { command: './gradlew compileKotlin', description: 'Kotlin Gradle Compile' };
+                        const gradlewKt = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
+                        return { command: `${gradlewKt} compileKotlin`, description: 'Kotlin Gradle Compile' };
                     }
                     return { command: 'kotlinc -version && echo "Kotlin files detected"', description: 'Kotlin Check' };
                 }
@@ -973,7 +975,8 @@ export class ProjectDetector {
                         const relativePath = path.isAbsolute(firstFile)
                             ? path.relative(projectRoot, firstFile)
                             : firstFile;
-                        return { command: `yamllint ${relativePath} || yq eval ${relativePath} > /dev/null`, description: 'YAML Validation' };
+                        const yamlNull = process.platform === 'win32' ? '> nul' : '> /dev/null';
+                        return { command: `yamllint ${relativePath} || yq eval ${relativePath} ${yamlNull}`, description: 'YAML Validation' };
                     }
                 }
 
@@ -1033,7 +1036,8 @@ export class ProjectDetector {
                         const relativePath = path.isAbsolute(firstFile)
                             ? path.relative(projectRoot, firstFile)
                             : firstFile;
-                        return { command: `protoc --descriptor_set_out=/dev/null ${relativePath}`, description: 'Protobuf Validation' };
+                        const protoNull = process.platform === 'win32' ? 'nul' : '/dev/null';
+                        return { command: `protoc --descriptor_set_out=${protoNull} ${relativePath}`, description: 'Protobuf Validation' };
                     }
                 }
 
@@ -1061,6 +1065,106 @@ export class ProjectDetector {
 
                 return null;
         }
+    }
+
+    /**
+     * COMMAND_NOT_FOUND fallback: 제외 목록을 고려하여 다음 검증 후보 반환
+     * getValidationCommand()와 동일한 로직이지만 excludedCommands에 포함된 명령어를 건너뜀
+     */
+    public async getNextValidationCandidate(
+        projectType: ProjectType,
+        projectRoot: string,
+        createdFiles: string[],
+        modifiedFiles: string[],
+        excludedCommands: string[],
+    ): Promise<{ command: string; description: string } | null> {
+        const allFiles = [...createdFiles, ...modifiedFiles];
+
+        // 프로젝트 타입별 후보 목록 생성
+        const candidates = await this.getValidationCandidates(projectType, projectRoot, allFiles);
+
+        // 제외 목록에 없는 첫 번째 후보 반환
+        for (const candidate of candidates) {
+            const isExcluded = excludedCommands.some(
+                excluded => candidate.command.includes(excluded) || excluded.includes(candidate.command)
+            );
+            if (!isExcluded) {
+                console.log(`[ProjectDetector] Next validation candidate: ${candidate.command} (excluded ${excludedCommands.length} commands)`);
+                return candidate;
+            }
+        }
+
+        console.log(`[ProjectDetector] No more validation candidates (all ${candidates.length} excluded)`);
+        return null;
+    }
+
+    /**
+     * 프로젝트 타입별 검증 명령어 후보 목록 반환 (우선순위 순)
+     */
+    private async getValidationCandidates(
+        projectType: ProjectType,
+        projectRoot: string,
+        allFiles: string[],
+    ): Promise<{ command: string; description: string }[]> {
+        const candidates: { command: string; description: string }[] = [];
+
+        switch (projectType) {
+            case ProjectType.PYTHON:
+            case ProjectType.DJANGO:
+            case ProjectType.FLASK:
+            case ProjectType.FASTAPI: {
+                const pythonCmd = await ProjectDetector.detectPythonRuntime(projectRoot);
+                const pythonFiles = allFiles.filter(f => f.endsWith('.py'));
+                const relativePaths = pythonFiles.map(f =>
+                    path.isAbsolute(f) ? path.relative(projectRoot, f) : f
+                ).join(' ');
+
+                if (pythonFiles.length > 0) {
+                    if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) ||
+                        fs.existsSync(path.join(projectRoot, '.ruff.toml')) ||
+                        fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
+                        candidates.push({ command: `ruff check ${relativePaths}`, description: 'Ruff Lint' });
+                    }
+                    if (fs.existsSync(path.join(projectRoot, '.flake8')) ||
+                        fs.existsSync(path.join(projectRoot, 'setup.cfg'))) {
+                        candidates.push({ command: `flake8 ${relativePaths}`, description: 'Flake8 Lint' });
+                    }
+                    if (fs.existsSync(path.join(projectRoot, '.pylintrc')) ||
+                        fs.existsSync(path.join(projectRoot, 'pylintrc'))) {
+                        candidates.push({ command: `pylint ${relativePaths}`, description: 'Pylint' });
+                    }
+                    if (fs.existsSync(path.join(projectRoot, 'mypy.ini')) ||
+                        fs.existsSync(path.join(projectRoot, '.mypy.ini'))) {
+                        candidates.push({ command: `mypy ${relativePaths}`, description: 'Mypy Type Check' });
+                    }
+                    // 문법 검사는 항상 후보에 포함 (최후의 수단)
+                    candidates.push({ command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}`, description: 'Python Syntax Check' });
+                }
+                break;
+            }
+
+            case ProjectType.GO:
+                if (fs.existsSync(path.join(projectRoot, '.golangci.yml')) ||
+                    fs.existsSync(path.join(projectRoot, '.golangci.yaml'))) {
+                    candidates.push({ command: 'golangci-lint run', description: 'GolangCI-Lint' });
+                }
+                if (fs.existsSync(path.join(projectRoot, 'staticcheck.conf'))) {
+                    candidates.push({ command: 'staticcheck ./...', description: 'Go Staticcheck' });
+                }
+                candidates.push({ command: 'go vet ./...', description: 'Go Vet' });
+                break;
+
+            case ProjectType.RUST:
+                candidates.push({ command: 'cargo clippy', description: 'Cargo Clippy' });
+                candidates.push({ command: 'cargo check', description: 'Cargo Check' });
+                break;
+
+            default:
+                // 기타 프로젝트: getValidationCommand에서 반환한 명령어만 사용
+                break;
+        }
+
+        return candidates;
     }
 
     /**

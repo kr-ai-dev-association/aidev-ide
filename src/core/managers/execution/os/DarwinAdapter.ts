@@ -43,6 +43,18 @@ export class DarwinAdapter implements IOperatingSystemAdapter {
         return `lsof -ti:${port}`;
     }
 
+    getFindNodeProcessByCwdCommand(cwd: string): string {
+        return `lsof -a -d cwd -c node -F p | grep -E "^p[0-9]+" | sed 's/^p//'`;
+    }
+
+    getProcessCwdCommand(pid: number): string {
+        return `lsof -a -p ${pid} -d cwd -Fn | grep -E "^n" | head -1 | sed 's/^n//'`;
+    }
+
+    getFindDevServerProcessCommand(cwd: string): string {
+        return `ps aux | grep -E "(npm run dev|vite|next dev|nuxt dev)" | grep -v grep | awk '{print $2}' | xargs -I {} sh -c 'lsof -a -p {} -d cwd -Fn 2>/dev/null | grep -E "^n" | head -1 | sed "s/^n//" | grep -q "^${cwd}" && echo {}'`;
+    }
+
     // ==================== 파일 처리 ====================
 
     getPathSeparator(): string {

@@ -5187,6 +5187,7 @@ export class ConversationManager implements IConversationHandler {
       createdFiles,
       modifiedFiles,
       retryCoordinator.getValidationTimeout(),
+      retryCoordinator.excludedValidationCommands,
     );
 
     if (testResult.success) {

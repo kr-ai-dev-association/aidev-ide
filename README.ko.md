@@ -6,6 +6,24 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v12.3.0 (도구 호출 안정성 강화, 네이티브 Tool Call 폴백)
+
+### 네이티브 Tool Call 네임스페이스 폴백 (`OllamaApi`)
+- 모델이 네이티브 tool_calls에 네임스페이스를 붙여 응답하는 경우(`repo_browser.read_file` 등) 자동 strip
+- strip 후에도 알 수 없는 도구명이면 **nativeTools 없이 텍스트 파싱 모드로 자동 재호출**
+- 네이티브 콜 성능 유지 + 어떤 모델의 네임스페이스 형식이든 대응
+
+### SubAgentLoop Thinking 비활성화
+- 서브에이전트 루프에서 `disableThinking: true` 적용
+- thinking-only 응답으로 인한 3회 재시도 낭비 제거
+- API 호출 횟수 절감 및 응답 속도 향상
+
+### 같은 턴 내 중복 도구 호출 제거 (`SubAgentLoop`)
+- 동일 턴에서 같은 `(도구, 경로)` 조합이 여러 번 파싱되면 하나만 실행
+- 예: `read_file backend/app.py`가 한 턴에 2번 나오면 1번만 실행
+
+---
+
 ## v12.2.0 (Windows 호환성 강화, 빌드 타임아웃 동적 증가)
 
 ### Windows 셸 호환성 수정

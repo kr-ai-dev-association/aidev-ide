@@ -4,6 +4,7 @@ import * as https from 'https';
 import { URL } from 'url';
 import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
+import { Tool } from '../../core/tools/types';
 
 type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; nativeTools?: any[] };
 type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -327,11 +328,35 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         if (nativeToolCalls && nativeToolCalls.length > 0) {
             const thinkingForTools = rawResponse.message?.thinking || '';
             console.log('[OllamaApi] Native tool_calls received, count:', nativeToolCalls.length);
+
+            // 네임스페이스 strip: "repo_browser.read_file" → "read_file"
+            const stripNamespace = (name: string): string => {
+                const dotIndex = name.lastIndexOf('.');
+                return dotIndex >= 0 ? name.substring(dotIndex + 1) : name;
+            };
+
             const converted = nativeToolCalls.map((tc: any) => {
                 const fn = tc.function;
                 const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
-                return JSON.stringify({ tool: fn.name, ...args });
+                const strippedName = stripNamespace(fn.name);
+                if (strippedName !== fn.name) {
+                    console.log(`[OllamaApi] Tool name namespace stripped: ${fn.name} → ${strippedName}`);
+                }
+                return JSON.stringify({ tool: strippedName, ...args });
             }).join('\n');
+
+            // strip 후에도 유효하지 않은 도구면 → nativeTools 없이 텍스트 모드로 재호출
+            const hasInvalidTool = nativeToolCalls.some((tc: any) => {
+                const stripped = stripNamespace(tc.function.name);
+                return !this.isKnownToolName(stripped);
+            });
+
+            if (hasInvalidTool) {
+                console.warn('[OllamaApi] Native tool_calls contain unknown tools after stripping — retrying without native tools');
+                const retryOptions = { ...options, nativeTools: undefined };
+                return this.sendMessageInternal(messages, retryOptions);
+            }
+
             if (thinkingForTools) {
                 return `<think>${thinkingForTools}</think>\n${converted}`;
             }
@@ -422,6 +447,13 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         }
 
         return jsonBlocks.length > 0 ? jsonBlocks.join('\n') : null;
+    }
+
+    /**
+     * 알려진 도구 이름인지 확인 (네이티브 tool_calls 검증용)
+     */
+    private isKnownToolName(name: string): boolean {
+        return Object.values(Tool).includes(name as Tool);
     }
 
     /**

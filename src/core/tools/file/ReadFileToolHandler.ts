@@ -201,11 +201,14 @@ export class ReadFileToolHandler implements IToolHandler {
         if (results.length === 1) {
             const result = results[0];
             if (result.error) {
+                const isNotFound = result.error.includes('ENOENT') || result.error.includes('no such file');
                 return {
                     success: false,
-                    message: `Failed to read file: ${result.path}`,
+                    message: isNotFound
+                        ? `파일이 존재하지 않습니다: ${result.path}. 이 파일이 필요하면 create_file 도구로 직접 생성하세요.`
+                        : `Failed to read file: ${result.path}`,
                     error: {
-                        code: 'READ_ERROR',
+                        code: isNotFound ? 'FILE_NOT_FOUND' : 'READ_ERROR',
                         message: result.error
                     }
                 };

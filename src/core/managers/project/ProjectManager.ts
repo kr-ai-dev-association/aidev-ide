@@ -585,10 +585,11 @@ export class ProjectManager {
                 }
                 break;
             case ProjectType.SPRING_BOOT:
-                commands.install = './mvnw install';
-                commands.build = './mvnw package';
-                commands.test = './mvnw test';
-                commands.start = './mvnw spring-boot:run';
+                const mvnwCmd = process.platform === 'win32' ? 'mvnw.cmd' : './mvnw';
+                commands.install = `${mvnwCmd} install`;
+                commands.build = `${mvnwCmd} package`;
+                commands.test = `${mvnwCmd} test`;
+                commands.start = `${mvnwCmd} spring-boot:run`;
                 break;
             case ProjectType.PYTHON:
             case ProjectType.DJANGO:

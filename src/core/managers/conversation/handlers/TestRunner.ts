@@ -37,6 +37,7 @@ export class TestRunner {
     createdFiles: string[],
     modifiedFiles: string[],
     validationTimeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
+    excludedValidationCommands: string[] = [],
   ): Promise<TestResult> {
     let workspaceRoot = _workspaceRoot;
     try {
@@ -307,6 +308,24 @@ export class TestRunner {
           createdFiles,
           modifiedFiles,
         );
+
+        // COMMAND_NOT_FOUND fallback: 이전에 실패한 명령어면 스킵하고 다음 후보 요청
+        if (validationCmd && excludedValidationCommands.length > 0) {
+          const cmdStr = validationCmd.command;
+          const isExcluded = excludedValidationCommands.some(
+            excluded => cmdStr.includes(excluded) || excluded.includes(cmdStr)
+          );
+          if (isExcluded) {
+            console.log(`[TestRunner] Validation command excluded (not found): ${cmdStr}. Trying next candidate.`);
+            validationCmd = await detector.getNextValidationCandidate(
+              projectInfo.type,
+              workspaceRoot,
+              createdFiles,
+              modifiedFiles,
+              excludedValidationCommands,
+            );
+          }
+        }
 
         // Fallback: getValidationCommand()가 null을 반환하면 LLM에게 질의
         if (!validationCmd) {

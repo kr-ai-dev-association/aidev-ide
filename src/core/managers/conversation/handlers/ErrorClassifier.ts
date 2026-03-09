@@ -314,9 +314,9 @@ export class ErrorClassifier {
             );
         }
 
-        // 2. 명령어 미발견 (Unix exit code 127 또는 stderr 패턴)
-        if (outcome.exitCode === 127 ||
-            /command not found|not found/i.test(outcome.stderrSnippet)) {
+        // 2. 명령어 미발견 (Unix exit code 127, Windows exit code 9009, 또는 stderr 패턴)
+        if (outcome.exitCode === 127 || outcome.exitCode === 9009 ||
+            /command not found|not found|is not recognized/i.test(outcome.stderrSnippet)) {
             return this.buildExecutionResult(
                 ErrorCategory.COMMAND_NOT_FOUND,
                 outcome,

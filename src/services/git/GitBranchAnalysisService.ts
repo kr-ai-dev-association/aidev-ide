@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { GitRepositoryService } from './GitRepositoryService';
@@ -253,7 +254,7 @@ export class GitBranchAnalysisService {
 
         try {
             // package.json이 있는 경우
-            const packageJsonPath = `${projectRoot}/package.json`;
+            const packageJsonPath = path.join(projectRoot, 'package.json');
             const fs = require('fs');
 
             if (fs.existsSync(packageJsonPath)) {
@@ -443,7 +444,7 @@ export class GitBranchAnalysisService {
             const fs = require('fs');
 
             // README 파일 검사
-            if (!fs.existsSync(`${projectRoot}/README.md`)) {
+            if (!fs.existsSync(path.join(projectRoot, 'README.md'))) {
                 issues.push({
                     branch: 'current',
                     issue: 'README.md 파일이 없습니다',

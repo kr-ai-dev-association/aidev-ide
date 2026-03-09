@@ -53,6 +53,21 @@ export interface IOperatingSystemAdapter {
      */
     getFindProcessByPortCommand(port: number): string;
 
+    /**
+     * CWD 기반으로 node 프로세스 PID를 찾는 명령어
+     */
+    getFindNodeProcessByCwdCommand(cwd: string): string;
+
+    /**
+     * 특정 PID의 CWD를 확인하는 명령어
+     */
+    getProcessCwdCommand(pid: number): string;
+
+    /**
+     * dev 서버 패턴으로 프로세스를 찾아 CWD가 일치하는 PID만 반환하는 명령어
+     */
+    getFindDevServerProcessCommand(cwd: string): string;
+
     // ==================== 파일 처리 ====================
 
     /**

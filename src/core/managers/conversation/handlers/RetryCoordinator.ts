@@ -44,6 +44,8 @@ export class RetryCoordinator {
     private samePatternCount: number = 0;
     private _pendingFallbackModel: boolean = false;
     private buildTimeoutCount: number = 0;
+    /** COMMAND_NOT_FOUND로 실패한 검증 명령어 목록 (fallback 시 제외) */
+    private _excludedValidationCommands: string[] = [];
 
     /**
      * 에러 폴백 모델 사용 여부 확인 후 소비 (1회성)
@@ -111,7 +113,40 @@ export class RetryCoordinator {
             };
         }
 
-        // 3.5. BUILD_TIMEOUT → 캐시 클리어 시도 후 재시도
+        // 3.5. COMMAND_NOT_FOUND → 실패한 명령어 제외 후 다음 후보로 재시도
+        if (classification.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
+            // 실패한 명령어를 제외 목록에 추가
+            const failedCmd = classification.groups[0]?.sampleMessages[0] || '';
+            if (failedCmd) {
+                this._excludedValidationCommands.push(failedCmd);
+            }
+            // retryFingerprint에서 명령어 추출 (command_not_found:{command}:{exitCode})
+            const cmdFromFingerprint = classification.retryFingerprint.split(':')[1] || '';
+            if (cmdFromFingerprint && !this._excludedValidationCommands.includes(cmdFromFingerprint)) {
+                this._excludedValidationCommands.push(cmdFromFingerprint);
+            }
+
+            console.log(
+                `[RetryCoordinator] COMMAND_NOT_FOUND — excluded commands: [${this._excludedValidationCommands.join(', ')}]. ` +
+                `Will retry with next validation candidate.`
+            );
+
+            WebviewBridge.sendProcessingStatus(
+                ctx.webview,
+                'executing',
+                `검증 도구 미설치 — 다음 후보로 재시도 중...`
+            );
+
+            // 재시도 (TestRunner가 excludedValidationCommands를 참고하여 다음 후보 선택)
+            return {
+                action: 'retry' as const,
+                prompt: `[System] 검증 명령어를 찾을 수 없습니다 (${cmdFromFingerprint}). 다음 검증 후보로 자동 재시도합니다.`,
+                testFixAttempts: testFixAttempts + 1,
+                retryFingerprint: classification.retryFingerprint,
+            };
+        }
+
+        // 3.6. BUILD_TIMEOUT → 캐시 클리어 시도 후 재시도
         if (classification.dominantCategory === ErrorCategory.BUILD_TIMEOUT) {
             this.buildTimeoutCount++;
             console.log(`[RetryCoordinator] BUILD_TIMEOUT detected (count=${this.buildTimeoutCount}) — next validation timeout: ${this.getValidationTimeout()}ms`);
@@ -219,14 +254,22 @@ export class RetryCoordinator {
         this.lastFingerprint = '';
         this.samePatternCount = 0;
         this._pendingFallbackModel = false;
+        this._excludedValidationCommands = [];
+    }
+
+    /**
+     * COMMAND_NOT_FOUND로 실패한 명령어 목록 반환 (TestRunner에서 제외용)
+     */
+    public get excludedValidationCommands(): string[] {
+        return this._excludedValidationCommands;
     }
 
     /**
      * LLM 재시도가 무의미한 카테고리인지 확인
+     * COMMAND_NOT_FOUND는 fallback 후보가 있으면 재시도 가능하므로 여기서 제외
      */
     private isNonRetryable(category: ErrorCategory): boolean {
         return category === ErrorCategory.EXECUTION_TIMEOUT
-            || category === ErrorCategory.COMMAND_NOT_FOUND
             || category === ErrorCategory.SILENT_FAILURE;
     }
 
@@ -237,8 +280,6 @@ export class RetryCoordinator {
         switch (category) {
             case ErrorCategory.EXECUTION_TIMEOUT:
                 return '검증 명령어 타임아웃 — 자동 수정 불가';
-            case ErrorCategory.COMMAND_NOT_FOUND:
-                return '검증 도구 미설치 — 자동 수정 불가';
             case ErrorCategory.SILENT_FAILURE:
                 return '명령어 실패 (출력 없음) — 자동 수정 불가';
             default:

@@ -45,6 +45,17 @@ export class CreateFileToolHandler implements IToolHandler {
             };
         }
 
+        // 플레이스홀더/의미 없는 콘텐츠 차단
+        const trimmedContent = content.trim();
+        if (this.isPlaceholderContent(trimmedContent)) {
+            console.warn(`[CreateFileToolHandler] Placeholder content rejected for ${filePath}: "${trimmedContent.substring(0, 50)}"`);
+            return {
+                success: false,
+                message: `파일 내용이 플레이스홀더입니다. 실제 코드를 작성해주세요: "${trimmedContent.substring(0, 30)}"`,
+                error: { code: 'PLACEHOLDER_CONTENT', message: 'Content is a placeholder, not actual code' }
+            };
+        }
+
         // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
         let cleanedContent = fixModelHtmlEscaping(content);
         // CDATA 섹션 제거 (LLM이 JSON 등을 CDATA로 감싸는 경우 처리)
@@ -83,6 +94,25 @@ export class CreateFileToolHandler implements IToolHandler {
     getDescription(toolUse: ToolUse): string {
         const path = toolUse.params.path || toolUse.params.absolutePath;
         return `[create_file for '${path}']`;
+    }
+
+    /**
+     * 플레이스홀더/의미 없는 콘텐츠 감지
+     * LLM이 실제 코드 대신 "...", "...code..." 등을 출력하는 케이스 차단
+     */
+    private isPlaceholderContent(content: string): boolean {
+        if (content.length === 0) return true;
+        // 극단적으로 짧은 콘텐츠 (주석 1줄 정도는 허용)
+        if (content.length <= 10) {
+            return /^\.{2,}$|^(code|todo|implement|placeholder|content)/i.test(content);
+        }
+        // 전형적인 LLM 플레이스홀더 패턴
+        const placeholderPatterns = [
+            /^\.\.\.$/, /^\.\.\.code\.\.\.$/i, /^\.\.\.\s*code\s*\.\.\.$/i,
+            /^#\s*(todo|implement|placeholder)/i,
+            /^\/\/\s*(todo|implement|placeholder)/i,
+        ];
+        return placeholderPatterns.some(p => p.test(content));
     }
 }
 

@@ -141,8 +141,8 @@ export class AutoRemediator {
             fs.existsSync(path.join(workspaceRoot, file));
 
         // Gradle
-        if (exists('gradlew')) {
-            return './gradlew clean';
+        if (exists('gradlew') || exists('gradlew.bat')) {
+            return process.platform === 'win32' ? 'gradlew.bat clean' : './gradlew clean';
         }
         if (exists('build.gradle') || exists('build.gradle.kts')) {
             return 'gradle clean';

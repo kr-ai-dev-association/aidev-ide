@@ -1031,49 +1031,56 @@ export class TerminalManager {
                     }
                 } catch { }
 
-                // 3. 프로세스 이름 기반 종료
+                // 3. 프로세스 이름 기반 종료 (OS 어댑터 활용)
                 const osAdapter = this.executionManager.getOSAdapter();
-                if (osAdapter.osType === 'win32') {
-                    const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T 2>nul || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T 2>nul || echo "No process found"`;
+                const isWin = osAdapter.osType === 'win32';
+                const errSink = isWin ? '2>nul' : '2>/dev/null';
+
+                if (isWin) {
+                    const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T ${errSink} || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T ${errSink} || echo "No process found"`;
                     try {
                         await this.executionManager.runCommandCapture(killCommand, { cwd });
                     } catch { }
-                } else {
-                    try {
-                        const absCwd = path.resolve(cwd || '.');
-
-                        // Unix: lsof로 CWD 기반 프로세스 검색 후 종료
-                        const findProcessCmd = `lsof -a -d cwd -c node -F p | grep -E "^p[0-9]+" | head -1 | sed 's/^p//'`;
-                        const processResult = await this.executionManager.runCommandCapture(findProcessCmd, { cwd: absCwd });
-
-                        if (processResult.stdout && processResult.stdout.trim()) {
-                            const pids = processResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
-                            for (const pid of pids) {
-                                try {
-                                    const checkCwdCmd = `lsof -a -p ${pid} -d cwd -Fn | grep -E "^n" | head -1 | sed 's/^n//'`;
-                                    const cwdResult = await this.executionManager.runCommandCapture(checkCwdCmd, { cwd: absCwd });
-                                    const processCwd = cwdResult.stdout.trim();
-
-                                    if (processCwd === absCwd) {
-                                        await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
-                                    }
-                                } catch (e) {
-                                    console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
-                                }
-                            }
-                        }
-
-                        const psCmd = `ps aux | grep -E "(npm run dev|vite|next dev|nuxt dev)" | grep -v grep | awk '{print $2}' | xargs -I {} sh -c 'lsof -a -p {} -d cwd -Fn 2>/dev/null | grep -E "^n" | head -1 | sed "s/^n//" | grep -q "^${absCwd}" && echo {}'`;
-                        const psResult = await this.executionManager.runCommandCapture(psCmd, { cwd: absCwd });
-
-                        if (psResult.stdout && psResult.stdout.trim()) {
-                            const matchingPids = psResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
-                            for (const pid of matchingPids) {
-                                await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
-                            }
-                        }
-                    } catch { }
                 }
+
+                try {
+                    const absCwd = path.resolve(cwd || '.');
+
+                    // CWD 기반 node 프로세스 검색 후 종료
+                    const findProcessCmd = osAdapter.getFindNodeProcessByCwdCommand(absCwd);
+                    const processResult = await this.executionManager.runCommandCapture(findProcessCmd, { cwd: absCwd });
+
+                    if (processResult.stdout && processResult.stdout.trim()) {
+                        const pids = processResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
+                        for (const pid of pids) {
+                            try {
+                                const checkCwdCmd = osAdapter.getProcessCwdCommand(parseInt(pid));
+                                const cwdResult = await this.executionManager.runCommandCapture(checkCwdCmd, { cwd: absCwd });
+                                const processCwd = cwdResult.stdout.trim();
+
+                                // Unix: CWD 일치 확인 후 종료 / Windows: CommandLine 기반이므로 바로 종료
+                                if (isWin || processCwd === absCwd) {
+                                    const killCmd = osAdapter.getKillProcessCommand(parseInt(pid));
+                                    await this.executionManager.runCommandCapture(`${killCmd} ${errSink} || ${isWin ? 'echo ok' : 'true'}`, { cwd: absCwd });
+                                }
+                            } catch (e) {
+                                console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
+                            }
+                        }
+                    }
+
+                    // dev 서버 패턴 프로세스 검색 후 종료
+                    const devServerCmd = osAdapter.getFindDevServerProcessCommand(absCwd);
+                    const psResult = await this.executionManager.runCommandCapture(devServerCmd, { cwd: absCwd });
+
+                    if (psResult.stdout && psResult.stdout.trim()) {
+                        const matchingPids = psResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
+                        for (const pid of matchingPids) {
+                            const killCmd = osAdapter.getKillProcessCommand(parseInt(pid));
+                            await this.executionManager.runCommandCapture(`${killCmd} ${errSink} || ${isWin ? 'echo ok' : 'true'}`, { cwd: absCwd });
+                        }
+                    }
+                } catch { }
 
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (error) {
