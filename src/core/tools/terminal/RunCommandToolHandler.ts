@@ -31,18 +31,88 @@ export class RunCommandToolHandler implements IToolHandler {
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
 
-        // npm install 등 설치 명령어는 기본적으로 더 긴 타임아웃 부여
-        const isSetupCommand = command.includes('npm install') || command.includes('yarn install') || command.includes('pnpm install');
-        const initialTimeout = isSetupCommand ? 10000 : 5000;
+        // ── 명령어 분류 ──────────────────────────────────────────────
+        // 설치 명령어: 완료까지 대기 (exit code 필수, 상한 120초)
+        const INSTALL_PATTERNS = [
+            'npm install', 'npm i ',
+            'yarn install', 'yarn add',
+            'pnpm install', 'pnpm add',
+            'pip install', 'pip3 install',
+            'poetry install',
+            'cargo build', 'cargo install',
+            'mvn install', 'mvn package', 'gradle build',
+            'gem install', 'bundle install',
+            'go get', 'go mod download',
+            'dotnet restore',
+        ];
+        const isInstallCommand = INSTALL_PATTERNS.some(p => command.includes(p));
 
-        // 짧은 타임아웃으로 시작하여 출력을 확인 (killOnTimeout: false로 설정하여 프로세스 유지)
+        // 서버/워처 명령어: 백그라운드 전환 (종료되지 않는 프로세스)
+        const SERVER_PATTERNS = [
+            'npm run dev', 'npm run start', 'npm start',
+            'yarn dev', 'yarn start',
+            'pnpm dev', 'pnpm start',
+            'ng serve', 'next dev',
+            'python manage.py runserver', 'flask run', 'uvicorn',
+            'cargo run', 'go run',
+            'rails server', 'rails s',
+        ];
+        const isServerCommand = SERVER_PATTERNS.some(p => command.includes(p));
+        // ─────────────────────────────────────────────────────────────
+
+        // 설치 명령어: 완료까지 대기 (최대 120초)
+        if (isInstallCommand) {
+            const installTimeout = 120000;
+            console.log(`[RunCommandToolHandler] Install command detected, waiting for completion (timeout: ${installTimeout}ms): ${command}`);
+            const result = await context.executionManager.executeCommand(command, {
+                cwd: context.projectRoot,
+                timeout: installTimeout,
+                killOnTimeout: true,
+            });
+            return {
+                success: result.success,
+                message: result.success ? `Command executed: ${command}` : `Command failed: ${command}`,
+                data: {
+                    output: result.stdout,
+                    error: result.stderr,
+                    exitCode: result.exitCode,
+                }
+            };
+        }
+
+        // 서버 명령어: 짧게 확인 후 바로 백그라운드 전환
+        if (isServerCommand) {
+            const initialResult = await context.executionManager.executeCommand(command, {
+                cwd: context.projectRoot,
+                timeout: 5000,
+                killOnTimeout: false,
+            });
+            const pid = initialResult.pid || context.executionManager.getRunningProcesses()
+                .find(p => p.command === command)?.pid;
+
+            if (pid) {
+                context.executionManager.continueProcess(pid);
+                console.log(`[RunCommandToolHandler] Server command started in background: ${command} (PID: ${pid})`);
+                return {
+                    success: true,
+                    message: `Long-running command started: ${command} (PID: ${pid})`,
+                    data: {
+                        output: initialResult.stdout || `서버가 백그라운드에서 시작되었습니다 (PID: ${pid}).`,
+                        llmNote: '이 명령어는 장기 실행 프로세스입니다. 이미 백그라운드에서 실행 중이므로 동일 명령어를 다시 실행하지 마세요.',
+                        error: initialResult.stderr,
+                        exitCode: undefined,
+                    }
+                };
+            }
+        }
+
+        // 그 외 일반 명령어: 출력 기반으로 판단 (기존 로직)
         const initialResult = await context.executionManager.executeCommand(command, {
             cwd: context.projectRoot,
-            timeout: initialTimeout,
+            timeout: 5000,
             killOnTimeout: false
         });
 
-        // 출력 기반으로 장기 실행 명령어인지 확인
         const pid = initialResult.pid || context.executionManager.getRunningProcesses()
             .find(p => p.command === command)?.pid;
 
@@ -51,17 +121,13 @@ export class RunCommandToolHandler implements IToolHandler {
             isLongRunning = context.executionManager.isLongRunningCommand(pid);
         }
 
-        // 타임아웃이 발생했거나 출력 기반으로 장기 실행으로 판단되면 continue() 호출
+        // 출력 기반으로 장기 실행으로 판단되면 백그라운드 전환
         if (isLongRunning || initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE') {
             if (pid) {
                 console.log(`[RunCommandToolHandler] Long-running command detected (output-based/timeout): ${command}, using continue() pattern`);
-
-                // continue() 호출하여 백그라운드에서 계속 실행
                 context.executionManager.continueProcess(pid);
 
-                // 타임아웃 발생 시에도 성공 메시지 반환
                 const isTimeout = initialResult.error?.code === 'TIMEOUT' || initialResult.error?.code === 'TIMEOUT_CONTINUE';
-                // UI 표시용: 깔끔하게
                 const outputMessage = isTimeout
                     ? `백그라운드에서 시작되었습니다.${initialResult.stdout ? `\n${initialResult.stdout}` : ''}`
                     : (initialResult.stdout || `서버가 백그라운드에서 시작되었습니다${pid ? ` (PID: ${pid})` : ''}.`);
@@ -71,17 +137,15 @@ export class RunCommandToolHandler implements IToolHandler {
                     message: `Long-running command started: ${command}${pid ? ` (PID: ${pid})` : ''}`,
                     data: {
                         output: outputMessage,
-                        // LLM 전용 힌트: UI에는 표시되지 않음 (ToolExecutionCoordinator는 data.output만 읽음)
                         llmNote: '이 명령어는 장기 실행 프로세스입니다. 이미 백그라운드에서 실행 중이므로 동일 명령어를 다시 실행하지 마세요. 다음 단계로 진행하거나 작업 완료를 선언하세요.',
                         error: initialResult.stderr,
-                        exitCode: undefined // 장기 실행 프로세스는 exitCode 없음
+                        exitCode: undefined,
                     }
                 };
             }
         }
 
-        // 초기 실행이 성공적으로 완료된 경우 (exitCode가 있고 에러가 없음) 바로 반환
-        // 이렇게 하면 중복 실행을 방지할 수 있음
+        // 초기 실행에서 완료된 경우 바로 반환
         if (initialResult.exitCode !== undefined && !initialResult.error) {
             console.log(`[RunCommandToolHandler] Command completed in initial execution: ${command}`);
             return {

@@ -36,6 +36,7 @@ export class TestRunner {
     _workspaceRoot: string,
     createdFiles: string[],
     modifiedFiles: string[],
+    validationTimeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
   ): Promise<TestResult> {
     let workspaceRoot = _workspaceRoot;
     try {
@@ -323,6 +324,7 @@ export class TestRunner {
             webview,
             validationCmd,
             workspaceRoot,
+            validationTimeout,
           );
           testResults.push(lintResult.message);
           cliClassification = lintResult.classification;
@@ -443,6 +445,7 @@ export class TestRunner {
     webview: vscode.Webview,
     validationCmd: { command: string; description: string },
     workspaceRoot: string,
+    timeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
   ): Promise<{ message: string; classification?: ClassificationResult }> {
     WebviewBridge.sendProcessingStatus(
       webview,
@@ -453,7 +456,7 @@ export class TestRunner {
       const executionManager = ExecutionManager.getInstance();
       const result = await executionManager.executeCommand(
         validationCmd.command,
-        { cwd: workspaceRoot, timeout: AgentConfig.VALIDATION_COMMAND_TIMEOUT },
+        { cwd: workspaceRoot, timeout },
       );
 
       if (result.exitCode === 0) {

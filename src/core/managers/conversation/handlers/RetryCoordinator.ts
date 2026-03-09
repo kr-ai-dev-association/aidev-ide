@@ -18,6 +18,7 @@ import { AutoRemediator } from "./AutoRemediator";
 import { TestResult } from "./TestRunner";
 import { buildClassifiedRetryPrompt, ModifiedFileContext } from "../../context/prompts/rules";
 import { ProjectDetector } from "../../project/ProjectDetector";
+import { AgentConfig } from "../../../config/AgentConfig";
 
 export interface RetryContext {
     testResult: TestResult;
@@ -42,6 +43,7 @@ export class RetryCoordinator {
     private lastFingerprint: string = '';
     private samePatternCount: number = 0;
     private _pendingFallbackModel: boolean = false;
+    private buildTimeoutCount: number = 0;
 
     /**
      * 에러 폴백 모델 사용 여부 확인 후 소비 (1회성)
@@ -50,6 +52,16 @@ export class RetryCoordinator {
         const value = this._pendingFallbackModel;
         this._pendingFallbackModel = false;
         return value;
+    }
+
+    /**
+     * BUILD_TIMEOUT 재시도 횟수에 따라 동적으로 증가하는 타임아웃 반환
+     * 15s → 30s → 60s → 120s (MAX)
+     */
+    public getValidationTimeout(): number {
+        const base = AgentConfig.VALIDATION_COMMAND_TIMEOUT;
+        const multiplier = Math.pow(AgentConfig.BUILD_RETRY_TIMEOUT_MULTIPLIER, this.buildTimeoutCount);
+        return Math.min(base * multiplier, AgentConfig.MAX_BUILD_TIMEOUT);
     }
 
     /**
@@ -101,7 +113,8 @@ export class RetryCoordinator {
 
         // 3.5. BUILD_TIMEOUT → 캐시 클리어 시도 후 재시도
         if (classification.dominantCategory === ErrorCategory.BUILD_TIMEOUT) {
-            console.log('[RetryCoordinator] BUILD_TIMEOUT detected — attempting cache clear before retry');
+            this.buildTimeoutCount++;
+            console.log(`[RetryCoordinator] BUILD_TIMEOUT detected (count=${this.buildTimeoutCount}) — next validation timeout: ${this.getValidationTimeout()}ms`);
             WebviewBridge.sendProcessingStatus(
                 ctx.webview,
                 'executing',

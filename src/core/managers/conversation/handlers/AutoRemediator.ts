@@ -155,6 +155,9 @@ export class AutoRemediator {
 
         // Node.js (빌드 캐시 디렉토리 삭제)
         if (exists('package.json')) {
+            if (process.platform === 'win32') {
+                return 'cmd /c "for %d in (dist build .next .nuxt .vite .parcel-cache) do if exist %d rmdir /s /q %d"';
+            }
             return 'rm -rf dist build .next .nuxt .vite .parcel-cache';
         }
 

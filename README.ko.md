@@ -6,6 +6,32 @@
 
 VSCode 기반 코드 어시스턴트 플러그인 (LLM 및 LM 지원)
 
+## v12.2.0 (Windows 호환성 강화, 빌드 타임아웃 동적 증가)
+
+### Windows 셸 호환성 수정
+- `ProcessManager`: Windows에서 `cmd.exe` 대신 **Git Bash → PowerShell** 순으로 자동 선택
+  - Git Bash 설치 경로(`Program Files\Git\bin\bash.exe` 등) 탐색 후 있으면 사용
+  - Git Bash 없을 시 `powershell.exe` 사용 (Mac/Linux는 기존 `/bin/sh` 유지)
+  - 시작 로그에서 선택된 셸 확인 가능: `[ProcessManager] Shell: Git Bash (...)`
+- `AutoRemediator`: Windows에서 `rm -rf` → `cmd /c "for %d in (...) do if exist %d rmdir /s /q %d"` 변환
+
+### ripgrep 탐색 경로 확장 (`FileSearcher`)
+- 신버전(`@vscode/ripgrep`) / 구버전(`vscode-ripgrep`) 경로 모두 순서대로 탐색
+- 시스템 PATH fallback 유지
+- 탐색 성공 시 어느 경로에서 찾았는지 로그 출력
+
+### 빌드 타임아웃 동적 증가 (`RetryCoordinator` + `TestRunner`)
+- `BUILD_TIMEOUT` 발생 시마다 타임아웃 자동 증가: **15s → 30s → 60s → 120s**
+- `AgentConfig.BUILD_RETRY_TIMEOUT_MULTIPLIER` (×2), `MAX_BUILD_TIMEOUT` (120s) 실제 연결
+- `TestRunner.runAutomatedTests()` / `runValidationCommand()`에 `validationTimeout` 파라미터 추가
+
+### 명령어 분류 개선 (`RunCommandToolHandler`)
+- 설치 명령어(`npm install`, `pip install`, `cargo build` 등): 완료까지 대기 (최대 120초), exit code 반환
+- 서버 명령어(`npm run dev`, `flask run`, `ng serve` 등): 5초 확인 후 즉시 백그라운드 전환
+- 기존에 `npm install`이 10초 초과 시 성공 여부 불명확하게 처리되던 버그 수정
+
+---
+
 ## v12.1.0 (자동완성 컨텍스트 강화, 설정 기본값 정비)
 
 ### 인라인 자동완성 컨텍스트 확장

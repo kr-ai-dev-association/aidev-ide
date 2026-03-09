@@ -4,12 +4,36 @@
  */
 
 import { ChildProcess, spawn } from 'child_process';
+import * as fs from 'fs';
 import {
     Process,
     ProcessStatus,
     ProcessMetadata,
     ExecutionOptions
 } from './types';
+
+// Git Bash 후보 경로 (Windows)
+const GIT_BASH_CANDIDATES = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Programs\\Git\\bin\\bash.exe',
+];
+
+function findGitBash(): string | null {
+    for (const p of GIT_BASH_CANDIDATES) {
+        if (fs.existsSync(p)) {
+            return p;
+        }
+    }
+    return null;
+}
+
+// 프로세스 시작 시 한 번만 탐색
+const GIT_BASH_PATH = process.platform === 'win32' ? findGitBash() : null;
+
+if (process.platform === 'win32') {
+    console.log(`[ProcessManager] Shell: ${GIT_BASH_PATH ? `Git Bash (${GIT_BASH_PATH})` : 'PowerShell'}`);
+}
 
 export class ProcessManager {
     private processes: Map<number, Process> = new Map();
@@ -32,10 +56,21 @@ export class ProcessManager {
         const [cmd, ...args] = this.parseCommand(command);
 
         // 프로세스 생성
+        // Windows: Git Bash → PowerShell 순으로 fallback
+        // Mac/Linux: 네이티브 /bin/sh
+        let shellOption: string | boolean;
+        if (typeof options.shell === 'boolean') {
+            shellOption = options.shell;
+        } else if (process.platform === 'win32') {
+            shellOption = GIT_BASH_PATH ?? 'powershell.exe';
+        } else {
+            shellOption = true; // /bin/sh
+        }
+
         const childProcess = spawn(cmd, args, {
             cwd: options.cwd,
             env: { ...process.env, ...options.env },
-            shell: typeof options.shell === 'boolean' ? options.shell : true,
+            shell: shellOption,
             ...(options.encoding && { encoding: options.encoding })
         });
 

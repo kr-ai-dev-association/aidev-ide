@@ -64,39 +64,47 @@ export class FileSearcher {
     }
 
     /**
-     * ripgrep 경로 찾기
+     * ripgrep 경로 찾기 (신버전/구버전 VS Code 모두 지원)
      */
     private async findRipgrep(): Promise<void> {
-        try {
-            // VS Code의 ripgrep 사용 시도
-            const vscodeRipgrep = path.join(
-                vscode.env.appRoot,
-                'resources',
-                'app',
-                'node_modules',
-                'vscode-ripgrep',
-                'bin',
-                process.platform === 'win32' ? 'rg.exe' : 'rg'
-            );
+        const rgBin = process.platform === 'win32' ? 'rg.exe' : 'rg';
+        const appRoot = vscode.env.appRoot;
 
+        // 시도할 경로 목록 (우선순위 순)
+        const candidatePaths = [
+            // 신버전 VS Code (@vscode/ripgrep)
+            path.join(appRoot, 'node_modules', '@vscode', 'ripgrep', 'bin', rgBin),
+            path.join(appRoot, 'resources', 'app', 'node_modules', '@vscode', 'ripgrep', 'bin', rgBin),
+            // 구버전 VS Code (vscode-ripgrep)
+            path.join(appRoot, 'resources', 'app', 'node_modules', 'vscode-ripgrep', 'bin', rgBin),
+            path.join(appRoot, 'node_modules', 'vscode-ripgrep', 'bin', rgBin),
+        ];
+
+        for (const candidate of candidatePaths) {
             try {
-                await fs.access(vscodeRipgrep);
-                this.ripgrepPath = vscodeRipgrep;
+                await fs.access(candidate);
+                this.ripgrepPath = candidate;
+                console.log(`[FileSearcher] ripgrep found at: ${candidate}`);
                 return;
             } catch {
-                // VS Code ripgrep 없음
+                // 해당 경로 없음, 다음 시도
             }
+        }
 
-            // 시스템 PATH에서 찾기 (Windows: where, Unix: which)
+        // 시스템 PATH에서 찾기 (Windows: where, Unix: which)
+        try {
             const whichCmd = process.platform === 'win32' ? 'where rg' : 'which rg';
             const { stdout } = await exec(whichCmd);
             if (stdout.trim()) {
-                this.ripgrepPath = stdout.trim().split(/\r?\n/)[0]; // Windows where는 여러 줄 반환 가능
+                this.ripgrepPath = stdout.trim().split(/\r?\n/)[0];
+                console.log(`[FileSearcher] ripgrep found in PATH: ${this.ripgrepPath}`);
                 return;
             }
-        } catch (error) {
-            console.warn('[FileSearcher] ripgrep not found, falling back to native search');
+        } catch {
+            // 시스템 PATH에도 없음
         }
+
+        console.warn('[FileSearcher] ripgrep not found, falling back to native search');
     }
 
     /**
