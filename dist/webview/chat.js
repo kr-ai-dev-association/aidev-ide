@@ -24167,7 +24167,7 @@ function bindModelDropdownEvents() {
       const leftOffset = buttonRect.left - parentRect.left;
       modelDropdown.style.left = leftOffset + 'px';
       modelDropdown.style.right = 'auto';
-      modelDropdown.style.width = buttonRect.width + 'px';
+      modelDropdown.style.width = Math.max(buttonRect.width, 120) + 'px';
       modelDropdown.classList.remove('hidden');
       modelDropdown.style.display = 'block';
       if (availableOllamaModels.length === 0) {
@@ -24498,49 +24498,6 @@ if (typeof window.vscode === "undefined" && typeof acquireVsCodeApi !== "undefin
   }
 }
 const vscode = window.vscode || null;
-
-// ═══════════ 로그인 게이트 (Google OAuth) ═══════════
-(function initLoginGate() {
-  const loginScreen = document.getElementById("chat-login-screen");
-  const chatApp = document.getElementById("chat-app");
-  const googleBtn = document.getElementById("chat-google-login-btn");
-  const loginError = document.getElementById("chat-login-error");
-  if (!loginScreen || !chatApp || !googleBtn) return;
-
-  // Google 로그인 버튼 클릭
-  googleBtn.addEventListener("click", () => {
-    if (!vscode) return;
-    googleBtn.disabled = true;
-    googleBtn.style.opacity = "0.7";
-    if (loginError) loginError.style.display = "none";
-    vscode.postMessage({
-      command: "loginWithGoogle"
-    });
-  });
-
-  // 부팅 시 인증 상태 확인 요청
-  if (vscode) {
-    vscode.postMessage({
-      command: "checkAuthState"
-    });
-  }
-
-  // 전역 함수: 로그인/채팅 화면 전환
-  window._showChat = function () {
-    loginScreen.style.display = "none";
-    chatApp.style.display = "";
-  };
-  window._showLogin = function (errorMsg) {
-    loginScreen.style.display = "flex";
-    chatApp.style.display = "none";
-    googleBtn.disabled = false;
-    googleBtn.style.opacity = "1";
-    if (errorMsg && loginError) {
-      loginError.textContent = errorMsg;
-      loginError.style.display = "block";
-    }
-  };
-})();
 
 // ===== 처리 단계 및 스크롤 관련 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/processing-steps.js 모듈에 있음
@@ -26102,24 +26059,6 @@ document.addEventListener("DOMContentLoaded", () => {
 window.addEventListener("message", event => {
   const message = event.data;
   switch (message.command) {
-    // ═══════════ 인증 상태 메시지 ═══════════
-    case "authState":
-      {
-        if (message.loggedIn) {
-          if (typeof window._showChat === "function") window._showChat();
-        } else {
-          if (typeof window._showLogin === "function") window._showLogin();
-        }
-        break;
-      }
-    case "loginError":
-      {
-        // Google 로그인 에러 → 로그인 화면에 에러 표시
-        if (typeof window._showLogin === "function") {
-          window._showLogin(message.message || "로그인 실패");
-        }
-        break;
-      }
     case "priorityErrorPrompt":
       // 확장 측에서 파일 작업/터미널 에러 우선 처리 요청 → 확장으로 전달하여 즉시 LLM 호출
       if (typeof message.text === "string" && message.text.trim().length > 0) {

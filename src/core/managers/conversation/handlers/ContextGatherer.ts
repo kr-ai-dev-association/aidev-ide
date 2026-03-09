@@ -184,54 +184,8 @@ export class ContextGatherer {
             console.warn('[ContextGatherer] Failed to generate framework rules:', error);
         }
 
-        // 서버 RAG 검색
-        let ragContext = '';
-        try {
-            const { AuthService } = await import('../../../../services/auth/AuthService');
-            const { CodePilotApiClient } = await import('../../../../services/api/CodePilotApiClient');
-            const authService = AuthService.getInstance();
-            if (authService.isLoggedIn()) {
-                const userInfo = authService.getUserInfo();
-                const orgId = userInfo?.organization_id;
-                if (options.userQuery) {
-                    const codeSnippet = options.selectedCode
-                        ? options.selectedCode.substring(0, 500)
-                        : null;
-                    const ragQuery = codeSnippet
-                        ? `${options.userQuery}\n\n${codeSnippet}`
-                        : options.userQuery;
-                    const ragRaw = await CodePilotApiClient.getInstance().searchRag(
-                        ragQuery,
-                        orgId || undefined,
-                        undefined,
-                        5,
-                    );
-                    const ragResults = Array.isArray(ragRaw)
-                        ? ragRaw
-                        : ((ragRaw as any)?.data || (ragRaw as any)?.results || []);
-                    if (ragResults && ragResults.length > 0) {
-                        ragContext = ragResults
-                            .map((r: any, i: number) => {
-                                const source = r.source_name || r.source || '';
-                                const doc = r.document_name || r.document || '';
-                                const sim =
-                                    r.similarity != null
-                                        ? ` (유사도: ${(r.similarity * 100).toFixed(0)}%)`
-                                        : '';
-                                return `[문서 ${i + 1}] ${source} > ${doc}${sim}\n${r.content}`;
-                            })
-                            .join('\n\n---\n\n');
-                        console.log(
-                            `[ContextGatherer] RAG: ${ragResults.length}개 문서 청크 포함 (${ragContext.length} chars)`,
-                        );
-                    } else {
-                        console.log('[ContextGatherer] RAG: 검색 결과 없음');
-                    }
-                }
-            }
-        } catch (error) {
-            console.warn('[ContextGatherer] RAG search failed (non-critical):', error);
-        }
+        // 서버 RAG 검색 — standalone 모드에서는 비활성화
+        const ragContext = '';
 
         return {
             codebaseContext: contextData.file?.content,

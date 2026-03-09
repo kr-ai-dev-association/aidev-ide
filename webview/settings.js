@@ -25,8 +25,26 @@ const vscode = window.vscode || null;
 // 설정 로드 중 플래그 (자동 저장 방지용)
 let isLoadingSettings = false;
 
-// 서버(조직) 설정 캐시
-let cachedServerSettings = {};
+// standalone: 서버 없이 빌트인 모델 프리셋 제공
+let cachedServerSettings = {
+  ai_model: [
+    // Google (Gemini) - OpenAI 호환 엔드포인트
+    { key: 'gemini-3.1-pro-preview', source: 'preset', group: 'gemini', value: { name: 'Gemini 3.1 Pro', provider: 'openai', model: 'gemini-3.1-pro-preview', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gemini-3-flash-preview', source: 'preset', group: 'gemini', value: { name: 'Gemini 3 Flash', provider: 'openai', model: 'gemini-3-flash-preview', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gemini-2.5-pro', source: 'preset', group: 'gemini', value: { name: 'Gemini 2.5 Pro', provider: 'openai', model: 'gemini-2.5-pro', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gemini-2.5-flash', source: 'preset', group: 'gemini', value: { name: 'Gemini 2.5 Flash', provider: 'openai', model: 'gemini-2.5-flash', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+    // OpenAI
+    { key: 'gpt-5.4', source: 'preset', group: 'openai', value: { name: 'GPT-5.4', provider: 'openai', model: 'gpt-5.4', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gpt-5.4-pro', source: 'preset', group: 'openai', value: { name: 'GPT-5.4 Pro', provider: 'openai', model: 'gpt-5.4-pro', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gpt-5.3-codex', source: 'preset', group: 'openai', value: { name: 'GPT-5.3 Codex', provider: 'openai', model: 'gpt-5.3-codex', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gpt-5-mini', source: 'preset', group: 'openai', value: { name: 'GPT-5 Mini', provider: 'openai', model: 'gpt-5-mini', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+    { key: 'gpt-4.1', source: 'preset', group: 'openai', value: { name: 'GPT-4.1', provider: 'openai', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+    // Anthropic (Claude)
+    { key: 'claude-opus-4-6', source: 'preset', group: 'claude', value: { name: 'Claude Opus 4.6', provider: 'anthropic', model: 'claude-opus-4-6', baseUrl: 'https://api.anthropic.com', authType: 'x-api-key', streamingSupported: true } },
+    { key: 'claude-sonnet-4-6', source: 'preset', group: 'claude', value: { name: 'Claude Sonnet 4.6', provider: 'anthropic', model: 'claude-sonnet-4-6', baseUrl: 'https://api.anthropic.com', authType: 'x-api-key', streamingSupported: true } },
+    { key: 'claude-haiku-4-5', source: 'preset', group: 'claude', value: { name: 'Claude Haiku 4.5', provider: 'anthropic', model: 'claude-haiku-4-5-20251001', baseUrl: 'https://api.anthropic.com', authType: 'x-api-key', streamingSupported: true } },
+  ],
+};
 
 // 조직 소속 여부: window.userHasOrganization (settings.html에서 설정)
 
@@ -599,6 +617,11 @@ function showSupportedModelSettings(groupName, selectedKey) {
   updateSupportedModelApiKeySection(v);
   // 스트리밍 지원 여부에 따라 토글 업데이트
   updateStreamingToggle(v);
+
+  // 해당 프로바이더의 API 키 설정 여부 조회
+  if (vscode) {
+    vscode.postMessage({ command: "getProviderApiKeyStatus", provider: groupName });
+  }
 }
 
 /**
@@ -1815,8 +1838,11 @@ if (saveSupportedModelApiKeyButton) {
     }
     if (!currentSupportedModelKey) return;
 
-    // admin 모델 API 키 저장
-    vscode.postMessage({ command: "saveAdminApiKey", apiKey: apiKey });
+    // 프로바이더별 API 키 저장 (그룹명 포함)
+    const aiModels = cachedServerSettings['ai_model'] || [];
+    const currentPreset = aiModels.find(s => s.key === currentSupportedModelKey);
+    const providerGroup = currentPreset?.group || '';
+    vscode.postMessage({ command: "saveProviderApiKey", apiKey: apiKey, provider: providerGroup });
 
     if (supportedModelStatus) {
       supportedModelStatus.textContent = "API 키 저장 중...";
@@ -1889,19 +1915,34 @@ window.addEventListener("message", (event) => {
         supportedModelStatus.className = "info-message error-message";
       }
       break;
-    case "adminApiKeySaved":
+    case "providerApiKeySaved":
       if (supportedModelStatus) {
         supportedModelStatus.textContent = "API 키가 저장되었습니다.";
         supportedModelStatus.className = "info-message success-message";
       }
       if (supportedModelApiKeyInput) {
         supportedModelApiKeyInput.value = "";
+        supportedModelApiKeyInput.placeholder = "API 키가 설정되었습니다. (변경하려면 새 키를 입력하세요)";
       }
       break;
-    case "adminApiKeySaveError":
+    case "providerApiKeySaveError":
       if (supportedModelStatus) {
         supportedModelStatus.textContent = `API 키 저장 실패: ${message.error}`;
         supportedModelStatus.className = "info-message error-message";
+      }
+      break;
+    case "providerApiKeyStatus":
+      // 프로바이더 API 키 설정 여부 표시
+      if (supportedModelApiKeyInput) {
+        if (message.hasKey) {
+          supportedModelApiKeyInput.placeholder = "API 키가 설정되었습니다. (변경하려면 새 키를 입력하세요)";
+        } else {
+          supportedModelApiKeyInput.placeholder = "API 키를 입력하세요.";
+        }
+        supportedModelApiKeyInput.value = "";
+      }
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = "";
       }
       break;
     case "ollamaModels": {
@@ -3158,8 +3199,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // 3. 전체 설정 로드
   vscode.postMessage({ command: "getCurrentSettings" });
 
-  // 3-1. 서버(조직) 설정 로드
-  vscode.postMessage({ command: "getServerSettings" });
+  // 3-1. standalone: 빌트인 모델 프리셋 렌더링
+  renderAllOrgSettings();
 
   // 4. API 키 로드
   vscode.postMessage({ command: "loadApiKeys" });
@@ -4735,7 +4776,7 @@ function renderSecurityRulesLists(
         const textDecoration = isDisabled ? "line-through" : "none";
         const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-blocked-cmd-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
+        return `<div class="default-blocked-cmd-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: ${bg}; color: ${color}; border-radius: 4px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
       })
       .join("");
 
@@ -4763,7 +4804,7 @@ function renderSecurityRulesLists(
         const textDecoration = isDisabled ? "line-through" : "none";
         const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
+        return `<div class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: ${bg}; color: ${color}; border-radius: 4px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
       })
       .join("");
 

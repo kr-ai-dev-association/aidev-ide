@@ -183,42 +183,10 @@ export class UsageMetricsManager {
   }
 
   /**
-   * 백엔드에 사용량 보고 (CodePilot Backend 연동)
+   * 백엔드에 사용량 보고 (비활성화됨 - standalone 모드)
    */
-  private async reportToBackend(tokenCount: number, modelName?: string): Promise<void> {
-    try {
-      const { CodePilotApiClient } = await import("../../../services/api/CodePilotApiClient");
-      const { AuthService } = await import("../../../services/auth/AuthService");
-
-      const auth = AuthService.getInstance();
-      if (!auth.isLoggedIn()) return;
-
-      const userInfo = auth.getUserInfo();
-
-      // 실제 모델 ID 사용 (전달되지 않은 경우 LLMManager에서 가져옴)
-      let actualModelName = modelName;
-      if (!actualModelName) {
-        try {
-          const { LLMManager } = await import("../model/LLMManager");
-          const llmManager = LLMManager.getInstance();
-          actualModelName = await llmManager.getCurrentModelName();
-        } catch {
-          actualModelName = "unknown";
-        }
-      }
-
-      const api = CodePilotApiClient.getInstance();
-
-      await api.reportUsage({
-        org_id: userInfo?.organization_id,
-        model_name: actualModelName,
-        token_input: Math.floor(tokenCount * 0.6),
-        token_output: Math.floor(tokenCount * 0.4),
-        api_calls: 1,
-      });
-    } catch {
-      // 보고 실패 시 무시 (오프라인 등)
-    }
+  private async reportToBackend(_tokenCount: number, _modelName?: string): Promise<void> {
+    return;
   }
 
   /**

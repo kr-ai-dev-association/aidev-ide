@@ -61,7 +61,6 @@ import { ListCodeDefinitionsToolHandler } from "./core/tools/file";
 import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
 import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
-import { AuthService } from "./services/auth/AuthService";
 import { DEFAULT_OLLAMA_URL } from './core/config/ApiDefaults';
 import {
   registerGitCommands,
@@ -71,7 +70,6 @@ import {
 } from "./commands";
 
 // 전역 변수
-let authService: AuthService;
 let ollamaApi: OllamaApi;
 let notificationService: NotificationService;
 let gitRepositoryService: GitRepositoryService;
@@ -97,51 +95,6 @@ export async function activate(context: vscode.ExtensionContext) {
     const skillsDir = path.join(context.storageUri.fsPath, 'rules');
     PromptComposer.setSkillsDir(skillsDir);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(skillsDir));
-  }
-
-  // CodePilot Backend 인증 서비스 초기화
-  authService = AuthService.initialize(context);
-
-  // OAuth 콜백 URI Handler 등록
-  context.subscriptions.push(
-    vscode.window.registerUriHandler({
-      handleUri(uri: vscode.Uri) {
-        if (uri.path === "/auth/callback") {
-          authService.handleOAuthCallback(uri);
-        }
-      },
-    })
-  );
-
-  // 로그인 / 로그아웃 명령어 등록 (채팅 패널에서 라이선스 키 입력)
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.login", async () => {
-      // 채팅 패널에 로그인 화면이 있으므로 포커스
-      await vscode.commands.executeCommand("codepilot.chatView.focus");
-    }),
-    vscode.commands.registerCommand("codepilot.logout", async () => {
-      await authService.logout();
-    })
-  );
-
-  // 로그인 상태 변경 시 서버 설정 동기화
-  authService.onDidChangeAuth(async (loggedIn) => {
-    if (loggedIn) {
-      try {
-        const settingsManager = SettingsManager.getInstance();
-        await settingsManager.syncServerSettings();
-        console.log("[Extension] Server settings synced after login");
-      } catch (err) {
-        console.warn("[Extension] Settings sync failed:", err);
-      }
-    }
-  });
-
-  // 로그인 상태이면 서버 설정 동기화
-  if (authService.isLoggedIn()) {
-    SettingsManager.getInstance(context).syncServerSettings().catch(err => {
-      console.warn("[Extension] Initial settings sync failed:", err);
-    });
   }
 
   gitRepositoryService = new GitRepositoryService(context);
@@ -412,21 +365,43 @@ export async function activate(context: vscode.ExtensionContext) {
       const adminConfigJson = await stateManager.getAdminModelConfig();
       if (adminConfigJson) {
         const adminConfig = JSON.parse(adminConfigJson);
-        // 사용자가 IDE에서 저장한 API 키가 있으면 병합
-        const userAdminApiKey = context.globalState.get<string>("codepilot.adminApiKey");
-        if (userAdminApiKey && !adminConfig.apiKey) {
-          adminConfig.apiKey = userAdminApiKey;
+        // 프로바이더별 API 키 조회 (group 기반)
+        if (!adminConfig.apiKey && adminConfig.key) {
+          const aiModelSettings = settingsManager.getServerSettings('ai_model');
+          const presetEntry = aiModelSettings.find((s: any) => s.key === adminConfig.key);
+          const providerGroup = (presetEntry as any)?.group || '';
+          const perProviderKey = providerGroup
+            ? context.globalState.get<string>(`codepilot.apiKey.${providerGroup}`)
+            : context.globalState.get<string>("codepilot.adminApiKey");
+          if (perProviderKey) {
+            adminConfig.apiKey = perProviderKey;
+          }
         }
-        // nativeToolCallingSupported 누락 시 서버 설정 캐시에서 보완
-        if (adminConfig.nativeToolCallingSupported === undefined && adminConfig.key) {
+        // preset에서 authType, endpoint, nativeToolCallingSupported 등 보완
+        if (adminConfig.key) {
           try {
             const aiModelSettings = settingsManager.getServerSettings('ai_model');
             const serverEntry = aiModelSettings.find((s: any) => s.key === adminConfig.key);
             if (serverEntry?.value) {
               const v = serverEntry.value;
-              const rawNative = v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
-              adminConfig.nativeToolCallingSupported = rawNative === true || String(rawNative) === 'true';
-              adminConfig.streamingSupported = adminConfig.streamingSupported ?? v.streamingSupported ?? v.streaming_supported ?? true;
+              // preset에서 provider, endpoint, authType 항상 동기화 (프리셋 변경 시 반영)
+              const presetProvider = v.provider;
+              if (presetProvider) {
+                adminConfig.provider = presetProvider;
+              }
+              const presetEndpoint = v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint;
+              if (presetEndpoint) {
+                adminConfig.endpoint = presetEndpoint;
+              }
+              const presetAuthType = v.authType || v.auth_type;
+              if (presetAuthType) {
+                adminConfig.authType = presetAuthType;
+              }
+              if (adminConfig.nativeToolCallingSupported === undefined) {
+                const rawNative = v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
+                adminConfig.nativeToolCallingSupported = rawNative === true || String(rawNative) === 'true';
+                adminConfig.streamingSupported = adminConfig.streamingSupported ?? v.streamingSupported ?? v.streaming_supported ?? true;
+              }
             }
           } catch { /* ignore */ }
         }

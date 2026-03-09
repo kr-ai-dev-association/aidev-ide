@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "12.3.0",
+  "version": "1.0.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -176,31 +176,6 @@
             "type": "string"
           }
         },
-        "codepilot.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "AIDEV API Key를 설정합니다. Secret Storage에 안전하게 저장됩니다.",
-          "scope": "resource",
-          "markdownDescription": "AIDEV API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장됩니다."
-        },
-        "codepilot.backendUrl": {
-          "type": "string",
-          "default": "https://api-codepilot.banya.ai/api/v1",
-          "description": "CodePilot 백엔드 서버 URL",
-          "scope": "resource"
-        },
-        "codepilot.googleClientId": {
-          "type": "string",
-          "default": "750553530776-uccbdv3bs17sv815qdifbo498drfuouh.apps.googleusercontent.com",
-          "description": "Google OAuth Client ID (로그인용, 데스크톱앱 타입)",
-          "scope": "resource"
-        },
-        "codepilot.githubClientId": {
-          "type": "string",
-          "default": "",
-          "description": "GitHub OAuth Client ID (로그인용)",
-          "scope": "resource"
-        },
         "codepilot.aiModel": {
           "type": "string",
           "default": "ollama",
@@ -318,12 +293,6 @@
           "type": "boolean",
           "default": true,
           "description": "MCP 도구를 승인 없이 자동 실행할지 여부. 비활성화 시 첫 실행마다 확인 메시지가 표시됩니다.",
-          "scope": "resource"
-        },
-        "codepilot.errorReportingEnabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable or disable automatic error reporting to the backend server. When enabled, IDE errors are sent to the server and visible in codepilot-admin error logs.",
           "scope": "resource"
         },
         "codepilot.orchestration": {

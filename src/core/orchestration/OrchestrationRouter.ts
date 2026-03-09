@@ -67,8 +67,6 @@ interface TaskQueueItem {
 
 /** MCP 서버 최소 타입 (gatherRulesContext 내부용) */
 interface McpServerInfo { enabled: boolean; customPrompt?: string; name: string; }
-/** RAG 검색 결과 최소 타입 (gatherRulesContext 내부용) */
-interface RagResult { source_name?: string; source?: string; document_name?: string; document?: string; similarity?: number; content: string; }
 
 export class OrchestrationRouter {
     /**
@@ -732,35 +730,7 @@ export class OrchestrationRouter {
             console.warn('[OrchestrationRouter] Failed to load framework rules:', e);
         }
 
-        // 5. RAG 컨텍스트
-        try {
-            const { AuthService } = await import('../../services/auth/AuthService');
-            const auth = AuthService.getInstance();
-            if (auth.isLoggedIn() && userQuery) {
-                const userInfo = auth.getUserInfo();
-                const orgId = userInfo?.organization_id;
-                const { CodePilotApiClient } = await import('../../services/api/CodePilotApiClient');
-                const ragRaw = await CodePilotApiClient.getInstance().searchRag(
-                    userQuery, orgId || undefined, undefined, 5,
-                ) as RagResult[] | { data?: RagResult[]; results?: RagResult[] };
-                const ragResults: RagResult[] = Array.isArray(ragRaw)
-                    ? ragRaw
-                    : ((ragRaw as { data?: RagResult[]; results?: RagResult[] }).data || (ragRaw as { data?: RagResult[]; results?: RagResult[] }).results || []);
-                if (ragResults.length > 0) {
-                    const ragText = ragResults
-                        .map((r, i) => {
-                            const source = r.source_name || r.source || '';
-                            const doc = r.document_name || r.document || '';
-                            const sim = r.similarity != null ? ` (유사도: ${(r.similarity * 100).toFixed(0)}%)` : '';
-                            return `[문서 ${i + 1}] ${source} > ${doc}${sim}\n${r.content}`;
-                        })
-                        .join('\n\n---\n\n');
-                    parts.push(`## 참고 문서 (RAG) — 반드시 우선 활용\n${ragText}`);
-                }
-            }
-        } catch (e) {
-            console.warn('[OrchestrationRouter] Failed to load RAG context:', e);
-        }
+        // 5. RAG 컨텍스트 — standalone 모드에서는 비활성화
 
         return parts.filter(p => p.trim()).join('\n\n');
     }

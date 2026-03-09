@@ -955,6 +955,10 @@
         display: none;
       }
 
+      #model-selector {
+        min-width: 120px;
+      }
+
       /* 모델 선택 버튼 색상 포인트 - 제거됨 */
       #model-selector::before {
         display: none;
@@ -2824,11 +2828,8 @@
   </head>
 
   <body>
-    <!-- ═══════════ 로그인 화면 (미인증 시 표시) ═══════════ -->
-    {{loginScreenHtml}}
-
-    <!-- ═══════════ 채팅 앱 (인증 후 표시) ═══════════ -->
-    <div id="chat-app" style="display:none;">
+    <!-- ═══════════ 채팅 앱 ═══════════ -->
+    <div id="chat-app">
     <!-- Processing steps will be rendered by React component -->
 
     <div class="main-container">

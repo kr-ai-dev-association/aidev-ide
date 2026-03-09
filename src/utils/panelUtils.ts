@@ -55,23 +55,6 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
         const commonStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'styles.css'));
         const specificStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', `${htmlFileName}.css`));
 
-        // 공통 로그인 화면 주입 ({{loginScreenHtml}} 플레이스홀더가 있는 경우)
-        if (htmlContent.includes('{{loginScreenHtml}}')) {
-            const loginPartialPath = vscode.Uri.joinPath(extensionUri, 'webview', 'shared', 'login-screen.html');
-            try {
-                let loginHtml = fs.readFileSync(loginPartialPath.fsPath, 'utf8');
-                // 페이지별 접두사 및 서브타이틀 치환
-                const loginPrefix = htmlFileName === 'settings' ? 'settings' : 'chat';
-                const loginSubtitle = 'AI 코딩 어시스턴트';
-                loginHtml = loginHtml
-                    .replace(/\{\{loginPrefix\}\}/g, loginPrefix)
-                    .replace(/\{\{loginSubtitle\}\}/g, loginSubtitle);
-                htmlContent = htmlContent.replace('{{loginScreenHtml}}', loginHtml);
-            } catch (loginError) {
-                console.warn('[HTML Loader] login-screen.html not found, skipping injection');
-            }
-        }
-
         htmlContent = htmlContent
             .replace(/\{\{nonce\}\}/g, nonce)
             .replace(/\{\{cspSource\}\}/g, webview.cspSource)

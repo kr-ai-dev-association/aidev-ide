@@ -38,7 +38,8 @@ export class OpenAICompatProvider implements ILLMProvider {
             max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
         };
 
-        if (options?.disableThinking) {
+        const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
+        if (options?.disableThinking && !isGeminiCompat) {
             requestBody.think = false;
             console.log('[OpenAICompatProvider] Thinking disabled (tool calling mode)');
         }
@@ -101,7 +102,8 @@ export class OpenAICompatProvider implements ILLMProvider {
             max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
         };
 
-        if (options?.disableThinking) {
+        const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
+        if (options?.disableThinking && !isGeminiCompat) {
             requestBody.think = false;
             console.log('[OpenAICompatProvider] Streaming: Thinking disabled (tool calling mode)');
         }

@@ -8,7 +8,7 @@ import { ModelConnectionService } from '../../core/managers/model/ModelConnectio
 import { InlineDiffManager } from '../../core/managers/diff/InlineDiffManager';
 import { getAllExclusionPaths } from '../../core/utils/FileExclusionConstants';
 import { WebviewBridge } from '../../core/webview/WebviewBridge';
-import { AuthService } from '../../services/auth/AuthService';
+// AuthService removed (standalone mode)
 
 /**
  * Diff 가상 문서 프로바이더
@@ -137,18 +137,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
         this.context.subscriptions.push(configChangeDisposable);
 
-        // 인증 상태 변경 시 웹뷰에 전달
-        try {
-            const authService = AuthService.getInstance();
-            const authDisposable = authService.onDidChangeAuth((loggedIn) => {
-                webviewView.webview.postMessage({
-                    command: 'authState',
-                    loggedIn,
-                    user: loggedIn ? authService.getUserInfo() : undefined,
-                });
-            });
-            this.context.subscriptions.push(authDisposable);
-        } catch { /* AuthService 미초기화 시 무시 */ }
+        // Standalone: 인증 불필요 — 항상 로그인 상태로 처리
 
         webviewView.webview.onDidReceiveMessage(async (data: any) => {
 
@@ -164,44 +153,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             switch (data.command) {
-                // ═══════════ 인증 핸들러 ═══════════
-                case 'checkAuthState': {
-                    try {
-                        const auth = AuthService.getInstance();
-                        const state = auth.getAuthState();
-                        webviewView.webview.postMessage({
-                            command: 'authState',
-                            loggedIn: state.loggedIn,
-                            user: state.user,
-                        });
-                    } catch {
-                        webviewView.webview.postMessage({
-                            command: 'authState',
-                            loggedIn: false,
-                        });
-                    }
-                    break;
-                }
-                case 'loginWithGoogle': {
-                    try {
-                        const auth = AuthService.getInstance();
-                        await auth.loginWithGoogle();
-                        // OAuth 콜백이 handleOAuthCallback → onDidChangeAuth → authState 메시지로 처리됨
-                    } catch (e: any) {
-                        webviewView.webview.postMessage({
-                            command: 'loginError',
-                            message: e?.message || '로그인 실패',
-                        });
-                    }
-                    break;
-                }
-                case 'logout': {
-                    try {
-                        const auth = AuthService.getInstance();
-                        await auth.logout();
-                    } catch { /* ignore */ }
-                    break;
-                }
                 case 'priorityErrorPrompt': {
                     const text = typeof data.text === 'string' ? data.text : '';
                     if (text) {
@@ -258,13 +209,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             currentModel = await stateManager.getOllamaModel();
                         }
 
-                        // 관리자 모델 목록 추가
-                        let adminModels: { key: string; name: string; displayName: string }[] = [];
+                        // 빌트인 프리셋 모델 목록
                         let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
                         try {
                             const aiModelSettings = this.configurationService.getServerSettings('ai_model');
-
-                            // 지원 모델 (source=preset) — 서버 프리셋에서 등록된 모델
                             supportedModels = (aiModelSettings || [])
                                 .filter((s: any) => s.source === 'preset' && s.value && s.value.enabled !== false)
                                 .map((s: any) => ({
@@ -273,22 +221,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                     displayName: s.value?.name || s.key,
                                     group: s.group || 'default',
                                 }));
-
-                            // 관리자 모델 (source=admin만) — 조직 관리자가 직접 등록한 모델
-                            adminModels = (aiModelSettings || [])
-                                .filter((s: any) => s.source === 'admin' && s.value && s.value.enabled !== false)
-                                .map((s: any) => ({
-                                    key: s.key,
-                                    name: `admin:${s.key}`,
-                                    displayName: s.value?.model || s.value?.model_name || s.key,
-                                }));
                         } catch { }
 
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models,
                             current: currentModel,
-                            adminModels,
+                            adminModels: [],
                             supportedModels,
                         });
                     } catch (e) {
@@ -352,13 +291,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         const adminSetting = aiModelSettings.find((s: any) => s.key === adminKey);
                         if (adminSetting?.value) {
                             const v = adminSetting.value;
-                            const chatAdminUserApiKey = this.context.globalState.get<string>("codepilot.adminApiKey") || '';
+                            // 프로바이더별 API 키 조회
+                            const adminPresetGroup = (adminSetting as any).group || '';
+                            const chatAdminUserApiKey = adminPresetGroup
+                                ? (this.context.globalState.get<string>(`codepilot.apiKey.${adminPresetGroup}`) || '')
+                                : (this.context.globalState.get<string>("codepilot.adminApiKey") || '');
                             const adminConfig = {
                                 key: adminKey,
                                 provider: v.provider || '',
                                 model: v.model || v.model_name || '',
                                 apiKey: chatAdminUserApiKey || v.api_key || v.apiKey || '',
-                                endpoint: v.base_url || v.endpoint || '',
+                                endpoint: v.baseUrl || v.base_url || v.endpoint || '',
                                 maxTokens: v.max_tokens || v.maxTokens || undefined,
                                 contextWindow: v.context_window || v.contextWindow || undefined,
                                 enabled: v.enabled !== false,
@@ -401,13 +344,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         if (presetSetting?.value) {
                             const v = presetSetting.value;
                             const customHeaders = v.customHeaders || v.custom_headers || {};
-                            const chatUserApiKey = this.context.globalState.get<string>("codepilot.adminApiKey") || '';
+                            // 프로바이더별 API 키 조회 (group 기반)
+                            const presetGroup = (presetSetting as any).group || '';
+                            const chatUserApiKey = presetGroup
+                                ? (this.context.globalState.get<string>(`codepilot.apiKey.${presetGroup}`) || '')
+                                : (this.context.globalState.get<string>("codepilot.adminApiKey") || '');
                             const adminConfig = {
                                 key: presetKey,
                                 provider: v.provider || 'chat_completions',
                                 model: v.model || v.model_name || '',
                                 apiKey: chatUserApiKey || v.api_key || v.apiKey || '',
-                                endpoint: v.base_url || v.endpoint || '',
+                                endpoint: v.baseUrl || v.base_url || v.endpoint || '',
                                 maxTokens: v.max_tokens || v.maxTokens || undefined,
                                 maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                                 contextWindow: v.context_window || v.contextWindow || undefined,
@@ -530,25 +477,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     break;
                 }
                 case 'sendMessage':
-                    // 로그인 상태 확인
-                    try {
-                        const authService = AuthService.getInstance();
-                        if (!authService.isLoggedIn()) {
-                            webviewView.webview.postMessage({
-                                command: 'receiveMessage',
-                                sender: 'CODEPILOT',
-                                text: '로그인이 필요합니다. 로그인 후 다시 시도해주세요.'
-                            });
-                            return;
-                        }
-                    } catch {
-                        webviewView.webview.postMessage({
-                            command: 'receiveMessage',
-                            sender: 'CODEPILOT',
-                            text: '인증 서비스를 초기화할 수 없습니다.'
-                        });
-                        return;
-                    }
+                    // Standalone: 로그인 체크 불필요
 
                     // ConversationService를 통해 메시지 처리
                     const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : PromptType.CODE_GENERATION;

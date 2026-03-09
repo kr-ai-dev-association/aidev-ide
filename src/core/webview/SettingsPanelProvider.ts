@@ -14,7 +14,6 @@ import { ModelConnectionService } from "../managers/model/ModelConnectionService
 import { LocaleService } from "../../webview/services";
 import { HotLoadManager } from "../managers/hotload";
 import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
-import { AuthService } from "../../services/auth/AuthService";
 import { DEFAULT_OLLAMA_URL } from '../config/ApiDefaults';
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
@@ -57,6 +56,18 @@ export function openSettingsPanel(
     viewColumn,
     async (data, panel: vscode.WebviewPanel) => {
       const stateManager = StateManager.getInstance(context); // 모든 case에서 사용
+
+      // 프로바이더별 API 키 조회 헬퍼
+      const getProviderApiKey = (presetKey: string): string => {
+        const aiModels = settingsManager.getServerSettings('ai_model');
+        const preset = aiModels.find((s: any) => s.key === presetKey);
+        const group = (preset as any)?.group || '';
+        if (group) {
+          return context.globalState.get<string>(`codepilot.apiKey.${group}`) || '';
+        }
+        return context.globalState.get<string>("codepilot.adminApiKey") || '';
+      };
+
       switch (data.command) {
         case "getCurrentSettings": {
           try {
@@ -295,13 +306,13 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const userApiKey = getProviderApiKey(compactorModelName);
                   const adminConfig = {
                     key: compactorModelName,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKey || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -399,13 +410,13 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const userApiKey = getProviderApiKey(commandModelName);
                   const adminConfig = {
                     key: commandModelName,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKey || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -502,13 +513,13 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const userApiKey = getProviderApiKey(intentModelName);
                   const adminConfig = {
                     key: intentModelName,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKey || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -605,13 +616,13 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const userApiKey = getProviderApiKey(errorFallbackModelName);
                   const adminConfig = {
                     key: errorFallbackModelName,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKey || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -671,13 +682,13 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const userApiKey = getProviderApiKey(completionModelNameSave);
                   const adminConfig = {
                     key: completionModelNameSave,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKey || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -1366,14 +1377,14 @@ export function openSettingsPanel(
                 if (presetSetting && presetSetting.value) {
                   const v = presetSetting.value;
                   const customHeaders = v.customHeaders || v.custom_headers || {};
-                  // 사용자가 IDE에서 저장한 API 키 우선 사용
-                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  // 프로바이더별 API 키 조회
+                  const userApiKey = getProviderApiKey(presetKey);
                   const adminConfig = {
                     key: presetKey,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKey || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -1418,13 +1429,13 @@ export function openSettingsPanel(
                 if (adminSetting && adminSetting.value) {
                   const v = adminSetting.value;
                   const customHeaders = v.customHeaders || v.custom_headers || {};
-                  const userApiKeyForAdmin = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const userApiKeyForAdmin = getProviderApiKey(adminKey);
                   const adminConfig = {
                     key: adminKey,
                     provider: v.provider || 'chat_completions',
                     model: v.model || v.model_name || '',
                     apiKey: userApiKeyForAdmin || v.api_key || v.apiKey || '',
-                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    endpoint: v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint || '',
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
                     contextWindow: v.context_window || v.contextWindow || undefined,
@@ -3325,139 +3336,14 @@ export function openSettingsPanel(
           }
           break;
 
-        // ═══════════ 인증 게이트 핸들러 ═══════════
+        // ═══════════ standalone: 인증 불필요 ═══════════
         case "checkAuthState": {
-          try {
-            const auth = AuthService.getInstance();
-            const state = auth.getAuthState();
-            let user = state.loggedIn ? auth.getUserInfo() : undefined;
-
-            // 로그인 상태면 서버에서 최신 유저 정보 동기화
-            if (state.loggedIn) {
-              try {
-                const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
-                const api = CodePilotApiClient.getInstance();
-                const meRaw: any = await api.get("/auth/me/");
-                const me = meRaw?.data || meRaw;
-                if (me?.id) {
-                  const orgName = me.organization_name || (user as any)?.organization_name || "";
-                  const updated = {
-                    ...(user || {}),
-                    ...me,
-                    organization: orgName,
-                    organization_id: me.organization_id || me.organization || (user as any)?.organization_id,
-                    organization_name: orgName,
-                  };
-                  await context.globalState.update("codepilot.userInfo", updated);
-                  user = updated;
-                }
-              } catch {
-                // 서버 연결 실패 시 캐시된 정보 사용
-              }
-            }
-
-            safePostMessage(panel, {
-              command: "authState",
-              loggedIn: state.loggedIn,
-              user,
-            });
-          } catch {
-            safePostMessage(panel, {
-              command: "authState",
-              loggedIn: false,
-            });
-          }
+          safePostMessage(panel, {
+            command: "authState",
+            loggedIn: true,
+          });
           break;
         }
-        case "loginWithGoogle": {
-          try {
-            const auth = AuthService.getInstance();
-            await auth.loginWithGoogle();
-            // OAuth 콜백이 handleOAuthCallback → onDidChangeAuth → authState 메시지로 처리됨
-          } catch (e: any) {
-            safePostMessage(panel, {
-              command: "loginError",
-              message: e?.message || "로그인 실패",
-            });
-          }
-          break;
-        }
-        case "logout": {
-          try {
-            const auth = AuthService.getInstance();
-            await auth.logout();
-          } catch { /* ignore */ }
-          break;
-        }
-        case "changeApiKey": {
-          try {
-            const newKey = (data.apiKey || "").trim();
-            if (!newKey) {
-              safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: "API 키를 입력하세요." });
-              break;
-            }
-
-            const auth = AuthService.getInstance();
-
-            // 서버에 API 키 검증 요청 (/license/join/)
-            try {
-              const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
-              const api = CodePilotApiClient.getInstance();
-              const result: any = await api.post("/license/join/", { api_key: newKey });
-
-              // 서버 검증 성공 → 반환된 사용자 정보로 업데이트
-              const apiKeyName = result?.api_key_name || "조직 연결됨";
-              const apiKeyMasked = result?.api_key_masked || (newKey.length > 8
-                ? newKey.slice(0, 4) + "..." + newKey.slice(-4) : "****");
-
-              const orgName = result?.organization_name || "";
-              const updatedInfo = {
-                ...(auth.getUserInfo() || {}),
-                apiKeyName,
-                apiKeyMasked,
-                organization: orgName,
-                organization_id: result?.organization_id || result?.organization,
-                organization_name: orgName,
-              };
-              await context.globalState.update("codepilot.userInfo", updatedInfo);
-              await context.globalState.update("codepilot.apiKey", newKey);
-              safePostMessage(panel, { command: "changeApiKeyResult", success: true });
-              (auth as any)._onDidChangeAuth?.fire(true);
-
-              // 조직 설정 즉시 동기화
-              try {
-                const { SettingsManager } = await import("../../core/managers/state/SettingsManager");
-                const settingsManager = SettingsManager.getInstance(context);
-                await settingsManager.syncServerSettings();
-              } catch {};
-            } catch (apiError: any) {
-              const errorMsg = apiError?.message || "유효하지 않은 API 키입니다";
-              safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: errorMsg });
-            }
-          } catch (e: any) {
-            const msg = e?.message || "API 키 변경 실패";
-            safePostMessage(panel, { command: "changeApiKeyResult", success: false, message: msg });
-          }
-          break;
-        }
-
-        case "clearApiKey": {
-          try {
-            // globalState에서 API 키 관련 데이터 제거
-            await context.globalState.update("codepilot.apiKey", undefined);
-            const auth = AuthService.getInstance();
-            const currentInfo = auth.getUserInfo() || {};
-            const cleaned = { ...currentInfo } as any;
-            delete cleaned.apiKeyName;
-            delete cleaned.apiKeyMasked;
-            await context.globalState.update("codepilot.userInfo", cleaned);
-            safePostMessage(panel, { command: "clearApiKeyResult", success: true });
-          } catch {
-            safePostMessage(panel, { command: "clearApiKeyResult", success: false });
-          }
-          break;
-        }
-
         // ===== 빌드/테스트 개인 설정 CRUD =====
         case "saveBuildTestSetting": {
           try {
@@ -3502,41 +3388,6 @@ export function openSettingsPanel(
           }
           break;
         }
-        case "leaveTeam": {
-          try {
-            const confirm = await vscode.window.showWarningMessage(
-              '정말 현재 조직에서 탈퇴하시겠습니까? 조직 설정에 더 이상 접근할 수 없습니다.',
-              { modal: true },
-              '탈퇴',
-            );
-            if (confirm !== '탈퇴') break;
-
-            const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
-            const api = CodePilotApiClient.getInstance();
-            await api.post("/auth/me/leave-organization/", {});
-
-            // 로컬 userInfo 갱신 (조직 + API 키 정보 제거)
-            const auth = AuthService.getInstance();
-            const userInfo = auth.getUserInfo();
-            if (userInfo) {
-              const cleaned = { ...userInfo } as any;
-              cleaned.organization = "";
-              cleaned.organization_id = null;
-              cleaned.organization_name = "";
-              delete cleaned.apiKeyName;
-              delete cleaned.apiKeyMasked;
-              await context.globalState.update("codepilot.userInfo", cleaned);
-            }
-            await context.globalState.update("codepilot.apiKey", undefined);
-
-            safePostMessage(panel, { command: 'leaveTeamResult', success: true });
-            vscode.window.showInformationMessage('조직에서 탈퇴했습니다.');
-          } catch (e: any) {
-            vscode.window.showErrorMessage(`팀 탈퇴 실패: ${e?.message || '알 수 없는 오류'}`);
-            safePostMessage(panel, { command: 'leaveTeamResult', success: false });
-          }
-          break;
-        }
         case "toggleErrorReporting": {
           try {
             const config = vscode.workspace.getConfiguration('codepilot');
@@ -3560,12 +3411,7 @@ export function openSettingsPanel(
 
         case "getServerSettings": {
           try {
-            // 캐시가 비어있으면 먼저 동기화
-            let serverSettings = settingsManager.getAllServerSettings();
-            if (!serverSettings || Object.keys(serverSettings).length === 0) {
-              await settingsManager.syncServerSettings();
-              serverSettings = settingsManager.getAllServerSettings();
-            }
+            const serverSettings = settingsManager.getAllServerSettings();
             safePostMessage(panel, {
               command: 'serverSettingsLoaded',
               settings: serverSettings,
@@ -3587,32 +3433,52 @@ export function openSettingsPanel(
           break;
         }
 
-        case "saveAdminApiKey": {
+        case "saveProviderApiKey": {
           try {
             const key = (data.apiKey || "").trim();
+            const provider = (data.provider || "").trim();
             if (!key) {
-              safePostMessage(panel, { command: "adminApiKeySaveError", error: "API 키를 입력하세요." });
+              safePostMessage(panel, { command: "providerApiKeySaveError", error: "API 키를 입력하세요." });
               break;
             }
-            // globalState에 저장
-            await context.globalState.update("codepilot.adminApiKey", key);
+            if (!provider) {
+              safePostMessage(panel, { command: "providerApiKeySaveError", error: "프로바이더 정보가 없습니다." });
+              break;
+            }
+            // 프로바이더별 globalState 키에 저장
+            await context.globalState.update(`codepilot.apiKey.${provider}`, key);
 
-            // 현재 adminConfig에 API 키 반영 + LLMManager 업데이트
+            // 현재 adminConfig의 프로바이더가 일치하면 즉시 반영
             try {
               const configJson = await stateManager.getAdminModelConfig();
               if (configJson) {
                 const adminConfig = JSON.parse(configJson);
-                adminConfig.apiKey = key;
-                await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
-                const { LLMManager } = await import('../managers/model/LLMManager');
-                const llmManager = LLMManager.getInstance();
-                llmManager.setAdminModelConfig(adminConfig);
+                // 현재 활성 모델의 프로바이더 그룹 확인
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const currentPreset = aiModelSettings.find((s: any) => s.key === adminConfig.key);
+                const currentGroup = (currentPreset as any)?.group || '';
+                if (currentGroup === provider) {
+                  adminConfig.apiKey = key;
+                  await stateManager.saveAdminModelConfig(JSON.stringify(adminConfig));
+                  const { LLMManager } = await import('../managers/model/LLMManager');
+                  const llmManager = LLMManager.getInstance();
+                  llmManager.setAdminModelConfig(adminConfig);
+                }
               }
             } catch { }
 
-            safePostMessage(panel, { command: "adminApiKeySaved" });
+            safePostMessage(panel, { command: "providerApiKeySaved" });
           } catch (e: any) {
-            safePostMessage(panel, { command: "adminApiKeySaveError", error: e?.message || "저장 실패" });
+            safePostMessage(panel, { command: "providerApiKeySaveError", error: e?.message || "저장 실패" });
+          }
+          break;
+        }
+
+        case "getProviderApiKeyStatus": {
+          const provider = (data.provider || "").trim();
+          if (provider) {
+            const savedKey = context.globalState.get<string>(`codepilot.apiKey.${provider}`) || '';
+            safePostMessage(panel, { command: "providerApiKeyStatus", hasKey: !!savedKey, provider });
           }
           break;
         }
@@ -3623,19 +3489,6 @@ export function openSettingsPanel(
     },
   );
 
-  // 인증 상태 변경 시 웹뷰에 자동 전달
-  try {
-    const authService = AuthService.getInstance();
-    const authDisposable = authService.onDidChangeAuth(async (loggedIn) => {
-      const user = loggedIn ? authService.getUserInfo() : undefined;
-      safePostMessage(panel, {
-        command: "authState",
-        loggedIn,
-        user,
-      });
-    });
-    context.subscriptions.push(authDisposable);
-  } catch { /* AuthService 미초기화 시 무시 */ }
 
   // webview를 전역 배열에 등록
   allWebviews.push(panel.webview);

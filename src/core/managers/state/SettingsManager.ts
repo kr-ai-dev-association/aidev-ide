@@ -22,7 +22,8 @@ interface EffectiveSetting {
     key: string;
     value: any;
     enforcement: 'required' | 'recommended';
-    source: 'admin' | 'user';
+    source: 'admin' | 'user' | 'preset';
+    group?: string;
 }
 
 /**
@@ -83,14 +84,29 @@ export class SettingsManager extends BaseManager {
      * 오프라인 캐시 로드 (초기화 시)
      */
     private loadOfflineCache(): void {
-        try {
-            const cached = this._context.globalState.get<ServerSettingsCache>(this.OFFLINE_CACHE_KEY);
-            if (cached) {
-                this.serverSettingsCache = cached;
-            }
-        } catch {
-            // 캐시 로드 실패 무시
-        }
+        // standalone: 서버 캐시 무시, 빌트인 AI 모델 프리셋만 사용
+        this.serverSettingsCache = {
+            fetchedAt: Date.now(),
+            settings: {
+                ai_model: [
+                    // Google (Gemini) - OpenAI 호환 엔드포인트
+                    { key: 'gemini-3.1-pro-preview', source: 'preset', group: 'gemini', enforcement: 'recommended', value: { name: 'Gemini 3.1 Pro', provider: 'openai', model: 'gemini-3.1-pro-preview', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gemini-3-flash-preview', source: 'preset', group: 'gemini', enforcement: 'recommended', value: { name: 'Gemini 3 Flash', provider: 'openai', model: 'gemini-3-flash-preview', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gemini-2.5-pro', source: 'preset', group: 'gemini', enforcement: 'recommended', value: { name: 'Gemini 2.5 Pro', provider: 'openai', model: 'gemini-2.5-pro', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gemini-2.5-flash', source: 'preset', group: 'gemini', enforcement: 'recommended', value: { name: 'Gemini 2.5 Flash', provider: 'openai', model: 'gemini-2.5-flash', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    // OpenAI
+                    { key: 'gpt-5.4', source: 'preset', group: 'openai', enforcement: 'recommended', value: { name: 'GPT-5.4', provider: 'openai', model: 'gpt-5.4', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gpt-5.4-pro', source: 'preset', group: 'openai', enforcement: 'recommended', value: { name: 'GPT-5.4 Pro', provider: 'openai', model: 'gpt-5.4-pro', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gpt-5.3-codex', source: 'preset', group: 'openai', enforcement: 'recommended', value: { name: 'GPT-5.3 Codex', provider: 'openai', model: 'gpt-5.3-codex', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gpt-5-mini', source: 'preset', group: 'openai', enforcement: 'recommended', value: { name: 'GPT-5 Mini', provider: 'openai', model: 'gpt-5-mini', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    { key: 'gpt-4.1', source: 'preset', group: 'openai', enforcement: 'recommended', value: { name: 'GPT-4.1', provider: 'openai', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1/chat/completions', authType: 'bearer', streamingSupported: true } },
+                    // Anthropic (Claude)
+                    { key: 'claude-opus-4-6', source: 'preset', group: 'claude', enforcement: 'recommended', value: { name: 'Claude Opus 4.6', provider: 'anthropic', model: 'claude-opus-4-6', baseUrl: 'https://api.anthropic.com', authType: 'x-api-key', streamingSupported: true } },
+                    { key: 'claude-sonnet-4-6', source: 'preset', group: 'claude', enforcement: 'recommended', value: { name: 'Claude Sonnet 4.6', provider: 'anthropic', model: 'claude-sonnet-4-6', baseUrl: 'https://api.anthropic.com', authType: 'x-api-key', streamingSupported: true } },
+                    { key: 'claude-haiku-4-5', source: 'preset', group: 'claude', enforcement: 'recommended', value: { name: 'Claude Haiku 4.5', provider: 'anthropic', model: 'claude-haiku-4-5-20251001', baseUrl: 'https://api.anthropic.com', authType: 'x-api-key', streamingSupported: true } },
+                ],
+            },
+        };
     }
 
     /**
@@ -98,72 +114,8 @@ export class SettingsManager extends BaseManager {
      * 로그인 시, 주기적으로, 또는 수동 호출
      */
     public async syncServerSettings(): Promise<void> {
-        if (this.syncInProgress) return;
-        this.syncInProgress = true;
-
-        try {
-            const { AuthService } = await import('../../../services/auth/AuthService');
-            const auth = AuthService.getInstance();
-            if (!auth.isLoggedIn()) {
-                console.log('[SettingsManager] Not logged in, skip server sync');
-                return;
-            }
-
-            const userInfo = auth.getUserInfo();
-            const orgId = userInfo?.organization_id;
-
-            const { CodePilotApiClient } = await import('../../../services/api/CodePilotApiClient');
-            const api = CodePilotApiClient.getInstance();
-            // org 없어도 호출 (프리셋/지원모델 등 개인 사용자용 설정 조회)
-            const raw: any = await api.getAllEffectiveSettings(orgId || undefined);
-            // WrapResponseMiddleware가 {data: ...}로 래핑하므로 언래핑
-            const allSettings = raw.data || raw;
-
-            // RAG 소스 조회 (조직: org RAG, 개인: 개인 RAG)
-            try {
-                const ragRaw: any = await api.getRagSources(orgId || undefined);
-                const ragSources = Array.isArray(ragRaw) ? ragRaw : (ragRaw?.data || ragRaw?.results || []);
-                if (Array.isArray(ragSources) && ragSources.length > 0) {
-                    allSettings.rag = ragSources.map((s: any) => ({
-                        key: s.id,
-                        value: {
-                            name: s.name,
-                            description: s.description || '',
-                            document_count: s.document_count || 0,
-                            vector_count: s.vector_count || 0,
-                            source_id: s.id,
-                        },
-                        enforcement: s.enforcement || 'personal',
-                        source: s.organization ? 'admin' : 'personal',
-                        description: s.description || '',
-                    }));
-                }
-            } catch (ragError: any) {
-                console.warn('[SettingsManager] RAG sources fetch failed:', ragError?.message);
-            }
-
-            this.serverSettingsCache = {
-                settings: allSettings,
-                fetchedAt: Date.now(),
-            };
-
-            // 오프라인 캐시 저장
-            await this._context.globalState.update(this.OFFLINE_CACHE_KEY, this.serverSettingsCache);
-
-            // required 설정을 로컬에 강제 적용
-            this.applyRequiredSettings();
-
-            console.log('[SettingsManager] Server settings synced successfully');
-        } catch (error: any) {
-            console.warn('[SettingsManager] Server sync failed (using cache):', error);
-
-            // 에러 리포팅
-            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                ErrorReportingService.getInstance().reportSyncError(error?.message || 'Unknown sync error');
-            }).catch(() => {});
-        } finally {
-            this.syncInProgress = false;
-        }
+        // No-op in standalone mode (no backend server)
+        return;
     }
 
     /**
@@ -516,40 +468,9 @@ export class SettingsManager extends BaseManager {
     /**
      * 사용자 설정 변경을 백엔드에 동기화
      */
-    private async syncUserSettingToServer(key: string, value: any): Promise<void> {
-        try {
-            const { AuthService } = await import('../../../services/auth/AuthService');
-            const auth = AuthService.getInstance();
-            if (!auth.isLoggedIn()) return;
-
-            const userInfo = auth.getUserInfo();
-            if (!userInfo?.organization_id) return;
-
-            // 로컬 키 → 서버 카테고리/키 매핑
-            const serverMap: Record<string, [string, string]> = {
-                'aiModel': ['ai_model', 'default_model'],
-                'ollamaModel': ['ai_model', 'ollama_model'],
-                'ollamaUrl': ['ai_model', 'ollama_url'],
-                'autoExecuteCommands': ['dev_rules', 'auto_execute_commands'],
-                'autoCorrectionEnabled': ['dev_rules', 'auto_correction_enabled'],
-                'errorRetryCount': ['dev_rules', 'error_retry_count'],
-                'autoToolExecution': ['dev_rules', 'auto_tool_execution'],
-                'autoMcpToolExecution': ['dev_rules', 'auto_mcp_tool_execution'],
-                'streamingEnabled': ['dev_rules', 'streaming_enabled'],
-                'maxContextSize': ['security_rules', 'max_context_size'],
-                'excludePatterns': ['exclude_patterns', 'exclude_patterns'],
-            };
-
-            const mapping = serverMap[key];
-            if (!mapping) return; // 매핑 없는 설정은 로컬만 저장
-
-            const { CodePilotApiClient } = await import('../../../services/api/CodePilotApiClient');
-            const api = CodePilotApiClient.getInstance();
-            await api.updateUserSetting(mapping[0], mapping[1], value, userInfo.organization_id);
-            console.log(`[SettingsManager] Synced setting to server: ${key}`);
-        } catch {
-            // 서버 동기화 실패 시 무시 (오프라인 등)
-        }
+    private async syncUserSettingToServer(_key: string, _value: any): Promise<void> {
+        // No-op in standalone mode (no backend server)
+        return;
     }
 
     /**

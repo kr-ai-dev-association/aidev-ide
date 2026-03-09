@@ -797,20 +797,6 @@
       color: var(--vscode-descriptionForeground);
     }
 
-    .account-logout-link {
-      background: none;
-      border: none;
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-      cursor: pointer;
-      padding: 4px 8px;
-      text-decoration: underline;
-      text-underline-offset: 3px;
-    }
-
-    .account-logout-link:hover {
-      color: var(--vscode-foreground);
-    }
 
     .sync-icon-btn {
       display: inline-flex;
@@ -1150,27 +1136,15 @@
 </head>
 
 <body>
-  <!-- ═══════════ 로그인 화면 (미인증 시 표시) ═══════════ -->
-  {{loginScreenHtml}}
-
-  <!-- ═══════════ 설정 콘텐츠 (인증 시 표시) ═══════════ -->
-  <div id="settings-content" style="display:none;">
+  <!-- ═══════════ 설정 콘텐츠 ═══════════ -->
+  <div id="settings-content">
     <div class="settings-layout">
 
       <!-- ═══════════ 사이드바 네비게이션 ═══════════ -->
       <aside class="settings-sidebar">
         <div class="settings-sidebar-header">Settings</div>
         <nav class="settings-nav" id="settings-tabs">
-          <button class="settings-nav-item active" data-tab="account">
-            <svg viewBox="0 0 24 24">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <path d="M16 3.128a4 4 0 0 1 0 7.744" />
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-              <circle cx="9" cy="7" r="4" />
-            </svg>
-            <span>계정</span>
-          </button>
-          <button class="settings-nav-item" data-tab="general">
+          <button class="settings-nav-item active" data-tab="general">
             <svg viewBox="0 0 24 24">
               <path
                 d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
@@ -1199,14 +1173,6 @@
               <line x1="6" x2="6.01" y1="18" y2="18" />
             </svg>
             <span>MCP 서버</span>
-          </button>
-          <button class="settings-nav-item" data-tab="rag">
-            <svg viewBox="0 0 24 24">
-              <ellipse cx="12" cy="5" rx="9" ry="3" />
-              <path d="M3 5V19A9 3 0 0 0 21 19V5" />
-              <path d="M3 12A9 3 0 0 0 21 12" />
-            </svg>
-            <span>RAG</span>
           </button>
           <button class="settings-nav-item" data-tab="build-test">
             <svg viewBox="0 0 24 24">
@@ -1254,84 +1220,12 @@
       <!-- ═══════════ 메인 콘텐츠 영역 ═══════════ -->
       <main class="settings-main">
         <div class="settings-main-header">
-          <h1 id="settings-title">계정</h1>
+          <h1 id="settings-title">일반</h1>
         </div>
         <div class="settings-main-content">
 
-          <!-- ═══════════ 탭: 계정 ═══════════ -->
-          <div class="tab-panel active" id="tab-account">
-            <div id="settings-auth-info">
-
-              <!-- 프로필 정보 -->
-              <div class="section-container" style="border-top:none; margin-top:0; padding-top:0;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                  <h2 style="margin:0;">프로필</h2>
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span class="auth-badge">인증됨</span>
-                    <span class="sync-label" id="settings-sync-label"></span>
-                    <button id="settings-sync-btn" class="sync-icon-btn" style="display:none; margin-left:-4px;"
-                      title="조직 설정 동기화">
-                      <svg class="sync-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                        <path
-                          d="M13.451 5.609l-.579-.939-1.068.812-.076.094c-.335.415-.927 1.146-1.455 2.153l-1.029-.588c.4-.833.862-1.474 1.16-1.834C9.516 4.135 8.289 3.5 7 3.5a4.5 4.5 0 00-3.142 1.27l-.849-.849A5.736 5.736 0 017 2.5c1.721 0 3.294.816 4.29 2.079.153-.085.46-.242.711-.36.38-.177.625-.27.862-.354L13.451 5.609zM2.549 10.391l.579.939 1.068-.812.076-.094c.335-.415.927-1.146 1.455-2.153l1.029.588c-.4.833-.862 1.474-1.16 1.834.888 1.172 2.115 1.807 3.404 1.807a4.5 4.5 0 003.142-1.27l.849.849A5.736 5.736 0 019 13.5c-1.721 0-3.294-.816-4.29-2.079-.153.085-.46.242-.711.36-.38.177-.625.27-.862.354L2.549 10.391z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <p class="info-message">현재 로그인된 계정 정보입니다.</p>
-                <div class="auth-info-grid" style="margin-top:12px;">
-                  <span class="info-label">이메일</span>
-                  <span class="info-value" id="settings-user-email">-</span>
-                  <span class="info-label">조직</span>
-                  <span class="info-value" id="settings-org-name"
-                    style="display:flex; align-items:center; justify-content:space-between;">
-                    <span id="settings-org-name-text">-</span>
-                    <button id="settings-leave-team-btn" class="button"
-                      style="display:none; padding:5px 12px; font-size:12px; flex-shrink:0;">탈퇴</button>
-                  </span>
-                  <span class="info-label" id="settings-plan-label" style="display:none;">플랜</span>
-                  <span class="info-value" id="settings-user-plan" style="display:none;">-</span>
-                  <span class="info-label" id="settings-expires-label" style="display:none;">만료일</span>
-                  <span class="info-value" id="settings-expires-at" style="display:none;">-</span>
-                </div>
-              </div>
-
-              <!-- 조직 연결 API 키 -->
-              <div id="settings-apikey-section" class="section-container">
-                <h2>조직 연결</h2>
-                <p id="settings-apikey-desc" class="info-message">조직 관리자에게 받은 API 키를 입력하면 해당 조직에 가입됩니다.</p>
-                <div id="settings-apikey-current" style="display:flex; align-items:center; gap:8px; margin-top:12px;">
-                  <code id="settings-apikey-display"
-                    style="font-size:12px; background:var(--vscode-textCodeBlock-background); padding:4px 10px; border-radius:4px; flex:1;">미설정</code>
-                  <button id="settings-change-apikey-btn" class="button"
-                    style="padding:5px 12px; font-size:12px;">등록</button>
-                  <button id="settings-clear-apikey-btn" class="button"
-                    style="padding:5px 12px; font-size:12px; background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); display:none;">탈퇴</button>
-                </div>
-                <div id="settings-apikey-change" style="display:none; margin-top:12px;">
-                  <div style="display:flex; gap:8px; align-items:center;">
-                    <input id="settings-apikey-input" type="text" placeholder="조직 API 키 (cpk_...)"
-                      style="flex:1; padding:6px 10px; font-size:12px; border:1px solid var(--vscode-panel-border); border-radius:4px; background:var(--vscode-input-background); color:var(--vscode-input-foreground);" />
-                    <button id="settings-apikey-save-btn" class="button"
-                      style="padding:5px 12px; font-size:12px;">확인</button>
-                    <button id="settings-apikey-cancel-btn" class="button"
-                      style="padding:5px 12px; font-size:12px; background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground);">취소</button>
-                  </div>
-                  <p id="settings-apikey-status"
-                    style="margin:6px 0 0; font-size:11px; color:var(--vscode-descriptionForeground);"></p>
-                </div>
-              </div>
-
-              <!-- 로그아웃 -->
-              <div style="text-align:center; margin-top:40px; padding-bottom:12px;">
-                <button id="settings-logout-btn" class="account-logout-link">로그아웃</button>
-              </div>
-
-            </div>
-          </div>
-
           <!-- ═══════════ 탭: 일반 설정 ═══════════ -->
-          <div class="tab-panel" id="tab-general">
+          <div class="tab-panel active" id="tab-general">
 
             <!-- 언어 설정 드롭다운 추가 -->
             <div class="settings-section">
@@ -1459,7 +1353,6 @@
               <p class="info-message" data-i18n="testRetryDescription">
                 자동 테스트 검증(Smoke Test, Diagnostics, Lint Check)이 실패했을 때
                 자동으로 재시도하는 최대 횟수를 설정합니다.
-                관리자 설정(빌드/테스트)에 검증 명령어가 등록되어 있으면 해당 명령어가 우선 실행됩니다.
               </p>
               <div class="spinner-container">
                 <label for="test-retry-spinner" data-i18n="testRetrySpinnerLabel">최대 테스트 재시도 횟수:</label>
@@ -1527,11 +1420,7 @@
                 비워두면 프로젝트 타입에 따라 자동 감지됩니다.
               </p>
 
-              <!-- 조직 빌드/테스트 설정 -->
-              <div id="org-settings-build_test" style="display:none;"></div>
-              <div class="personal-settings-label" id="personal-label-build_test" style="display:none;">내 설정</div>
-
-              <!-- 개인 설정 리스트 -->
+              <!-- 설정 리스트 -->
               <div id="personal-build-test-list" style="margin-top: 12px;"></div>
               <p id="bt-list-empty" class="info-message" style="display:none;">등록된 명령어가 없습니다.</p>
 
@@ -1629,8 +1518,7 @@
                 <label id="ai-model-select-label" for="ai-model-select"><b>AI 모델 엔진 선택</b></label>
                 <select id="ai-model-select">
                   <option value="ollama">Ollama (Local/Remote)</option>
-                  <!-- 지원 모델은 settings.js에서 동적 추가 -->
-                  <option value="admin" style="display:none;">관리자</option>
+                  <!-- 클라우드 모델 그룹은 settings.js에서 동적 추가 -->
                 </select>
               </div>
               <p id="ai-model-status" class="info-message"></p>
@@ -1671,15 +1559,6 @@
                 <p id="supported-model-status" class="info-message"></p>
               </div>
 
-              <!-- 관리자 모델 설정 (관리자 선택 시에만 표시) -->
-              <div class="api-key-section" id="admin-settings-section" style="display:none;">
-                <h3>관리자 모델 설정</h3>
-                <p class="info-message">조직 관리자가 등록한 AI 모델입니다.</p>
-                <div class="api-key-input-group" style="margin-bottom: 15px">
-                  <select id="admin-model-select"></select>
-                </div>
-                <p id="admin-model-status" class="info-message"></p>
-              </div>
 
               <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
               <div id="ollama-settings-group">
@@ -1799,7 +1678,7 @@
                     <select id="compactor-model-type-select">
                       <option value="">메인 모델 사용</option>
                       <option value="ollama">Ollama</option>
-                      <!-- 지원/관리자 모델은 settings.js에서 동적 추가 -->
+                      <!-- 클라우드 모델 그룹은 settings.js에서 동적 추가 -->
                     </select>
                   </div>
                   <!-- 하위 모델 선택 (타입 선택 시 표시) -->
@@ -1834,7 +1713,7 @@
                     <select id="command-model-type-select">
                       <option value="">메인 모델 사용</option>
                       <option value="ollama">Ollama</option>
-                      <!-- 지원/관리자 모델은 settings.js에서 동적 추가 -->
+                      <!-- 클라우드 모델 그룹은 settings.js에서 동적 추가 -->
                     </select>
                   </div>
                   <!-- 하위 모델 선택 (타입 선택 시 표시) -->
@@ -1869,7 +1748,7 @@
                     <select id="intent-model-type-select">
                       <option value="">메인 모델 사용</option>
                       <option value="ollama">Ollama</option>
-                      <!-- 지원/관리자 모델은 settings.js에서 동적 추가 -->
+                      <!-- 클라우드 모델 그룹은 settings.js에서 동적 추가 -->
                     </select>
                   </div>
                   <!-- 하위 모델 선택 (타입 선택 시 표시) -->
@@ -1961,12 +1840,7 @@
                 수 있도록 합니다.
               </p>
 
-              <!-- 관리자 MCP 서버 (연결 + 도구만 표시) -->
-              <div id="admin-mcp-server-list" style="display:none;"></div>
-
-              <div class="personal-settings-label" id="personal-label-mcp" style="display:none;">내 설정</div>
-
-              <!-- 개인 MCP 서버 목록 -->
+              <!-- MCP 서버 목록 -->
               <div id="mcp-server-list">
                 <!-- 동적으로 서버 카드가 추가됨 -->
               </div>
@@ -2043,26 +1917,6 @@
 
           </div><!-- /tab-mcp -->
 
-          <!-- ═══════════ 탭: RAG ═══════════ -->
-          <div class="tab-panel" id="tab-rag">
-
-            <div class="section-container" id="rag-settings-section"
-              style="border-top:none; margin-top:0; padding-top:0;">
-              <h2 id="rag-section-title">RAG 설정</h2>
-              <p class="info-message">
-                RAG를 관리합니다.
-                조직 관리자가 등록한 문서 소스를 통해 LLM이 관련 정보를 검색하여 응답합니다.
-              </p>
-
-              <!-- 조직 RAG 설정 (서버에서 가져옴) -->
-              <div id="org-settings-rag" style="display:none;"></div>
-
-              <p id="rag-empty-message" class="info-message" style="display:none;">등록된 RAG 소스가 없습니다. 조직 관리자가 등록한 소스가 여기에
-                표시됩니다.</p>
-
-            </div>
-
-          </div><!-- /tab-rag -->
 
           <!-- ═══════════ 탭: Hot Load ═══════════ -->
           <div class="tab-panel" id="tab-hotload">
@@ -2074,10 +1928,6 @@
                 사용자 입력이 키워드/설명과 유사하면 자동으로 명령어를 실행합니다. Hot
                 Load는 다른 모든 지시보다 우선합니다.
               </p>
-
-              <!-- 조직 Hot Load 설정 -->
-              <div id="org-settings-hotload" style="display:none;"></div>
-              <div class="personal-settings-label" id="personal-label-hotload" style="display:none;">내 설정</div>
 
               <!-- Hot Load 목록 -->
               <div id="hotload-list" style="margin-top: 12px;">
@@ -2171,10 +2021,6 @@
                 AI 에이전트가 따라야 할 개발 규칙을 Markdown 파일로 관리합니다.
                 각 규칙은 확장 전용 스토리지에 저장되며, 코드 생성 시 자동 적용됩니다.
               </p>
-
-              <!-- 조직 Skills 설정 -->
-              <div id="org-settings-dev_rules" style="display:none;"></div>
-              <div class="personal-settings-label" id="personal-label-dev_rules" style="display:none;">내 설정</div>
 
               <!-- Stable Version Markdown -->
               <div class="api-key-section">
@@ -2330,10 +2176,6 @@
                 있습니다.
               </p>
 
-              <!-- 조직 제외 패턴 설정 -->
-              <div id="org-settings-exclude_patterns" style="display:none;"></div>
-              <div class="personal-settings-label" id="personal-label-exclude_patterns" style="display:none;">내 설정</div>
-
               <!-- 커스텀 제외 패턴 목록 -->
               <div id="context-exclusion-custom-list" style="margin-top: 12px;">
                 <!-- 동적으로 채워짐 -->
@@ -2391,11 +2233,7 @@
                 명령어 차단, 민감한 파일 보호 등의 규칙을 설정할 수 있습니다.
               </p>
 
-              <!-- 조직 보안 규칙 설정 -->
-              <div id="org-settings-security_rules" style="display:none;"></div>
-              <div class="personal-settings-label" id="personal-label-security_rules" style="display:none;">내 설정</div>
-
-              <!-- 커스텀 보안 규칙 목록 (통합) -->
+              <!-- 커스텀 보안 규칙 목록 -->
               <div id="security-rule-custom-list" style="margin-top: 12px;">
                 <!-- 동적으로 채워짐 -->
               </div>
@@ -2621,285 +2459,14 @@
     </div><!-- /.settings-layout -->
   </div><!-- /#settings-content -->
 
-  <!-- ═══════════ 로그인 게이트 인라인 스크립트 ═══════════ -->
+  <!-- ═══════════ VS Code API 초기화 ═══════════ -->
   <script nonce="{{nonce}}">
     (function () {
-      // acquireVsCodeApi()는 한 번만 호출 가능 → window.vscode에 저장하여 settings.js와 공유
       if (typeof window.vscode === 'undefined' && typeof acquireVsCodeApi !== 'undefined') {
         window.vscode = acquireVsCodeApi();
       }
-      const vscode = window.vscode;
-
-      const loginScreen = document.getElementById('settings-login-screen');
-      const settingsContent = document.getElementById('settings-content');
-      const authInfo = document.getElementById('settings-auth-info');
-      const googleLoginBtn = document.getElementById('settings-google-login-btn');
-      const loginError = document.getElementById('settings-login-error');
-      const logoutBtn = document.getElementById('settings-logout-btn');
-      const leaveTeamBtn = document.getElementById('settings-leave-team-btn');
-      const syncBtn = document.getElementById('settings-sync-btn');
-
-      // 인증 정보 엘리먼트
-      const orgNameEl = document.getElementById('settings-org-name');
-      const orgNameTextEl = document.getElementById('settings-org-name-text');
-      const emailEl = document.getElementById('settings-user-email');
-      const planEl = document.getElementById('settings-user-plan');
-      const planLabel = document.getElementById('settings-plan-label');
-      const expiresEl = document.getElementById('settings-expires-at');
-      const expiresLabel = document.getElementById('settings-expires-label');
-      const syncLabel = document.getElementById('settings-sync-label');
-      const errorReportingToggle = document.getElementById('error-reporting-toggle');
-      const errorReportSection = document.getElementById('error-report-section');
-
-      // API 키 엘리먼트
-      const apikeyDisplay = document.getElementById('settings-apikey-display');
-      const apikeyLabel = document.getElementById('settings-apikey-label');
-      const apikeyValue = document.getElementById('settings-apikey-value');
-      const changeApikeyBtn = document.getElementById('settings-change-apikey-btn');
-      const apikeyChangeSection = document.getElementById('settings-apikey-change');
-      const apikeyInput = document.getElementById('settings-apikey-input');
-      const apikeySaveBtn = document.getElementById('settings-apikey-save-btn');
-      const apikeyCancelBtn = document.getElementById('settings-apikey-cancel-btn');
-      const apikeyStatus = document.getElementById('settings-apikey-status');
-      const clearApikeyBtn = document.getElementById('settings-clear-apikey-btn');
-
-      // ── 화면 전환 함수 ──
-      function showLogin(errorMsg) {
-        loginScreen.style.display = 'flex';
-        settingsContent.style.display = 'none';
-        if (googleLoginBtn) {
-          googleLoginBtn.disabled = false;
-          googleLoginBtn.style.opacity = '1';
-        }
-        if (errorMsg && loginError) {
-          loginError.textContent = errorMsg;
-          loginError.style.display = 'block';
-        }
-      }
-
-      function showSettings(user) {
-        loginScreen.style.display = 'none';
-        settingsContent.style.display = '';
-        if (user) {
-          if (emailEl) emailEl.textContent = user.email || user.name || '-';
-          if (orgNameTextEl) orgNameTextEl.textContent = user.organization || '개인 사용자';
-
-          // 플랜 정보 (있을 때만 표시)
-          if (user.plan) {
-            if (planEl) { planEl.textContent = user.plan; planEl.style.display = ''; }
-            if (planLabel) planLabel.style.display = '';
-          } else {
-            if (planEl) planEl.style.display = 'none';
-            if (planLabel) planLabel.style.display = 'none';
-          }
-
-          // 만료일 (있을 때만 표시)
-          if (user.expiresAt) {
-            if (expiresEl) { expiresEl.textContent = user.expiresAt; expiresEl.style.display = ''; }
-            if (expiresLabel) expiresLabel.style.display = '';
-          } else {
-            if (expiresEl) expiresEl.style.display = 'none';
-            if (expiresLabel) expiresLabel.style.display = 'none';
-          }
-
-          const hasOrg = !!(user.organization || user.organization_id);
-          // 전역 변수에 저장 (settings.js, mcp-settings.js에서 조직 여부 확인)
-          window.userHasOrganization = hasOrg;
-
-          // 팀 탈퇴 버튼 (조직 소속일 때만 표시)
-          if (leaveTeamBtn) {
-            leaveTeamBtn.style.display = hasOrg ? '' : 'none';
-          }
-
-          // 오류 보고 토글 (조직 소속일 때만 표시)
-          if (errorReportSection) {
-            errorReportSection.style.display = hasOrg ? 'block' : 'none';
-          }
-
-          // 동기화 버튼 (조직 소속일 때만 표시)
-          if (syncBtn) {
-            syncBtn.style.display = hasOrg ? '' : 'none';
-          }
-
-          if (syncLabel) syncLabel.textContent = hasOrg ? '동기화: 방금' : '';
-
-          // 기본 차단/보호/제외 패턴 섹션 (개인 사용자만 표시)
-          const defaultSections = ['default-exclusion-section', 'default-blocked-cmd-section', 'default-protected-file-section'];
-          defaultSections.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.style.display = hasOrg ? 'none' : '';
-          });
-
-          // 조직 연결 섹션 (조직 소속 여부에 따라 다르게 표시)
-          const apikeySection = document.getElementById('settings-apikey-section');
-          const apikeyDesc = document.getElementById('settings-apikey-desc');
-          const apikeyCurrentDiv = document.getElementById('settings-apikey-current');
-          if (apikeySection) {
-            if (hasOrg) {
-              // 이미 조직 소속 → 연결 정보 표시, 등록 버튼 숨김, 탈퇴 버튼 표시
-              if (apikeyDesc) apikeyDesc.textContent = '현재 조직에 연결되어 있습니다.';
-              if (apikeyDisplay) {
-                apikeyDisplay.textContent = user.apiKeyName
-                  ? user.apiKeyName + (user.apiKeyMasked ? ' (' + user.apiKeyMasked + ')' : '')
-                  : user.organization || '조직 연결됨';
-              }
-              if (changeApikeyBtn) changeApikeyBtn.style.display = 'none';
-              if (clearApikeyBtn) clearApikeyBtn.style.display = '';
-            } else {
-              // 개인 사용자 → 키 입력 안내
-              if (apikeyDesc) apikeyDesc.textContent = '조직 관리자에게 받은 API 키를 입력하면 해당 조직에 가입됩니다.';
-              if (apikeyDisplay) apikeyDisplay.textContent = '미설정';
-              if (changeApikeyBtn) changeApikeyBtn.style.display = '';
-              if (clearApikeyBtn) clearApikeyBtn.style.display = 'none';
-            }
-          }
-          // API 키 변경 섹션 초기 숨김
-          if (apikeyChangeSection) apikeyChangeSection.style.display = 'none';
-        }
-      }
-
-      // ── Google 로그인 버튼 클릭 ──
-      if (googleLoginBtn) {
-        googleLoginBtn.addEventListener('click', function () {
-          googleLoginBtn.disabled = true;
-          googleLoginBtn.style.opacity = '0.7';
-          if (loginError) loginError.style.display = 'none';
-          vscode.postMessage({ command: 'loginWithGoogle' });
-        });
-      }
-
-      // ── 로그아웃 버튼 ──
-      if (logoutBtn) {
-        logoutBtn.addEventListener('click', function () {
-          vscode.postMessage({ command: 'logout' });
-        });
-      }
-
-      // ── 팀 탈퇴 버튼 ──
-      if (leaveTeamBtn) {
-        leaveTeamBtn.addEventListener('click', function () {
-          vscode.postMessage({ command: 'leaveTeam' });
-        });
-      }
-
-      // ── 동기화 버튼 ──
-      if (syncBtn) {
-        syncBtn.addEventListener('click', function () {
-          syncBtn.disabled = true;
-          syncBtn.classList.add('syncing');
-          if (syncLabel) syncLabel.textContent = '동기화 중...';
-          vscode.postMessage({ command: 'syncSettings' });
-          // 5초 타임아웃으로 버튼 복원 (네트워크 지연 대비)
-          setTimeout(function () {
-            syncBtn.disabled = false;
-            syncBtn.classList.remove('syncing');
-          }, 5000);
-        });
-      }
-
-      // ── API 키 변경 버튼 ──
-      if (changeApikeyBtn) {
-        changeApikeyBtn.addEventListener('click', function () {
-          if (apikeyChangeSection) apikeyChangeSection.style.display = '';
-          if (apikeyInput) { apikeyInput.value = ''; apikeyInput.focus(); }
-          if (apikeyStatus) apikeyStatus.textContent = '';
-        });
-      }
-
-      if (apikeySaveBtn) {
-        apikeySaveBtn.addEventListener('click', function () {
-          const newKey = apikeyInput ? apikeyInput.value.trim() : '';
-          if (!newKey) {
-            if (apikeyStatus) { apikeyStatus.textContent = 'API 키를 입력하세요.'; apikeyStatus.style.color = 'var(--vscode-errorForeground)'; }
-            return;
-          }
-          apikeySaveBtn.disabled = true;
-          if (apikeyStatus) { apikeyStatus.textContent = '인증 중...'; apikeyStatus.style.color = 'var(--vscode-descriptionForeground)'; }
-          vscode.postMessage({ command: 'changeApiKey', apiKey: newKey });
-        });
-      }
-
-      if (apikeyCancelBtn) {
-        apikeyCancelBtn.addEventListener('click', function () {
-          if (apikeyChangeSection) apikeyChangeSection.style.display = 'none';
-          if (apikeyInput) apikeyInput.value = '';
-          if (apikeyStatus) apikeyStatus.textContent = '';
-        });
-      }
-
-      // ── 조직 탈퇴 버튼 ──
-      if (clearApikeyBtn) {
-        clearApikeyBtn.addEventListener('click', function () {
-          vscode.postMessage({ command: 'leaveTeam' });
-        });
-      }
-
-      // ── 오류 보고 토글 ──
-      if (errorReportingToggle) {
-        errorReportingToggle.addEventListener('change', function () {
-          vscode.postMessage({ command: 'toggleErrorReporting', value: this.checked });
-        });
-      }
-
-      // ── 부팅 시 인증 상태 확인 ──
-      vscode.postMessage({ command: 'checkAuthState' });
-
-      // ── 메시지 수신 핸들러 ──
-      window.addEventListener('message', function (event) {
-        var message = event.data;
-        if (!message || !message.command) return;
-
-        switch (message.command) {
-          case 'authState':
-            if (message.loggedIn) {
-              showSettings(message.user);
-            } else {
-              showLogin();
-            }
-            break;
-
-          case 'loginError':
-            showLogin(message.message || '로그인 실패');
-            break;
-
-          case 'errorReportingState':
-            if (errorReportingToggle) {
-              errorReportingToggle.checked = !!message.enabled;
-            }
-            break;
-
-          case 'leaveTeamResult':
-            if (message.success) {
-              // 팀 탈퇴 성공 → 인증 상태 재확인
-              vscode.postMessage({ command: 'checkAuthState' });
-            }
-            break;
-
-          case 'changeApiKeyResult':
-            if (apikeySaveBtn) apikeySaveBtn.disabled = false;
-            if (message.success) {
-              if (apikeyStatus) { apikeyStatus.textContent = '조직 가입이 완료되었습니다.'; apikeyStatus.style.color = 'var(--vscode-terminal-ansiGreen)'; }
-              if (apikeyChangeSection) setTimeout(() => { apikeyChangeSection.style.display = 'none'; }, 2000);
-              // 인증 상태 재확인 → showSettings에서 조직 정보 업데이트
-              vscode.postMessage({ command: 'checkAuthState' });
-            } else {
-              if (apikeyStatus) { apikeyStatus.textContent = message.message || '유효하지 않은 API 키입니다'; apikeyStatus.style.color = 'var(--vscode-errorForeground)'; }
-            }
-            break;
-
-          case 'clearApiKeyResult':
-            if (message.success) {
-              if (apikeyDisplay) apikeyDisplay.textContent = '미설정';
-              if (clearApikeyBtn) clearApikeyBtn.style.display = 'none';
-              if (apikeyChangeSection) apikeyChangeSection.style.display = 'none';
-            }
-            break;
-        }
-      });
-
-      // 전역 노출 (settings.js 에서도 접근 가능)
-      window._settingsShowLogin = showLogin;
-      window._settingsShowSettings = showSettings;
+      // standalone: 조직 없음
+      window.userHasOrganization = false;
     })();
   </script>
 
