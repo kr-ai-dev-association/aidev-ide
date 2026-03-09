@@ -62,9 +62,6 @@ export class SubAgentLoop {
         let completedNormally = false;
         let hasExecutedTools = false;
         let hasExecutedWriteTools = false;
-        // 범용 도구 반복 감지: tool+key → 연속 횟수
-        const toolCallCounter = new Map<string, number>();
-
         // 이 에이전트의 대화 컨텍스트
         const conversationParts: LLMMessagePart[] = [
             { text: `Task: ${this.subtask.title}\n\n${this.subtask.description}` }
@@ -172,30 +169,10 @@ export class SubAgentLoop {
                     return true;
                 });
 
-                // 4. 범용 도구 반복 가드 — 같은 도구+같은 핵심 파라미터 3회 이상 차단
-                const blockedCommandMessages: string[] = [];
-                const deduplicatedCalls = uniqueCalls.filter(call => {
-                    const callKey = this.getToolCallKey(call);
-                    const count = (toolCallCounter.get(callKey) || 0) + 1;
-                    toolCallCounter.set(callKey, count);
-
-                    if (count >= 3) {
-                        const paramHint = call.params.path || call.params.command || call.name;
-                        console.warn(`[SubAgentLoop:${this.subtask.id}] Auto-blocking repeated tool (${count}x): ${call.name} — ${paramHint}`);
-                        blockedCommandMessages.push(
-                            `[${call.name}] BLOCKED\n` +
-                            `[시스템] "${paramHint}"에 대한 ${call.name}이 이미 ${count - 1}회 실행되었습니다. ` +
-                            `동일 도구를 반복 호출하지 마세요. 이미 수행한 작업의 결과를 확인하고 다음 단계로 진행하거나 작업 완료를 선언하세요.`
-                        );
-                        return false;
-                    }
-                    return true;
-                });
-
-                // 5. 도구 실행 (UI 콜백 연결)
-                const results = deduplicatedCalls.length > 0
+                // 4. 도구 실행 (UI 콜백 연결)
+                const results = uniqueCalls.length > 0
                     ? await this.toolExecutor.executeTools(
-                        deduplicatedCalls,
+                        uniqueCalls,
                         this.toolContext,
                         this.callbacks?.onToolComplete,
                         this.callbacks?.onToolStart,
@@ -206,23 +183,22 @@ export class SubAgentLoop {
                 consecutiveFailures = 0;
 
                 // 도구 성공 플래그 설정
-                for (let i = 0; i < deduplicatedCalls.length; i++) {
+                for (let i = 0; i < uniqueCalls.length; i++) {
                     if (results[i]?.success) {
                         hasExecutedTools = true;
-                        if (!READ_ONLY_TOOLS.has(deduplicatedCalls[i].name)) {
+                        if (!READ_ONLY_TOOLS.has(uniqueCalls[i].name)) {
                             hasExecutedWriteTools = true;
                         }
                     }
                 }
 
-                // 6. 파일 변경 추적 (ToolResponse.filePath 기반 — 도구 이름 하드코딩 없음)
-                for (let i = 0; i < deduplicatedCalls.length; i++) {
-                    const call = deduplicatedCalls[i];
+                // 5. 파일 변경 추적 (ToolResponse.filePath 기반 — 도구 이름 하드코딩 없음)
+                for (let i = 0; i < uniqueCalls.length; i++) {
+                    const call = uniqueCalls[i];
                     const result = results[i];
                     if (result?.success && result.filePath) {
                         if (result.fileContent !== undefined) {
                             if (READ_ONLY_TOOLS.has(call.name)) { continue; }
-                            // 이미 추적 중이면 modifiedFiles로, 처음이면 createdFiles로
                             const alreadyTracked = createdFiles.includes(result.filePath) || modifiedFiles.includes(result.filePath);
                             if (!alreadyTracked) {
                                 createdFiles.push(result.filePath);
@@ -233,22 +209,8 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 7. 모든 도구가 반복으로 차단된 경우 → 조기 종료
-                if (deduplicatedCalls.length === 0 && blockedCommandMessages.length > 0) {
-                    console.warn(`[SubAgentLoop:${this.subtask.id}] All tool calls blocked by repeat guard — forcing completion`);
-                    errors.push('모든 도구 호출이 반복 감지로 차단됨 — 루프 방지를 위해 종료합니다');
-                    // 이전에 쓰기 도구가 성공했으면 완료로 처리
-                    if (hasExecutedWriteTools) {
-                        completedNormally = true;
-                    }
-                    break;
-                }
-
-                // 8. 도구 결과를 다음 턴 컨텍스트에 추가 (차단된 명령어 메시지 포함)
-                let toolResultsText = this.formatToolResults(deduplicatedCalls, results);
-                if (blockedCommandMessages.length > 0) {
-                    toolResultsText += (toolResultsText ? '\n\n' : '') + blockedCommandMessages.join('\n\n');
-                }
+                // 6. 도구 결과를 다음 턴 컨텍스트에 추가
+                const toolResultsText = this.formatToolResults(uniqueCalls, results);
                 conversationParts.push({ text: response });
                 conversationParts.push({ text: toolResultsText });
 
@@ -451,24 +413,4 @@ import MyComponent from './components/MyComponent';
         return Math.ceil(text.length / 4);
     }
 
-    /**
-     * 도구 호출의 고유 키 생성 (반복 감지용)
-     * 같은 도구 + 같은 핵심 파라미터 → 같은 키
-     */
-    private getToolCallKey(call: ToolUse): string {
-        const name = call.name;
-        // 파일 도구: path가 핵심
-        if (call.params.path) {
-            return `${name}:${call.params.path}`;
-        }
-        if (call.params.absolutePath) {
-            return `${name}:${call.params.absolutePath}`;
-        }
-        // 명령어 도구: command가 핵심
-        if (call.params.command) {
-            return `${name}:${call.params.command}`;
-        }
-        // 기타: 도구 이름만으로 구분
-        return name;
-    }
 }
