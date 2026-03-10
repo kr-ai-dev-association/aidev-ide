@@ -21,6 +21,7 @@ import { SubTask, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from
 
 const MAX_TURNS = 15;
 const MAX_CONSECUTIVE_FAILURES = 3;
+const MAX_READONLY_CONSECUTIVE_TURNS = 4; // read-only 도구만 연속 N턴이면 write 유도
 
 export class SubAgentLoop {
     private llmManager: LLMManager;
@@ -62,6 +63,8 @@ export class SubAgentLoop {
         let completedNormally = false;
         let hasExecutedTools = false;
         let hasExecutedWriteTools = false;
+        let consecutiveReadOnlyTurns = 0;
+        const createdFilesInSession = new Set<string>(); // create_file로 생성된 파일 추적
         // 이 에이전트의 대화 컨텍스트
         const conversationParts: LLMMessagePart[] = [
             { text: `Task: ${this.subtask.title}\n\n${this.subtask.description}` }
@@ -159,6 +162,7 @@ export class SubAgentLoop {
 
                 // 3.5. 같은 턴 내 동일 도구+경로 중복 제거 (e.g. read_file 같은 파일 2번)
                 const seenInTurn = new Set<string>();
+                const createFilesInTurn = new Set<string>();
                 const uniqueCalls = allowedCalls.filter(call => {
                     const key = `${call.name}:${call.params.path || call.params.command || ''}`;
                     if (seenInTurn.has(key)) {
@@ -166,6 +170,20 @@ export class SubAgentLoop {
                         return false;
                     }
                     seenInTurn.add(key);
+
+                    // create_file 경로 추적
+                    if (call.name === 'create_file' && call.params.path) {
+                        createFilesInTurn.add(call.params.path);
+                    }
+
+                    // create_file 직후 같은 파일에 update_file → 스킵 (원본이 이미 덮어쓰여서 SEARCH 실패 방지)
+                    if (call.name === 'update_file' && call.params.path) {
+                        if (createFilesInTurn.has(call.params.path) || createdFilesInSession.has(call.params.path)) {
+                            console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after create_file on same path: ${call.params.path}`);
+                            return false;
+                        }
+                    }
+
                     return true;
                 });
 
@@ -183,11 +201,37 @@ export class SubAgentLoop {
                 consecutiveFailures = 0;
 
                 // 도구 성공 플래그 설정
+                let hasWriteToolInThisTurn = false;
                 for (let i = 0; i < uniqueCalls.length; i++) {
                     if (results[i]?.success) {
                         hasExecutedTools = true;
                         if (!READ_ONLY_TOOLS.has(uniqueCalls[i].name)) {
                             hasExecutedWriteTools = true;
+                            hasWriteToolInThisTurn = true;
+                        }
+                        // create_file 경로 세션 추적
+                        if (uniqueCalls[i].name === 'create_file' && uniqueCalls[i].params.path) {
+                            createdFilesInSession.add(uniqueCalls[i].params.path);
+                        }
+                    }
+                }
+
+                // 경량 상태 관리: full 권한인데 read-only 도구만 연속 사용 시 write 유도
+                if (this.subtask.toolPermission === 'full') {
+                    if (hasWriteToolInThisTurn) {
+                        consecutiveReadOnlyTurns = 0;
+                    } else if (hasExecutedTools) {
+                        consecutiveReadOnlyTurns++;
+                        if (consecutiveReadOnlyTurns >= MAX_READONLY_CONSECUTIVE_TURNS) {
+                            console.log(`[SubAgentLoop:${this.subtask.id}] ${consecutiveReadOnlyTurns} consecutive read-only turns — nudging write phase`);
+                            conversationParts.push({ text: response });
+                            const toolResultsText = this.formatToolResults(uniqueCalls, results);
+                            conversationParts.push({ text: toolResultsText });
+                            conversationParts.push({
+                                text: `[시스템] 조사 단계가 충분합니다 (${consecutiveReadOnlyTurns}턴 연속 읽기 전용). 지금 바로 create_file 또는 update_file을 사용하여 파일을 생성/수정하세요. 추가 파일 읽기 없이 코드를 작성하세요.`
+                            });
+                            consecutiveReadOnlyTurns = 0; // 리셋 후 1회 기회
+                            continue;
                         }
                     }
                 }
