@@ -684,6 +684,9 @@ ${JSON.stringify(errorContext, null, 2)}
                         webviewView.webview.postMessage({
                             command: 'clearHistory'
                         });
+                        // 턴 액션(undo/keep) 버튼 및 pending changes 초기화
+                        webviewView.webview.postMessage({ command: 'updatePendingChangesByTurn', turns: [] });
+                        webviewView.webview.postMessage({ command: 'updatePendingChanges', files: [] });
                         // 토큰 사용량 및 컨텍스트 수 초기화 UI 업데이트
                         webviewView.webview.postMessage({
                             command: 'updateContextInfo',

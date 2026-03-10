@@ -3239,6 +3239,8 @@
       window._flushPendingTurnActions = function() {
         const chatMsgs = document.getElementById("chat-messages");
         if (!chatMsgs) return;
+        // 대화 메시지가 없으면 턴 액션 표시하지 않음 (새 세션에서 이전 Diff 방지)
+        if (!chatMsgs.querySelector(".message-bubble")) return;
         for (const turnData of (window._latestTurnStats || [])) {
           const tid = turnData.conversationTurnId;
           if (document.querySelector(`.turn-actions[data-turn-id="${tid}"]`)) continue;

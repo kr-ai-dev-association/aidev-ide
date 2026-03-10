@@ -2493,6 +2493,8 @@ function handleClearHistory() {
       // 모듈에도 알림
       setProcessingThinkingBubble(null);
       setStreamingThinkingBubble(null);
+      // 턴 액션(undo/keep) 상태 초기화
+      window._latestTurnStats = [];
       console.log("Chat history cleared.");
     }
 
