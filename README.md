@@ -4,6 +4,20 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.1
+
+### LLM
+
+- **Anthropic 프롬프트 캐싱**: Claude 모델 사용 시 시스템 프롬프트 및 tool definitions에 `cache_control` 자동 적용 (최대 90% 비용 절감)
+- **기능 비교표 업데이트**: Cursor 제거, OpenCode 추가 분석 반영
+
+### Docs
+
+- **PROMPT_CACHING_GUIDE.md**: Anthropic / OpenAI / Gemini 프롬프트 캐싱 구현 가이드 추가
+- **FEATURE_COMPARISON.md**: OpenCode 비교 컬럼 추가
+
+---
+
 ## v1.0.0
 
 ### Core

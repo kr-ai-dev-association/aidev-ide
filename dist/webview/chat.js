@@ -24167,7 +24167,7 @@ function bindModelDropdownEvents() {
       const leftOffset = buttonRect.left - parentRect.left;
       modelDropdown.style.left = leftOffset + 'px';
       modelDropdown.style.right = 'auto';
-      modelDropdown.style.width = buttonRect.width + 'px';
+      modelDropdown.style.width = Math.max(buttonRect.width, 120) + 'px';
       modelDropdown.classList.remove('hidden');
       modelDropdown.style.display = 'block';
       if (availableOllamaModels.length === 0) {
