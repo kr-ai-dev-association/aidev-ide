@@ -238,10 +238,12 @@ export class OllamaApi {
 
                 if (error instanceof ThinkingOnlyError) {
                     lastThinking = error.thinking;
-                    // thinking이 명시적으로 비활성화된 경우 retry해도 소용없음 → 즉시 빈 문자열 반환
-                    if (options?.disableThinking) {
-                        console.log('[OllamaApi] disableThinking=true but got thinking-only. Returning empty without retry.');
-                        return '';
+
+                    // thinking 안에 tool call JSON이 있으면 즉시 추출하여 반환 (모델 버그 workaround)
+                    const extractedFromThinking = this.extractToolCallsFromThinking(error.thinking);
+                    if (extractedFromThinking) {
+                        console.log(`[OllamaApi] Extracted tool calls from thinking on attempt ${attempt} (${extractedFromThinking.length} chars)`);
+                        return `<think>${error.thinking}</think>\n${extractedFromThinking}`;
                     }
                 }
 
@@ -264,10 +266,14 @@ export class OllamaApi {
                 // 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
                 if (attempt < maxRetries) {
                     if (error instanceof ThinkingOnlyError) {
-                        currentContent = `${initialContent}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field.
-If you are NOT DONE, you MUST output actual tool calls (e.g., { "tool": "list_files", "path": "..." }) in your FINAL RESPONSE.
-If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE.
+                        currentContent = `${initialContent}\n\n[SYSTEM] CRITICAL: Your previous response was EMPTY — you put content in the "thinking" field instead of the "content" field.
+You MUST output tool calls or text in the RESPONSE/CONTENT field, NOT in thinking.
+Example of correct output: { "tool": "list_files", "path": "src" }
 Do NOT leave the response field empty. Every turn must produce a non-empty response.`;
+                        // disableThinking 상태에서도 재시도 — thinking 필드에 넣는 모델 버그 대응
+                        if (options?.disableThinking) {
+                            console.log(`[OllamaApi] disableThinking=true but got thinking-only. Retrying with reinforced prompt (attempt ${attempt}/${maxRetries})`);
+                        }
                     } else if (!currentOptions.xmlRetry) {
                         currentContent = `${initialContent}\n\nCRITICAL: Output ONLY tool calls in { "tool": "...", "path": "..." } format. Do NOT put tool calls in thinking.`;
                         currentOptions.xmlRetry = true;
