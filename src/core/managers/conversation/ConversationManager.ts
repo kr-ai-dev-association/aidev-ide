@@ -2515,7 +2515,6 @@ export class ConversationManager implements IConversationHandler {
               const investigationTools = [
                 Tool.READ_FILE,
                 Tool.LIST_FILES,
-                Tool.SEARCH_FILES,
                 Tool.RIPGREP_SEARCH,
               ];
               const onlyInvestigationTools = toolCalls.every((call) =>
@@ -3613,11 +3612,18 @@ export class ConversationManager implements IConversationHandler {
           taskManager.listPlanItems(),
         );
       }
-      WebviewBridge.sendProcessingStatus(
-        webviewToRespond,
-        "done",
-        "모든 작업이 완료되었습니다.",
-      );
+      // 파일 변경이 있을 때만 완료 메시지 표시 (명령어만 실행한 경우 불필요)
+      if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+        const filesSummary = [
+          createdFiles.length > 0 ? `생성: ${createdFiles.join(", ")}` : "",
+          modifiedFiles.length > 0 ? `수정: ${modifiedFiles.join(", ")}` : "",
+        ].filter(Boolean).join(" | ");
+        WebviewBridge.sendProcessingStatus(
+          webviewToRespond,
+          "done",
+          `작업 완료 — ${filesSummary}`,
+        );
+      }
     }
 
     // 턴 액션 삽입 (모든 턴이 완료된 후 한 번만 표시)
@@ -3641,8 +3647,8 @@ export class ConversationManager implements IConversationHandler {
         if (currentSession) {
           // 최종 응답 생성
           const finalSummary = (createdFiles.length > 0 || modifiedFiles.length > 0)
-            ? `작업이 완료되었습니다.\n${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
-            : "작업이 완료되었습니다.";
+            ? `${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
+            : "";
 
           console.log(`[ConversationManager] Saving CODE mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`);
           await sessionManager.addConversationEntry(currentSession.id, {
@@ -4471,9 +4477,8 @@ export class ConversationManager implements IConversationHandler {
       if (verifiedSummary && verifiedSummary.trim()) {
         finalResponse = this.parseCommandsInSummary(verifiedSummary);
         await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse, 30, 10, conversationTurnId ? { conversationTurnId } : undefined);
-      } else {
+      } else if (createdFiles.length > 0 || modifiedFiles.length > 0) {
         finalResponse =
-          `작업이 완료되었습니다.\n\n` +
           (createdFiles.length > 0
             ? `생성된 파일: ${createdFiles.join(", ")}\n`
             : "") +
@@ -4482,9 +4487,10 @@ export class ConversationManager implements IConversationHandler {
             : "");
         await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse, 30, 10, conversationTurnId ? { conversationTurnId } : undefined);
       }
+      // 파일 변경 없고 요약도 없으면 메시지 출력하지 않음
     } else {
-      finalResponse = "작업이 완료되었습니다.";
-      await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse, 30, 10, conversationTurnId ? { conversationTurnId } : undefined);
+      // 파일 변경 없으면 완료 메시지 출력하지 않음
+      finalResponse = "";
     }
 
     // 📝 v9.7.0: 세션 저장은 루프 종료 후 executeAgentLoop 끝에서 처리
@@ -4971,7 +4977,13 @@ export class ConversationManager implements IConversationHandler {
     let skippedIdx = 0;
     for (const call of toolCalls) {
       if (approvedToolCalls.includes(call)) {
-        toolResults.push(executedResults[executedIdx++]);
+        const result = executedResults[executedIdx++];
+        // 병렬 실행에서 실패로 인해 스킵된 도구는 undefined일 수 있음
+        toolResults.push(result ?? {
+          success: false,
+          message: `Tool execution skipped due to prior failure: ${call.name}`,
+          error: { code: 'SKIPPED_DUE_TO_FAILURE', message: 'Prior command failed, execution stopped' },
+        });
       } else {
         toolResults.push(skippedToolResults[skippedIdx++]);
       }
@@ -5117,8 +5129,8 @@ export class ConversationManager implements IConversationHandler {
       detail = params.path || params.file_path || params.target_file || "";
     } else if (toolName === Tool.READ_FILE) {
       detail = params.path || params.paths || "";
-    } else if (toolName === Tool.LIST_FILES || toolName === Tool.SEARCH_FILES) {
-      // list_files, search_files는 path만 표시
+    } else if (toolName === Tool.LIST_FILES) {
+      // list_files는 path만 표시
       detail = params.path || "(project root)";
     } else {
       // 기타 도구는 빈 문자열 (JSON 표시 안 함)

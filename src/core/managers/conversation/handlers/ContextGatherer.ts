@@ -187,12 +187,38 @@ export class ContextGatherer {
         // 서버 RAG 검색 — standalone 모드에서는 비활성화
         const ragContext = '';
 
+        // Git 컨텍스트 수집
+        let gitContext = '';
+        try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+                const { exec } = require('child_process');
+                const { promisify } = require('util');
+                const execAsync = promisify(exec);
+                const [branchResult, remoteResult] = await Promise.all([
+                    execAsync('git branch --show-current', { cwd: workspaceRoot }).catch(() => ({ stdout: '' })),
+                    execAsync('git remote get-url origin', { cwd: workspaceRoot }).catch(() => ({ stdout: '' })),
+                ]);
+                const branch = branchResult.stdout.trim();
+                const remote = remoteResult.stdout.trim();
+                if (branch) {
+                    gitContext = `\n## Git 리포지토리 정보\n- **현재 브랜치**: ${branch}\n`;
+                    if (remote) {
+                        gitContext += `- **원격 저장소**: ${remote}\n`;
+                    }
+                    gitContext += `\nGit 관련 작업 시 위 정보를 참고하세요.\n`;
+                }
+            }
+        } catch {
+            // Git 정보 수집 실패는 무시
+        }
+
         return {
             codebaseContext: contextData.file?.content,
             realTimeInfo: contextData.terminal?.lastOutput,
             profileContext: contextData.project?.structure,
             intentContext: JSON.stringify(intent),
-            gitContext: '',
+            gitContext,
             languageInstruction: '반드시 한국어로 답변하세요.',
             selectedFilesContent,
             terminalContextContent,

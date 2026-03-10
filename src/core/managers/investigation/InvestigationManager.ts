@@ -13,7 +13,6 @@ export class InvestigationManager extends BaseManager {
   private readonly INVESTIGATION_TOOLS: Tool[] = [
     Tool.READ_FILE,
     Tool.LIST_FILES,
-    Tool.SEARCH_FILES,
     Tool.RIPGREP_SEARCH
   ];
 

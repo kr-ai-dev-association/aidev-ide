@@ -105,20 +105,6 @@ export class ToolSpecBuilder {
             });
         }
 
-        // search_files
-        if (!allowedTools || allowedTools.includes(Tool.SEARCH_FILES)) {
-            specs.push({
-                name: Tool.SEARCH_FILES,
-                description: '정규식을 사용하여 파일에서 패턴을 검색합니다.',
-                parameters: [
-                    { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
-                    { name: 'pattern', required: true, description: '검색할 정규식 패턴', type: 'string' },
-                    { name: 'filePattern', required: false, description: '파일 패턴 필터 (예: *.ts)', type: 'string' },
-                    { name: 'maxResults', required: false, description: '최대 결과 수', type: 'string' }
-                ]
-            });
-        }
-
         // ripgrep_search
         if (!allowedTools || allowedTools.includes(Tool.RIPGREP_SEARCH)) {
             specs.push({
@@ -181,17 +167,6 @@ export class ToolSpecBuilder {
                 parameters: [
                     { name: 'path', required: true, description: '조회할 파일 경로', type: 'string' },
                     { name: 'symbols', required: false, description: '심볼(클래스, 함수 등) 추출 여부 (기본값: true)', type: 'string' }
-                ]
-            });
-        }
-
-        // git_diff - Git 변경사항 조회
-        if (!allowedTools || allowedTools.includes(Tool.GIT_DIFF)) {
-            specs.push({
-                name: Tool.GIT_DIFF,
-                description: 'Git 저장소의 현재 변경사항을 조회합니다. working changes와 staged changes를 확인할 수 있습니다. 파일 수정 후 변경 내역을 검토하거나, 커밋 전 확인에 유용합니다.',
-                parameters: [
-                    { name: 'staged', required: false, description: 'staged 변경사항만 보려면 "true" (기본값: working changes)', type: 'string' }
                 ]
             });
         }

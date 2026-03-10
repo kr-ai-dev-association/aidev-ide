@@ -237,7 +237,7 @@ export function getTestFailureFixPrompt(errorMessage: string): string {
     `\n[System] ⚠️ **테스트 실패 - 즉시 코드 수정 필요**\n\n` +
     `**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
     `**❌ 금지된 행동 (위반 시 재시도 실패):**\n` +
-    `- read_file, list_files, search_files 등 조사 도구 호출 금지\n` +
+    `- read_file, list_files, ripgrep_search 등 조사 도구 호출 금지\n` +
     `- 자연어 설명, 분석 텍스트 출력 금지\n` +
     `- { "plan": [...] } 재제출 금지\n\n` +
     `**✅ 필수 행동:**\n` +
@@ -278,7 +278,7 @@ export function getInvestigationToolResultFollowupPrompt(): string {
   return (
     `\n[System] 도구 실행 결과를 받았습니다. 다음 단계를 진행하세요:\n\n` +
     `**필수 출력 형식 중 하나를 선택하세요:**\n` +
-    `1. **추가 조사 필요**: { "tool": "read_file", "path": "..." } 또는 { "tool": "search_files", "pattern": "..." }\n` +
+    `1. **추가 조사 필요**: { "tool": "read_file", "path": "..." } 또는 { "tool": "ripgrep_search", "pattern": "..." }\n` +
     `2. **조사 완료, 계획 수립**: { "plan": [{ "kind": "execution", "title": "...", "detail": "..." }] }\n\n` +
     `**절대 금지:** 자연어 설명, 분석 텍스트 출력\n` +
     `**반드시 위 JSON 형식 중 하나로만 응답하세요.**`

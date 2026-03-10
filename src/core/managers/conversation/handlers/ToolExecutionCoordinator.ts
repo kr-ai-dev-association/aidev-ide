@@ -69,7 +69,6 @@ export class ToolExecutionCoordinator {
             [Tool.REMOVE_FILE]: '파일 삭제',
             [Tool.READ_FILE]: '파일 읽기',
             [Tool.LIST_FILES]: '파일 목록',
-            [Tool.SEARCH_FILES]: '파일 검색',
             [Tool.RIPGREP_SEARCH]: '코드 검색',
             [Tool.RUN_COMMAND]: '명령 실행',
             'plan': '계획 수립',
@@ -177,7 +176,7 @@ export class ToolExecutionCoordinator {
             statusMessage = `명령 실행 중: ${shortCommand}`;
         }
         // 검색 도구
-        else if (toolName === Tool.RIPGREP_SEARCH || toolName === Tool.SEARCH_FILES) {
+        else if (toolName === Tool.RIPGREP_SEARCH) {
             const pattern = params.pattern || params.query || '';
             statusMessage = `검색 중: ${pattern}`;
         }
@@ -280,9 +279,24 @@ export class ToolExecutionCoordinator {
                 // read_file, list_files 등은 UI에 표시하지 않음
             } else {
                 // 실패
-                const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
-                WebviewBridge.receiveMessage(webview, 'System', errorMsg);
-                collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                if (toolName === Tool.RUN_COMMAND || toolName === 'run_terminal') {
+                    // 명령 실패: 명령어와 에러 출력 표시
+                    const failedCommand = command || res.message || 'Unknown command';
+                    const headerMsg = `❌ [명령 실패] ${failedCommand}`;
+                    WebviewBridge.receiveMessage(webview, 'System', headerMsg);
+                    collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
+
+                    const stderr = res.data?.error || res.data?.output || '';
+                    if (stderr) {
+                        const errorMarkdown = `\`\`\`bash\n${stderr}\n\`\`\``;
+                        WebviewBridge.receiveMessage(webview, 'CODEPILOT', errorMarkdown);
+                        collectedMessages.push({ sender: 'CODEPILOT', text: errorMarkdown, type: 'code' });
+                    }
+                } else {
+                    const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
+                    WebviewBridge.receiveMessage(webview, 'System', errorMsg);
+                    collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                }
             }
         }
 
@@ -458,10 +472,6 @@ export class ToolExecutionCoordinator {
                     case 'list_files':
                         displayMsg = `📂 [Listed] ${path || 'root'}`;
                         break;
-                    case Tool.SEARCH_FILES:
-                    case 'search_files':
-                        displayMsg = `🔍 [Searched] ${params.pattern || params.query || ''}`;
-                        break;
                     case Tool.RIPGREP_SEARCH:
                     case 'ripgrep_search':
                         // 패턴에서 함수명 추출하여 간단하게 표시
@@ -506,10 +516,6 @@ export class ToolExecutionCoordinator {
                             collectedMessages.push({ sender: 'CODEPILOT', text: terminalMarkdown, type: 'code' });
                             continue;
                         }
-                        break;
-                    case Tool.ANALYZE_CODE:
-                    case 'analyze_code':
-                        displayMsg = `🔬 [Analyzed] ${path}`;
                         break;
                     default:
                         displayMsg = `✔️ [Success] ${ToolExecutionCoordinator.getToolLabel(toolName)}`;

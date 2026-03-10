@@ -82,7 +82,6 @@ export function getInvestigationPrompt(userQuery: string): string {
 - **조사 도구 허용**: 파일을 수정하지 않고 조사/검색만 하는 도구들입니다
   - \`read_file\`: 파일 내용 읽기 (여러 파일을 한 번에 읽을 수 있습니다)
   - \`list_files\`: 디렉토리 목록 확인
-  - \`search_files\`: 정규식으로 파일 검색
   - \`ripgrep_search\`: 고성능 키워드 검색 (예: "어떤 파일들이 useState를 쓰나?", "API 엔드포인트가 어디 있나?")
   - **다국어 검색**: 한글 키워드 검색 시 영문 동의어도 OR(\`|\`)로 병행하세요. 예: \`onboarding|온보딩\`, \`auth|인증|login\`
 
@@ -138,7 +137,6 @@ ${fileExistenceRules}
    - **조사 도구 허용**: 파일을 수정하지 않고 조사/검색만 하는 도구들
      - \`read_file\`: 파일 내용 읽기
      - \`list_files\`: 디렉토리 목록 확인
-     - \`search_files\`: 정규식으로 파일 검색
      - \`ripgrep_search\`: 고성능 키워드 검색
    - ${multiFileRules
       .split("\n")
@@ -173,7 +171,7 @@ ${planFormatRules}
 
 **조사 단계와 실행 단계 역할 분리:**
 - **조사 단계 (Investigation)**: 필요한 정보 수집, 최소 LLM 호출
-  - 조사 도구(\`read_file\`, \`list_files\`, \`search_files\`, \`ripgrep_search\`)를 \`{ "tool": "..." }\` 형식으로 호출
+  - 조사 도구(\`read_file\`, \`list_files\`, \`ripgrep_search\`)를 \`{ "tool": "..." }\` 형식으로 호출
   - ${getNoDuplicateReadRules().split("\n").slice(1).join("\n  - ")}
 
 - **실행 단계 (Execution)**: 실제 코드 생성/수정 → LLM 호출

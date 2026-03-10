@@ -54,7 +54,7 @@ export class TextPatterns {
     static readonly INVESTIGATION_DONE = /<investigation_done\s*\/>/gi;
 
     // 도구 호출 태그 패턴
-    static readonly TOOL_TAGS = ['create_file', 'update_file', 'remove_file', 'read_file', 'list_files', 'search_files', 'run_command', 'task_progress', 'plan'];
+    static readonly TOOL_TAGS = ['create_file', 'update_file', 'remove_file', 'read_file', 'list_files', 'run_command', 'task_progress', 'plan'];
 
     // 자연어 추론 패턴
     static readonly WE_NEED_TO = /We need to[^.]*\./gi;
