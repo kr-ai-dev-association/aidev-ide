@@ -4,6 +4,21 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.2
+
+### 버그 수정
+
+- **code_generate 실행 루프 조기 종료 수정**: 빈 프로젝트에서 코드 생성 요청 시 `list_files` 조사 후 파일을 생성하지 않고 바로 REVIEW로 전환되던 버그 수정. `code_generate` intent에서도 write tool 실행 전까지 루프를 계속하도록 변경
+- **세션 전환 시 Undo/Keep Turn 버튼 잔존 수정**: 다른 프로젝트를 열었을 때 이전 세션의 Undo Turn / Keep Turn 버튼이 빈 채팅에 표시되던 버그 수정. 대화 메시지가 없으면 턴 액션을 표시하지 않도록 가드 추가
+- **Clear History 시 턴 액션 초기화**: 대화 삭제 시 `_latestTurnStats` 및 pending changes UI 상태가 초기화되지 않던 문제 수정
+- **로그인 버튼 색상 깜빡임 수정**: 채팅 패널 로그인 버튼이 VS Code 테마 색상(초록)에서 파란색으로 깜빡이던 문제 수정. CSS 변수 대신 하드코딩 색상 적용
+
+### 최적화
+
+- **RAG 불필요한 API 호출 제거**: RAG 소스가 등록되지 않은 상태에서도 매 요청마다 RAG 검색 API를 호출하던 문제 수정. `SettingsManager`에서 RAG 소스 존재 여부를 먼저 확인하고, 없으면 검색 스킵
+
+---
+
 ## v1.0.1
 
 ### LLM

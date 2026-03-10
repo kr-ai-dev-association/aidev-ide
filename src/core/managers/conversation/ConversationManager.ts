@@ -4725,12 +4725,16 @@ export class ConversationManager implements IConversationHandler {
       totalToolCalls.some((call) => writeTools.includes(call.name as Tool));
     const isCodeModifyIntent = intent && intent.subtype === "code_modify";
 
-    if (isCodeModifyIntent && !hasWriteToolInHistory) {
+    const isCodeGenerateIntent = intent && intent.subtype === "code_generate";
+
+    if ((isCodeModifyIntent || isCodeGenerateIntent) && !hasWriteToolInHistory) {
       console.log(
-        `[ConversationManager] EXECUTION phase: code_modify intent requires write tool. Continuing.`,
+        `[ConversationManager] EXECUTION phase: ${intent!.subtype} intent requires write tool. Continuing.`,
       );
       accumulatedUserParts.push({
-        text: getCodeModifyRequiresFileToolPrompt(),
+        text: isCodeModifyIntent
+          ? getCodeModifyRequiresFileToolPrompt()
+          : `\n[System] 조사 결과를 바탕으로 실제 파일을 생성하세요. create_file, update_file 등의 도구를 사용하여 사용자가 요청한 코드를 작성하세요.`,
       });
       return {
         turnAction: { action: "continue" },

@@ -184,16 +184,21 @@ export class ContextGatherer {
             console.warn('[ContextGatherer] Failed to generate framework rules:', error);
         }
 
-        // 서버 RAG 검색
+        // 서버 RAG 검색 (RAG 소스가 등록된 경우에만 실행)
         let ragContext = '';
         try {
             const { AuthService } = await import('../../../../services/auth/AuthService');
             const { CodePilotApiClient } = await import('../../../../services/api/CodePilotApiClient');
+            const { SettingsManager } = await import('../../state/SettingsManager');
             const authService = AuthService.getInstance();
             if (authService.isLoggedIn()) {
                 const userInfo = authService.getUserInfo();
                 const orgId = userInfo?.organization_id;
-                if (options.userQuery) {
+                // RAG 소스가 등록되어 있는지 확인
+                const ragSources = SettingsManager.getInstance().getServerSettings('rag');
+                if (ragSources.length === 0) {
+                    console.log('[ContextGatherer] RAG: 등록된 RAG 소스 없음 - 검색 스킵');
+                } else if (options.userQuery) {
                     const codeSnippet = options.selectedCode
                         ? options.selectedCode.substring(0, 500)
                         : null;

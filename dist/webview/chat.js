@@ -26665,6 +26665,8 @@ function handleClearHistory() {
       // 모듈에도 알림
       (0,_chat_processing_steps_js__WEBPACK_IMPORTED_MODULE_12__.setThinkingBubbleElement)(null);
       (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.setThinkingBubbleElement)(null);
+      // 턴 액션(undo/keep) 상태 초기화
+      window._latestTurnStats = [];
       console.log("Chat history cleared.");
     }
 
