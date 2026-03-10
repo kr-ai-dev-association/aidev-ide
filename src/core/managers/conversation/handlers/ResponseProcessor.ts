@@ -104,7 +104,7 @@ export class ResponseProcessor {
             );
 
             // ✅ LLM이 도구 태그로 응답한 경우
-            const hasToolTags = /<(create_file|update_file|remove_file|read_file|run_command|list_files|search_files|ripgrep_search)>/i.test(verifiedSummary);
+            const hasToolTags = /<(create_file|update_file|remove_file|read_file|run_command|list_files|ripgrep_search)>/i.test(verifiedSummary);
             if (hasToolTags) {
                 console.warn(`[ResponseProcessor] LLM responded with tool tags (attempt ${retryCount + 1})`);
 
@@ -166,7 +166,7 @@ export class ResponseProcessor {
      */
     private extractTextFromToolResponse(response: string): string {
         // 도구 태그 제거
-        let text = response.replace(/<(create_file|update_file|remove_file|read_file|run_command|list_files|search_files|ripgrep_search)>[\s\S]*?<\/\1>/gi, '');
+        let text = response.replace(/<(create_file|update_file|remove_file|read_file|run_command|list_files|ripgrep_search)>[\s\S]*?<\/\1>/gi, '');
         // thinking 태그 제거
         text = text.replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '');
         // 연속 공백 정리
@@ -214,7 +214,7 @@ export class ResponseProcessor {
         hasNaturalLanguage: boolean;
         extractedToolCalls: string;
     } {
-        const hasToolCalls = /<(create_file|update_file|remove_file|read_file|list_files|search_files|ripgrep_search|run_command|plan|task_progress)>/i.test(response);
+        const hasToolCalls = /<(create_file|update_file|remove_file|read_file|list_files|ripgrep_search|run_command|plan|task_progress)>/i.test(response);
         const hasNaturalLanguage = /[가-힣a-zA-Z]{3,}/.test(response.replace(/<[^>]+>/g, '').trim());
 
         // EXECUTION phase에서는 자연어가 있으면 안 됨
@@ -228,7 +228,7 @@ export class ResponseProcessor {
         }
 
         // Tool calls 추출
-        const toolCallMatch = response.match(/<(create_file|update_file|remove_file|read_file|list_files|search_files|ripgrep_search|run_command|plan|task_progress)[\s\S]*?<\/(?:create_file|update_file|remove_file|read_file|list_files|search_files|ripgrep_search|run_command|plan|task_progress)>/gi);
+        const toolCallMatch = response.match(/<(create_file|update_file|remove_file|read_file|list_files|ripgrep_search|run_command|plan|task_progress)[\s\S]*?<\/(?:create_file|update_file|remove_file|read_file|list_files|ripgrep_search|run_command|plan|task_progress)>/gi);
         const extractedToolCalls = toolCallMatch ? toolCallMatch.join('\n') : '';
 
         return {

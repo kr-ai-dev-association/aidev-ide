@@ -4,6 +4,29 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.4
+
+### 도구 정리
+
+- **Git 전용 도구 제거**: `git_status`, `git_log`, `git_commit`, `git_branch`, `git_pr`, `git_diff` 6개 전용 도구 삭제. `run_command` + `PreToolUseValidator`로 통합하여 유지보수 부담 감소
+- **`search_files` 제거**: `ripgrep_search`와 기능 중복. `ripgrep_search`로 통합 (대소문자 구분, context lines 등 상위 호환)
+- **미구현 도구 제거**: `analyze_code`, `verify_code`, `refactor_code` enum에서 삭제. 기존 도구 조합(read_file + run_command + update_file)으로 대체 가능
+- **도구 수 최적화**: 18종 → 14종. LLM 도구 선택 정확도 향상 및 프롬프트 토큰 절감
+
+### 버그 수정
+
+- **ToolParser 중복 파싱 수정**: LLM이 동일 JSON을 2회 출력할 때 중복 tool call이 생성되던 문제 수정. `deduplicateToolCalls`로 동일 name+params 조합 자동 제거
+- **병렬 실행 undefined 크래시 수정**: `executeToolsParallel`에서 앞 명령어 실패로 뒷 명령어가 스킵될 때 `TypeError: Cannot read properties of undefined` 발생하던 문제 수정
+- **`@` 멘션 오탐 수정**: `git@github.com` 등 이메일 형식에서 `@` 이후가 파일 멘션으로 인식되던 문제 수정. 공백 또는 줄 시작 뒤의 `@`만 멘션으로 처리
+- **AgentStateManager 누락 도구 등록**: `expand_around_line`, `list_imports`, `stat_file`, `read_active_file`, `fetch_url`, `lsp`, `list_code_definitions`이 ALLOWED_TOOLS에 없어 차단되던 문제 수정
+
+### 개선
+
+- **명령어 실패 시 채팅 표시 개선**: `run_command` 실패 시 `❌ [명령 실패] {command}` + stderr를 bash 코드 블록으로 채팅 패널에 표시
+- **불필요한 완료 메시지 제거**: 명령어만 실행한 경우 "작업이 완료되었습니다" 메시지 미표시. 파일 변경이 있을 때만 파일 목록 표시
+
+---
+
 ## v1.0.3
 
 ### 버그 수정
@@ -53,7 +76,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 - **멀티에이전트 오케스트레이션**: TaskSplitter가 요청을 분석해 병렬 서브태스크로 분할, OrchestrationRouter가 의존성 그래프 기반으로 병렬/순차 실행
 - **5단계 FSM 에이전트 루프**: Investigation → Plan → Execution → Review → Done 자동 전환
-- **도구 시스템 (15종)**: 파일 CRUD, ripgrep 검색, 명령어 실행, LSP 연동, Git diff, 코드 정의 맵 등
+- **도구 시스템 (14종)**: 파일 CRUD, ripgrep 검색, 명령어 실행, LSP 연동, 코드 정의 맵 등
 - **인라인 Diff 리뷰**: 파일 변경을 에디터 내 인라인 diff로 표시, 턴별 체크포인트 Undo 지원
 
 ### LLM 지원

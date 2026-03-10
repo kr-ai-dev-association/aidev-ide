@@ -1513,8 +1513,11 @@ if (sendButton && chatInput) {
     const lastSlashIndex = value.lastIndexOf("/");
 
     // '@' 입력 감지 (가장 마지막 '@' 이후에 스페이스가 없을 때만)
+    // '@' 앞이 공백이거나 줄 시작일 때만 멘션으로 인식 (git@github.com 등 방지)
+    const isValidMention = lastAtIndex === 0 || /\s/.test(value[lastAtIndex - 1]);
     if (
       lastAtIndex !== -1 &&
+      isValidMention &&
       (lastSlashIndex === -1 || lastAtIndex > lastSlashIndex)
     ) {
       const afterAt = value.substring(lastAtIndex + 1);

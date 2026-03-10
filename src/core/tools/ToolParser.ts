@@ -244,8 +244,28 @@ export class ToolParser {
             toolCalls.push({ name: toolName as ToolName, params, partial: false });
         }
 
-        console.log(`[ToolParser] parseCodeBlockFormat result: ${toolCalls.length} tool calls found`, toolCalls.map(c => c.name));
-        return toolCalls;
+        // 중복 도구 호출 제거 (동일 이름 + 동일 파라미터)
+        const deduped = this.deduplicateToolCalls(toolCalls);
+        if (deduped.length < toolCalls.length) {
+            console.log(`[ToolParser] Deduplicated: ${toolCalls.length} → ${deduped.length} tool calls`);
+        }
+
+        console.log(`[ToolParser] parseCodeBlockFormat result: ${deduped.length} tool calls found`, deduped.map(c => c.name));
+        return deduped;
+    }
+
+    /**
+     * 동일한 도구 호출 중복 제거
+     * LLM이 같은 JSON을 여러 번 출력하는 경우 방지
+     */
+    private static deduplicateToolCalls(toolCalls: ToolUse[]): ToolUse[] {
+        const seen = new Set<string>();
+        return toolCalls.filter(call => {
+            const key = JSON.stringify({ name: call.name, params: call.params });
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
     }
 
     // ==================== 파라미터 검증 ====================

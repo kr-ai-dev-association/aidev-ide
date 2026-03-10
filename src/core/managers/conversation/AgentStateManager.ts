@@ -23,8 +23,15 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
     [AgentPhase.INVESTIGATION]: [
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
-        Tool.RIPGREP_SEARCH
+        Tool.RIPGREP_SEARCH,
+        Tool.EXPAND_AROUND_LINE,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
     ], // Investigation에서는 조사 도구 허용 (파일 수정 없음, 조사 행위)
     [AgentPhase.EXECUTION]: [
         Tool.CREATE_FILE,
@@ -32,9 +39,16 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.REMOVE_FILE,
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.RUN_COMMAND
+        Tool.RUN_COMMAND,
+        Tool.EXPAND_AROUND_LINE,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
     ],
     [AgentPhase.REVIEW]: [], // REVIEW 단계에서는 도구 사용 불가 (시스템이 요약 생성)
     [AgentPhase.DONE]: [] // DONE 단계에서는 도구 사용 불가
@@ -48,7 +62,7 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.CREATE_FILE,
         Tool.UPDATE_FILE,
         Tool.REMOVE_FILE,
-        // Tool.READ_FILE, Tool.LIST_FILES, Tool.SEARCH_FILES, Tool.RIPGREP_SEARCH는 허용 (조사 행위, 부작용 없음)
+        // Tool.READ_FILE, Tool.LIST_FILES, Tool.RIPGREP_SEARCH는 허용 (조사 행위, 부작용 없음)
         Tool.RUN_COMMAND
     ], // Investigation에서는 조사 도구만 허용, 실행 도구 금지
     [AgentPhase.EXECUTION]: [], // EXECUTION에서는 모든 도구 허용
@@ -58,9 +72,16 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.REMOVE_FILE,
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.RUN_COMMAND
+        Tool.RUN_COMMAND,
+        Tool.EXPAND_AROUND_LINE,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
     ], // REVIEW에서는 모든 도구 금지
     [AgentPhase.DONE]: [
         Tool.CREATE_FILE,
@@ -68,9 +89,16 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.REMOVE_FILE,
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.RUN_COMMAND
+        Tool.RUN_COMMAND,
+        Tool.EXPAND_AROUND_LINE,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
     ] // DONE에서는 모든 도구 금지
 };
 
