@@ -32,11 +32,18 @@ export class AnthropicProvider implements ILLMProvider {
     }
 
     private buildTools(nativeTools: unknown[]): unknown[] {
-        return nativeTools.map((t: any) => ({
-            name: t.function?.name || t.name,
-            description: t.function?.description || t.description || '',
-            input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} },
-        }));
+        return nativeTools.map((t: any, i: number) => {
+            const tool: Record<string, unknown> = {
+                name: t.function?.name || t.name,
+                description: t.function?.description || t.description || '',
+                input_schema: t.function?.parameters || t.parameters || { type: 'object', properties: {} },
+            };
+            // 마지막 tool에 cache_control → tools 배열 전체 캐싱
+            if (i === nativeTools.length - 1) {
+                tool.cache_control = { type: 'ephemeral' };
+            }
+            return tool;
+        });
     }
 
     async send(
@@ -54,7 +61,11 @@ export class AnthropicProvider implements ILLMProvider {
             messages: [{ role: 'user', content: userText }],
         };
         if (systemPrompt) {
-            body.system = systemPrompt;
+            body.system = [{
+                type: 'text',
+                text: systemPrompt,
+                cache_control: { type: 'ephemeral' },
+            }];
         }
         if (options?.nativeTools && options.nativeTools.length > 0) {
             body.tools = this.buildTools(options.nativeTools);
@@ -100,7 +111,11 @@ export class AnthropicProvider implements ILLMProvider {
             stream: true,
         };
         if (systemPrompt) {
-            body.system = systemPrompt;
+            body.system = [{
+                type: 'text',
+                text: systemPrompt,
+                cache_control: { type: 'ephemeral' },
+            }];
         }
         if (options?.nativeTools && options.nativeTools.length > 0) {
             body.tools = this.buildTools(options.nativeTools);

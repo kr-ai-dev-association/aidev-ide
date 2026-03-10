@@ -4,6 +4,21 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.1
+
+### LLM
+
+- **Anthropic 프롬프트 캐싱**: Claude 모델 사용 시 시스템 프롬프트 및 tool definitions에 `cache_control` 자동 적용 (최대 90% 비용 절감)
+- **Gemini OpenAI 호환 엔드포인트 전환**: Gemini 네이티브 API → OpenAI 호환 엔드포인트(`/v1beta/openai/chat/completions`)로 변경, 인증 안정성 향상
+- **최신 모델 추가**: Gemini 3.1 Pro, Gemini 3 Flash, GPT-5.4, GPT-5.4 Pro, GPT-5.3 Codex, GPT-5 Mini
+- **Gemini think 필드 호환성 수정**: Gemini OpenAI 호환 엔드포인트에서 `think` 필드 전송 시 400 에러 방지
+
+### 안정성
+
+- **프리셋 설정 동기화 수정**: 확장 재시작 시 globalState에 저장된 stale config(provider, endpoint, authType)를 최신 프리셋 값으로 항상 동기화
+
+---
+
 ## v1.0.0
 
 ### Core
