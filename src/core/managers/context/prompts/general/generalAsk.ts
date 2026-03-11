@@ -117,7 +117,7 @@ ${ragContext}
 
     const parts = [agentRules, serverRules].filter(Boolean);
     if (parts.length > 0) {
-      skillsSection = `\n\n## 프로젝트 개발 규칙\n아래 규칙을 반드시 준수하세요:\n\n${parts.join('\n\n')}`;
+      skillsSection = `\n\n## 프로젝트 개발 규칙 (필수 적용)\n아래 Skills는 프로젝트에 등록된 강제 규칙입니다. 답변 시 이 규칙들을 반드시 반영하세요.\n\n${parts.join('\n\n')}`;
     }
   } catch { /* Skills 로드 실패 시 무시 */ }
 
