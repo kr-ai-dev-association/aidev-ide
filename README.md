@@ -4,6 +4,25 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.9
+
+### 개선
+
+- **의존성 자동 설치 (AutoInstall)**: 의존성 파일(package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, Gemfile) 변경 감지 시 자동으로 패키지 설치 실행
+  - lock 파일 기반 패키지 매니저 탐지: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `bun.lockb` → bun, `package-lock.json` → npm
+  - manifest 필드 탐지: `packageManager` 필드, `[tool.uv]`, `[tool.poetry]` 등
+  - 실행 가능성 검증: `cmd --version`으로 OS 무관하게 도구 존재 확인
+  - corepack fallback: lock 파일은 있지만 도구가 없으면 `corepack` 경유 시도
+  - Python 지원: `uv.lock` → uv sync, `poetry.lock` → poetry install, `Pipfile.lock` → pipenv install
+  - 서브디렉토리 지원: `server/package.json` 등 모노레포 구조에서 올바른 디렉토리에서 설치 실행
+- **터미널 명령 규칙 강화**: LLM 프롬프트에 "의존성 파일 수정 후 설치 필수" 규칙 추가
+
+### 버그 수정
+
+- **SubAgentLoop approve JSON 패널 출력**: LLM이 tool call 없이 approve JSON만 출력할 때 채팅 패널에 raw JSON이 표시되던 버그 수정. `isRawJsonOnly` 판별로 내부 제어 JSON을 사용자 응답에서 필터링
+
+---
+
 ## v1.0.8
 
 ### 개선

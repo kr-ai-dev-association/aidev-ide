@@ -4099,6 +4099,258 @@ export class ConversationManager implements IConversationHandler {
   }
 
   /**
+   * 의존성 파일 변경 감지 시 자동으로 패키지 설치 실행
+   *
+   * 탐지 우선순위:
+   *   1. lock 파일 → 프로젝트 의도 결정
+   *   2. manifest 필드 → 보조 의도 신호
+   *   3. 실행 가능성 검증 → 선택된 도구가 실행 가능한지 확인
+   *   4. 언어별 안전한 기본값
+   *   5. 실행 불가 시 자동 설치 미지원 처리
+   */
+
+  /** 의존성 파일로 간주되는 파일명 목록 */
+  private static readonly DEPENDENCY_FILES = new Set([
+    'package.json',
+    'requirements.txt',
+    'pyproject.toml',
+    'go.mod',
+    'Cargo.toml',
+    'Gemfile',
+  ]);
+
+  /**
+   * 명령이 시스템에서 실행 가능한지 확인
+   */
+  private isCommandAvailable(cmd: string): boolean {
+    try {
+      require('child_process').execSync(`${cmd} --version`, {
+        stdio: 'ignore',
+        timeout: 5000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Node.js 프로젝트의 패키지 매니저 설치 명령 결정
+   * 우선순위: lock 파일 → packageManager 필드 → 시스템 기본값
+   */
+  private resolveNodeInstallCommand(depDir: string): { command: string; description: string } | null {
+    const fs = require('fs');
+
+    // 1순위: lock 파일로 프로젝트 의도 결정
+    const lockFileMap: Array<{ file: string; cmd: string; desc: string }> = [
+      { file: 'pnpm-lock.yaml', cmd: 'pnpm install', desc: 'pnpm install' },
+      { file: 'yarn.lock', cmd: 'yarn install', desc: 'yarn install' },
+      { file: 'bun.lockb', cmd: 'bun install', desc: 'bun install' },
+      { file: 'bun.lock', cmd: 'bun install', desc: 'bun install' },
+      { file: 'package-lock.json', cmd: 'npm install', desc: 'npm install' },
+    ];
+
+    for (const { file, cmd, desc } of lockFileMap) {
+      if (fs.existsSync(path.join(depDir, file))) {
+        const tool = cmd.split(' ')[0];
+        if (this.isCommandAvailable(tool)) {
+          return { command: cmd, description: desc };
+        }
+        // lock 파일은 있지만 도구가 없으면 corepack 시도
+        if (this.isCommandAvailable('corepack')) {
+          return { command: `corepack ${cmd}`, description: `corepack ${desc}` };
+        }
+        console.warn(`[AutoInstall] ${file} found but ${tool} not available, skipping`);
+        return null;
+      }
+    }
+
+    // 2순위: package.json의 packageManager 필드
+    try {
+      const pkgPath = path.join(depDir, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.packageManager) {
+          const manager = pkg.packageManager.split('@')[0]; // "pnpm@9.0.0" → "pnpm"
+          if (['pnpm', 'yarn', 'bun', 'npm'].includes(manager)) {
+            if (this.isCommandAvailable(manager)) {
+              return { command: `${manager} install`, description: `${manager} install` };
+            }
+            if (this.isCommandAvailable('corepack')) {
+              return { command: `corepack ${manager} install`, description: `corepack ${manager} install` };
+            }
+          }
+        }
+      }
+    } catch {
+      // package.json 파싱 실패 → 다음 단계로
+    }
+
+    // 3순위: 시스템 기본값 (npm은 Node.js와 함께 설치됨)
+    if (this.isCommandAvailable('npm')) {
+      return { command: 'npm install', description: 'npm install' };
+    }
+
+    return null;
+  }
+
+  /**
+   * Python 프로젝트의 패키지 매니저 설치 명령 결정
+   * 우선순위: lock 파일 → pyproject.toml 설정 → 시스템 기본값
+   */
+  private resolvePythonInstallCommand(depDir: string, triggerFile: string): { command: string; description: string } | null {
+    const fs = require('fs');
+
+    // 1순위: lock 파일로 프로젝트 의도 결정
+    const lockFileMap: Array<{ file: string; cmd: string; desc: string }> = [
+      { file: 'uv.lock', cmd: 'uv sync', desc: 'uv sync' },
+      { file: 'poetry.lock', cmd: 'poetry install', desc: 'poetry install' },
+      { file: 'Pipfile.lock', cmd: 'pipenv install', desc: 'pipenv install' },
+    ];
+
+    for (const { file, cmd, desc } of lockFileMap) {
+      if (fs.existsSync(path.join(depDir, file))) {
+        const tool = cmd.split(' ')[0];
+        if (this.isCommandAvailable(tool)) {
+          return { command: cmd, description: desc };
+        }
+        console.warn(`[AutoInstall] ${file} found but ${tool} not available, skipping`);
+        return null;
+      }
+    }
+
+    // 2순위: pyproject.toml의 빌드 백엔드 확인
+    if (triggerFile === 'pyproject.toml') {
+      try {
+        const content = fs.readFileSync(path.join(depDir, 'pyproject.toml'), 'utf-8');
+        if (content.includes('[tool.uv]') && this.isCommandAvailable('uv')) {
+          return { command: 'uv sync', description: 'uv sync' };
+        }
+        if (content.includes('[tool.poetry]') && this.isCommandAvailable('poetry')) {
+          return { command: 'poetry install', description: 'poetry install' };
+        }
+      } catch {
+        // 파싱 실패 → 다음 단계로
+      }
+    }
+
+    // 3순위: requirements.txt → pip
+    if (triggerFile === 'requirements.txt') {
+      if (this.isCommandAvailable('pip')) {
+        return { command: 'pip install -r requirements.txt', description: 'pip install' };
+      }
+      if (this.isCommandAvailable('pip3')) {
+        return { command: 'pip3 install -r requirements.txt', description: 'pip3 install' };
+      }
+    }
+
+    // pyproject.toml 기본 fallback
+    if (triggerFile === 'pyproject.toml') {
+      if (this.isCommandAvailable('pip')) {
+        return { command: 'pip install .', description: 'pip install' };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 변경된 의존성 파일에 대한 설치 명령 결정
+   */
+  private resolveInstallCommand(depDir: string, triggerFile: string): { command: string; description: string } | null {
+    const fs = require('fs');
+
+    switch (triggerFile) {
+      case 'package.json':
+        return this.resolveNodeInstallCommand(depDir);
+
+      case 'requirements.txt':
+      case 'pyproject.toml':
+        return this.resolvePythonInstallCommand(depDir, triggerFile);
+
+      case 'go.mod':
+        if (this.isCommandAvailable('go')) {
+          return { command: 'go mod tidy', description: 'go mod tidy' };
+        }
+        return null;
+
+      case 'Cargo.toml':
+        if (this.isCommandAvailable('cargo')) {
+          return { command: 'cargo build', description: 'cargo build' };
+        }
+        return null;
+
+      case 'Gemfile':
+        if (this.isCommandAvailable('bundle')) {
+          return { command: 'bundle install', description: 'bundle install' };
+        }
+        return null;
+
+      default:
+        return null;
+    }
+  }
+
+  private async autoInstallDependencies(
+    webview: vscode.Webview,
+    workspaceRoot: string,
+    createdFiles: string[],
+    modifiedFiles: string[],
+  ): Promise<void> {
+    const allFiles = [...createdFiles, ...modifiedFiles];
+    const executionManager = ExecutionManager.getInstance();
+    const processedDirs = new Set<string>();
+
+    for (const filePath of allFiles) {
+      const fileName = path.basename(filePath);
+      if (!ConversationManager.DEPENDENCY_FILES.has(fileName)) continue;
+
+      const depDir = path.isAbsolute(filePath)
+        ? path.dirname(filePath)
+        : path.join(workspaceRoot, path.dirname(filePath));
+
+      // 같은 디렉토리에서 중복 실행 방지
+      const dirKey = `${depDir}:${fileName}`;
+      if (processedDirs.has(dirKey)) continue;
+      processedDirs.add(dirKey);
+
+      const resolved = this.resolveInstallCommand(depDir, fileName);
+      if (!resolved) {
+        console.warn(
+          `[AutoInstall] ${fileName} changed but no suitable install command found in ${depDir}`,
+        );
+        continue;
+      }
+
+      console.log(
+        `[AutoInstall] ${filePath} changed → running "${resolved.command}" in ${depDir}`,
+      );
+      WebviewBridge.sendProcessingStatus(
+        webview,
+        "executing",
+        `${resolved.description} 실행 중...`,
+      );
+
+      try {
+        const result = await executionManager.executeCommand(resolved.command, {
+          cwd: depDir,
+          timeout: AgentConfig.VALIDATION_COMMAND_TIMEOUT,
+        });
+
+        if (result.exitCode === 0) {
+          console.log(`[AutoInstall] ${resolved.description} completed successfully`);
+        } else {
+          console.warn(
+            `[AutoInstall] ${resolved.description} failed (exit ${result.exitCode}): ${result.stderr || result.stdout || ""}`,
+          );
+        }
+      } catch (error) {
+        console.warn(`[AutoInstall] ${resolved.description} error (non-fatal):`, error);
+      }
+    }
+  }
+
+  /**
    * 파일 변경 후 formatter 및 validation 실행
    * 실행 순서: Formatter → Validation
    * ✅ 조건부 호출 + diff 보호
@@ -4110,6 +4362,9 @@ export class ConversationManager implements IConversationHandler {
     modifiedFiles: string[],
   ): Promise<void> {
     try {
+      // ✅ 의존성 파일 변경 감지 → 자동 설치
+      await this.autoInstallDependencies(webview, workspaceRoot, createdFiles, modifiedFiles);
+
       // ✅ 조건부 Formatter 실행 결정
       if (!this.shouldRunFormatter(createdFiles, modifiedFiles)) {
         return;
