@@ -1481,9 +1481,20 @@ JSON 형식으로 응답하세요:
             const response = await llmApi.sendMessage(prompt, abortSignal);
 
             // JSON 파싱 시도
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            const jsonMatch = response.match(/\{[\s\S]*?\}/);
             if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
+                let parsed: any;
+                try {
+                    parsed = JSON.parse(jsonMatch[0]);
+                } catch {
+                    console.warn('[ProjectDetector] JSON parse failed, trying code block extraction');
+                    const codeBlock = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+                    if (codeBlock) {
+                        try { parsed = JSON.parse(codeBlock[1].trim()); } catch { return null; }
+                    } else {
+                        return null;
+                    }
+                }
                 const projectTypeStr = parsed.projectType;
 
                 // 문자열을 ProjectType enum으로 변환
