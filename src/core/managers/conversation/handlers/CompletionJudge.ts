@@ -40,15 +40,6 @@ export class CompletionJudge {
         abortSignal?: AbortSignal,
         buildTestPassed: boolean = false
     ): Promise<CompletionJudgment> {
-        // v9.7.0: 빌드/테스트가 통과했고 파일 변경이 있으면 완료로 간주
-        if (buildTestPassed && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
-            console.log(`[CompletionJudge] Build/test passed with file changes, marking as complete`);
-            return {
-                isComplete: true,
-                confidence: 0.95,
-                reason: '빌드/테스트 통과 및 파일 변경 완료'
-            };
-        }
         // 자동 추가 작업 횟수 초과 시 강제 완료
         if (this.autoContinueCount >= CompletionJudge.MAX_AUTO_CONTINUE) {
             console.log(`[CompletionJudge] Max auto-continue reached (${this.autoContinueCount}), forcing complete`);
@@ -69,7 +60,7 @@ export class CompletionJudge {
         }
 
         // LLM으로 완료 여부 판단
-        const prompt = this.buildJudgmentPrompt(userQuery, createdFiles, modifiedFiles, lastResponse);
+        const prompt = this.buildJudgmentPrompt(userQuery, createdFiles, modifiedFiles, lastResponse, buildTestPassed);
 
         try {
             const response = await this.llmManager.generateSimpleResponse(prompt, {
@@ -110,7 +101,8 @@ export class CompletionJudge {
         userQuery: string,
         createdFiles: string[],
         modifiedFiles: string[],
-        lastResponse: string
+        lastResponse: string,
+        buildTestPassed: boolean = false
     ): string {
         return `작업 완료 여부를 판단하세요.
 
@@ -120,14 +112,16 @@ ${userQuery}
 ## 수행된 작업
 - 생성된 파일: ${createdFiles.length > 0 ? createdFiles.join(', ') : '없음'}
 - 수정된 파일: ${modifiedFiles.length > 0 ? modifiedFiles.join(', ') : '없음'}
+- 빌드/테스트 결과: ${buildTestPassed ? '통과' : '미실행 또는 실패'}
 
 ## 마지막 응답
 ${lastResponse.substring(0, 500)}${lastResponse.length > 500 ? '...' : ''}
 
 ## 판단 기준
-1. 사용자 요청이 완전히 이행되었는가?
-2. 생성/수정된 파일이 요청을 충족하는가?
+1. 사용자가 요청한 모든 항목이 생성/수정되었는가? (파일 목록과 요청을 비교)
+2. 사용자가 여러 파일/기능을 요청했는데 일부만 생성된 경우 → 미완성
 3. 명백한 TODO나 미완성 부분이 있는가?
+4. 빌드/테스트 통과는 참고 사항일 뿐, 요청 이행 여부와는 별개
 
 ## 응답 형식 (JSON만)
 {"complete": true/false, "confidence": 0.0~1.0, "reason": "판단 이유", "action": "미완성 시 필요한 추가 작업"}

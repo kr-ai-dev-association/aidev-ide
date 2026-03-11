@@ -4,6 +4,16 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.5
+
+### 버그 수정
+
+- **CompletionJudge 조기 완료 수정**: 빈 프로젝트에서 빌드/테스트 통과 + 파일 1개 변경만으로 작업 완료로 판정하던 문제 수정. `buildTestPassed` 숏컷을 제거하고 항상 LLM 판단을 거치도록 변경. 판단 프롬프트에 빌드/테스트 결과를 참고 정보로 포함
+- **ProjectDetector JSON 파싱 크래시 수정**: LLM 응답에서 greedy 정규식(`\{[\s\S]*\}`)이 JSON 이후 텍스트까지 캡처하여 `SyntaxError` 발생하던 문제 수정. non-greedy 정규식 + try-catch + 코드 블록 폴백 추가
+- **TaskSplitter 디버그 로깅 추가**: 분할 거부 시 사유가 출력되지 않던 문제 수정. `shouldSplit=false` 판정 및 독립 태스크 부족 시 로그 출력 추가
+
+---
+
 ## v1.0.4
 
 ### 도구 정리

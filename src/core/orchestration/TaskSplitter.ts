@@ -146,6 +146,7 @@ export class TaskSplitter {
             const parsed = JSON.parse(jsonMatch[0]);
 
             if (!parsed.shouldSplit || !Array.isArray(parsed.subtasks) || parsed.subtasks.length < 2) {
+                console.log(`[TaskSplitter] Not splitting: shouldSplit=${parsed.shouldSplit}, subtasks=${parsed.subtasks?.length ?? 0}, reasoning=${parsed.reasoning}`);
                 return { shouldSplit: false, subtasks: [], reasoning: parsed.reasoning || '단일 작업' };
             }
 
@@ -161,6 +162,7 @@ export class TaskSplitter {
             const dependent = subtasks.filter(st => st.dependencies.length > 0);
 
             if (independent.length < 2) {
+                console.log(`[TaskSplitter] Not splitting: ${independent.length} independent / ${dependent.length} dependent tasks`);
                 return { shouldSplit: false, subtasks: [], reasoning: '병렬 실행 가능한 독립 태스크 부족' };
             }
 
