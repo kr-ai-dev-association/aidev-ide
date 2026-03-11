@@ -35,20 +35,26 @@ export class UpdateFileToolHandler implements IToolHandler {
     const filePath = parseResult.data.path;
     let diff = parseResult.data.diff;
 
-    // LLM이 diff 대신 content를 보낸 경우 처리 (전체 파일 덮어쓰기로 폴백)
+    // LLM이 diff 대신 content를 보낸 경우 처리
     if (!diff && parseResult.data.content) {
-      console.log(`[UpdateFileToolHandler] ⚠️ LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
-      // content가 있으면 create_file처럼 전체 파일 덮어쓰기로 처리
-      const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
-      const createHandler = new CreateFileToolHandler();
-      return createHandler.execute({
-        ...toolUse,
-        name: Tool.CREATE_FILE,
-        params: {
-          path: filePath,
-          content: parseResult.data.content
-        }
-      }, context);
+      const content = parseResult.data.content;
+      // content에 SEARCH/REPLACE 마커가 있으면 diff로 재처리
+      if (/^<{4,}\s*SEARCH/m.test(content) || /^-{3,}\s*SEARCH/m.test(content)) {
+        console.log(`[UpdateFileToolHandler] ⚠️ LLM sent SEARCH/REPLACE diff in 'content' param. Re-routing as diff for ${filePath}`);
+        diff = content;
+      } else {
+        console.log(`[UpdateFileToolHandler] ⚠️ LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
+        const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
+        const createHandler = new CreateFileToolHandler();
+        return createHandler.execute({
+          ...toolUse,
+          name: Tool.CREATE_FILE,
+          params: {
+            path: filePath,
+            content: content
+          }
+        }, context);
+      }
     }
 
     if (!filePath || !diff) {

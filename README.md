@@ -4,6 +4,36 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.8
+
+### 개선
+
+- **TerminalManager 비범용 프롬프트 제거**: 오류 수정 가이드라인에서 Spring Boot/Maven/Gradle/ts-node-dev 등 특정 기술 하드코딩 제거. 범용적 빌드/컴파일 오류 가이드라인으로 대체
+  - `commonGuidelines`: Spring Boot 전용 규칙 7~10번 제거, 프로젝트 타입 자동 감지 기반 범용 가이드로 통합
+  - `compilationGuidelines`: ESM/ts-node-dev, POM 누락, Maven 전용 가이드라인 전체 제거 → 범용 빌드 오류 가이드라인으로 대체
+  - `isPomOrGradle` 필터: 컴파일 오류 시 pom.xml/build.gradle만 허용하던 제한 제거
+  - `create→modify` 강제 변환: POM/Gradle 전용 로직 제거
+  - `isSpringBootProject` 검증: Maven/Gradle 명령어 차단 로직 제거
+- **Native Tool Calling 기본 OFF**: 스트리밍 네이티브 tool calling이 턴당 1개 tool call로 제한되는 문제 해결. 텍스트 기반 파싱으로 다중 tool call 지원 (턴당 14개 확인)
+- **UpdateFileToolHandler content→diff 재라우팅**: LLM이 `content` 파라미터에 SEARCH/REPLACE 마커를 보내는 경우 자동으로 diff로 재라우팅. 마커가 파일에 리터럴 텍스트로 기록되던 버그 수정
+- **BYPASS_PATTERNS 제거**: 린트 스크립트 우회 감지(echo, exit 0, true 패턴) 하드코딩 제거
+
+---
+
+## v1.0.7
+
+### 개선
+
+- **Skills 우선순위 강화**: 관리자 등록 Skills(dev_rules)를 시스템 프롬프트 최상단으로 이동. 모든 Skills 라벨을 [필수]로 통일 (enforcement 설정과 무관하게 강제 적용). 프롬프트 하단에 Skills 준수 리마인더 추가. LLM이 코드 생성 시 디자인 시스템·아키텍처·코딩 컨벤션을 반드시 따르도록 개선
+
+### 코드 정리
+
+- **디버그 로그 제거**: `SettingsPanelProvider.ts` waitForSync 관련 console.log 제거, `webview/settings.js` renderOrgSettings 내 console.log 제거
+- **설정 패널 개선**: currentSettings에 `hasOrganization` 플래그 추가
+- **GitRepositoryService 제거**
+
+---
+
 ## v1.0.6
 
 ### 개선

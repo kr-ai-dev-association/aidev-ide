@@ -247,6 +247,7 @@ export class ConversationManager implements IConversationHandler {
 
       // A4: CompletionJudge 리셋 (새 요청 시작)
       this.completionJudge.reset();
+      TestRunner.clearSubProjectCache();
       this._retryGaveUp = false;
 
       // 탈출 시도 카운터 리셋 (새 대화 시작)
@@ -1868,7 +1869,7 @@ export class ConversationManager implements IConversationHandler {
       if (isToolCallingPhase) {
         const isNativeToolCallingEnabled = options.extensionContext
           ? await SettingsManager.getInstance(options.extensionContext).isNativeToolCallingEnabled()
-          : true;
+          : false;
         if (isNativeToolCallingEnabled) {
           const modelType = this.llmManager.getCurrentModel();
           if (modelType === AiModelType.ADMIN) {
@@ -1887,11 +1888,9 @@ export class ConversationManager implements IConversationHandler {
                 `ℹ️ 현재 모델(${adminConfig.model})은 네이티브 툴 콜링을 지원하지 않습니다. 설정에서 [네이티브 툴 콜링]을 OFF 하세요. (텍스트 기반 파싱으로 동작 중)`
               );
             }
-          } else {
-            // Ollama 로컬 모델: 항상 시도 (미지원 시 텍스트 파싱으로 자동 폴백)
-            nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
-            console.log(`[ConversationManager] Native tool calling enabled for Ollama model`);
           }
+          // Ollama 로컬 모델: native tool calling이 명시적으로 ON인 경우에만 활성화
+          // 기본 OFF — 텍스트 기반 파싱이 다중 tool call을 지원하여 더 효과적
         }
       }
 
@@ -4460,6 +4459,53 @@ export class ConversationManager implements IConversationHandler {
       }
     }
 
+    // CompletionJudge 완료 판정 후 최종 TestRunner 검증
+    // (중간 파일 생성 시에는 TestRunner를 건너뛰고, 완료 시에만 실행)
+    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+      console.log(
+        "[ConversationManager] Running final TestRunner validation after CompletionJudge completion",
+      );
+      WebviewBridge.sendProcessingStep(webview, "executing");
+      WebviewBridge.sendProcessingStatus(
+        webview,
+        "executing",
+        "최종 코드 검증 실행 중...",
+      );
+
+      const finalTestResult = await TestRunner.runAutomatedTests(
+        webview,
+        workspaceRoot,
+        createdFiles,
+        modifiedFiles,
+        30000, // 최종 검증이므로 30초 타임아웃
+        [],
+      );
+
+      if (!finalTestResult.success) {
+        console.log(
+          `[ConversationManager] Final validation failed: ${finalTestResult.errorMessage}`,
+        );
+        WebviewBridge.sendProcessingStatus(
+          webview,
+          "executing",
+          "최종 검증 실패 — 자동 수정 시작...",
+        );
+
+        // EXECUTION으로 돌아가서 에러 수정
+        stateManager.transitionTo(AgentPhase.EXECUTION);
+        accumulatedUserParts.push({
+          text: `최종 검증에서 에러가 발생했습니다. 다음 에러를 수정해주세요:\n${finalTestResult.errorMessage}\n\n⚠️ 주의: 빌드/린트 스크립트를 echo나 exit 0 등으로 우회하지 마세요. 실제 에러를 수정하세요.`,
+        });
+
+        return { action: "continue" };
+      }
+
+      console.log(
+        "[ConversationManager] Final TestRunner validation passed",
+      );
+      this._lastBuildTestPassed = true;
+    }
+
     // 페이즈별 프롬프트 보정 (REVIEW 단계용)
     const activeSystemPrompt = systemPrompt;
 
@@ -5190,6 +5236,20 @@ export class ConversationManager implements IConversationHandler {
         stateManager,
         webview,
         "작업 완료 - 결과 검토 중...",
+      );
+      return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
+    }
+
+    // CompletionJudge가 아직 auto-continue 가능 → TestRunner 스킵, REVIEW로 바로 전환
+    // 파일이 점진적으로 생성되는 중간 상태에서 tsc/lint 실패를 방지
+    if (this.completionJudge.canAutoContinue()) {
+      console.log(
+        `[ConversationManager] Deferring TestRunner — CompletionJudge auto-continue available`,
+      );
+      const action = this.transitionToReview(
+        stateManager,
+        webview,
+        "결과 검토 중...",
       );
       return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
     }

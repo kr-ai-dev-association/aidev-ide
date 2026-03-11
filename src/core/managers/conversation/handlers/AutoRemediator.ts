@@ -65,6 +65,17 @@ export class AutoRemediator {
     }
 
     /**
+     * 외부에서 직접 의존성 설치를 요청할 때 사용 (TestRunner CLI 검증 전 등)
+     */
+    static async attemptInstall(
+        installCommand: string,
+        workspaceRoot: string,
+        webview: vscode.Webview
+    ): Promise<RemediationResult> {
+        return this.runInstallCommand(installCommand, workspaceRoot, webview);
+    }
+
+    /**
      * 의존성 설치 명령어 실행
      */
     private static async runInstallCommand(
