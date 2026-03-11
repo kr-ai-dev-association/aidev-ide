@@ -4,9 +4,31 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
+
+/**
+ * 명령어 접두사 → 매니페스트 파일 매핑
+ * 워크스페이스 루트에 매니페스트가 없으면 서브 디렉토리에서 자동 탐색
+ */
+const COMMAND_MANIFEST_MAP: Record<string, string[]> = {
+    'npm': ['package.json'],
+    'npx': ['package.json'],
+    'yarn': ['package.json'],
+    'pnpm': ['package.json'],
+    'pip': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+    'python': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+    'cargo': ['Cargo.toml'],
+    'go': ['go.mod'],
+    'bundle': ['Gemfile'],
+    'gem': ['Gemfile'],
+    'composer': ['composer.json'],
+    'flutter': ['pubspec.yaml'],
+    'dart': ['pubspec.yaml'],
+};
 
 export class RunCommandToolHandler implements IToolHandler {
     readonly name = Tool.RUN_COMMAND;
@@ -30,13 +52,16 @@ export class RunCommandToolHandler implements IToolHandler {
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
 
+        // ── 서브 프로젝트 자동 감지: 매니페스트 없으면 하위 디렉토리 탐색 ──
+        const effectiveCwd = this.resolveCommandCwd(command, context.projectRoot);
+
         // ── 출력 기반 명령어 분류 (패턴 매칭 없이 동작) ──────────────
         // 1단계: 짧은 타임아웃으로 실행하여 출력 확인
         const INITIAL_TIMEOUT = 8000; // 8초 대기
         const MAX_COMPLETION_TIMEOUT = 120000; // 완료 대기 상한 120초
 
         const initialResult = await context.executionManager.executeCommand(command, {
-            cwd: context.projectRoot,
+            cwd: effectiveCwd,
             timeout: timeoutSeconds ? timeoutSeconds * 1000 : INITIAL_TIMEOUT,
             killOnTimeout: false,
         });
@@ -89,7 +114,7 @@ export class RunCommandToolHandler implements IToolHandler {
         if (pid) {
             console.log(`[RunCommandToolHandler] Waiting for completion (max ${MAX_COMPLETION_TIMEOUT}ms): ${command}`);
             const finalResult = await context.executionManager.executeCommand(command, {
-                cwd: context.projectRoot,
+                cwd: effectiveCwd,
                 timeout: MAX_COMPLETION_TIMEOUT,
                 killOnTimeout: true,
             });
@@ -120,6 +145,42 @@ export class RunCommandToolHandler implements IToolHandler {
 
     getDescription(toolUse: ToolUse): string {
         return `[run_command: ${toolUse.params.command}]`;
+    }
+
+    /**
+     * 명령어의 패키지 매니저를 감지하여 적절한 cwd를 결정합니다.
+     * 워크스페이스 루트에 매니페스트 파일이 없으면 하위 디렉토리에서 자동 탐색합니다.
+     */
+    private resolveCommandCwd(command: string, projectRoot: string): string {
+        const cmdPrefix = command.trim().split(/\s+/)[0];
+        const manifests = COMMAND_MANIFEST_MAP[cmdPrefix];
+        if (!manifests) return projectRoot;
+
+        // 루트에 매니페스트가 있으면 그대로 사용
+        const hasManifestAtRoot = manifests.some(m =>
+            fs.existsSync(path.join(projectRoot, m))
+        );
+        if (hasManifestAtRoot) return projectRoot;
+
+        // 즉시 하위 디렉토리에서 매니페스트 탐색
+        try {
+            const entries = fs.readdirSync(projectRoot, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+                const subDir = path.join(projectRoot, entry.name);
+                const hasManifest = manifests.some(m =>
+                    fs.existsSync(path.join(subDir, m))
+                );
+                if (hasManifest) {
+                    console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project: ${subDir}`);
+                    return subDir;
+                }
+            }
+        } catch (e) {
+            // 디렉토리 읽기 실패 시 원래 경로 유지
+        }
+
+        return projectRoot;
     }
 
     /**
@@ -216,5 +277,4 @@ export class RunCommandToolHandler implements IToolHandler {
         } as unknown as vscode.Webview;
     }
 }
-
 

@@ -1681,18 +1681,9 @@ export class TerminalManager {
 4. 환경 변수 문제가 있는 경우 ${isWindows ? 'set 명령어를 사용하세요' : 'export 명령어를 추가하세요'}
 5. ${isUnixLike ? '셸 문제가 있는 경우 /bin/bash 또는 /bin/zsh를 명시적으로 사용하세요' : '셸 문제가 있는 경우 PowerShell 또는 cmd.exe를 명시적으로 사용하세요'}
 6. "No such file or directory" 오류의 경우, 프로젝트 루트 경로를 재확인하고 올바른 디렉토리에서 명령어를 실행하세요
-7. Spring Boot 프로젝트의 경우 Maven(mvn) 또는 Gradle(./gradlew) 명령어를 사용하고, npm/node.js 명령어는 사용하지 마세요
-8. 프로젝트 타입에 맞는 빌드 도구를 사용하세요 (Spring Boot: Maven/Gradle, React: npm/yarn, Python: pip)
-9. "앱 빌드하고 실행해" 요청의 경우 Spring Boot 프로젝트일 가능성이 높으므로 Maven(mvn clean package) 또는 Gradle(./gradlew build) 명령어를 사용하세요
-10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요
-11. **컴파일 오류가 발생한 경우 (package does not exist, cannot find symbol, unmappable character 등)**: 명령어를 다시 실행하는 것이 아니라 필요한 파일을 수정해야 합니다
-    - Maven 프로젝트: 
-      * pom.xml에 누락된 의존성 추가 (예: Spring Data JPA, Lombok, Jakarta Persistence 등)
-      * 인코딩 오류가 발생하면 pom.xml에 project.build.sourceEncoding을 UTF-8로 설정 추가
-      * maven-compiler-plugin에 encoding을 UTF-8로 설정 추가
-    - Gradle 프로젝트: build.gradle에 누락된 의존성 추가 및 인코딩 설정
-    - Java 소스 파일의 import 오류나 문법 오류를 수정
-    - 이런 경우 "correctedCommand"는 null로 설정하고, "fileOperations"에 필요한 파일 수정 작업을 포함하세요`;
+7. 프로젝트 타입에 맞는 빌드 도구를 사용하세요. 프로젝트 루트의 설정 파일(package.json, pom.xml, build.gradle, requirements.txt 등)을 확인하고 적절한 빌드 도구를 선택하세요
+8. **컴파일/빌드 오류가 발생한 경우**: 명령어를 다시 실행하는 것이 아니라 소스 코드나 설정 파일을 수정해야 합니다. "correctedCommand"는 null로 설정하고, "fileOperations"에 필요한 파일 수정 작업을 포함하세요
+9. 스크립트 파일(.cmd, .bat, .sh, .ps1)을 생성하여 우회하지 마세요. 오류의 근본 원인을 수정하세요`;
 
             // Windows 전용 가이드라인 (간소화)
             const windowsGuidelines = `
@@ -1731,59 +1722,20 @@ export class TerminalManager {
                 errorOutputForPrompt = `[오류 출력이 길어 일부만 표시합니다]\n${startPart}\n... (중간 생략) ...\n${endPart}`;
             }
 
-            // 컴파일/인코딩 오류가 있는지 사전 확인
-            const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|unmappable character.*encoding|File encoding has not been set|platform encoding|x-windows-949|MissingProjectException|no POM.*directory|requires a project.*POM|POM file.*does not exist|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*Table|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(cleanedErrorOutput);
+            // 컴파일/빌드 오류가 있는지 사전 확인 (범용)
+            const hasCompilationError = /(Compilation failure|BUILD FAILURE|build failed|compile error|syntax error|cannot find symbol|cannot find module|Module not found|unmappable character|encoding error)/i.test(cleanedErrorOutput);
 
-            // ESM 모듈 오류 감지 (ts-node-dev 관련)
-            const hasESMError = /(Must use import to load ES Module|ERR_REQUIRE_ESM|Cannot use import statement|ts-node-dev.*ESM)/i.test(cleanedErrorOutput);
-
-            const missingPomError = /(POM file.*does not exist|MissingProjectException|no POM.*directory|requires a project.*POM)/i.test(cleanedErrorOutput);
-
-            // 컴파일/인코딩/프로젝트 누락 가이드라인 조립 (간소화)
+            // 빌드/컴파일 오류 가이드라인 (범용)
             let compilationGuidelines = '';
+            if (hasCompilationError) {
+                compilationGuidelines = `**⚠️ 빌드/컴파일 오류가 감지되었습니다 ⚠️**
+이 오류는 명령어를 다시 실행하는 것으로 해결되지 않습니다. 소스 코드나 설정 파일을 수정해야 합니다.
 
-            // ESM 모듈 오류 가이드라인
-            if (hasESMError) {
-                compilationGuidelines = `**⚠️ ts-node-dev ESM 모듈 오류 ⚠️**
-ts-node-dev는 ESM 모듈(type: module)을 제대로 처리하지 못합니다.
-
-**해결 방법:**
-1. package.json에 "type": "module"이 있으면 ts-node-dev 대신 tsx를 사용해야 합니다.
-2. 해결 방법: ts-node-dev를 tsx로 대체하세요.
-   - 예: "ts-node-dev src/index.ts" → "tsx src/index.ts"
-   - 또는: "ts-node-dev --respawn src/index.ts" → "tsx watch src/index.ts"
-3. tsx가 설치되어 있지 않으면: npm install -D tsx
-4. package.json의 scripts도 수정:
-   - "dev": "tsx watch src/index.ts" (또는 "tsx src/index.ts")
-   - "start": "tsx src/index.ts"
-5. **중요**: "type": "module"은 유지하세요. tsx는 ESM을 완벽하게 지원합니다.
-
-**수정 방법:**
-- "correctedCommand"에 tsx를 사용한 명령어를 제안하세요.
-- package.json의 scripts를 수정해야 하는 경우 "fileOperations"에 package.json 수정을 포함하세요.
-- tsx가 설치되지 않은 경우 "correctedCommand"에 "npm install -D tsx"를 먼저 실행하도록 제안하세요.`;
-            } else if (hasCompilationError) {
-                if (missingPomError) {
-                    compilationGuidelines = `**⚠️ 경고: 프로젝트 POM 파일이 없습니다! ⚠️**
-이 오류는 명령 재실행으로 해결되지 않습니다. 반드시 필요한 파일을 생성해야 합니다.
-
-**규칙**
-1. "correctedCommand"는 반드시 null로 설정하세요
-2. "fileOperations"에는 반드시 pom.xml(생성)을 포함하세요. 스크립트 파일(.cmd/.bat/.sh/.ps1)은 절대 포함하지 마세요.
-3. 작업은 create를 사용하세요 (pom.xml이 존재하지 않음)
-4. 내용에는 Spring Boot 3.x, Java 17, UTF-8 인코딩, maven-compiler-plugin(encoding=UTF-8), 필요한 의존성(spring-boot-starter-web, spring-boot-starter-data-jpa, spring-boot-starter-validation, lombok(optional), spring-boot-starter-security)을 포함하세요
-5. pom.xml 변경/생성 시 절대로 쉘/배치/PowerShell 스크립트를 사용하지 마세요 (예: sed, echo, cat, heredoc, Out-File, Set-Content 등 금지). 오직 JSON의 fileOperations로만 전체 내용을 제공합니다.`;
-                } else {
-                    compilationGuidelines = `**⚠️ 경고: 컴파일/인코딩 오류가 감지되었습니다! ⚠️**
-이 오류는 명령어를 다시 실행하는 것으로 절대 해결되지 않습니다. 반드시 파일을 수정해야 합니다.
-
-**⚠️ 매우 중요: 다음 규칙을 절대적으로 준수하세요 ⚠️**
-1. "correctedCommand"는 반드시 null로 설정하세요
-2. "fileOperations"에는 반드시 pom.xml만 포함해야 합니다. 다른 파일(예: build_and_run.cmd, build.sh, 스크립트 파일 등)은 절대 생성하거나 수정하지 마세요.
-3. Maven 프로젝트의 경우 pom.xml만 수정하면 됩니다. 다른 파일은 필요 없습니다.
-4. 파일 작업은 반드시 modify만 사용하세요 (create는 사용하지 마세요. pom.xml은 이미 존재합니다).
-5. pom.xml을 변경할 때는 절대로 쉘/배치/PowerShell 명령을 사용하지 마세요. sed/echo/heredoc/Out-File/Set-Content 등으로 편집하지 말고, 오직 JSON의 fileOperations로 전체 내용을 반환하세요.`;
-                }
+**규칙:**
+1. "correctedCommand"는 null로 설정하세요
+2. "fileOperations"에 오류의 근본 원인을 수정하는 파일 작업을 포함하세요
+3. 스크립트 파일(.cmd, .bat, .sh, .ps1)을 생성하여 우회하지 마세요
+4. 오류 메시지를 분석하여 누락된 의존성, 잘못된 import, 문법 오류 등을 수정하세요`;
             }
 
             const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
@@ -1865,25 +1817,15 @@ ${compilationGuidelines || ''}
                             // 파일 작업 추출 및 경로 정규화
                             const fileOperations: { type: 'create' | 'modify' | 'delete'; path: string; content?: string }[] = [];
                             if (result.fileOperations && Array.isArray(result.fileOperations)) {
-                                const isPomOrGradle = (p: string) => /pom\.xml|build\.gradle/i.test(p);
-
                                 for (const op of result.fileOperations) {
                                     const opType = op.type || op.operation;
                                     if (opType && op.path && (opType === 'create' || opType === 'modify' || opType === 'delete')) {
                                         const pathLower = op.path.toLowerCase();
 
-                                        // 모든 경우에 스크립트 파일(.cmd, .bat, .sh, .ps1) 생성/수정 거부
+                                        // 스크립트 파일(.cmd, .bat, .sh, .ps1) 생성/수정 거부
                                         if (/\.(cmd|bat|sh|ps1)$/i.test(pathLower)) {
                                             console.log(`[TerminalManager] 스크립트 파일 작업 거부: ${op.path}`);
                                             continue;
-                                        }
-
-                                        // 컴파일 오류가 있는 경우: pom.xml 또는 build.gradle만 허용
-                                        if (hasCompilationError) {
-                                            if (!isPomOrGradle(pathLower)) {
-                                                console.log(`[TerminalManager] 컴파일 오류 시 허용되지 않은 파일 작업 거부: ${op.path} (허용: pom.xml, build.gradle)`);
-                                                continue;
-                                            }
                                         }
 
                                         // 경로 정규화
@@ -1910,9 +1852,7 @@ ${compilationGuidelines || ''}
                                             normalizedPath = path.join(projectRoot || cwd, normalizedPath);
                                         }
 
-                                        // 컴파일 오류 시: 기본적으로 create→modify 변경하지만, POM 누락(missingPomError)일 땐 create 허용
-                                        const shouldForceModify = hasCompilationError && !missingPomError && opType === 'create' && isPomOrGradle(normalizedPath.toLowerCase());
-                                        const finalOpType = shouldForceModify ? 'modify' : (opType as 'create' | 'modify' | 'delete');
+                                        const finalOpType = opType as 'create' | 'modify' | 'delete';
 
                                         // 경로 검증
                                         const invalidChars = /[<>:"|?*]/;
@@ -2331,32 +2271,6 @@ JSON 형식으로 응답해주세요:
             if (/[<>]/.test(t)) return false;
             if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
 
-            let isSpringBootProject = false;
-            try {
-                isSpringBootProject =
-                    fs.existsSync(path.join(cwd, 'pom.xml')) ||
-                    fs.existsSync(path.join(cwd, 'build.gradle')) ||
-                    fs.existsSync(path.join(cwd, 'build.gradle.kts')) ||
-                    fs.existsSync(path.join(cwd, 'mvnw.cmd')) ||
-                    fs.existsSync(path.join(cwd, 'mvnw')) ||
-                    fs.existsSync(path.join(cwd, 'gradlew')) ||
-                    fs.existsSync(path.join(cwd, 'gradlew.bat'));
-            } catch (e) {
-                console.warn('[TerminalManager] 프로젝트 타입 확인 중 오류:', e);
-                isSpringBootProject = true;
-            }
-
-            if (!isSpringBootProject) {
-                if (/\bmvn(\.cmd)?\b/i.test(t)) {
-                    console.log('[TerminalManager] Maven 명령어 차단: Spring Boot 프로젝트 아님');
-                    return false;
-                }
-                if (/\bgradle(w)?\b/i.test(t)) {
-                    console.log('[TerminalManager] Gradle 명령어 차단: Spring Boot 프로젝트 아님');
-                    return false;
-                }
-            }
-
             if (/^```/.test(t)) return false;
             if (t.length < 2) return false;
             return true;
@@ -2447,17 +2361,17 @@ JSON 형식으로 응답해주세요:
 - **수정 상태:** 완료
 - **수정 시간:** ${new Date().toLocaleString()}
 
-### 🎯 수정된 내용
+### 수정된 내용
 1. **명령어 오류 분석:** 터미널 출력을 분석하여 오류 원인 파악
 2. **LLM 기반 수정:** AI가 오류를 분석하고 수정된 명령어 제안
 3. **자동 재시도:** 수정된 명령어로 자동 재실행
 
-### 💡 개선 사항
+### 개선 사항
 - **오류 감지:** 터미널 출력에서 오류 패턴 자동 감지
 - **지능형 수정:** LLM이 오류 원인을 분석하고 해결책 제시
 - **자동화:** 수동 개입 없이 자동으로 오류 수정 및 재시도
 
-### ⚠️ 주의사항
+### 주의사항
 - 복잡한 오류의 경우 수동 확인이 필요할 수 있습니다
 - 네트워크 오류나 권한 문제는 자동 수정이 어려울 수 있습니다
 - 중요한 작업 전에는 백업을 권장합니다

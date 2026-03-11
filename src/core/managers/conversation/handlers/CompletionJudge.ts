@@ -95,6 +95,14 @@ export class CompletionJudge {
     }
 
     /**
+     * 자동 추가 작업이 아직 가능한지 확인
+     * true이면 CompletionJudge가 아직 판단 중이므로 TestRunner를 건너뛸 수 있음
+     */
+    canAutoContinue(): boolean {
+        return this.autoContinueCount < CompletionJudge.MAX_AUTO_CONTINUE;
+    }
+
+    /**
      * 판단 프롬프트 생성
      */
     private buildJudgmentPrompt(
