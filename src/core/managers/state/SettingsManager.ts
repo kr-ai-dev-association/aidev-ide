@@ -42,6 +42,7 @@ export class SettingsManager extends BaseManager {
     private readonly OFFLINE_CACHE_KEY = 'codepilot.serverSettingsCache';
     private readonly DISABLED_SETTINGS_KEY = 'codepilot.disabledRecommendedSettings';
     private syncInProgress = false;
+    private syncPromise: Promise<void> | null = null;
 
     private constructor(context: vscode.ExtensionContext) {
         super(context);
@@ -98,9 +99,20 @@ export class SettingsManager extends BaseManager {
      * 로그인 시, 주기적으로, 또는 수동 호출
      */
     public async syncServerSettings(): Promise<void> {
-        if (this.syncInProgress) return;
+        if (this.syncInProgress) {
+            // 이미 진행 중이면 기존 promise 반환 (대기 가능)
+            if (this.syncPromise) {
+                return this.syncPromise;
+            }
+            return;
+        }
         this.syncInProgress = true;
 
+        this.syncPromise = this._doSync();
+        return this.syncPromise;
+    }
+
+    private async _doSync(): Promise<void> {
         try {
             const { AuthService } = await import('../../../services/auth/AuthService');
             const auth = AuthService.getInstance();
@@ -163,6 +175,16 @@ export class SettingsManager extends BaseManager {
             }).catch(() => {});
         } finally {
             this.syncInProgress = false;
+            this.syncPromise = null;
+        }
+    }
+
+    /**
+     * 진행 중인 sync가 있으면 완료될 때까지 대기
+     */
+    public async waitForSync(): Promise<void> {
+        if (this.syncPromise) {
+            await this.syncPromise;
         }
     }
 

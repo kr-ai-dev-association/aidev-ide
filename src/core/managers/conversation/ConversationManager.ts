@@ -321,6 +321,12 @@ export class ConversationManager implements IConversationHandler {
         hotLoadPrompt,
       );
 
+      // 서버 설정 동기화 완료 대기 (시작 직후 sync 미완료 방지)
+      try {
+        const settingsManager = SettingsManager.getInstance();
+        await settingsManager.waitForSync();
+      } catch { /* 초기화 전이면 무시 */ }
+
       const promptOptions: PromptBuilderOptions = {
         userOS: optionsWithAbort.userOS || process.platform,
         modelType: optionsWithAbort.currentModelType || AiModelType.OLLAMA,
@@ -2302,10 +2308,12 @@ export class ConversationManager implements IConversationHandler {
       // 🔥 도구 호출 처리 (새 형식: { "tool": "..." })
       // ⚠️ 핵심 수정: llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
       const hasToolCall = /\{\s*["']tool["']\s*:\s*["']/.test(llmResponse);
+      // ⚠️ Plan 감지: <think> 블록 제거 후 체크 — thinking 안의 plan JSON이 오탐되는 문제 방지
+      const responseWithoutThinking = llmResponse.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
       const hasJsonPlanInResponse =
-        /\{\s*"plan"\s*:/.test(llmResponse) ||
+        /\{\s*"plan"\s*:/.test(responseWithoutThinking) ||
         /```json[\s\S]*?\{[\s\S]*?"plan"[\s\S]*?\}[\s\S]*?```/i.test(
-          llmResponse,
+          responseWithoutThinking,
         );
 
       // JSON Plan 처리 (도구 호출 없이 plan만 있는 경우)
@@ -2332,8 +2340,8 @@ export class ConversationManager implements IConversationHandler {
         } else {
           console.log(`[ConversationManager] JSON plan detected`);
         }
-        // ⚠️ 핵심 수정: llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
-        const planItems = ToolParser.parsePlanItems(llmResponse);
+        // ⚠️ 핵심 수정: thinking 제거된 응답에서 파싱 - thinking 안의 plan JSON 오탐 방지
+        const planItems = ToolParser.parsePlanItems(responseWithoutThinking);
         if (planItems.length > 0) {
           WebviewBridge.sendProcessingStep(webviewToRespond, "plan");
           WebviewBridge.sendProcessingStatus(

@@ -690,6 +690,9 @@ export class OrchestrationRouter {
     private static async gatherRulesContext(userQuery: string): Promise<string> {
         const parts: string[] = [];
 
+        // 서버 설정 동기화 완료 대기 (시작 직후 sync 미완료 방지)
+        await PromptComposer.ensureServerSettingsSynced();
+
         // 1. Skills: 로컬(.agent/rules) + 서버(dev_rules)
         try {
             const { text: localRules, ruleKeys } = PromptComposer.loadAgentRulesWithKeys();

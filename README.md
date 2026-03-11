@@ -4,6 +4,20 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.6
+
+### 개선
+
+- **Skills 래핑 텍스트 강화**: 스킬 주입 시 "모든 작업의 결과물에 반드시 반영" 등 구체적 적용 지시 추가. 디자인 시스템→UI코드, 아키텍처→코드구조, 코딩컨벤션→네이밍/스타일 등 카테고리별 명시. 서버(관리자) 등록 스킬에도 래핑 텍스트 추가
+- **서버 설정 동기화 완료 대기**: 익스텐션 시작 직후 서버 sync가 미완료 상태에서 스킬/설정이 누락되던 문제 수정. `SettingsManager.waitForSync()` 추가하여 프롬프트 생성, 세팅 화면 로드, 서버 설정 조회 시 sync 완료를 보장
+
+### 버그 수정
+
+- **세팅 화면 서버 설정 미표시 수정**: 익스텐션 재시작 후 세팅 화면에서 서버 설정이 보이지 않던 문제 수정. `initializePanel`, `loadSettings`, `getServerSettings` 핸들러에 `waitForSync()` 대기 추가
+- **서버 스킬 프롬프트 누락 수정**: 시작 직후 첫 프롬프트에서 서버 등록 스킬(dev_rules)이 반영되지 않던 문제 수정. `ConversationManager`, `OrchestrationRouter`에서 프롬프트 생성 전 sync 완료 대기
+
+---
+
 ## v1.0.5
 
 ### 버그 수정

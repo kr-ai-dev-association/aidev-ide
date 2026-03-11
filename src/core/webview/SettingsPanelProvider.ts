@@ -1669,6 +1669,8 @@ export function openSettingsPanel(
         case "initializePanel": {
           // 패널이 열릴 때 현재 설정들을 로드하여 웹뷰에 전송
           try {
+            // 서버 설정 동기화 완료 대기 (시작 직후 sync 미완료 방지)
+            await settingsManager.waitForSync();
             const apiKey = await stateManager.getApiKey();
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
             const ollamaModel = await stateManager.getOllamaModel();
@@ -1712,6 +1714,8 @@ export function openSettingsPanel(
         case "initSettings": // 설정 초기화 (별칭)
         case "loadSettings": // 설정 로드
           try {
+            // 서버 설정 동기화 완료 대기 (시작 직후 sync 미완료 방지)
+            await settingsManager.waitForSync();
             // initializePanel 케이스와 동일한 로직 사용
             const apiKey = await stateManager.getApiKey();
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
@@ -3560,7 +3564,8 @@ export function openSettingsPanel(
 
         case "getServerSettings": {
           try {
-            // 캐시가 비어있으면 먼저 동기화
+            // 진행 중인 동기화 완료 대기 후, 캐시가 비어있으면 재동기화
+            await settingsManager.waitForSync();
             let serverSettings = settingsManager.getAllServerSettings();
             if (!serverSettings || Object.keys(serverSettings).length === 0) {
               await settingsManager.syncServerSettings();

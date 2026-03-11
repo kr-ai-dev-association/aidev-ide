@@ -57,6 +57,21 @@ export class PromptComposer {
     }
 
     /**
+     * 서버 설정 동기화가 완료될 때까지 대기합니다.
+     * 익스텐션 시작 직후 sync가 진행 중일 수 있으므로,
+     * 프롬프트 생성 전에 호출하여 최신 서버 스킬이 반영되도록 합니다.
+     */
+    public static async ensureServerSettingsSynced(): Promise<void> {
+        try {
+            const { SettingsManager } = require('../../state/SettingsManager');
+            const settingsManager = SettingsManager.getInstance();
+            await settingsManager.waitForSync();
+        } catch {
+            // SettingsManager가 초기화되지 않은 경우 무시
+        }
+    }
+
+    /**
      * 스킬 파일 디렉토리의 개발 규칙 파일들을 읽어서 반환합니다.
      * 각 카테고리는 디렉토리로 구성되며, 디렉토리 내 모든 .md 파일을 읽습니다.
      * 기존 단일 파일 형식(stable-version.md)도 하위 호환성을 위해 지원합니다.
@@ -142,8 +157,12 @@ export class PromptComposer {
             }
 
             return {
-                text: `**⚠️ Skills (반드시 준수해야 할 강제 규칙):**
-아래 규칙들은 프로젝트의 Skills(개발 규칙)으로, 모든 작업에서 반드시 준수해야 합니다. 이 규칙들을 위반하는 코드나 작업은 절대 생성하지 마세요.
+                text: `# ⚠️ Skills (필수 적용 강제 규칙)
+아래 Skills는 프로젝트에 등록된 개발 규칙으로, 코드 생성·파일 작성·아키텍처 설계 등 **모든 작업의 결과물에 반드시 반영**해야 합니다.
+- 디자인 시스템 규칙이 있으면: 생성하는 **모든 UI 코드**에 해당 색상 토큰, 타이포그래피, 간격, 컴포넌트 명세를 적용하세요.
+- 아키텍처 규칙이 있으면: 생성하는 **모든 코드의 구조**(계층, 디렉토리, 의존성 방향)가 해당 규칙을 따라야 합니다.
+- 코딩 컨벤션이 있으면: 생성하는 **모든 코드**가 해당 네이밍·스타일·금지사항을 따라야 합니다.
+**이 규칙들을 무시하거나 위반하는 코드를 절대 생성하지 마세요.**
 
 ${rules.join('\n\n---\n\n')}`,
                 ruleKeys,
@@ -218,7 +237,12 @@ ${rules.join('\n\n---\n\n')}`,
                 return `${label} **${name}**:\n${r.content}`;
             }).join('\n\n');
 
-            return { text: formattedRules, overrideKeys };
+            const wrappedText = `## 관리자 등록 Skills
+아래는 조직 관리자가 등록한 개발 규칙입니다. 위 로컬 Skills와 동일하게 **모든 작업의 결과물에 반드시 반영**하세요.
+
+${formattedRules}`;
+
+            return { text: wrappedText, overrideKeys };
         } catch (error) {
             return { text: '', overrideKeys: new Set() };
         }
