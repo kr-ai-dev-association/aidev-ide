@@ -114,11 +114,14 @@ export class SubAgentLoop {
                     });
                     continue;
                 }
-                lastResponse = response;
-
                 // 2. 도구 파싱
                 const warnings: string[] = [];
                 const toolCalls = ToolParser.parseCodeBlockFormat(response, warnings);
+
+                // lastResponse 업데이트: tool call이 없고 JSON만 있는 응답(approve 등)은 무시
+                if (toolCalls.length > 0 || !this.isRawJsonOnly(response)) {
+                    lastResponse = response;
+                }
 
                 // 도구 없음: 실제 완료인지 판단
                 if (toolCalls.length === 0) {
@@ -436,6 +439,31 @@ import MyComponent from './components/MyComponent';
     /**
      * 연속 실패 횟수에 따라 점점 더 구체적인 복구 프롬프트 생성
      */
+    /**
+     * 응답이 tool call 없이 raw JSON만 포함하는지 판별 (approve/reject 등 LLM이 자체 생성한 JSON)
+     */
+    private isRawJsonOnly(response: string): boolean {
+        const trimmed = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        // 짧은 텍스트 + JSON 객체로만 구성된 경우
+        if (trimmed.length > 2000) { return false; }
+        // "We need to approve." 같은 서두 제거 후 JSON만 남는지 확인
+        const withoutPreamble = trimmed.replace(/^[^{]*/, '').trim();
+        if (!withoutPreamble.startsWith('{')) { return false; }
+        try {
+            // 연속 JSON 객체들 ({"filePath":...}{"filePath":...}) 도 포함
+            const jsonPattern = /\{[^{}]*\}/g;
+            const matches = withoutPreamble.match(jsonPattern);
+            if (!matches || matches.length === 0) { return false; }
+            return matches.every(m => {
+                try {
+                    const obj = JSON.parse(m);
+                    // filePath+action 또는 유사한 비-tool 패턴
+                    return obj.action || obj.approve || obj.status;
+                } catch { return false; }
+            });
+        } catch { return false; }
+    }
+
     private buildRecoveryNudge(failureCount: number): string {
         if (failureCount <= 1) {
             return '[시스템] 이전 응답이 비어있거나 사고(thinking)만 포함되어 있습니다. 반드시 도구 호출 또는 일반 텍스트 최종 요약을 출력하세요.';
