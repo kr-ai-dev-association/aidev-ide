@@ -1536,13 +1536,14 @@ function renderOrgSettings(category) {
   if (!container) return;
   let settings;
   let headerLabel;
+  const rawSettings = cachedServerSettings[category] || [];
   if (window.userHasOrganization) {
     // 조직 사용자: 프리셋 제외, 관리자 설정만 표시
-    settings = (cachedServerSettings[category] || []).filter(s => s.source !== 'preset');
+    settings = rawSettings.filter(s => s.source !== 'preset');
     headerLabel = '관리자 설정';
   } else {
     // 개인 사용자: 프리셋(super에서 개인 활성화한 설정) 표시
-    settings = (cachedServerSettings[category] || []).filter(s => s.source === 'preset');
+    settings = rawSettings.filter(s => s.source === 'preset');
     headerLabel = '기본 설정';
   }
 
@@ -3272,6 +3273,11 @@ window.addEventListener("message", event => {
         if (remoteOllamaModelStatus) {
           (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(remoteOllamaModelStatus, txt, message.remoteOllamaModel ? "success" : "info");
         }
+      }
+
+      // ===== 조직 소속 여부 즉시 설정 (로그인 응답보다 먼저 도착할 수 있음) =====
+      if (message.hasOrganization !== undefined) {
+        window.userHasOrganization = message.hasOrganization;
       }
 
       // ===== 서버(조직) 설정 렌더링 (모델 라우팅 복원 전에 먼저 실행해야 group 옵션이 채워짐) =====

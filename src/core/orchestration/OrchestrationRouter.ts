@@ -32,7 +32,7 @@ import { SubTask, AggregatedResult, AgentLoopResult, AgentLoopCallbacks, THINKIN
 import { LLMManager } from '../managers/model/LLMManager';
 import { PromptComposer } from '../managers/context/prompts/PromptComposer';
 import { AgentConfig } from '../config/AgentConfig';
-import { PromptType, OllamaApi, AiModelType, NotificationService, GitRepositoryService } from '../../services';
+import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../services';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -51,7 +51,6 @@ export interface RouteOptions {
     currentModelType?: AiModelType;
     userOS?: string;
     notificationService?: NotificationService;
-    gitRepositoryService?: GitRepositoryService;
     abortSignal?: AbortSignal;
 }
 
@@ -90,7 +89,7 @@ export class OrchestrationRouter {
         // ON: TaskSplitter로 분기 판단
         try {
             const splitter = new TaskSplitter();
-            const projectContext = await OrchestrationRouter.getProjectContext();
+            const projectContext = await OrchestrationRouter.getProjectContext(options.userQuery);
 
             // 분할 중 상태 표시
             WebviewBridge.sendProcessingStep(webview, 'plan');
@@ -635,7 +634,7 @@ export class OrchestrationRouter {
         await conversationManager.handleUserMessageAndRespond(options as any);
     }
 
-    private static async getProjectContext(): Promise<string> {
+    private static async getProjectContext(userQuery?: string): Promise<string> {
         try {
             const pm = ProjectManager.getInstance();
             const project = pm.getCurrentProject();
@@ -646,6 +645,32 @@ export class OrchestrationRouter {
             lines.push(`타입: ${project.type || 'unknown'}`);
             lines.push(`언어: ${project.language || 'unknown'}`);
             if (project.framework) { lines.push(`프레임워크: ${project.framework}`); }
+
+            const workspaceRoot = project.root || '';
+
+            // 워크스페이스 루트 디렉토리 스캔 (서브 에이전트에 실제 디렉토리 구조 전달)
+            if (workspaceRoot) {
+                try {
+                    const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+                    const dirs = entries
+                        .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== 'dist' && e.name !== 'build')
+                        .map(e => e.name);
+                    if (dirs.length > 0) {
+                        lines.push(`\n워크스페이스 루트 디렉토리: ${dirs.join(', ')}`);
+                    }
+                } catch {
+                    // 디렉토리 스캔 실패 무시
+                }
+            }
+
+            // 사용자 쿼리에서 언급된 경로 추출 → 서브 에이전트에 명시적 경로 컨텍스트 전달
+            if (userQuery) {
+                const mentionedPaths = OrchestrationRouter.extractPathsFromQuery(userQuery);
+                if (mentionedPaths.length > 0) {
+                    lines.push(`\n사용자가 언급한 대상 경로: ${mentionedPaths.join(', ')}`);
+                    lines.push(`⚠️ 모든 파일 생성/수정은 반드시 위 경로 기준으로 수행해야 합니다.`);
+                }
+            }
 
             try {
                 const inventory = await pm.buildProjectInventorySection(100);
@@ -660,6 +685,35 @@ export class OrchestrationRouter {
         } catch {
             return '';
         }
+    }
+
+    /**
+     * 사용자 쿼리에서 디렉토리/파일 경로 패턴을 추출
+     * e.g. "server/ 에 API 만들어줘" → ["server/"]
+     * e.g. "client/src/pages/ 에 페이지 추가" → ["client/src/pages/"]
+     */
+    private static extractPathsFromQuery(query: string): string[] {
+        const paths: string[] = [];
+
+        // 패턴 1: "server/", "client/", "src/pages/" 등 슬래시로 끝나는 경로
+        const slashPaths = query.match(/(?:^|\s)([\w\-.]+(?:\/[\w\-.]*)*\/)/g);
+        if (slashPaths) {
+            for (const p of slashPaths) {
+                const trimmed = p.trim();
+                if (trimmed.length > 1) { paths.push(trimmed); }
+            }
+        }
+
+        // 패턴 2: "server/src/index.ts" 등 확장자가 있는 파일 경로
+        const filePaths = query.match(/(?:^|\s)([\w\-.]+(?:\/[\w\-.]+)+\.\w+)/g);
+        if (filePaths) {
+            for (const p of filePaths) {
+                const trimmed = p.trim();
+                if (!paths.includes(trimmed)) { paths.push(trimmed); }
+            }
+        }
+
+        return paths;
     }
 
     private static buildToolContext(): ToolExecutionContext {

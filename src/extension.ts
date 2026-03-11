@@ -4,7 +4,6 @@ import * as path from "path";
 import {
   NotificationService,
   OllamaApi,
-  GitRepositoryService,
 } from "./services";
 import { AiModelType } from "./services/types";
 import { ChatViewProvider } from "./webview/providers";
@@ -70,7 +69,7 @@ import {
 let authService: AuthService;
 let ollamaApi: OllamaApi;
 let notificationService: NotificationService;
-let gitRepositoryService: GitRepositoryService;
+
 
 export async function activate(context: vscode.ExtensionContext) {
   // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
@@ -139,8 +138,6 @@ export async function activate(context: vscode.ExtensionContext) {
       console.warn("[Extension] Initial settings sync failed:", err);
     });
   }
-
-  gitRepositoryService = new GitRepositoryService(context);
 
   // Core Manager 시스템 초기화
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -277,23 +274,6 @@ export async function activate(context: vscode.ExtensionContext) {
       "[Extension] Failed to configure AutoFixService LLM client:",
       e,
     );
-  }
-
-  // Git 리포지토리 정보 자동 감지
-  try {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (workspaceFolder) {
-      const gitInfo = await gitRepositoryService.detectAndSaveRepositoryInfo(
-        workspaceFolder.uri.fsPath,
-      );
-      if (gitInfo) {
-        // Git 리포지토리 감지됨
-      } else {
-        // Git 리포지토리가 감지되지 않았습니다
-      }
-    }
-  } catch (error) {
-    console.error("[Extension] Git 리포지토리 감지 중 오류:", error);
   }
 
   // ============================================
@@ -628,7 +608,6 @@ export async function activate(context: vscode.ExtensionContext) {
       ),
     settingsManager,
     notificationService,
-    gitRepositoryService,
     ollamaApi,
   );
 
@@ -775,7 +754,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Git 커맨드 등록 (gitCommands.ts)
   context.subscriptions.push(
-    ...registerGitCommands({ context, chatViewProvider, gitRepositoryService })
+    ...registerGitCommands({ context, chatViewProvider })
   );
 }
 

@@ -2706,6 +2706,11 @@
           // 전역 변수에 저장 (settings.js, mcp-settings.js에서 조직 여부 확인)
           window.userHasOrganization = hasOrg;
 
+          // 조직 소속 확인 후 서버 설정 다시 렌더링 (currentSettings보다 로그인 응답이 늦을 수 있음)
+          if (hasOrg && typeof renderAllOrgSettings === 'function') {
+            renderAllOrgSettings();
+          }
+
           // 팀 탈퇴 버튼 (조직 소속일 때만 표시)
           if (leaveTeamBtn) {
             leaveTeamBtn.style.display = hasOrg ? '' : 'none';

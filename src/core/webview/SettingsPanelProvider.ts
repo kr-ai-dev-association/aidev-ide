@@ -60,6 +60,8 @@ export function openSettingsPanel(
       switch (data.command) {
         case "getCurrentSettings": {
           try {
+            // 서버 설정 동기화 완료 대기 (시작 직후 sync 미완료 방지)
+            await settingsManager.waitForSync();
             // 현재 설정들을 가져와서 웹뷰에 전송
             const apiKey = await stateManager.getApiKey();
             const ollamaApiUrl = await stateManager.getOllamaApiUrl();
@@ -168,6 +170,11 @@ export function openSettingsPanel(
               personalBuildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
               errorReportingEnabled: config.get<boolean>('errorReportingEnabled', false),
               serverSettings: settingsManager.getAllServerSettings(),
+              // 조직 소속 여부를 함께 전달 (로그인 응답보다 먼저 도착해도 렌더링 가능)
+              hasOrganization: (() => {
+                const userInfo = context.globalState.get<any>('codepilot.userInfo');
+                return !!(userInfo?.organization || userInfo?.organization_id);
+              })(),
             };
             safePostMessage(panel, messageToSend);
           } catch (error: any) {

@@ -27,7 +27,7 @@ import { SettingsManager } from "../state/SettingsManager";
 import { StateManager } from "../state/StateManager";
 import { UsageMetricsManager } from "../state/UsageMetricsManager";
 import { AiModelType, OllamaApi } from "../../../services";
-import type { NotificationService, GitRepositoryService } from "../../../services";
+import type { NotificationService } from "../../../services";
 import { AgentStateManager, AgentPhase } from "./AgentStateManager";
 import { getSimpleSummaryPrompt } from "../context/prompts/task";
 import * as fs from "fs/promises";
@@ -89,7 +89,6 @@ export interface ConversationOptions {
   currentModelType?: AiModelType;
   userOS?: string;
   notificationService?: NotificationService;
-  gitRepositoryService?: GitRepositoryService;
 }
 
 /**

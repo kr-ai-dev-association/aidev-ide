@@ -241,10 +241,8 @@ export class ContextGatherer {
         // Git 컨텍스트 수집
         let gitContext = '';
         try {
-            const { GitRepositoryService } = await import('../../../../services/git/GitRepositoryService');
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
-                // GitRepositoryService는 ExtensionContext가 필요하므로 간단히 git 명령어로 수집
                 const { exec } = require('child_process');
                 const { promisify } = require('util');
                 const execAsync = promisify(exec);

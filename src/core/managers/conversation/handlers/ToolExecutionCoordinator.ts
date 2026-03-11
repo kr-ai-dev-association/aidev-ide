@@ -280,18 +280,36 @@ export class ToolExecutionCoordinator {
             } else {
                 // 실패
                 if (toolName === Tool.RUN_COMMAND || toolName === 'run_terminal') {
-                    // 명령 실패: 명령어와 에러 출력 표시
-                    const failedCommand = command || res.message || 'Unknown command';
-                    const headerMsg = `❌ [명령 실패] ${failedCommand}`;
-                    WebviewBridge.receiveMessage(webview, 'System', headerMsg);
-                    collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
+                    // PreToolUseValidator에 의해 차단된 경우 차단 사유 표시
+                    if (res.error?.code === 'BLOCKED_BY_VALIDATOR') {
+                        const blockedMsg = `🚫 [위험한 명령어 차단] ${command || ''}`;
+                        WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
+                        collectedMessages.push({ sender: 'System', text: blockedMsg, type: 'action' });
 
-                    const stderr = res.data?.error || res.data?.output || '';
-                    if (stderr) {
-                        const errorMarkdown = `\`\`\`bash\n${stderr}\n\`\`\``;
-                        WebviewBridge.receiveMessage(webview, 'CODEPILOT', errorMarkdown);
-                        collectedMessages.push({ sender: 'CODEPILOT', text: errorMarkdown, type: 'code' });
+                        if (res.message) {
+                            const reasonMsg = `차단 사유: ${res.message}`;
+                            WebviewBridge.receiveMessage(webview, 'CODEPILOT', reasonMsg);
+                            collectedMessages.push({ sender: 'CODEPILOT', text: reasonMsg, type: 'message' });
+                        }
+                    } else {
+                        // 일반 명령 실패: 명령어와 에러 출력 표시
+                        const failedCommand = command || res.message || 'Unknown command';
+                        const headerMsg = `❌ [명령 실패] ${failedCommand}`;
+                        WebviewBridge.receiveMessage(webview, 'System', headerMsg);
+                        collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
+
+                        const stderr = res.data?.error || res.data?.output || '';
+                        if (stderr) {
+                            const errorMarkdown = `\`\`\`bash\n${stderr}\n\`\`\``;
+                            WebviewBridge.receiveMessage(webview, 'CODEPILOT', errorMarkdown);
+                            collectedMessages.push({ sender: 'CODEPILOT', text: errorMarkdown, type: 'code' });
+                        }
                     }
+                } else if (res.error?.code === 'BLOCKED_BY_VALIDATOR') {
+                    // PreToolUseValidator에 의해 차단된 비-명령어 도구 (파일 보호 등)
+                    const blockedMsg = `🚫 [보안 차단] ${res.message || 'Blocked'}`;
+                    WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
+                    collectedMessages.push({ sender: 'System', text: blockedMsg, type: 'action' });
                 } else {
                     const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
                     WebviewBridge.receiveMessage(webview, 'System', errorMsg);

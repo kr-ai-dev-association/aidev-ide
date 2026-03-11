@@ -153,8 +153,11 @@ export class PromptComposer {
 
             // 규칙이 하나도 없으면 빈 문자열 반환 (프롬프트에 포함하지 않음)
             if (rules.length === 0) {
+                console.log(`[PromptComposer] 로컬 Skills 로드: 0개 (디렉토리: ${agentRulesDir})`);
                 return { text: '', ruleKeys };
             }
+
+            console.log(`[PromptComposer] 로컬 Skills 로드: ${rules.length}개 카테고리, 키: [${[...ruleKeys].join(', ')}] (디렉토리: ${agentRulesDir})`);
 
             return {
                 text: `# ⚠️ Skills (필수 적용 강제 규칙)
@@ -193,8 +196,11 @@ ${rules.join('\n\n---\n\n')}`,
             const rules = settingsManager.getServerDevRules();
 
             if (!rules || rules.length === 0) {
+                console.log('[PromptComposer] 서버 Skills(dev_rules) 로드: 0개');
                 return { text: '', overrideKeys: new Set() };
             }
+
+            console.log(`[PromptComposer] 서버 Skills(dev_rules) 로드: ${rules.length}개 — ${rules.map((r: { key: string; enforcement: string; title?: string }) => `[${r.enforcement}] ${r.title || r.key}`).join(', ')}`);
 
             const overrideKeys = new Set<string>(); // 서버 필수가 덮어쓴 로컬 키
 
@@ -232,13 +238,13 @@ ${rules.join('\n\n---\n\n')}`,
             }
 
             const formattedRules = filteredRules.map((r: { key: string; content: string; enforcement: string; title?: string }) => {
-                const label = r.enforcement === 'required' ? '[필수]' : '[권장]';
                 const name = r.title || r.key;
-                return `${label} **${name}**:\n${r.content}`;
+                return `[필수] **${name}**:\n${r.content}`;
             }).join('\n\n');
 
-            const wrappedText = `## 관리자 등록 Skills
-아래는 조직 관리자가 등록한 개발 규칙입니다. 위 로컬 Skills와 동일하게 **모든 작업의 결과물에 반드시 반영**하세요.
+            const wrappedText = `## 관리자 등록 Skills (필수 적용 강제 규칙)
+아래는 조직 관리자가 등록한 개발 규칙입니다.
+**모든 코드 생성·파일 작성·UI 구현 시 아래 규칙을 반드시 적용하세요. 이 규칙을 무시하거나 위반하는 코드를 절대 생성하지 마세요.**
 
 ${formattedRules}`;
 
@@ -360,15 +366,26 @@ ${diagnosticsContextContent}
 
 ${ragContext}` : '';
 
-        // 조합 (Hot Load 프롬프트와 첨부 컨텍스트 경고를 최상단에 배치)
+        // Skills 존재 여부에 따른 끝부분 리마인더
+        const hasSkills = !!(agentRules || serverPromptTemplates);
+        const skillsReminder = hasSkills
+            ? `# ⚠️ 리마인더: Skills 규칙 준수
+위 시스템 프롬프트에 등록된 **Skills(개발 규칙)**을 반드시 따르세요.
+- 디자인 시스템이 등록되어 있으면 모든 UI 코드에 해당 토큰·컴포넌트 명세를 적용하세요.
+- 아키텍처 규칙이 등록되어 있으면 코드 구조·계층·디렉토리를 해당 규칙대로 생성하세요.
+- 코딩 컨벤션이 등록되어 있으면 네이밍·스타일·금지사항을 모두 준수하세요.
+**Skills를 무시한 코드는 허용되지 않습니다.**`
+            : '';
+
+        // 조합 (Skills를 최상단, 리마인더를 최하단에 배치)
         const parts = [
             hotLoadPrompt, // Hot Load 프롬프트 (최우선 규칙)
             attachedContextWarning, // 첨부 컨텍스트 경고
+            agentRules, // 개발 규칙 — 최상단 배치 (서버 필수가 덮어쓴 것 제거)
+            serverPromptTemplates, // 서버 관리자 프롬프트 템플릿 — 최상단 배치
             osContextInfo,
             basePrompt,
             mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
-            agentRules, // 개발 규칙 (서버 필수가 덮어쓴 것 제거)
-            serverPromptTemplates, // 서버 관리자 프롬프트 템플릿
             frameworkRulesSection, // v9.2.1: 동적 프레임워크 규칙
             ragSection, // 서버 RAG 문서 컨텍스트
             terminalCommandRules,
@@ -379,7 +396,8 @@ ${ragContext}` : '';
             diagnosticsContextSection, // 사용자가 @diagnostics로 선택한 에러/경고
             codebaseSection, // 자동 수집된 코드베이스 컨텍스트
             llmPrompt,
-            osPrompt
+            osPrompt,
+            skillsReminder, // Skills 리마인더 — 최하단 배치
         ].filter(part => part && part.trim() !== '');
 
         return parts.join('\n\n');
