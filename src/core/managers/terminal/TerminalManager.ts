@@ -24,8 +24,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { debugLog } from '../../../utils';
-
 const execAsync = promisify(exec);
 
 // CorrectedCommandResult 인터페이스
@@ -1230,7 +1228,6 @@ export class TerminalManager {
             }
 
             terminal.sendText(finalCommand);
-            debugLog(`TerminalManager: execute -> ${finalCommand}`);
             terminal.show(true);
 
             const runPromise = this.executionManager.runCommandCapture(
@@ -1370,18 +1367,15 @@ export class TerminalManager {
                 if (result.stderr) {
                     const decodedStderr = this.decodeTerminalOutput(result.stderr);
                     channel.appendLine(`Stderr: ${decodedStderr}`);
-                    debugLog(`TerminalManager: stderr -> ${decodedStderr.substring(0, 2000)}`);
                 }
                 if (result.stdout && hasErrorInStdout) {
                     const decodedStdout = this.decodeTerminalOutput(result.stdout);
                     channel.appendLine(`Stdout (contains errors): ${decodedStdout.substring(0, 500)}...`);
-                    debugLog(`TerminalManager: stdout(error) -> ${decodedStdout.substring(0, 2000)}`);
                 }
                 channel.show(true);
 
                 const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
                 console.log(`[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`);
-                debugLog(`TerminalManager: error detected, exit=${result.code}, err=${hasErrorInStderr}, outErr=${hasErrorInStdout}`);
                 console.log(`[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || '').length}, stdout=${(result.stdout || '').length}`);
                 const isAutoCorrectionEnabled = await SafeSettingsHelper.isAutoCorrectionEnabled();
 
@@ -1422,7 +1416,6 @@ export class TerminalManager {
                 channel.appendLine(`Output: ${result.stdout}`);
             }
             console.log(`[TerminalManager] Executed via VS Code terminal: ${cleanCommand} (exit code: ${result.code})`);
-            debugLog(`TerminalManager: success -> ${cleanCommand} (exit code: ${result.code})`);
 
             if (result.code === 0) {
                 return true;
@@ -1841,7 +1834,6 @@ ${compilationGuidelines || ''}
             const errorManager = ErrorManager.getInstance();
             const response = await errorManager.sendMessageForErrorCorrection(errorCorrectionPrompt, this.llmApiClient);
             console.log(`[TerminalManager] LLM 응답 받음 (길이: ${response.length})`);
-            debugLog(`TerminalManager:getCorrectedCommand LLM response length=${response.length}`);
             console.log(`[TerminalManager] LLM 응답 샘플 (처음 300자): ${response.substring(0, 300)}...`);
 
             // Strip code fences and language headers if present
@@ -1862,7 +1854,6 @@ ${compilationGuidelines || ''}
                         const hasFileOps = result.fileOperations && Array.isArray(result.fileOperations) && result.fileOperations.length > 0;
 
                         console.log(`[TerminalManager] JSON 파싱 결과: hasValidCommand=${hasValidCommand}, hasFileOps=${hasFileOps}, correctedCommand=${result.correctedCommand}, fileOperations.length=${result.fileOperations?.length || 0}`);
-                        debugLog(`TerminalManager: parsed JSON -> cmd=${hasValidCommand}, fileOps=${hasFileOps}`);
 
                         if (hasValidCommand || (hasFileOps && (!result.correctedCommand || result.correctedCommand === null))) {
                             if (hasValidCommand) {
@@ -2253,7 +2244,6 @@ JSON 형식으로 응답해주세요:
                     command: 'hideProcessingSteps',
                     step: 'error_correction'
                 });
-                debugLog('TerminalManager: hideProcessingSteps (max retry exceeded)');
             }
 
             this.errorRetryCount = 0;
@@ -2275,7 +2265,6 @@ JSON 형식으로 응답해주세요:
                 try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
-                debugLog('TerminalManager: hideProcessingSteps (no correctionResult)');
             }
             return false;
         }
@@ -2313,7 +2302,6 @@ JSON 형식으로 응답해주세요:
                     command: 'hideProcessingSteps',
                     step: 'error_correction'
                 });
-                debugLog('TerminalManager: hideProcessingSteps (file ops only)');
             }
 
             this.errorRetryCount = 0;
@@ -2418,7 +2406,6 @@ JSON 형식으로 응답해주세요:
                     command: 'hideProcessingSteps',
                     step: 'error_correction'
                 });
-                debugLog('TerminalManager: hideProcessingSteps (success)');
             }
 
             return true;
@@ -2432,7 +2419,6 @@ JSON 형식으로 응답해주세요:
                 try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
-                debugLog('TerminalManager: hideProcessingSteps (invalid corrected command)');
             }
             this.errorRetryCount = 0;
             return false;

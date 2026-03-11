@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { debugLog } from './debugLogger';
 
 /**
  * webview가 유효한지 확인하고 안전하게 메시지를 보내는 함수
@@ -9,16 +8,6 @@ import { debugLog } from './debugLogger';
 export function safePostMessage(webview: vscode.Webview, message: any): boolean {
     try {
         if (webview) {
-            try {
-                const cmd = String(message?.command || '');
-                if (cmd) {
-                    const step = message?.step ? ` step=${message.step}` : '';
-                    const status = message?.status ? ` status=${String(message.status).slice(0, 200)}` : '';
-                    if (/updateProcessingStatus|hideProcessingSteps|hideLoading|hideAutoCorrecting|showRunExecution|hideRunExecution|showCalloutExecuting|hideCalloutExecuting|showErrorCorrection|showErrorCorrectionSuccess/i.test(cmd)) {
-                        debugLog(`PanelUtils: postMessage ${cmd}${step}${status}`);
-                    }
-                }
-            } catch { /* ignore debug log errors */ }
             webview.postMessage(message);
             return true;
         }

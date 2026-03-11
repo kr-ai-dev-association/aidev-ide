@@ -9,8 +9,6 @@ import {
 import { AiModelType } from "./services/types";
 import { ChatViewProvider } from "./webview/providers";
 import { openSettingsPanel } from "./core/webview/SettingsPanelProvider";
-import { DebugLogger } from "./utils";
-
 import {
   ActionManager,
   ExecutionManager,
@@ -106,7 +104,7 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       await projManager.initialize(workspacePath);
       // Core Manager System initialized
-      // (추가 로그가 필요하면 DebugLogger로 출력하세요)
+      // Core Manager System initialized
     } catch (error) {
       console.error("[Extension] Failed to initialize core managers:", error);
     }
@@ -583,37 +581,6 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
-
-  // 디버그 로그: VS Code Run/Debug 이벤트에만 연동 (설정 플래그 사용 중단)
-  const projectRootForDebug = await settingsManager.getProjectRoot();
-  DebugLogger.setContext(false, projectRootForDebug);
-
-  // VS Code Run and Debug 연동: 디버그 세션 시작 시 자동으로 로그 파일 생성(덮어쓰기) 및 기록 시작
-  context.subscriptions.push(
-    vscode.debug.onDidStartDebugSession(async (session) => {
-      try {
-        const root = await settingsManager.getProjectRoot();
-        DebugLogger.setContext(true, root);
-        DebugLogger.startIfEnabled();
-        DebugLogger.log(`VS Code debug session started: ${session.name}`);
-      } catch {
-        /* ignore */
-      }
-    }),
-  );
-
-  // 디버그 세션 종료 시: 자동 기록 중단
-  context.subscriptions.push(
-    vscode.debug.onDidTerminateDebugSession(async (session) => {
-      try {
-        const root = await settingsManager.getProjectRoot();
-        DebugLogger.log(`VS Code debug session ended: ${session.name}`);
-        DebugLogger.setContext(false, root);
-      } catch {
-        /* ignore */
-      }
-    }),
-  );
 
   const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
   const errorRetryCount = await settingsManager.getErrorRetryCount();
