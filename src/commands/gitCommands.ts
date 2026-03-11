@@ -8,7 +8,7 @@ import { CommandContext } from "./types";
  * + 워크스페이스 변경 시 Git 리포지토리 정보 업데이트
  */
 export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
-  const { chatViewProvider, gitRepositoryService } = deps;
+  const { chatViewProvider } = deps;
 
   const postSystem = (text: string) =>
     chatViewProvider.postMessageToWebview({
@@ -96,19 +96,27 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     // Git 리포지토리 정보
     vscode.commands.registerCommand("codepilot.gitInfo", async () => {
       try {
-        const gitInfo = await gitRepositoryService?.getRepositoryInfo();
-        if (!gitInfo) {
+        const cwd = requireWorkspace();
+        if (!cwd) return;
+        const branch = (await execGit("git rev-parse --abbrev-ref HEAD", cwd)).trim();
+        const remoteUrl = (await execGit("git remote get-url origin", cwd).catch(() => "")).trim();
+        const remoteName = (await execGit("git remote", cwd).catch(() => "")).trim().split("\n")[0] || "(none)";
+        if (!remoteUrl) {
           postSystem("### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.");
           return;
         }
+        const match = remoteUrl.match(/[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
+        const owner = match?.[1] || "(unknown)";
+        const repo = match?.[2] || "(unknown)";
+        const isGitHub = remoteUrl.includes("github.com");
         postSystem(
           `### ℹGit 리포지토리 정보\n\n` +
-            `- **소유자**: ${gitInfo.owner}\n` +
-            `- **리포지토리**: ${gitInfo.repo}\n` +
-            `- **현재 브랜치**: ${gitInfo.branch}\n` +
-            `- **원격 저장소**: ${gitInfo.remoteName}\n` +
-            `- **URL**: ${gitInfo.url}\n` +
-            `- **GitHub**: ${gitInfo.isGitHub ? "✅" : "❌"}`
+            `- **소유자**: ${owner}\n` +
+            `- **리포지토리**: ${repo}\n` +
+            `- **현재 브랜치**: ${branch}\n` +
+            `- **원격 저장소**: ${remoteName}\n` +
+            `- **URL**: ${remoteUrl}\n` +
+            `- **GitHub**: ${isGitHub ? "✅" : "❌"}`
         );
       } catch (error: any) {
         postSystem(`Git 정보 확인 실패: ${error.message || error}`);
@@ -147,21 +155,5 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
       }
     }),
 
-    // 워크스페이스 변경 시 Git 리포지토리 정보 업데이트
-    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (workspaceFolder && gitRepositoryService) {
-          await gitRepositoryService.detectAndSaveRepositoryInfo(
-            workspaceFolder.uri.fsPath
-          );
-        }
-      } catch (error) {
-        console.error(
-          "[Extension] 워크스페이스 변경 시 Git 리포지토리 감지 중 오류:",
-          error
-        );
-      }
-    }),
   ];
 }

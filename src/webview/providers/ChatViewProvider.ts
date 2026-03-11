@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getHtmlContentWithUris } from '../../utils';
-import { PromptType, NotificationService, GitRepositoryService, AiModelType } from '../../services';
+import { PromptType, NotificationService, AiModelType } from '../../services';
 import { SettingsManager, TerminalManager, ConversationService, TaskManager, ExecutionManager, StateManager, SessionManager } from '../../core';
 import { AgentConfig } from '../../core/config/AgentConfig';
 import { ModelConnectionService } from '../../core/managers/model/ModelConnectionService';
@@ -37,7 +37,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly openSettingsPanel: (viewColumn: vscode.ViewColumn) => void,
         private readonly configurationService: SettingsManager,
         private readonly notificationService: NotificationService,
-        private readonly gitRepositoryService: GitRepositoryService,
         private readonly ollamaApi: any
     ) { }
 
@@ -165,7 +164,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                 promptType: PromptType.CODE_GENERATION,
                                 extensionContext: this.context,
                                 notificationService: this.notificationService,
-                                gitRepositoryService: this.gitRepositoryService
                             });
                         } catch (e) {
                             // 에러 발생 시 사용자에게 피드백
@@ -466,8 +464,7 @@ ${JSON.stringify(errorContext, null, 2)}
                             webviewToRespond: webviewView.webview,
                             promptType: PromptType.CODE_GENERATION,
                             extensionContext: this.context,
-                            notificationService: this.notificationService,
-                            gitRepositoryService: this.gitRepositoryService
+                            notificationService: this.notificationService
                         });
 
                         this.notificationService.showInfoMessage('오류 분석을 시작했습니다.');
@@ -493,8 +490,7 @@ ${JSON.stringify(errorContext, null, 2)}
                         terminalContext: data.terminalContext,
                         diagnosticsContext: data.diagnosticsContext,
                         extensionContext: this.context,
-                        notificationService: this.notificationService,
-                        gitRepositoryService: this.gitRepositoryService
+                        notificationService: this.notificationService
                     });
                     break;
                 case 'openPanel':

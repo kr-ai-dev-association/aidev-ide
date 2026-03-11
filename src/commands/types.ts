@@ -9,7 +9,6 @@ export interface CommandContext {
     postMessageToWebview(message: any): void;
     restoreConversationHistory?(history: any[]): void;
   };
-  gitRepositoryService?: any;
   ollamaApi?: any;
   settingsManager?: any;
   stateManager?: any;

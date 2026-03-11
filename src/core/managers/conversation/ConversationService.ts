@@ -5,7 +5,7 @@
  */
 
 import * as vscode from 'vscode';
-import { PromptType, OllamaApi, AiModelType, NotificationService, GitRepositoryService } from '../../../services';
+import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../../services';
 import { ConversationManager } from './ConversationManager';
 import { SettingsManager } from '../state/SettingsManager';
 import { StateManager } from '../state/StateManager';
@@ -26,7 +26,6 @@ export interface ConversationServiceOptions {
     currentModelType?: AiModelType;
     userOS?: string;
     notificationService?: NotificationService;
-    gitRepositoryService?: GitRepositoryService;
     abortSignal?: AbortSignal;
 }
 
@@ -85,7 +84,6 @@ export class ConversationService {
             currentModelType: currentModelType,
             userOS: userOS,
             notificationService: options.notificationService,
-            gitRepositoryService: options.gitRepositoryService,
             abortSignal: options.abortSignal ?? abortController.signal
         };
 
