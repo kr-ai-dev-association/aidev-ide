@@ -38,7 +38,8 @@ export class CompletionJudge {
         modifiedFiles: string[],
         lastResponse: string,
         abortSignal?: AbortSignal,
-        buildTestPassed: boolean = false
+        buildTestPassed: boolean = false,
+        executedCommands: string[] = []
     ): Promise<CompletionJudgment> {
         // 자동 추가 작업 횟수 초과 시 강제 완료
         if (this.autoContinueCount >= CompletionJudge.MAX_AUTO_CONTINUE) {
@@ -60,7 +61,7 @@ export class CompletionJudge {
         }
 
         // LLM으로 완료 여부 판단
-        const prompt = this.buildJudgmentPrompt(userQuery, createdFiles, modifiedFiles, lastResponse, buildTestPassed);
+        const prompt = this.buildJudgmentPrompt(userQuery, createdFiles, modifiedFiles, lastResponse, buildTestPassed, executedCommands);
 
         try {
             const response = await this.llmManager.generateSimpleResponse(prompt, {
@@ -110,7 +111,8 @@ export class CompletionJudge {
         createdFiles: string[],
         modifiedFiles: string[],
         lastResponse: string,
-        buildTestPassed: boolean = false
+        buildTestPassed: boolean = false,
+        executedCommands: string[] = []
     ): string {
         return `작업 완료 여부를 판단하세요.
 
@@ -120,6 +122,7 @@ ${userQuery}
 ## 수행된 작업
 - 생성된 파일: ${createdFiles.length > 0 ? createdFiles.join(', ') : '없음'}
 - 수정된 파일: ${modifiedFiles.length > 0 ? modifiedFiles.join(', ') : '없음'}
+- 실행된 명령: ${executedCommands.length > 0 ? executedCommands.join('; ') : '없음'}
 - 빌드/테스트 결과: ${buildTestPassed ? '통과' : '미실행 또는 실패'}
 
 ## 마지막 응답
@@ -130,6 +133,7 @@ ${lastResponse.substring(0, 500)}${lastResponse.length > 500 ? '...' : ''}
 2. 사용자가 여러 파일/기능을 요청했는데 일부만 생성된 경우 → 미완성
 3. 명백한 TODO나 미완성 부분이 있는가?
 4. 빌드/테스트 통과는 참고 사항일 뿐, 요청 이행 여부와는 별개
+5. 실행된 명령이 있다면 해당 명령이 사용자 요청을 이행했는지 확인 (예: SQL 실행, DB 반영 등)
 
 ## 응답 형식 (JSON만)
 {"complete": true/false, "confidence": 0.0~1.0, "reason": "판단 이유", "action": "미완성 시 필요한 추가 작업"}
@@ -142,13 +146,29 @@ JSON만 응답하세요:`;
      */
     private parseJudgmentResponse(response: string): CompletionJudgment {
         try {
-            // JSON 추출
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
+            // <think>...</think> 태그 제거 후 JSON 추출 (bracket-counting)
+            const cleaned = response.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+            const startIdx = cleaned.indexOf('{');
+            if (startIdx === -1) {
                 throw new Error('No JSON found');
             }
 
-            const parsed = JSON.parse(jsonMatch[0]);
+            let depth = 0;
+            let endIdx = -1;
+            for (let i = startIdx; i < cleaned.length; i++) {
+                if (cleaned[i] === '{') depth++;
+                else if (cleaned[i] === '}') depth--;
+                if (depth === 0) {
+                    endIdx = i;
+                    break;
+                }
+            }
+
+            if (endIdx === -1) {
+                throw new Error('No complete JSON found');
+            }
+
+            const parsed = JSON.parse(cleaned.substring(startIdx, endIdx + 1));
 
             return {
                 isComplete: Boolean(parsed.complete),

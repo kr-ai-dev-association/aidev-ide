@@ -108,15 +108,11 @@ export class TestRunner {
             "executing",
             "프로젝트 타입 LLM 감지 중...",
           );
-          const currentProject = ProjectManager.getInstance().getCurrentProject();
           const llmManager = LLMManager.getInstance();
-          const currentModelType = llmManager.getCurrentModel();
-          const ollamaApi = llmManager.getOllamaApi();
 
           const llmResult = await detector.detectWithLLMFallback(
             workspaceRoot,
-            ollamaApi,
-            currentModelType,
+            llmManager,
           );
 
           if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {

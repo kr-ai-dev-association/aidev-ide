@@ -4,6 +4,22 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.10
+
+### 버그 수정
+
+- **IntentDetector `<think>` 태그 호환**: Ollama 모델이 `<think>...</think>` 태그를 포함한 응답을 반환할 때 JSON 파싱 실패하던 문제 수정. think 태그 제거 + bracket-counting 방식으로 정확한 JSON 추출
+- **CompletionJudge `<think>` 태그 호환**: IntentDetector와 동일한 think 태그 제거 + bracket-counting JSON 파싱 적용
+- **LoopStateTracker 진전 감지 리셋 누락**: `hasProgress=true`일 때 `consecutiveSamePhase` 카운트가 리셋되지 않아 유의미한 진전이 있어도 루프 탈출로 이어지던 문제 수정
+- **CompletionJudge 미완성 판정 시 루프 중단**: incomplete 판정 후에도 LLM 호출 없이 루프가 종료되던 문제 수정. `forceNextLLMCall` 플래그로 다음 턴에서 LLM 호출을 강제
+
+### 개선
+
+- **CompletionJudge 명령 실행 이력 전달**: `executedCommands` 목록을 판단 프롬프트에 포함하여 SQL 실행, DB 반영 등 명령 기반 작업 완료 여부를 정확하게 판단
+- **debug_log 생성 방지**: `.gitignore`에 `debug_log/` 추가
+
+---
+
 ## v1.0.9
 
 ### 개선

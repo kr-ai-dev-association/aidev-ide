@@ -285,12 +285,6 @@ export class ToolExecutionCoordinator {
                         const blockedMsg = `🚫 [위험한 명령어 차단] ${command || ''}`;
                         WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
                         collectedMessages.push({ sender: 'System', text: blockedMsg, type: 'action' });
-
-                        if (res.message) {
-                            const reasonMsg = `차단 사유: ${res.message}`;
-                            WebviewBridge.receiveMessage(webview, 'CODEPILOT', reasonMsg);
-                            collectedMessages.push({ sender: 'CODEPILOT', text: reasonMsg, type: 'message' });
-                        }
                     } else {
                         // 일반 명령 실패: 명령어와 에러 출력 표시
                         const failedCommand = command || res.message || 'Unknown command';

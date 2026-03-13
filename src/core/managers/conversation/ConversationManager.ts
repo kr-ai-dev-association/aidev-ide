@@ -960,6 +960,7 @@ export class ConversationManager implements IConversationHandler {
     // 파일 변경 추적 (요약 검증용)
     const createdFiles: string[] = [];
     const modifiedFiles: string[] = [];
+    const executedCommands: string[] = []; // run_command 실행 이력 추적 (CompletionJudge용)
     this.deletedFiles = [];
     this._pendingImportCleanupMsg = null;
 
@@ -1107,9 +1108,14 @@ export class ConversationManager implements IConversationHandler {
           collectedActions,
           collectedUIMessages,
           lastExecutionTurnId,
+          executedCommands,
         );
         if (reviewResult.action === "break") {
           break;
+        }
+        // CompletionJudge incomplete 판정 시 LLM 호출을 강제하기 위해 리셋
+        if ('forceNextLLMCall' in reviewResult && reviewResult.forceNextLLMCall) {
+          lastTurnHadSuccessfulToolExecution = false;
         }
         turnCount++;
         continue;
@@ -1257,6 +1263,7 @@ export class ConversationManager implements IConversationHandler {
             isAutoTestRetryEnabled,
             accumulatedUserParts,
             turnCount,
+            true, // allPlanItemsDone
           );
           testFixAttempts = testTransition.testFixAttempts;
           pendingRetryPrompt =
@@ -1307,6 +1314,7 @@ export class ConversationManager implements IConversationHandler {
             modifiedFiles,
             false, // includeWebviewInContext
             conversationTurnId,
+            executedCommands,
           );
           if (hasSuccessfulPlanExecution) {
             lastTurnHadSuccessfulToolExecution = true;
@@ -1367,6 +1375,7 @@ export class ConversationManager implements IConversationHandler {
               isAutoTestRetryEnabled,
               accumulatedUserParts,
               turnCount,
+              true, // allPlanItemsDone
             );
             testFixAttempts = testTransition.testFixAttempts;
             if (testTransition.pendingRetryPrompt) {
@@ -1424,6 +1433,7 @@ export class ConversationManager implements IConversationHandler {
                   isAutoTestRetryEnabled,
                   accumulatedUserParts,
                   turnCount,
+                  true, // allPlanItemsDone
                 );
                 testFixAttempts = testTransition.testFixAttempts;
                 if (testTransition.pendingRetryPrompt) {
@@ -1615,6 +1625,7 @@ export class ConversationManager implements IConversationHandler {
                 modifiedFiles,
                 false, // includeWebviewInContext
                 conversationTurnId,
+                executedCommands,
               );
               if (hasSuccessfulToolExecution) {
                 lastTurnHadSuccessfulToolExecution = true;
@@ -1681,6 +1692,7 @@ export class ConversationManager implements IConversationHandler {
                   isAutoTestRetryEnabled,
                   accumulatedUserParts,
                   turnCount,
+                  true, // allPlanItemsDone
                 );
                 testFixAttempts = testTransition.testFixAttempts;
                 if (testTransition.pendingRetryPrompt) {
@@ -1774,6 +1786,7 @@ export class ConversationManager implements IConversationHandler {
                   isAutoTestRetryEnabled,
                   accumulatedUserParts,
                   turnCount,
+                  true, // allPlanItemsDone
                 );
                 testFixAttempts = testTransition.testFixAttempts;
                 if (testTransition.pendingRetryPrompt) {
@@ -1815,6 +1828,7 @@ export class ConversationManager implements IConversationHandler {
                 isAutoTestRetryEnabled,
                 accumulatedUserParts,
                 turnCount,
+                true, // allPlanItemsDone
               );
               testFixAttempts = testTransition.testFixAttempts;
               if (testTransition.pendingRetryPrompt) {
@@ -2592,6 +2606,7 @@ export class ConversationManager implements IConversationHandler {
                 modifiedFiles,
                 true, // includeWebviewInContext
                 conversationTurnId,
+                executedCommands,
               );
               if (hasSuccessfulExecution) {
                 lastTurnHadSuccessfulToolExecution = true;
@@ -3169,6 +3184,7 @@ export class ConversationManager implements IConversationHandler {
             isAutoTestRetryEnabled,
             accumulatedUserParts,
             turnCount,
+            true, // allPlanItemsDone
           );
           testFixAttempts = testTransition.testFixAttempts;
           if (testTransition.pendingRetryPrompt) {
@@ -3552,6 +3568,7 @@ export class ConversationManager implements IConversationHandler {
           isAutoTestRetryEnabled,
           accumulatedUserParts,
           turnCount,
+          allPlanItemsCompleted, // allPlanItemsDone
         );
         testFixAttempts = testTransition.testFixAttempts;
         if (testTransition.pendingRetryPrompt) {
@@ -3587,6 +3604,7 @@ export class ConversationManager implements IConversationHandler {
         collectedActions,
         collectedUIMessages,
         lastExecutionTurnId,
+        executedCommands,
       );
     }
 
@@ -4378,15 +4396,11 @@ export class ConversationManager implements IConversationHandler {
         console.log(
           "[ConversationManager] Unknown project type, trying LLM fallback...",
         );
-        const currentProject = ProjectManager.getInstance().getCurrentProject();
         const llmManager = LLMManager.getInstance();
-        const currentModelType = llmManager.getCurrentModel();
-        const ollamaApi = llmManager.getOllamaApi();
 
         const llmResult = await detector.detectWithLLMFallback(
           workspaceRoot,
-          ollamaApi,
-          currentModelType,
+          llmManager,
         );
 
         if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
@@ -4638,6 +4652,7 @@ export class ConversationManager implements IConversationHandler {
       type?: "action" | "code" | "summary" | "message";
     }>,
     conversationTurnId?: string,
+    executedCommands: string[] = [],
   ): Promise<TurnAction> {
     // REVIEW가 이미 처리되었는지 확인 (중복 호출 방지)
     const reviewProcessedKey = `review_processed_${createdFiles.join(",")}_${modifiedFiles.join(",")}`;
@@ -4677,6 +4692,7 @@ export class ConversationManager implements IConversationHandler {
           "", // lastResponse는 아직 생성 전
           abortSignal,
           this._lastBuildTestPassed,
+          executedCommands,
         );
 
         console.log(
@@ -4706,7 +4722,7 @@ export class ConversationManager implements IConversationHandler {
             "추가 작업 진행 중...",
           );
 
-          return { action: "continue" };
+          return { action: "continue", forceNextLLMCall: true };
         }
       } catch (e) {
         console.warn("[ConversationManager] A4 CompletionJudge failed:", e);
@@ -5170,6 +5186,7 @@ export class ConversationManager implements IConversationHandler {
     modifiedFiles: string[],
     includeWebviewInContext: boolean = false,
     conversationTurnId?: string,
+    executedCommands: string[] = [],
   ): Promise<{
     toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
@@ -5317,6 +5334,16 @@ export class ConversationManager implements IConversationHandler {
       modifiedFiles,
       this.deletedFiles,
     );
+
+    // run_command 실행 이력 추적 (CompletionJudge 판단용)
+    toolCalls.forEach((call: ToolUse, index: number) => {
+      if (call.name === Tool.RUN_COMMAND && toolResults[index]?.success) {
+        const cmd = call.params?.command || call.params?.cmd || '';
+        if (cmd && !executedCommands.includes(cmd)) {
+          executedCommands.push(cmd);
+        }
+      }
+    });
 
     // 성공 여부 추적
     const hasSuccessfulExecution = toolResults.some(
@@ -5479,6 +5506,7 @@ export class ConversationManager implements IConversationHandler {
     isAutoTestRetryEnabled: boolean,
     accumulatedUserParts: UserPart[],
     turnCount: number,
+    allPlanItemsDone: boolean = false,
   ): Promise<{
     turnAction: TurnAction;
     testFixAttempts: number;
@@ -5497,7 +5525,8 @@ export class ConversationManager implements IConversationHandler {
 
     // CompletionJudge가 아직 auto-continue 가능 → TestRunner 스킵, REVIEW로 바로 전환
     // 파일이 점진적으로 생성되는 중간 상태에서 tsc/lint 실패를 방지
-    if (this.completionJudge.canAutoContinue()) {
+    // 단, 모든 plan item이 완료된 경우에는 TestRunner를 즉시 실행 (디퍼 방지)
+    if (this.completionJudge.canAutoContinue() && !allPlanItemsDone) {
       console.log(
         `[ConversationManager] Deferring TestRunner — CompletionJudge auto-continue available`,
       );

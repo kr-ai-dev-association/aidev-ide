@@ -796,6 +796,7 @@ export class OrchestrationRouter {
             if (auth.isLoggedIn() && userQuery) {
                 const userInfo = auth.getUserInfo();
                 const orgId = userInfo?.organization_id;
+                console.log(`[OrchestrationRouter] RAG: 검색 시작 (query: "${userQuery.substring(0, 50)}...", orgId: ${orgId})`);
                 const { CodePilotApiClient } = await import('../../services/api/CodePilotApiClient');
                 const ragRaw = await CodePilotApiClient.getInstance().searchRag(
                     userQuery, orgId || undefined, undefined, 5,
@@ -804,6 +805,7 @@ export class OrchestrationRouter {
                     ? ragRaw
                     : ((ragRaw as { data?: RagResult[]; results?: RagResult[] }).data || (ragRaw as { data?: RagResult[]; results?: RagResult[] }).results || []);
                 if (ragResults.length > 0) {
+                    console.log(`[OrchestrationRouter] RAG: ${ragResults.length}개 문서 청크 검색됨`);
                     const ragText = ragResults
                         .map((r, i) => {
                             const source = r.source_name || r.source || '';
@@ -813,10 +815,14 @@ export class OrchestrationRouter {
                         })
                         .join('\n\n---\n\n');
                     parts.push(`## 참고 문서 (RAG) — 반드시 우선 활용\n${ragText}`);
+                } else {
+                    console.log('[OrchestrationRouter] RAG: 검색 결과 없음 (0건)');
                 }
+            } else {
+                console.log(`[OrchestrationRouter] RAG: 스킵 (isLoggedIn=${auth.isLoggedIn()}, hasQuery=${!!userQuery})`);
             }
         } catch (e) {
-            console.warn('[OrchestrationRouter] Failed to load RAG context:', e);
+            console.warn('[OrchestrationRouter] RAG: 검색 실패:', e);
         }
 
         return parts.filter(p => p.trim()).join('\n\n');

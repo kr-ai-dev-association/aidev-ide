@@ -79,6 +79,12 @@ export class LoopStateTracker {
             loopState.lastPlanItemId = currentPlanItemId;
         }
 
+        // 진전 있으면 Phase 연속 카운트도 리셋
+        // (plan 생성 등 phase 전환 직전의 유의미한 진전)
+        if (hasProgress) {
+            loopState.consecutiveSamePhase = 1;
+        }
+
         // 진전 없음 카운트 업데이트
         const sameToolCalls = JSON.stringify(toolCalls) === JSON.stringify(loopState.lastToolCalls);
         const sameResponse = responseHash === loopState.lastResponseHash;
