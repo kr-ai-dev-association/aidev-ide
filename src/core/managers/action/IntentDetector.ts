@@ -223,12 +223,31 @@ export class IntentDetector {
     response: string,
   ): { subtype: IntentSubtype; confidence: number; reasoning: string; requiresPlan?: boolean } | null {
     try {
-      const match = response.match(/\{[\s\S]*\}/);
-      if (!match) {
+      // <think>...</think> 태그 제거 후 JSON 추출 (bracket-counting)
+      const cleaned = response.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+
+      const startIdx = cleaned.indexOf('{');
+      if (startIdx === -1) {
         return null;
       }
 
-      const parsed = JSON.parse(match[0]);
+      let depth = 0;
+      let endIdx = -1;
+      for (let i = startIdx; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') depth++;
+        else if (cleaned[i] === '}') depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
+      }
+
+      if (endIdx === -1) {
+        return null;
+      }
+
+      const jsonStr = cleaned.substring(startIdx, endIdx + 1);
+      const parsed = JSON.parse(jsonStr);
       if (
         parsed.subtype &&
         this.subtypeToCategory[parsed.subtype as IntentSubtype]

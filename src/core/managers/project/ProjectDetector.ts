@@ -1415,8 +1415,8 @@ export class ProjectDetector {
     /**
      * Fallback: LLM에게 프로젝트 타입 판단을 넘깁니다
      * @param projectRoot 프로젝트 루트 경로
-     * @param llmApi LLM API 인스턴스 (OllamaApi)
-     * @param currentModelType 현재 모델 타입
+     * @param llmApi LLM API 인스턴스 (LLMManager 또는 OllamaApi)
+     * @param currentModelType 현재 모델 타입 (미사용, 호환용)
      * @param abortSignal 중단 신호
      * @returns 프로젝트 타입 정보 또는 null
      */
