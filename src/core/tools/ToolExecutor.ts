@@ -201,7 +201,12 @@ export class ToolExecutor {
             }
         }
 
-        return results.filter((r): r is ToolResponse => r !== undefined);
+        // undefined 슬롯을 에러 응답으로 채워 인덱스 매핑 보존
+        return results.map((r, i) => r ?? {
+            success: false,
+            message: `Tool ${toolUses[i]?.name || 'unknown'} was skipped (previous command failure)`,
+            error: { code: 'SKIPPED', message: 'Skipped due to prior failure in write batch' }
+        });
     }
 }
 

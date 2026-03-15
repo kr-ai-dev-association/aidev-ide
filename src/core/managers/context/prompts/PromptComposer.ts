@@ -30,11 +30,24 @@ export interface PromptComposerOptions {
     hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
     mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
     ragContext?: string; // 서버 RAG 문서 컨텍스트
+    activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
+}
+
+/** Skill Registry 항목 */
+export interface SkillEntry {
+    key: string;
+    description: string;
+    content: string;
+    source: 'local' | 'server';
+    enforcement?: string;
 }
 
 export class PromptComposer {
     /** storageUri 기반 스킬 디렉토리 (extension.ts activate 시 설정) */
     private static _skillsDir: string | null = null;
+
+    /** Skill Registry: 조건부 주입 대상 스킬 저장소 */
+    private static _skillRegistry: Map<string, SkillEntry> = new Map();
 
     /**
      * VS Code storageUri 기반 스킬 디렉토리 경로 설정.
@@ -42,6 +55,44 @@ export class PromptComposer {
      */
     public static setSkillsDir(dir: string): void {
         PromptComposer._skillsDir = dir;
+    }
+
+    /**
+     * Markdown 파일에서 frontmatter를 파싱합니다.
+     * ---\ntype: skill\ndescription: "..."\n---\n본문
+     */
+    private static parseFrontmatter(content: string): { type: string; description: string; body: string } {
+        const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+        if (!match) {
+            return { type: 'rule', description: '', body: content };
+        }
+        const frontmatter = match[1];
+        const body = match[2];
+        let type = 'rule';
+        let description = '';
+        for (const line of frontmatter.split('\n')) {
+            const [key, ...rest] = line.split(':');
+            const value = rest.join(':').trim().replace(/^["']|["']$/g, '');
+            if (key.trim() === 'type') { type = value; }
+            if (key.trim() === 'description') { description = value; }
+        }
+        return { type, description, body: body.trim() };
+    }
+
+    /** Skill Registry 접근 */
+    public static getSkillRegistry(): Map<string, SkillEntry> {
+        return PromptComposer._skillRegistry;
+    }
+
+    /** 특정 스킬의 full content 가져오기 */
+    public static getSkillContent(key: string): SkillEntry | undefined {
+        return PromptComposer._skillRegistry.get(key);
+    }
+
+    /** 스킬 description 목록 생성 (IntentDetector에 전달용) */
+    public static getSkillDescriptions(): { key: string; description: string }[] {
+        return Array.from(PromptComposer._skillRegistry.values())
+            .map(s => ({ key: s.key, description: s.description }));
     }
 
     /**
@@ -63,6 +114,9 @@ export class PromptComposer {
      */
     public static loadAgentRulesWithKeys(): { text: string; ruleKeys: Set<string> } {
         const ruleKeys = new Set<string>();
+        // 로컬 스킬 레지스트리 초기화 (매 로드 시 갱신)
+        const localSkillEntries: SkillEntry[] = [];
+
         try {
             const agentRulesDir = PromptComposer.getSkillsDir();
             if (!agentRulesDir) {
@@ -98,11 +152,26 @@ export class PromptComposer {
                         for (const file of files) {
                             const filePath = path.join(categoryDir, file);
                             try {
-                                const content = fs.readFileSync(filePath, 'utf8').trim();
-                                if (content) {
-                                    categoryRules.push(`[${file}]\n${content}`);
-                                    // 파일명(확장자 제거)과 디렉토리명을 ruleKeys에 추가
-                                    ruleKeys.add(file.replace(/\.(md|markdown)$/, ''));
+                                const rawContent = fs.readFileSync(filePath, 'utf8').trim();
+                                if (!rawContent) { continue; }
+
+                                // frontmatter 파싱: type/description 추출
+                                const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
+                                const fileKey = file.replace(/\.(md|markdown)$/, '');
+
+                                if (type === 'skill' && description) {
+                                    // Skill → 레지스트리에 등록, rules에는 포함하지 않음
+                                    localSkillEntries.push({
+                                        key: `${category.dir}--${fileKey}`,
+                                        description,
+                                        content: body,
+                                        source: 'local',
+                                    });
+                                    ruleKeys.add(fileKey);
+                                } else {
+                                    // Rule → 기존처럼 무조건 주입
+                                    categoryRules.push(`[${file}]\n${body}`);
+                                    ruleKeys.add(fileKey);
                                 }
                             } catch (error) {
                                 console.warn(`[PromptComposer] Failed to read ${filePath}:`, error);
@@ -115,13 +184,24 @@ export class PromptComposer {
 
                 // 2. 레거시 구조: 단일 파일 (하위 호환성)
                 // 디렉토리가 없거나 비어있을 때만 레거시 파일 확인
-                if (categoryRules.length === 0) {
+                if (categoryRules.length === 0 && !localSkillEntries.some(s => s.key.startsWith(`${category.dir}--`))) {
                     const legacyFilePath = path.join(agentRulesDir, category.legacyFile);
                     if (fs.existsSync(legacyFilePath) && fs.statSync(legacyFilePath).isFile()) {
                         try {
-                            const content = fs.readFileSync(legacyFilePath, 'utf8').trim();
-                            if (content) {
-                                categoryRules.push(content);
+                            const rawContent = fs.readFileSync(legacyFilePath, 'utf8').trim();
+                            if (rawContent) {
+                                // 레거시 파일도 frontmatter 지원
+                                const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
+                                if (type === 'skill' && description) {
+                                    localSkillEntries.push({
+                                        key: category.dir,
+                                        description,
+                                        content: body,
+                                        source: 'local',
+                                    });
+                                } else {
+                                    categoryRules.push(body);
+                                }
                             }
                         } catch (error) {
                             console.warn(`[PromptComposer] Failed to read ${category.legacyFile}:`, error);
@@ -129,20 +209,29 @@ export class PromptComposer {
                     }
                 }
 
-                // 카테고리에 규칙이 있으면 추가
+                // 카테고리에 Rule(항상 주입)이 있으면 추가
                 if (categoryRules.length > 0) {
                     ruleKeys.add(category.dir);
                     rules.push(`**${category.title} (강제 규칙):**\n${categoryRules.join('\n\n')}`);
                 }
             }
 
+            // 로컬 스킬을 레지스트리에 등록
+            for (const entry of localSkillEntries) {
+                PromptComposer._skillRegistry.set(entry.key, entry);
+            }
+
+            if (localSkillEntries.length > 0) {
+                console.log(`[PromptComposer] 로컬 Skills(조건부) 등록: ${localSkillEntries.length}개 — ${localSkillEntries.map(s => s.key).join(', ')}`);
+            }
+
             // 규칙이 하나도 없으면 빈 문자열 반환 (프롬프트에 포함하지 않음)
             if (rules.length === 0) {
-                console.log(`[PromptComposer] 로컬 Skills 로드: 0개 (디렉토리: ${agentRulesDir})`);
+                console.log(`[PromptComposer] 로컬 Rules 로드: 0개 (디렉토리: ${agentRulesDir})`);
                 return { text: '', ruleKeys };
             }
 
-            console.log(`[PromptComposer] 로컬 Skills 로드: ${rules.length}개 카테고리, 키: [${[...ruleKeys].join(', ')}] (디렉토리: ${agentRulesDir})`);
+            console.log(`[PromptComposer] 로컬 Rules 로드: ${rules.length}개 카테고리, 키: [${[...ruleKeys].join(', ')}] (디렉토리: ${agentRulesDir})`);
 
             return {
                 text: `# ⚠️ Skills (필수 적용 강제 규칙)
@@ -181,16 +270,32 @@ ${rules.join('\n\n---\n\n')}`,
             const rules = settingsManager.getServerDevRules();
 
             if (!rules || rules.length === 0) {
+                console.log('[PromptComposer] 서버 Skills(dev_rules) 로드: 0개');
                 return { text: '', overrideKeys: new Set() };
             }
 
+            console.log(`[PromptComposer] 서버 Skills(dev_rules) 로드: ${rules.length}개 — ${rules.map((r: { key: string; enforcement: string; title?: string; skill_type?: string }) => `[${r.enforcement}/${r.skill_type || 'rule'}] ${r.title || r.key}`).join(', ')}`);
+
             const overrideKeys = new Set<string>(); // 서버 필수가 덮어쓴 로컬 키
 
-            const filteredRules = rules.filter((r: { key: string; enforcement: string; title?: string }) => {
+            const filteredRules = rules.filter((r: { key: string; content: string; enforcement: string; title?: string; skill_type?: string; skill_description?: string }) => {
                 const rKey = r.key.toLowerCase().replace(/[-_\s]/g, '');
                 const rTitle = (r.title || '').toLowerCase().replace(/[-_\s]/g, '');
 
-                // 로컬 중복 확인
+                // skill 타입은 레지스트리에 등록하고 rules에서 제외
+                if (r.skill_type === 'skill' && r.skill_description) {
+                    PromptComposer._skillRegistry.set(r.key, {
+                        key: r.key,
+                        description: r.skill_description,
+                        content: r.content,
+                        source: 'server',
+                        enforcement: r.enforcement,
+                    });
+                    console.log(`[PromptComposer] 서버 Skill(조건부) 등록: ${r.title || r.key}`);
+                    return false; // rules 목록에서 제외
+                }
+
+                // 로컬 중복 확인 (rule 타입만)
                 let hasLocalDuplicate = false;
                 let matchedLocalKey = '';
                 for (const localKey of localRuleKeys) {
@@ -240,7 +345,7 @@ ${formattedRules}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, provider, taskType, projectType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext } = options;
+        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, activeSkillKeys } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -348,8 +453,33 @@ ${diagnosticsContextContent}
 
 ${ragContext}` : '';
 
+        // 조건부 스킬: IntentDetector가 선택한 스킬의 full content 주입
+        let activeSkillsSection = '';
+        if (activeSkillKeys && activeSkillKeys.length > 0) {
+            const activeParts: string[] = [];
+            for (const skillKey of activeSkillKeys) {
+                const entry = PromptComposer._skillRegistry.get(skillKey);
+                if (entry) {
+                    activeParts.push(`**${entry.key}:**\n${entry.content}`);
+                }
+            }
+            if (activeParts.length > 0) {
+                activeSkillsSection = `## 활성 스킬 (조건부 적용 규칙)
+다음 스킬은 현재 작업과 관련하여 활성화되었습니다. 반드시 준수하세요.
+
+${activeParts.join('\n\n---\n\n')}`;
+            }
+        }
+
+        // 스킬 description 목록 (LLM이 참고할 수 있도록 항상 포함)
+        const skillDescriptions = PromptComposer.getSkillDescriptions();
+        const skillDescriptionSection = skillDescriptions.length > 0
+            ? `## 사용 가능한 스킬 (필요시 참조됨)
+${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
+            : '';
+
         // Skills 존재 여부에 따른 끝부분 리마인더
-        const hasSkills = !!(agentRules || serverPromptTemplates);
+        const hasSkills = !!(agentRules || serverPromptTemplates || activeSkillsSection);
         const skillsReminder = hasSkills
             ? `# ⚠️ 리마인더: Skills 규칙 준수
 위 시스템 프롬프트에 등록된 **Skills(개발 규칙)**을 반드시 따르세요.
@@ -363,8 +493,9 @@ ${ragContext}` : '';
         const parts = [
             hotLoadPrompt, // Hot Load 프롬프트 (최우선 규칙)
             attachedContextWarning, // 첨부 컨텍스트 경고
-            agentRules, // 개발 규칙 — 최상단 배치 (서버 필수가 덮어쓴 것 제거)
-            serverPromptTemplates, // 서버 관리자 프롬프트 템플릿 — 최상단 배치
+            agentRules, // 개발 규칙(Rule) — 최상단 배치 (서버 필수가 덮어쓴 것 제거)
+            serverPromptTemplates, // 서버 관리자 프롬프트 템플릿(Rule) — 최상단 배치
+            activeSkillsSection, // 조건부 스킬 — IntentDetector가 선택한 것만
             osContextInfo,
             basePrompt,
             mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
@@ -379,6 +510,7 @@ ${ragContext}` : '';
             codebaseSection, // 자동 수집된 코드베이스 컨텍스트
             llmPrompt,
             osPrompt,
+            skillDescriptionSection, // 스킬 description 목록 — 최하단 근처
             skillsReminder, // Skills 리마인더 — 최하단 배치
         ].filter(part => part && part.trim() !== '');
 

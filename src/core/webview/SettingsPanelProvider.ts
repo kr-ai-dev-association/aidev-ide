@@ -2296,8 +2296,8 @@ export function openSettingsPanel(
         // ===== AgentPolicy 다중 파일 관리 =====
         case "addAgentPolicyFile": // 카테고리에 파일 추가
           try {
-            const { category, fileName, content } = data;
-            if (!category || !fileName || !content) {
+            const { category, fileName, content: rawContent, policyType, skillDescription } = data;
+            if (!category || !fileName || !rawContent) {
               throw new Error("카테고리, 파일명, 내용이 필요합니다.");
             }
 
@@ -2312,6 +2312,26 @@ export function openSettingsPanel(
             if (!workspaceRoot) {
               throw new Error("워크스페이스가 열려있지 않습니다.");
             }
+
+            // frontmatter 주입
+            const content = (() => {
+              const t = policyType || 'rule';
+              const d = (t === 'skill' && skillDescription) ? skillDescription : '';
+              const fmMatch = rawContent.match(/^---\s*\n([\s\S]*?)\n---/);
+              if (fmMatch) {
+                let fm = fmMatch[1];
+                fm = /^type:\s*.+$/m.test(fm) ? fm.replace(/^type:\s*.+$/m, `type: ${t}`) : fm + `\ntype: ${t}`;
+                if (d) {
+                  fm = /^description:\s*.+$/m.test(fm) ? fm.replace(/^description:\s*.+$/m, `description: "${d}"`) : fm + `\ndescription: "${d}"`;
+                } else {
+                  fm = fm.replace(/\n?description:\s*.+$/m, '');
+                }
+                return rawContent.replace(/^---\s*\n[\s\S]*?\n---/, `---\n${fm.trim()}\n---`);
+              }
+              let fm = `type: ${t}`;
+              if (d) fm += `\ndescription: "${d}"`;
+              return `---\n${fm}\n---\n${rawContent}`;
+            })();
 
             // storageUri/rules/{category} 디렉토리 생성
             const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
@@ -2351,7 +2371,7 @@ export function openSettingsPanel(
 
         case "addPathAgentPolicy": // 경로 입력으로 파일 추가
           try {
-            const { category, filePath: srcFilePath } = data;
+            const { category, filePath: srcFilePath, policyType, skillDescription } = data;
             const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
             if (!category || !validCategories.includes(category)) {
               throw new Error(`유효하지 않은 카테고리: ${category}`);
@@ -2363,7 +2383,27 @@ export function openSettingsPanel(
             // 파일 읽기
             const srcUri = vscode.Uri.file(srcFilePath);
             const rawBytes = await vscode.workspace.fs.readFile(srcUri);
-            const content = Buffer.from(rawBytes).toString('utf8');
+            const rawContent = Buffer.from(rawBytes).toString('utf8');
+
+            // frontmatter 주입
+            const content = (() => {
+              const t = policyType || 'rule';
+              const d = (t === 'skill' && skillDescription) ? skillDescription : '';
+              const fmMatch = rawContent.match(/^---\s*\n([\s\S]*?)\n---/);
+              if (fmMatch) {
+                let fm = fmMatch[1];
+                fm = /^type:\s*.+$/m.test(fm) ? fm.replace(/^type:\s*.+$/m, `type: ${t}`) : fm + `\ntype: ${t}`;
+                if (d) {
+                  fm = /^description:\s*.+$/m.test(fm) ? fm.replace(/^description:\s*.+$/m, `description: "${d}"`) : fm + `\ndescription: "${d}"`;
+                } else {
+                  fm = fm.replace(/\n?description:\s*.+$/m, '');
+                }
+                return rawContent.replace(/^---\s*\n[\s\S]*?\n---/, `---\n${fm.trim()}\n---`);
+              }
+              let fm = `type: ${t}`;
+              if (d) fm += `\ndescription: "${d}"`;
+              return `---\n${fm}\n---\n${rawContent}`;
+            })();
 
             // 파일명 추출 및 정리
             const baseName = path.basename(srcFilePath);
@@ -2475,9 +2515,19 @@ export function openSettingsPanel(
           try {
             const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
             const allFiles: Record<string, string[]> = {};
+            const allFileTypes: Record<string, Record<string, string>> = {}; // { category: { filename: 'rule'|'skill' } }
+
+            // frontmatter에서 type 파싱 헬퍼
+            const parseFrontmatterType = (content: string): string => {
+              const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+              if (!match) return 'rule';
+              const typeMatch = match[1].match(/^type:\s*(.+)$/m);
+              return typeMatch ? typeMatch[1].trim().replace(/^["']|["']$/g, '') : 'rule';
+            };
 
             for (const category of categories) {
               allFiles[category] = [];
+              allFileTypes[category] = {};
 
               const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
 
@@ -2496,6 +2546,14 @@ export function openSettingsPanel(
                 for (const [name, type] of entries) {
                   if (type === vscode.FileType.File && (name.endsWith('.md') || name.endsWith('.markdown'))) {
                     allFiles[category].push(name);
+                    // frontmatter 파싱하여 type 확인
+                    try {
+                      const filePath = path.join(categoryDir, name);
+                      const content = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(filePath))).toString('utf8');
+                      allFileTypes[category][name] = parseFrontmatterType(content);
+                    } catch {
+                      allFileTypes[category][name] = 'rule';
+                    }
                   }
                 }
               } catch (e: any) {
@@ -2514,6 +2572,7 @@ export function openSettingsPanel(
                     try {
                       await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
                       allFiles[category].push(legacyFile + ' (레거시)');
+                      allFileTypes[category][legacyFile + ' (레거시)'] = 'rule';
                     } catch {
                       // 레거시 파일도 없음
                     }
@@ -2524,7 +2583,8 @@ export function openSettingsPanel(
 
             safePostMessage(panel, {
               command: "allAgentPolicyFilesList",
-              files: allFiles
+              files: allFiles,
+              fileTypes: allFileTypes
             });
           } catch (error: any) {
             safePostMessage(panel, {

@@ -34,6 +34,7 @@ export interface PromptBuilderOptions {
   hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
   mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
   ragContext?: string; // 서버 RAG 검색 결과
+  activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
 }
 
 export class PromptBuilder {
@@ -85,6 +86,7 @@ export class PromptBuilder {
       hotLoadPrompt: options.hotLoadPrompt, // Hot Load 프롬프트
       mcpCustomPrompts: options.mcpCustomPrompts, // MCP 커스텀 프롬프트
       ragContext: options.ragContext, // 서버 RAG 문서 컨텍스트
+      activeSkillKeys: options.activeSkillKeys, // IntentDetector가 선택한 활성 스킬
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

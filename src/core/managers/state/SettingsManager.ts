@@ -24,6 +24,8 @@ interface EffectiveSetting {
     enforcement: 'required' | 'recommended';
     source: 'admin' | 'user' | 'preset';
     group?: string;
+    skill_type?: string;
+    skill_description?: string;
 }
 
 /**
@@ -280,7 +282,7 @@ export class SettingsManager extends BaseManager {
      * 서버 Skills(dev_rules) 목록
      * 로컬에서 비활성화한 권장 설정은 제외
      */
-    public getServerDevRules(): { key: string; content: string; enforcement: string; title?: string }[] {
+    public getServerDevRules(): { key: string; content: string; enforcement: string; title?: string; skill_type?: string; skill_description?: string }[] {
         const disabled = this.getDisabledSettingsSet();
         return this.getServerSettings('dev_rules')
             .filter(s => s.enforcement === 'required' || !disabled.has(`dev_rules:${s.key}`))
@@ -289,6 +291,8 @@ export class SettingsManager extends BaseManager {
                 content: typeof s.value === 'string' ? s.value : (s.value?.content || JSON.stringify(s.value)),
                 enforcement: s.enforcement,
                 title: s.value?.title,
+                skill_type: s.skill_type || 'rule',
+                skill_description: s.skill_description || '',
             }));
     }
 

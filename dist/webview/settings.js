@@ -1556,6 +1556,12 @@ function renderSettingCard(s, category) {
   // RAG: 소스 이름을 키 대신 표시
   const displayKey = category === 'rag' && s.value && s.value.name ? s.value.name : s.key;
   html += `<div class="setting-key">${escapeHtml(displayKey)}`;
+  // dev_rules: 규칙/스킬 타입 배지
+  if (category === 'dev_rules' && s.skill_type) {
+    const isSkill = s.skill_type === 'skill';
+    const typeLabel = isSkill ? '스킬' : '규칙';
+    html += ` <span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;margin-left:4px;">${typeLabel}</span>`;
+  }
   // security_rules: 이름 옆에 유형 배지
   if (category === 'security_rules' && s.value && typeof s.value === 'object') {
     const typeLabel = s.value.type === 'hidden_file' ? '파일 은닉' : s.value.type === 'protected_file' ? '보호 파일' : '차단 명령어';
@@ -1593,6 +1599,9 @@ function renderSettingCard(s, category) {
     }
     if (v.category_sub) rows.push(`<b>하위분류:</b> ${escapeHtml(v.category_sub)}`);
     html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+    if (s.skill_description) {
+      html += `<div style="margin-top:4px;font-size:0.75em;color:#b45309;background:#fffbeb;padding:2px 8px;border-radius:4px;">${escapeHtml(s.skill_description)}</div>`;
+    }
   } else if (category === 'ai_model' && v && typeof v === 'object') {
     const rows = [];
     if (v.provider) rows.push(`<b>제공자:</b> ${escapeHtml(v.provider)}`);
@@ -4193,6 +4202,27 @@ document.addEventListener("DOMContentLoaded", () => {
   // AgentPolicy XML 파일 로드
   loadAgentPolicyFiles();
 
+  // 타입 선택 토글 초기화
+  document.querySelectorAll('.policy-type-selector').forEach(selector => {
+    const buttons = selector.querySelectorAll('.policy-type-btn');
+    const descInput = selector.querySelector('.policy-skill-desc');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        buttons.forEach(b => {
+          b.classList.remove('active');
+          b.style.background = 'transparent';
+          b.style.color = 'var(--vscode-foreground)';
+        });
+        btn.classList.add('active');
+        btn.style.background = 'var(--vscode-button-background)';
+        btn.style.color = 'var(--vscode-button-foreground)';
+        if (descInput) {
+          descInput.style.display = btn.dataset.type === 'skill' ? 'block' : 'none';
+        }
+      });
+    });
+  });
+
   // MCP 설정 이벤트 바인딩
   (0,_settings_mcp_settings_js__WEBPACK_IMPORTED_MODULE_2__.bindMcpSettingsEvents)(vscode);
 
@@ -4642,7 +4672,9 @@ const agentPolicyFilesCache = {
 };
 
 // 파일 목록 렌더링
-function renderPolicyFileList(category, files) {
+// 파일별 skill type 캐시 (extension에서 전달)
+let agentPolicyFileTypesCache = {};
+function renderPolicyFileList(category, files, fileTypes) {
   const listContainer = document.getElementById(`${category}-file-list`);
   if (!listContainer) {
     return;
@@ -4650,21 +4682,33 @@ function renderPolicyFileList(category, files) {
 
   // 캐시 업데이트
   agentPolicyFilesCache[category] = files;
+  if (fileTypes) {
+    agentPolicyFileTypesCache[category] = fileTypes;
+  }
 
   // 목록 초기화
   listContainer.innerHTML = "";
   if (!files || files.length === 0) {
     return;
   }
+  const types = agentPolicyFileTypesCache[category] || {};
   files.forEach(fileName => {
     const isLegacy = fileName.includes("(레거시)");
     const displayName = fileName.replace(" (레거시)", "");
+    const skillType = types[fileName] || 'rule';
+    const isSkill = skillType === 'skill';
     const item = document.createElement("div");
     item.className = "policy-file-item";
     const nameSpan = document.createElement("span");
     nameSpan.className = "file-name" + (isLegacy ? " legacy" : "");
     nameSpan.textContent = displayName + (isLegacy ? " (레거시)" : "");
     item.appendChild(nameSpan);
+
+    // 규칙/스킬 타입 뱃지
+    const typeBadge = document.createElement("span");
+    typeBadge.textContent = isSkill ? "스킬" : "규칙";
+    typeBadge.style.cssText = `background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:500;margin-left:6px;`;
+    item.appendChild(typeBadge);
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "delete-file-btn";
     deleteBtn.textContent = "삭제";
@@ -4739,6 +4783,13 @@ function setupAgentPolicyFileUpload(inputId, selectButtonId, uploadButtonId, sta
     uploadButton.disabled = true;
     let successCount = 0;
     let errorCount = 0;
+
+    // 타입 선택 정보 가져오기
+    const typeSelector = document.querySelector(`.policy-type-selector[data-category="${category}"]`);
+    const activeTypeBtn = typeSelector ? typeSelector.querySelector('.policy-type-btn.active') : null;
+    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : 'rule';
+    const skillDescInput = typeSelector ? typeSelector.querySelector('.policy-skill-desc') : null;
+    const skillDescription = policyType === 'skill' && skillDescInput ? skillDescInput.value.trim() : '';
     for (const file of selectedFiles) {
       try {
         const content = await readFileAsText(file);
@@ -4746,7 +4797,9 @@ function setupAgentPolicyFileUpload(inputId, selectButtonId, uploadButtonId, sta
           command: "addAgentPolicyFile",
           category: category,
           fileName: file.name,
-          content: content
+          content: content,
+          policyType: policyType,
+          skillDescription: skillDescription
         });
         successCount++;
       } catch (error) {
@@ -4816,12 +4869,20 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
       if (statusElement) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusElement, "Markdown 파일(.md)만 추가할 수 있습니다.", "error");
       return;
     }
+    // 타입 선택 정보 가져오기
+    const typeSelector = document.querySelector(`.policy-type-selector[data-category="${category}"]`);
+    const activeTypeBtn = typeSelector ? typeSelector.querySelector('.policy-type-btn.active') : null;
+    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : 'rule';
+    const skillDescInput = typeSelector ? typeSelector.querySelector('.policy-skill-desc') : null;
+    const skillDescription = policyType === 'skill' && skillDescInput ? skillDescInput.value.trim() : '';
     if (statusElement) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusElement, "추가 중...", "info");
     addButton.disabled = true;
     vscode.postMessage({
       command: "addPathAgentPolicy",
       category,
-      filePath
+      filePath,
+      policyType,
+      skillDescription
     });
   });
   pathInput.addEventListener("keydown", e => {
@@ -4841,8 +4902,9 @@ window.addEventListener("message", event => {
     // 모든 카테고리 파일 목록 로드 완료
     case "allAgentPolicyFilesList":
       if (message.files) {
+        const fileTypes = message.fileTypes || {};
         for (const category of Object.keys(message.files)) {
-          renderPolicyFileList(category, message.files[category]);
+          renderPolicyFileList(category, message.files[category], fileTypes[category]);
         }
       }
       break;

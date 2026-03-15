@@ -633,8 +633,7 @@
     }
 
     .policy-file-item .delete-file-btn:hover {
-      background-color: var(--vscode-inputValidation-errorBackground,
-          #be1100);
+      background-color: var(--vscode-button-secondaryBackground, #5a5a5a);
     }
 
     body[data-theme="light"] .policy-file-list {
@@ -2018,17 +2017,24 @@
                 </button>
               </div>
               <p class="info-message">
-                AI 에이전트가 따라야 할 개발 규칙을 Markdown 파일로 관리합니다.
-                각 규칙은 확장 전용 스토리지에 저장되며, 코드 생성 시 자동 적용됩니다.
+                AI 에이전트가 따라야 할 개발 규칙과 스킬을 Markdown 파일로 관리합니다.
+                각 항목은 확장 전용 스토리지에 저장되며, 코드 생성 시 자동 적용됩니다.
               </p>
 
               <!-- Stable Version Markdown -->
               <div class="api-key-section">
-                <h3>버전 관리 규칙</h3>
+                <h3>버전 관리</h3>
                 <p class="info-message">
                   프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요. 여러
                   파일을 추가할 수 있습니다.
                 </p>
+                <div class="policy-type-selector" data-category="stable-version" style="margin-bottom:6px;">
+                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  </div>
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown,text/markdown"
                     multiple style="display: none" />
@@ -2052,11 +2058,18 @@
 
               <!-- Coding Style Markdown -->
               <div class="api-key-section">
-                <h3>코딩 스타일 규칙</h3>
+                <h3>코딩 스타일</h3>
                 <p class="info-message">
                   프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.
                   여러 파일을 추가할 수 있습니다.
                 </p>
+                <div class="policy-type-selector" data-category="coding-style" style="margin-bottom:6px;">
+                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  </div>
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-coding-style-input" accept=".md,.markdown,text/markdown" multiple
                     style="display: none" />
@@ -2080,11 +2093,18 @@
 
               <!-- Project Architecture Markdown -->
               <div class="api-key-section">
-                <h3>프로젝트 아키텍처 규칙</h3>
+                <h3>프로젝트 아키텍처</h3>
                 <p class="info-message">
                   프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을
                   저장하세요. 여러 파일을 추가할 수 있습니다.
                 </p>
+                <div class="policy-type-selector" data-category="project-architecture" style="margin-bottom:6px;">
+                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  </div>
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown,text/markdown"
                     multiple style="display: none" />
@@ -2109,11 +2129,18 @@
 
               <!-- Dependency Policy Markdown -->
               <div class="api-key-section">
-                <h3>의존성 정책 규칙</h3>
+                <h3>의존성 정책</h3>
                 <p class="info-message">
                   프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.
                   여러 파일을 추가할 수 있습니다.
                 </p>
+                <div class="policy-type-selector" data-category="dependency-policy" style="margin-bottom:6px;">
+                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  </div>
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown,text/markdown"
                     multiple style="display: none" />
@@ -2137,11 +2164,18 @@
 
               <!-- DB Policy Markdown -->
               <div class="api-key-section">
-                <h3>DB 규칙</h3>
+                <h3>DB</h3>
                 <p class="info-message">
                   프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.
                   여러 파일을 추가할 수 있습니다.
                 </p>
+                <div class="policy-type-selector" data-category="db-policy" style="margin-bottom:6px;">
+                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  </div>
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown,text/markdown" multiple
                     style="display: none" />
