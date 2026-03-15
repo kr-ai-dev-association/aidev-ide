@@ -5095,3 +5095,45 @@ window.addEventListener("message", (event) => {
     }
   }
 });
+
+// ===== 설정 내보내기 / 가져오기 =====
+(function () {
+  const exportBtn = document.getElementById("export-settings-btn");
+  const importBtn = document.getElementById("import-settings-btn");
+  const statusEl = document.getElementById("settings-io-status");
+
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => {
+      vscode.postMessage({ command: "exportSettings" });
+    });
+  }
+  if (importBtn) {
+    importBtn.addEventListener("click", () => {
+      vscode.postMessage({ command: "importSettings" });
+    });
+  }
+
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (message.command === "settingsExported") {
+      if (statusEl) {
+        statusEl.textContent = message.success
+          ? "설정을 내보냈습니다."
+          : `내보내기 실패: ${message.error || "알 수 없는 오류"}`;
+        statusEl.style.color = message.success ? "#22c55e" : "#ef4444";
+      }
+    }
+    if (message.command === "settingsImported") {
+      if (statusEl) {
+        statusEl.textContent = message.success
+          ? "설정을 가져왔습니다."
+          : `가져오기 실패: ${message.error || "알 수 없는 오류"}`;
+        statusEl.style.color = message.success ? "#22c55e" : "#ef4444";
+      }
+      if (message.success) {
+        // 설정 다시 로드
+        vscode.postMessage({ command: "getCurrentSettings" });
+      }
+    }
+  });
+})();

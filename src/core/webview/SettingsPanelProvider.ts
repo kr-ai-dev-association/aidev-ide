@@ -3543,6 +3543,183 @@ export function openSettingsPanel(
           break;
         }
 
+        // ========== 설정 내보내기 / 가져오기 ==========
+        case "exportSettings": {
+          try {
+            const config = vscode.workspace.getConfiguration('codepilot');
+
+            const exportData: any = {
+              version: vscode.extensions.getExtension('banya.codepilot')?.packageJSON?.version || '0.0.0',
+              exportedAt: new Date().toISOString(),
+              settings: {
+                language: await stateManager.getLanguage() || 'ko',
+                chatTheme: config.get<string>('chatTheme') || 'dark',
+                autoUpdateEnabled: await settingsManager.isAutoUpdateEnabled(),
+                autoDeleteFilesEnabled: await settingsManager.isAutoDeleteFilesEnabled(),
+                autoExecuteCommandsEnabled: await settingsManager.isAutoExecuteCommandsEnabled(),
+                autoToolExecutionEnabled: await settingsManager.isAutoToolExecutionEnabled(),
+                autoMcpToolExecutionEnabled: await settingsManager.isAutoMcpToolExecutionEnabled(),
+                orchestrationEnabled: await settingsManager.isOrchestrationEnabled(),
+                streamingEnabled: await settingsManager.isStreamingEnabled(),
+                nativeToolCallingEnabled: await settingsManager.isNativeToolCallingEnabled(),
+                inlineCompletionEnabled: config.get<boolean>('inlineCompletion', false),
+                autoTestRetryEnabled: await settingsManager.isAutoTestRetryEnabled(),
+                testRetryCount: await settingsManager.getTestRetryCount(),
+                autoCorrectionEnabled: await stateManager.getAutoCorrectionEnabled(),
+                errorRetryCount: await stateManager.getErrorRetryCount(),
+                aiModel: await stateManager.getAiModel() || 'ollama',
+                ollamaServerType: await stateManager.getOllamaServerType() || 'local',
+                ollamaApiUrl: await stateManager.getOllamaApiUrl() || '',
+                ollamaModel: await stateManager.getOllamaModel() || '',
+                remoteOllamaApiUrl: await stateManager.getRemoteOllamaApiUrl() || '',
+                remoteOllamaModel: await stateManager.getRemoteOllamaModel() || '',
+                compactorModelType: await stateManager.getCompactorModelType() || '',
+                compactorModelName: await stateManager.getCompactorModelName() || '',
+                commandModelType: await stateManager.getCommandModelType() || '',
+                commandModelName: await stateManager.getCommandModelName() || '',
+                intentModelType: await stateManager.getIntentModelType() || '',
+                intentModelName: await stateManager.getIntentModelName() || '',
+                errorFallbackModelType: await stateManager.getErrorFallbackModelType() || '',
+                errorFallbackModelName: await stateManager.getErrorFallbackModelName() || '',
+                completionModelType: await stateManager.getCompletionModelType() || '',
+                completionModelName: await stateManager.getCompletionModelName() || '',
+              },
+              buildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
+              mcpServers: await stateManager.getMcpServers(),
+              hotLoads: await HotLoadManager.getInstance(context).getAllHotLoads(),
+              security: {
+                blockedCommands: context.globalState.get<string[]>('securityBlockedCommands', []),
+                protectedFiles: context.globalState.get<string[]>('securityProtectedFiles', []),
+                hiddenFiles: context.globalState.get<string[]>('securityHiddenFiles', []),
+                disabledBlockedCommands: context.globalState.get<string[]>('securityDisabledBlockedCommands', []),
+                disabledProtectedFiles: context.globalState.get<string[]>('securityDisabledProtectedFiles', []),
+              },
+              contextExclusions: context.globalState.get<string[]>('contextExclusionPatterns', []),
+              contextExclusionDisabled: context.globalState.get<string[]>('contextExclusionDisabled', []),
+            };
+
+            const uri = await vscode.window.showSaveDialog({
+              defaultUri: vscode.Uri.file(`codepilot-settings-${new Date().toISOString().slice(0, 10)}.json`),
+              filters: { 'JSON': ['json'] },
+            });
+
+            if (uri) {
+              await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(exportData, null, 2), 'utf8'));
+              safePostMessage(panel, { command: 'settingsExported', success: true });
+            } else {
+              safePostMessage(panel, { command: 'settingsExported', success: false, error: '취소됨' });
+            }
+          } catch (error: any) {
+            console.error('[SettingsPanel] exportSettings error:', error);
+            safePostMessage(panel, { command: 'settingsExported', success: false, error: error.message });
+          }
+          break;
+        }
+
+        case "importSettings": {
+          try {
+            const uris = await vscode.window.showOpenDialog({
+              canSelectMany: false,
+              filters: { 'JSON': ['json'] },
+            });
+
+            if (!uris || uris.length === 0) {
+              safePostMessage(panel, { command: 'settingsImported', success: false, error: '취소됨' });
+              break;
+            }
+
+            const fileContent = await vscode.workspace.fs.readFile(uris[0]);
+            const imported = JSON.parse(Buffer.from(fileContent).toString('utf8'));
+
+            if (!imported.settings || typeof imported.settings !== 'object') {
+              throw new Error('유효하지 않은 설정 파일입니다.');
+            }
+
+            const s = imported.settings;
+            const cfgImport = vscode.workspace.getConfiguration('codepilot');
+
+            if (s.language) { await stateManager.saveLanguage(s.language); }
+            if (s.chatTheme) { await cfgImport.update('chatTheme', s.chatTheme, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoUpdateEnabled === 'boolean') { await cfgImport.update('autoUpdateFiles', s.autoUpdateEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoDeleteFilesEnabled === 'boolean') { await cfgImport.update('autoDeleteFiles', s.autoDeleteFilesEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoExecuteCommandsEnabled === 'boolean') { await cfgImport.update('autoExecuteCommands', s.autoExecuteCommandsEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoToolExecutionEnabled === 'boolean') { await cfgImport.update('autoToolExecution', s.autoToolExecutionEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoMcpToolExecutionEnabled === 'boolean') { await cfgImport.update('autoMcpToolExecution', s.autoMcpToolExecutionEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.orchestrationEnabled === 'boolean') { await cfgImport.update('orchestration', s.orchestrationEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.streamingEnabled === 'boolean') { await cfgImport.update('streamingEnabled', s.streamingEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.nativeToolCallingEnabled === 'boolean') { await cfgImport.update('nativeToolCallingEnabled', s.nativeToolCallingEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.inlineCompletionEnabled === 'boolean') { await cfgImport.update('inlineCompletion', s.inlineCompletionEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoTestRetryEnabled === 'boolean') { await cfgImport.update('autoTestRetryEnabled', s.autoTestRetryEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.testRetryCount === 'number') { await cfgImport.update('testRetryCount', s.testRetryCount, vscode.ConfigurationTarget.Global); }
+            if (typeof s.autoCorrectionEnabled === 'boolean') { await stateManager.saveAutoCorrectionEnabled(s.autoCorrectionEnabled); }
+            if (typeof s.errorRetryCount === 'number') { await stateManager.saveErrorRetryCount(s.errorRetryCount); }
+
+            if (s.aiModel) { await stateManager.saveAiModel(s.aiModel); }
+            if (s.ollamaServerType) { await stateManager.saveOllamaServerType(s.ollamaServerType); }
+            if (s.ollamaApiUrl) { await stateManager.saveOllamaApiUrl(s.ollamaApiUrl); }
+            if (s.ollamaModel) { await stateManager.saveOllamaModel(s.ollamaModel); }
+            if (s.remoteOllamaApiUrl) { await stateManager.saveRemoteOllamaApiUrl(s.remoteOllamaApiUrl); }
+            if (s.remoteOllamaModel) { await stateManager.saveRemoteOllamaModel(s.remoteOllamaModel); }
+
+            if (s.compactorModelType) { await stateManager.saveCompactorModelType(s.compactorModelType); }
+            if (s.compactorModelName) { await stateManager.saveCompactorModelName(s.compactorModelName); }
+            if (s.commandModelType) { await stateManager.saveCommandModelType(s.commandModelType); }
+            if (s.commandModelName) { await stateManager.saveCommandModelName(s.commandModelName); }
+            if (s.intentModelType) { await stateManager.saveIntentModelType(s.intentModelType); }
+            if (s.intentModelName) { await stateManager.saveIntentModelName(s.intentModelName); }
+            if (s.errorFallbackModelType) { await stateManager.saveErrorFallbackModelType(s.errorFallbackModelType); }
+            if (s.errorFallbackModelName) { await stateManager.saveErrorFallbackModelName(s.errorFallbackModelName); }
+            if (s.completionModelType) { await stateManager.saveCompletionModelType(s.completionModelType); }
+            if (s.completionModelName) { await stateManager.saveCompletionModelName(s.completionModelName); }
+
+            if (Array.isArray(imported.buildTestSettings)) {
+              await context.globalState.update('personalBuildTestSettings', imported.buildTestSettings);
+            }
+            if (Array.isArray(imported.mcpServers)) {
+              await stateManager.saveMcpServers(imported.mcpServers);
+            }
+            if (Array.isArray(imported.hotLoads)) {
+              const hotLoadManager = HotLoadManager.getInstance(context);
+              const existingHotLoads = await hotLoadManager.getAllHotLoads();
+              for (const hl of existingHotLoads) {
+                await hotLoadManager.deleteHotLoad(hl.id);
+              }
+              for (const hl of imported.hotLoads) {
+                await hotLoadManager.addHotLoad(hl.keywords, hl.description, hl.command, hl.completionCondition, hl.maxRetries, hl.onFailure);
+              }
+            }
+            if (imported.security && typeof imported.security === 'object') {
+              if (Array.isArray(imported.security.blockedCommands)) {
+                await context.globalState.update('securityBlockedCommands', imported.security.blockedCommands);
+              }
+              if (Array.isArray(imported.security.protectedFiles)) {
+                await context.globalState.update('securityProtectedFiles', imported.security.protectedFiles);
+              }
+              if (Array.isArray(imported.security.hiddenFiles)) {
+                await context.globalState.update('securityHiddenFiles', imported.security.hiddenFiles);
+              }
+              if (Array.isArray(imported.security.disabledBlockedCommands)) {
+                await context.globalState.update('securityDisabledBlockedCommands', imported.security.disabledBlockedCommands);
+              }
+              if (Array.isArray(imported.security.disabledProtectedFiles)) {
+                await context.globalState.update('securityDisabledProtectedFiles', imported.security.disabledProtectedFiles);
+              }
+            }
+            if (Array.isArray(imported.contextExclusions)) {
+              await context.globalState.update('contextExclusionPatterns', imported.contextExclusions);
+            }
+            if (Array.isArray(imported.contextExclusionDisabled)) {
+              await context.globalState.update('contextExclusionDisabled', imported.contextExclusionDisabled);
+            }
+
+            safePostMessage(panel, { command: 'settingsImported', success: true });
+          } catch (error: any) {
+            console.error('[SettingsPanel] importSettings error:', error);
+            safePostMessage(panel, { command: 'settingsImported', success: false, error: error.message });
+          }
+          break;
+        }
+
         default:
           console.log("Unknown command:", data.command);
       }
