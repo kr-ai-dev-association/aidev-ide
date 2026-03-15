@@ -15,19 +15,89 @@ import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
  * 워크스페이스 루트에 매니페스트가 없으면 서브 디렉토리에서 자동 탐색
  */
 const COMMAND_MANIFEST_MAP: Record<string, string[]> = {
+    // ── JavaScript / TypeScript ──
     'npm': ['package.json'],
     'npx': ['package.json'],
     'yarn': ['package.json'],
     'pnpm': ['package.json'],
+    'bun': ['package.json', 'bun.lockb'],
+    'bunx': ['package.json'],
+    'deno': ['deno.json', 'deno.jsonc'],
+    'tsc': ['tsconfig.json', 'package.json'],
+    'tsx': ['package.json', 'tsconfig.json'],
+
+    // ── Python ──
     'pip': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+    'pip3': ['requirements.txt', 'setup.py', 'pyproject.toml'],
     'python': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+    'python3': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+    'uv': ['pyproject.toml', 'uv.lock', 'requirements.txt'],
+    'uvx': ['pyproject.toml', 'uv.lock'],
+    'poetry': ['pyproject.toml', 'poetry.lock'],
+    'pipenv': ['Pipfile'],
+    'pdm': ['pyproject.toml', 'pdm.lock'],
+    'hatch': ['pyproject.toml'],
+    'pytest': ['pyproject.toml', 'setup.cfg', 'pytest.ini'],
+
+    // ── Rust ──
     'cargo': ['Cargo.toml'],
+    'rustc': ['Cargo.toml'],
+
+    // ── Go ──
     'go': ['go.mod'],
+
+    // ── Ruby ──
     'bundle': ['Gemfile'],
     'gem': ['Gemfile'],
+    'rails': ['Gemfile'],
+    'rake': ['Gemfile', 'Rakefile'],
+
+    // ── PHP ──
     'composer': ['composer.json'],
+
+    // ── Dart / Flutter ──
     'flutter': ['pubspec.yaml'],
     'dart': ['pubspec.yaml'],
+
+    // ── Java / JVM ──
+    'gradle': ['build.gradle', 'build.gradle.kts', 'settings.gradle'],
+    'gradlew': ['build.gradle', 'build.gradle.kts', 'settings.gradle'],
+    './gradlew': ['build.gradle', 'build.gradle.kts', 'settings.gradle'],
+    'mvn': ['pom.xml'],
+    'mvnw': ['pom.xml'],
+    './mvnw': ['pom.xml'],
+    'sbt': ['build.sbt'],
+
+    // ── .NET ──
+    'dotnet': ['*.csproj', '*.fsproj', '*.sln'],
+
+    // ── C / C++ ──
+    'make': ['Makefile', 'makefile'],
+    'cmake': ['CMakeLists.txt'],
+
+    // ── Swift ──
+    'swift': ['Package.swift'],
+
+    // ── Elixir ──
+    'mix': ['mix.exs'],
+
+    // ── Zig ──
+    'zig': ['build.zig'],
+
+    // ── Gleam ──
+    'gleam': ['gleam.toml'],
+
+    // ── Erlang ──
+    'rebar3': ['rebar.config'],
+
+    // ── Clojure ──
+    'lein': ['project.clj'],
+
+    // ── Terraform / IaC ──
+    'terraform': ['main.tf'],
+
+    // ── Helm ──
+    'helm': ['Chart.yaml'],
 };
 
 export class RunCommandToolHandler implements IToolHandler {
@@ -67,11 +137,12 @@ export class RunCommandToolHandler implements IToolHandler {
         });
 
         // 2단계: 초기 실행에서 완료된 경우 → exit code로 판단
-        if (initialResult.exitCode !== undefined && !initialResult.error) {
+        // exitCode가 있으면 프로세스가 종료된 것이므로 즉시 반환 (성공/실패 무관)
+        if (initialResult.exitCode !== undefined) {
             console.log(`[RunCommandToolHandler] Command completed: ${command} (exit=${initialResult.exitCode})`);
             return {
-                success: initialResult.success,
-                message: initialResult.success
+                success: initialResult.exitCode === 0,
+                message: initialResult.exitCode === 0
                     ? `Command executed: ${command}`
                     : `Command failed: ${command}`,
                 data: {
@@ -147,9 +218,72 @@ export class RunCommandToolHandler implements IToolHandler {
         return `[run_command: ${toolUse.params.command}]`;
     }
 
+    /** 탐색 제외 디렉토리 */
+    private static readonly SKIP_DIRS = new Set([
+        'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out',
+        '.next', '.nuxt', '.output', '__pycache__', '.venv', 'venv',
+        'vendor', 'target', '.gradle', '.idea', '.vscode',
+    ]);
+
+    /**
+     * 매니페스트 이름이 glob 패턴(*.csproj 등)인지 검사하고,
+     * 해당 디렉토리에 매칭되는 파일이 있는지 확인
+     */
+    private hasManifestIn(dir: string, manifests: string[]): boolean {
+        return manifests.some(m => {
+            if (m.startsWith('*')) {
+                // glob 패턴: 확장자 매칭
+                const ext = m.slice(1); // "*.csproj" → ".csproj"
+                try {
+                    return fs.readdirSync(dir).some((f: string) => f.endsWith(ext));
+                } catch { return false; }
+            }
+            return fs.existsSync(path.join(dir, m));
+        });
+    }
+
+    /**
+     * 하위 디렉토리를 maxDepth까지 탐색하여 매니페스트가 있는 가장 가까운 디렉토리 반환
+     * BFS로 탐색하여 depth가 낮은(가까운) 결과 우선
+     */
+    private findManifestDir(root: string, manifests: string[], maxDepth: number): string | null {
+        const queue: { dir: string; depth: number }[] = [];
+
+        // 1-depth 자식 디렉토리를 큐에 추가
+        try {
+            const entries = fs.readdirSync(root, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory() || entry.name.startsWith('.') || RunCommandToolHandler.SKIP_DIRS.has(entry.name)) continue;
+                queue.push({ dir: path.join(root, entry.name), depth: 1 });
+            }
+        } catch { return null; }
+
+        while (queue.length > 0) {
+            const { dir, depth } = queue.shift()!;
+
+            if (this.hasManifestIn(dir, manifests)) {
+                return dir;
+            }
+
+            // 아직 maxDepth에 도달하지 않았으면 하위 탐색
+            if (depth < maxDepth) {
+                try {
+                    const entries = fs.readdirSync(dir, { withFileTypes: true });
+                    for (const entry of entries) {
+                        if (!entry.isDirectory() || entry.name.startsWith('.') || RunCommandToolHandler.SKIP_DIRS.has(entry.name)) continue;
+                        queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+                    }
+                } catch { /* skip unreadable dirs */ }
+            }
+        }
+
+        return null;
+    }
+
     /**
      * 명령어의 패키지 매니저를 감지하여 적절한 cwd를 결정합니다.
      * 워크스페이스 루트에 매니페스트 파일이 없으면 하위 디렉토리에서 자동 탐색합니다.
+     * BFS 2-depth 탐색: packages/api/, apps/web/, services/auth/ 등 모노레포 지원
      */
     private resolveCommandCwd(command: string, projectRoot: string): string {
         const cmdPrefix = command.trim().split(/\s+/)[0];
@@ -157,27 +291,13 @@ export class RunCommandToolHandler implements IToolHandler {
         if (!manifests) return projectRoot;
 
         // 루트에 매니페스트가 있으면 그대로 사용
-        const hasManifestAtRoot = manifests.some(m =>
-            fs.existsSync(path.join(projectRoot, m))
-        );
-        if (hasManifestAtRoot) return projectRoot;
+        if (this.hasManifestIn(projectRoot, manifests)) return projectRoot;
 
-        // 즉시 하위 디렉토리에서 매니페스트 탐색
-        try {
-            const entries = fs.readdirSync(projectRoot, { withFileTypes: true });
-            for (const entry of entries) {
-                if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-                const subDir = path.join(projectRoot, entry.name);
-                const hasManifest = manifests.some(m =>
-                    fs.existsSync(path.join(subDir, m))
-                );
-                if (hasManifest) {
-                    console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project: ${subDir}`);
-                    return subDir;
-                }
-            }
-        } catch (e) {
-            // 디렉토리 읽기 실패 시 원래 경로 유지
+        // BFS로 최대 2-depth까지 탐색
+        const found = this.findManifestDir(projectRoot, manifests, 2);
+        if (found) {
+            console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project: ${found}`);
+            return found;
         }
 
         return projectRoot;

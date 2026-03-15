@@ -24621,6 +24621,11 @@ let thinkingBubbleElement = null;
 let selectedImageBase64 = null; // Base64 인코딩된 이미지 데이터를 저장할 변수
 let selectedImageMimeType = null; // 이미지 MIME 타입 저장
 let selectedFiles = []; // 선택된 파일 목록
+
+// 히스토리 lazy loading 상태
+let _historyHasMore = false;
+let _historyLoading = false;
+let _prependBuffer = null; // prepend 중 임시 컨테이너
 let selectedEditorCode = null; // 에디터에서 선택된 코드 { text, fileName, lineStart, lineEnd }
 let loadingDepth = 0; // 중첩 로딩 상태(에러 우선 처리 대비)
 let isPendingSend = false; // doSendUserMessage 호출 후 showLoading 수신 전 Race Condition 방지
@@ -26064,9 +26069,19 @@ document.addEventListener("DOMContentLoaded", () => {
     (0,_chat_theme_language_js__WEBPACK_IMPORTED_MODULE_14__.updateChatContainerPadding)();
   }, 100); // DOM이 완전히 로드된 후 실행
 
-  // 스크롤 이벤트 리스너 등록 (버블 고정용)
+  // 스크롤 이벤트 리스너 등록 (버블 고정용 + 히스토리 lazy loading)
   if (chatContainer) {
     chatContainer.addEventListener("scroll", handleScroll);
+    chatContainer.addEventListener("scroll", function () {
+      // 스크롤이 맨 위 근처에 도달하면 이전 히스토리 로드
+      if (chatContainer.scrollTop < 50 && _historyHasMore && !_historyLoading) {
+        _historyLoading = true;
+        console.log("[chat.js] Scroll top reached, requesting more history");
+        vscode.postMessage({
+          command: "loadMoreHistory"
+        });
+      }
+    });
   }
 
   // 모델 목록 요청 및 드롭다운 초기화
@@ -26267,6 +26282,67 @@ window.addEventListener("message", event => {
       if (chatMessagesDiv) {
         chatMessagesDiv.innerHTML = "";
       }
+      break;
+
+    // ═══════════ 히스토리 lazy loading ═══════════
+    case "historyMeta":
+      _historyHasMore = message.hasMore;
+      _historyLoading = false;
+      console.log(`[chat.js] historyMeta: hasMore=${message.hasMore}, loaded=${message.loadedCount}/${message.totalCount}`);
+      break;
+    case "prependHistoryStart":
+      // prepend 시작 — 스크롤 위치 보존을 위해 현재 높이 기록
+      if (chatMessages) {
+        chatMessages._prevScrollHeight = chatMessages.scrollHeight;
+        chatMessages._prevScrollTop = chatMessages.scrollTop;
+      }
+      _prependBuffer = document.createDocumentFragment();
+      break;
+    case "prependUserMessage":
+      {
+        if (!_prependBuffer || !chatMessages) break;
+        const userDiv = document.createElement("div");
+        userDiv.className = "user-message-container";
+        const bubble = document.createElement("div");
+        bubble.className = "user-message";
+        bubble.textContent = message.text;
+        userDiv.appendChild(bubble);
+        _prependBuffer.appendChild(userDiv);
+        break;
+      }
+    case "prependMessage":
+      {
+        if (!_prependBuffer || !chatMessages) break;
+        const msgDiv = document.createElement("div");
+        if (message.sender === "CODEPILOT") {
+          msgDiv.className = "codepilot-message-container";
+          const msgBubble = document.createElement("div");
+          msgBubble.className = "codepilot-message";
+          if (window.renderMarkdown) {
+            msgBubble.innerHTML = window.renderMarkdown(message.text);
+          } else {
+            msgBubble.textContent = message.text;
+          }
+          msgDiv.appendChild(msgBubble);
+        } else {
+          msgDiv.className = "system-message";
+          msgDiv.textContent = message.text;
+        }
+        _prependBuffer.appendChild(msgDiv);
+        break;
+      }
+    case "prependHistoryEnd":
+      // prepend 완료 — DOM에 삽입 후 스크롤 위치 보존
+      if (_prependBuffer && chatMessages) {
+        chatMessages.insertBefore(_prependBuffer, chatMessages.firstChild);
+        // 스크롤 위치 보존: 새로 추가된 높이만큼 스크롤 이동
+        const newScrollHeight = chatMessages.scrollHeight;
+        const addedHeight = newScrollHeight - (chatMessages._prevScrollHeight || 0);
+        chatMessages.scrollTop = (chatMessages._prevScrollTop || 0) + addedHeight;
+        console.log(`[chat.js] Prepended history, added height: ${addedHeight}px`);
+      }
+      _prependBuffer = null;
+      _historyLoading = false;
       break;
     case "receiveMessage":
       // console.log('Received message from extension:', message.text);

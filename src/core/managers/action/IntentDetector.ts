@@ -7,6 +7,7 @@ import { OllamaApi, AiModelType } from "../../../services";
 import { LLMManager } from "../model/LLMManager";
 import { StateManager } from "../state/StateManager";
 import { getIntentPrompt } from "../context/prompts/phase";
+import { PromptComposer } from "../context/prompts/PromptComposer";
 
 export type IntentCategory =
   | "code"
@@ -45,6 +46,8 @@ export interface IntentDetectionResult {
   reasoning: string;
   /** 계획 수립이 필요한지 여부 (analysis, documentation은 false) */
   requiresPlan: boolean;
+  /** 이 작업에 필요한 스킬 키 목록 (조건부 주입 대상) */
+  requiredSkillKeys: string[];
 }
 
 export class IntentDetector {
@@ -142,10 +145,13 @@ export class IntentDetector {
     const cleanedQuery = this.removeMentionsFromQuery(userQuery);
     console.log('[IntentDetector] Cleaned query for intent:', cleanedQuery);
 
+    // 사용 가능한 스킬 description 수집
+    const skillDescriptions = PromptComposer.getSkillDescriptions();
+
     // 1. LLM을 통한 의도 판별 (Only)
     try {
       // 현재 활성화된 모델을 사용하여 의도 파악
-      const llmRaw = await this.queryLLMForIntent(cleanedQuery);
+      const llmRaw = await this.queryLLMForIntent(cleanedQuery, skillDescriptions);
       if (llmRaw) {
         const subtype = llmRaw.subtype;
         const category = this.subtypeToCategory[subtype] || "analysis";
@@ -162,6 +168,7 @@ export class IntentDetector {
           confidence: llmRaw.confidence,
           reasoning: llmRaw.reasoning,
           requiresPlan: requiresPlan,
+          requiredSkillKeys: llmRaw.requiredSkillKeys || [],
         };
 
         console.log("[IntentDetector] LLM intent result:", result);
@@ -179,6 +186,7 @@ export class IntentDetector {
       confidence: 0.1,
       reasoning: "LLM 의도 판별 실패로 인한 기본값 사용.",
       requiresPlan: false,
+      requiredSkillKeys: [],
     };
   }
 
@@ -186,13 +194,17 @@ export class IntentDetector {
    * LLM을 사용한 의도 분류
    * StateManager가 설정된 경우 Intent 모델 사용, 아니면 메인 모델 사용
    */
-  private async queryLLMForIntent(userQuery: string): Promise<{
+  private async queryLLMForIntent(
+    userQuery: string,
+    skillDescriptions: { key: string; description: string }[] = [],
+  ): Promise<{
     subtype: IntentSubtype;
     confidence: number;
     reasoning: string;
     requiresPlan?: boolean;
+    requiredSkillKeys?: string[];
   } | null> {
-    const prompt = getIntentPrompt(userQuery);
+    const prompt = getIntentPrompt(userQuery, skillDescriptions);
 
     try {
       let response: string;
@@ -221,7 +233,7 @@ export class IntentDetector {
    */
   private safeParseIntentResponse(
     response: string,
-  ): { subtype: IntentSubtype; confidence: number; reasoning: string; requiresPlan?: boolean } | null {
+  ): { subtype: IntentSubtype; confidence: number; reasoning: string; requiresPlan?: boolean; requiredSkillKeys?: string[] } | null {
     try {
       // <think>...</think> 태그 제거 (OllamaApi가 thinking을 이 형태로 반환)
       const cleaned = response.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
@@ -259,6 +271,7 @@ export class IntentDetector {
             typeof parsed.confidence === "number" ? parsed.confidence : 0.6,
           reasoning: parsed.reasoning || "LLM 기반 분류",
           requiresPlan: typeof parsed.requiresPlan === "boolean" ? parsed.requiresPlan : undefined,
+          requiredSkillKeys: Array.isArray(parsed.requiredSkillKeys) ? parsed.requiredSkillKeys : [],
         };
       }
     } catch (error) {

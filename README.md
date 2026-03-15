@@ -2,6 +2,33 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
+> **현재 버전: v1.0.11**
+
+---
+
+## v1.0.11
+
+### 버그 수정
+
+- **SubAgentLoop create_file→update_file 무한루프 수정**: create_file로 생성한 파일에 update_file 시도 시 스킵만 하고 피드백이 없어 LLM이 동일 호출을 반복하던 문제 수정. 스킵된 파일에 synthetic feedback 메시지를 추가하여 루프 탈출
+- **RunCommandToolHandler 이중 실행 수정**: `exitCode !== undefined && !initialResult.error` 조건으로 인해 실패한 명령어(exitCode=1 + error)가 완료 대기 블록에서 재실행되던 문제 수정. `!initialResult.error` 조건 제거
+- **ToolExecutor 병렬 실행 인덱스 매핑 오류**: `results.filter(r => r !== undefined)`가 배열 길이를 변경하여 `uniqueCalls[i] ↔ results[i]` 매핑이 깨지던 문제 수정. `filter` → `map` + 폴백 에러 응답으로 전환
+
+### 기능 확장
+
+- **COMMAND_MANIFEST_MAP 50+개 명령어**: Python (uv, poetry, pdm, hatch, pipenv), Rust, Go, Ruby, PHP, Dart/Flutter, Java/JVM (gradle, maven, sbt), .NET, C/C++, Swift, Elixir, Zig, Gleam, Erlang, Clojure, Terraform, Helm 추가
+- **resolveCommandCwd BFS 2-depth 탐색**: 1-depth 탐색에서 BFS 2-depth로 확장. `*.csproj`, `*.sln` 등 glob suffix 패턴 지원. `packages/api/`, `apps/web/`, `services/auth/` 등 모노레포 구조 자동 감지
+- **resolveInstallCommand 19개 의존성 파일**: composer.json, pubspec.yaml, build.gradle(.kts), pom.xml, Package.swift, mix.exs, build.zig, gleam.toml, deno.json(c) 자동 감지 및 설치 명령어 매핑
+
+### UI 개선
+
+- **규칙/스킬 라벨 색상 통일**: 스킬 라벨 배지를 `#3b82f6` (파란색)으로 통일
+- **삭제 버튼 hover 효과 제거**: 삭제 버튼의 빨간색 hover 배경 제거
+
+### 성능 개선
+
+- **채팅 히스토리 lazy loading**: 시작 시 최근 10개 메시지만 로드, 스크롤업 시 이전 메시지 추가 로드. 스크롤 위치 보존
+
 ---
 
 ## v1.0.10

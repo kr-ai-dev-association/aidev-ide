@@ -40,6 +40,7 @@ import { ToolExecutionCoordinator } from "./handlers/ToolExecutionCoordinator";
 import { AgentConfig } from "../../config/AgentConfig";
 import { InlineDiffManager } from "../diff/InlineDiffManager";
 import { HotLoadManager } from "../hotload/HotLoadManager";
+import { PromptComposer } from "../context/prompts/PromptComposer";
 import { FetchUrlToolHandler } from "../../tools/web/FetchUrlToolHandler";
 import { StringUtils } from "../../utils/StringUtils";
 import { getExecutionPhasePrompt } from "../context/prompts/phase";
@@ -287,6 +288,13 @@ export class ConversationManager implements IConversationHandler {
       }
 
       // 2. 의도 파악 및 프로젝트 분석
+      // Skill Registry 사전 로드 (IntentDetector가 skill descriptions를 참조하기 위해)
+      try {
+        await PromptComposer.ensureServerSettingsSynced();
+        PromptComposer.loadAgentRulesWithKeys(); // skill registry 채움
+        PromptComposer.loadServerPromptTemplates(new Set()); // 서버 skill도 registry에 등록
+      } catch { /* registry 로드 실패해도 intent 진행 */ }
+
       // 현재 선택된 모델 타입을 사용하여 의도 파악 수행
       const intent = await this.contextGatherer.detectIntent(userQuery);
 
@@ -333,6 +341,7 @@ export class ConversationManager implements IConversationHandler {
         promptType: optionsWithAbort.promptType,
         hotLoadPrompt, // Hot Load 프롬프트 추가
         mcpCustomPrompts, // MCP 커스텀 프롬프트 추가
+        activeSkillKeys: intent.requiredSkillKeys, // IntentDetector가 선택한 스킬
         ...context,
       };
       const systemPrompt =
@@ -4132,9 +4141,22 @@ export class ConversationManager implements IConversationHandler {
     'package.json',
     'requirements.txt',
     'pyproject.toml',
+    'Pipfile',
     'go.mod',
+    'go.sum',
     'Cargo.toml',
     'Gemfile',
+    'composer.json',
+    'pubspec.yaml',
+    'build.gradle',
+    'build.gradle.kts',
+    'pom.xml',
+    'Package.swift',
+    'mix.exs',
+    'build.zig',
+    'gleam.toml',
+    'deno.json',
+    'deno.jsonc',
   ]);
 
   /**
@@ -4224,6 +4246,7 @@ export class ConversationManager implements IConversationHandler {
       { file: 'uv.lock', cmd: 'uv sync', desc: 'uv sync' },
       { file: 'poetry.lock', cmd: 'poetry install', desc: 'poetry install' },
       { file: 'Pipfile.lock', cmd: 'pipenv install', desc: 'pipenv install' },
+      { file: 'pdm.lock', cmd: 'pdm install', desc: 'pdm install' },
     ];
 
     for (const { file, cmd, desc } of lockFileMap) {
@@ -4237,7 +4260,7 @@ export class ConversationManager implements IConversationHandler {
       }
     }
 
-    // 2순위: pyproject.toml의 빌드 백엔드 확인
+    // 2순위: pyproject.toml의 빌드 백엔드 / 도구 설정 확인
     if (triggerFile === 'pyproject.toml') {
       try {
         const content = fs.readFileSync(path.join(depDir, 'pyproject.toml'), 'utf-8');
@@ -4247,13 +4270,37 @@ export class ConversationManager implements IConversationHandler {
         if (content.includes('[tool.poetry]') && this.isCommandAvailable('poetry')) {
           return { command: 'poetry install', description: 'poetry install' };
         }
+        if (content.includes('[tool.pdm]') && this.isCommandAvailable('pdm')) {
+          return { command: 'pdm install', description: 'pdm install' };
+        }
+        if (content.includes('[tool.hatch]') && this.isCommandAvailable('hatch')) {
+          return { command: 'hatch env create', description: 'hatch env create' };
+        }
+        // build-backend 기반 감지
+        if (content.includes('hatchling') && this.isCommandAvailable('hatch')) {
+          return { command: 'hatch env create', description: 'hatch env create' };
+        }
+        if (content.includes('pdm-backend') && this.isCommandAvailable('pdm')) {
+          return { command: 'pdm install', description: 'pdm install' };
+        }
       } catch {
         // 파싱 실패 → 다음 단계로
       }
     }
 
-    // 3순위: requirements.txt → pip
+    // 3순위: Pipfile → pipenv
+    if (triggerFile === 'Pipfile') {
+      if (this.isCommandAvailable('pipenv')) {
+        return { command: 'pipenv install', description: 'pipenv install' };
+      }
+    }
+
+    // 4순위: requirements.txt → pip
     if (triggerFile === 'requirements.txt') {
+      // uv가 있으면 우선 사용 (더 빠름)
+      if (this.isCommandAvailable('uv')) {
+        return { command: 'uv pip install -r requirements.txt', description: 'uv pip install' };
+      }
       if (this.isCommandAvailable('pip')) {
         return { command: 'pip install -r requirements.txt', description: 'pip install' };
       }
@@ -4264,6 +4311,9 @@ export class ConversationManager implements IConversationHandler {
 
     // pyproject.toml 기본 fallback
     if (triggerFile === 'pyproject.toml') {
+      if (this.isCommandAvailable('uv')) {
+        return { command: 'uv pip install .', description: 'uv pip install' };
+      }
       if (this.isCommandAvailable('pip')) {
         return { command: 'pip install .', description: 'pip install' };
       }
@@ -4276,31 +4326,109 @@ export class ConversationManager implements IConversationHandler {
    * 변경된 의존성 파일에 대한 설치 명령 결정
    */
   private resolveInstallCommand(depDir: string, triggerFile: string): { command: string; description: string } | null {
-    const fs = require('fs');
-
     switch (triggerFile) {
+      // ── JavaScript / TypeScript ──
       case 'package.json':
         return this.resolveNodeInstallCommand(depDir);
 
+      // ── Python ──
       case 'requirements.txt':
       case 'pyproject.toml':
+      case 'Pipfile':
         return this.resolvePythonInstallCommand(depDir, triggerFile);
 
+      // ── Go ──
       case 'go.mod':
+      case 'go.sum':
         if (this.isCommandAvailable('go')) {
           return { command: 'go mod tidy', description: 'go mod tidy' };
         }
         return null;
 
+      // ── Rust ──
       case 'Cargo.toml':
         if (this.isCommandAvailable('cargo')) {
           return { command: 'cargo build', description: 'cargo build' };
         }
         return null;
 
+      // ── Ruby ──
       case 'Gemfile':
         if (this.isCommandAvailable('bundle')) {
           return { command: 'bundle install', description: 'bundle install' };
+        }
+        return null;
+
+      // ── PHP ──
+      case 'composer.json':
+        if (this.isCommandAvailable('composer')) {
+          return { command: 'composer install', description: 'composer install' };
+        }
+        return null;
+
+      // ── Dart / Flutter ──
+      case 'pubspec.yaml':
+        if (this.isCommandAvailable('flutter')) {
+          return { command: 'flutter pub get', description: 'flutter pub get' };
+        }
+        if (this.isCommandAvailable('dart')) {
+          return { command: 'dart pub get', description: 'dart pub get' };
+        }
+        return null;
+
+      // ── Java / JVM ──
+      case 'build.gradle':
+      case 'build.gradle.kts':
+        if (this.isCommandAvailable('./gradlew')) {
+          return { command: './gradlew build', description: 'gradlew build' };
+        }
+        if (this.isCommandAvailable('gradle')) {
+          return { command: 'gradle build', description: 'gradle build' };
+        }
+        return null;
+
+      case 'pom.xml':
+        if (this.isCommandAvailable('./mvnw')) {
+          return { command: './mvnw install', description: 'mvnw install' };
+        }
+        if (this.isCommandAvailable('mvn')) {
+          return { command: 'mvn install', description: 'mvn install' };
+        }
+        return null;
+
+      // ── Swift ──
+      case 'Package.swift':
+        if (this.isCommandAvailable('swift')) {
+          return { command: 'swift package resolve', description: 'swift package resolve' };
+        }
+        return null;
+
+      // ── Elixir ──
+      case 'mix.exs':
+        if (this.isCommandAvailable('mix')) {
+          return { command: 'mix deps.get', description: 'mix deps.get' };
+        }
+        return null;
+
+      // ── Zig ──
+      case 'build.zig':
+        if (this.isCommandAvailable('zig')) {
+          return { command: 'zig build', description: 'zig build' };
+        }
+        return null;
+
+      // ── Gleam ──
+      case 'gleam.toml':
+        if (this.isCommandAvailable('gleam')) {
+          return { command: 'gleam deps download', description: 'gleam deps download' };
+        }
+        return null;
+
+      // ── Deno ──
+      case 'deno.json':
+      case 'deno.jsonc':
+        if (this.isCommandAvailable('deno')) {
+          return { command: 'deno install', description: 'deno install' };
         }
         return null;
 

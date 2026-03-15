@@ -31,6 +31,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private diffDocumentProvider?: DiffDocumentProvider;
     private runTerminal: vscode.Terminal | null = null;
 
+    // 히스토리 lazy loading
+    private static readonly HISTORY_PAGE_SIZE = 20;
+    private _fullConversationHistory: any[] = [];
+    private _historyLoadedCount = 0;
+
     constructor(
         private readonly extensionUri: vscode.Uri,
         private readonly context: vscode.ExtensionContext,
@@ -163,6 +168,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             switch (data.command) {
+                // ═══════════ 히스토리 lazy loading ═══════════
+                case 'loadMoreHistory': {
+                    this.loadMoreHistory();
+                    break;
+                }
+
                 // ═══════════ 인증 핸들러 ═══════════
                 case 'checkAuthState': {
                     try {
@@ -1605,8 +1616,8 @@ ${JSON.stringify(errorContext, null, 2)}
     }
 
     /**
-     * 세션의 대화 히스토리를 복원
-     * ✅ 개선: uiMessages가 있으면 코드블록, 액션 영역 포함하여 복원
+     * 세션의 대화 히스토리를 복원 (lazy loading)
+     * 최근 N개만 먼저 로드하고, 스크롤 업 시 이전 히스토리를 추가 로드
      */
     public restoreConversationHistory(conversationHistory: any[]): void {
         if (!this._view) {
@@ -1614,48 +1625,120 @@ ${JSON.stringify(errorContext, null, 2)}
             return;
         }
 
-        console.log(`[ChatViewProvider] Restoring ${conversationHistory.length} conversation entries`);
+        // 전체 히스토리 저장
+        this._fullConversationHistory = conversationHistory;
+        const total = conversationHistory.length;
+        const pageSize = ChatViewProvider.HISTORY_PAGE_SIZE;
+
+        // 최근 N개만 추출
+        const startIdx = Math.max(0, total - pageSize);
+        const recentEntries = conversationHistory.slice(startIdx);
+        this._historyLoadedCount = recentEntries.length;
+
+        console.log(`[ChatViewProvider] Lazy loading: showing ${recentEntries.length}/${total} entries (from index ${startIdx})`);
 
         // 먼저 채팅 패널 초기화
         this._view.webview.postMessage({
             command: 'clearChat'
         });
 
-        // 각 대화 항목을 순차적으로 표시
-        // ConversationEntry 형식: { userRequest, assistantResponse, uiMessages, ... }
-        conversationHistory.forEach((entry, index) => {
-            console.log(`[ChatViewProvider] Entry ${index}: userRequest="${entry.userRequest?.substring(0, 50)}...", assistantResponse="${entry.assistantResponse?.substring(0, 100)}..."`);
+        // 더 로드할 히스토리가 있는지 webview에 알림
+        const hasMore = startIdx > 0;
+        this._view.webview.postMessage({
+            command: 'historyMeta',
+            hasMore,
+            totalCount: total,
+            loadedCount: recentEntries.length
+        });
 
+        // 최근 항목만 표시
+        this.sendEntriesToWebview(recentEntries);
+    }
+
+    /**
+     * 이전 히스토리 추가 로드 (스크롤 업 시 호출)
+     */
+    private loadMoreHistory(): void {
+        if (!this._view || this._fullConversationHistory.length === 0) return;
+
+        const total = this._fullConversationHistory.length;
+        const alreadyLoaded = this._historyLoadedCount;
+        const remaining = total - alreadyLoaded;
+
+        if (remaining <= 0) {
+            this._view.webview.postMessage({
+                command: 'historyMeta',
+                hasMore: false,
+                totalCount: total,
+                loadedCount: alreadyLoaded
+            });
+            return;
+        }
+
+        const pageSize = ChatViewProvider.HISTORY_PAGE_SIZE;
+        const loadCount = Math.min(pageSize, remaining);
+        const startIdx = remaining - loadCount;
+        const olderEntries = this._fullConversationHistory.slice(startIdx, startIdx + loadCount);
+
+        this._historyLoadedCount += loadCount;
+
+        console.log(`[ChatViewProvider] Loading ${loadCount} more entries (index ${startIdx}-${startIdx + loadCount - 1}), total loaded: ${this._historyLoadedCount}/${total}`);
+
+        const hasMore = startIdx > 0;
+        this._view.webview.postMessage({
+            command: 'historyMeta',
+            hasMore,
+            totalCount: total,
+            loadedCount: this._historyLoadedCount
+        });
+
+        // prepend 방식으로 이전 메시지 전송
+        this._view.webview.postMessage({
+            command: 'prependHistoryStart'
+        });
+
+        this.sendEntriesToWebview(olderEntries, true);
+
+        this._view.webview.postMessage({
+            command: 'prependHistoryEnd'
+        });
+    }
+
+    /**
+     * 대화 항목들을 webview에 전송
+     */
+    private sendEntriesToWebview(entries: any[], isPrepend = false): void {
+        const command_prefix = isPrepend ? 'prepend' : '';
+
+        entries.forEach((entry, index) => {
             // 사용자 요청 표시
             if (entry.userRequest) {
                 this._view?.webview.postMessage({
-                    command: 'displayUserMessage',
+                    command: isPrepend ? 'prependUserMessage' : 'displayUserMessage',
                     text: entry.userRequest
                 });
             }
 
-            // ✅ uiMessages가 있으면 전체 UI 메시지 복원 (코드블록, 액션 포함)
+            // uiMessages가 있으면 전체 UI 메시지 복원 (코드블록, 액션 포함)
             if (entry.uiMessages && entry.uiMessages.length > 0) {
                 entry.uiMessages.forEach((msg: { sender: string; text: string; type?: string }) => {
                     this._view?.webview.postMessage({
-                        command: 'receiveMessage',
+                        command: isPrepend ? 'prependMessage' : 'receiveMessage',
                         sender: msg.sender,
                         text: msg.text
                     });
                 });
             } else if (entry.assistantResponse) {
-                // uiMessages가 없으면 기존 방식 (ASK 모드 또는 구버전 데이터)
                 this._view?.webview.postMessage({
-                    command: 'receiveMessage',
+                    command: isPrepend ? 'prependMessage' : 'receiveMessage',
                     sender: 'CODEPILOT',
                     text: entry.assistantResponse
                 });
             } else if (entry.actions && entry.actions.length > 0) {
-                // CODE 모드: 파일 변경 요약 표시 (구버전 호환)
                 const actionSummary = this.generateActionSummary(entry);
                 if (actionSummary) {
                     this._view?.webview.postMessage({
-                        command: 'receiveMessage',
+                        command: isPrepend ? 'prependMessage' : 'receiveMessage',
                         sender: 'CODEPILOT',
                         text: actionSummary
                     });

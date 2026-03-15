@@ -166,6 +166,7 @@ export class SubAgentLoop {
                 // 3.5. 같은 턴 내 동일 도구+경로 중복 제거 (e.g. read_file 같은 파일 2번)
                 const seenInTurn = new Set<string>();
                 const createFilesInTurn = new Set<string>();
+                const skippedUpdateFiles: { path: string }[] = [];
                 const uniqueCalls = allowedCalls.filter(call => {
                     const key = `${call.name}:${call.params.path || call.params.command || ''}`;
                     if (seenInTurn.has(key)) {
@@ -183,6 +184,7 @@ export class SubAgentLoop {
                     if (call.name === 'update_file' && call.params.path) {
                         if (createFilesInTurn.has(call.params.path) || createdFilesInSession.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after create_file on same path: ${call.params.path}`);
+                            skippedUpdateFiles.push({ path: call.params.path });
                             return false;
                         }
                     }
@@ -199,6 +201,18 @@ export class SubAgentLoop {
                         this.callbacks?.onToolStart,
                     )
                     : [];
+
+                // 4.5. skip된 update_file에 대한 synthetic 피드백 추가
+                for (const skipped of skippedUpdateFiles) {
+                    uniqueCalls.push({
+                        name: 'update_file',
+                        params: { path: skipped.path }
+                    } as ToolUse);
+                    results.push({
+                        success: true,
+                        message: `[스킵됨] ${skipped.path}는 이번 세션에서 create_file로 생성된 파일입니다. update_file이 자동 생략되었습니다. 파일 내용을 수정하려면 read_file로 현재 내용을 먼저 확인한 후 update_file을 사용하세요.`,
+                    });
+                }
 
                 // 도구가 실행됐으므로 실패 카운터 리셋
                 consecutiveFailures = 0;

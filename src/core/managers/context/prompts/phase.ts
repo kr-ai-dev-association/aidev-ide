@@ -15,7 +15,17 @@ import {
 } from "./base";
 
 // ==================== Intent Phase ====================
-export function getIntentPrompt(userQuery: string): string {
+export function getIntentPrompt(userQuery: string, skillDescriptions: { key: string; description: string }[] = []): string {
+  const skillSection = skillDescriptions.length > 0
+    ? `
+
+**사용 가능한 스킬 (필요한 것만 선택):**
+${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}
+
+위 스킬 중 사용자 요청을 처리하는 데 필요한 스킬이 있으면 requiredSkillKeys에 해당 키를 포함하세요.
+필요한 스킬이 없으면 빈 배열([])을 반환하세요.`
+    : '';
+
   return `
 다음 사용자 요청을 분석하여 의도(Subtype)와 계획 필요 여부를 판단하세요.
 
@@ -49,13 +59,15 @@ export function getIntentPrompt(userQuery: string): string {
 - "이 코드 리팩토링해줘" → requiresPlan: true (여러 파일 수정 가능성)
 - "인증 시스템 구현해줘" → requiresPlan: true (복잡한 기능 개발)
 - "존재하지 않는 파일 수정해줘" → code_modify (수정 의도, 파일 없으면 실행 시 오류 처리)
+${skillSection}
 
 출력 형식 (JSON):
 {
   "subtype": "analysis_function",
   "confidence": 0.9,
   "reasoning": "요청의 구체적인 이유",
-  "requiresPlan": false
+  "requiresPlan": false,
+  "requiredSkillKeys": []
 }
 
 사용자 요청: "${userQuery}"`;
