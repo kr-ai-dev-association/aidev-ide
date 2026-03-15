@@ -184,6 +184,7 @@ class CodePilotApiClient {
             return await fetch(url, { ...options, signal: controller.signal });
         }
         catch (e) {
+            console.error(`[CodePilotApiClient] fetch 실패: ${url}`, e?.message, e?.cause);
             if (e?.name === "AbortError") {
                 throw new Error(`요청 시간 초과 (${CodePilotApiClient.TIMEOUT_MS / 1000}초)`);
             }

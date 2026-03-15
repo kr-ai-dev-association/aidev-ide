@@ -137,6 +137,9 @@ export class AuthService {
         this._onDidChangeAuth.fire(true);
       } catch (e: any) {
         const msg = e?.message || "알 수 없는 오류";
+        console.error("[AuthService] OAuth 코드 교환 실패:", msg);
+        console.error("[AuthService] 에러 상세:", e);
+        console.error("[AuthService] 에러 스택:", e?.stack);
         vscode.window.showErrorMessage(`로그인 실패: ${msg}`);
         this._onDidChangeAuth.fire(false);
 
