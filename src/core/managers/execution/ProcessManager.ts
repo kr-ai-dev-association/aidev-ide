@@ -52,6 +52,11 @@ export class ProcessManager {
         options: ExecutionOptions = {},
         metadata?: ProcessMetadata
     ): Promise<Process> {
+        // Git Bash 사용 시 Windows 경로 구분자(.\)를 bash 호환(./)으로 치환
+        if (GIT_BASH_PATH) {
+            command = command.replace(/\.\\/g, './');
+        }
+
         console.log('[ProcessManager] Starting process:', command);
 
         // 명령어와 인자 분리
