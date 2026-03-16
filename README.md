@@ -2,7 +2,22 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.13**
+> **현재 버전: v1.0.14**
+
+---
+
+## v1.0.14
+
+### 버그 수정
+
+- **CODE 모드 토큰 뱃지 미표시**: CODE 모드에서 응답 토큰 수가 표시되지 않던 문제 수정. LLM 응답 직후(요약 메시지 렌더링 전) `updateMessageTokenInfo`를 호출하여 컨테이너가 없었던 문제를 REVIEW 요약 메시지 렌더링 후로 이동. 멀티턴 시 전체 토큰 누적 표시
+
+### 개선
+
+- **Hot Load 프롬프트 강화**: LLM이 핫로드 키워드 매칭 시 직접 코드 생성으로 빠지는 문제 개선. 최우선 규칙 명시, 의미적 매칭 예시 추가, "명령어" 플레이스홀더 리터럴 방지 지시 추가
+- **Hot Load 오케스트레이션 분할 방지**: 핫로드 키워드가 매칭되는 요청이 TaskSplitter에 의해 멀티 에이전트로 분할되어 핫로드가 무시되던 문제 수정. TaskSplitter에 핫로드 키워드를 전달하여 매칭 시 `shouldSplit: false` 반환
+- **Windows cmd.exe 한글 깨짐 수정**: cmd.exe 기본 코드페이지(CP949)로 인한 한글 출력 깨짐 수정. 명령 실행 시 `chcp 65001`로 UTF-8 코드페이지 설정
+- **Windows `./` 경로 변환 제거**: `normalizeCommand()`가 `./`를 `.\`로 변환하여 Git Bash에서 `.run_script.sh`로 인식되던 문제 수정. Git Bash는 `./`가 정상, cmd.exe도 `shell: true`로 처리 가능하므로 변환 제거
 
 ---
 

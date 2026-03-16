@@ -125,6 +125,7 @@ export class ConversationManager implements IConversationHandler {
   private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
   private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
   private _pendingImportCleanupMsg: string | null = null; // 삭제 후 import 정리 메시지
+  private _pendingTokenInfo: { tokens: number; model?: string } | null = null; // CODE 모드 토큰 누적
   private loopStateTracker = new LoopStateTracker();
   private contextGatherer!: ContextGatherer;
 
@@ -2036,11 +2037,11 @@ export class ConversationManager implements IConversationHandler {
       usageMetrics.recordLLMCall(llmResponseTime, estimatedTokenCount, true, actualModelName);
       usageMetrics.incrementTurnCount();
 
-      // 메시지별 토큰 정보 UI 업데이트
-      WebviewBridge.updateMessageTokenInfo(webviewToRespond, {
-        tokens: estimatedTokenCount,
+      // CODE 모드 토큰 누적 (REVIEW 요약 메시지 렌더링 후 전송)
+      this._pendingTokenInfo = {
+        tokens: (this._pendingTokenInfo?.tokens || 0) + estimatedTokenCount,
         model: actualModelName,
-      });
+      };
 
       console.log(
         `[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`,
@@ -4269,6 +4270,12 @@ export class ConversationManager implements IConversationHandler {
     } else {
       // 파일 변경 없으면 완료 메시지 출력하지 않음
       finalResponse = "";
+    }
+
+    // CODE 모드 누적 토큰 정보 전송 (요약 메시지 렌더링 후)
+    if (this._pendingTokenInfo) {
+      WebviewBridge.updateMessageTokenInfo(webview, this._pendingTokenInfo);
+      this._pendingTokenInfo = null;
     }
 
     // 📝 v9.7.0: 세션 저장은 루프 종료 후 executeAgentLoop 끝에서 처리
