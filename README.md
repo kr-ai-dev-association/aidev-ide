@@ -10,8 +10,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ### 버그 수정
 
-- **Windows PowerShell Execution Policy 쉘 실행 실패**: PowerShell의 Execution Policy가 Restricted일 때 명령어가 실행되지 않고 파일로 떨어지던 문제 수정. 쉘 선택을 Git Bash → PowerShell (`-ExecutionPolicy Bypass`) → cmd.exe 3단계 fallback 체인으로 변경
-- **WindowsAdapter `getDefaultShell()` 항상 pwsh 반환**: `||` 체인에서 비어 있지 않은 문자열이 truthy로 평가되어 실제 파일 존재 여부와 무관하게 항상 첫 번째 경로를 반환하던 버그 수정. `fs.existsSync`로 실제 존재 확인 후 반환하도록 변경
+- **Windows PowerShell Execution Policy 쉘 실행 실패**: PowerShell의 Execution Policy가 Restricted일 때 명령어가 실행되지 않고 파일로 떨어지던 문제 수정. 기본 쉘을 cmd.exe로 변경 (Git Bash 있으면 우선 사용)
 - **TestRunner LLM 프로젝트 타입 감지 매턴 중복 호출**: 검증 턴마다 LLM을 호출하여 프로젝트 타입을 감지하던 문제 수정. `llmProjectTypeCache` 정적 Map으로 워크스페이스별 캐싱
 - **TestRunner LLM이 `"..."` 등 무효 명령어 반환**: LLM이 말줄임표, 구두점 등을 검증 명령어로 반환하여 exit 127 발생하던 문제 수정. `isValidCommand()` 검증 추가
 - **오케스트레이션 참조 리스트 미표시**: 오케스트레이션(멀티 에이전트) 모드에서 참조 문서 패널이 표시되지 않던 문제 수정. `sendReferenceInfo` 호출 시점을 에이전트 실행 전에서 요약 메시지 전송 후로 변경
@@ -19,8 +18,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ### 개선
 
-- **Windows 쉘 3단계 fallback**: Git Bash → PowerShell + `-ExecutionPolicy Bypass` → cmd.exe. PowerShell 경로도 pwsh 7+ 우선, 5.1 fallback으로 실제 존재 확인
-- **WindowsAdapter PowerShell 명령어 Bypass 적용**: `getFindNodeProcessByCwdCommand`, `getProcessCwdCommand`, `getFindDevServerProcessCommand` 등 PowerShell 직접 호출 명령어에 `-ExecutionPolicy Bypass` 플래그 추가
+- **Windows 기본 쉘 cmd.exe로 변경**: PowerShell은 ExecutionPolicy 제한으로 명령어 실행 실패 가능성이 높아 기본 쉘을 cmd.exe로 변경. Git Bash가 있으면 우선 사용. 시스템 조회(`Get-CimInstance` 등) PowerShell 전용 명령어만 `powershell -ExecutionPolicy Bypass -Command`로 직접 호출
 - **오케스트레이션 참조 추적**: `gatherRulesContext`에서 로컬 규칙, 서버 규칙, RAG 문서 참조를 수집하여 웹뷰에 전송. `PromptComposer.getLastIncludedServerRuleKeys()` getter 추가
 
 ---

@@ -1,5 +1,4 @@
 import * as os from 'os';
-import * as fs from 'fs';
 import * as path from 'path';
 import { IOperatingSystemAdapter, OSDetectionResult } from './IOperatingSystemAdapter';
 
@@ -13,22 +12,16 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
     // ==================== 터미널 관련 ====================
 
     getDefaultShell(): string {
-        // 환경변수 우선
-        if (process.env.SHELL) return process.env.SHELL;
-        // PowerShell Core 7+ (pwsh) > Windows PowerShell 5.1 > cmd
-        const pwsh7 = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
-        const pwsh51 = (process.env.SystemRoot || 'C:\\Windows') + '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
-        try { if (fs.existsSync(pwsh7)) return pwsh7; } catch { /* ignore */ }
-        try { if (fs.existsSync(pwsh51)) return pwsh51; } catch { /* ignore */ }
-        return 'cmd.exe';
+        // cmd.exe 기본 (PowerShell은 ExecutionPolicy 문제로 사용하지 않음)
+        // 환경변수 SHELL이 설정되어 있으면 해당 쉘 사용 (Git Bash 등)
+        return process.env.SHELL || 'cmd.exe';
     }
 
     getShellType(): 'bash' | 'zsh' | 'powershell' | 'cmd' | 'sh' {
         const shell = this.getDefaultShell();
         if (shell.includes('bash')) return 'bash';
         if (shell.includes('powershell') || shell.includes('pwsh')) return 'powershell';
-        if (shell.includes('cmd')) return 'cmd';
-        return 'cmd'; // 기본값
+        return 'cmd';
     }
 
     normalizeCommand(command: string): string {
@@ -47,19 +40,11 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
     }
 
     getSetEnvCommand(key: string, value: string): string {
-        if (this.getShellType() === 'powershell') {
-            return `$env:${key}="${value}"`;
-        } else {
-            return `set ${key}=${value}`;
-        }
+        return `set ${key}=${value}`;
     }
 
     getAddPathCommand(path: string): string {
-        if (this.getShellType() === 'powershell') {
-            return `$env:PATH="${path};$env:PATH"`;
-        } else {
-            return `set PATH=${path};%PATH%`;
-        }
+        return `set PATH=${path};%PATH%`;
     }
 
     getKillProcessCommand(pid: number): string {
@@ -158,18 +143,8 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
 
 
     getShellExecutionOptions(): Record<string, any> {
-        const shell = this.getDefaultShell();
-        if (shell.includes('powershell') || shell.includes('pwsh')) {
-            // PowerShell: -ExecutionPolicy Bypass로 스크립트 실행 제한 우회
-            return {
-                shell,
-                env: process.env,
-                windowsVerbatimArguments: true,
-                shellArgs: ['-ExecutionPolicy', 'Bypass'],
-            };
-        }
         return {
-            shell,
+            shell: this.getDefaultShell(),
             env: process.env,
             windowsVerbatimArguments: true,
         };
