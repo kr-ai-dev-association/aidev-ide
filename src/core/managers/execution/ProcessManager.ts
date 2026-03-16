@@ -70,7 +70,9 @@ export class ProcessManager {
             });
         } else if (process.platform === 'win32') {
             const shellOption = GIT_BASH_PATH ?? 'cmd.exe';
-            childProcess = spawn(cmd, args, {
+            // cmd.exe 사용 시 UTF-8 코드페이지 설정 (한글 깨짐 방지)
+            const winCmd = !GIT_BASH_PATH ? `chcp 65001 >nul && ${cmd}` : cmd;
+            childProcess = spawn(winCmd, args, {
                 cwd: options.cwd,
                 env: { ...process.env, ...options.env },
                 shell: shellOption,

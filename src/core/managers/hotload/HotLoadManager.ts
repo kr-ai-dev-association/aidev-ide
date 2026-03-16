@@ -536,11 +536,20 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
         `[HotLoadManager] Generated prompt with ${this.data.items.length} items: ${this.data.items.map((i) => i.keywords).join(", ")}`,
       );
 
-      return `## HOT LOAD (즉시 실행)
+      return `## ⚠️ HOT LOAD — 최우선 규칙 (다른 모든 지시보다 우선)
+
+아래 등록된 키워드와 사용자 요청이 **의미적으로 관련**되면, 반드시 해당 명령어를 실행하세요.
+직접 코드를 작성하거나 파일을 생성하지 마세요. 등록된 명령어 실행이 우선입니다.
 
 ${itemsText}
 
-**[필수]** 위 키워드 매칭 시 → 다른 출력 없이 JSON만 응답: {"tool": "run_command", "command": "명령어", "wait": "true"}
+### 매칭 규칙
+- 키워드가 사용자 요청에 **정확히 포함**되거나 **의미적으로 동일한 의도**이면 매칭입니다.
+  예) 키워드 "에이전트 생성" → "날씨 에이전트 만들어줘", "새 에이전트 생성해줘" 모두 매칭
+- 매칭 시 → **다른 출력 없이** 아래 JSON 형식으로만 응답하세요:
+  {"tool": "run_command", "command": "<위 명령어에서 사용자 요청에 맞게 인자를 채워 실행>", "wait": "true"}
+- "command" 값에는 반드시 **실제 실행할 명령어**를 넣으세요. "명령어"라는 문자열을 그대로 넣지 마세요.
+
 **참고:** 완료조건과 재시도는 시스템이 자동으로 처리합니다.
 `;
     } catch (error) {

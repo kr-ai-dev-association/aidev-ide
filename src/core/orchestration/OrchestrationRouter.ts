@@ -92,11 +92,20 @@ export class OrchestrationRouter {
             const splitter = new TaskSplitter();
             const projectContext = await OrchestrationRouter.getProjectContext(options.userQuery);
 
+            // Hot Load 키워드 수집 (있으면 TaskSplitter에 전달하여 분할 방지)
+            let hotLoadKeywords: string[] = [];
+            try {
+                const { HotLoadManager } = await import('../managers/hotload/HotLoadManager');
+                const hotLoadManager = HotLoadManager.getInstance();
+                const items = await hotLoadManager.getAllHotLoads();
+                hotLoadKeywords = items.map((item: any) => item.keywords);
+            } catch { /* ignore */ }
+
             // 분할 중 상태 표시
             WebviewBridge.sendProcessingStep(webview, 'plan');
             WebviewBridge.sendProcessingStatus(webview, 'plan', '작업 분할 분석 중...');
 
-            const splitResult = await splitter.split(options.userQuery, projectContext);
+            const splitResult = await splitter.split(options.userQuery, projectContext, hotLoadKeywords);
 
             if (!splitResult.shouldSplit) {
                 console.log('[OrchestrationRouter] Simple task, using single loop');

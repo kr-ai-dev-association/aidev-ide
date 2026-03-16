@@ -25,7 +25,6 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
     }
 
     normalizeCommand(command: string): string {
-        // Unix 스타일 명령어를 Windows 스타일로 변환
         let normalized = command;
 
         // chmod, chown 등은 Windows에서 지원하지 않음
@@ -33,8 +32,8 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
             normalized = `# ${normalized} (Windows에서는 icacls 사용)`;
         }
 
-        // ./ 실행을 Windows 스타일로 변환
-        normalized = normalized.replace(/^\.\//, '.\\');
+        // ./ → .\ 변환 제거: Git Bash 쉘에서 .\가 파일명과 붙어 깨짐
+        // cmd.exe도 shell: true 사용 시 ./ 처리 가능
 
         return normalized;
     }
