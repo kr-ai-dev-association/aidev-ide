@@ -514,7 +514,7 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
         .map((item, idx) => {
           let text = `[${idx + 1}] 키워드: ${item.keywords}
    설명: ${item.description}
-   명령어: ${item.command}`;
+   명령어: ${item.command.replace(/\\/g, '/')}`;
 
           // 확장 필드 표시
           if (item.maxRetries && item.maxRetries > 0) {
@@ -546,9 +546,7 @@ ${itemsText}
 ### 매칭 규칙
 - 키워드가 사용자 요청에 **정확히 포함**되거나 **의미적으로 동일한 의도**이면 매칭입니다.
   예) 키워드 "에이전트 생성" → "날씨 에이전트 만들어줘", "새 에이전트 생성해줘" 모두 매칭
-- 매칭 시 → **다른 출력 없이** 아래 JSON 형식으로만 응답하세요:
-  {"tool": "run_command", "command": "<위 명령어에서 사용자 요청에 맞게 인자를 채워 실행>", "wait": "true"}
-- "command" 값에는 반드시 **실제 실행할 명령어**를 넣으세요. "명령어"라는 문자열을 그대로 넣지 마세요.
+- 매칭 시 → **다른 출력 없이** 위에 등록된 "명령어" 항목을 run_command 도구로 실행하세요. 인자가 필요하면 사용자 요청에서 유추하여 채우세요.
 
 **참고:** 완료조건과 재시도는 시스템이 자동으로 처리합니다.
 `;
