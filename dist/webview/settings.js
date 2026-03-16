@@ -5732,7 +5732,7 @@ window.addEventListener("message", event => {
     }
     if (message.command === "settingsImported") {
       if (statusEl) {
-        statusEl.textContent = message.success ? "설정을 가져왔습니다. 일부 설정은 재시작 후 적용됩니다." : `가져오기 실패: ${message.error || "알 수 없는 오류"}`;
+        statusEl.textContent = message.success ? "설정을 가져왔습니다." : `가져오기 실패: ${message.error || "알 수 없는 오류"}`;
         statusEl.style.color = message.success ? "#22c55e" : "#ef4444";
       }
       if (message.success) {

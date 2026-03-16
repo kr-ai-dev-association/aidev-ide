@@ -20,8 +20,6 @@ import { TerminalManager } from "../terminal/TerminalManager";
 import { Tool } from "../../tools/types";
 import { ToolSpecBuilder } from "../../tools/ToolSpecBuilder";
 import { ProjectManager } from "../project/ProjectManager";
-import { ProjectDetector } from "../project/ProjectDetector";
-import { ProjectType } from "../project/types";
 import { InvestigationManager } from "../investigation/InvestigationManager";
 import { SettingsManager } from "../state/SettingsManager";
 import { StateManager } from "../state/StateManager";
@@ -61,7 +59,8 @@ import {
   getExecutionNoToolCallWarningPrompt,
 } from "../context/prompts/rules";
 import { RetryCoordinator } from "./handlers/RetryCoordinator";
-import { CompletionJudge } from "./handlers/CompletionJudge";
+import { FileChangeHandler } from "./handlers/FileChangeHandler";
+
 import { LoopStateTracker } from "./handlers/LoopStateTracker";
 import { ContextGatherer } from "./handlers/ContextGatherer";
 import { getGeneralAnalysisPrompt } from "../context/prompts/analysis/generalAnalysis";
@@ -107,6 +106,7 @@ export interface GatheredContext {
   diagnosticsContextContent: string;
   frameworkRulesPrompt: string;
   ragContext: string;
+  subProjectStructure?: string;
 }
 
 // AgentPhase는 AgentStateManager에서 import
@@ -122,8 +122,6 @@ export class ConversationManager implements IConversationHandler {
   private responseProcessor: ResponseProcessor;
   private currentAbortController: AbortController | null = null;
   private stateManager: StateManager | null = null;
-  private completionJudge: CompletionJudge; // A4: 완료 판단기
-  private _lastBuildTestPassed = false;
   private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
   private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
   private _pendingImportCleanupMsg: string | null = null; // 삭제 후 import 정리 메시지
@@ -138,7 +136,6 @@ export class ConversationManager implements IConversationHandler {
     this.contextManager = ContextManager.getInstance();
     this.llmManager = LLMManager.getInstance(ollamaApi);
     this.responseProcessor = new ResponseProcessor(this.llmManager);
-    this.completionJudge = new CompletionJudge(this.llmManager); // A4
     this.contextGatherer = new ContextGatherer(this.contextManager, this.llmManager);
   }
 
@@ -246,8 +243,6 @@ export class ConversationManager implements IConversationHandler {
       // 1. 초기화 및 준비
       this.contextGatherer.prepareUI(webviewToRespond);
 
-      // A4: CompletionJudge 리셋 (새 요청 시작)
-      this.completionJudge.reset();
       TestRunner.clearSubProjectCache();
       this._retryGaveUp = false;
 
@@ -969,7 +964,7 @@ export class ConversationManager implements IConversationHandler {
     // 파일 변경 추적 (요약 검증용)
     const createdFiles: string[] = [];
     const modifiedFiles: string[] = [];
-    const executedCommands: string[] = []; // run_command 실행 이력 추적 (CompletionJudge용)
+    const executedCommands: string[] = []; // run_command 실행 이력 추적
     this.deletedFiles = [];
     this._pendingImportCleanupMsg = null;
 
@@ -1118,13 +1113,10 @@ export class ConversationManager implements IConversationHandler {
           collectedUIMessages,
           lastExecutionTurnId,
           executedCommands,
+          retryCoordinator,
         );
         if (reviewResult.action === "break") {
           break;
-        }
-        // CompletionJudge incomplete 판정 시 LLM 호출을 강제하기 위해 리셋
-        if ('forceNextLLMCall' in reviewResult && reviewResult.forceNextLLMCall) {
-          lastTurnHadSuccessfulToolExecution = false;
         }
         turnCount++;
         continue;
@@ -1192,6 +1184,7 @@ export class ConversationManager implements IConversationHandler {
           codebaseContext: gatheredContext?.codebaseContext,
           frameworkRulesPrompt: gatheredContext?.frameworkRulesPrompt, // v9.2.1
           ragContext: gatheredContext?.ragContext, // RAG 컨텍스트 포함
+          subProjectStructure: gatheredContext?.subProjectStructure, // 서브프로젝트 구조
         };
         activeSystemPrompt =
           investigationPrompt +
@@ -2042,13 +2035,19 @@ export class ConversationManager implements IConversationHandler {
 
       // v9.7.0: LLM 호출 메트릭 기록
       const llmResponseTime = Date.now() - llmStartTime;
-      const estimatedTokenCount = Math.ceil(llmResponse.length / 4); // 대략적인 토큰 추정
+      const estimatedTokenCount = estimateTokens(llmResponse);
       let actualModelName: string | undefined;
       try {
         actualModelName = await this.llmManager.getCurrentModelName();
       } catch { }
       usageMetrics.recordLLMCall(llmResponseTime, estimatedTokenCount, true, actualModelName);
       usageMetrics.incrementTurnCount();
+
+      // 메시지별 토큰 정보 UI 업데이트
+      WebviewBridge.updateMessageTokenInfo(webviewToRespond, {
+        tokens: estimatedTokenCount,
+        model: actualModelName,
+      });
 
       console.log(
         `[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`,
@@ -3659,6 +3658,14 @@ export class ConversationManager implements IConversationHandler {
       }
     }
 
+    // 참조 추적 정보 전송 (RAG + 정책/스킬) — 리뷰 밑, 턴 액션 위에 표시
+    const promptReferences = PromptComposer.getLastReferences();
+    const ragReferences = ContextGatherer.getLastRagReferences();
+    const allReferences = [...ragReferences, ...promptReferences];
+    if (allReferences.length > 0) {
+      WebviewBridge.sendReferenceInfo(webviewToRespond, { items: allReferences });
+    }
+
     // 턴 액션 삽입 (모든 턴이 완료된 후 한 번만 표시)
     try {
       const diffMgr = InlineDiffManager.getInstance();
@@ -3758,6 +3765,25 @@ export class ConversationManager implements IConversationHandler {
         "CODEPILOT",
         response,
       );
+    }
+
+    // ASK 모드 메시지별 토큰 정보
+    if (response) {
+      const askTokenCount = estimateTokens(response);
+      let askModelName: string | undefined;
+      try { askModelName = await this.llmManager.getCurrentModelName(); } catch { }
+      WebviewBridge.updateMessageTokenInfo(options.webviewToRespond, {
+        tokens: askTokenCount,
+        model: askModelName,
+      });
+
+      // ASK 모드 참조 추적 정보 전송
+      const askPromptRefs = PromptComposer.getLastReferences();
+      const askRagRefs = ContextGatherer.getLastRagReferences();
+      const askAllRefs = [...askRagRefs, ...askPromptRefs];
+      if (askAllRefs.length > 0) {
+        WebviewBridge.sendReferenceInfo(options.webviewToRespond, { items: askAllRefs });
+      }
     }
 
     // 📝 구조화된 메타데이터로 세션에 저장 (ASK 모드)
@@ -4068,629 +4094,6 @@ export class ConversationManager implements IConversationHandler {
   }
 
   /**
-   * Formatter 실행 여부 결정 (조건부 호출)
-   * ✅ 무조건 호출 ❌ → 조건부 호출 ✅
-   */
-  private shouldRunFormatter(
-    createdFiles: string[],
-    modifiedFiles: string[],
-  ): boolean {
-    // 🟢 1. 새 파일 추가 시 → YES (거의 무조건)
-    if (createdFiles.length > 0) {
-      console.log(
-        "[ConversationManager] New files detected, formatter will run",
-      );
-      return true;
-    }
-
-    // 🟢 2. 10줄 이상 구조 변경 → YES
-    const inlineDiffManager = InlineDiffManager.getInstance();
-    let totalModifiedLines = 0;
-
-    for (const filePath of modifiedFiles) {
-      const workspaceRoot =
-        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
-      const absolutePath = path.isAbsolute(filePath)
-        ? filePath
-        : workspaceRoot
-          ? path.join(workspaceRoot, filePath)
-          : filePath;
-
-      const changes = inlineDiffManager.getChanges(absolutePath);
-      if (changes && changes.length > 0) {
-        for (const change of changes) {
-          if (change.status === "pending") {
-            // range 기반으로 영향받은 라인 수 계산
-            const affectedLines = Math.max(
-              1,
-              change.range.end.line - change.range.start.line + 1,
-            );
-            totalModifiedLines += affectedLines;
-          }
-        }
-      }
-    }
-
-    if (totalModifiedLines >= AgentConfig.MIN_SIGNIFICANT_MODIFICATION_LINES) {
-      console.log(
-        `[ConversationManager] ${totalModifiedLines} lines modified, formatter will run`,
-      );
-      return true;
-    }
-
-    // 🟡 3. 단순 문자열 / 한 줄 수정 → NO (기본)
-    console.log(
-      `[ConversationManager] Only ${totalModifiedLines} lines modified (threshold: ${AgentConfig.MIN_SIGNIFICANT_MODIFICATION_LINES}), skipping formatter`,
-    );
-    return false;
-  }
-
-  /**
-   * 의존성 파일 변경 감지 시 자동으로 패키지 설치 실행
-   *
-   * 탐지 우선순위:
-   *   1. lock 파일 → 프로젝트 의도 결정
-   *   2. manifest 필드 → 보조 의도 신호
-   *   3. 실행 가능성 검증 → 선택된 도구가 실행 가능한지 확인
-   *   4. 언어별 안전한 기본값
-   *   5. 실행 불가 시 자동 설치 미지원 처리
-   */
-
-  /** 의존성 파일로 간주되는 파일명 목록 */
-  private static readonly DEPENDENCY_FILES = new Set([
-    'package.json',
-    'requirements.txt',
-    'pyproject.toml',
-    'Pipfile',
-    'go.mod',
-    'go.sum',
-    'Cargo.toml',
-    'Gemfile',
-    'composer.json',
-    'pubspec.yaml',
-    'build.gradle',
-    'build.gradle.kts',
-    'pom.xml',
-    'Package.swift',
-    'mix.exs',
-    'build.zig',
-    'gleam.toml',
-    'deno.json',
-    'deno.jsonc',
-  ]);
-
-  /**
-   * 명령이 시스템에서 실행 가능한지 확인
-   */
-  private isCommandAvailable(cmd: string): boolean {
-    try {
-      require('child_process').execSync(`${cmd} --version`, {
-        stdio: 'ignore',
-        timeout: 5000,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Node.js 프로젝트의 패키지 매니저 설치 명령 결정
-   * 우선순위: lock 파일 → packageManager 필드 → 시스템 기본값
-   */
-  private resolveNodeInstallCommand(depDir: string): { command: string; description: string } | null {
-    const fs = require('fs');
-
-    // 1순위: lock 파일로 프로젝트 의도 결정
-    const lockFileMap: Array<{ file: string; cmd: string; desc: string }> = [
-      { file: 'pnpm-lock.yaml', cmd: 'pnpm install', desc: 'pnpm install' },
-      { file: 'yarn.lock', cmd: 'yarn install', desc: 'yarn install' },
-      { file: 'bun.lockb', cmd: 'bun install', desc: 'bun install' },
-      { file: 'bun.lock', cmd: 'bun install', desc: 'bun install' },
-      { file: 'package-lock.json', cmd: 'npm install', desc: 'npm install' },
-    ];
-
-    for (const { file, cmd, desc } of lockFileMap) {
-      if (fs.existsSync(path.join(depDir, file))) {
-        const tool = cmd.split(' ')[0];
-        if (this.isCommandAvailable(tool)) {
-          return { command: cmd, description: desc };
-        }
-        // lock 파일은 있지만 도구가 없으면 corepack 시도
-        if (this.isCommandAvailable('corepack')) {
-          return { command: `corepack ${cmd}`, description: `corepack ${desc}` };
-        }
-        console.warn(`[AutoInstall] ${file} found but ${tool} not available, skipping`);
-        return null;
-      }
-    }
-
-    // 2순위: package.json의 packageManager 필드
-    try {
-      const pkgPath = path.join(depDir, 'package.json');
-      if (fs.existsSync(pkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        if (pkg.packageManager) {
-          const manager = pkg.packageManager.split('@')[0]; // "pnpm@9.0.0" → "pnpm"
-          if (['pnpm', 'yarn', 'bun', 'npm'].includes(manager)) {
-            if (this.isCommandAvailable(manager)) {
-              return { command: `${manager} install`, description: `${manager} install` };
-            }
-            if (this.isCommandAvailable('corepack')) {
-              return { command: `corepack ${manager} install`, description: `corepack ${manager} install` };
-            }
-          }
-        }
-      }
-    } catch {
-      // package.json 파싱 실패 → 다음 단계로
-    }
-
-    // 3순위: 시스템 기본값 (npm은 Node.js와 함께 설치됨)
-    if (this.isCommandAvailable('npm')) {
-      return { command: 'npm install', description: 'npm install' };
-    }
-
-    return null;
-  }
-
-  /**
-   * Python 프로젝트의 패키지 매니저 설치 명령 결정
-   * 우선순위: lock 파일 → pyproject.toml 설정 → 시스템 기본값
-   */
-  private resolvePythonInstallCommand(depDir: string, triggerFile: string): { command: string; description: string } | null {
-    const fs = require('fs');
-
-    // 1순위: lock 파일로 프로젝트 의도 결정
-    const lockFileMap: Array<{ file: string; cmd: string; desc: string }> = [
-      { file: 'uv.lock', cmd: 'uv sync', desc: 'uv sync' },
-      { file: 'poetry.lock', cmd: 'poetry install', desc: 'poetry install' },
-      { file: 'Pipfile.lock', cmd: 'pipenv install', desc: 'pipenv install' },
-      { file: 'pdm.lock', cmd: 'pdm install', desc: 'pdm install' },
-    ];
-
-    for (const { file, cmd, desc } of lockFileMap) {
-      if (fs.existsSync(path.join(depDir, file))) {
-        const tool = cmd.split(' ')[0];
-        if (this.isCommandAvailable(tool)) {
-          return { command: cmd, description: desc };
-        }
-        console.warn(`[AutoInstall] ${file} found but ${tool} not available, skipping`);
-        return null;
-      }
-    }
-
-    // 2순위: pyproject.toml의 빌드 백엔드 / 도구 설정 확인
-    if (triggerFile === 'pyproject.toml') {
-      try {
-        const content = fs.readFileSync(path.join(depDir, 'pyproject.toml'), 'utf-8');
-        if (content.includes('[tool.uv]') && this.isCommandAvailable('uv')) {
-          return { command: 'uv sync', description: 'uv sync' };
-        }
-        if (content.includes('[tool.poetry]') && this.isCommandAvailable('poetry')) {
-          return { command: 'poetry install', description: 'poetry install' };
-        }
-        if (content.includes('[tool.pdm]') && this.isCommandAvailable('pdm')) {
-          return { command: 'pdm install', description: 'pdm install' };
-        }
-        if (content.includes('[tool.hatch]') && this.isCommandAvailable('hatch')) {
-          return { command: 'hatch env create', description: 'hatch env create' };
-        }
-        // build-backend 기반 감지
-        if (content.includes('hatchling') && this.isCommandAvailable('hatch')) {
-          return { command: 'hatch env create', description: 'hatch env create' };
-        }
-        if (content.includes('pdm-backend') && this.isCommandAvailable('pdm')) {
-          return { command: 'pdm install', description: 'pdm install' };
-        }
-      } catch {
-        // 파싱 실패 → 다음 단계로
-      }
-    }
-
-    // 3순위: Pipfile → pipenv
-    if (triggerFile === 'Pipfile') {
-      if (this.isCommandAvailable('pipenv')) {
-        return { command: 'pipenv install', description: 'pipenv install' };
-      }
-    }
-
-    // 4순위: requirements.txt → pip
-    if (triggerFile === 'requirements.txt') {
-      // uv가 있으면 우선 사용 (더 빠름)
-      if (this.isCommandAvailable('uv')) {
-        return { command: 'uv pip install -r requirements.txt', description: 'uv pip install' };
-      }
-      if (this.isCommandAvailable('pip')) {
-        return { command: 'pip install -r requirements.txt', description: 'pip install' };
-      }
-      if (this.isCommandAvailable('pip3')) {
-        return { command: 'pip3 install -r requirements.txt', description: 'pip3 install' };
-      }
-    }
-
-    // pyproject.toml 기본 fallback
-    if (triggerFile === 'pyproject.toml') {
-      if (this.isCommandAvailable('uv')) {
-        return { command: 'uv pip install .', description: 'uv pip install' };
-      }
-      if (this.isCommandAvailable('pip')) {
-        return { command: 'pip install .', description: 'pip install' };
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * 변경된 의존성 파일에 대한 설치 명령 결정
-   */
-  private resolveInstallCommand(depDir: string, triggerFile: string): { command: string; description: string } | null {
-    switch (triggerFile) {
-      // ── JavaScript / TypeScript ──
-      case 'package.json':
-        return this.resolveNodeInstallCommand(depDir);
-
-      // ── Python ──
-      case 'requirements.txt':
-      case 'pyproject.toml':
-      case 'Pipfile':
-        return this.resolvePythonInstallCommand(depDir, triggerFile);
-
-      // ── Go ──
-      case 'go.mod':
-      case 'go.sum':
-        if (this.isCommandAvailable('go')) {
-          return { command: 'go mod tidy', description: 'go mod tidy' };
-        }
-        return null;
-
-      // ── Rust ──
-      case 'Cargo.toml':
-        if (this.isCommandAvailable('cargo')) {
-          return { command: 'cargo build', description: 'cargo build' };
-        }
-        return null;
-
-      // ── Ruby ──
-      case 'Gemfile':
-        if (this.isCommandAvailable('bundle')) {
-          return { command: 'bundle install', description: 'bundle install' };
-        }
-        return null;
-
-      // ── PHP ──
-      case 'composer.json':
-        if (this.isCommandAvailable('composer')) {
-          return { command: 'composer install', description: 'composer install' };
-        }
-        return null;
-
-      // ── Dart / Flutter ──
-      case 'pubspec.yaml':
-        if (this.isCommandAvailable('flutter')) {
-          return { command: 'flutter pub get', description: 'flutter pub get' };
-        }
-        if (this.isCommandAvailable('dart')) {
-          return { command: 'dart pub get', description: 'dart pub get' };
-        }
-        return null;
-
-      // ── Java / JVM ──
-      case 'build.gradle':
-      case 'build.gradle.kts':
-        if (this.isCommandAvailable('./gradlew')) {
-          return { command: './gradlew build', description: 'gradlew build' };
-        }
-        if (this.isCommandAvailable('gradle')) {
-          return { command: 'gradle build', description: 'gradle build' };
-        }
-        return null;
-
-      case 'pom.xml':
-        if (this.isCommandAvailable('./mvnw')) {
-          return { command: './mvnw install', description: 'mvnw install' };
-        }
-        if (this.isCommandAvailable('mvn')) {
-          return { command: 'mvn install', description: 'mvn install' };
-        }
-        return null;
-
-      // ── Swift ──
-      case 'Package.swift':
-        if (this.isCommandAvailable('swift')) {
-          return { command: 'swift package resolve', description: 'swift package resolve' };
-        }
-        return null;
-
-      // ── Elixir ──
-      case 'mix.exs':
-        if (this.isCommandAvailable('mix')) {
-          return { command: 'mix deps.get', description: 'mix deps.get' };
-        }
-        return null;
-
-      // ── Zig ──
-      case 'build.zig':
-        if (this.isCommandAvailable('zig')) {
-          return { command: 'zig build', description: 'zig build' };
-        }
-        return null;
-
-      // ── Gleam ──
-      case 'gleam.toml':
-        if (this.isCommandAvailable('gleam')) {
-          return { command: 'gleam deps download', description: 'gleam deps download' };
-        }
-        return null;
-
-      // ── Deno ──
-      case 'deno.json':
-      case 'deno.jsonc':
-        if (this.isCommandAvailable('deno')) {
-          return { command: 'deno install', description: 'deno install' };
-        }
-        return null;
-
-      default:
-        return null;
-    }
-  }
-
-  private async autoInstallDependencies(
-    webview: vscode.Webview,
-    workspaceRoot: string,
-    createdFiles: string[],
-    modifiedFiles: string[],
-  ): Promise<void> {
-    const allFiles = [...createdFiles, ...modifiedFiles];
-    const executionManager = ExecutionManager.getInstance();
-    const processedDirs = new Set<string>();
-
-    for (const filePath of allFiles) {
-      const fileName = path.basename(filePath);
-      if (!ConversationManager.DEPENDENCY_FILES.has(fileName)) continue;
-
-      const depDir = path.isAbsolute(filePath)
-        ? path.dirname(filePath)
-        : path.join(workspaceRoot, path.dirname(filePath));
-
-      // 같은 디렉토리에서 중복 실행 방지
-      const dirKey = `${depDir}:${fileName}`;
-      if (processedDirs.has(dirKey)) continue;
-      processedDirs.add(dirKey);
-
-      const resolved = this.resolveInstallCommand(depDir, fileName);
-      if (!resolved) {
-        console.warn(
-          `[AutoInstall] ${fileName} changed but no suitable install command found in ${depDir}`,
-        );
-        continue;
-      }
-
-      console.log(
-        `[AutoInstall] ${filePath} changed → running "${resolved.command}" in ${depDir}`,
-      );
-      WebviewBridge.sendProcessingStatus(
-        webview,
-        "executing",
-        `${resolved.description} 실행 중...`,
-      );
-
-      try {
-        const result = await executionManager.executeCommand(resolved.command, {
-          cwd: depDir,
-          timeout: AgentConfig.VALIDATION_COMMAND_TIMEOUT,
-        });
-
-        if (result.exitCode === 0) {
-          console.log(`[AutoInstall] ${resolved.description} completed successfully`);
-        } else {
-          console.warn(
-            `[AutoInstall] ${resolved.description} failed (exit ${result.exitCode}): ${result.stderr || result.stdout || ""}`,
-          );
-        }
-      } catch (error) {
-        console.warn(`[AutoInstall] ${resolved.description} error (non-fatal):`, error);
-      }
-    }
-  }
-
-  /**
-   * 파일 변경 후 formatter 및 validation 실행
-   * 실행 순서: Formatter → Validation
-   * ✅ 조건부 호출 + diff 보호
-   */
-  private async afterFileChanges(
-    webview: vscode.Webview,
-    workspaceRoot: string,
-    createdFiles: string[],
-    modifiedFiles: string[],
-  ): Promise<void> {
-    try {
-      // ✅ 의존성 파일 변경 감지 → 자동 설치
-      await this.autoInstallDependencies(webview, workspaceRoot, createdFiles, modifiedFiles);
-
-      // ✅ 조건부 Formatter 실행 결정
-      if (!this.shouldRunFormatter(createdFiles, modifiedFiles)) {
-        return;
-      }
-
-      const detector = new ProjectDetector();
-      const projectInfo = await detector.detectProjectType(workspaceRoot);
-
-      // Fallback: LLM으로 프로젝트 타입 감지
-      if (projectInfo.type === ProjectType.UNKNOWN) {
-        console.log(
-          "[ConversationManager] Unknown project type, trying LLM fallback...",
-        );
-        const llmManager = LLMManager.getInstance();
-
-        const llmResult = await detector.detectWithLLMFallback(
-          workspaceRoot,
-          llmManager,
-        );
-
-        if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
-          console.log(
-            `[ConversationManager] LLM fallback detected project type: ${llmResult.type}`,
-          );
-          Object.assign(projectInfo, llmResult);
-        } else {
-          console.log(
-            "[ConversationManager] Unknown project type, skipping formatter and validation.",
-          );
-          return;
-        }
-      }
-
-      const executionManager = ExecutionManager.getInstance();
-      const inlineDiffManager = InlineDiffManager.getInstance();
-
-      // 1. Formatter 실행 (조건부)
-      const formatterCmd = detector.getFormatterCommand(
-        projectInfo.type,
-        workspaceRoot,
-        createdFiles,
-        modifiedFiles,
-      );
-      if (formatterCmd) {
-        // ✅ Formatter 실행 전: diff 보호 시작
-        const allAffectedFiles = [...createdFiles, ...modifiedFiles];
-        for (const filePath of allAffectedFiles) {
-          const absolutePath = path.isAbsolute(filePath)
-            ? filePath
-            : workspaceRoot
-              ? path.join(workspaceRoot, filePath)
-              : filePath;
-          inlineDiffManager.markFormatterRunning(absolutePath);
-        }
-
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          "executing",
-          `${formatterCmd.description} 실행 중...`,
-        );
-        try {
-          const formatterResult = await executionManager.executeCommand(
-            formatterCmd.command,
-            {
-              cwd: workspaceRoot,
-              timeout: AgentConfig.VALIDATION_COMMAND_TIMEOUT,
-            },
-          );
-
-          // ✅ Formatter 실행 후: diff 보호 해제
-          for (const filePath of allAffectedFiles) {
-            const absolutePath = path.isAbsolute(filePath)
-              ? filePath
-              : workspaceRoot
-                ? path.join(workspaceRoot, filePath)
-                : filePath;
-            inlineDiffManager.markFormatterFinished(absolutePath);
-          }
-
-          if (formatterResult.exitCode === 0) {
-            console.log(
-              `[ConversationManager] Formatter executed successfully: ${formatterCmd.description}`,
-            );
-            WebviewBridge.sendProcessingStatus(
-              webview,
-              "executing",
-              `${formatterCmd.description} 완료`,
-            );
-          } else {
-            // Formatter 실패는 경고로만 처리 (테스트 실패로 간주하지 않음)
-            console.warn(
-              `[ConversationManager] Formatter failed (non-fatal): ${formatterResult.stderr || formatterResult.stdout || ""}`,
-            );
-            WebviewBridge.sendProcessingStatus(
-              webview,
-              "executing",
-              `${formatterCmd.description} 경고 (계속 진행)`,
-            );
-          }
-        } catch (error) {
-          // ✅ 에러 발생 시에도 diff 보호 해제
-          for (const filePath of allAffectedFiles) {
-            const absolutePath = path.isAbsolute(filePath)
-              ? filePath
-              : workspaceRoot
-                ? path.join(workspaceRoot, filePath)
-                : filePath;
-            inlineDiffManager.markFormatterFinished(absolutePath);
-          }
-          // Formatter 오류는 경고로만 처리
-          console.warn(
-            `[ConversationManager] Formatter error (non-fatal):`,
-            error,
-          );
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            "executing",
-            `${formatterCmd.description} 경고 (계속 진행)`,
-          );
-        }
-      } else {
-        console.log(
-          `[ConversationManager] No formatter command found for project type: ${projectInfo.type}`,
-        );
-      }
-
-      // 2. Validation 실행 (TestRunner에서 처리)
-      // Validation은 TestRunner.runAutomatedTests()에서 실행되므로 여기서는 실행하지 않음
-    } catch (error) {
-      console.error("[ConversationManager] Error in afterFileChanges:", error);
-      // 오류가 발생해도 계속 진행
-    }
-  }
-
-  /**
-   * 삭제된 파일을 import하는 파일 검색 (import 자동 정리용)
-   */
-  private async findImportingFiles(
-    deletedFiles: string[],
-    workspaceRoot: string,
-  ): Promise<Map<string, string[]>> {
-    const result = new Map<string, string[]>();
-
-    try {
-      const { FileSearcher } = require('../../managers/context/file/FileSearcher');
-      const searcher = FileSearcher.getInstance();
-      const pathModule = require('path');
-
-      for (const deletedFile of deletedFiles) {
-        const basename = pathModule.basename(deletedFile);
-        const moduleNameNoExt = basename.replace(/\.[^.]+$/, '');
-
-        // import/require/from 패턴으로 검색
-        const pattern = `(import|from|require).*['"\`].*${moduleNameNoExt}['"\`]`;
-
-        try {
-          const searchResults = await searcher.searchFiles(pattern, workspaceRoot, {
-            maxResults: 50,
-            include: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.vue', '*.svelte', '*.py', '*.go', '*.java'],
-          });
-
-          const importingFiles = searchResults
-            .map((r: any) => r.file)
-            .filter((fp: string) => fp !== deletedFile);
-
-          if (importingFiles.length > 0) {
-            result.set(deletedFile, importingFiles);
-          }
-        } catch (e) {
-          console.warn(`[ConversationManager] Import search failed for ${deletedFile}:`, e);
-        }
-      }
-    } catch (e) {
-      console.warn('[ConversationManager] findImportingFiles failed:', e);
-    }
-
-    return result;
-  }
-
-  /**
    * 요약 결과를 그대로 반환 (변환 로직 제거)
    * 명령어는 프롬프트에서 코드 블록 형식으로 출력하도록 지시
    */
@@ -4781,6 +4184,7 @@ export class ConversationManager implements IConversationHandler {
     }>,
     conversationTurnId?: string,
     executedCommands: string[] = [],
+    retryCoordinator?: RetryCoordinator,
   ): Promise<TurnAction> {
     // REVIEW가 이미 처리되었는지 확인 (중복 호출 방지)
     const reviewProcessedKey = `review_processed_${createdFiles.join(",")}_${modifiedFiles.join(",")}`;
@@ -4805,64 +4209,11 @@ export class ConversationManager implements IConversationHandler {
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
 
-    // A4: 완료 여부 판단 (파일 변경이 있는 경우에만)
-    // RetryCoordinator가 동일 에러 반복으로 포기한 경우 CompletionJudge 스킵 (재실행 방지)
-    if (this._retryGaveUp) {
+    // 최종 TestRunner 검증
+    // RetryCoordinator가 이미 포기한 경우 최종 검증도 스킵 (무한 루프 방지)
+    if (!this._retryGaveUp && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
       console.log(
-        "[ConversationManager] A4: Skipping CompletionJudge — RetryCoordinator gave up on repeated errors",
-      );
-    } else if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-      try {
-        const judgment = await this.completionJudge.judge(
-          userQuery,
-          createdFiles,
-          modifiedFiles,
-          "", // lastResponse는 아직 생성 전
-          abortSignal,
-          this._lastBuildTestPassed,
-          executedCommands,
-        );
-
-        console.log(
-          `[ConversationManager] A4 CompletionJudge: complete=${judgment.isComplete}, confidence=${judgment.confidence}, reason=${judgment.reason}`,
-        );
-
-        // 미완성으로 판단되고 추가 작업이 필요한 경우
-        if (this.completionJudge.shouldContinue(judgment)) {
-          console.log(
-            "[ConversationManager] A4: Incomplete work detected, continuing EXECUTION",
-          );
-          this.completionJudge.incrementAutoContinue();
-
-          // v9.7.0: EXECUTION으로 돌아갈 때 reviewProcessed 리셋 (다음 REVIEW에서 요약 생성 위해)
-          (this as any).reviewProcessed = null;
-
-          // 추가 작업 프롬프트 생성 및 userParts에 추가
-          const continuePrompt =
-            this.completionJudge.buildContinuePrompt(judgment);
-          accumulatedUserParts.push({ text: continuePrompt });
-
-          // EXECUTION으로 돌아가서 추가 작업 수행
-          stateManager.transitionTo(AgentPhase.EXECUTION);
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            "executing",
-            "추가 작업 진행 중...",
-          );
-
-          return { action: "continue", forceNextLLMCall: true };
-        }
-      } catch (e) {
-        console.warn("[ConversationManager] A4 CompletionJudge failed:", e);
-        // 판단 실패 시 그냥 완료로 처리
-      }
-    }
-
-    // CompletionJudge 완료 판정 후 최종 TestRunner 검증
-    // (중간 파일 생성 시에는 TestRunner를 건너뛰고, 완료 시에만 실행)
-    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-      console.log(
-        "[ConversationManager] Running final TestRunner validation after CompletionJudge completion",
+        "[ConversationManager] Running final TestRunner validation",
       );
       WebviewBridge.sendProcessingStep(webview, "executing");
       WebviewBridge.sendProcessingStatus(
@@ -4877,7 +4228,7 @@ export class ConversationManager implements IConversationHandler {
         createdFiles,
         modifiedFiles,
         30000, // 최종 검증이므로 30초 타임아웃
-        [],
+        retryCoordinator?.excludedValidationCommands ?? [],
       );
 
       if (!finalTestResult.success) {
@@ -4889,6 +4240,9 @@ export class ConversationManager implements IConversationHandler {
           "executing",
           "최종 검증 실패 — 자동 수정 시작...",
         );
+
+        // v9.x: EXECUTION으로 돌아갈 때 reviewProcessed 리셋 (다음 REVIEW에서 요약 생성 위해)
+        (this as any).reviewProcessed = null;
 
         // EXECUTION으로 돌아가서 에러 수정
         stateManager.transitionTo(AgentPhase.EXECUTION);
@@ -4902,7 +4256,6 @@ export class ConversationManager implements IConversationHandler {
       console.log(
         "[ConversationManager] Final TestRunner validation passed",
       );
-      this._lastBuildTestPassed = true;
     }
 
     // 페이즈별 프롬프트 보정 (REVIEW 단계용)
@@ -5057,7 +4410,6 @@ export class ConversationManager implements IConversationHandler {
     message: string,
     buildTestPassed = false,
   ): TurnAction {
-    this._lastBuildTestPassed = buildTestPassed;
     WebviewBridge.sendProcessingStep(webview, "review");
     WebviewBridge.sendProcessingStatus(webview, "review", `[검토] ${message}`);
     stateManager.transitionTo(AgentPhase.REVIEW);
@@ -5463,16 +4815,6 @@ export class ConversationManager implements IConversationHandler {
       this.deletedFiles,
     );
 
-    // run_command 실행 이력 추적 (CompletionJudge 판단용)
-    toolCalls.forEach((call: ToolUse, index: number) => {
-      if (call.name === Tool.RUN_COMMAND && toolResults[index]?.success) {
-        const cmd = call.params?.command || call.params?.cmd || '';
-        if (cmd && !executedCommands.includes(cmd)) {
-          executedCommands.push(cmd);
-        }
-      }
-    });
-
     // 성공 여부 추적
     const hasSuccessfulExecution = toolResults.some(
       (result: ToolResponse) => result.success === true,
@@ -5489,7 +4831,7 @@ export class ConversationManager implements IConversationHandler {
 
     // 파일 변경 후 formatter 및 validation 실행
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-      await this.afterFileChanges(
+      await FileChangeHandler.afterFileChanges(
         webview,
         workspaceRoot,
         createdFiles,
@@ -5500,7 +4842,7 @@ export class ConversationManager implements IConversationHandler {
     // 파일 삭제 후 import 정리 컨텍스트 수집
     if (this.deletedFiles.length > 0) {
       try {
-        const importMap = await this.findImportingFiles(this.deletedFiles, workspaceRoot);
+        const importMap = await FileChangeHandler.findImportingFiles(this.deletedFiles, workspaceRoot);
         if (importMap.size > 0) {
           let cleanupMsg = '[SYSTEM] 삭제된 파일의 import를 사용하는 파일이 감지되었습니다. 해당 import 문을 정리해주세요:\n';
           for (const [deleted, importers] of importMap) {
@@ -5647,21 +4989,6 @@ export class ConversationManager implements IConversationHandler {
         stateManager,
         webview,
         "작업 완료 - 결과 검토 중...",
-      );
-      return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
-    }
-
-    // CompletionJudge가 아직 auto-continue 가능 → TestRunner 스킵, REVIEW로 바로 전환
-    // 파일이 점진적으로 생성되는 중간 상태에서 tsc/lint 실패를 방지
-    // 단, 모든 plan item이 완료된 경우에는 TestRunner를 즉시 실행 (디퍼 방지)
-    if (this.completionJudge.canAutoContinue() && !allPlanItemsDone) {
-      console.log(
-        `[ConversationManager] Deferring TestRunner — CompletionJudge auto-continue available`,
-      );
-      const action = this.transitionToReview(
-        stateManager,
-        webview,
-        "결과 검토 중...",
       );
       return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
     }

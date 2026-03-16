@@ -1,4 +1,5 @@
 import * as os from 'os';
+import * as fs from 'fs';
 import * as path from 'path';
 import { IOperatingSystemAdapter, OSDetectionResult } from './IOperatingSystemAdapter';
 
@@ -12,17 +13,22 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
     // ==================== 터미널 관련 ====================
 
     getDefaultShell(): string {
-        // PowerShell Core > PowerShell > cmd 우선순위
-        return process.env.SHELL ||
-            'C:\\Program Files\\PowerShell\\7\\pwsh.exe' ||
-            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+        // 환경변수 우선
+        if (process.env.SHELL) return process.env.SHELL;
+        // PowerShell Core 7+ (pwsh) > Windows PowerShell 5.1 > cmd
+        const pwsh7 = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
+        const pwsh51 = (process.env.SystemRoot || 'C:\\Windows') + '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+        try { if (fs.existsSync(pwsh7)) return pwsh7; } catch { /* ignore */ }
+        try { if (fs.existsSync(pwsh51)) return pwsh51; } catch { /* ignore */ }
+        return 'cmd.exe';
     }
 
     getShellType(): 'bash' | 'zsh' | 'powershell' | 'cmd' | 'sh' {
         const shell = this.getDefaultShell();
+        if (shell.includes('bash')) return 'bash';
         if (shell.includes('powershell') || shell.includes('pwsh')) return 'powershell';
         if (shell.includes('cmd')) return 'cmd';
-        return 'powershell'; // 기본값
+        return 'cmd'; // 기본값
     }
 
     normalizeCommand(command: string): string {
@@ -66,18 +72,18 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
 
     getFindNodeProcessByCwdCommand(cwd: string): string {
         // PowerShell: node.exe 프로세스 중 CWD 기반 필터링은 제한적이므로 전체 node 프로세스 PID 반환
-        return `powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object -ExpandProperty ProcessId"`;
+        return `powershell -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object -ExpandProperty ProcessId"`;
     }
 
     getProcessCwdCommand(pid: number): string {
         // PowerShell: 프로세스의 CommandLine에서 작업 디렉토리 추정
-        return `powershell -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=${pid}\\").CommandLine"`;
+        return `powershell -ExecutionPolicy Bypass -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=${pid}\\").CommandLine"`;
     }
 
     getFindDevServerProcessCommand(cwd: string): string {
         // PowerShell: dev 서버 패턴 프로세스 검색
         const escapedCwd = cwd.replace(/\\/g, '\\\\');
-        return `powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'npm run dev|vite|next dev|nuxt dev' } | Select-Object -ExpandProperty ProcessId"`;
+        return `powershell -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'npm run dev|vite|next dev|nuxt dev' } | Select-Object -ExpandProperty ProcessId"`;
     }
 
     // ==================== 파일 처리 ====================
@@ -152,8 +158,18 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
 
 
     getShellExecutionOptions(): Record<string, any> {
+        const shell = this.getDefaultShell();
+        if (shell.includes('powershell') || shell.includes('pwsh')) {
+            // PowerShell: -ExecutionPolicy Bypass로 스크립트 실행 제한 우회
+            return {
+                shell,
+                env: process.env,
+                windowsVerbatimArguments: true,
+                shellArgs: ['-ExecutionPolicy', 'Bypass'],
+            };
+        }
         return {
-            shell: this.getDefaultShell(),
+            shell,
             env: process.env,
             windowsVerbatimArguments: true,
         };

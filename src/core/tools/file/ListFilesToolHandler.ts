@@ -6,7 +6,9 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
+import { SubProjectDetector } from '../../managers/project/SubProjectDetector';
 
 export class ListFilesToolHandler implements IToolHandler {
     readonly name = Tool.LIST_FILES;
@@ -45,6 +47,15 @@ export class ListFilesToolHandler implements IToolHandler {
         let absolutePath = path.isAbsolute(dirPath)
             ? dirPath
             : path.join(context.projectRoot, dirPath);
+
+        // 서브프로젝트 경로 fallback: 디렉토리가 없으면 서브프로젝트 루트에서 재탐색
+        if (!path.isAbsolute(dirPath) && !fsSync.existsSync(absolutePath)) {
+            const fallback = SubProjectDetector.resolveWithFallback(context.projectRoot, dirPath);
+            if (fallback && fsSync.statSync(fallback).isDirectory()) {
+                console.log(`[ListFilesToolHandler] SubProject fallback: ${dirPath} → ${path.relative(context.projectRoot, fallback)}`);
+                absolutePath = fallback;
+            }
+        }
 
         // 프로젝트 루트 외부 경로 접근 차단
         if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {

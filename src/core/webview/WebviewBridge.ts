@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { safePostMessage } from '../../utils';
 import { StreamingToolParser, StreamingParseResult, createStreamingToolCallback } from '../tools/StreamingToolParser';
 import { ToolUse } from '../tools/types';
+import { MessageTokenInfo, ReferenceInfo } from './types';
 
 export interface ProcessingStatusCallback {
     (step: string, status: string): void;
@@ -32,12 +33,13 @@ export class WebviewBridge {
     /**
      * 채팅 메시지 전송
      */
-    public static receiveMessage(webview: vscode.Webview | undefined, sender: string, text: string): void {
+    public static receiveMessage(webview: vscode.Webview | undefined, sender: string, text: string, tokenInfo?: MessageTokenInfo): void {
         if (webview) {
             safePostMessage(webview, {
                 command: 'receiveMessage',
                 sender,
-                text
+                text,
+                ...(tokenInfo && { tokenInfo })
             });
         }
     }
@@ -201,6 +203,31 @@ export class WebviewBridge {
         if (webview) {
             safePostMessage(webview, {
                 command: 'endStreamingMessage'
+            });
+        }
+    }
+
+    /**
+     * 마지막 CODEPILOT 메시지에 토큰 사용량 정보를 업데이트합니다.
+     */
+    public static updateMessageTokenInfo(webview: vscode.Webview | undefined, tokenInfo: MessageTokenInfo): void {
+        if (webview) {
+            safePostMessage(webview, {
+                command: 'updateMessageTokenInfo',
+                tokenInfo
+            });
+        }
+    }
+
+    /**
+     * 참조 추적 정보를 웹뷰에 전송합니다.
+     * review 단계에서 사용된 RAG/정책/스킬 참조를 표시합니다.
+     */
+    public static sendReferenceInfo(webview: vscode.Webview | undefined, referenceInfo: ReferenceInfo): void {
+        if (webview && referenceInfo.items.length > 0) {
+            safePostMessage(webview, {
+                command: 'updateReferenceInfo',
+                referenceInfo
             });
         }
     }

@@ -3,7 +3,7 @@ exports.id = 2;
 exports.ids = [2];
 exports.modules = {
 
-/***/ 707:
+/***/ 711:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -131,14 +131,30 @@ class CodePilotApiClient {
         });
     }
     // ── 내부 메서드 ──────────────────────────────────────────
-    static TIMEOUT_MS = 15_000;
+    static TIMEOUT_MS = 30_000;
+    /** undici Agent (TCP connect timeout 확장용, 싱글턴) */
+    static _agent = null;
+    static getAgent() {
+        if (!CodePilotApiClient._agent) {
+            try {
+                const { Agent } = __webpack_require__(712);
+                CodePilotApiClient._agent = new Agent({
+                    connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
+                });
+            }
+            catch {
+                // undici를 로드할 수 없는 환경에서는 null (기본 fetch 사용)
+            }
+        }
+        return CodePilotApiClient._agent;
+    }
     async request(url, options) {
         const headers = {
             ...options.headers,
         };
         // JWT 토큰 첨부
         try {
-            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 674));
+            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 676));
             const auth = AuthService.getInstance();
             const token = await auth.getAccessToken();
             if (token) {
@@ -152,7 +168,7 @@ class CodePilotApiClient {
         // 401 → 토큰 리프레시 시도 (auth 엔드포인트 자체는 재귀 방지)
         if (response.status === 401 && !url.includes("/auth/refresh/") && !url.includes("/auth/logout/")) {
             try {
-                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 674));
+                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 676));
                 const auth = AuthService.getInstance();
                 const newToken = await auth.refreshAccessToken();
                 if (newToken) {
@@ -181,7 +197,13 @@ class CodePilotApiClient {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), CodePilotApiClient.TIMEOUT_MS);
         try {
-            return await fetch(url, { ...options, signal: controller.signal });
+            const fetchOptions = { ...options, signal: controller.signal };
+            // undici의 TCP connect timeout(기본 10초)을 늘리기 위해 dispatcher 설정
+            const agent = CodePilotApiClient.getAgent();
+            if (agent) {
+                fetchOptions.dispatcher = agent;
+            }
+            return await fetch(url, fetchOptions);
         }
         catch (e) {
             console.error(`[CodePilotApiClient] fetch 실패: ${url}`, e?.message, e?.cause);

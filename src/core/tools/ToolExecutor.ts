@@ -33,7 +33,7 @@ export class ToolExecutor {
         context: ToolExecutionContext
     ): Promise<ToolResponse> {
         // A2: PreToolUse 검증
-        const validation = PreToolUseValidator.validate(toolUse, context.projectRoot);
+        const validation = await PreToolUseValidator.validate(toolUse, context.projectRoot);
         if (!validation.allowed) {
             console.warn(`[ToolExecutor] Tool blocked by PreToolUseValidator: ${toolUse.name} - ${validation.reason}`);
             return {

@@ -211,6 +211,77 @@ function endStreamingMessage() {
   endStreamingMessageModule();
 }
 
+/**
+ * 마지막 CODEPILOT 메시지에 토큰 뱃지를 추가합니다.
+ */
+function appendTokenBadgeToLastMessage(tokenInfo) {
+  const chatMessages = document.getElementById("chat-messages");
+  if (!chatMessages) return;
+
+  // 마지막 codepilot 메시지 컨테이너 찾기
+  const containers = chatMessages.querySelectorAll(".codepilot-message-container");
+  if (containers.length === 0) return;
+  const lastContainer = containers[containers.length - 1];
+
+  // 이미 토큰 뱃지가 있으면 업데이트
+  let badge = lastContainer.querySelector(".message-token-badge");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.className = "message-token-badge";
+    lastContainer.appendChild(badge);
+  }
+
+  const tokens = tokenInfo.tokens || 0;
+  const model = tokenInfo.model || "";
+  const formattedTokens = tokens >= 1000 ? (tokens / 1000).toFixed(1) + "K" : tokens.toString();
+
+  badge.textContent = `${formattedTokens} tokens`;
+  if (model) {
+    badge.title = `Model: ${model} | Tokens: ${tokens.toLocaleString()}`;
+  } else {
+    badge.title = `Tokens: ${tokens.toLocaleString()}`;
+  }
+}
+
+/**
+ * 참조 추적 패널을 마지막 메시지에 추가합니다.
+ */
+function appendReferencePanelToLastMessage(referenceInfo) {
+  const chatMessages = document.getElementById("chat-messages");
+  if (!chatMessages || !referenceInfo || !referenceInfo.items || referenceInfo.items.length === 0) return;
+
+  // 기존 참조 패널이 있으면 업데이트, 없으면 chat-messages 레벨에 삽입 (turn-actions 앞)
+  let panel = chatMessages.querySelector(".reference-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.className = "reference-panel";
+    // turn-actions가 있으면 그 앞에, 없으면 맨 뒤에 삽입
+    const turnActions = chatMessages.querySelector(".turn-actions");
+    if (turnActions) {
+      chatMessages.insertBefore(panel, turnActions);
+    } else {
+      chatMessages.appendChild(panel);
+    }
+  }
+
+  const typeLabels = {
+    rag: "RAG",
+    local_rule: "Rule",
+    local_skill: "Skill",
+    server_rule: "Rule",
+    server_skill: "Skill",
+  };
+
+  const listItems = referenceInfo.items.map((item, idx) => {
+    const typeLabel = typeLabels[item.type] || item.type;
+    const chunkLabel = item.type === 'rag' ? ` #${idx + 1}` : "";
+    const similarity = item.similarity != null ? ` (${(item.similarity * 100).toFixed(0)}%)` : "";
+    return `<div class="ref-item"><span class="ref-type ${item.type}">${typeLabel}${chunkLabel}</span><span>${item.name}${similarity}</span></div>`;
+  }).join("");
+
+  panel.innerHTML = `<div class="reference-panel-toggle" onclick="this.querySelector('.toggle-icon').classList.toggle('expanded');this.nextElementSibling.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
+}
+
 function removeLastMessage() {
   removeLastMessageModule();
 }
@@ -2359,6 +2430,18 @@ window.addEventListener("message", (event) => {
     case "endStreamingMessage":
       console.log("[Streaming] Ending streaming message");
       endStreamingMessage();
+      break;
+
+    case "updateMessageTokenInfo":
+      if (message.tokenInfo) {
+        appendTokenBadgeToLastMessage(message.tokenInfo);
+      }
+      break;
+
+    case "updateReferenceInfo":
+      if (message.referenceInfo) {
+        appendReferencePanelToLastMessage(message.referenceInfo);
+      }
       break;
 
     case "showTurnActions":

@@ -9,9 +9,11 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
 import { UsageMetricsManager } from '../../managers/state/UsageMetricsManager';
+import { SubProjectDetector } from '../../managers/project/SubProjectDetector';
 
 // 파일 크기 임계값 (라인 수)
 // v9.6.0: 300 → 2000으로 증가 (대부분의 일반 파일 전체 읽기 지원)
@@ -80,9 +82,18 @@ export class ReadFileToolHandler implements IToolHandler {
         let hasError = false;
 
         for (const filePath of pathsToRead) {
-            const absolutePath = path.isAbsolute(filePath)
+            let absolutePath = path.isAbsolute(filePath)
                 ? filePath
                 : path.join(context.projectRoot, filePath);
+
+            // 서브프로젝트 경로 fallback: 파일이 없으면 서브프로젝트 루트에서 재탐색
+            if (!path.isAbsolute(filePath) && !fsSync.existsSync(absolutePath)) {
+                const fallback = SubProjectDetector.resolveWithFallback(context.projectRoot, filePath);
+                if (fallback) {
+                    console.log(`[ReadFileToolHandler] SubProject fallback: ${filePath} → ${path.relative(context.projectRoot, fallback)}`);
+                    absolutePath = fallback;
+                }
+            }
 
             // 프로젝트 루트 외부 파일 접근 차단
             if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {

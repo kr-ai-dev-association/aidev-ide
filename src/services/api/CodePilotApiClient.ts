@@ -155,7 +155,23 @@ export class CodePilotApiClient {
 
   // ── 내부 메서드 ──────────────────────────────────────────
 
-  private static readonly TIMEOUT_MS = 15_000;
+  private static readonly TIMEOUT_MS = 30_000;
+
+  /** undici Agent (TCP connect timeout 확장용, 싱글턴) */
+  private static _agent: any = null;
+  private static getAgent(): any {
+    if (!CodePilotApiClient._agent) {
+      try {
+        const { Agent } = require('undici');
+        CodePilotApiClient._agent = new Agent({
+          connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
+        });
+      } catch {
+        // undici를 로드할 수 없는 환경에서는 null (기본 fetch 사용)
+      }
+    }
+    return CodePilotApiClient._agent;
+  }
 
   private async request(url: string, options: RequestInit): Promise<any> {
     const headers: Record<string, string> = {
@@ -210,7 +226,13 @@ export class CodePilotApiClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CodePilotApiClient.TIMEOUT_MS);
     try {
-      return await fetch(url, { ...options, signal: controller.signal });
+      const fetchOptions: any = { ...options, signal: controller.signal };
+      // undici의 TCP connect timeout(기본 10초)을 늘리기 위해 dispatcher 설정
+      const agent = CodePilotApiClient.getAgent();
+      if (agent) {
+        fetchOptions.dispatcher = agent;
+      }
+      return await fetch(url, fetchOptions);
     } catch (e: any) {
       console.error(`[CodePilotApiClient] fetch 실패: ${url}`, e?.message, e?.cause);
       if (e?.name === "AbortError") {

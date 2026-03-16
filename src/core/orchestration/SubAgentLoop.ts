@@ -10,6 +10,7 @@
  */
 
 import { LLMManager, LLMMessagePart } from '../managers/model/LLMManager';
+import { estimateTokens } from '../../utils/tokenUtils';
 import { ToolExecutor } from '../tools/ToolExecutor';
 import { ToolParser } from '../tools/ToolParser';
 import { ToolSpecBuilder } from '../tools/ToolSpecBuilder';
@@ -18,6 +19,7 @@ import { ToolUse, ToolResponse, Tool, READ_ONLY_TOOLS } from '../tools/types';
 import { ToolRegistry } from '../tools/ToolRegistry';
 import { buildToolPromptSection } from '../managers/context/prompts/tools/toolCalling';
 import { SubTask, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from './types';
+import { AgentConfig } from '../config/AgentConfig';
 
 const MAX_TURNS = 15;
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -78,17 +80,47 @@ export class SubAgentLoop {
                 break;
             }
 
+            // 전체 루프 타임아웃 체크
+            if (Date.now() - startTime > AgentConfig.SUB_AGENT_TOTAL_TIMEOUT) {
+                errors.push(`전체 실행 시간 초과 (${AgentConfig.SUB_AGENT_TOTAL_TIMEOUT / 1000}초)`);
+                break;
+            }
+
             turnCount++;
 
             try {
-                // 1. LLM 호출
-                const response = await this.llmManager.sendMessageWithSystemPrompt(
-                    systemPrompt,
-                    conversationParts,
-                    { signal: this.abortSignal, disableThinking: true }
-                );
+                // 1. LLM 호출 (개별 호출 타임아웃 적용)
+                const timeoutController = new AbortController();
+                const timeoutId = setTimeout(() => timeoutController.abort(), AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT);
+                const signals = [timeoutController.signal];
+                if (this.abortSignal) { signals.push(this.abortSignal); }
+                const combinedSignal = AbortSignal.any(signals);
 
-                tokenEstimate += this.estimateTokens(response);
+                let response: string;
+                try {
+                    response = await this.llmManager.sendMessageWithSystemPrompt(
+                        systemPrompt,
+                        conversationParts,
+                        { signal: combinedSignal, disableThinking: true }
+                    );
+                } catch (timeoutErr) {
+                    if (timeoutController.signal.aborted) {
+                        clearTimeout(timeoutId);
+                        consecutiveFailures++;
+                        errors.push(`LLM 호출 타임아웃 (${AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT / 1000}초)`);
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                            errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
+                            break;
+                        }
+                        conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
+                        continue;
+                    }
+                    throw timeoutErr;
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+
+                tokenEstimate += estimateTokens(response);
 
                 // 1.5. thinking 내용 UI 전송 + 빈 응답 감지
                 const thinkingMatch = response.match(/<think>([\s\S]*?)<\/think>/);
@@ -495,8 +527,5 @@ import MyComponent from './components/MyComponent';
             `<think> 태그만 출력하지 마세요. 지금 바로 가시적인 출력을 생성하세요.`;
     }
 
-    private estimateTokens(text: string): number {
-        return Math.ceil(text.length / 4);
-    }
 
 }

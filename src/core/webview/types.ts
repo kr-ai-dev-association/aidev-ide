@@ -314,10 +314,16 @@ export type WebviewToExtensionMessage =
 
 // ==================== Extension → Webview Messages ====================
 
+export interface MessageTokenInfo {
+    tokens: number;
+    model?: string;
+}
+
 export interface ReceiveMessageResponse {
     command: 'receiveMessage';
     sender: string;
     text: string;
+    tokenInfo?: MessageTokenInfo;
 }
 
 export interface StartStreamingMessageResponse {
@@ -332,6 +338,29 @@ export interface StreamMessageChunkResponse {
 
 export interface EndStreamingMessageResponse {
     command: 'endStreamingMessage';
+}
+
+export interface UpdateMessageTokenInfoResponse {
+    command: 'updateMessageTokenInfo';
+    tokenInfo: MessageTokenInfo;
+}
+
+/** 참조 추적 항목 */
+export interface ReferenceItem {
+    type: 'rag' | 'local_rule' | 'local_skill' | 'server_rule' | 'server_skill';
+    name: string;
+    source?: string;       // RAG: source_name, local: 'local', server: 'server'
+    similarity?: number;   // RAG 유사도 (0~1)
+}
+
+/** 참조 추적 정보 */
+export interface ReferenceInfo {
+    items: ReferenceItem[];
+}
+
+export interface UpdateReferenceInfoResponse {
+    command: 'updateReferenceInfo';
+    referenceInfo: ReferenceInfo;
 }
 
 export interface ShowLoadingResponse {
@@ -533,6 +562,7 @@ export type ExtensionToWebviewMessage =
     | HideLoadingResponse
     | SetProcessingStepResponse
     | UpdateProcessingStatusResponse
+    | UpdateReferenceInfoResponse
     | UpdateTaskQueueResponse
     | UpdateContextInfoResponse
     | ClearChatResponse
