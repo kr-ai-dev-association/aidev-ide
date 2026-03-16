@@ -288,13 +288,17 @@ export class ToolExecutionCoordinator {
                     } else {
                         // 일반 명령 실패: 명령어와 에러 출력 표시
                         const failedCommand = command || res.message || 'Unknown command';
-                        const headerMsg = `❌ [명령 실패] ${failedCommand}`;
+                        const exitCode = res.data?.exitCode;
+                        const headerMsg = `❌ [명령 실패] ${failedCommand}${exitCode !== undefined ? ` (exit ${exitCode})` : ''}`;
                         WebviewBridge.receiveMessage(webview, 'System', headerMsg);
                         collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
 
-                        const stderr = res.data?.error || res.data?.output || '';
-                        if (stderr) {
-                            const errorMarkdown = `\`\`\`bash\n${stderr}\n\`\`\``;
+                        // stderr와 stdout 모두 표시 (에러 내용 + 일반 출력)
+                        const stderr = res.data?.error || '';
+                        const stdout = res.data?.output || '';
+                        const combinedOutput = [stderr, stdout].filter(Boolean).join('\n').trim();
+                        if (combinedOutput) {
+                            const errorMarkdown = `\`\`\`bash\n${combinedOutput}\n\`\`\``;
                             WebviewBridge.receiveMessage(webview, 'CODEPILOT', errorMarkdown);
                             collectedMessages.push({ sender: 'CODEPILOT', text: errorMarkdown, type: 'code' });
                         }

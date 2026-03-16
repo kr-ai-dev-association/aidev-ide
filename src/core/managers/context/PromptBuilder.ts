@@ -35,6 +35,7 @@ export interface PromptBuilderOptions {
   mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
   ragContext?: string; // 서버 RAG 검색 결과
   activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
+  subProjectStructure?: string; // 서브프로젝트 구조 (모노레포 경로 grounding)
 }
 
 export class PromptBuilder {
@@ -87,6 +88,7 @@ export class PromptBuilder {
       mcpCustomPrompts: options.mcpCustomPrompts, // MCP 커스텀 프롬프트
       ragContext: options.ragContext, // 서버 RAG 문서 컨텍스트
       activeSkillKeys: options.activeSkillKeys, // IntentDetector가 선택한 활성 스킬
+      subProjectStructure: options.subProjectStructure, // 서브프로젝트 구조
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

@@ -16,6 +16,7 @@ import { ExecutionManager } from "../../execution/ExecutionManager";
 import { AgentConfig } from "../../../config/AgentConfig";
 import { UsageMetricsManager } from "../../state/UsageMetricsManager";
 import { StringUtils } from "../../../utils/StringUtils";
+import { SubProjectDetector } from "../../project/SubProjectDetector";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
 import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory, ExecutionOutcome } from "./ErrorClassifier";
 import { AutoRemediator } from "./AutoRemediator";
@@ -35,11 +36,28 @@ export class TestRunner {
   private static subProjectCache: Map<string, { root: string; info: { type: ProjectType; confidence: number; buildTool: any } } | null> = new Map();
 
   /**
+   * LLM 프로젝트 타입 감지 결과 캐시 (세션 내 재사용)
+   * key: workspaceRoot, value: detected project info or null
+   */
+  private static llmProjectTypeCache: Map<string, { type: ProjectType; confidence: number; buildTool: any } | null> = new Map();
+
+  /**
    * 서브 프로젝트 캐시 초기화 (새 세션/대화 시작 시 호출)
    */
   public static clearSubProjectCache(): void {
     TestRunner.subProjectCache.clear();
-    console.log("[TestRunner] Sub-project cache cleared");
+    TestRunner.llmProjectTypeCache.clear();
+    console.log("[TestRunner] Sub-project and LLM project type caches cleared");
+  }
+
+  /**
+   * 프로젝트 타입에 따른 빌드 검증 타임아웃 반환
+   */
+  public static getValidationTimeout(projectType?: string): number {
+    if (!projectType) { return AgentConfig.VALIDATION_COMMAND_TIMEOUT; }
+    const key = projectType.toLowerCase();
+    return AgentConfig.VALIDATION_TIMEOUT_BY_PROJECT[key]
+      ?? AgentConfig.VALIDATION_COMMAND_TIMEOUT;
   }
 
   /**
@@ -72,6 +90,11 @@ export class TestRunner {
       const detector = new ProjectDetector();
       const projectInfo = await detector.detectProjectType(workspaceRoot);
 
+      // 프로젝트 타입에 따른 동적 타임아웃 적용
+      if (validationTimeout === AgentConfig.VALIDATION_COMMAND_TIMEOUT) {
+        validationTimeout = TestRunner.getValidationTimeout(projectInfo.type);
+      }
+
       // Fallback: 규칙으로 찾지 못했을 때 캐시 확인 → LLM 판단
       if (projectInfo.type === ProjectType.UNKNOWN) {
         // 캐시에서 서브 프로젝트 결과 확인 (LLM 호출 절약)
@@ -99,6 +122,30 @@ export class TestRunner {
             );
           }
         } else {
+          // LLM 프로젝트 타입 캐시 확인
+          const cachedLLMType = TestRunner.llmProjectTypeCache.get(workspaceRoot);
+          if (cachedLLMType !== undefined) {
+            if (cachedLLMType && cachedLLMType.type !== ProjectType.UNKNOWN) {
+              console.log(
+                `[TestRunner] Using cached LLM project type: ${cachedLLMType.type}`,
+              );
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                "executing",
+                `프로젝트 타입 (LLM 캐시): ${cachedLLMType.type}`,
+              );
+              Object.assign(projectInfo, cachedLLMType);
+            } else {
+              console.log(
+                "[TestRunner] Cached LLM result: UNKNOWN. Diagnostics only.",
+              );
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                "executing",
+                "프로젝트 타입 미확인 (LLM 캐시) — Diagnostics 검사만 실행",
+              );
+            }
+          } else {
           // 캐시 미스: LLM fallback 실행
           console.log(
             "[TestRunner] Unknown project type, trying LLM fallback...",
@@ -115,11 +162,37 @@ export class TestRunner {
             llmManager,
           );
 
+          // LLM 결과를 캐시에 저장
+          TestRunner.llmProjectTypeCache.set(workspaceRoot, llmResult || null);
+          console.log(
+            `[TestRunner] LLM project type cache set for ${workspaceRoot}: ${llmResult?.type || 'null'}`,
+          );
+
           if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
             console.log(
               `[TestRunner] LLM fallback detected project type: ${llmResult.type}`,
             );
             Object.assign(projectInfo, llmResult);
+
+            // 서브프로젝트 root 보정: LLM이 타입을 감지했어도 루트에 manifest가 없으면
+            // 실제 프로젝트는 서브디렉토리에 있을 수 있음 (모노레포)
+            const rootHasManifest = await TestRunner.hasManifestFile(workspaceRoot, llmResult.type);
+            if (!rootHasManifest) {
+              const subProjectRoot = await TestRunner.findSubProjectRoot(
+                workspaceRoot,
+                createdFiles,
+                modifiedFiles,
+                detector,
+              );
+              if (subProjectRoot) {
+                console.log(
+                  `[TestRunner] LLM detected type but root has no manifest. Using sub-project: ${subProjectRoot.root}`,
+                );
+                Object.assign(projectInfo, subProjectRoot.info);
+                workspaceRoot = subProjectRoot.root;
+                TestRunner.subProjectCache.set(workspaceRoot, subProjectRoot);
+              }
+            }
           } else {
             // 루트에서 감지 실패 → 수정된 파일 경로 기반으로 서브디렉토리 탐지
             console.log(
@@ -160,7 +233,8 @@ export class TestRunner {
               );
             }
           }
-        }
+        } // end LLM cache miss
+        } // end LLM cache check
       }
 
       const testResults: string[] = [];
@@ -373,7 +447,7 @@ export class TestRunner {
         if (validationCmd && excludedValidationCommands.length > 0) {
           const cmdStr = validationCmd.command;
           const isExcluded = excludedValidationCommands.some(
-            excluded => cmdStr.includes(excluded) || excluded.includes(cmdStr)
+            excluded => cmdStr.trim() === excluded.trim()
           );
           if (isExcluded) {
             console.log(`[TestRunner] Validation command excluded (not found): ${cmdStr}. Trying next candidate.`);
@@ -405,11 +479,60 @@ export class TestRunner {
             workspaceRoot,
             validationTimeout,
           );
-          testResults.push(lintResult.message);
-          cliClassification = lintResult.classification;
+
+          // COMMAND_NOT_FOUND 즉시 재시도: 같은 턴에서 LLM에 다음 후보 요청
+          if (lintResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
+            console.log(
+              `[TestRunner] Validation command not found: ${validationCmd.command}. Trying LLM fallback immediately.`,
+            );
+            excludedValidationCommands.push(validationCmd.command);
+            WebviewBridge.sendProcessingStatus(webview, "executing", "검증 도구 미설치 — 대체 명령어 탐색 중...");
+
+            const fallbackCmd = await TestRunner.getValidationCommandFromLLM(
+              webview,
+              projectInfo,
+              workspaceRoot,
+              createdFiles,
+              modifiedFiles,
+              excludedValidationCommands,
+            );
+
+            if (fallbackCmd) {
+              // fallback 명령어가 이미 제외된 명령과 정확히 일치하면 스킵
+              const isDuplicate = excludedValidationCommands.some(
+                ex => fallbackCmd.command.trim() === ex.trim()
+              );
+              if (isDuplicate) {
+                console.log(`[TestRunner] LLM fallback is duplicate of excluded command. Skipping validation.`);
+                WebviewBridge.sendProcessingStatus(webview, "executing", "검증 도구 미설치 — 검증 건너뜀");
+              } else {
+                const fallbackResult = await TestRunner.runValidationCommand(
+                  webview,
+                  fallbackCmd,
+                  workspaceRoot,
+                  validationTimeout,
+                );
+                // fallback도 COMMAND_NOT_FOUND면 더 이상 재시도하지 않음
+                if (fallbackResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
+                  console.log(`[TestRunner] LLM fallback also COMMAND_NOT_FOUND. Skipping validation.`);
+                  WebviewBridge.sendProcessingStatus(webview, "executing", "검증 도구 미설치 — 검증 건너뜀");
+                } else {
+                  testResults.push(fallbackResult.message);
+                  cliClassification = fallbackResult.classification;
+                }
+              }
+            } else {
+              console.log(`[TestRunner] No fallback validation command available. Skipping.`);
+              WebviewBridge.sendProcessingStatus(webview, "executing", "대체 검증 명령어 없음 (건너뜀)");
+            }
+          } else {
+            testResults.push(lintResult.message);
+            cliClassification = lintResult.classification;
+          }
         } else {
-          testResults.push(
-            `컴파일 검사: 프로젝트 타입(${projectInfo.type})에 대한 검증 명령어를 결정할 수 없습니다. (규칙 기반 및 LLM fallback 모두 실패)`,
+          // 검증 명령어를 결정할 수 없는 경우 → smoke test/diagnostics 통과 시 성공으로 처리
+          console.log(
+            `[TestRunner] No validation command available for ${projectInfo.type}. Skipping compile check.`,
           );
           WebviewBridge.sendProcessingStatus(
             webview,
@@ -462,6 +585,7 @@ export class TestRunner {
     workspaceRoot: string,
     createdFiles: string[],
     modifiedFiles: string[],
+    excludedCommands: string[] = [],
   ): Promise<{ command: string; description: string } | null> {
     console.log(
       "[TestRunner] getValidationCommand() returned null. Querying LLM for validation command...",
@@ -475,23 +599,35 @@ export class TestRunner {
     const llmManager = LLMManager.getInstance();
 
     try {
+      const excludedNote = excludedCommands.length > 0
+        ? `\n\n주의: 다음 명령어는 이미 실패했으므로 사용하지 마세요: ${excludedCommands.join(', ')}`
+        : '';
       const prompt = getValidationCommandPrompt({
         projectType: projectInfo.type.toString(),
         workspaceRoot,
         createdFiles,
         modifiedFiles,
-      });
+      }) + excludedNote;
 
       const response = await llmManager.sendMessage(prompt);
 
-      // JSON 파싱
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      // JSON 파싱 (markdown code fence 제거)
+      const cleaned = response.replace(/```(?:json)?\s*/g, '').trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.command && parsed.description) {
+            // 유효하지 않은 명령어 필터링 (예: "...", 빈 문자열, 구두점만)
+            const cmd = parsed.command.trim();
+            if (!TestRunner.isValidCommand(cmd)) {
+              console.warn(
+                `[TestRunner] LLM suggested invalid command, rejecting: "${cmd}"`,
+              );
+              return null;
+            }
             const validationCmd = {
-              command: parsed.command,
+              command: cmd,
               description: parsed.description,
             };
             console.log(
@@ -728,6 +864,19 @@ export class TestRunner {
   }
 
   /**
+   * LLM이 제안한 명령어가 유효한 셸 명령어인지 검증
+   * "...", 빈 문자열, 구두점만으로 구성된 문자열 등을 거부
+   */
+  private static isValidCommand(cmd: string): boolean {
+    if (!cmd || cmd.length < 2) return false;
+    // 구두점/공백만으로 구성된 명령어 거부
+    if (/^[\s.…,;:!?'"()\[\]{}<>/*\-_=+]+$/.test(cmd)) return false;
+    // 알파벳/숫자가 하나도 없는 명령어 거부
+    if (!/[a-zA-Z0-9]/.test(cmd)) return false;
+    return true;
+  }
+
+  /**
    * 수정된 파일 경로에서 서브 프로젝트 루트를 찾습니다.
    * 예: workspaceRoot=/test, modifiedFiles=[frontend/src/App.tsx]
    *   → frontend/ 디렉토리에서 프로젝트 타입 감지 시도
@@ -741,28 +890,38 @@ export class TestRunner {
     const allFiles = [...createdFiles, ...modifiedFiles];
     if (allFiles.length === 0) return null;
 
-    // 수정된 파일들의 첫 번째 디렉토리 세그먼트 수집 (중복 제거)
-    const subDirs = new Set<string>();
+    // 수정된 파일의 모든 ancestor 디렉토리를 수집 (파일에서 루트 방향으로)
+    // 예: packages/client/src/App.tsx → [packages/client/src, packages/client, packages]
+    const candidateDirs: string[] = [];
+    const seen = new Set<string>();
     for (const file of allFiles) {
       const relativePath = path.isAbsolute(file)
         ? path.relative(workspaceRoot, file)
         : file;
-      const firstSegment = relativePath.split(path.sep)[0];
-      if (firstSegment && firstSegment !== relativePath) {
-        subDirs.add(firstSegment);
+      const segments = relativePath.split(path.sep);
+      // 파일 자체 제외, 부모 디렉토리부터 역순으로 (가장 가까운 것 먼저)
+      for (let i = segments.length - 2; i >= 0; i--) {
+        const ancestorRelative = segments.slice(0, i + 1).join(path.sep);
+        if (!seen.has(ancestorRelative)) {
+          seen.add(ancestorRelative);
+          candidateDirs.push(ancestorRelative);
+        }
       }
     }
 
-    // 각 서브 디렉토리에서 프로젝트 타입 감지 시도
-    for (const subDir of subDirs) {
-      const subRoot = path.join(workspaceRoot, subDir);
+    // 가장 가까운 ancestor부터 프로젝트 타입 감지 시도
+    for (const relDir of candidateDirs) {
+      const absDir = path.join(workspaceRoot, relDir);
       try {
-        const stat = await fs.stat(subRoot);
+        const stat = await fs.stat(absDir);
         if (!stat.isDirectory()) continue;
 
-        const subInfo = await detector.detectProjectType(subRoot);
+        const subInfo = await detector.detectProjectType(absDir);
         if (subInfo.type !== ProjectType.UNKNOWN) {
-          return { root: subRoot, info: subInfo };
+          console.log(
+            `[TestRunner] Nearest ancestor manifest found: ${relDir} (type: ${subInfo.type})`,
+          );
+          return { root: absDir, info: subInfo };
         }
       } catch {
         // 디렉토리 접근 실패 시 무시
@@ -770,5 +929,50 @@ export class TestRunner {
     }
 
     return null;
+  }
+
+  /**
+   * 워크스페이스 루트에 해당 프로젝트 타입의 manifest 파일이 있는지 확인
+   */
+  private static async hasManifestFile(workspaceRoot: string, projectType: ProjectType): Promise<boolean> {
+    const manifestMap: Record<string, string[]> = {
+      [ProjectType.NODE]: ['package.json'],
+      [ProjectType.REACT]: ['package.json'],
+      [ProjectType.VUE]: ['package.json'],
+      [ProjectType.ANGULAR]: ['package.json'],
+      [ProjectType.PYTHON]: ['requirements.txt', 'pyproject.toml', 'Pipfile'],
+      [ProjectType.DJANGO]: ['requirements.txt', 'pyproject.toml', 'manage.py'],
+      [ProjectType.FLASK]: ['requirements.txt', 'pyproject.toml'],
+      [ProjectType.FASTAPI]: ['requirements.txt', 'pyproject.toml'],
+      [ProjectType.JAVA]: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
+      [ProjectType.SPRING_BOOT]: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
+      [ProjectType.ANDROID]: ['build.gradle', 'build.gradle.kts'],
+      [ProjectType.GO]: ['go.mod'],
+      [ProjectType.RUST]: ['Cargo.toml'],
+      [ProjectType.RUBY]: ['Gemfile'],
+      [ProjectType.PHP]: ['composer.json'],
+      [ProjectType.CSHARP]: ['*.csproj', '*.sln'],
+      [ProjectType.SWIFT]: ['Package.swift'],
+      [ProjectType.FLUTTER]: ['pubspec.yaml'],
+    };
+
+    const manifests = manifestMap[projectType];
+    if (!manifests) return true; // 매핑 없으면 검증 스킵
+
+    for (const manifest of manifests) {
+      try {
+        if (manifest.includes('*')) {
+          // glob 패턴 (*.csproj 등)
+          const entries = await fs.readdir(workspaceRoot);
+          const ext = manifest.replace('*', '');
+          if (entries.some(e => e.endsWith(ext))) return true;
+        } else {
+          await fs.access(path.join(workspaceRoot, manifest));
+          return true;
+        }
+      } catch {}
+    }
+
+    return false;
   }
 }

@@ -14,6 +14,16 @@ let chatMessages = null;
 let chatContainer = null;
 
 /**
+ * 사용자가 위로 스크롤하여 하단에서 떨어져 있는지 판단
+ * 하단 100px 이내이면 "하단에 있음" (auto-scroll 허용)
+ */
+function isUserScrolledUp() {
+  if (!chatMessages) return false;
+  const threshold = 100;
+  return chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight > threshold;
+}
+
+/**
  * Processing Steps 모듈 초기화
  * @param {Object} deps - 의존성 객체
  */
@@ -108,8 +118,8 @@ export function updateThinkingBubbleText() {
     if (index < newFullText.length) {
       textElement.textContent += newFullText[index];
       index++;
-      // 스크롤 유지
-      if (chatMessages) {
+      // 사용자가 하단 근처에 있을 때만 자동 스크롤 (위로 스크롤 중이면 방해하지 않음)
+      if (chatMessages && !isUserScrolledUp()) {
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
     } else {
@@ -334,8 +344,8 @@ export function updateThinkingContent(text) {
   thinkingContent.textContent = text;
   thinkingContent.style.display = '';
 
-  // 스크롤 유지
-  if (chatMessages) {
+  // 사용자가 하단 근처에 있을 때만 자동 스크롤
+  if (chatMessages && !isUserScrolledUp()) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
 }
@@ -400,5 +410,7 @@ export function showErrorCorrection(originalCommand, correctedCommand, retryCoun
   `;
 
   chatMessages.appendChild(errorCorrectionDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  if (!isUserScrolledUp()) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
 }

@@ -33,6 +33,7 @@ import { LLMManager } from '../managers/model/LLMManager';
 import { PromptComposer } from '../managers/context/prompts/PromptComposer';
 import { AgentConfig } from '../config/AgentConfig';
 import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../services';
+import { ReferenceItem } from '../webview/types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -126,10 +127,16 @@ export class OrchestrationRouter {
 
             // 규칙/설정 컨텍스트 수집 (서브 에이전트 공유용)
             let rulesContext = '';
+            let collectedReferences: ReferenceItem[] = [];
             try {
-                rulesContext = await OrchestrationRouter.gatherRulesContext(options.userQuery);
+                const gathered = await OrchestrationRouter.gatherRulesContext(options.userQuery);
+                rulesContext = gathered.text;
+                collectedReferences = gathered.references;
                 if (rulesContext) {
                     console.log(`[OrchestrationRouter] Rules context gathered (${rulesContext.length} chars)`);
+                }
+                if (collectedReferences.length > 0) {
+                    console.log(`[OrchestrationRouter] References collected: ${collectedReferences.length}개 (${collectedReferences.map(r => `${r.type}:${r.name}`).join(', ')})`);
                 }
             } catch (e) {
                 console.warn('[OrchestrationRouter] Failed to gather rules context:', e);
@@ -262,6 +269,38 @@ export class OrchestrationRouter {
                 }
             }
 
+            // Phase D: 재시도 성공으로 의존성이 해소된 skipped 태스크 실행
+            if (!options.abortSignal?.aborted) {
+                const nowCompletedIds = new Set(results.filter(r => r.success).map(r => r.subtaskId));
+                const skippedResults = results.filter(r => !r.success && r.turnCount === 0);
+
+                for (const skipped of skippedResults) {
+                    if (options.abortSignal?.aborted) { break; }
+
+                    const originalSubtask = splitResult.subtasks.find(st => st.id === skipped.subtaskId);
+                    if (!originalSubtask) { continue; }
+
+                    const depsOk = originalSubtask.dependencies.every(dep => nowCompletedIds.has(dep));
+                    if (!depsOk) { continue; }
+
+                    console.log(`[OrchestrationRouter] Dependencies now met for ${skipped.subtaskId}, executing...`);
+
+                    const enrichedSubtask = OrchestrationRouter.enrichWithPriorResults(originalSubtask, results);
+                    const result = await OrchestrationRouter.runAgent(
+                        enrichedSubtask, toolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
+                    );
+
+                    // 기존 skipped 결과 교체
+                    const skippedIdx = results.findIndex(r => r.subtaskId === skipped.subtaskId);
+                    if (skippedIdx !== -1) {
+                        results[skippedIdx] = { ...result, subtaskId: skipped.subtaskId };
+                    }
+                    if (result.success) {
+                        nowCompletedIds.add(skipped.subtaskId);
+                    }
+                }
+            }
+
             // 결과 병합
             const merged = ResultMerger.merge(results);
 
@@ -289,6 +328,12 @@ export class OrchestrationRouter {
             const summaryMessage = OrchestrationRouter.formatMergedResult(merged, validationResult, unifiedSummary);
             WebviewBridge.receiveMessage(webview, 'CODEPILOT', summaryMessage);
             collectedUIMessages.push({ sender: 'CODEPILOT', text: summaryMessage, type: 'summary' });
+
+            // 참조 정보 웹뷰 전송 (요약 메시지 이후에 전송해야 패널 위치가 정확함)
+            if (collectedReferences.length > 0) {
+                console.log(`[OrchestrationRouter] Sending ${collectedReferences.length}개 references to webview`);
+                WebviewBridge.sendReferenceInfo(webview, { items: collectedReferences });
+            }
 
             // 턴 액션 표시 (모든 출력 완료 후)
             try {
@@ -739,8 +784,9 @@ export class OrchestrationRouter {
      * 보안 규칙(차단 명령어, 보호 파일 등)은 PreToolUseValidator에서
      * 도구 실행 시 자동으로 적용되므로 여기서 별도로 수집하지 않음
      */
-    private static async gatherRulesContext(userQuery: string): Promise<string> {
+    private static async gatherRulesContext(userQuery: string): Promise<{ text: string; references: ReferenceItem[] }> {
         const parts: string[] = [];
+        const references: ReferenceItem[] = [];
 
         // 1. Skills: 로컬(.agent/rules) + 서버(dev_rules)
         try {
@@ -748,6 +794,14 @@ export class OrchestrationRouter {
             const { text: serverRules } = PromptComposer.loadServerPromptTemplates(ruleKeys);
             if (localRules) { parts.push(localRules); }
             if (serverRules) { parts.push(serverRules); }
+            // 참조 추적: 로컬 규칙
+            for (const key of ruleKeys) {
+                references.push({ type: 'local_rule', name: key, source: 'local' });
+            }
+            // 참조 추적: 서버 규칙
+            for (const rule of PromptComposer.getLastIncludedServerRuleKeys()) {
+                references.push({ type: 'server_rule', name: rule.title, source: 'server' });
+            }
         } catch (e) {
             console.warn('[OrchestrationRouter] Failed to load Skills:', e);
         }
@@ -786,7 +840,7 @@ export class OrchestrationRouter {
 
         // 5. RAG 컨텍스트 — standalone 모드에서는 비활성화
 
-        return parts.filter(p => p.trim()).join('\n\n');
+        return { text: parts.filter(p => p.trim()).join('\n\n'), references };
     }
 
     /**

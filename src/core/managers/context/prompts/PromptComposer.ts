@@ -14,6 +14,7 @@ import { getOSPrompt as getOSPromptByName } from './osPrompts';
 import { getLLMPrompt as getLLMPromptByKey } from './llmPrompts';
 import { getCodeWorkPrompt, getExecutionWorkPrompt } from './task';
 import { Tool } from '../../../tools/types';
+import { ReferenceItem } from '../../../webview/types';
 
 export interface PromptComposerOptions {
     userOS: string;
@@ -31,6 +32,7 @@ export interface PromptComposerOptions {
     mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
     ragContext?: string; // 서버 RAG 문서 컨텍스트
     activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
+    subProjectStructure?: string; // 서브프로젝트 구조 (모노레포 경로 grounding)
 }
 
 /** Skill Registry 항목 */
@@ -48,6 +50,19 @@ export class PromptComposer {
 
     /** Skill Registry: 조건부 주입 대상 스킬 저장소 */
     private static _skillRegistry: Map<string, SkillEntry> = new Map();
+
+    /** 마지막 composeSystemPrompt 호출 시 수집된 참조 정보 */
+    private static _lastReferences: ReferenceItem[] = [];
+
+    /** 마지막 프롬프트 생성에서 사용된 참조 정보 반환 */
+    public static getLastReferences(): ReferenceItem[] {
+        return [...PromptComposer._lastReferences];
+    }
+
+    /** 마지막 loadServerPromptTemplates에서 포함된 서버 규칙 키 반환 (참조 추적용) */
+    public static getLastIncludedServerRuleKeys(): { key: string; title: string }[] {
+        return [...PromptComposer._lastIncludedServerRuleKeys];
+    }
 
     /**
      * VS Code storageUri 기반 스킬 디렉토리 경로 설정.
@@ -262,6 +277,9 @@ ${rules.join('\n\n---\n\n')}`,
      * @param localRuleKeys 이미 로드된 로컬 규칙 키 Set (중복 제거용)
      * @returns { text: string, overrideKeys: Set<string> } overrideKeys = 서버 필수가 덮어쓴 로컬 키
      */
+    /** 마지막 loadServerPromptTemplates에서 프롬프트에 포함된 서버 규칙 키 */
+    private static _lastIncludedServerRuleKeys: { key: string; title: string }[] = [];
+
     public static loadServerPromptTemplates(localRuleKeys: Set<string>): { text: string; overrideKeys: Set<string> } {
         try {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -320,6 +338,11 @@ ${rules.join('\n\n---\n\n')}`,
                 return true;
             });
 
+            // 프롬프트에 포함된 서버 규칙 키 저장 (참조 추적용)
+            PromptComposer._lastIncludedServerRuleKeys = filteredRules.map(
+                (r: { key: string; title?: string }) => ({ key: r.key, title: r.title || r.key })
+            );
+
             if (filteredRules.length === 0) {
                 return { text: '', overrideKeys };
             }
@@ -345,7 +368,7 @@ ${formattedRules}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, activeSkillKeys } = options;
+        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, activeSkillKeys, subProjectStructure } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -443,6 +466,26 @@ ${diagnosticsContextContent}
             agentRules = agentRules.replace(/(\n---\n)+/g, '\n---\n').replace(/^\n---\n|\n---\n$/g, '').trim();
         }
 
+        // 참조 추적: 사용된 로컬 규칙, 서버 규칙, 활성 스킬 기록
+        const references: ReferenceItem[] = [];
+        for (const key of localRuleKeys) {
+            references.push({ type: 'local_rule', name: key, source: 'local' });
+        }
+        // 프롬프트에 포함된 모든 서버 규칙 추적 (override뿐 아니라 recommended도 포함)
+        for (const rule of PromptComposer._lastIncludedServerRuleKeys) {
+            references.push({ type: 'server_rule', name: rule.title, source: 'server' });
+        }
+        if (activeSkillKeys) {
+            for (const skillKey of activeSkillKeys) {
+                const entry = PromptComposer._skillRegistry.get(skillKey);
+                if (entry) {
+                    const skillType = entry.source === 'server' ? 'server_skill' : 'local_skill';
+                    references.push({ type: skillType, name: entry.key, source: entry.source });
+                }
+            }
+        }
+        PromptComposer._lastReferences = references;
+
         // v9.2.1: 프레임워크 규칙 섹션 (동적 감지된 스택 기반)
         const frameworkRulesSection = frameworkRulesPrompt || '';
 
@@ -497,6 +540,7 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
             serverPromptTemplates, // 서버 관리자 프롬프트 템플릿(Rule) — 최상단 배치
             activeSkillsSection, // 조건부 스킬 — IntentDetector가 선택한 것만
             osContextInfo,
+            subProjectStructure, // 서브프로젝트 구조 (모노레포 경로 grounding)
             basePrompt,
             mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
             frameworkRulesSection, // v9.2.1: 동적 프레임워크 규칙

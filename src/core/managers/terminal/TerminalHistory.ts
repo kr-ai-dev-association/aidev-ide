@@ -8,6 +8,7 @@ import {
     HistoryEntry,
     HistoryFilter
 } from './types';
+import { AgentConfig } from '../../config/AgentConfig';
 
 export class TerminalHistory {
     private entries: HistoryEntry[] = [];
@@ -17,6 +18,20 @@ export class TerminalHistory {
      * 히스토리 엔트리를 추가합니다
      */
     public add(sessionId: string, sessionName: string, command: TerminalCommand): void {
+        // 출력 크기 제한
+        if (command.output) {
+            const maxLen = AgentConfig.MAX_TERMINAL_OUTPUT_PER_ENTRY;
+            if (command.output.stdout.length > maxLen) {
+                command.output.stdout = command.output.stdout.slice(-maxLen);
+            }
+            if (command.output.stderr.length > maxLen) {
+                command.output.stderr = command.output.stderr.slice(-maxLen);
+            }
+            if (command.output.combined.length > maxLen) {
+                command.output.combined = command.output.combined.slice(-maxLen);
+            }
+        }
+
         const entry: HistoryEntry = {
             sessionId,
             sessionName,

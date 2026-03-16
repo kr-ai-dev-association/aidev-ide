@@ -35,8 +35,9 @@ export class StreamManager {
             });
         }
 
-        // 프로세스 종료 시 정리
-        childProcess.on('exit', () => {
+        // 프로세스 종료 시 정리 (close는 exit 이후, 모든 스트림 flush 후 발생)
+        // exit에서 cleanup하면 ExecutionManager가 buffer를 읽기 전에 삭제되는 레이스 컨디션 발생
+        childProcess.on('close', () => {
             this.cleanup(pid);
         });
     }
@@ -155,9 +156,7 @@ export class StreamManager {
      */
     private cleanup(pid: number): void {
         this.handlers.delete(pid);
-
-        // 버퍼는 유지 (히스토리 목적)
-        // this.buffers.delete(pid);
+        this.buffers.delete(pid);
     }
 
     /**

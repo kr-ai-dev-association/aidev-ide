@@ -113,6 +113,6 @@ export interface TurnContext {
  * 추출된 메서드가 턴 루프에 continue/break/proceed 의도를 전달
  */
 export type TurnAction =
-  | { action: 'continue'; forceNextLLMCall?: boolean }
+  | { action: 'continue' }
   | { action: 'break' }
   | { action: 'proceed' };

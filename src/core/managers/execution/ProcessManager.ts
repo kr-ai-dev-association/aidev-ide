@@ -19,20 +19,42 @@ const GIT_BASH_CANDIDATES = [
     'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Programs\\Git\\bin\\bash.exe',
 ];
 
-function findGitBash(): string | null {
-    for (const p of GIT_BASH_CANDIDATES) {
-        if (fs.existsSync(p)) {
-            return p;
-        }
+// PowerShell 후보 경로 (Windows): pwsh (7+) > powershell (5.1)
+const POWERSHELL_CANDIDATES = [
+    'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    process.env.SystemRoot ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe` : 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+];
+
+function findExecutable(candidates: string[]): string | null {
+    for (const p of candidates) {
+        try {
+            if (fs.existsSync(p)) {
+                return p;
+            }
+        } catch { /* ignore */ }
     }
     return null;
 }
 
 // 프로세스 시작 시 한 번만 탐색
-const GIT_BASH_PATH = process.platform === 'win32' ? findGitBash() : null;
+const GIT_BASH_PATH = process.platform === 'win32' ? findExecutable(GIT_BASH_CANDIDATES) : null;
+const POWERSHELL_PATH = process.platform === 'win32' ? findExecutable(POWERSHELL_CANDIDATES) : null;
+
+/** Windows 쉘 선택 결과 */
+type WindowsShellType = 'gitbash' | 'powershell' | 'cmd';
+const WINDOWS_SHELL_TYPE: WindowsShellType | null = process.platform === 'win32'
+    ? (GIT_BASH_PATH ? 'gitbash' : POWERSHELL_PATH ? 'powershell' : 'cmd')
+    : null;
 
 if (process.platform === 'win32') {
-    console.log(`[ProcessManager] Shell: ${GIT_BASH_PATH ? `Git Bash (${GIT_BASH_PATH})` : 'PowerShell'}`);
+    const shellLabel = WINDOWS_SHELL_TYPE === 'gitbash'
+        ? `Git Bash (${GIT_BASH_PATH})`
+        : WINDOWS_SHELL_TYPE === 'powershell'
+            ? `PowerShell + ExecutionPolicy Bypass (${POWERSHELL_PATH})`
+            : 'cmd.exe (fallback)';
+    console.log(`[ProcessManager] Shell: ${shellLabel}`);
+} else {
+    console.log(`[ProcessManager] Shell: ${process.env.SHELL || '/bin/zsh'} (login mode)`);
 }
 
 export class ProcessManager {
@@ -56,23 +78,52 @@ export class ProcessManager {
         const [cmd, ...args] = this.parseCommand(command);
 
         // 프로세스 생성
-        // Windows: Git Bash → PowerShell 순으로 fallback
-        // Mac/Linux: 네이티브 /bin/sh
-        let shellOption: string | boolean;
+        // Windows: Git Bash → PowerShell (-ExecutionPolicy Bypass) → cmd.exe 순으로 fallback
+        // Mac/Linux: 사용자 기본 shell (login mode — .zshrc/.bashrc 로드하여 nvm 등 PATH 포함)
+        let childProcess: ChildProcess;
         if (typeof options.shell === 'boolean') {
-            shellOption = options.shell;
+            childProcess = spawn(cmd, args, {
+                cwd: options.cwd,
+                env: { ...process.env, ...options.env },
+                shell: options.shell,
+                ...(options.encoding && { encoding: options.encoding })
+            });
         } else if (process.platform === 'win32') {
-            shellOption = GIT_BASH_PATH ?? 'powershell.exe';
+            const fullCommand = [cmd, ...args].join(' ');
+            if (WINDOWS_SHELL_TYPE === 'gitbash') {
+                // Git Bash: shell 옵션으로 직접 사용
+                childProcess = spawn(cmd, args, {
+                    cwd: options.cwd,
+                    env: { ...process.env, ...options.env },
+                    shell: GIT_BASH_PATH!,
+                    ...(options.encoding && { encoding: options.encoding })
+                });
+            } else if (WINDOWS_SHELL_TYPE === 'powershell') {
+                // PowerShell: -ExecutionPolicy Bypass로 권한 문제 우회
+                childProcess = spawn(POWERSHELL_PATH!, ['-ExecutionPolicy', 'Bypass', '-Command', fullCommand], {
+                    cwd: options.cwd,
+                    env: { ...process.env, ...options.env },
+                    ...(options.encoding && { encoding: options.encoding })
+                });
+            } else {
+                // cmd.exe: 최종 fallback
+                childProcess = spawn(cmd, args, {
+                    cwd: options.cwd,
+                    env: { ...process.env, ...options.env },
+                    shell: 'cmd.exe',
+                    ...(options.encoding && { encoding: options.encoding })
+                });
+            }
         } else {
-            shellOption = true; // /bin/sh
+            // Mac/Linux: login shell로 실행하여 사용자 환경(nvm, fnm, volta 등) PATH 로드
+            const userShell = process.env.SHELL || '/bin/zsh';
+            const fullCommand = [cmd, ...args].join(' ');
+            childProcess = spawn(userShell, ['-l', '-c', fullCommand], {
+                cwd: options.cwd,
+                env: { ...process.env, ...options.env },
+                ...(options.encoding && { encoding: options.encoding })
+            });
         }
-
-        const childProcess = spawn(cmd, args, {
-            cwd: options.cwd,
-            env: { ...process.env, ...options.env },
-            shell: shellOption,
-            ...(options.encoding && { encoding: options.encoding })
-        });
 
         const pid = childProcess.pid!;
 
@@ -295,4 +346,3 @@ export class ProcessManager {
         };
     }
 }
-

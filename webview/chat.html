@@ -1177,6 +1177,72 @@
         flex-shrink: 0;
       }
 
+      /* 참조 추적 패널 */
+      .reference-panel {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground, #888);
+        border-top: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.2));
+        margin-top: 6px;
+        padding-top: 4px;
+      }
+      .reference-panel-toggle {
+        cursor: pointer;
+        user-select: none;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .reference-panel-toggle:hover {
+        opacity: 1;
+      }
+      .reference-panel-toggle .toggle-icon {
+        font-size: 8px;
+        transition: transform 0.2s;
+      }
+      .reference-panel-toggle .toggle-icon.expanded {
+        transform: rotate(90deg);
+      }
+      .reference-panel-list {
+        display: none;
+        margin-top: 4px;
+        padding-left: 8px;
+        line-height: 1.6;
+      }
+      .reference-panel-list.show {
+        display: block;
+      }
+      .reference-panel-list .ref-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .reference-panel-list .ref-type {
+        font-size: 9px;
+        padding: 0 4px;
+        border-radius: 3px;
+        font-weight: 500;
+      }
+      .ref-type.rag { background: rgba(59,130,246,0.15); color: #3b82f6; }
+      .ref-type.local_rule, .ref-type.local_skill { background: rgba(34,197,94,0.15); color: #22c55e; }
+      .ref-type.server_rule, .ref-type.server_skill { background: rgba(249,115,22,0.15); color: #f97316; }
+
+      .message-token-badge {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground, #888);
+        opacity: 0.7;
+        padding: 2px 6px;
+        margin-top: 2px;
+        align-self: flex-end;
+        user-select: none;
+        cursor: default;
+        transition: opacity 0.2s;
+      }
+      .message-token-badge:hover {
+        opacity: 1;
+      }
+
       /* Turn-level Accept/Reject */
       .turn-actions {
         padding: 4px 0;

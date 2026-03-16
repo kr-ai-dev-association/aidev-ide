@@ -15,8 +15,17 @@ import { TaskManager } from '../../task/TaskManager';
 import { MCPManager } from '../../../mcp/MCPManager';
 import { RelevantFilesFinder } from '../../context/file/RelevantFilesFinder';
 import { PromptType } from '../../context/PromptBuilder';
+import { ReferenceItem } from '../../../webview/types';
 
 export class ContextGatherer {
+    /** 마지막 gatherContext 호출에서 수집된 RAG 참조 정보 (standalone: 항상 빈 배열) */
+    private static _lastRagReferences: ReferenceItem[] = [];
+
+    /** 마지막 RAG 참조 정보 반환 */
+    public static getLastRagReferences(): ReferenceItem[] {
+        return [...ContextGatherer._lastRagReferences];
+    }
+
     constructor(
         private contextManager: ContextManager,
         private llmManager: LLMManager,
@@ -213,6 +222,21 @@ export class ContextGatherer {
             // Git 정보 수집 실패는 무시
         }
 
+        // 서브프로젝트 구조 감지 (모노레포/멀티 디렉토리 경로 grounding)
+        let subProjectStructure: string | undefined;
+        try {
+            const workspaceRoot2 = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot2) {
+                const { SubProjectDetector } = require('../../project/SubProjectDetector');
+                subProjectStructure = SubProjectDetector.formatForPrompt(workspaceRoot2);
+                if (subProjectStructure) {
+                    console.log(`[ContextGatherer] SubProject structure detected (${subProjectStructure.length} chars)`);
+                }
+            }
+        } catch (error) {
+            console.warn('[ContextGatherer] SubProject detection failed (non-critical):', error);
+        }
+
         return {
             codebaseContext: contextData.file?.content,
             realTimeInfo: contextData.terminal?.lastOutput,
@@ -225,6 +249,7 @@ export class ContextGatherer {
             diagnosticsContextContent,
             frameworkRulesPrompt,
             ragContext,
+            subProjectStructure,
         };
     }
 }

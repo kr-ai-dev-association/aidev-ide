@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import { ToolUse, Tool } from './types';
 
 export interface ValidationResult {
@@ -363,7 +364,7 @@ export class PreToolUseValidator {
     /**
      * 도구 사용 전 검증
      */
-    static validate(toolUse: ToolUse, projectRoot: string): ValidationResult {
+    static async validate(toolUse: ToolUse, projectRoot: string): Promise<ValidationResult> {
         switch (toolUse.name) {
             case Tool.RUN_COMMAND:
                 return this.validateCommand(toolUse.params.command || '');
@@ -463,10 +464,21 @@ export class PreToolUseValidator {
     }
 
     /**
+     * 심볼릭 링크를 해결한 실제 경로 반환 (async)
+     */
+    private static async resolveRealPath(p: string): Promise<string> {
+        try {
+            return await fsPromises.realpath(p);
+        } catch {
+            return p;
+        }
+    }
+
+    /**
      * 경로 정규화 (심볼릭 링크 해결)
      * v9.4.0: 심볼릭 링크 우회 방지
      */
-    private static normalizePath(filePath: string, projectRoot: string): { absolutePath: string; error?: string } {
+    private static async normalizePath(filePath: string, projectRoot: string): Promise<{ absolutePath: string; error?: string }> {
         try {
             // 절대 경로 변환
             let absolutePath = path.isAbsolute(filePath)
@@ -476,21 +488,13 @@ export class PreToolUseValidator {
             // 심볼릭 링크 해결 (실제 경로 반환)
             // 파일이 존재하면 realpath로 정규화
             if (fs.existsSync(absolutePath)) {
-                try {
-                    absolutePath = fs.realpathSync(absolutePath);
-                } catch (e) {
-                    // realpath 실패 시 원래 경로 사용 (새 파일 생성 등)
-                }
+                absolutePath = await this.resolveRealPath(absolutePath);
             } else {
                 // 파일이 없으면 부모 디렉토리로 검사
                 const parentDir = path.dirname(absolutePath);
                 if (fs.existsSync(parentDir)) {
-                    try {
-                        const realParent = fs.realpathSync(parentDir);
-                        absolutePath = path.join(realParent, path.basename(absolutePath));
-                    } catch (e) {
-                        // 부모 디렉토리 realpath 실패 시 원래 경로 사용
-                    }
+                    const realParent = await this.resolveRealPath(parentDir);
+                    absolutePath = path.join(realParent, path.basename(absolutePath));
                 }
             }
 
@@ -510,18 +514,16 @@ export class PreToolUseValidator {
      * 파일 쓰기 경로 검증
      * v9.4.0: 심볼릭 링크 정규화 추가
      */
-    private static validateFileWrite(filePath: string, projectRoot: string): ValidationResult {
+    private static async validateFileWrite(filePath: string, projectRoot: string): Promise<ValidationResult> {
         // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
-        const { absolutePath, error } = this.normalizePath(filePath, projectRoot);
+        const { absolutePath, error } = await this.normalizePath(filePath, projectRoot);
 
         if (error) {
             console.warn(`[PreToolUseValidator] Path normalization warning: ${error}`);
         }
 
         // 프로젝트 외부 접근 차단 (정규화된 경로로 검사)
-        const normalizedProjectRoot = fs.existsSync(projectRoot)
-            ? fs.realpathSync(projectRoot)
-            : projectRoot;
+        const normalizedProjectRoot = await this.resolveRealPath(projectRoot);
 
         if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
@@ -563,14 +565,12 @@ export class PreToolUseValidator {
      * 파일 읽기 경로 검증
      * v9.4.0: 심볼릭 링크 정규화 추가
      */
-    private static validateFileRead(filePath: string, projectRoot: string): ValidationResult {
+    private static async validateFileRead(filePath: string, projectRoot: string): Promise<ValidationResult> {
         // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
-        const { absolutePath } = this.normalizePath(filePath, projectRoot);
+        const { absolutePath } = await this.normalizePath(filePath, projectRoot);
 
         // 프로젝트 외부 접근 차단 (정규화된 경로로 검사)
-        const normalizedProjectRoot = fs.existsSync(projectRoot)
-            ? fs.realpathSync(projectRoot)
-            : projectRoot;
+        const normalizedProjectRoot = await this.resolveRealPath(projectRoot);
 
         if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
@@ -600,14 +600,12 @@ export class PreToolUseValidator {
      * 파일 삭제 경로 검증
      * v9.4.0: 심볼릭 링크 정규화 및 READ_ONLY_FILES 삭제 차단 추가
      */
-    private static validateFileRemove(filePath: string, projectRoot: string): ValidationResult {
+    private static async validateFileRemove(filePath: string, projectRoot: string): Promise<ValidationResult> {
         // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
-        const { absolutePath } = this.normalizePath(filePath, projectRoot);
+        const { absolutePath } = await this.normalizePath(filePath, projectRoot);
 
         // 프로젝트 외부 삭제 차단 (정규화된 경로로 검사)
-        const normalizedProjectRoot = fs.existsSync(projectRoot)
-            ? fs.realpathSync(projectRoot)
-            : projectRoot;
+        const normalizedProjectRoot = await this.resolveRealPath(projectRoot);
 
         if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
@@ -649,15 +647,15 @@ export class PreToolUseValidator {
      * 여러 도구에 대해 일괄 검증
      * @returns 차단된 도구들의 인덱스와 이유
      */
-    static validateAll(toolUses: ToolUse[], projectRoot: string): Map<number, ValidationResult> {
+    static async validateAll(toolUses: ToolUse[], projectRoot: string): Promise<Map<number, ValidationResult>> {
         const blocked = new Map<number, ValidationResult>();
 
-        toolUses.forEach((toolUse, index) => {
-            const result = this.validate(toolUse, projectRoot);
+        for (let index = 0; index < toolUses.length; index++) {
+            const result = await this.validate(toolUses[index], projectRoot);
             if (!result.allowed) {
                 blocked.set(index, result);
             }
-        });
+        }
 
         return blocked;
     }
