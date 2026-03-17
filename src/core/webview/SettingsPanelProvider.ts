@@ -1506,18 +1506,34 @@ export function openSettingsPanel(
 
               safePostMessage(panel, { command: "aiModelSaved" });
 
-              // 채팅 패널에도 모델 변경 알림
+              // 채팅 패널에도 모델 변경 알림 (전체 모델 목록 포함)
               if (chatViewProvider && typeof chatViewProvider.postMessageToWebview === 'function') {
                 let chatModel = aiModelToSave;
-                // Ollama인 경우 실제 ollama 모델명을 보냄 (채팅 드롭박스 매칭용)
                 if (aiModelToSave === 'ollama') {
                   const ollamaModel = await stateManager.getOllamaModel();
                   chatModel = ollamaModel || 'ollama';
                 }
 
+                // 프리셋 모델 목록도 함께 전송하여 드롭다운 재구성
+                let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
+                try {
+                  const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                  supportedModels = (aiModelSettings || [])
+                    .filter((s: any) => s.source === 'preset' && s.value && s.value.enabled !== false)
+                    .map((s: any) => ({
+                      key: s.key,
+                      name: `supported:${s.key}`,
+                      displayName: s.value?.name || s.key,
+                      group: s.group || 'default',
+                    }));
+                } catch { }
+
                 chatViewProvider.postMessageToWebview({
-                  command: 'ollamaModelChanged',
-                  model: chatModel
+                  command: 'ollamaModels',
+                  models: [],
+                  current: chatModel,
+                  adminModels: [],
+                  supportedModels,
                 });
               }
 
