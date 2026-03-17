@@ -5259,7 +5259,7 @@ function renderHotLoadList(hotLoads) {
           onFailure.value = item.onFailure || "stop";
         }
         if (addButton) {
-          addButton.textContent = "저장 (수정)";
+          addButton.textContent = "저장";
           addButton.dataset.editId = id;
         }
         const formTitle = document.getElementById("hotload-form-title");

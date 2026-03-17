@@ -2221,9 +2221,9 @@ window.addEventListener("message", (event) => {
         const setText =
           message.ollamaServerType === "remote"
             ? languageData["ollamaServerTypeRemoteSet"] ||
-              "Ollama 서버 타입: 원격 서버"
+            "Ollama 서버 타입: 원격 서버"
             : languageData["ollamaServerTypeLocalSet"] ||
-              "Ollama 서버 타입: 로컬 머신";
+            "Ollama 서버 타입: 로컬 머신";
         showStatus(ollamaServerTypeStatus, setText, "success");
 
         // AI 모델이 'ollama'인 경우에만 섹션 활성화/비활성화
@@ -2260,9 +2260,9 @@ window.addEventListener("message", (event) => {
         localOllamaApiUrlInput.value = message.localOllamaApiUrl || "";
         const txt = message.localOllamaApiUrl
           ? languageData["ollamaApiUrlSet"] ||
-            "Ollama API URL이 설정되어 있습니다."
+          "Ollama API URL이 설정되어 있습니다."
           : languageData["ollamaApiUrlNotSet"] ||
-            "Ollama API URL이 설정되지 않았습니다.";
+          "Ollama API URL이 설정되지 않았습니다.";
         if (localOllamaApiUrlStatus) {
           showStatus(
             localOllamaApiUrlStatus,
@@ -2279,9 +2279,9 @@ window.addEventListener("message", (event) => {
         remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || "";
         const txt = message.remoteOllamaApiUrl
           ? languageData["ollamaApiUrlSet"] ||
-            "Ollama API URL이 설정되어 있습니다."
+          "Ollama API URL이 설정되어 있습니다."
           : languageData["ollamaApiUrlNotSet"] ||
-            "Ollama API URL이 설정되지 않았습니다.";
+          "Ollama API URL이 설정되지 않았습니다.";
         if (remoteOllamaApiUrlStatus) {
           showStatus(
             remoteOllamaApiUrlStatus,
@@ -2297,9 +2297,9 @@ window.addEventListener("message", (event) => {
         remoteOllamaModelInput.value = message.remoteOllamaModel || "";
         const txt = message.remoteOllamaModel
           ? languageData["ollamaModelSet"] ||
-            `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}`
+          `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}`
           : languageData["ollamaModelNotSet"] ||
-            "원격 서버 모델이 설정되지 않았습니다.";
+          "원격 서버 모델이 설정되지 않았습니다.";
         if (remoteOllamaModelStatus) {
           showStatus(
             remoteOllamaModelStatus,
@@ -2653,9 +2653,9 @@ window.addEventListener("message", (event) => {
           message.localOllamaApiUrl || "http://localhost:11434";
         const localOllamaApiUrlSetText = message.localOllamaApiUrl
           ? languageData["ollamaApiUrlSet"] ||
-            "로컬 Ollama API URL이 설정되어 있습니다."
+          "로컬 Ollama API URL이 설정되어 있습니다."
           : languageData["ollamaApiUrlNotSet"] ||
-            "로컬 Ollama API URL이 설정되지 않았습니다.";
+          "로컬 Ollama API URL이 설정되지 않았습니다.";
         showStatus(
           localOllamaApiUrlStatus,
           localOllamaApiUrlSetText,
@@ -4130,9 +4130,9 @@ window.addEventListener("message", (event) => {
       // 상태 메시지 초기화
       ["stable-version-status", "coding-style-status", "project-architecture-status",
         "dependency-policy-status", "db-policy-status"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) showStatus(el, "초기화 완료", "success");
-      });
+          const el = document.getElementById(id);
+          if (el) showStatus(el, "초기화 완료", "success");
+        });
       break;
 
     // 파일 삭제 완료
@@ -4465,7 +4465,7 @@ function renderHotLoadList(hotLoads) {
         }
 
         if (addButton) {
-          addButton.textContent = "저장 (수정)";
+          addButton.textContent = "저장";
           addButton.dataset.editId = id;
         }
         const formTitle = document.getElementById("hotload-form-title");

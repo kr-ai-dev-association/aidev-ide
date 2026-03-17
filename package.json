@@ -339,6 +339,7 @@
     "cheerio": "^1.2.0",
     "diff": "^8.0.2",
     "firebase": "^10.7.0",
+    "iconv-lite": "^0.7.2",
     "korean-text-analytics": "^0.0.7",
     "markdown-it-container": "^4.0.0",
     "tree-sitter-wasms": "^0.1.11",
