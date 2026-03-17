@@ -2,7 +2,16 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.16**
+> **현재 버전: v1.0.17**
+
+---
+
+## v1.0.17
+
+### 개선
+
+- **Windows 확장자 기반 쉘 라우팅**: 스크립트 확장자에 따라 적합한 쉘로 자동 분기. `.ps1` → PowerShell, `.sh` → Git Bash, `.bat/.cmd` → cmd.exe, 그 외 → 기본 쉘(Git Bash → cmd.exe fallback)
+- **PowerShell .ps1 한글 깨짐 수정**: `.ps1` 실행 시 `[Console]::OutputEncoding = UTF8` 강제 설정. `-File` 대신 `-Command`로 실행하여 인코딩 설정을 주입. 사용자 스크립트 수정 없이 코드어시스턴트에서 처리
 
 ---
 
