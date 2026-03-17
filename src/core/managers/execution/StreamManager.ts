@@ -4,6 +4,7 @@
  */
 
 import { ChildProcess } from 'child_process';
+import * as iconv from 'iconv-lite';
 import { StreamData, StreamHandler } from './types';
 
 export class StreamManager {
@@ -135,6 +136,7 @@ export class StreamManager {
 
     /**
      * 데이터를 디코딩합니다
+     * UTF-8로 디코딩 후 깨진 문자(U+FFFD)가 있으면 CP949(EUC-KR)로 재시도
      */
     private decodeData(data: Buffer): string {
         try {
@@ -144,9 +146,24 @@ export class StreamManager {
             if (result.charCodeAt(0) === 0xFEFF) {
                 result = result.slice(1);
             }
+            // UTF-8 디코딩 결과에 replacement character(�)가 있으면 CP949 시도
+            if (process.platform === 'win32' && result.includes('\uFFFD')) {
+                try {
+                    const cp949Result = iconv.decode(data, 'cp949');
+                    // CP949 디코딩 결과가 유효하면(replacement char 없음) 사용
+                    if (!cp949Result.includes('\uFFFD')) {
+                        return cp949Result;
+                    }
+                } catch { /* CP949 디코딩 실패 시 UTF-8 결과 사용 */ }
+            }
             return result;
         } catch {
-            // 실패 시 Latin1로 디코딩
+            // UTF-8 실패 시 CP949 → Latin1 순서로 fallback
+            try {
+                if (process.platform === 'win32') {
+                    return iconv.decode(data, 'cp949');
+                }
+            } catch { /* ignore */ }
             return data.toString('latin1');
         }
     }
