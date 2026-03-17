@@ -79,7 +79,7 @@ export class ProcessManager {
             const winCmd = !GIT_BASH_PATH ? `chcp 65001 >nul && ${cmd}` : cmd;
             childProcess = spawn(winCmd, args, {
                 cwd: options.cwd,
-                env: { ...process.env, ...options.env },
+                env: { ...process.env, ...options.env, PYTHONIOENCODING: 'utf-8' },
                 shell: shellOption,
                 ...(options.encoding && { encoding: options.encoding })
             });

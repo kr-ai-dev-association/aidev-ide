@@ -2160,12 +2160,14 @@ window.addEventListener("message", (event) => {
         // 드롭다운에서 일치하는 아이템을 찾아 displayName과 modelType 결정
         let display = message.model;
         let modelType = "ollama";
+        let matchFound = false;
         if (modelDropdown) {
           const allItems = modelDropdown.querySelectorAll(".dropdown-option");
           allItems.forEach((item) => {
             if (item.dataset.model === message.model) {
               display = item.textContent || message.model;
               item.classList.add("selected");
+              matchFound = true;
             } else {
               item.classList.remove("selected");
             }
@@ -2177,8 +2179,14 @@ window.addEventListener("message", (event) => {
           modelType = "admin";
         }
 
-        console.log("[chat] Setting model label:", display, modelType);
-        setModelLabel(display, modelType);
+        // 드롭다운에 매칭 아이템이 없으면 전체 모델 리스트 재요청 (드롭다운 미초기화 상태)
+        if (!matchFound) {
+          console.log("[chat] No matching dropdown item, requesting full model list refresh");
+          requestOllamaModels();
+        } else {
+          console.log("[chat] Setting model label:", display, modelType);
+          setModelLabel(display, modelType);
+        }
       }
       if (message.error) {
         console.warn("[chat] ollamaModelChanged error:", message.error);

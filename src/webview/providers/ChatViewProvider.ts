@@ -141,6 +141,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
         this.context.subscriptions.push(configChangeDisposable);
 
+        // 🆕 웹뷰 초기화 후 모델 정보 proactive push (SecretStorage 지연 대응)
+        this.pushCurrentModelToWebview(webviewView.webview, 1500);
+        this.pushCurrentModelToWebview(webviewView.webview, 4000);
+
         // 인증 상태 변경 시 웹뷰에 전달
         try {
             const authService = AuthService.getInstance();
@@ -1770,6 +1774,53 @@ ${JSON.stringify(errorContext, null, 2)}
         }
 
         return `**작업 완료** (${entry.result})\n\n${parts.join('\n')}`;
+    }
+
+    /**
+     * 웹뷰 초기화 후 현재 모델 정보를 proactive하게 push
+     * SecretStorage(Windows Credential Manager) 지연 대응용 재시도 포함
+     */
+    private pushCurrentModelToWebview(webview: vscode.Webview, delayMs: number): void {
+        setTimeout(async () => {
+            try {
+                const stateManager = StateManager.getInstance(this.context);
+                const aiModelEngine = await stateManager.getAiModel();
+                let currentModel = '';
+                if (aiModelEngine?.startsWith('admin:') || aiModelEngine?.startsWith('supported:')) {
+                    currentModel = aiModelEngine;
+                } else if (aiModelEngine === 'ollama' || !aiModelEngine) {
+                    currentModel = await stateManager.getOllamaModel();
+                } else {
+                    currentModel = await stateManager.getOllamaModel();
+                }
+
+                if (!currentModel) { return; }
+
+                // 프리셋 모델 목록도 함께 전송
+                let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
+                try {
+                    const aiModelSettings = this.configurationService.getServerSettings('ai_model');
+                    supportedModels = (aiModelSettings || [])
+                        .filter((s: any) => s.source === 'preset' && s.value && s.value.enabled !== false)
+                        .map((s: any) => ({
+                            key: s.key,
+                            name: `supported:${s.key}`,
+                            displayName: s.value?.name || s.key,
+                            group: s.group || 'default',
+                        }));
+                } catch { }
+
+                webview.postMessage({
+                    command: 'ollamaModels',
+                    models: [],
+                    current: currentModel,
+                    adminModels: [],
+                    supportedModels,
+                });
+            } catch (e) {
+                console.warn('[ChatViewProvider] pushCurrentModelToWebview error:', e);
+            }
+        }, delayMs);
     }
 
     /**
