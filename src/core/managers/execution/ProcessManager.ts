@@ -74,9 +74,31 @@ export class ProcessManager {
                 ...(options.encoding && { encoding: options.encoding })
             });
         } else if (process.platform === 'win32') {
-            const shellOption = GIT_BASH_PATH ?? 'cmd.exe';
-            // cmd.exe 사용 시 UTF-8 코드페이지 설정 (한글 깨짐 방지)
-            const winCmd = !GIT_BASH_PATH ? `chcp 65001 >nul && ${cmd}` : cmd;
+            // Windows 확장자 기반 쉘 라우팅
+            const scriptExt = this.getScriptExtension(command);
+            let shellOption: string;
+            let winCmd: string;
+
+            if (scriptExt === '.ps1') {
+                // .ps1 → PowerShell (ExecutionPolicy Bypass + UTF-8 출력 인코딩 강제)
+                const ps1Path = [cmd, ...args].join(' ');
+                args.length = 0; // args는 -Command 안에 포함되므로 비움
+                shellOption = 'cmd.exe';
+                winCmd = `chcp 65001 >nul && powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '${ps1Path.replace(/'/g, "''")}'"`;
+            } else if (scriptExt === '.sh' && GIT_BASH_PATH) {
+                // .sh → Git Bash
+                shellOption = GIT_BASH_PATH;
+                winCmd = cmd;
+            } else if (scriptExt === '.bat' || scriptExt === '.cmd') {
+                // .bat/.cmd → cmd.exe
+                shellOption = 'cmd.exe';
+                winCmd = `chcp 65001 >nul && ${cmd}`;
+            } else {
+                // 기본: Git Bash → cmd.exe
+                shellOption = GIT_BASH_PATH ?? 'cmd.exe';
+                winCmd = !GIT_BASH_PATH ? `chcp 65001 >nul && ${cmd}` : cmd;
+            }
+
             childProcess = spawn(winCmd, args, {
                 cwd: options.cwd,
                 env: { ...process.env, ...options.env, PYTHONIOENCODING: 'utf-8' },
@@ -264,6 +286,16 @@ export class ProcessManager {
         childProcess.on('close', (code, signal) => {
             console.log(`[ProcessManager] Process ${pid} closed: code=${code}, signal=${signal}`);
         });
+    }
+
+    /**
+     * 명령어에서 스크립트 파일 확장자를 추출합니다 (Windows 쉘 라우팅용)
+     */
+    private getScriptExtension(command: string): string | null {
+        // 명령어 첫 토큰에서 확장자 추출 (예: "./script.ps1 arg1" → ".ps1")
+        const firstToken = command.trim().split(/\s+/)[0];
+        const match = firstToken.match(/\.(ps1|sh|bat|cmd)$/i);
+        return match ? match[0].toLowerCase() : null;
     }
 
     /**
