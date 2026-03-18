@@ -1,4 +1,3 @@
-export * from './external/ExternalApiService';
 export * from './llm/AdminModelApi';
 export * from './notification/NotificationService';
 export * from './llm/OllamaApi';

@@ -994,11 +994,6 @@ export class InlineDiffManager {
                 console.error('[InlineDiffManager] Failed to create new file:', error);
                 vscode.window.showErrorMessage(`Failed to create file: ${error}`);
 
-                // 에러 리포팅
-                import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                    const msg = error instanceof Error ? error.message : String(error);
-                    ErrorReportingService.getInstance().reportFileError(filePath, msg);
-                }).catch(() => {});
 
                 return;
             }

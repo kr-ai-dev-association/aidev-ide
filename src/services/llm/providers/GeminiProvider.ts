@@ -31,7 +31,7 @@ export class GeminiProvider implements ILLMProvider {
             generationConfig: {
                 temperature: this.config.defaultTemperature ?? 0.7,
                 topP: this.config.topP ?? 0.9,
-                maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 500000,
+                maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 65536,
             },
             safetySettings: GEMINI_SAFETY_SETTINGS,
         };

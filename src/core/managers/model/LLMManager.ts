@@ -201,7 +201,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message:', error);
-            this.reportLLMErrorAsync(error, 'sendMessage');
+
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -273,7 +273,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message with system prompt:', error);
-            this.reportLLMErrorAsync(error, 'sendMessageWithSystemPrompt');
+
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -442,7 +442,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message with specific model:', error);
-            this.reportLLMErrorAsync(error, 'sendWithSpecificModel');
+
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -1063,7 +1063,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send streaming message:', error);
-            this.reportLLMErrorAsync(error, 'streaming');
+
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -1072,39 +1072,6 @@ export class LLMManager {
         }
     }
 
-    /**
-     * LLM API 에러를 ErrorReportingService로 비동기 전송 (fire-and-forget)
-     */
-    private reportLLMErrorAsync(error: unknown, method: string): void {
-        try {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            // 에러 메시지에서 HTTP 상태 코드 추출
-            const statusMatch = errorMessage.match(/(\d{3})\s/);
-            const statusCode = statusMatch ? parseInt(statusMatch[1]) : undefined;
-
-            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                const reporter = ErrorReportingService.getInstance();
-                const modelName = this.currentModelType === AiModelType.ADMIN
-                    ? this.adminModelApi.getModelName()
-                    : this.ollamaApi?.getModel?.() || 'unknown';
-
-                reporter.reportLLMError(
-                    errorMessage.substring(0, 500),
-                    modelName,
-                    {
-                        method,
-                        modelType: this.currentModelType,
-                        statusCode,
-                        endpoint: this.currentModelType === AiModelType.ADMIN
-                            ? this.adminModelApi.getConfig()?.endpoint
-                            : undefined,
-                    }
-                );
-            }).catch(() => { /* 에러 리포팅 실패는 무시 */ });
-        } catch {
-            // 에러 리포팅 자체가 실패해도 원래 에러 흐름을 방해하지 않음
-        }
-    }
 
     /**
      * 간단한 프롬프트에 대한 빠른 LLM 응답 생성

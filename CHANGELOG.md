@@ -2,7 +2,19 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.22**
+> **현재 버전: v1.0.23**
+
+---
+
+## v1.0.23
+
+### 개선
+
+- **의존성 설치 프롬프트 기반 전환**: DependencyInstaller 삭제. 시스템 레벨 자동 설치 대신 LLM이 프롬프트 지시에 따라 직접 의존성 설치 수행. 업계 표준 방식(Cursor, Windsurf, Cline 등)과 동일
+- **TestRunner/OrchestrationRouter 자동 설치 제거**: TestRunner의 `checkEnvironmentHealth()` + `attemptInstall()`, OrchestrationRouter의 ENVIRONMENT_MISSING 자동 수정 블록 제거. 모든 의존성 에러는 LLM repair agent가 처리
+- **AutoRemediator 간소화**: 의존성 설치 기능(`attemptInstall`, `runInstallCommand`, ENVIRONMENT_MISSING 케이스) 제거. BUILD_TIMEOUT 빌드 캐시 클리어만 유지
+- **의존성 설치 프롬프트 간소화**: 8줄 패키지 매니저 열거 → 4줄로 축소. LLM이 이미 알고 있는 매핑은 생략하고 핵심 규칙만 명시
+- **FileChangeHandler projectTypeCache 추가**: 프로젝트 타입 감지 결과를 세션 단위 static 캐시로 저장. 동일 프로젝트 반복 감지 방지
 
 ---
 

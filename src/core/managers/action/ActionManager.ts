@@ -532,10 +532,6 @@ export class ActionManager {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing code generation:`, error);
 
-            // 에러 리포팅
-            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                ErrorReportingService.getInstance().reportFileError(filePath, errorMessage);
-            }).catch(() => {});
 
             return this.createErrorResult(
                 action.id,
@@ -999,10 +995,6 @@ export class ActionManager {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing file operation:`, error);
 
-            // 에러 리포팅
-            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                ErrorReportingService.getInstance().reportFileError(sourcePath || 'unknown', errorMessage, { operation });
-            }).catch(() => {});
 
             return {
                 success: false,

@@ -12,6 +12,8 @@ import { LLMManager } from "../../model/LLMManager";
 import { FileSearcher } from "./FileSearcher";
 import { getBatchScoringPrompt } from "../prompts/analysis/generalAnalysis";
 import { ProjectContextCache } from "../ProjectContextCache";
+import { MODEL_TOKEN_LIMITS } from "../../../../utils/tokenUtils";
+import { AiModelType } from "../../../../services/types";
 
 export interface RelevantFilesResult {
   fileContentsContext: string;
@@ -23,7 +25,14 @@ export class RelevantFilesFinder {
   private projectManager: ProjectManager;
   private llmManager?: LLMManager;
   private fileSearcher: FileSearcher;
-  private readonly MAX_TOTAL_CONTENT_LENGTH = 1000000; // LLM 컨텍스트 최대 길이
+  // 적응형 컨텍스트 버짓: 모델 context window의 ~20% (chars ≈ tokens × 3.5)
+  // Cline 방식 참고: model_window - safety_buffer
+  private static readonly CONTEXT_BUDGET_RATIO = 0.20;
+  private static readonly MIN_CONTENT_BUDGET = 80000;   // 최소 80KB
+  private static readonly MAX_CONTENT_BUDGET = 500000;  // 최대 500KB
+  // 큰 파일 임계값: 남은 버짓의 30% 이상 차지하면 structure-only
+  private static readonly LARGE_FILE_BUDGET_RATIO = 0.30;
+
   private readonly MAX_LLM_SCORING_FILES = 30; // LLM scoring을 수행할 최대 파일 수
   private readonly MIN_RELEVANCE_SCORE = 30; // 최소 relevance score (0-100)
   private readonly LLM_BATCH_SIZE = 8; // 한 번에 LLM에 전달할 파일 수
@@ -32,6 +41,27 @@ export class RelevantFilesFinder {
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
     this.fileSearcher = FileSearcher.getInstance();
+  }
+
+  /**
+   * 현재 모델의 context window에 기반한 적응형 컨텍스트 버짓 계산
+   * chars ≈ tokens × 3.5 (BPE 근사값) → 모델 윈도우의 20%를 chars로 환산
+   */
+  private getAdaptiveContentBudget(): number {
+    // 현재 사용 중인 모델 타입의 토큰 제한을 조회 (admin 또는 ollama)
+    const modelType = this.llmManager?.getCurrentModel?.() ?? AiModelType.ADMIN;
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.ADMIN];
+    const contextWindowTokens = limits?.maxInputTokens || 128000;
+    // tokens → chars (BPE 평균 3.5 chars/token)
+    const budgetChars = Math.floor(contextWindowTokens * 3.5 * RelevantFilesFinder.CONTEXT_BUDGET_RATIO);
+    const clamped = Math.max(
+      RelevantFilesFinder.MIN_CONTENT_BUDGET,
+      Math.min(RelevantFilesFinder.MAX_CONTENT_BUDGET, budgetChars),
+    );
+    console.log(
+      `[RelevantFilesFinder] Adaptive budget: ${clamped} chars (model window: ${contextWindowTokens} tokens, ratio: ${RelevantFilesFinder.CONTEXT_BUDGET_RATIO})`,
+    );
+    return clamped;
   }
 
   /**
@@ -80,6 +110,7 @@ export class RelevantFilesFinder {
     let currentTotalContentLength = 0;
     const includedFilesForContext: { name: string; fullPath: string }[] = [];
     const includedPathSet: Set<string> = new Set();
+    const maxContentLength = this.getAdaptiveContentBudget();
 
     try {
       // 1. 사용자 쿼리에서 명시적으로 언급된 파일 먼저 찾기 (최우선)
@@ -113,7 +144,7 @@ export class RelevantFilesFinder {
         if (abortSignal?.aborted) {
           break;
         }
-        if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
+        if (currentTotalContentLength >= maxContentLength) {
           console.warn(`[RelevantFilesFinder] 컨텍스트 길이 제한으로 파일 처리 중단`);
           break;
         }
@@ -123,7 +154,7 @@ export class RelevantFilesFinder {
 
         const { filePath, content, relativePath, fileExtension } = result;
 
-        if (currentTotalContentLength + content.length <= this.MAX_TOTAL_CONTENT_LENGTH) {
+        if (currentTotalContentLength + content.length <= maxContentLength) {
           const fileContext = `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
           fileContentsContext += fileContext;
           currentTotalContentLength += content.length;
@@ -228,6 +259,33 @@ export class RelevantFilesFinder {
       }
 
       // 2. 키워드 기반으로 찾은 파일 내용 수집 (명시적 파일 제외)
+      // 큰 파일: 남은 버짓의 30% 이상 차지하면 구조(imports + exported symbols)만 포함
+      // 단, 보호 대상 파일(에러 관련, 최근 변경)은 큰 파일이어도 전체 본문 포함
+
+      // 보호 대상 파일 수집: 에러/diagnostics에 언급된 파일, 최근 git 변경 파일
+      const protectedFiles = new Set<string>();
+      // 쿼리에서 에러 관련 파일 경로 추출 (에러 로그에 자주 나타나는 패턴)
+      const errorFilePatterns = userQuery.match(/(?:at\s+|in\s+|파일[:\s]+|file[:\s]+|Error.*?)([\w./\\-]+\.\w{1,5})(?::(\d+))?/gi) || [];
+      for (const match of errorFilePatterns) {
+        const fileMatch = match.match(/([\w./\\-]+\.\w{1,5})/);
+        if (fileMatch) {
+          const possiblePath = path.join(projectRoot, fileMatch[1]);
+          protectedFiles.add(possiblePath);
+        }
+      }
+      // 최근 git 변경 파일 (git diff --name-only)
+      try {
+        const { execSync } = require('child_process');
+        const diffOutput = execSync('git diff --name-only HEAD 2>/dev/null || true', {
+          cwd: projectRoot,
+          encoding: 'utf8',
+          timeout: 3000,
+        });
+        for (const line of diffOutput.trim().split('\n').filter(Boolean)) {
+          protectedFiles.add(path.join(projectRoot, line));
+        }
+      } catch { /* git 없거나 실패 시 무시 */ }
+
       for (const filePath of selectedFiles) {
         if (abortSignal?.aborted) {
           break;
@@ -235,7 +293,7 @@ export class RelevantFilesFinder {
         if (includedPathSet.has(filePath)) {
           continue;
         } // 이미 명시적 파일로 포함된 경우 스킵
-        if (currentTotalContentLength >= this.MAX_TOTAL_CONTENT_LENGTH) {
+        if (currentTotalContentLength >= maxContentLength) {
           fileContentsContext +=
             "\n[INFO] 컨텍스트 길이 제한으로 일부 파일 내용이 생략되었습니다.\n";
           break;
@@ -245,10 +303,28 @@ export class RelevantFilesFinder {
           const content = await this.readFileWithCache(filePath);
           const relativePath = path.relative(projectRoot, filePath);
           const fileExtension = path.extname(filePath).substring(1) || "text";
+          const lineCount = content.split('\n').length;
 
-          if (
+          // 보호 대상 파일: 큰 파일이어도 전체 본문 포함 (에러 수정/리팩토링 정확도 보장)
+          const isProtected = protectedFiles.has(filePath);
+          // 남은 버짓의 30% 이상 차지하는 파일 → structure-only (보호 파일 제외)
+          const remainingBudget = maxContentLength - currentTotalContentLength;
+          const isLargeForBudget = content.length > remainingBudget * RelevantFilesFinder.LARGE_FILE_BUDGET_RATIO;
+
+          // 큰 파일 + 비보호: imports + exported symbols 구조만 포함
+          if (isLargeForBudget && !isProtected) {
+            const structureSummary = this.extractFileStructure(content, fileExtension);
+            const summaryText = `파일명: ${relativePath} (${lineCount}줄 — 구조만 포함, 상세 내용은 read_file로 확인)\n코드:\n\`\`\`${fileExtension}\n${structureSummary}\n\`\`\`\n\n`;
+            if (currentTotalContentLength + summaryText.length <= maxContentLength) {
+              fileContentsContext += summaryText;
+              currentTotalContentLength += summaryText.length;
+              includedFilesForContext.push({ name: relativePath, fullPath: filePath });
+              includedPathSet.add(filePath);
+              console.log(`[RelevantFilesFinder] 큰 파일 구조만 포함: ${relativePath} (${content.length} chars > 버짓 ${Math.round(remainingBudget * RelevantFilesFinder.LARGE_FILE_BUDGET_RATIO)} chars → 구조 ${structureSummary.length}자)`);
+            }
+          } else if (
             currentTotalContentLength + content.length <=
-            this.MAX_TOTAL_CONTENT_LENGTH
+            maxContentLength
           ) {
             fileContentsContext += `파일명: ${relativePath}\n코드:\n\`\`\`${fileExtension}\n${content}\n\`\`\`\n\n`;
             currentTotalContentLength += content.length;
@@ -257,8 +333,11 @@ export class RelevantFilesFinder {
               fullPath: filePath,
             });
             includedPathSet.add(filePath);
+            if (isProtected) {
+              console.log(`[RelevantFilesFinder] 보호 대상 파일 전체 포함: ${relativePath} (${lineCount}줄, 에러/변경 관련)`);
+            }
           } else {
-            fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다.\n\n`;
+            fileContentsContext += `파일명: ${relativePath}\n코드:\n[INFO] 파일 내용이 너무 길어 생략되었습니다. read_file로 확인하세요.\n\n`;
           }
         } catch (error) {
           console.warn(
@@ -981,6 +1060,68 @@ ${file.content}
       console.warn("[RelevantFilesFinder] Relevance score 파싱 실패:", error);
       return null;
     }
+  }
+
+  /**
+   * 큰 파일의 구조(imports + exported symbols)만 추출
+   * 전체 본문 대신 구조만 포함하여 토큰 절약
+   */
+  private extractFileStructure(content: string, ext: string): string {
+    const lines = content.split('\n');
+    const parts: string[] = [];
+
+    // 1. Import/require 구문 추출
+    const importLines: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (
+        trimmed.startsWith('import ') ||
+        trimmed.startsWith('from ') ||
+        trimmed.startsWith('const ') && trimmed.includes('require(') ||
+        trimmed.startsWith('require(')
+      ) {
+        importLines.push(line);
+      }
+      // Python imports
+      if (ext === 'py' && (trimmed.startsWith('import ') || trimmed.startsWith('from '))) {
+        if (!importLines.includes(line)) importLines.push(line);
+      }
+      // Java imports
+      if ((ext === 'java' || ext === 'kt') && trimmed.startsWith('import ')) {
+        importLines.push(line);
+      }
+    }
+    if (importLines.length > 0) {
+      parts.push('// --- imports ---');
+      parts.push(...importLines);
+    }
+
+    // 2. Exported symbols (class, function, interface, type, const 선언)
+    const symbolLines: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // TS/JS exports
+      if (/^export\s+(default\s+)?(class|function|async\s+function|interface|type|const|let|enum|abstract\s+class)\s+\w+/.test(trimmed)) {
+        // 선언부만 (본문 제외)
+        symbolLines.push(trimmed.replace(/\{[\s\S]*$/, '{...}'));
+      }
+      // Python class/def (top-level)
+      if (ext === 'py' && !line.startsWith(' ') && !line.startsWith('\t')) {
+        if (/^(class|def|async\s+def)\s+\w+/.test(trimmed) && !trimmed.startsWith('_')) {
+          symbolLines.push(trimmed.replace(/:[\s\S]*$/, ':'));
+        }
+      }
+      // Java/Kotlin public declarations
+      if ((ext === 'java' || ext === 'kt') && /^public\s+(static\s+)?(class|interface|enum|[\w<>\[\]]+\s+\w+\s*\()/.test(trimmed)) {
+        symbolLines.push(trimmed.replace(/\{[\s\S]*$/, '{...}'));
+      }
+    }
+    if (symbolLines.length > 0) {
+      parts.push('\n// --- exported symbols ---');
+      parts.push(...symbolLines);
+    }
+
+    return parts.length > 0 ? parts.join('\n') : '// (구조 추출 불가 — read_file로 확인하세요)';
   }
 
   /**

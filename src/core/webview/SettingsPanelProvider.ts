@@ -4,7 +4,6 @@ import { StateManager } from "../managers/state/StateManager";
 import {
   NotificationService,
   AiModelType,
-  ExternalApiService,
 } from "../../services";
 import { SettingsManager } from "../managers/state/SettingsManager";
 import { createAndSetupWebviewPanel } from "../../utils";

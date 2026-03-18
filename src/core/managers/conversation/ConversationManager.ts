@@ -1137,8 +1137,6 @@ export class ConversationManager implements IConversationHandler {
         break; // 이미 완료 상태이므로 루프 종료
       }
 
-      const phaseLabel =
-        currentPhase === AgentPhase.INVESTIGATION ? "[조사]" : "[실행]";
       const actionText =
         currentPhase === AgentPhase.INVESTIGATION
           ? "조사 및 분석"
@@ -1147,7 +1145,7 @@ export class ConversationManager implements IConversationHandler {
       WebviewBridge.sendProcessingStatus(
         webviewToRespond,
         "thinking",
-        `${phaseLabel}[생각 ${turnCount + 1}] ${statusPrefix}${actionText} 중...`,
+        `${statusPrefix}${actionText} 중...`,
       );
 
       // 페이즈별 프롬프트 보정 및 도구 제한
@@ -1312,7 +1310,7 @@ export class ConversationManager implements IConversationHandler {
           WebviewBridge.sendProcessingStatus(
             webviewToRespond,
             "executing",
-            `${phaseLabel}도구 실행 중...`,
+            `도구 실행 중...`,
           );
 
           const {
@@ -1624,7 +1622,7 @@ export class ConversationManager implements IConversationHandler {
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
                 "executing",
-                `${phaseLabel}도구 실행 중...`,
+                `도구 실행 중...`,
               );
 
               const {
@@ -2629,12 +2627,10 @@ export class ConversationManager implements IConversationHandler {
 
               // 도구 실행
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
-              const phaseLabelExec =
-                currentPhase === AgentPhase.INVESTIGATION ? "[조사]" : "[실행]";
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
                 "executing",
-                `${phaseLabelExec}[단계 ${turnCount + 1}] ${ToolExecutionCoordinator.getToolLabel(toolCalls[0].name)} 실행 중...`,
+                `${ToolExecutionCoordinator.getToolLabel(toolCalls[0].name)} 실행 중...`,
               );
 
               const {

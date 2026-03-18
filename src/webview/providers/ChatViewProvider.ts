@@ -276,6 +276,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             this.ollamaApi.setModel(modelName);
                         }
 
+                        // Ollama 모델의 context length 조회 및 토큰 제한 업데이트
+                        ModelConnectionService.getOllamaModelContextLength(modelName, this.ollamaApi?.getApiUrl?.())
+                            .then((ctxLen: number | null) => {
+                                if (ctxLen) {
+                                    const { updateOllamaTokenLimits } = require('../../utils/tokenUtils');
+                                    updateOllamaTokenLimits(ctxLen);
+                                }
+                            })
+                            .catch(() => { /* non-critical */ });
+
                         webviewView.webview.postMessage({
                             command: 'ollamaModelChanged',
                             model: modelName

@@ -19,8 +19,7 @@ import { SessionManager } from '../managers/state/SessionManager';
 import { WebviewBridge } from '../webview/WebviewBridge';
 import { ToolExecutionCoordinator } from '../managers/conversation/handlers/ToolExecutionCoordinator';
 import { TestRunner, TestResult } from '../managers/conversation/handlers/TestRunner';
-import { ErrorClassifier, ErrorCategory } from '../managers/conversation/handlers/ErrorClassifier';
-import { AutoRemediator } from '../managers/conversation/handlers/AutoRemediator';
+import { ErrorClassifier } from '../managers/conversation/handlers/ErrorClassifier';
 import { buildClassifiedRetryPrompt, ModifiedFileContext } from '../managers/context/prompts/rules';
 import { ToolExecutionContext } from '../tools/IToolHandler';
 import { UIMessageEntry } from '../managers/state/types';
@@ -578,19 +577,7 @@ export class OrchestrationRouter {
             }
             lastFingerprint = currentFingerprint;
 
-            // ENVIRONMENT_MISSING → AutoRemediator 시도
-            if (classification.dominantCategory === ErrorCategory.ENVIRONMENT_MISSING) {
-                WebviewBridge.sendProcessingStatus(webview, 'review', '환경 문제 자동 수정 중...');
-                const remediation = await AutoRemediator.attemptFix(classification, workspaceRoot, webview);
-                if (remediation.attempted && remediation.success) {
-                    console.log('[OrchestrationRouter] AutoRemediation succeeded, re-validating...');
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    repairAttempts++;
-                    continue;
-                }
-            }
-
-            // 수리 에이전트 생성
+            // 수리 에이전트 생성 (ENVIRONMENT_MISSING 포함 모든 에러는 LLM repair agent가 처리)
             repairAttempts++;
             WebviewBridge.sendProcessingStep(webview, 'executing');
             WebviewBridge.sendProcessingStatus(webview, 'executing',

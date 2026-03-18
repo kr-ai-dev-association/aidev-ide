@@ -112,9 +112,6 @@ export class MCPManager {
                         error: `Auto-connect failed: ${errorMessage}`
                     });
 
-                    import('../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                        ErrorReportingService.getInstance().reportMCPError(server.id, server.name, `Auto-connect failed: ${errorMessage}`);
-                    }).catch(() => {});
                 });
             }
         }
@@ -382,10 +379,6 @@ export class MCPManager {
                 error: errorMessage
             });
 
-            // 에러 리포팅
-            import('../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                ErrorReportingService.getInstance().reportMCPError(server.id, server.name, errorMessage);
-            }).catch(() => {});
 
             throw error;
         }
