@@ -138,25 +138,27 @@ export function getFileCreationContext(): string {
 export function getFileExistenceCheckRules(): string {
   return `**⚠️ 파일 존재 확인 규칙 (매우 중요):**
 
-**read_file 실패 시 대응:**
+**read_file 실패 시 대응 (필수 순서):**
 - read_file로 파일을 읽으려 했는데 "파일이 존재하지 않습니다" 또는 "ENOENT" 오류가 발생하면:
-  - ❌ 절대로 자동으로 create_file을 호출하지 마세요
-  - ✅ 사용자에게 "해당 파일이 존재하지 않습니다. 라고 말하세요
-  - ✅ 또는 "파일 경로를 확인해주세요"라고 안내하세요
+  1. ✅ **반드시 glob_search로 실제 위치를 먼저 검색**: glob_search("**/{파일명}") 실행
+  2. ✅ glob_search 결과에서 파일이 발견되면 올바른 경로로 read_file 재시도
+  3. ✅ glob_search에서도 파일이 없으면 사용자에게 "해당 파일이 프로젝트에 존재하지 않습니다"라고 알림
+  - ❌ glob_search 없이 바로 create_file 호출 절대 금지
+  - ❌ 경로를 추측하여 다른 경로로 read_file 재시도 금지
 
 **사용자 요청 해석:**
 - 사용자가 "수정해줘"라고 했으면 → 파일이 **반드시 존재해야** 수정 가능
-- 사용자가 "생성해줘", "만들어줘"라고 했으면 create_file 사용 가능
-- 명시적인 생성 요청 없이 create_file 호출 금지
+- 사용자가 "생성해줘", "만들어줘"라고 했으면 → glob_search로 기존 파일 유무를 확인한 후 create_file 사용 가능
 
 **예시:**
 ❌ 잘못된 흐름:
-1. read_file("nonexistent.ts") 하면 오류: 파일 없음
-2. create_file("nonexistent.ts") 하면 자동 생성 금지
+1. read_file("src/components/Button.tsx") → 오류: 파일 없음
+2. create_file("src/components/Button.tsx") → 잘못된 위치에 파일 생성
 
 ✅ 올바른 흐름:
-1. read_file("nonexistent.ts") 하면 오류: 파일 없음
-2. 사용자에게 응답: "nonexistent.ts 파일이 존재하지 않습니다. 새로 생성할까요?"`;
+1. read_file("src/components/Button.tsx") → 오류: 파일 없음
+2. glob_search("**/Button.tsx") → src/ui/Button.tsx 발견
+3. read_file("src/ui/Button.tsx") → 정상 읽기`;
 }
 
 export function getNoThinkingLeakageRules(): string {

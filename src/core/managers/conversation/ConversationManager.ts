@@ -1678,6 +1678,18 @@ export class ConversationManager implements IConversationHandler {
                 );
               }
 
+              // 🔥 create_file 하드 가드 차단 감지 → glob_search 강제 유도
+              const blockedByReadFailPlan = toolResults.filter(
+                (r: any) => r.error?.code === 'CREATE_BLOCKED_AFTER_READ_FAIL'
+              );
+              if (blockedByReadFailPlan.length > 0) {
+                const blockedPathsPlan = blockedByReadFailPlan.map((r: any) => r.message || '').join(', ');
+                accumulatedUserParts.push({
+                  text: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPathsPlan}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                });
+                console.log(`[ConversationManager] CREATE_BLOCKED_AFTER_READ_FAIL detected (plan mode), injecting glob_search guidance for: ${blockedPathsPlan}`);
+              }
+
               // 다음 계획 항목이 있으면 계속, 없으면 자동 테스트 후 REVIEW로 전환
               const nextItem = taskManager.getNextPendingItem();
               if (nextItem) {
@@ -2649,6 +2661,18 @@ export class ConversationManager implements IConversationHandler {
                 );
               turnResultsSummary += resultSummary;
               turnHasSideEffects = true;
+
+              // 🔥 create_file 하드 가드 차단 감지 → glob_search 강제 유도
+              const blockedByReadFail = toolResults.filter(
+                (r: any) => r.error?.code === 'CREATE_BLOCKED_AFTER_READ_FAIL'
+              );
+              if (blockedByReadFail.length > 0) {
+                const blockedPaths = blockedByReadFail.map((r: any) => r.message || '').join(', ');
+                accumulatedUserParts.push({
+                  text: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPaths}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                });
+                console.log(`[ConversationManager] CREATE_BLOCKED_AFTER_READ_FAIL detected, injecting glob_search guidance for: ${blockedPaths}`);
+              }
             } else {
               console.log(
                 `[ConversationManager] JSON: ${blockedCalls.length} tool(s) blocked in ${currentPhase} phase`,

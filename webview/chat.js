@@ -50,6 +50,7 @@ import {
   displaySystemMessage as displaySystemMessageModule,
   scrollToUserMessage as scrollToUserMessageModule,
   showLoading as showLoadingModule,
+  appendBeforeThinkingBubble,
 } from "./chat/message-display.js";
 // 새로 분리된 모듈들
 import {
@@ -2533,6 +2534,10 @@ function showLoading() {
 }
 
 // thinking 버블로 스크롤하는 함수 (여러 번 시도)
+// scrollIntoView({ block: "end" })는 버블을 뷰포트 맨 아래에 놓지만,
+// 하단 입력 영역(.bottom-fixed-area)에 가려져 handleScroll이 is-forced-top을 적용함.
+// 대신 chatContainer.scrollTo()로 최대 스크롤하면 padding-bottom: 220px 덕분에
+// 버블이 입력 영역 위에 위치함.
 function scrollToThinkingBubble(thinkingElement) {
   let attempts = 0;
   const maxAttempts = 5;
@@ -2540,12 +2545,13 @@ function scrollToThinkingBubble(thinkingElement) {
   const attemptScroll = () => {
     attempts++;
     if (thinkingElement && thinkingElement.offsetHeight > 0) {
-      // 요소가 실제로 렌더링되었는지 확인
-      thinkingElement.scrollIntoView({
-        behavior: "smooth",
-        block: "end", // 애니메이션을 화면 하단에 위치시킴
-        inline: "nearest",
-      });
+      // chatContainer를 최대 하단으로 스크롤 (padding-bottom이 입력 영역 높이를 보상)
+      if (chatContainer) {
+        chatContainer.scrollTo({
+          top: chatContainer.scrollHeight,
+          behavior: "smooth",
+        });
+      }
       return true; // 성공
     } else if (attempts < maxAttempts) {
       // 아직 요소가 렌더링되지 않았으면 다시 시도
@@ -2553,8 +2559,8 @@ function scrollToThinkingBubble(thinkingElement) {
       return false; // 아직 시도 중
     } else {
       // 최대 시도 횟수 초과 시 fallback
-      if (chatMessages) {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+      if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
       }
       return false; // 실패
     }
@@ -3199,7 +3205,7 @@ function displayCodePilotMessage(markdownText) {
   messageContainer.classList.add("codepilot-message-container");
   messageContainer.appendChild(bubbleElement);
 
-  chatMessages.appendChild(messageContainer);
+  appendBeforeThinkingBubble(chatMessages, messageContainer);
 
   // AI 응답이 추가된 후 스크롤을 해당 응답으로 이동
   requestAnimationFrame(() => {

@@ -22924,6 +22924,7 @@ function updateSendCancelButtons(isSending, sendButton, cancelButton) {
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   appendBeforeThinkingBubble: () => (/* binding */ appendBeforeThinkingBubble),
 /* harmony export */   displaySystemMessage: () => (/* binding */ displaySystemMessage),
 /* harmony export */   displayUserMessage: () => (/* binding */ displayUserMessage),
 /* harmony export */   hideLoading: () => (/* binding */ hideLoading),
@@ -22937,6 +22938,21 @@ __webpack_require__.r(__webpack_exports__);
  * Message Display Module
  * 메시지 표시 관련 기능
  */
+
+/**
+ * chatMessages에 요소를 추가할 때 thinking bubble이 있으면 그 앞에 삽입
+ * thinking bubble이 항상 맨 아래에 유지되도록 보장
+ * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
+ * @param {HTMLElement} element - 추가할 요소
+ */
+function appendBeforeThinkingBubble(chatMessages, element) {
+  const thinkingBubble = chatMessages.querySelector('.thinking-bubble');
+  if (thinkingBubble) {
+    chatMessages.insertBefore(element, thinkingBubble);
+  } else {
+    chatMessages.appendChild(element);
+  }
+}
 
 /**
  * 사용자 메시지 표시 (멘션 파싱 포함)
@@ -23075,7 +23091,7 @@ function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitize
   } else {
     systemMessageElement.textContent = displayText;
   }
-  chatMessages.appendChild(systemMessageElement);
+  appendBeforeThinkingBubble(chatMessages, systemMessageElement);
   chatMessages.scrollTop = chatMessages.scrollHeight;
   return systemMessageElement;
 }
@@ -23161,7 +23177,7 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount, chat
       </div>
     </div>
   `;
-  chatMessages.appendChild(errorCorrectionDiv);
+  appendBeforeThinkingBubble(chatMessages, errorCorrectionDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -23182,7 +23198,7 @@ function showGitRepositoryInfo(content, chatMessages) {
       <pre>${content}</pre>
     </div>
   `;
-  chatMessages.appendChild(gitInfoDiv);
+  appendBeforeThinkingBubble(chatMessages, gitInfoDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -23223,10 +23239,12 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _utils_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(68);
 /* harmony import */ var _codeBlock_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(69);
+/* harmony import */ var _message_display_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(152);
 /**
  * Streaming Module
  * 스트리밍 메시지 처리 관련 기능
  */
+
 
 
 
@@ -23298,7 +23316,7 @@ function startStreamingMessage(sender, meta) {
   bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
   messageContainer.appendChild(bubbleElement);
   streamingMessageElement = messageContainer;
-  chatMessages.appendChild(streamingMessageElement);
+  (0,_message_display_js__WEBPACK_IMPORTED_MODULE_2__.appendBeforeThinkingBubble)(chatMessages, streamingMessageElement);
   streamingTextContent = "";
 
   // 스크롤을 하단으로
@@ -23549,6 +23567,10 @@ let thinkingBubbleElement = null;
 let chatMessages = null;
 let chatContainer = null;
 
+// is-forced-top 적용을 일시 억제하는 타이머
+// 버블 생성 직후 smooth scroll 완료 전에 handleScroll이 강제 고정하는 것을 방지
+let _suppressForcedTop = false;
+
 /**
  * 사용자가 위로 스크롤하여 하단에서 떨어져 있는지 판단
  * 하단 100px 이내이면 "하단에 있음" (auto-scroll 허용)
@@ -23574,6 +23596,14 @@ function initProcessingSteps(deps) {
  */
 function setThinkingBubbleElement(element) {
   thinkingBubbleElement = element;
+
+  // 버블이 새로 설정되면 is-forced-top 억제 (smooth scroll이 완료될 때까지)
+  if (element) {
+    _suppressForcedTop = true;
+    setTimeout(() => {
+      _suppressForcedTop = false;
+    }, 600);
+  }
 }
 
 /**
@@ -23787,19 +23817,19 @@ function handleScroll() {
     _bubbleNaturalScrollOffset = chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
     const isBelow = bubbleRect.top > visibleBottom - 20;
     const isAbove = bubbleRect.bottom < containerRect.top + 10;
-    if (isBelow || isAbove) {
+
+    // 버블 생성 직후에는 강제 고정하지 않음 (smooth scroll 완료 대기)
+    if ((isBelow || isAbove) && !_suppressForcedTop) {
       thinkingBubbleElement.classList.add("is-forced-top");
     }
   } else {
-    // 고정 상태 — 저장된 자연 위치로 해제 여부 판단
-    if (_bubbleNaturalScrollOffset != null) {
-      const naturalViewportTop = _bubbleNaturalScrollOffset - chatContainer.scrollTop + containerRect.top;
-      const isNaturallyVisible = naturalViewportTop >= containerRect.top - 10 && naturalViewportTop < visibleBottom - 20;
-      if (isNaturallyVisible) {
-        thinkingBubbleElement.classList.remove("is-forced-top");
-        const tc = thinkingBubbleElement.querySelector(".thinking-content");
-        if (tc) tc.classList.remove("expanded");
-      }
+    // 고정 상태 — 스크롤이 하단 근처이면 해제
+    // 버블은 항상 chatMessages의 마지막 요소이므로, 최대 스크롤 근처면 자연 위치가 보임
+    const scrollBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
+    if (scrollBottom < 100) {
+      thinkingBubbleElement.classList.remove("is-forced-top");
+      const tc = thinkingBubbleElement.querySelector(".thinking-content");
+      if (tc) tc.classList.remove("expanded");
     }
   }
 }
@@ -23909,7 +23939,13 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
       </div>
     </div>
   `;
-  chatMessages.appendChild(errorCorrectionDiv);
+
+  // thinking bubble이 있으면 그 앞에 삽입하여 bubble이 항상 맨 아래 유지
+  if (thinkingBubbleElement && thinkingBubbleElement.parentNode === chatMessages) {
+    chatMessages.insertBefore(errorCorrectionDiv, thinkingBubbleElement);
+  } else {
+    chatMessages.appendChild(errorCorrectionDiv);
+  }
   if (!isUserScrolledUp()) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
@@ -26370,6 +26406,11 @@ window.addEventListener("message", event => {
         chatMessagesDiv.innerHTML = "";
       }
       break;
+    case "scrollToBottom":
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      break;
 
     // ═══════════ 히스토리 lazy loading ═══════════
     case "historyMeta":
@@ -26654,19 +26695,23 @@ function showLoading() {
 }
 
 // thinking 버블로 스크롤하는 함수 (여러 번 시도)
+// scrollIntoView({ block: "end" })는 버블을 뷰포트 맨 아래에 놓지만,
+// 하단 입력 영역(.bottom-fixed-area)에 가려져 handleScroll이 is-forced-top을 적용함.
+// 대신 chatContainer.scrollTo()로 최대 스크롤하면 padding-bottom: 220px 덕분에
+// 버블이 입력 영역 위에 위치함.
 function scrollToThinkingBubble(thinkingElement) {
   let attempts = 0;
   const maxAttempts = 5;
   const attemptScroll = () => {
     attempts++;
     if (thinkingElement && thinkingElement.offsetHeight > 0) {
-      // 요소가 실제로 렌더링되었는지 확인
-      thinkingElement.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-        // 애니메이션을 화면 하단에 위치시킴
-        inline: "nearest"
-      });
+      // chatContainer를 최대 하단으로 스크롤 (padding-bottom이 입력 영역 높이를 보상)
+      if (chatContainer) {
+        chatContainer.scrollTo({
+          top: chatContainer.scrollHeight,
+          behavior: "smooth"
+        });
+      }
       return true; // 성공
     } else if (attempts < maxAttempts) {
       // 아직 요소가 렌더링되지 않았으면 다시 시도
@@ -26674,8 +26719,8 @@ function scrollToThinkingBubble(thinkingElement) {
       return false; // 아직 시도 중
     } else {
       // 최대 시도 횟수 초과 시 fallback
-      if (chatMessages) {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+      if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
       }
       return false; // 실패
     }
@@ -27249,7 +27294,7 @@ function displayCodePilotMessage(markdownText) {
   const messageContainer = document.createElement("div");
   messageContainer.classList.add("codepilot-message-container");
   messageContainer.appendChild(bubbleElement);
-  chatMessages.appendChild(messageContainer);
+  (0,_chat_message_display_js__WEBPACK_IMPORTED_MODULE_10__.appendBeforeThinkingBubble)(chatMessages, messageContainer);
 
   // AI 응답이 추가된 후 스크롤을 해당 응답으로 이동
   requestAnimationFrame(() => {

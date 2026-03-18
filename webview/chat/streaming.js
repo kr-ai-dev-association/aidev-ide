@@ -5,6 +5,7 @@
 
 import { escapeHtml, removeToolTags, sanitizeLastResort, removeThinkTags, extractCurrentThink, sanitizeOptions } from "./utils.js";
 import { enhanceCodeBlocks } from "./codeBlock.js";
+import { appendBeforeThinkingBubble } from "./message-display.js";
 
 // 스트리밍 메시지 처리 변수들
 let streamingMessageElement = null;
@@ -76,7 +77,7 @@ export function startStreamingMessage(sender, meta) {
   messageContainer.appendChild(bubbleElement);
   streamingMessageElement = messageContainer;
 
-  chatMessages.appendChild(streamingMessageElement);
+  appendBeforeThinkingBubble(chatMessages, streamingMessageElement);
   streamingTextContent = "";
 
   // 스크롤을 하단으로
