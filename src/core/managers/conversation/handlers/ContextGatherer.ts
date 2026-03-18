@@ -224,7 +224,7 @@ export class ContextGatherer {
                         ? ragRaw
                         : ((ragRaw as any)?.data || (ragRaw as any)?.results || []);
                     // 유사도 임계값 필터링: 낮은 유사도 결과 제외 (무관한 문서 방지)
-                    const RAG_SIMILARITY_THRESHOLD = 0.85;
+                    const RAG_SIMILARITY_THRESHOLD = 0.80;
                     const ragResults = (ragResultsRaw || []).filter((r: any) =>
                         r.similarity == null || r.similarity >= RAG_SIMILARITY_THRESHOLD
                     );

@@ -130,7 +130,7 @@ export class OrchestrationRouter {
 
             WebviewBridge.sendProcessingStatus(
                 webview, 'plan',
-                `${splitResult.subtasks.length}개 에이전트로 분할 완료 (병렬: ${independentTasks.length}, 순차: ${dependentTasks.length})`
+                `${splitResult.subtasks.length}개 에이전트로 분할 완료`
             );
 
             const toolContext = OrchestrationRouter.buildToolContext();

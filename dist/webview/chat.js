@@ -23561,6 +23561,7 @@ __webpack_require__.r(__webpack_exports__);
 let processingStepsArray = [];
 let typingInterval = null;
 let lastFullText = "";
+let lastUpdateTime = 0; // 빠른 연속 업데이트 감지용
 
 // 외부 의존성 (초기화 시 주입)
 let thinkingBubbleElement = null;
@@ -23671,8 +23672,20 @@ function updateThinkingBubbleText() {
   if (!textElement) {
     return;
   }
+  const now = Date.now();
+  const timeSinceLastUpdate = now - lastUpdateTime;
+  lastUpdateTime = now;
 
-  // 타자기 효과 시작
+  // 빠른 연속 업데이트 시 (150ms 이내) 타이핑 애니메이션 생략 → 즉시 표시
+  if (timeSinceLastUpdate < 150) {
+    textElement.textContent = newFullText;
+    if (chatMessages && !isUserScrolledUp()) {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    return;
+  }
+
+  // 타자기 효과 시작 (간격이 충분할 때만)
   let index = 0;
   textElement.textContent = "";
   typingInterval = setInterval(() => {
@@ -23687,7 +23700,7 @@ function updateThinkingBubbleText() {
       clearInterval(typingInterval);
       typingInterval = null;
     }
-  }, 20); // 타자기 속도
+  }, 10); // 타자기 속도 (20ms → 10ms)
 }
 
 /**

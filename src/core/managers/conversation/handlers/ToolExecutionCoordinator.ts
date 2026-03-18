@@ -190,7 +190,7 @@ export class ToolExecutionCoordinator {
             statusMessage = `파일 검색 중: ${pattern}`;
         }
 
-        WebviewBridge.sendProcessingStatus(webview, 'execution', statusMessage);
+        WebviewBridge.sendProcessingStatus(webview, 'executing', statusMessage);
     }
 
     /**

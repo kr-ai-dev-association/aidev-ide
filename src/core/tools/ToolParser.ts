@@ -283,7 +283,8 @@ export class ToolParser {
             if (!params.path || params.path.trim().length === 0) {
                 return { valid: false, message: `create_file에 path가 없습니다` };
             }
-            if (!params.content || params.content.trim().length === 0) {
+            if (!params.content && params.content !== '') {
+                // content가 완전히 없는 경우만 거부 (빈 문자열은 허용 — __init__.py 등 빈 파일 생성용)
                 return { valid: false, message: `create_file에 content가 없습니다 (path=${params.path})` };
             }
         }

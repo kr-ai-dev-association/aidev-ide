@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.20**
+> **현재 버전: v1.0.21**
+
+---
+
+## v1.0.21
+
+### 버그 수정
+
+- **Processing Step 테스트 검증 상태 미표시 수정**: ToolExecutionCoordinator에서 step name이 `'execution'`으로 전송되어 TestRunner의 `'executing'`과 별도 항목으로 등록되던 문제 수정. `'executing'`으로 통일하여 테스트 검증 실패/성공 상태가 정상 표시
+- **빈 파일 생성 거부 수정 (`__init__.py` 등)**: ToolParser가 빈 content를 거부하고, CreateFileToolHandler가 placeholder로 판정하여 `__init__.py`, `.gitkeep`, `.keep` 등 빈 파일 생성이 불가능하던 문제 수정. 빈 문자열 content 허용 + allowEmpty 파일명 예외 추가
+
+### 개선
+
+- **Processing Step 타이핑 애니메이션 최적화**: 도구 연속 실행 시 20ms/char 타이핑 애니메이션이 UI를 지연시키던 문제 개선. 150ms 이내 연속 업데이트 시 애니메이션 생략하고 즉시 표시. 기본 타이핑 속도 20ms → 10ms로 단축
+- **RAG 유사도 임계값 조정**: 문서 검색 유사도 임계값을 85% → 80%로 하향. 관련 문서가 임계값 미달로 누락되던 문제 개선
 
 ---
 
