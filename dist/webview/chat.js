@@ -26326,12 +26326,14 @@ window.addEventListener("message", event => {
         // 드롭다운에서 일치하는 아이템을 찾아 displayName과 modelType 결정
         let display = message.model;
         let modelType = "ollama";
+        let matchFound = false;
         if (modelDropdown) {
           const allItems = modelDropdown.querySelectorAll(".dropdown-option");
           allItems.forEach(item => {
             if (item.dataset.model === message.model) {
               display = item.textContent || message.model;
               item.classList.add("selected");
+              matchFound = true;
             } else {
               item.classList.remove("selected");
             }
@@ -26342,8 +26344,15 @@ window.addEventListener("message", event => {
         } else if (message.model.startsWith("admin:")) {
           modelType = "admin";
         }
-        console.log("[chat] Setting model label:", display, modelType);
-        (0,_chat_model_selector_js__WEBPACK_IMPORTED_MODULE_13__.setModelLabel)(display, modelType);
+
+        // 드롭다운에 매칭 아이템이 없으면 전체 모델 리스트 재요청 (드롭다운 미초기화 상태)
+        if (!matchFound) {
+          console.log("[chat] No matching dropdown item, requesting full model list refresh");
+          (0,_chat_model_selector_js__WEBPACK_IMPORTED_MODULE_13__.requestOllamaModels)();
+        } else {
+          console.log("[chat] Setting model label:", display, modelType);
+          (0,_chat_model_selector_js__WEBPACK_IMPORTED_MODULE_13__.setModelLabel)(display, modelType);
+        }
       }
       if (message.error) {
         console.warn("[chat] ollamaModelChanged error:", message.error);
@@ -26394,14 +26403,16 @@ window.addEventListener("message", event => {
         const msgDiv = document.createElement("div");
         if (message.sender === "CODEPILOT") {
           msgDiv.className = "codepilot-message-container";
-          const msgBubble = document.createElement("div");
-          msgBubble.className = "codepilot-message";
-          if (window.renderMarkdown) {
-            msgBubble.innerHTML = window.renderMarkdown(message.text);
+          // renderCodePilotContent로 라이브 메시지와 동일하게 렌더링
+          const rendered = renderCodePilotContent(message.text);
+          if (rendered) {
+            msgDiv.appendChild(rendered);
           } else {
+            const msgBubble = document.createElement("div");
+            msgBubble.className = "message-bubble";
             msgBubble.textContent = message.text;
+            msgDiv.appendChild(msgBubble);
           }
-          msgDiv.appendChild(msgBubble);
         } else {
           msgDiv.className = "system-message";
           msgDiv.textContent = message.text;
@@ -26861,26 +26872,21 @@ function handleClearHistory() {
 
 // removeToolTags, sanitizeLastResort -> ./chat/utils.js로 이동
 
-// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
-function displayCodePilotMessage(markdownText) {
-  console.log("displayCodePilotMessage called with text length:", markdownText.length);
-  if (!chatMessages) {
-    console.error("chatMessages element not found!");
-    return;
-  }
-  console.log("chatMessages element found, creating message container...");
-
-  // ✅ 1차: 최후 방어선 적용 (tool 태그 완전 차단)
+/**
+ * 마크다운 텍스트를 코드 블록 파싱 + 파일 카드 렌더링하여 DOM 요소로 반환
+ * displayCodePilotMessage와 prependMessage 양쪽에서 재사용
+ * @param {string} markdownText - 마크다운 텍스트
+ * @returns {HTMLElement|null} - 렌더링된 message-bubble 요소, 또는 빈 텍스트면 null
+ */
+function renderCodePilotContent(markdownText) {
+  // 1차: 최후 방어선 적용 (tool 태그 완전 차단)
   let sanitizedText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.sanitizeLastResort)(markdownText);
   if (!sanitizedText || sanitizedText.trim().length === 0) {
-    console.log("[displayCodePilotMessage] Empty text after sanitization, skipping");
-    return;
+    return null;
   }
 
   // 2차: 기존 removeToolTags 적용
   const displayText = (0,_chat_utils_js__WEBPACK_IMPORTED_MODULE_3__.removeToolTags)(sanitizedText);
-  const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container");
   const bubbleElement = document.createElement("div");
   bubbleElement.classList.add("message-bubble");
 
@@ -27223,8 +27229,26 @@ function displayCodePilotMessage(markdownText) {
   while (tempHtmlElements.firstChild) {
     bubbleElement.appendChild(tempHtmlElements.firstChild);
   }
-  messageContainer.appendChild(bubbleElement);
   (0,_codeCopy_js__WEBPACK_IMPORTED_MODULE_1__.addCopyButtonsToCodeBlocks)(bubbleElement);
+  return bubbleElement;
+}
+
+// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
+function displayCodePilotMessage(markdownText) {
+  console.log("displayCodePilotMessage called with text length:", markdownText.length);
+  if (!chatMessages) {
+    console.error("chatMessages element not found!");
+    return;
+  }
+  console.log("chatMessages element found, creating message container...");
+  const bubbleElement = renderCodePilotContent(markdownText);
+  if (!bubbleElement) {
+    console.log("[displayCodePilotMessage] Empty text after sanitization, skipping");
+    return;
+  }
+  const messageContainer = document.createElement("div");
+  messageContainer.classList.add("codepilot-message-container");
+  messageContainer.appendChild(bubbleElement);
   chatMessages.appendChild(messageContainer);
 
   // AI 응답이 추가된 후 스크롤을 해당 응답으로 이동

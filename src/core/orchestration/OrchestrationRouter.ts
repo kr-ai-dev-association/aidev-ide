@@ -588,11 +588,15 @@ export class OrchestrationRouter {
             WebviewBridge.sendProcessingStatus(webview, 'executing',
                 `자동 수정 에이전트 실행 중 (${repairAttempts}/${MAX_REPAIR_RETRIES})...`);
 
+            // 서브프로젝트 감지 시 repair agent의 cwd를 서브프로젝트로 조정
+            const detectedRoot = testResult.detectedSubProjectRoot;
+            const effectiveWorkspaceRoot = detectedRoot || workspaceRoot;
+
             const modifiedFilesContext = await OrchestrationRouter.readFilesForRepair(
                 allCreatedFiles, allModifiedFiles, workspaceRoot,
             );
             const repairPrompt = buildClassifiedRetryPrompt(
-                classification, modifiedFilesContext, false, 1,
+                classification, modifiedFilesContext, false, 1, detectedRoot,
             );
 
             const repairSubtask: SubTask = {
@@ -611,8 +615,13 @@ export class OrchestrationRouter {
             taskItems.push(repairTaskItem);
             WebviewBridge.updateTaskQueue(webview, taskItems);
 
+            // repair agent에게 서브프로젝트 루트를 workspaceRoot로 전달
+            const repairToolContext: ToolExecutionContext = detectedRoot
+                ? { ...toolContext, workspaceRoot: effectiveWorkspaceRoot }
+                : toolContext;
+
             const repairResult = await OrchestrationRouter.runAgent(
-                repairSubtask, toolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
+                repairSubtask, repairToolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
             );
 
             // 수리 에이전트의 파일 변경 추적

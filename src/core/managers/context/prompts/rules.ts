@@ -508,7 +508,8 @@ export function buildClassifiedRetryPrompt(
     classification: ClassificationResult,
     modifiedFilesContext: ModifiedFileContext[],
     escalation: boolean,
-    samePatternCount: number
+    samePatternCount: number,
+    detectedSubProjectRoot?: string,
 ): string {
     let prompt = `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n`;
 
@@ -557,7 +558,17 @@ export function buildClassifiedRetryPrompt(
         }
     }
 
-    // 섹션 4: 도구 호출 형식 지침
+    // 섹션 4: 서브프로젝트 스코프 제한
+    if (detectedSubProjectRoot) {
+        const subDir = detectedSubProjectRoot.split('/').pop() || detectedSubProjectRoot;
+        prompt += `\n**⚠️ 서브프로젝트 스코프 제한: \`${subDir}/\`**\n`;
+        prompt += `- 이 프로젝트의 루트는 \`${subDir}/\`입니다. 모든 파일 수정은 반드시 \`${subDir}/\` 하위에서만 수행하세요.\n`;
+        prompt += `- ❌ 금지: 상위 디렉토리(프로젝트 루트)의 파일 생성/수정 (예: \`./package.json\`, \`./src/**\`, \`./eslint.config.*\`)\n`;
+        prompt += `- ✅ 허용: \`${subDir}/\` 하위 파일만 (예: \`${subDir}/package.json\`, \`${subDir}/src/**\`, \`${subDir}/tsconfig.json\`)\n`;
+        prompt += `- 사용자가 명시적으로 요청하지 않는 한, 절대 서브프로젝트 밖의 파일을 건드리지 마세요.\n\n`;
+    }
+
+    // 섹션 5: 도구 호출 형식 지침
     prompt +=
         `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
         `**사용 가능한 도구:**\n` +
@@ -568,6 +579,10 @@ export function buildClassifiedRetryPrompt(
         `- "tsc not found", "gradle not found" 등 빌드 도구가 없는 경우\n` +
         `- 절대 npm install -g typescript, brew install gradle 등 도구 설치 명령을 실행하지 마세요\n` +
         `- 대신 사용자에게 설치를 권유하는 메시지만 출력하세요\n\n` +
+        `**파일 복사/이동/구조 변경 절대 금지:**\n` +
+        `- cp, cp -r, mv, rsync 등 파일 복사/이동 명령 사용 금지\n` +
+        `- 프로젝트 구조를 변경하지 마세요. 코드 내용만 수정하세요.\n` +
+        `- 기존 파일(package.json, eslint 설정 등)이 있으면 수정/보완만 하고, 대체/삭제하지 마세요.\n\n` +
         `**절대 금지:**\n` +
         `- 자연어 응답 (설명, 분석, "We need to..." 등)\n` +
         `- XML 태그 형식\n\n` +

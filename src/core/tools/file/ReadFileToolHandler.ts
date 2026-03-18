@@ -116,7 +116,7 @@ export class ReadFileToolHandler implements IToolHandler {
                 } else {
                     fullContent = await fs.readFile(absolutePath, 'utf8');
                     // 캐시에 저장 (백그라운드)
-                    cache.cacheFile(absolutePath).catch(() => {});
+                    cache.cacheFile(absolutePath).catch(() => { });
                 }
                 const lines = fullContent.split('\n');
                 const totalLines = lines.length;
@@ -213,14 +213,17 @@ export class ReadFileToolHandler implements IToolHandler {
             const result = results[0];
             if (result.error) {
                 const isNotFound = result.error.includes('ENOENT') || result.error.includes('no such file');
+                const fileName = result.path.split('/').pop() || result.path;
                 return {
                     success: false,
                     message: isNotFound
-                        ? `파일이 존재하지 않습니다: ${result.path}. 이 파일이 필요하면 create_file 도구로 직접 생성하세요.`
+                        ? `파일이 존재하지 않습니다: ${result.path}`
                         : `Failed to read file: ${result.path}`,
                     error: {
                         code: isNotFound ? 'FILE_NOT_FOUND' : 'READ_ERROR',
-                        message: result.error
+                        message: isNotFound
+                            ? `파일이 존재하지 않습니다: ${result.path}. ⚠️ 경로가 틀렸을 수 있습니다. 반드시 glob_search로 "**/${fileName}" 패턴을 검색하여 실제 위치를 찾으세요. 파일이 프로젝트에 없다면 사용자에게 알려주세요. 절대로 create_file로 파일을 생성하지 마세요.`
+                            : result.error
                     }
                 };
             }

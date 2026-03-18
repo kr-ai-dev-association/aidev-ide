@@ -32,6 +32,8 @@ export enum Tool {
     // 코드 인텔리전스 도구들
     LSP = 'lsp',
     LIST_CODE_DEFINITIONS = 'list_code_definitions',
+    // 파일 경로 패턴 검색
+    GLOB_SEARCH = 'glob_search',
 }
 
 /**
@@ -49,6 +51,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
     Tool.FETCH_URL,
     Tool.LSP,
     Tool.LIST_CODE_DEFINITIONS,
+    Tool.GLOB_SEARCH,
 ]);
 
 /**

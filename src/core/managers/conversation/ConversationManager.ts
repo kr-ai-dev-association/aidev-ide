@@ -69,7 +69,7 @@ import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
 import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, CollectedUIMessage } from "./types/TurnContext";
 import { IntentDetectionResult } from "../action/IntentDetector";
-import { ToolUse, ToolResponse } from "../../tools/types";
+import { ToolUse, ToolResponse, READ_ONLY_TOOLS } from "../../tools/types";
 import { FileTransactionManager } from "../action/file/FileTransactionManager";
 import * as crypto from "crypto";
 
@@ -107,6 +107,7 @@ export interface GatheredContext {
   frameworkRulesPrompt: string;
   ragContext: string;
   subProjectStructure?: string;
+  repoMap?: string;
 }
 
 // AgentPhase는 AgentStateManager에서 import
@@ -1301,6 +1302,7 @@ export class ConversationManager implements IConversationHandler {
           const {
             toolResults,
             hasSuccessfulExecution: hasSuccessfulPlanExecution,
+            hasWriteToolExecution: hasWritePlanExecution,
             hasBlockedByValidator,
             blockedMessages,
             hasUserSkipped,
@@ -1319,7 +1321,7 @@ export class ConversationManager implements IConversationHandler {
             conversationTurnId,
             executedCommands,
           );
-          if (hasSuccessfulPlanExecution) {
+          if (hasSuccessfulPlanExecution && hasWritePlanExecution) {
             lastTurnHadSuccessfulToolExecution = true;
             lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
             console.log(
@@ -1612,6 +1614,7 @@ export class ConversationManager implements IConversationHandler {
               const {
                 toolResults,
                 hasSuccessfulExecution: hasSuccessfulToolExecution,
+                hasWriteToolExecution: hasWriteToolExecution2,
                 hasBlockedByValidator: hasBlockedByValidator2,
                 blockedMessages: blockedMessages2,
                 hasUserSkipped: hasUserSkipped2,
@@ -1630,7 +1633,7 @@ export class ConversationManager implements IConversationHandler {
                 conversationTurnId,
                 executedCommands,
               );
-              if (hasSuccessfulToolExecution) {
+              if (hasSuccessfulToolExecution && hasWriteToolExecution2) {
                 lastTurnHadSuccessfulToolExecution = true;
                 lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(
@@ -2599,6 +2602,7 @@ export class ConversationManager implements IConversationHandler {
               const {
                 toolResults,
                 hasSuccessfulExecution,
+                hasWriteToolExecution: hasWriteToolExecution3,
                 hasBlockedByValidator: hasBlockedByValidator3,
                 blockedMessages: blockedMessages3,
                 hasUserSkipped: hasUserSkipped3,
@@ -2617,7 +2621,7 @@ export class ConversationManager implements IConversationHandler {
                 conversationTurnId,
                 executedCommands,
               );
-              if (hasSuccessfulExecution) {
+              if (hasSuccessfulExecution && hasWriteToolExecution3) {
                 lastTurnHadSuccessfulToolExecution = true;
                 lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(`[ConversationManager] Tool execution succeeded.`);
@@ -4677,6 +4681,7 @@ export class ConversationManager implements IConversationHandler {
   ): Promise<{
     toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
+    hasWriteToolExecution: boolean;
     hasBlockedByValidator: boolean;
     blockedMessages: string[];
     hasUserSkipped?: boolean;
@@ -4742,6 +4747,7 @@ export class ConversationManager implements IConversationHandler {
       return {
         toolResults: skippedToolResults,
         hasSuccessfulExecution: false,
+        hasWriteToolExecution: false,
         hasBlockedByValidator: false,
         blockedMessages: [],
         hasUserSkipped,
@@ -4827,6 +4833,13 @@ export class ConversationManager implements IConversationHandler {
       (result: ToolResponse) => result.success === true,
     );
 
+    // 🔥 쓰기 도구(create_file, update_file, remove_file, run_command) 실행 여부 추적
+    // 읽기 전용 도구만 실행된 경우 "작업 완료"로 판단하지 않기 위해 사용
+    const hasWriteToolExecution = toolCalls.some(
+      (call: ToolUse, index: number) =>
+        toolResults[index]?.success === true && !READ_ONLY_TOOLS.has(call.name),
+    );
+
     // 🔥 PreToolUseValidator 차단 여부 추적 (재시도 방지용)
     const hasBlockedByValidator = toolResults.some(
       (result: ToolResponse) => result.error?.code === "BLOCKED_BY_VALIDATOR",
@@ -4874,6 +4887,7 @@ export class ConversationManager implements IConversationHandler {
     return {
       toolResults,
       hasSuccessfulExecution,
+      hasWriteToolExecution,
       hasBlockedByValidator,
       blockedMessages,
       hasUserSkipped,

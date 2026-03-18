@@ -48,6 +48,7 @@ import {
   ExpandAroundLineToolHandler,
   ListImportsToolHandler,
   StatFileToolHandler,
+  GlobSearchToolHandler,
 } from "./core/tools/file";
 import { RunCommandToolHandler } from "./core/tools/terminal";
 import { ReadActiveFileToolHandler, LspToolHandler } from "./core/tools/ide";
@@ -550,6 +551,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // IDE, Web 도구들
   toolRegistry.register(new ReadActiveFileToolHandler());
   toolRegistry.register(new FetchUrlToolHandler());
+  // 파일 경로 패턴 검색
+  toolRegistry.register(new GlobSearchToolHandler());
   // 코드 인텔리전스 도구들
   toolRegistry.register(new LspToolHandler());
   toolRegistry.register(new ListCodeDefinitionsToolHandler());

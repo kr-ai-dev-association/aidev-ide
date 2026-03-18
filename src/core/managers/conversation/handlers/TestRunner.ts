@@ -26,6 +26,8 @@ export interface TestResult {
   success: boolean;
   errorMessage?: string;
   classification?: ClassificationResult;
+  /** 서브 프로젝트가 감지된 경우 해당 디렉토리 경로 (repair agent cwd용) */
+  detectedSubProjectRoot?: string;
 }
 
 export class TestRunner {
@@ -559,7 +561,8 @@ export class TestRunner {
           "테스트 검증 실패",
         );
         UsageMetricsManager.getInstance().recordVerification(false);
-        return { success: false, errorMessage, classification: cliClassification };
+        const subRoot = workspaceRoot !== _workspaceRoot ? workspaceRoot : undefined;
+        return { success: false, errorMessage, classification: cliClassification, detectedSubProjectRoot: subRoot };
       }
 
       // 모든 테스트 통과
