@@ -7,7 +7,7 @@ export class AgentConfig {
     // 루프 및 재시도 설정
     static readonly MAX_TURNS = 15;
     static readonly MAX_TEST_FIX_ATTEMPTS = 5; // 기본값 (실제로는 SettingsManager에서 가져옴)
-    static readonly MAX_NUDGE_COUNT = 3; // INVESTIGATION 단계에서 최대 nudge 횟수
+    static readonly MAX_NUDGE_COUNT = 1; // INVESTIGATION 단계에서 최대 nudge 횟수
     static readonly MAX_NUDGE_COUNT_EXECUTION = 1; // EXECUTION 단계에서 최대 nudge 횟수
     static readonly MAX_INVESTIGATION_TEXT_ONLY_COUNT = 3; // 텍스트만 출력 시 최대 허용 횟수
 
@@ -131,7 +131,7 @@ export class AgentConfig {
     };
 
     // ===== 대화 압축 =====
-    static readonly COMPACTION_TOKEN_THRESHOLD = 0.9; // 압축 트리거 토큰 임계값 (90%)
+    static readonly COMPACTION_TOKEN_THRESHOLD = 0.8; // 압축 트리거 토큰 임계값 (80%)
 
     // ===== 메모리 누수 방지 =====
     static readonly MAX_DELETED_FILES = 100; // deletedFiles 배열 최대 크기

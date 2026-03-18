@@ -35,10 +35,11 @@ export function updateAdminTokenLimits(contextWindow?: number, maxTokens?: numbe
  * 텍스트의 대략적인 토큰 수를 계산합니다.
  *
  * BPE 토크나이저 (cl100k_base / o200k_base) 기준 실측 근사값:
- *   - 영어 단어: ~1.3 토큰/단어 (평균 4 문자/토큰)
+ *   - 영어 단어: ~1.3 토큰/단어 (평균 3.5 문자/토큰, 서브워드 분할 고려)
  *   - 한국어/CJK: ~1.0 토큰/글자 (한 글자가 2-3 바이트 → 보통 1 토큰)
- *   - 코드: 영어보다 토큰 밀도 높음 (~3 문자/토큰, 기호가 개별 토큰)
+ *   - 코드 기호: ~1.0 토큰/기호 (BPE에서 {, }, =>, ; 등은 대부분 개별 토큰)
  *   - 공백/줄바꿈: 인접 공백이 합쳐지므로 ~2 공백/토큰
+ *   - 일반 구두점: ~1.5문자/토큰 (쉼표, 마침표 등 일부 합쳐짐)
  *
  * tiktoken WASM은 VSCode 확장 환경에서 로딩 이슈가 있어
  * 문자 분류 기반 가중 추정을 사용합니다.
@@ -49,7 +50,8 @@ export function estimateTokens(text: string): number {
     let cjkCount = 0;
     let alphaNumCount = 0;
     let whitespaceCount = 0;
-    let punctCount = 0;
+    let codeSymbolCount = 0;  // 코드 기호 (거의 1:1 토큰)
+    let punctCount = 0;       // 일반 구두점
 
     for (let i = 0; i < text.length; i++) {
         const code = text.charCodeAt(i);
@@ -69,21 +71,38 @@ export function estimateTokens(text: string): number {
             alphaNumCount++;
         } else if (code === 0x20 || code === 0x09 || code === 0x0A || code === 0x0D) {
             whitespaceCount++;
+        } else if (
+            // 코드 기호: BPE에서 거의 항상 개별 토큰
+            code === 0x7B || code === 0x7D || // { }
+            code === 0x28 || code === 0x29 || // ( )
+            code === 0x5B || code === 0x5D || // [ ]
+            code === 0x3B || code === 0x3A || // ; :
+            code === 0x3D || code === 0x3E || // = >
+            code === 0x3C || code === 0x21 || // < !
+            code === 0x7C || code === 0x26 || // | &
+            code === 0x40 || code === 0x23 || // @ #
+            code === 0x24 || code === 0x25 || // $ %
+            code === 0x5E || code === 0x7E || // ^ ~
+            code === 0x5C || code === 0x2F    // \ /
+        ) {
+            codeSymbolCount++;
         } else {
             punctCount++;
         }
     }
 
     // CJK: 1글자 ≈ 1토큰 (BPE에서 CJK 글자는 거의 항상 개별 토큰)
-    // 영숫자: ~4문자/토큰 (BPE 영어 단어 기준)
+    // 영숫자: ~3.5문자/토큰 (서브워드 분할 고려, 이전 4에서 하향)
     // 공백: ~2문자/토큰 (연속 공백 병합)
-    // 구두점/기호: ~1.5문자/토큰 (대부분 개별 토큰이지만 일부 합쳐짐)
+    // 코드 기호: ~1문자/토큰 (BPE에서 개별 토큰)
+    // 일반 구두점: ~1.5문자/토큰 (쉼표, 마침표 등 일부 합쳐짐)
     const cjkTokens = cjkCount;
-    const alphaNumTokens = Math.ceil(alphaNumCount / 4);
+    const alphaNumTokens = Math.ceil(alphaNumCount / 3.5);
     const whitespaceTokens = Math.ceil(whitespaceCount / 2);
+    const codeSymbolTokens = codeSymbolCount;
     const punctTokens = Math.ceil(punctCount / 1.5);
 
-    return cjkTokens + alphaNumTokens + whitespaceTokens + punctTokens;
+    return cjkTokens + alphaNumTokens + whitespaceTokens + codeSymbolTokens + punctTokens;
 }
 
 /**

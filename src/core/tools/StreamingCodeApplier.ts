@@ -47,6 +47,8 @@ export class StreamingCodeApplier {
     // 🔥 타이핑 속도 설정
     private static readonly CHARS_PER_TICK = 8; // 코드도 출력하므로 약간 빠르게
     private static readonly TICK_INTERVAL_MS = 16; // interval 주기 (16ms ≈ 60fps)
+    // 🔒 버퍼 크기 제한 (메모리 안정성)
+    private static readonly MAX_RAW_BUFFER_SIZE = 512000; // 512KB
 
     constructor(callbacks: StreamingTextCallbacks = {}) {
         this.callbacks = callbacks;
@@ -68,6 +70,20 @@ export class StreamingCodeApplier {
      */
     processChunk(chunk: string): void {
         this.rawBuffer += chunk;
+
+        // 🔒 버퍼 overflow 방지: 상한 초과 시 강제 flush
+        if (this.rawBuffer.length > StreamingCodeApplier.MAX_RAW_BUFFER_SIZE) {
+            console.warn(
+                `[StreamingCodeApplier] rawBuffer overflow (${(this.rawBuffer.length / 1024).toFixed(0)}KB), flushing`,
+            );
+            // 도구 호출 패턴이 있으면 버퍼를 비우고, 없으면 displayBuffer로 이동
+            if (/\{\s*["']tool["']\s*:/.test(this.rawBuffer)) {
+                this.rawBuffer = '';
+            } else {
+                this.displayBuffer += this.rawBuffer;
+                this.rawBuffer = '';
+            }
+        }
 
         // interval이 없으면 시작
         if (!this.processingInterval) {

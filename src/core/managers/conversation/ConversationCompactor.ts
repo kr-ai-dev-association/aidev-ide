@@ -216,8 +216,8 @@ export class ConversationCompactor {
         error,
       );
 
-      // 폴백: LLM 요약 실패 시 단순 슬라이딩 윈도우 적용
-      return this.fallbackCompaction(userParts, systemPrompt, originalTokens);
+      // 폴백: LLM 요약 실패 시 점진적 제거 적용
+      return this.fallbackCompaction(userParts, systemPrompt, originalTokens, maxTokens);
     }
   }
 
@@ -404,40 +404,150 @@ export class ConversationCompactor {
   }
 
   /**
-   * 폴백 압축 전략: 단순 슬라이딩 윈도우
+   * Tier 1: 도구 결과 경량 트림 (LLM 호출 없음)
+   * 오래된 도구 결과(read_file 내용, glob/ripgrep 결과 등)를 짧은 요약으로 교체
+   * 최근 keepRecentCount 이내 메시지는 원본 유지
+   */
+  public trimToolResults(
+    userParts: Part[],
+    systemPrompt: string,
+    maxTokens: number,
+  ): { trimmed: boolean; parts: Part[]; savedTokens: number } {
+    if (!this.config.enabled) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
+    const threshold = maxTokens * 0.6; // 60% 이상일 때 트림 시작
+
+    if (totalTokens <= threshold) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    // 최근 메시지는 보호
+    const protectedCount = Math.min(this.config.keepRecentCount, userParts.length);
+    const trimTarget = userParts.length - protectedCount;
+
+    if (trimTarget <= 0) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    // 도구 결과 패턴 (read_file 내용, glob 결과, ripgrep 결과 등)
+    const toolResultPatterns = [
+      { pattern: /^```[\s\S]{500,}```/m, label: '코드 블록' },
+      { pattern: /^\d+[→│\|].+(\n\d+[→│\|].+){10,}/m, label: '파일 내용' },
+      { pattern: /^(검색 결과|Search results|Found \d+|파일 목록)/m, label: '검색 결과' },
+      { pattern: /^\[?(read_file|glob_search|ripgrep_search)\]?\s*결과/mi, label: '도구 결과' },
+    ];
+
+    let trimmed = false;
+    const newParts = [...userParts];
+
+    for (let i = 0; i < trimTarget; i++) {
+      const part = newParts[i];
+      if (!part.text || part.text.length < 500) continue;
+
+      // 이전 대화 요약은 건드리지 않음
+      if (part.text.startsWith('[이전 대화 요약]') || part.text.startsWith('[시스템]')) continue;
+
+      // 파일 경로 추출 시도
+      const filePathMatch = part.text.match(/(?:파일|file|path)[:\s]*[`"]?([^\s`"]+\.\w+)/i)
+        || part.text.match(/^([^\s]+\.\w{1,5})\s*(?:\(|의|:)/m);
+      const filePath = filePathMatch ? filePathMatch[1] : '';
+
+      // 도구 결과 패턴 매칭
+      let matched = false;
+      for (const { pattern, label } of toolResultPatterns) {
+        if (pattern.test(part.text)) {
+          const lineCount = part.text.split('\n').length;
+          newParts[i] = {
+            text: `[이전 ${label} 생략: ${filePath || '(경로 미확인)'} — ${lineCount}줄, 내용 생략됨]`,
+          };
+          matched = true;
+          trimmed = true;
+          break;
+        }
+      }
+
+      // 패턴 매치 안 되더라도 500자 이상이고 보호 영역 밖이면 축약
+      if (!matched && part.text.length > 2000) {
+        const preview = part.text.substring(0, 200);
+        const lineCount = part.text.split('\n').length;
+        newParts[i] = {
+          text: `[이전 내용 축약 — ${lineCount}줄]\n${preview}\n... [이하 생략]`,
+        };
+        trimmed = true;
+      }
+    }
+
+    if (!trimmed) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const newTokens = this.calculateTotalTokens(newParts, systemPrompt);
+    const savedTokens = totalTokens - newTokens;
+
+    console.log(
+      `[ConversationCompactor] Tier1 trim: ${savedTokens} tokens saved (${totalTokens} → ${newTokens})`,
+    );
+
+    return { trimmed: true, parts: newParts, savedTokens };
+  }
+
+  /**
+   * 폴백 압축 전략: 점진적 제거 (cliff drop 방지)
+   * 가장 오래된 25%씩 제거, threshold 이하가 될 때까지 반복 (최대 3라운드)
    */
   private fallbackCompaction(
     userParts: Part[],
     systemPrompt: string,
     originalTokens: number,
+    maxTokens?: number,
   ): CompactionResult {
     console.log(
-      "[ConversationCompactor] Using fallback sliding window strategy",
+      "[ConversationCompactor] Using gradual fallback strategy",
     );
 
-    // 더 공격적으로 최근 메시지만 유지
-    const keepCount = Math.max(4, Math.floor(userParts.length * 0.3));
-    const recentMessages = userParts.slice(-keepCount);
+    let currentParts = [...userParts];
+    const targetTokens = maxTokens ? maxTokens * this.config.tokenThreshold : originalTokens * 0.5;
+    const maxRounds = 3;
 
-    // 삭제된 메시지 수 표시
-    const droppedCount = userParts.length - keepCount;
-    const compactedParts = [
-      {
-        text: `[시스템] 컨텍스트 최적화: 이전 ${droppedCount}개 메시지가 생략되었습니다. 필요한 정보가 있으면 다시 요청해주세요.`,
-      },
-      ...recentMessages,
-    ];
+    for (let round = 0; round < maxRounds; round++) {
+      // 최소 4개는 유지
+      if (currentParts.length <= 4) break;
 
-    const compactedTokens = this.calculateTotalTokens(
-      compactedParts,
-      systemPrompt,
-    );
+      // 25%씩 오래된 것부터 제거
+      const removeCount = Math.max(1, Math.floor(currentParts.length * 0.25));
+      const droppedCount = removeCount;
+      const remaining = currentParts.slice(removeCount);
+
+      // 첫 라운드에서만 시스템 메시지 추가
+      if (round === 0) {
+        currentParts = [
+          {
+            text: `[시스템] 컨텍스트 최적화: 이전 메시지가 점진적으로 정리되었습니다. 필요한 정보가 있으면 다시 요청해주세요.`,
+          },
+          ...remaining,
+        ];
+      } else {
+        currentParts = remaining;
+      }
+
+      const currentTokens = this.calculateTotalTokens(currentParts, systemPrompt);
+      console.log(
+        `[ConversationCompactor] Fallback round ${round + 1}: removed ${droppedCount}, remaining ${currentParts.length}, tokens ${currentTokens}`,
+      );
+
+      if (currentTokens <= targetTokens) break;
+    }
+
+    const compactedTokens = this.calculateTotalTokens(currentParts, systemPrompt);
 
     return {
       compacted: true,
       originalTokens,
       compactedTokens,
-      recentMessages: compactedParts,
+      recentMessages: currentParts,
       savedTokens: originalTokens - compactedTokens,
     };
   }

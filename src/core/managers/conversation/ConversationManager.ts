@@ -894,12 +894,13 @@ export class ConversationManager implements IConversationHandler {
     // requiresPlan이 false인 경우:
     // - analysis/documentation 카테고리: INVESTIGATION (조사 후 바로 답변, plan 없이)
     // - execution 카테고리: EXECUTION (바로 명령어 실행)
+    // - code 카테고리: EXECUTION (LLM이 plan 불필요로 판단한 단순 코드 수정)
     const isSimpleTask = intent?.requiresPlan === false;
     const isDirectResponseTask =
       isSimpleTask &&
       (intent?.category === "analysis" || intent?.category === "documentation");
     const isDirectExecutionTask =
-      isSimpleTask && intent?.category === "execution";
+      isSimpleTask && (intent?.category === "execution" || intent?.category === "code");
 
     const initialState = hasActivePlan
       ? AgentPhase.EXECUTION
@@ -914,7 +915,7 @@ export class ConversationManager implements IConversationHandler {
       );
     } else if (isDirectExecutionTask) {
       console.log(
-        `[ConversationManager] Simple execution task detected (requiresPlan: false). Starting directly in EXECUTION phase.`,
+        `[ConversationManager] Simple task detected (requiresPlan: false, ${intent?.category}). Starting directly in EXECUTION phase.`,
       );
     } else if (isExecutionFirstTask) {
       if (hasExistingProject) {
@@ -1002,6 +1003,20 @@ export class ConversationManager implements IConversationHandler {
           MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
         const maxTokens = modelLimits?.maxInputTokens || 128000;
 
+        // Tier 1: 도구 결과 경량 트림 (LLM 호출 없이 오래된 도구 결과 축약)
+        const trimResult = compactor.trimToolResults(
+          accumulatedUserParts,
+          systemPrompt,
+          maxTokens,
+        );
+        if (trimResult.trimmed) {
+          accumulatedUserParts = trimResult.parts;
+          console.log(
+            `[ConversationManager] Tier1 tool result trim: saved ${trimResult.savedTokens} tokens`,
+          );
+        }
+
+        // Tier 2: LLM 요약 (트림 후에도 threshold 초과 시)
         if (
           compactor.needsCompaction(
             accumulatedUserParts,
@@ -5105,7 +5120,44 @@ export class ConversationManager implements IConversationHandler {
       parts = [firstPart, ...recentParts];
     }
 
-    // 2. 개별 항목 텍스트 길이 제한
+    // 2. read_file 중복 제거 (같은 파일을 여러 번 읽은 경우 최신 결과만 유지)
+    const fileReadPattern = /\[Tool: read_file\][\s\S]*?File:\s*([^\n]+)/;
+    const lastReadIndex = new Map<string, number>(); // filePath → 마지막 인덱스
+
+    // 역순으로 탐색하여 각 파일의 마지막 읽기 위치 기록
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const text = parts[i]?.text;
+      if (!text) continue;
+      const match = text.match(fileReadPattern);
+      if (match) {
+        const filePath = match[1].trim();
+        if (!lastReadIndex.has(filePath)) {
+          lastReadIndex.set(filePath, i);
+        }
+      }
+    }
+
+    // 중복된 이전 읽기 결과를 축약으로 교체
+    let dedupeCount = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const text = parts[i]?.text;
+      if (!text) continue;
+      const match = text.match(fileReadPattern);
+      if (match) {
+        const filePath = match[1].trim();
+        const lastIdx = lastReadIndex.get(filePath);
+        if (lastIdx !== undefined && lastIdx !== i) {
+          // 이전 읽기 → 축약으로 교체
+          parts[i] = { text: `[이전 read_file 결과 생략: ${filePath} — 최신 결과가 아래에 있음]` };
+          dedupeCount++;
+        }
+      }
+    }
+    if (dedupeCount > 0) {
+      console.log(`[ConversationManager] Deduped ${dedupeCount} duplicate read_file results`);
+    }
+
+    // 3. 개별 항목 텍스트 길이 제한
     for (const part of parts) {
       if (part.text && part.text.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
         console.log(

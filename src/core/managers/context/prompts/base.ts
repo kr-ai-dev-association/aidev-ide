@@ -146,19 +146,27 @@ export function getFileExistenceCheckRules(): string {
   - ❌ glob_search 없이 바로 create_file 호출 절대 금지
   - ❌ 경로를 추측하여 다른 경로로 read_file 재시도 금지
 
+**기존 파일 재생성 vs 신규 파일 생성:**
+- ❌ **기존 파일 재생성 금지**: read_file 실패 후 같은 이름으로 create_file 금지. 반드시 glob_search로 실제 위치를 찾아 수정하세요.
+- ✅ **신규 파일 생성 허용**: 프로젝트에 없는 새 기능/컴포넌트를 만드는 경우, glob_search로 기존 파일이 없음을 확인한 후 create_file 사용 가능.
+
 **사용자 요청 해석:**
 - 사용자가 "수정해줘"라고 했으면 → 파일이 **반드시 존재해야** 수정 가능
 - 사용자가 "생성해줘", "만들어줘"라고 했으면 → glob_search로 기존 파일 유무를 확인한 후 create_file 사용 가능
 
 **예시:**
-❌ 잘못된 흐름:
+❌ 잘못된 흐름 (기존 파일 재생성):
 1. read_file("src/components/Button.tsx") → 오류: 파일 없음
-2. create_file("src/components/Button.tsx") → 잘못된 위치에 파일 생성
+2. create_file("src/components/Button.tsx") → 다른 위치에 이미 존재하는 파일을 중복 생성
 
-✅ 올바른 흐름:
+✅ 올바른 흐름 (기존 파일 찾기):
 1. read_file("src/components/Button.tsx") → 오류: 파일 없음
 2. glob_search("**/Button.tsx") → src/ui/Button.tsx 발견
-3. read_file("src/ui/Button.tsx") → 정상 읽기`;
+3. read_file("src/ui/Button.tsx") → 정상 읽기
+
+✅ 올바른 흐름 (신규 파일 생성):
+1. glob_search("**/NewFeature.tsx") → 결과 없음 (프로젝트에 없음)
+2. create_file("src/components/NewFeature.tsx") → 새 파일 생성`;
 }
 
 export function getNoThinkingLeakageRules(): string {
@@ -205,8 +213,9 @@ export function getBaseRules(): string {
 
 1. **정보 부족 시 조사 우선**:
    - 파일 구조나 내용을 모르면 먼저 read_file, list_files 사용
+   - **경로를 모르면 read_file 전에 glob_search로 먼저 찾으세요** (예: glob_search("**/Button.tsx"))
    - 조사 후 즉시 작업 실행 가능 (같은 응답에서 조사 + 실행 가능)
-   - 예: read_file로 파일 확인 → 바로 create_file 또는 update_file 실행
+   - 예: glob_search로 경로 확인 → read_file → create_file 또는 update_file 실행
 
 2. **복잡한 작업은 계획 수립**:
    - 3단계 이상 작업: 계획 먼저 제시
