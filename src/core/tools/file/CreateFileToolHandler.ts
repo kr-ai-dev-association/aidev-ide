@@ -37,7 +37,12 @@ export class CreateFileToolHandler implements IToolHandler {
             };
         }
 
-        if (!content) {
+        // 플레이스홀더/의미 없는 콘텐츠 차단 (빈 파일이 정상인 케이스 예외)
+        const trimmedContent = (content || '').trim();
+        const fileName = path.basename(filePath);
+        const allowEmpty = fileName === '__init__.py' || fileName === '.gitkeep' || fileName === '.keep';
+
+        if (!content && !allowEmpty) {
             return {
                 success: false,
                 message: 'Content parameter is required',
@@ -45,10 +50,6 @@ export class CreateFileToolHandler implements IToolHandler {
             };
         }
 
-        // 플레이스홀더/의미 없는 콘텐츠 차단 (빈 파일이 정상인 케이스 예외)
-        const trimmedContent = content.trim();
-        const fileName = path.basename(filePath);
-        const allowEmpty = fileName === '__init__.py' || fileName === '.gitkeep' || fileName === '.keep';
         if (!allowEmpty && this.isPlaceholderContent(trimmedContent)) {
             console.warn(`[CreateFileToolHandler] Placeholder content rejected for ${filePath}: "${trimmedContent.substring(0, 50)}"`);
             return {

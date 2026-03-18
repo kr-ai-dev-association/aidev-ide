@@ -19,7 +19,7 @@ import { StringUtils } from "../../../utils/StringUtils";
 import { SubProjectDetector } from "../../project/SubProjectDetector";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
 import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory, ExecutionOutcome } from "./ErrorClassifier";
-import { AutoRemediator } from "./AutoRemediator";
+
 import { extractErrorMessage } from "./HandlerUtils";
 
 export interface TestResult {
@@ -342,72 +342,21 @@ export class TestRunner {
         const configFiles = detector.getCriticalFiles(projectInfo.type, workspaceRoot);
         const classification = ErrorClassifier.classify(diagnosticErrors, envHealth, configFiles);
 
-        console.log(`[TestRunner] Error classification: ${classification.dominantCategory}, groups: ${classification.groups.length}, envNeedsInstall: ${envHealth.needsInstall}`);
+        console.log(`[TestRunner] Error classification: ${classification.dominantCategory}, groups: ${classification.groups.length}`);
 
-        // Pre-LLM 자동 수정 시도 (의존성 미설치 등)
-        if (classification.dominantCategory === ErrorCategory.ENVIRONMENT_MISSING) {
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            uiStep,
-            `환경 문제 감지 - 자동 수정 중 (${envHealth.installCommand || '...'})...`,
-          );
+        // 분류 결과와 함께 에러 반환 → LLM이 판단하여 필요 시 의존성 설치 등 수행
+        const errorSummary = TestRunner.formatClassifiedErrors(classification);
+        WebviewBridge.sendProcessingStatus(
+          webview,
+          uiStep,
+          `Diagnostics 에러 ${diagnosticErrors.length}개 발견`,
+        );
 
-          const remediation = await AutoRemediator.attemptFix(classification, workspaceRoot, webview);
-
-          if (remediation.attempted && remediation.success) {
-            console.log(`[TestRunner] Auto-remediation succeeded: ${remediation.command}`);
-            // LSP가 업데이트할 시간 대기
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // Diagnostics 재확인
-            const retryDiagnostics = await TestRunner.checkDiagnostics(
-              createdFiles, modifiedFiles, workspaceRoot
-            );
-
-            if (retryDiagnostics.length === 0) {
-              testResults.push(`Diagnostics 검사 통과: 자동 의존성 설치 후 에러 해결됨`);
-              WebviewBridge.sendProcessingStatus(
-                webview,
-                uiStep,
-                "Diagnostics 검사 통과 (자동 수정 적용)",
-              );
-              // CLI 검증으로 계속 진행 (fall through)
-            } else {
-              // 자동 수정 후에도 에러 남음 → 재분류하여 반환
-              const newEnvHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
-              const newClassification = ErrorClassifier.classify(retryDiagnostics, newEnvHealth, configFiles);
-              const errorSummary = TestRunner.formatClassifiedErrors(newClassification);
-
-              return {
-                success: false,
-                errorMessage: errorSummary,
-                classification: newClassification,
-              };
-            }
-          } else {
-            // 자동 수정 실패 또는 미시도
-            const errorSummary = TestRunner.formatClassifiedErrors(classification);
-            return {
-              success: false,
-              errorMessage: errorSummary,
-              classification,
-            };
-          }
-        } else {
-          // 환경 문제가 아닌 일반 에러 → 분류 결과와 함께 반환
-          const errorSummary = TestRunner.formatClassifiedErrors(classification);
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            uiStep,
-            `Diagnostics 에러 ${diagnosticErrors.length}개 발견`,
-          );
-
-          return {
-            success: false,
-            errorMessage: errorSummary,
-            classification,
-          };
-        }
+        return {
+          success: false,
+          errorMessage: errorSummary,
+          classification,
+        };
       } else {
         testResults.push(`Diagnostics 검사 통과: 문법/타입 에러 없음`);
         WebviewBridge.sendProcessingStatus(
@@ -421,26 +370,6 @@ export class TestRunner {
       let cliClassification: ClassificationResult | undefined;
 
       if (!isUnknownProject) {
-        // 3-0. CLI 검증 전 의존성 설치 여부 확인
-        const envHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
-        if (envHealth.needsInstall && envHealth.installCommand) {
-          console.log(`[TestRunner] Dependencies missing (no ${envHealth.hasDependencyDir ? '' : 'dependency dir'}). Running: ${envHealth.installCommand}`);
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            uiStep,
-            `의존성 설치 중: ${envHealth.installCommand}...`,
-          );
-          const installResult = await AutoRemediator.attemptInstall(envHealth.installCommand, workspaceRoot, webview);
-          if (installResult.success) {
-            console.log(`[TestRunner] Pre-validation install succeeded: ${envHealth.installCommand}`);
-          } else {
-            console.warn(`[TestRunner] Pre-validation install failed: ${installResult.message}`);
-            testResults.push(`의존성 설치 실패: ${installResult.message}`);
-            WebviewBridge.sendProcessingStatus(webview, uiStep, "의존성 설치 실패");
-            // 설치 실패해도 validation은 시도 (실패할 수 있지만 에러 메시지를 LLM에게 전달하기 위해)
-          }
-        }
-
         // 서브프로젝트 감지로 workspaceRoot가 변경된 경우, 파일 경로를 새 root 기준으로 rebase
         // 예: workspaceRoot=/test2/backend, 파일=backend/app/main.py → app/main.py
         let effectiveCreatedFiles = createdFiles;

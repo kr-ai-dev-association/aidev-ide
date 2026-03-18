@@ -27,6 +27,7 @@ import { PromptBuilder } from "./core/managers/context/PromptBuilder";
 import { PromptComposer } from "./core/managers/context/prompts/PromptComposer";
 import { ConversationManager } from "./core/managers/conversation/ConversationManager";
 import { LLMApiClient } from "./core/managers/model/LLMApiClient";
+import { ModelConnectionService } from "./core/managers/model/ModelConnectionService";
 import { FileChangeTracker } from "./core/managers/action/file/FileChangeTracker";
 import { FileContextTracker } from "./core/managers/context/file/FileContextTracker";
 import { ToolRegistry } from "./core/tools/ToolRegistry";
@@ -176,6 +177,18 @@ export async function activate(context: vscode.ExtensionContext) {
     await ollamaApi.loadSettingsFromStorage();
   } catch (e) {
     console.warn("[Extension] Failed to load Ollama settings at startup:", e);
+  }
+
+  // Ollama 모델의 실제 context length 조회 및 토큰 제한 업데이트 (현재 모델이 Ollama일 때만)
+  if (initialOllamaModel && currentAiModel === 'ollama') {
+    ModelConnectionService.getOllamaModelContextLength(initialOllamaModel, initialOllamaUrl || DEFAULT_OLLAMA_URL)
+      .then((ctxLen: number | null) => {
+        if (ctxLen) {
+          const { updateOllamaTokenLimits } = require("./utils/tokenUtils");
+          updateOllamaTokenLimits(ctxLen);
+        }
+      })
+      .catch(() => { /* non-critical */ });
   }
 
   // 사용자 OS 정보를 PromptBuilder에 설정

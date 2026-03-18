@@ -194,8 +194,15 @@ export class ContextGatherer {
         }
 
         // 서버 RAG 검색 (RAG 소스가 등록된 경우에만 실행)
+        // Intent 기반 조건부: code_remove만 RAG 스킵
+        // code_modify는 정책/규정 준수가 필요한 수정이 있을 수 있으므로 RAG 유지
         let ragContext = '';
+        const RAG_SKIP_SUBTYPES = new Set(['code_remove']);
+        const shouldSkipRag = RAG_SKIP_SUBTYPES.has(intent.subtype);
         try {
+            if (shouldSkipRag) {
+                console.log(`[ContextGatherer] RAG: intent=${intent.subtype} — 코드 삭제 작업이므로 RAG 스킵`);
+            } else {
             const { AuthService } = await import('../../../../services/auth/AuthService');
             const { CodePilotApiClient } = await import('../../../../services/api/CodePilotApiClient');
             const { SettingsManager } = await import('../../state/SettingsManager');
@@ -218,7 +225,7 @@ export class ContextGatherer {
                         ragQuery,
                         orgId || undefined,
                         undefined,
-                        5,
+                        3, // 5→3: 기본 청크 수 축소 (토큰 절약)
                     );
                     const ragResultsRaw = Array.isArray(ragRaw)
                         ? ragRaw
@@ -262,6 +269,7 @@ export class ContextGatherer {
                     }
                 }
             }
+            } // end: !shouldSkipRag else block
         } catch (error) {
             console.warn('[ContextGatherer] RAG search failed (non-critical):', error);
         }

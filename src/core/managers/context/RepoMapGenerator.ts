@@ -395,18 +395,51 @@ export class RepoMapGenerator {
         const lines: string[] = [];
 
         for (const entry of entries) {
-            if (entry.symbols.length > 0) {
-                lines.push(entry.relativePath);
-                for (const sym of entry.symbols) {
-                    const exportMark = sym.exported ? '[E]' : '   ';
-                    lines.push(`  ${exportMark} ${sym.type.padEnd(10)} ${sym.name} (line ${sym.line})`);
+            // exported 심볼만 필터링
+            const exportedSymbols = entry.symbols.filter(s => s.exported);
+            const roleTag = this.inferRoleTag(entry.relativePath);
+            const pathLine = roleTag
+                ? `${entry.relativePath}  [${roleTag}]`
+                : entry.relativePath;
+
+            if (exportedSymbols.length > 0) {
+                lines.push(pathLine);
+                for (const sym of exportedSymbols) {
+                    lines.push(`  ${sym.type.padEnd(10)} ${sym.name}`);
                 }
             } else {
-                lines.push(entry.relativePath);
+                lines.push(pathLine);
             }
         }
 
         return lines.join('\n');
+    }
+
+    /**
+     * 파일 경로에서 역할 태그를 추론 (heuristic)
+     */
+    private static inferRoleTag(relativePath: string): string | null {
+        const lower = relativePath.toLowerCase();
+        const basename = path.basename(lower, path.extname(lower));
+
+        // 경로 기반 역할 추론
+        if (lower.includes('/controller') || lower.includes('/controllers/') || basename.endsWith('controller')) return 'controller';
+        if (lower.includes('/route') || lower.includes('/routes/') || lower.includes('/router') || basename.endsWith('router')) return 'route';
+        if (lower.includes('/service') || lower.includes('/services/') || basename.endsWith('service')) return 'service';
+        if (lower.includes('/repositor') || lower.includes('/repositories/') || basename.endsWith('repository') || basename.endsWith('repo')) return 'repo';
+        if (lower.includes('/model') || lower.includes('/models/') || lower.includes('/entities/') || basename.endsWith('model') || basename.endsWith('entity')) return 'model';
+        if (lower.includes('/schema') || lower.includes('/schemas/') || lower.includes('/dto/') || basename.endsWith('schema') || basename.endsWith('dto')) return 'schema';
+        if (lower.includes('/middleware') || basename.endsWith('middleware')) return 'middleware';
+        if (lower.includes('/util') || lower.includes('/utils/') || lower.includes('/helper') || lower.includes('/helpers/')) return 'util';
+        if (lower.includes('/config') || basename === 'config' || basename.endsWith('config')) return 'config';
+        if (lower.includes('/test') || lower.includes('/__tests__/') || lower.includes('.test.') || lower.includes('.spec.')) return 'test';
+        if (lower.includes('/hook') || lower.includes('/hooks/') || basename.startsWith('use')) return 'hook';
+        if (lower.includes('/component') || lower.includes('/components/') || lower.includes('/pages/') || lower.includes('/views/')) return 'ui';
+        if (lower.includes('/api/') || lower.includes('/endpoints/')) return 'api';
+        if (lower.includes('/store') || lower.includes('/stores/') || lower.includes('/state/') || lower.includes('/redux/') || lower.includes('/zustand/')) return 'store';
+        if (lower.includes('/type') || lower.includes('/types/') || basename.endsWith('.d')) return 'type';
+
+        return null;
     }
 
     /**

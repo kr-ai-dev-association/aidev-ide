@@ -16,9 +16,16 @@ import { ProjectType } from '../../project/types';
 import { InlineDiffManager } from '../../diff/InlineDiffManager';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
 import { AgentConfig } from '../../../config/AgentConfig';
-import { DependencyInstaller } from './DependencyInstaller';
 
 export class FileChangeHandler {
+  /** 프로젝트 타입 감지 결과 캐시 (세션 단위, 대화 시작 시 초기화) */
+  private static projectTypeCache = new Map<string, ProjectType>();
+
+  /** 캐시 초기화 */
+  static resetProjectTypeCache(): void {
+    FileChangeHandler.projectTypeCache.clear();
+  }
+
   /**
    * Formatter 실행 여부 결정 (조건부 호출)
    */
@@ -86,41 +93,57 @@ export class FileChangeHandler {
     modifiedFiles: string[],
   ): Promise<void> {
     try {
-      // 의존성 파일 변경 감지 → 자동 설치
-      await DependencyInstaller.autoInstall(webview, workspaceRoot, createdFiles, modifiedFiles);
-
       // 조건부 Formatter 실행 결정
       if (!FileChangeHandler.shouldRunFormatter(createdFiles, modifiedFiles)) {
         return;
       }
 
-      const detector = new ProjectDetector();
-      const projectInfo = await detector.detectProjectType(workspaceRoot);
+      // 캐시된 프로젝트 타입 확인
+      const cachedType = FileChangeHandler.projectTypeCache.get(workspaceRoot);
+      let projectInfo: any;
 
-      // Fallback: LLM으로 프로젝트 타입 감지
-      if (projectInfo.type === ProjectType.UNKNOWN) {
-        console.log(
-          "[FileChangeHandler] Unknown project type, trying LLM fallback...",
-        );
-        const llmManager = LLMManager.getInstance();
-
-        const llmResult = await detector.detectWithLLMFallback(
-          workspaceRoot,
-          llmManager,
-        );
-
-        if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
-          console.log(
-            `[FileChangeHandler] LLM fallback detected project type: ${llmResult.type}`,
-          );
-          Object.assign(projectInfo, llmResult);
-        } else {
-          console.log(
-            "[FileChangeHandler] Unknown project type, skipping formatter and validation.",
-          );
+      if (cachedType !== undefined) {
+        console.log(`[FileChangeHandler] Using cached project type: ${cachedType}`);
+        if (cachedType === ProjectType.UNKNOWN) {
+          console.log("[FileChangeHandler] Cached as UNKNOWN, skipping formatter.");
           return;
         }
+        projectInfo = { type: cachedType };
+      } else {
+        const detector = new ProjectDetector();
+        projectInfo = await detector.detectProjectType(workspaceRoot);
+
+        // Fallback: LLM으로 프로젝트 타입 감지
+        if (projectInfo.type === ProjectType.UNKNOWN) {
+          console.log(
+            "[FileChangeHandler] Unknown project type, trying LLM fallback...",
+          );
+          const llmManager = LLMManager.getInstance();
+
+          const llmResult = await detector.detectWithLLMFallback(
+            workspaceRoot,
+            llmManager,
+          );
+
+          if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
+            console.log(
+              `[FileChangeHandler] LLM fallback detected project type: ${llmResult.type}`,
+            );
+            Object.assign(projectInfo, llmResult);
+          } else {
+            console.log(
+              "[FileChangeHandler] Unknown project type, skipping formatter and validation.",
+            );
+            FileChangeHandler.projectTypeCache.set(workspaceRoot, ProjectType.UNKNOWN);
+            return;
+          }
+        }
+
+        // 성공한 결과 캐시
+        FileChangeHandler.projectTypeCache.set(workspaceRoot, projectInfo.type);
       }
+
+      const detector = new ProjectDetector();
 
       const executionManager = ExecutionManager.getInstance();
       const inlineDiffManager = InlineDiffManager.getInstance();

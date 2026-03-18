@@ -6,7 +6,7 @@ import { AgentConfig } from '../core/config/AgentConfig';
 export const MODEL_TOKEN_LIMITS = {
     [AiModelType.OLLAMA]: {
         maxInputTokens: 128000,  // 일반 Ollama 모델의 보수적 기본값
-        maxOutputTokens: 128000,
+        maxOutputTokens: 65536,
         maxTotalTokens: 128000
     },
     [AiModelType.ADMIN]: {
@@ -28,6 +28,19 @@ export function updateAdminTokenLimits(contextWindow?: number, maxTokens?: numbe
     }
     if (maxTokens && maxTokens > 0) {
         adminLimits.maxOutputTokens = maxTokens;
+    }
+}
+
+/**
+ * Ollama 모델의 토큰 제한을 동적으로 업데이트합니다.
+ * /api/show에서 가져온 context length를 반영합니다.
+ */
+export function updateOllamaTokenLimits(contextWindow: number): void {
+    const ollamaLimits = MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
+    if (contextWindow > 0) {
+        ollamaLimits.maxInputTokens = contextWindow;
+        ollamaLimits.maxTotalTokens = contextWindow;
+        console.log(`[tokenUtils] Ollama token limits updated: ${contextWindow}`);
     }
 }
 
