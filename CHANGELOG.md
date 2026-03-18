@@ -2,7 +2,19 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.19**
+> **현재 버전: v1.0.20**
+
+---
+
+## v1.0.20
+
+### 성능 개선
+
+- **대화 압축 3-Tier 전략**: Tier 1 (60% 토큰 사용 시 LLM 호출 없이 오래된 도구 결과 축약), Tier 2 (80% 시 LLM 요약), Tier 3 (폴백 시 한번에 70% 삭제 대신 라운드당 25%씩 점진적 제거, 최대 3라운드). 컨텍스트 윈도우를 더 효율적으로 활용
+- **read_file 중복 제거**: 동일 파일을 여러 번 읽은 경우 마지막 읽기만 유지하고 이전 읽기는 짧은 요약으로 대체. accumulatedUserParts 메모리 절감
+- **Investigation 스킵 최적화**: LLM IntentDetector의 `requiresPlan: false` 판정 시 code/execution 카테고리를 EXECUTION 단계로 직행. 불필요한 INVESTIGATION 턴 절감
+- **토큰 추정 정확도 향상**: BPE 토크나이저 실측 기반으로 코드 기호(`{ } ( ) ; :` 등)를 별도 분류하여 1:1 토큰 매핑. 영숫자 비율을 4→3.5 문자/토큰으로 조정
+- **스트리밍 버퍼 크기 제한**: StreamingCodeApplier rawBuffer에 512KB 상한 추가. 초과 시 컨텍스트 인식 flush로 메모리 누수 방지
 
 ---
 
