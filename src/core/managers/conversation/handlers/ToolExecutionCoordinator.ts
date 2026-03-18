@@ -88,6 +88,9 @@ export class ToolExecutionCoordinator {
             summary += `Status: ${res.success ? 'Success' : 'Failed'}\n`;
             if (res.message && !res.success) {
                 summary += `Error Message: ${res.message}\n`;
+                if (res.error?.message && res.error.message !== res.message) {
+                    summary += `Detail: ${res.error.message}\n`;
+                }
             } else if (res.message && res.success && !res.data && !res.fileContent) {
                 // 데이터는 없지만 성공 메시지가 있는 경우 (예: 파일 생성 성공)
                 summary += `Message: ${res.message}\n`;

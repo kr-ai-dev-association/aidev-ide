@@ -219,6 +219,19 @@ export class ToolSpecBuilder {
             });
         }
 
+        // glob_search - 파일 경로 패턴 검색
+        if (!allowedTools || allowedTools.includes(Tool.GLOB_SEARCH)) {
+            specs.push({
+                name: Tool.GLOB_SEARCH,
+                description: 'glob 패턴으로 프로젝트 내 파일 경로를 검색합니다. 파일 이름이나 경로 패턴으로 파일 위치를 찾을 때 사용하세요. ripgrep_search는 파일 **내용**을 검색하고, glob_search는 파일 **경로/이름**을 검색합니다. **파일 위치를 모를 때는 glob_search를 먼저 사용하세요.**',
+                parameters: [
+                    { name: 'pattern', required: true, description: 'glob 패턴 (예: **/Dashboard.tsx, src/**/*.test.ts, **/*.config.{js,ts})', type: 'string' },
+                    { name: 'path', required: false, description: '검색 시작 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
+                    { name: 'maxResults', required: false, description: '최대 결과 수 (기본값: 200)', type: 'string' }
+                ]
+            });
+        }
+
         // MCP 도구 추가
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);

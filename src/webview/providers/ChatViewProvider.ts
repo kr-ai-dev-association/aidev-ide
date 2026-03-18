@@ -1781,6 +1781,11 @@ ${JSON.stringify(errorContext, null, 2)}
                 if (currentSession.conversationHistory && currentSession.conversationHistory.length > 0) {
                     this.restoreConversationHistory(currentSession.conversationHistory);
                     console.log(`[ChatViewProvider] Restored ${currentSession.conversationHistory.length} conversation entries`);
+
+                    // 히스토리 복원 후 스크롤을 최하단으로 이동
+                    setTimeout(() => {
+                        webview.postMessage({ command: 'scrollToBottom' });
+                    }, 300);
                 }
 
                 // 2. 토큰 사용량 및 컨텍스트 수 복원

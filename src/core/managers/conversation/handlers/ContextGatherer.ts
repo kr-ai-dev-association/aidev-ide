@@ -237,6 +237,20 @@ export class ContextGatherer {
             console.warn('[ContextGatherer] SubProject detection failed (non-critical):', error);
         }
 
+        // Repo Map 생성 (파일 경로 + 심볼 맵 — LLM 경로 추측 방지)
+        let repoMap: string | undefined;
+        try {
+            const workspaceRoot3 = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot3) {
+                const { RepoMapGenerator } = require('../../context/RepoMapGenerator');
+                const result = await RepoMapGenerator.generate(workspaceRoot3);
+                repoMap = result.map;
+                console.log(`[ContextGatherer] RepoMap generated: ${result.strategy} (${result.fileCount} files, ${result.symbolCount} symbols, ${result.map.length} chars)`);
+            }
+        } catch (error) {
+            console.warn('[ContextGatherer] RepoMap generation failed (non-critical):', error);
+        }
+
         return {
             codebaseContext: contextData.file?.content,
             realTimeInfo: contextData.terminal?.lastOutput,
@@ -250,6 +264,7 @@ export class ContextGatherer {
             frameworkRulesPrompt,
             ragContext,
             subProjectStructure,
+            repoMap,
         };
     }
 }

@@ -33,6 +33,7 @@ export interface PromptComposerOptions {
     ragContext?: string; // 서버 RAG 문서 컨텍스트
     activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
     subProjectStructure?: string; // 서브프로젝트 구조 (모노레포 경로 grounding)
+    repoMap?: string; // 프로젝트 파일 맵 (파일 경로 + 심볼)
 }
 
 /** Skill Registry 항목 */
@@ -368,7 +369,7 @@ ${formattedRules}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, activeSkillKeys, subProjectStructure } = options;
+        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, activeSkillKeys, subProjectStructure, repoMap } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -541,6 +542,7 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
             activeSkillsSection, // 조건부 스킬 — IntentDetector가 선택한 것만
             osContextInfo,
             subProjectStructure, // 서브프로젝트 구조 (모노레포 경로 grounding)
+            repoMap ? `## 프로젝트 파일 맵\n아래는 프로젝트의 파일 경로와 주요 심볼(함수/클래스/인터페이스 등) 목록입니다.\n**파일 경로를 추측하지 말고, 이 맵을 참고하여 정확한 경로를 사용하세요.**\n파일이 맵에 없으면 glob_search로 검색하세요.\n\n${repoMap}` : '',
             basePrompt,
             mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
             frameworkRulesSection, // v9.2.1: 동적 프레임워크 규칙

@@ -36,6 +36,7 @@ export interface PromptBuilderOptions {
   ragContext?: string; // 서버 RAG 검색 결과
   activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
   subProjectStructure?: string; // 서브프로젝트 구조 (모노레포 경로 grounding)
+  repoMap?: string; // 프로젝트 파일 맵 (파일 경로 + 심볼)
 }
 
 export class PromptBuilder {
@@ -89,6 +90,7 @@ export class PromptBuilder {
       ragContext: options.ragContext, // 서버 RAG 문서 컨텍스트
       activeSkillKeys: options.activeSkillKeys, // IntentDetector가 선택한 활성 스킬
       subProjectStructure: options.subProjectStructure, // 서브프로젝트 구조
+      repoMap: options.repoMap, // 프로젝트 파일 맵
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

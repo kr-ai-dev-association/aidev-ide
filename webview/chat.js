@@ -2152,6 +2152,12 @@ window.addEventListener("message", (event) => {
       }
       break;
 
+    case "scrollToBottom":
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      break;
+
     // ═══════════ 히스토리 lazy loading ═══════════
     case "historyMeta":
       _historyHasMore = message.hasMore;
@@ -2185,14 +2191,16 @@ window.addEventListener("message", (event) => {
       const msgDiv = document.createElement("div");
       if (message.sender === "CODEPILOT") {
         msgDiv.className = "codepilot-message-container";
-        const msgBubble = document.createElement("div");
-        msgBubble.className = "codepilot-message";
-        if (window.renderMarkdown) {
-          msgBubble.innerHTML = window.renderMarkdown(message.text);
+        // renderCodePilotContent로 라이브 메시지와 동일하게 렌더링
+        const rendered = renderCodePilotContent(message.text);
+        if (rendered) {
+          msgDiv.appendChild(rendered);
         } else {
+          const msgBubble = document.createElement("div");
+          msgBubble.className = "message-bubble";
           msgBubble.textContent = message.text;
+          msgDiv.appendChild(msgBubble);
         }
-        msgDiv.appendChild(msgBubble);
       } else {
         msgDiv.className = "system-message";
         msgDiv.textContent = message.text;
@@ -2693,32 +2701,21 @@ function handleClearHistory() {
 
 // removeToolTags, sanitizeLastResort -> ./chat/utils.js로 이동
 
-// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
-function displayCodePilotMessage(markdownText) {
-  console.log(
-    "displayCodePilotMessage called with text length:",
-    markdownText.length,
-  );
-  if (!chatMessages) {
-    console.error("chatMessages element not found!");
-    return;
-  }
-  console.log("chatMessages element found, creating message container...");
-
-  // ✅ 1차: 최후 방어선 적용 (tool 태그 완전 차단)
+/**
+ * 마크다운 텍스트를 코드 블록 파싱 + 파일 카드 렌더링하여 DOM 요소로 반환
+ * displayCodePilotMessage와 prependMessage 양쪽에서 재사용
+ * @param {string} markdownText - 마크다운 텍스트
+ * @returns {HTMLElement|null} - 렌더링된 message-bubble 요소, 또는 빈 텍스트면 null
+ */
+function renderCodePilotContent(markdownText) {
+  // 1차: 최후 방어선 적용 (tool 태그 완전 차단)
   let sanitizedText = sanitizeLastResort(markdownText);
   if (!sanitizedText || sanitizedText.trim().length === 0) {
-    console.log(
-      "[displayCodePilotMessage] Empty text after sanitization, skipping",
-    );
-    return;
+    return null;
   }
 
   // 2차: 기존 removeToolTags 적용
   const displayText = removeToolTags(sanitizedText);
-
-  const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container");
 
   const bubbleElement = document.createElement("div");
   bubbleElement.classList.add("message-bubble");
@@ -3118,9 +3115,34 @@ function displayCodePilotMessage(markdownText) {
     bubbleElement.appendChild(tempHtmlElements.firstChild);
   }
 
-  messageContainer.appendChild(bubbleElement);
-
   addCopyButtonsToCodeBlocks(bubbleElement);
+
+  return bubbleElement;
+}
+
+// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
+function displayCodePilotMessage(markdownText) {
+  console.log(
+    "displayCodePilotMessage called with text length:",
+    markdownText.length,
+  );
+  if (!chatMessages) {
+    console.error("chatMessages element not found!");
+    return;
+  }
+  console.log("chatMessages element found, creating message container...");
+
+  const bubbleElement = renderCodePilotContent(markdownText);
+  if (!bubbleElement) {
+    console.log(
+      "[displayCodePilotMessage] Empty text after sanitization, skipping",
+    );
+    return;
+  }
+
+  const messageContainer = document.createElement("div");
+  messageContainer.classList.add("codepilot-message-container");
+  messageContainer.appendChild(bubbleElement);
 
   chatMessages.appendChild(messageContainer);
 

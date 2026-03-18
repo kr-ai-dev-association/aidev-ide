@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -338,6 +338,7 @@
     "@tensorflow/tfjs-node": "^4.22.0",
     "cheerio": "^1.2.0",
     "diff": "^8.0.2",
+    "fast-glob": "^3.3.3",
     "firebase": "^10.7.0",
     "iconv-lite": "^0.7.2",
     "korean-text-analytics": "^0.0.7",
