@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.18**
+> **현재 버전: v1.0.19**
+
+---
+
+## v1.0.19
+
+### 버그 수정
+
+- **Thinking Bubble 최상단 고정 문제 수정**: 질의 시 stepProcess가 질의 아래가 아닌 최상단에 고정되던 문제 수정. `scrollIntoView({ block: "end" })`가 버블을 입력 영역 뒤에 배치하여 `is-forced-top`이 즉시 적용되던 문제를 `chatContainer.scrollTo()`로 변경하여 `padding-bottom`이 보상하도록 수정
+- **Thinking Bubble 스크롤 복귀 시 해제 안 되는 문제**: 스크롤을 올렸다 내리면 `_bubbleNaturalScrollOffset`이 갱신되지 않아 `is-forced-top`이 해제되지 않던 문제 수정. 해제 조건을 스크롤 하단 근접 여부로 단순화
+
+### 개선
+
+- **glob_search 도구 실행 상태 상세 표시**: Processing Step에 `> 파일 검색 중: **/Toggle.tsx` 형태로 실제 검색 패턴 표시. ripgrep_search도 `코드 검색 중:` 으로 구분
+- **update_file 실패 시 UI 메시지 간소화**: SEARCH 블록 매칭 실패 시 UI에는 한 줄 에러만 표시, LLM에는 파일 내용 포함 상세 메시지 전달 (message/error.message 분리)
 
 ---
 

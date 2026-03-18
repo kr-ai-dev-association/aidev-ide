@@ -4,6 +4,21 @@
  */
 
 /**
+ * chatMessages에 요소를 추가할 때 thinking bubble이 있으면 그 앞에 삽입
+ * thinking bubble이 항상 맨 아래에 유지되도록 보장
+ * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
+ * @param {HTMLElement} element - 추가할 요소
+ */
+export function appendBeforeThinkingBubble(chatMessages, element) {
+  const thinkingBubble = chatMessages.querySelector('.thinking-bubble');
+  if (thinkingBubble) {
+    chatMessages.insertBefore(element, thinkingBubble);
+  } else {
+    chatMessages.appendChild(element);
+  }
+}
+
+/**
  * 사용자 메시지 표시 (멘션 파싱 포함)
  * @param {string} text - 메시지 텍스트
  * @param {string|null} imageData - 이미지 데이터 (Base64)
@@ -160,7 +175,7 @@ export function displaySystemMessage(text, chatMessages, isLightTheme = false, s
     systemMessageElement.textContent = displayText;
   }
 
-  chatMessages.appendChild(systemMessageElement);
+  appendBeforeThinkingBubble(chatMessages, systemMessageElement);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 
   return systemMessageElement;
@@ -255,7 +270,7 @@ export function showErrorCorrection(originalCommand, correctedCommand, retryCoun
     </div>
   `;
 
-  chatMessages.appendChild(errorCorrectionDiv);
+  appendBeforeThinkingBubble(chatMessages, errorCorrectionDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -278,7 +293,7 @@ export function showGitRepositoryInfo(content, chatMessages) {
     </div>
   `;
 
-  chatMessages.appendChild(gitInfoDiv);
+  appendBeforeThinkingBubble(chatMessages, gitInfoDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 

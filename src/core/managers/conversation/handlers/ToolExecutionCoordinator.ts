@@ -69,6 +69,7 @@ export class ToolExecutionCoordinator {
             [Tool.REMOVE_FILE]: '파일 삭제',
             [Tool.READ_FILE]: '파일 읽기',
             [Tool.LIST_FILES]: '파일 목록',
+            [Tool.GLOB_SEARCH]: '파일 검색',
             [Tool.RIPGREP_SEARCH]: '코드 검색',
             [Tool.RUN_COMMAND]: '명령 실행',
             'plan': '계획 수립',
@@ -181,7 +182,12 @@ export class ToolExecutionCoordinator {
         // 검색 도구
         else if (toolName === Tool.RIPGREP_SEARCH) {
             const pattern = params.pattern || params.query || '';
-            statusMessage = `검색 중: ${pattern}`;
+            statusMessage = `코드 검색 중: ${pattern}`;
+        }
+        // glob 검색 도구
+        else if (toolName === Tool.GLOB_SEARCH) {
+            const pattern = params.pattern || '';
+            statusMessage = `파일 검색 중: ${pattern}`;
         }
 
         WebviewBridge.sendProcessingStatus(webview, 'execution', statusMessage);
@@ -311,6 +317,9 @@ export class ToolExecutionCoordinator {
                     const blockedMsg = `🚫 [보안 차단] ${res.message || 'Blocked'}`;
                     WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
                     collectedMessages.push({ sender: 'System', text: blockedMsg, type: 'action' });
+                } else if (res.error?.code === 'CREATE_BLOCKED_AFTER_READ_FAIL') {
+                    // 하드 가드에 의한 create_file 차단 — 내부 동작이므로 UI에 노출하지 않음
+                    console.log(`[ToolExecutionCoordinator] create_file blocked (read_fail guard): ${res.message}`);
                 } else {
                     const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
                     WebviewBridge.receiveMessage(webview, 'System', errorMsg);
@@ -542,10 +551,15 @@ export class ToolExecutionCoordinator {
                 WebviewBridge.receiveMessage(webview, 'System', displayMsg);
                 collectedMessages.push({ sender: 'System', text: displayMsg, type: 'action' });
             } else {
-                // 실패 시에는 항상 System 스타일로 에러 표시
-                const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
-                WebviewBridge.receiveMessage(webview, 'System', errorMsg);
-                collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                if (res.error?.code === 'CREATE_BLOCKED_AFTER_READ_FAIL') {
+                    // 하드 가드에 의한 create_file 차단 — UI에 노출하지 않음
+                    console.log(`[ToolExecutionCoordinator] create_file blocked (read_fail guard): ${res.message}`);
+                } else {
+                    // 실패 시에는 항상 System 스타일로 에러 표시
+                    const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
+                    WebviewBridge.receiveMessage(webview, 'System', errorMsg);
+                    collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                }
             }
         }
 

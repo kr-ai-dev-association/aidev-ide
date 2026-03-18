@@ -13,6 +13,10 @@ let thinkingBubbleElement = null;
 let chatMessages = null;
 let chatContainer = null;
 
+// is-forced-top 적용을 일시 억제하는 타이머
+// 버블 생성 직후 smooth scroll 완료 전에 handleScroll이 강제 고정하는 것을 방지
+let _suppressForcedTop = false;
+
 /**
  * 사용자가 위로 스크롤하여 하단에서 떨어져 있는지 판단
  * 하단 100px 이내이면 "하단에 있음" (auto-scroll 허용)
@@ -38,6 +42,14 @@ export function initProcessingSteps(deps) {
  */
 export function setThinkingBubbleElement(element) {
   thinkingBubbleElement = element;
+
+  // 버블이 새로 설정되면 is-forced-top 억제 (smooth scroll이 완료될 때까지)
+  if (element) {
+    _suppressForcedTop = true;
+    setTimeout(() => {
+      _suppressForcedTop = false;
+    }, 600);
+  }
 }
 
 /**
@@ -279,23 +291,18 @@ export function handleScroll() {
     const isBelow = bubbleRect.top > visibleBottom - 20;
     const isAbove = bubbleRect.bottom < containerRect.top + 10;
 
-    if (isBelow || isAbove) {
+    // 버블 생성 직후에는 강제 고정하지 않음 (smooth scroll 완료 대기)
+    if ((isBelow || isAbove) && !_suppressForcedTop) {
       thinkingBubbleElement.classList.add("is-forced-top");
     }
   } else {
-    // 고정 상태 — 저장된 자연 위치로 해제 여부 판단
-    if (_bubbleNaturalScrollOffset != null) {
-      const naturalViewportTop =
-        _bubbleNaturalScrollOffset - chatContainer.scrollTop + containerRect.top;
-      const isNaturallyVisible =
-        naturalViewportTop >= containerRect.top - 10 &&
-        naturalViewportTop < visibleBottom - 20;
-
-      if (isNaturallyVisible) {
-        thinkingBubbleElement.classList.remove("is-forced-top");
-        const tc = thinkingBubbleElement.querySelector(".thinking-content");
-        if (tc) tc.classList.remove("expanded");
-      }
+    // 고정 상태 — 스크롤이 하단 근처이면 해제
+    // 버블은 항상 chatMessages의 마지막 요소이므로, 최대 스크롤 근처면 자연 위치가 보임
+    const scrollBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
+    if (scrollBottom < 100) {
+      thinkingBubbleElement.classList.remove("is-forced-top");
+      const tc = thinkingBubbleElement.querySelector(".thinking-content");
+      if (tc) tc.classList.remove("expanded");
     }
   }
 }
@@ -409,7 +416,12 @@ export function showErrorCorrection(originalCommand, correctedCommand, retryCoun
     </div>
   `;
 
-  chatMessages.appendChild(errorCorrectionDiv);
+  // thinking bubble이 있으면 그 앞에 삽입하여 bubble이 항상 맨 아래 유지
+  if (thinkingBubbleElement && thinkingBubbleElement.parentNode === chatMessages) {
+    chatMessages.insertBefore(errorCorrectionDiv, thinkingBubbleElement);
+  } else {
+    chatMessages.appendChild(errorCorrectionDiv);
+  }
   if (!isUserScrolledUp()) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
