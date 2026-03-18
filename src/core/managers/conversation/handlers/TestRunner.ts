@@ -72,21 +72,23 @@ export class TestRunner {
     modifiedFiles: string[],
     validationTimeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
     excludedValidationCommands: string[] = [],
+    /** UI step name — 호출 컨텍스트에 따라 'executing' 또는 'review' */
+    uiStep: string = 'executing',
   ): Promise<TestResult> {
     let workspaceRoot = _workspaceRoot;
     try {
       // 검증 시작
-      WebviewBridge.sendProcessingStep(webview, "executing");
+      WebviewBridge.sendProcessingStep(webview, uiStep);
       WebviewBridge.sendProcessingStatus(
         webview,
-        "executing",
+        uiStep,
         "코드 검증 시작...",
       );
 
       // ProjectDetector를 사용하여 프로젝트 타입 감지
       WebviewBridge.sendProcessingStatus(
         webview,
-        "executing",
+        uiStep,
         "프로젝트 타입 감지 중...",
       );
       const detector = new ProjectDetector();
@@ -108,7 +110,7 @@ export class TestRunner {
             );
             WebviewBridge.sendProcessingStatus(
               webview,
-              "executing",
+              uiStep,
               `서브 프로젝트 (캐시): ${path.basename(cachedSubProject.root)} (${cachedSubProject.info.type})`,
             );
             Object.assign(projectInfo, cachedSubProject.info);
@@ -119,7 +121,7 @@ export class TestRunner {
             );
             WebviewBridge.sendProcessingStatus(
               webview,
-              "executing",
+              uiStep,
               "프로젝트 타입 미확인 (캐시) — Diagnostics 검사만 실행",
             );
           }
@@ -133,7 +135,7 @@ export class TestRunner {
               );
               WebviewBridge.sendProcessingStatus(
                 webview,
-                "executing",
+                uiStep,
                 `프로젝트 타입 (LLM 캐시): ${cachedLLMType.type}`,
               );
               Object.assign(projectInfo, cachedLLMType);
@@ -143,7 +145,7 @@ export class TestRunner {
               );
               WebviewBridge.sendProcessingStatus(
                 webview,
-                "executing",
+                uiStep,
                 "프로젝트 타입 미확인 (LLM 캐시) — Diagnostics 검사만 실행",
               );
             }
@@ -154,7 +156,7 @@ export class TestRunner {
           );
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             "프로젝트 타입 LLM 감지 중...",
           );
           const llmManager = LLMManager.getInstance();
@@ -219,7 +221,7 @@ export class TestRunner {
               );
               WebviewBridge.sendProcessingStatus(
                 webview,
-                "executing",
+                uiStep,
                 `서브 프로젝트 감지: ${path.basename(subProjectRoot.root)} (${subProjectRoot.info.type})`,
               );
               Object.assign(projectInfo, subProjectRoot.info);
@@ -230,7 +232,7 @@ export class TestRunner {
               );
               WebviewBridge.sendProcessingStatus(
                 webview,
-                "executing",
+                uiStep,
                 "프로젝트 타입 미확인 — Diagnostics 검사만 실행",
               );
             }
@@ -246,7 +248,7 @@ export class TestRunner {
       if (!isUnknownProject) {
         WebviewBridge.sendProcessingStatus(
           webview,
-          "executing",
+          uiStep,
           "Smoke Test 실행 중 (필수 파일 확인)...",
         );
         const criticalFiles = detector.getCriticalFiles(
@@ -309,14 +311,14 @@ export class TestRunner {
           );
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             "Smoke Test 실패",
           );
         } else {
           testResults.push(`Smoke Test 통과: 모든 필수 파일이 존재합니다.`);
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             "Smoke Test 통과",
           );
         }
@@ -326,7 +328,7 @@ export class TestRunner {
       // CLI 실행 전에 문법/타입 에러를 빠르게 잡음
       WebviewBridge.sendProcessingStatus(
         webview,
-        "executing",
+        uiStep,
         "Diagnostics 검사 중...",
       );
       const diagnosticErrors = await TestRunner.checkDiagnostics(
@@ -346,7 +348,7 @@ export class TestRunner {
         if (classification.dominantCategory === ErrorCategory.ENVIRONMENT_MISSING) {
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             `환경 문제 감지 - 자동 수정 중 (${envHealth.installCommand || '...'})...`,
           );
 
@@ -366,7 +368,7 @@ export class TestRunner {
               testResults.push(`Diagnostics 검사 통과: 자동 의존성 설치 후 에러 해결됨`);
               WebviewBridge.sendProcessingStatus(
                 webview,
-                "executing",
+                uiStep,
                 "Diagnostics 검사 통과 (자동 수정 적용)",
               );
               // CLI 검증으로 계속 진행 (fall through)
@@ -396,7 +398,7 @@ export class TestRunner {
           const errorSummary = TestRunner.formatClassifiedErrors(classification);
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             `Diagnostics 에러 ${diagnosticErrors.length}개 발견`,
           );
 
@@ -410,7 +412,7 @@ export class TestRunner {
         testResults.push(`Diagnostics 검사 통과: 문법/타입 에러 없음`);
         WebviewBridge.sendProcessingStatus(
           webview,
-          "executing",
+          uiStep,
           "Diagnostics 검사 통과",
         );
       }
@@ -425,7 +427,7 @@ export class TestRunner {
           console.log(`[TestRunner] Dependencies missing (no ${envHealth.hasDependencyDir ? '' : 'dependency dir'}). Running: ${envHealth.installCommand}`);
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             `의존성 설치 중: ${envHealth.installCommand}...`,
           );
           const installResult = await AutoRemediator.attemptInstall(envHealth.installCommand, workspaceRoot, webview);
@@ -434,15 +436,37 @@ export class TestRunner {
           } else {
             console.warn(`[TestRunner] Pre-validation install failed: ${installResult.message}`);
             testResults.push(`의존성 설치 실패: ${installResult.message}`);
-            WebviewBridge.sendProcessingStatus(webview, "executing", "의존성 설치 실패");
+            WebviewBridge.sendProcessingStatus(webview, uiStep, "의존성 설치 실패");
           }
+        }
+
+        // 서브프로젝트 감지로 workspaceRoot가 변경된 경우, 파일 경로를 새 root 기준으로 rebase
+        // 예: workspaceRoot=/test2/backend, 파일=backend/app/main.py → app/main.py
+        let effectiveCreatedFiles = createdFiles;
+        let effectiveModifiedFiles = modifiedFiles;
+        if (workspaceRoot !== _workspaceRoot) {
+          const subDir = path.relative(_workspaceRoot, workspaceRoot); // e.g. "backend"
+          const rebasePath = (f: string): string => {
+            // 절대 경로는 새 root 기준 상대 경로로 변환
+            if (path.isAbsolute(f)) {
+              return path.relative(workspaceRoot, f);
+            }
+            // 상대 경로가 서브디렉토리 접두사로 시작하면 제거
+            if (f.startsWith(subDir + '/') || f.startsWith(subDir + path.sep)) {
+              return f.slice(subDir.length + 1);
+            }
+            return f;
+          };
+          effectiveCreatedFiles = createdFiles.map(rebasePath);
+          effectiveModifiedFiles = modifiedFiles.map(rebasePath);
+          console.log(`[TestRunner] Rebased file paths for sub-project (${subDir}/): ${effectiveCreatedFiles.length + effectiveModifiedFiles.length} files`);
         }
 
         let validationCmd = await detector.getValidationCommand(
           projectInfo.type,
           workspaceRoot,
-          createdFiles,
-          modifiedFiles,
+          effectiveCreatedFiles,
+          effectiveModifiedFiles,
         );
 
         // COMMAND_NOT_FOUND fallback: 이전에 실패한 명령어면 스킵하고 다음 후보 요청
@@ -456,8 +480,8 @@ export class TestRunner {
             validationCmd = await detector.getNextValidationCandidate(
               projectInfo.type,
               workspaceRoot,
-              createdFiles,
-              modifiedFiles,
+              effectiveCreatedFiles,
+              effectiveModifiedFiles,
               excludedValidationCommands,
             );
           }
@@ -469,8 +493,10 @@ export class TestRunner {
             webview,
             projectInfo,
             workspaceRoot,
-            createdFiles,
-            modifiedFiles,
+            effectiveCreatedFiles,
+            effectiveModifiedFiles,
+            [],
+            uiStep,
           );
         }
 
@@ -480,6 +506,7 @@ export class TestRunner {
             validationCmd,
             workspaceRoot,
             validationTimeout,
+            uiStep,
           );
 
           // COMMAND_NOT_FOUND 즉시 재시도: 같은 턴에서 LLM에 다음 후보 요청
@@ -488,15 +515,16 @@ export class TestRunner {
               `[TestRunner] Validation command not found: ${validationCmd.command}. Trying LLM fallback immediately.`,
             );
             excludedValidationCommands.push(validationCmd.command);
-            WebviewBridge.sendProcessingStatus(webview, "executing", "검증 도구 미설치 — 대체 명령어 탐색 중...");
+            WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 대체 명령어 탐색 중...");
 
             const fallbackCmd = await TestRunner.getValidationCommandFromLLM(
               webview,
               projectInfo,
               workspaceRoot,
-              createdFiles,
-              modifiedFiles,
+              effectiveCreatedFiles,
+              effectiveModifiedFiles,
               excludedValidationCommands,
+              uiStep,
             );
 
             if (fallbackCmd) {
@@ -506,18 +534,19 @@ export class TestRunner {
               );
               if (isDuplicate) {
                 console.log(`[TestRunner] LLM fallback is duplicate of excluded command. Skipping validation.`);
-                WebviewBridge.sendProcessingStatus(webview, "executing", "검증 도구 미설치 — 검증 건너뜀");
+                WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 검증 건너뜀");
               } else {
                 const fallbackResult = await TestRunner.runValidationCommand(
                   webview,
                   fallbackCmd,
                   workspaceRoot,
                   validationTimeout,
+                  uiStep,
                 );
                 // fallback도 COMMAND_NOT_FOUND면 더 이상 재시도하지 않음
                 if (fallbackResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
                   console.log(`[TestRunner] LLM fallback also COMMAND_NOT_FOUND. Skipping validation.`);
-                  WebviewBridge.sendProcessingStatus(webview, "executing", "검증 도구 미설치 — 검증 건너뜀");
+                  WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 검증 건너뜀");
                 } else {
                   testResults.push(fallbackResult.message);
                   cliClassification = fallbackResult.classification;
@@ -525,7 +554,7 @@ export class TestRunner {
               }
             } else {
               console.log(`[TestRunner] No fallback validation command available. Skipping.`);
-              WebviewBridge.sendProcessingStatus(webview, "executing", "대체 검증 명령어 없음 (건너뜀)");
+              WebviewBridge.sendProcessingStatus(webview, uiStep, "대체 검증 명령어 없음 (건너뜀)");
             }
           } else {
             testResults.push(lintResult.message);
@@ -538,7 +567,7 @@ export class TestRunner {
           );
           WebviewBridge.sendProcessingStatus(
             webview,
-            "executing",
+            uiStep,
             "검증 명령어 없음 (건너뜀)",
           );
         }
@@ -556,7 +585,7 @@ export class TestRunner {
         const errorMessage = failedTestMessages.join("\n");
         WebviewBridge.sendProcessingStatus(
           webview,
-          "executing",
+          uiStep,
           "테스트 검증 실패",
         );
         UsageMetricsManager.getInstance().recordVerification(false);
@@ -567,7 +596,7 @@ export class TestRunner {
       // 모든 테스트 통과
       WebviewBridge.sendProcessingStatus(
         webview,
-        "executing",
+        uiStep,
         "테스트 검증 통과",
       );
       UsageMetricsManager.getInstance().recordVerification(true);
@@ -589,13 +618,14 @@ export class TestRunner {
     createdFiles: string[],
     modifiedFiles: string[],
     excludedCommands: string[] = [],
+    uiStep: string = 'executing',
   ): Promise<{ command: string; description: string } | null> {
     console.log(
       "[TestRunner] getValidationCommand() returned null. Querying LLM for validation command...",
     );
     WebviewBridge.sendProcessingStatus(
       webview,
-      "executing",
+      uiStep,
       "검증 명령어 LLM 추론 중...",
     );
 
@@ -664,10 +694,11 @@ export class TestRunner {
     validationCmd: { command: string; description: string },
     workspaceRoot: string,
     timeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
+    uiStep: string = 'executing',
   ): Promise<{ message: string; classification?: ClassificationResult }> {
     WebviewBridge.sendProcessingStatus(
       webview,
-      "executing",
+      uiStep,
       `${validationCmd.description} 실행 중...`,
     );
     try {
@@ -681,7 +712,7 @@ export class TestRunner {
         const message = `${validationCmd.description} 통과: 문법 오류가 없습니다.`;
         WebviewBridge.sendProcessingStatus(
           webview,
-          "executing",
+          uiStep,
           `${validationCmd.description} 통과`,
         );
         return { message };
@@ -711,7 +742,7 @@ export class TestRunner {
         const message = `${validationCmd.description} 실패: 오류가 발견되었습니다.\n${truncatedOutput}`;
         WebviewBridge.sendProcessingStatus(
           webview,
-          "executing",
+          uiStep,
           `${validationCmd.description} 실패`,
         );
         return { message, classification };
@@ -720,7 +751,7 @@ export class TestRunner {
       const message = `${validationCmd.description} 실행 실패: ${extractErrorMessage(error)}`;
       WebviewBridge.sendProcessingStatus(
         webview,
-        "executing",
+        uiStep,
         `${validationCmd.description} 실행 실패`,
       );
       return { message };

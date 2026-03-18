@@ -10,7 +10,7 @@ const osPromptRegistry: Record<string, string> = {
 - PowerShell 또는 Command Prompt 명령어를 사용하세요.
 - 파일 경로는 백슬래시(\\) 또는 슬래시(/) 모두 사용 가능합니다.
 - 환경변수는 %VARIABLE_NAME% 형식을 사용하세요.
-- 터미널 명령어는 \`\`\`cmd 또는 \`\`\`powershell 코드 블록을 사용하세요.
+- 터미널 명령어는 run_command 도구를 사용하세요.
 - 포트 해제: netstat -ano | findstr :포트번호, taskkill /PID 프로세스ID /F
 - 프로세스 종료: taskkill /IM 프로세스명 /F
 - 서비스 관리: net start/stop 서비스명
@@ -20,7 +20,7 @@ const osPromptRegistry: Record<string, string> = {
 - Bash/Zsh 쉘 명령어를 사용하세요.
 - 파일 경로는 슬래시(/)를 사용하세요.
 - 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
+- 터미널 명령어는 run_command 도구를 사용하세요.
 - 포트 해제: lsof -ti:포트번호 | xargs kill -9
 - 프로세스 종료: pkill -f "프로세스명"
 - Homebrew 패키지 관리자 사용을 권장하세요.
@@ -38,7 +38,7 @@ const osPromptRegistry: Record<string, string> = {
 - Bash 쉘 명령어를 사용하세요.
 - 파일 경로는 슬래시(/)를 사용하세요.
 - 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
+- 터미널 명령어는 run_command 도구를 사용하세요.
 - 포트 해제: lsof -ti:포트번호 | xargs kill -9 또는 fuser -k 포트번호/tcp
 - 프로세스 종료: pkill -f "프로세스명" 또는 killall 프로세스명
 - 패키지 관리자: apt (Ubuntu/Debian), yum/dnf (RHEL/CentOS), pacman (Arch)
@@ -56,7 +56,7 @@ const osPromptRegistry: Record<string, string> = {
 - 플랫폼에 독립적인 명령어를 사용하세요.
 - 파일 경로는 슬래시(/)를 사용하세요.
 - 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
+- 터미널 명령어는 run_command 도구를 사용하세요.
 - 포트 해제 및 프로세스 종료 명령어는 OS별로 다를 수 있으니 주의하세요.`,
 };
 

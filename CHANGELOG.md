@@ -2,7 +2,24 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.21**
+> **현재 버전: v1.0.22**
+
+---
+
+## v1.0.22
+
+### 버그 수정
+
+- **Single Loop 조기 종료 수정**: plan 없이 실행 시 도구 하나 성공만으로 "작업 완료"로 판정하던 버그 수정. plan이 생성되지 않은 상태에서는 조기 종료를 금지하고 LLM에게 다음 턴을 줘서 계속 작업하게 함. plan 존재 여부(`taskManager.listPlanItems()`)로 종료 판정 (2개 exit point 모두 수정)
+- **TestRunner sub-project 경로 rebase 수정**: sub-project 감지 시 `workspaceRoot` 변경 후 `createdFiles`/`modifiedFiles` 경로가 이중 프리픽스되던 문제 수정. `effectiveCreatedFiles`/`effectiveModifiedFiles`로 rebase하여 모든 downstream 호출에 전달
+- **TestRunner stepProcess 미표시 수정**: OrchestrationRouter validation 중 TestRunner가 `"executing"` step으로 상태를 보냈지만 실제 활성 step은 `"review"`여서 UI에 표시되지 않던 문제 수정. `uiStep` 파라미터를 추가하여 호출 컨텍스트에 따라 step을 동적 전달
+
+### 개선
+
+- **stepsProcess 프리픽스 제거**: OrchestrationRouter의 서브태스크 상태에서 `(2/3)` 스타일 progressLabel 프리픽스 제거
+- **도구 완료 후 "응답 생성 중..." 표시**: 도구 완료 후 stale 상태("파일 생성 중: xxx")가 남아있던 문제 개선. onToolComplete 콜백에서 "응답 생성 중..." 상태로 업데이트
+- **서브태스크 완료 상태에서 턴/초 제거**: `(2턴, 27초)` 형식의 실행 정보를 stepsProcess에서 제거
+- **비범용 프롬프트 수정**: rules.ts, base.ts에서 React+TS+Vite 하드코딩 예시를 스택 중립적으로 변경. OS 프롬프트의 마크다운 코드 블록 규칙을 `run_command` 도구 사용으로 통일
 
 ---
 

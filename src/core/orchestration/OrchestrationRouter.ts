@@ -199,7 +199,7 @@ export class OrchestrationRouter {
                         continue;
                     }
 
-                    const enrichedSubtask = OrchestrationRouter.enrichWithPriorResults(subtask, results);
+                    const enrichedSubtask = await OrchestrationRouter.enrichWithPriorResults(subtask, results, toolContext.workspaceRoot);
                     const result = await OrchestrationRouter.runAgent(
                         enrichedSubtask, toolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext
                     );
@@ -228,13 +228,26 @@ export class OrchestrationRouter {
                         const originalSubtask = splitResult.subtasks.find(st => st.id === failedResult.subtaskId);
                         if (!originalSubtask) { continue; }
 
-                        // 재시도용 서브태스크: 이전 에러 정보 + 성공한 에이전트 컨텍스트 포함
+                        // 재시도용 서브태스크: 이전 에러 정보 + 이전 작업 결과 + 성공한 에이전트 컨텍스트 포함
+                        const previousWorkSection = (failedResult.createdFiles.length > 0 || failedResult.modifiedFiles.length > 0)
+                            ? `\n## 이전 시도에서 이미 완료된 작업\n` +
+                              (failedResult.createdFiles.length > 0
+                                  ? `생성된 파일:\n${failedResult.createdFiles.map(f => `- ${f}`).join('\n')}\n`
+                                  : '') +
+                              (failedResult.modifiedFiles.length > 0
+                                  ? `수정된 파일:\n${failedResult.modifiedFiles.map(f => `- ${f}`).join('\n')}\n`
+                                  : '') +
+                              `**위 파일들은 이미 존재합니다. 프로젝트 초기화(create-vite, npm init 등)를 다시 실행하지 마세요.**\n` +
+                              `이미 생성된 파일은 read_file로 확인한 후 필요하면 update_file로 수정하세요.\n`
+                            : '';
+
                         const retryDescription = `${originalSubtask.description}\n\n` +
                             `## 이전 시도 실패 정보\n` +
                             `이전 시도에서 ${failedResult.turnCount}턴 동안 작업했으나 완료하지 못했습니다.\n` +
                             (failedResult.errors.length > 0
                                 ? `에러: ${failedResult.errors.join(', ')}\n`
                                 : '') +
+                            previousWorkSection +
                             (successResults.length > 0
                                 ? `\n## 다른 에이전트 완료 내역\n${successResults.map(r => {
                                     const cleaned = r.response.replace(THINKING_TAG_REGEX, '').trim();
@@ -294,7 +307,7 @@ export class OrchestrationRouter {
 
                     console.log(`[OrchestrationRouter] Dependencies now met for ${skipped.subtaskId}, executing...`);
 
-                    const enrichedSubtask = OrchestrationRouter.enrichWithPriorResults(originalSubtask, results);
+                    const enrichedSubtask = await OrchestrationRouter.enrichWithPriorResults(originalSubtask, results, toolContext.workspaceRoot);
                     const result = await OrchestrationRouter.runAgent(
                         enrichedSubtask, toolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
                     );
@@ -391,14 +404,9 @@ export class OrchestrationRouter {
             OrchestrationRouter.updateTaskItemStatus(webview, taskItems, subtask.id, 'in_progress');
         }
 
-        // 2. ProcessStep 상태 업데이트 (진행률 포함)
-        const totalCount = taskItems?.length || 0;
-        const currentIndex = taskItems?.findIndex(t => t.id === subtask.id) ?? -1;
-        const progressLabel = totalCount > 0 && currentIndex >= 0
-            ? `(${currentIndex + 1}/${totalCount}) `
-            : '';
+        // 2. ProcessStep 상태 업데이트
         WebviewBridge.sendProcessingStep(webview, 'executing');
-        WebviewBridge.sendProcessingStatus(webview, 'executing', `${progressLabel}${subtask.title} 실행 중...`);
+        WebviewBridge.sendProcessingStatus(webview, 'executing', `${subtask.title} 실행 중...`);
 
         // 3. 콜백 생성 — ToolExecutionCoordinator 재사용 + UI 메시지 수집
         const callbacks: AgentLoopCallbacks = {
@@ -410,6 +418,7 @@ export class OrchestrationRouter {
                 if (collectedUIMessages && msgs) {
                     collectedUIMessages.push(...msgs);
                 }
+                WebviewBridge.sendProcessingStatus(webview, 'executing', '응답 생성 중...');
             },
             onThinking: (thinkingText) => {
                 WebviewBridge.sendThinkingContent(webview, thinkingText);
@@ -433,7 +442,7 @@ export class OrchestrationRouter {
         // 6. 완료 로그
         WebviewBridge.sendProcessingStatus(
             webview, 'executing',
-            `${progressLabel}${subtask.title} ${result.success ? '완료' : '실패'} (${result.turnCount}턴, ${Math.round(result.executionTime / 1000)}초)`
+            `${subtask.title} ${result.success ? '완료' : '실패'}`
         );
 
         return result;
@@ -531,6 +540,7 @@ export class OrchestrationRouter {
 
             const testResult: TestResult = await TestRunner.runAutomatedTests(
                 webview, workspaceRoot, allCreatedFiles, allModifiedFiles,
+                undefined, [], 'review',
             );
 
             if (testResult.success) {
@@ -661,28 +671,63 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 의존 태스크에 선행 태스크 결과(생성/수정 파일 목록)를 주입
+     * 의존 태스크에 선행 태스크 결과(생성/수정 파일 내용)를 주입
+     * 파일 내용을 미리 제공하여 의존 태스크가 read_file 없이 바로 작업 가능
      */
-    private static enrichWithPriorResults(subtask: SubTask, priorResults: AgentLoopResult[]): SubTask {
+    private static async enrichWithPriorResults(subtask: SubTask, priorResults: AgentLoopResult[], workspaceRoot: string): Promise<SubTask> {
         const depResults = priorResults.filter(r => subtask.dependencies.includes(r.subtaskId));
         if (depResults.length === 0) { return subtask; }
 
-        const context: string[] = ['\n\n## 선행 태스크 결과'];
+        const context: string[] = ['\n\n## 선행 태스크 결과 (파일 내용 포함 — read_file 불필요)'];
+        const MAX_FILE_LINES = 200; // 파일당 최대 줄 수
+        const MAX_TOTAL_CHARS = 30000; // 전체 주입 최대 문자 수
+        let totalChars = 0;
+
         for (const r of depResults) {
             context.push(`### ${r.subtaskId}`);
-            if (r.createdFiles.length > 0) {
-                context.push(`생성된 파일: ${r.createdFiles.join(', ')}`);
+
+            // 파일 내용 읽기 및 주입
+            const allFiles = [...new Set([...r.createdFiles, ...r.modifiedFiles])];
+            if (allFiles.length > 0) {
+                context.push(`**생성/수정된 파일 (${allFiles.length}개):**`);
+                for (const filePath of allFiles) {
+                    if (totalChars >= MAX_TOTAL_CHARS) {
+                        context.push(`\n(이하 파일은 크기 제한으로 생략 — 필요시 read_file로 확인하세요)`);
+                        break;
+                    }
+                    try {
+                        const absolutePath = path.isAbsolute(filePath)
+                            ? filePath
+                            : path.join(workspaceRoot, filePath);
+                        const content = await fs.readFile(absolutePath, 'utf-8');
+                        const lines = content.split('\n');
+                        const preview = lines.slice(0, MAX_FILE_LINES).join('\n');
+                        const isTruncated = lines.length > MAX_FILE_LINES;
+                        const ext = path.extname(filePath).slice(1) || 'text';
+
+                        context.push(`\n**[${filePath}]:**`);
+                        context.push('```' + ext);
+                        context.push(preview);
+                        if (isTruncated) {
+                            context.push(`// ... (${lines.length - MAX_FILE_LINES}줄 생략)`);
+                        }
+                        context.push('```');
+                        totalChars += preview.length;
+                    } catch {
+                        context.push(`- ${filePath} (읽기 실패 — read_file로 확인 필요)`);
+                    }
+                }
             }
-            if (r.modifiedFiles.length > 0) {
-                context.push(`수정된 파일: ${r.modifiedFiles.join(', ')}`);
-            }
+
             if (r.response) {
                 const summary = r.response.replace(THINKING_TAG_REGEX, '').trim().substring(0, 300);
                 if (summary) {
-                    context.push(`요약: ${summary}`);
+                    context.push(`\n요약: ${summary}`);
                 }
             }
         }
+
+        context.push(`\n**⚠️ 위 파일 내용은 이미 제공되었습니다. read_file로 다시 읽지 마세요. 바로 create_file/update_file로 작업하세요.**`);
 
         return {
             ...subtask,
