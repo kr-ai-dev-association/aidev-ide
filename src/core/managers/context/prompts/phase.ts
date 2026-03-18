@@ -234,7 +234,6 @@ export function getExecutionPhasePrompt(): string {
     `\`\`\`\n` +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
     `<file_content>\n` +
-    `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
     `</file_content>\n` +
     `\`\`\`\n\n` +

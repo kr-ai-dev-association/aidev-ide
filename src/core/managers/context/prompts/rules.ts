@@ -25,8 +25,8 @@ export function getExecutionFirstRulePrompt(): string {
     `  "plan": [\n` +
     `    {\n` +
     `      "kind": "execution",\n` +
-    `      "title": "React TypeScript Vite 프로젝트 생성",\n` +
-    `      "detail": "package.json, tsconfig.json, vite.config.ts, index.html, src/main.tsx, src/App.tsx 등을 생성합니다."\n` +
+    `      "title": "프로젝트 초기 파일 생성",\n` +
+    `      "detail": "프로젝트에 필요한 설정 파일과 소스 파일을 생성합니다."\n` +
     `    }\n` +
     `  ]\n` +
     `}\n` +
@@ -181,7 +181,6 @@ export function getExecutionNudgePrompt(): string {
     "```\n" +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
     `<file_content>\n` +
-    `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
     `</file_content>\n` +
     "```\n\n" +
@@ -451,7 +450,6 @@ export function getExecutionPhaseContextPrompt(
     `**Example:**\n` +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
     `<file_content>\n` +
-    `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
     `</file_content>\n\n` +
     `**CRITICAL:** You are a DSL compiler, NOT a human assistant.\n` +

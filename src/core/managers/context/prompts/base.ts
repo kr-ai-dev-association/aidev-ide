@@ -54,12 +54,12 @@ export function getPlanFormatRules(): string {
     {
       "kind": "investigation",
       "title": "프로젝트 구조 조사",
-      "detail": "design.md, src/App.tsx, package.json 파일을 읽어 프로젝트 구조와 요구사항을 파악합니다."
+      "detail": "설계 문서, 기존 소스 파일, 의존성 파일을 읽어 프로젝트 구조와 요구사항을 파악합니다."
     },
     {
       "kind": "execution",
       "title": "필요한 파일 생성",
-      "detail": "package.json, vite.config.ts, src/App.tsx 등을 생성합니다."
+      "detail": "프로젝트에 필요한 설정 파일과 소스 파일을 생성합니다."
     }
   ]
 }
@@ -274,7 +274,6 @@ export function getFileOperationsRules(): string {
 - 예시:
   { "tool": "create_file", "path": "src/App.tsx" }
   <file_content>
-  import React from 'react';
   export default function App() { return <div>Hello</div>; }
   </file_content>
 
@@ -320,18 +319,9 @@ export function getCodeVsScriptRules(): string {
 // ==================== Code Generation ====================
 export function getCodeGenerationGuide(): string {
   return `코드 생성/수정 지침:
-- **프로젝트 구조 파악**: list_files로 디렉토리 구조 먼저 파악
-- **파일 분할 원칙**: 기능별 분리 (components/, utils/, hooks/, services/, types/)
-- **경로 import 규칙**:
-  - tsconfig.json/vite.config.ts에 정의된 별칭만 사용, 미정의 시 상대 경로 사용
-  - 모든 import 전 파일/패키지 존재 여부 확인 필수 (가정 금지)
-  - CSS import 시 해당 CSS 파일도 생성
-  - 외부 패키지 import 시 package.json에 의존성 추가
-- **package.json 규칙**:
-  - 실제 존재하는 버전만 사용 (^1.2.3 형식)
-  - "latest", "*" 같은 범용 버전 지정자 금지
-- **JSON 파일**: 주석 절대 포함 금지
-- **변경 이유와 테스트 방법 함께 제공**`;
+- 경로가 확실치 않으면 list_files/glob_search로 먼저 확인하고, 그 다음 read_file/update_file을 사용하세요.
+- import는 가정 금지: 파일/패키지 존재를 확인하고, 외부 패키지는 의존성 파일(package.json/pyproject.toml 등)에 추가하세요.
+- JSON 파일에는 주석을 넣지 마세요.`;
 }
 
 // ==================== Error Correction ====================

@@ -127,7 +127,7 @@ export class RunCommandToolHandler implements IToolHandler {
 
         // ── 출력 기반 명령어 분류 (패턴 매칭 없이 동작) ──────────────
         // 1단계: 짧은 타임아웃으로 실행하여 출력 확인
-        const INITIAL_TIMEOUT = 8000; // 8초 대기
+        const INITIAL_TIMEOUT = 15000; // 15초 대기 (npm install 등 패키지 설치 명령의 초기 타임아웃 방지)
         const MAX_COMPLETION_TIMEOUT = 120000; // 완료 대기 상한 120초
 
         const initialResult = await context.executionManager.executeCommand(command, {

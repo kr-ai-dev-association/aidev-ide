@@ -1251,9 +1251,10 @@ export class ConversationManager implements IConversationHandler {
         activeSystemPrompt += getExecutionPhasePrompt();
       }
 
-      // 🔥 최적화: 도구 실행이 성공했고 남은 plan item이 없으면 LLM 호출 없이 바로 REVIEW로 전환
+      // 🔥 최적화: 도구 실행이 성공했고 plan의 모든 item이 완료되면 LLM 호출 없이 바로 REVIEW로 전환
       // "완료 확인" 호출 제거 - 불필요한 LLM 호출 방지
-      // ⚠️ 단, retry 프롬프트 또는 MCP 결과 해석이 대기 중이면 스킵하지 않음
+      // ⚠️ plan이 한 번도 생성되지 않은 경우(no-plan 실행): 조기 종료 금지, 다음 턴으로 계속
+      // ⚠️ retry 프롬프트 또는 MCP 결과 해석이 대기 중이면 스킵하지 않음
       const currentPhaseForExecution = stateManager.getCurrentState();
       if (
         currentPhaseForExecution === AgentPhase.EXECUTION &&
@@ -1262,12 +1263,12 @@ export class ConversationManager implements IConversationHandler {
         !pendingMCPResultInterpretation
       ) {
         const remainingPlanItems = taskManager.getNextPendingItem();
-        const hasFileChanges =
-          createdFiles.length > 0 || modifiedFiles.length > 0;
+        const planExists = taskManager.listPlanItems().length > 0;
 
-        if (!remainingPlanItems) {
+        if (planExists && !remainingPlanItems) {
+          // Case A: plan 기반 플로우 — 모든 plan item 완료 → 테스트 후 REVIEW 전환
           console.log(
-            `[ConversationManager] EXECUTION phase: Tool execution succeeded, no remaining plan items. Running tests and transitioning.`,
+            `[ConversationManager] EXECUTION phase: All plan items completed. Running tests and transitioning.`,
           );
           lastTurnHadSuccessfulToolExecution = false; // 리셋
 
@@ -1291,6 +1292,13 @@ export class ConversationManager implements IConversationHandler {
             turnCount++;
             continue;
           }
+        } else if (!planExists) {
+          // Case C: no-plan 실행 — plan이 한 번도 생성되지 않음
+          // 도구 성공만으로 완료 판정 불가, LLM에게 다음 턴을 줘서 계속 작업하게 함
+          console.log(
+            `[ConversationManager] EXECUTION phase: Tool succeeded but no plan exists. Continuing to let LLM work.`,
+          );
+          lastTurnHadSuccessfulToolExecution = false;
         }
         // remainingPlanItems가 있으면 계속 진행 (다음 plan item 실행)
       }
@@ -2196,12 +2204,15 @@ export class ConversationManager implements IConversationHandler {
             break;
           }
 
-          // 🔥 최적화: 이전 턴에서 도구가 성공적으로 실행됐고 남은 plan item이 없으면
+          // 🔥 최적화: 이전 턴에서 도구가 성공적으로 실행됐고 plan의 모든 item이 완료되면
           // "완료 확인" 호출 없이 바로 REVIEW로 전환 (불필요한 LLM 호출 제거)
+          // ⚠️ plan이 한 번도 생성되지 않은 경우: 조기 종료 금지, 다음 턴으로 계속
           const remainingPlanItems = taskManager.getNextPendingItem();
-          if (lastTurnHadSuccessfulToolExecution && !remainingPlanItems) {
+          const planExistsForReview = taskManager.listPlanItems().length > 0;
+          if (lastTurnHadSuccessfulToolExecution && planExistsForReview && !remainingPlanItems) {
+            // Case A: plan 기반 플로우 — 모든 plan item 완료
             console.log(
-              `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution and no remaining plan items. Skipping completion confirmation and transitioning to REVIEW.`,
+              `[ConversationManager] EXECUTION phase: All plan items completed. Skipping completion confirmation and transitioning to REVIEW.`,
             );
             // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
             if (isStreamingEnabled && shouldStreamToUI) {
@@ -2212,6 +2223,14 @@ export class ConversationManager implements IConversationHandler {
             lastTurnHadSuccessfulToolExecution = false; // 리셋
             (this as any).naturalLanguageRetry = 0; // 리셋
             cleanResponse = ""; // 자연어 응답은 무시 (불필요한 "완료했습니다" 메시지)
+          } else if (lastTurnHadSuccessfulToolExecution && !planExistsForReview) {
+            // Case C: no-plan 실행 — plan이 한 번도 생성되지 않음
+            // 도구 성공만으로 완료 판정 불가, LLM에게 다음 턴을 줘서 계속 작업하게 함
+            console.log(
+              `[ConversationManager] EXECUTION phase: Tool succeeded but no plan exists. Continuing to let LLM work.`,
+            );
+            lastTurnHadSuccessfulToolExecution = false;
+            (this as any).naturalLanguageRetry = 0;
           } else if (lastTurnHadSuccessfulToolExecution && remainingPlanItems) {
             // 남은 plan item이 있으면 계속 진행 (다음 plan item 실행)
             console.log(
@@ -4821,6 +4840,7 @@ export class ConversationManager implements IConversationHandler {
           result,
         );
         uiMsgs.push(...msgs);
+        WebviewBridge.sendProcessingStatus(webview, 'executing', '응답 생성 중...');
       },
       // 🔥 도구 실행 시작 시 진행 상태 표시 (v9.5.0)
       (toolUse: ToolUse, _index: number) => {

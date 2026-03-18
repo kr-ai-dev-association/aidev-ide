@@ -21,7 +21,7 @@ import { buildToolPromptSection } from '../managers/context/prompts/tools/toolCa
 import { SubTask, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from './types';
 import { AgentConfig } from '../config/AgentConfig';
 
-const MAX_TURNS = 15;
+const MAX_TURNS = 25;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_READONLY_CONSECUTIVE_TURNS = 4; // read-only 도구만 연속 N턴이면 write 유도
 
@@ -382,7 +382,6 @@ ${toolSection}
 파일 생성:
 { "tool": "create_file", "path": "src/components/MyComponent.tsx" }
 <file_content>
-import React from 'react';
 const MyComponent = () => <div>Hello</div>;
 export default MyComponent;
 </file_content>
@@ -391,10 +390,10 @@ export default MyComponent;
 { "tool": "update_file", "path": "src/App.tsx" }
 <file_changes>
 <<<< SEARCH
-import React from 'react';
+const App = () => <div>Hello</div>;
 ====
-import React from 'react';
 import MyComponent from './components/MyComponent';
+const App = () => <div><MyComponent /></div>;
 >>>> REPLACE
 </file_changes>
 
