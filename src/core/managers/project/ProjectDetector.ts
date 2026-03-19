@@ -239,6 +239,15 @@ export class ProjectDetector {
                 }>(packageJsonPath);
 
                 if (packageJson) {
+                    // React Native (React보다 먼저 체크 — react-native도 react 의존성을 가짐)
+                    if (packageJson.dependencies?.['react-native'] || packageJson.devDependencies?.['react-native']) {
+                        return {
+                            type: ProjectType.REACT_NATIVE,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
                     // React
                     if (packageJson.dependencies?.react || packageJson.devDependencies?.react) {
                         return {
@@ -1424,7 +1433,8 @@ export class ProjectDetector {
         projectRoot: string,
         llmApi?: any,
         currentModelType?: any,
-        abortSignal?: AbortSignal
+        abortSignal?: AbortSignal,
+        subDirectoryInfo?: string
     ): Promise<{
         type: ProjectType;
         confidence: number;
@@ -1446,9 +1456,13 @@ export class ProjectDetector {
             }
             const fileList = files.join(', ');
 
+            const subDirSection = subDirectoryInfo
+                ? `\n\n서브디렉토리 구조 정보:\n${subDirectoryInfo}\n위 서브디렉토리 정보를 참고하여 모노레포/멀티프로젝트 구조인지 판단하세요.`
+                : '';
+
             const prompt = `다음 디렉토리의 파일 목록을 보고 프로젝트 타입을 판단하세요.
 
-파일 목록: ${fileList}
+파일 목록: ${fileList}${subDirSection}
 
 지원하는 프로젝트 타입 (우선순위 순서대로):
 1. android: build.gradle + (app 폴더 또는 AndroidManifest.xml 존재) - Android 프로젝트

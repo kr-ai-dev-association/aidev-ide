@@ -2,7 +2,28 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.24**
+> **현재 버전: v1.0.25**
+
+---
+
+## v1.0.25
+
+### 기능 추가
+
+- **`__done__` 가상 도구 기반 서브에이전트 완료 감지**: SubAgentLoop에 `__done__` 가상 도구 도입. LLM이 `{ "tool": "__done__", "status": "completed"|"already_done", "summary": "..." }` 형태로 명시적 완료 선언. 기존 텍스트 길이 기반 heuristic(200자 이상 응답 시 완료 간주) 제거
+- **`doneStatus` 결과 필드 추가**: `AgentLoopResult`에 `doneStatus?: 'completed' | 'already_done'` 필드 추가. 의존 태스크가 선행 태스크의 완료 상태를 정확히 파악 가능
+
+### 버그 수정
+
+- **`warnings` 변수 섀도잉 수정**: SubAgentLoop 내 ToolParser 결과 처리에서 `const warnings`가 외부 `warnings` 배열을 섀도잉하여 에이전트 레벨 경고가 누락되던 문제 수정. `parseWarnings`로 이름 변경
+- **스트리밍 상태 스팸 수정**: `parseStreamingToolStatus`가 성장하는 버퍼 전체를 반복 스캔하여 동일 도구 상태를 중복 감지하던 문제 수정. `lastScanPos` 추적으로 새 컨텐츠만 스캔
+- **ToolParser `__done__` 차단 수정**: `isValidToolName()`이 Tool enum과 ToolRegistry만 검사하여 `__done__` 가상 도구가 거부되던 문제 수정. `__done__` 예외 추가
+
+### 개선
+
+- **`already_done` 경고 스킵**: `__done__(already_done)` 완료 시 "파일 수정 없이 완료됨" 경고를 생성하지 않음. 이미 구현된 기능을 확인만 한 경우 불필요한 경고 제거
+- **의존 태스크 `already_done` 컨텍스트 주입**: `enrichWithPriorResults`에서 선행 태스크의 `doneStatus`를 명시적으로 전달. 모든 선행이 `already_done`이면 "이미 구현되어 있으니 확인 후 `__done__`하라" 안내를 의존 태스크에 주입하여 불필요한 파일 재탐색 방지
+- **"(경고 있음)" 상태 메시지 제거**: OrchestrationRouter 완료 상태에서 `'완료 (경고 있음)'` 분기 제거. 성공 시 항상 `'완료'`로 표시
 
 ---
 

@@ -45,6 +45,8 @@ export interface AgentLoopResult {
     createdFiles: string[];
     modifiedFiles: string[];
     errors: string[];
+    warnings: string[];
+    doneStatus?: 'completed' | 'already_done';
     turnCount: number;
     tokenEstimate: number;
     executionTime: number;
@@ -66,6 +68,7 @@ export interface AggregatedResult {
     modifiedFiles: string[];
     fileChanges: FileChange[];
     errors: string[];
+    warnings: string[];
     totalTokens: number;
     totalTime: number;
     agentCount: number;
@@ -79,6 +82,7 @@ export interface AgentLoopCallbacks {
     onToolStart?: (toolUse: ToolUse, index: number) => void;
     onToolComplete?: (toolUse: ToolUse, result: ToolResponse, index: number) => void;
     onThinking?: (thinkingText: string) => void;
+    onStreamingStatus?: (status: string) => void;
 }
 
 // ─── Parallel Execution Options ──────────────────────────

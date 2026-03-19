@@ -15,6 +15,7 @@ export class ResultMerger {
         const allCreated: string[] = [];
         const allModified: string[] = [];
         const allErrors: string[] = [];
+        const allWarnings: string[] = [];
         let totalTokens = 0;
         let maxTime = 0;
         const summaries: string[] = [];
@@ -27,6 +28,9 @@ export class ResultMerger {
 
             if (result.errors.length > 0) {
                 allErrors.push(...result.errors.map(e => `[${result.subtaskId}] ${e}`));
+            }
+            if (result.warnings?.length > 0) {
+                allWarnings.push(...result.warnings.map(w => `[${result.subtaskId}] ${w}`));
             }
 
             if (result.response) {
@@ -62,6 +66,7 @@ export class ResultMerger {
                 ...modifiedFiles.map(p => ({ path: p, action: 'updated' as const })),
             ],
             errors: allErrors,
+            warnings: allWarnings,
             totalTokens,
             totalTime: maxTime,
             agentCount: results.length,

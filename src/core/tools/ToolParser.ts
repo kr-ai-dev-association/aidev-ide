@@ -349,6 +349,7 @@ export class ToolParser {
      * 도구 이름 유효성 확인 (빌트인 + Registry 동적 등록)
      */
     private static isValidToolName(name: string): boolean {
+        if (name === '__done__') return true; // SubAgentLoop 완료 시그널 가상 도구
         if (Object.values(Tool).includes(name as Tool)) return true;
         return ToolRegistry.getInstance().hasHandler(name);
     }
