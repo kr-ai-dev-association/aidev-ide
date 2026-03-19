@@ -46,7 +46,7 @@ export class AgentConfig {
     static readonly MAX_ERROR_MESSAGE_LENGTH = 500;
 
     // 타임아웃 설정 (밀리초)
-    static readonly VALIDATION_COMMAND_TIMEOUT = 15000;
+    static readonly VALIDATION_COMMAND_TIMEOUT = 30000;
     static readonly BUILD_RETRY_TIMEOUT_MULTIPLIER = 2;  // 빌드 타임아웃 재시도 시 타임아웃 배수
     static readonly MAX_BUILD_TIMEOUT = 120000;           // 빌드 최대 타임아웃 (2분)
 
@@ -109,7 +109,7 @@ export class AgentConfig {
 
     // ===== 오케스트레이션 =====
     static readonly MAX_CONCURRENT_AGENTS = 3; // 병렬 Sub-Agent 최대 수
-    static readonly SUB_AGENT_LLM_CALL_TIMEOUT = 120000; // Sub-Agent LLM 호출 타임아웃 (2분)
+    static readonly SUB_AGENT_LLM_CALL_TIMEOUT = 360000; // Sub-Agent LLM 호출 타임아웃 (6분)
     static readonly SUB_AGENT_TOTAL_TIMEOUT = 600000;     // Sub-Agent 전체 루프 타임아웃 (10분)
 
     // ===== 프로젝트 타입별 빌드 검증 타임아웃 =====

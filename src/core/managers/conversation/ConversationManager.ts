@@ -1320,6 +1320,7 @@ export class ConversationManager implements IConversationHandler {
             hasBlockedByValidator,
             blockedMessages,
             hasUserSkipped,
+            inlineDiagnosticErrors: inlineDiagErrors1,
           } = await this.executeToolsWithUI(
             toolExecutor,
             toolCallsFromPlanCreation,
@@ -1341,6 +1342,11 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               `[ConversationManager] Plan-based tool execution succeeded.`,
             );
+          }
+
+          // 🔥 v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
+          if (inlineDiagErrors1) {
+            accumulatedUserParts.push({ text: inlineDiagErrors1 });
           }
 
           // 🔥 PreToolUseValidator에 의해 차단된 경우
@@ -1632,6 +1638,7 @@ export class ConversationManager implements IConversationHandler {
                 hasBlockedByValidator: hasBlockedByValidator2,
                 blockedMessages: blockedMessages2,
                 hasUserSkipped: hasUserSkipped2,
+                inlineDiagnosticErrors: inlineDiagErrors2,
               } = await this.executeToolsWithUI(
                 toolExecutor,
                 toolCallsFromExecution,
@@ -1653,6 +1660,11 @@ export class ConversationManager implements IConversationHandler {
                 console.log(
                   `[ConversationManager] Tool execution (from LLM) succeeded.`,
                 );
+              }
+
+              // 🔥 v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
+              if (inlineDiagErrors2) {
+                accumulatedUserParts.push({ text: inlineDiagErrors2 });
               }
 
               // 🔥 PreToolUseValidator에 의해 차단된 경우
@@ -2235,27 +2247,39 @@ export class ConversationManager implements IConversationHandler {
             // cleanResponse는 유지하지 않음 (자연어 응답 무시하고 다음 plan item으로)
             cleanResponse = "";
           } else {
-            // 🔥 자연어 응답 시 즉시 재요청 (최대 3회)
-            const naturalLanguageRetryKey = "naturalLanguageRetry";
-            const currentRetryCount =
-              (this as any)[naturalLanguageRetryKey] || 0;
-            if (currentRetryCount < 3) {
-              (this as any)[naturalLanguageRetryKey] = currentRetryCount + 1;
+            // 자연어 응답 (도구 호출 없음) — write tool 이력 기반 종료 판정
+            const hasWriteHistory = createdFiles.length > 0 || modifiedFiles.length > 0;
+
+            if (hasWriteHistory) {
+              // write tool 이력 있음 → 작업 완료 후 마무리 응답으로 판단 → done
               console.log(
-                `[ConversationManager] EXECUTION phase: Natural language response detected. Requesting tool call (attempt ${currentRetryCount + 1}/3)`,
+                `[ConversationManager] EXECUTION phase: Natural language response with write history. Treating as done.`,
               );
-              // 🔥 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
-              if (isStreamingEnabled && shouldStreamToUI) {
-                WebviewBridge.removeLastMessage(webviewToRespond);
-              }
-              accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
-              turnCount++;
-              continue; // 즉시 재요청
+              (this as any).naturalLanguageRetry = 0;
             } else {
-              console.warn(
-                `[ConversationManager] EXECUTION phase: Max retries (3) reached for natural language responses. Proceeding with empty response.`,
-              );
-              (this as any)[naturalLanguageRetryKey] = 0; // 리셋
+              // write tool 이력 없음 → thinking만 보낸 케이스 가능 → nudge 1회
+              const naturalLanguageRetryKey = "naturalLanguageRetry";
+              const currentRetryCount =
+                (this as any)[naturalLanguageRetryKey] || 0;
+              if (currentRetryCount < 1) {
+                (this as any)[naturalLanguageRetryKey] = currentRetryCount + 1;
+                console.log(
+                  `[ConversationManager] EXECUTION phase: Natural language response with no write history. Nudging once (attempt ${currentRetryCount + 1}/1)`,
+                );
+                // 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+                if (isStreamingEnabled && shouldStreamToUI) {
+                  WebviewBridge.removeLastMessage(webviewToRespond);
+                }
+                accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
+                turnCount++;
+                continue; // 즉시 재요청
+              } else {
+                // nudge 1회 후에도 텍스트만 → LLM 판단 존중, done
+                console.log(
+                  `[ConversationManager] EXECUTION phase: Nudge exhausted (1/1). Respecting LLM decision.`,
+                );
+                (this as any)[naturalLanguageRetryKey] = 0;
+              }
             }
             cleanResponse = "";
           }
@@ -2640,6 +2664,7 @@ export class ConversationManager implements IConversationHandler {
                 hasBlockedByValidator: hasBlockedByValidator3,
                 blockedMessages: blockedMessages3,
                 hasUserSkipped: hasUserSkipped3,
+                inlineDiagnosticErrors: inlineDiagErrors3,
               } = await this.executeToolsWithUI(
                 toolExecutor,
                 toolCalls,
@@ -2659,6 +2684,11 @@ export class ConversationManager implements IConversationHandler {
                 lastTurnHadSuccessfulToolExecution = true;
                 lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(`[ConversationManager] Tool execution succeeded.`);
+              }
+
+              // 🔥 v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
+              if (inlineDiagErrors3) {
+                accumulatedUserParts.push({ text: inlineDiagErrors3 });
               }
 
               // 🔥 PreToolUseValidator에 의해 차단된 경우
@@ -3595,6 +3625,8 @@ export class ConversationManager implements IConversationHandler {
             isAutoTestRetryEnabled,
             accumulatedUserParts,
             turnCount,
+            false, // allPlanItemsDone
+            lastTurnHadSuccessfulToolExecution,
           );
           testFixAttempts = testTransition.testFixAttempts;
           if (testTransition.pendingRetryPrompt) {
@@ -3628,6 +3660,7 @@ export class ConversationManager implements IConversationHandler {
           accumulatedUserParts,
           turnCount,
           allPlanItemsCompleted, // allPlanItemsDone
+          lastTurnHadSuccessfulToolExecution,
         );
         testFixAttempts = testTransition.testFixAttempts;
         if (testTransition.pendingRetryPrompt) {
@@ -4261,34 +4294,6 @@ export class ConversationManager implements IConversationHandler {
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
 
-    // 최종 TestRunner 검증
-    // RetryCoordinator가 이미 포기한 경우 최종 검증도 스킵 (무한 루프 방지)
-    if (!this._retryGaveUp && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
-      console.log("[ConversationManager] Running final TestRunner validation");
-      WebviewBridge.sendProcessingStep(webview, "executing");
-      WebviewBridge.sendProcessingStatus(webview, "executing", "최종 코드 검증 실행 중...");
-
-      const finalTestResult = await TestRunner.runAutomatedTests(
-        webview, workspaceRoot, createdFiles, modifiedFiles, 30000,
-        retryCoordinator?.excludedValidationCommands ?? [],
-      );
-
-      if (!finalTestResult.success) {
-        console.log(`[ConversationManager] Final validation failed: ${finalTestResult.errorMessage}`);
-        WebviewBridge.sendProcessingStatus(webview, "executing", "최종 검증 실패 — 자동 수정 시작...");
-
-        // v9.x: EXECUTION으로 돌아갈 때 reviewProcessed 리셋 (다음 REVIEW에서 요약 생성 위해)
-        (this as any).reviewProcessed = null;
-
-        stateManager.transitionTo(AgentPhase.EXECUTION);
-        accumulatedUserParts.push({
-          text: `최종 검증에서 에러가 발생했습니다. 다음 에러를 수정해주세요:\n${finalTestResult.errorMessage}\n\n⚠️ 주의: 빌드/린트 스크립트를 echo나 exit 0 등으로 우회하지 마세요. 실제 에러를 수정하세요.`,
-        });
-        return { action: "continue" };
-      }
-      console.log("[ConversationManager] Final TestRunner validation passed");
-    }
-
     // 페이즈별 프롬프트 보정 (REVIEW 단계용)
     const activeSystemPrompt = systemPrompt;
 
@@ -4445,7 +4450,6 @@ export class ConversationManager implements IConversationHandler {
     stateManager: AgentStateManager,
     webview: vscode.Webview,
     message: string,
-    buildTestPassed = false,
   ): TurnAction {
     WebviewBridge.sendProcessingStep(webview, "review");
     WebviewBridge.sendProcessingStatus(webview, "review", `[검토] ${message}`);
@@ -4559,22 +4563,22 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    // code_modify intent일 때 write tool이 없으면 완료로 판단하지 않음
-    const writeTools = [
+    // code_modify/code_generate intent일 때 파일 도구(create_file/update_file) 없으면 완료로 판단하지 않음
+    // v1.0.25: run_command만으로는 파일 생성 완료로 판단하지 않음 (mkdir, cat 등은 파일 추적 안 됨)
+    const fileTools = [
       Tool.CREATE_FILE,
       Tool.UPDATE_FILE,
       Tool.REMOVE_FILE,
-      Tool.RUN_COMMAND,
     ];
-    const hasWriteToolInHistory =
+    const hasFileToolInHistory =
       createdFiles.length > 0 ||
       modifiedFiles.length > 0 ||
-      totalToolCalls.some((call) => writeTools.includes(call.name as Tool));
+      totalToolCalls.some((call) => fileTools.includes(call.name as Tool));
     const isCodeModifyIntent = intent && intent.subtype === "code_modify";
 
     const isCodeGenerateIntent = intent && intent.subtype === "code_generate";
 
-    if ((isCodeModifyIntent || isCodeGenerateIntent) && !hasWriteToolInHistory) {
+    if ((isCodeModifyIntent || isCodeGenerateIntent) && !hasFileToolInHistory) {
       console.log(
         `[ConversationManager] EXECUTION phase: ${intent!.subtype} intent requires write tool. Continuing.`,
       );
@@ -4711,6 +4715,7 @@ export class ConversationManager implements IConversationHandler {
     hasBlockedByValidator: boolean;
     blockedMessages: string[];
     hasUserSkipped?: boolean;
+    inlineDiagnosticErrors?: string;
   }> {
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
@@ -4808,7 +4813,7 @@ export class ConversationManager implements IConversationHandler {
           result,
         );
         uiMsgs.push(...msgs);
-        WebviewBridge.sendProcessingStatus(webview, 'executing', '응답 생성 중...');
+        WebviewBridge.sendProcessingStatus(webview, 'executing', 'LLM 응답 대기 중...');
       },
       // 🔥 도구 실행 시작 시 진행 상태 표시 (v9.5.0)
       (toolUse: ToolUse, _index: number) => {
@@ -4886,6 +4891,31 @@ export class ConversationManager implements IConversationHandler {
       );
     }
 
+    // 🔥 v1.0.24: EXECUTION 중 즉시 LSP diagnostics 검사
+    // 파일 수정 직후 에러를 감지하여 다음 턴에서 LLM이 즉시 수정할 수 있도록 함
+    let inlineDiagnosticErrors: string | undefined;
+    if (hasWriteToolExecution && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
+      try {
+        // LSP가 변경사항을 처리할 시간을 약간 대기
+        await new Promise(resolve => setTimeout(resolve, 800));
+        const diagnosticErrors = await TestRunner.checkDiagnostics(
+          createdFiles,
+          modifiedFiles,
+          workspaceRoot,
+        );
+        if (diagnosticErrors.length > 0) {
+          // Error 수준만 (Warning은 무시) — checkDiagnostics에서 이미 필터링됨
+          const errorLines = diagnosticErrors.slice(0, 10).map(
+            (e) => `  - ${e.file}:${e.line} [${e.source}/${e.code}] ${e.message}`
+          );
+          inlineDiagnosticErrors = `[System] ⚠️ LSP Diagnostics: ${diagnosticErrors.length}개 에러 감지\n${errorLines.join('\n')}${diagnosticErrors.length > 10 ? `\n  ... 외 ${diagnosticErrors.length - 10}개` : ''}\n\n위 에러를 수정해주세요. 현재 파일 내용을 read_file로 확인한 후 update_file로 수정하세요.`;
+          console.log(`[ConversationManager] Inline diagnostics: ${diagnosticErrors.length} errors detected during EXECUTION`);
+        }
+      } catch (e) {
+        console.warn('[ConversationManager] Inline diagnostics check failed:', e);
+      }
+    }
+
     // 파일 삭제 후 import 정리 컨텍스트 수집
     if (this.deletedFiles.length > 0) {
       try {
@@ -4918,6 +4948,7 @@ export class ConversationManager implements IConversationHandler {
       hasBlockedByValidator,
       blockedMessages,
       hasUserSkipped,
+      inlineDiagnosticErrors,
     };
   }
 
@@ -5025,6 +5056,7 @@ export class ConversationManager implements IConversationHandler {
     accumulatedUserParts: UserPart[],
     turnCount: number,
     allPlanItemsDone: boolean = false,
+    hasWriteToolSinceLastTest: boolean = true,
   ): Promise<{
     turnAction: TurnAction;
     testFixAttempts: number;
@@ -5039,6 +5071,18 @@ export class ConversationManager implements IConversationHandler {
         "작업 완료 - 결과 검토 중...",
       );
       return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
+    }
+
+    // write tool 없이 read_file만 실행된 retry 턴에서는 테스트 스킵 (코드 변경 없으므로 결과 동일)
+    if (!hasWriteToolSinceLastTest && testFixAttempts > 0) {
+      console.log(
+        "[ConversationManager] Skipping TestRunner: no write tools since last test (read-only retry turn).",
+      );
+      return {
+        turnAction: { action: "continue" },
+        testFixAttempts,
+        pendingRetryPrompt: false,
+      };
     }
 
     // UI 상태: 테스트 실행 중
@@ -5068,7 +5112,6 @@ export class ConversationManager implements IConversationHandler {
         stateManager,
         webview,
         "테스트 통과 - 결과 검토 중...",
-        true, // buildTestPassed
       );
       return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
     }

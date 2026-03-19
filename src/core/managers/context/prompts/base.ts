@@ -239,6 +239,7 @@ export function getBaseRules(): string {
 - **가정 금지**: 구조/파일을 추측하지 말고 확인 후 작업하세요.
 - **코드 보존**: 기존 스타일/주석 유지, 변경 범위 최소화.
 - **일괄 수정 금지**: sed -i 등 대신 ripgrep_search → read_file → update_file.
+- **스캐폴딩 금지**: 프로젝트 초기화 시 create-vite, create-react-app, create-next-app 등 스캐폴딩 도구를 사용하지 마세요. package.json, tsconfig.json 등 설정 파일과 소스 코드를 create_file로 직접 생성하고, npm install로 의존성을 설치하세요.
 
 **보안 검증 시스템 (PreToolUse):**
 - 시스템이 위험한 명령어와 민감한 파일 접근을 자동으로 차단합니다.

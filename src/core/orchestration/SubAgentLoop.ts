@@ -66,7 +66,7 @@ export class SubAgentLoop {
         let hasExecutedTools = false;
         let hasExecutedWriteTools = false;
         let consecutiveReadOnlyTurns = 0;
-        const createdFilesInSession = new Set<string>(); // create_file로 생성된 파일 추적
+        // v1.0.25: createdFilesInSession 제거 — diagnostics 에러 수정을 위한 update_file 허용
         // 이 에이전트의 대화 컨텍스트
         const conversationParts: LLMMessagePart[] = [
             { text: `Task: ${this.subtask.title}\n\n${this.subtask.description}` }
@@ -212,10 +212,11 @@ export class SubAgentLoop {
                         createFilesInTurn.add(call.params.path);
                     }
 
-                    // create_file 직후 같은 파일에 update_file → 스킵 (원본이 이미 덮어쓰여서 SEARCH 실패 방지)
+                    // create_file 직후 **같은 턴** 내에서 update_file → 스킵 (SEARCH 불일치 방지)
+                    // 다음 턴에서의 update_file은 허용 (diagnostics 에러 수정 등)
                     if (call.name === 'update_file' && call.params.path) {
-                        if (createFilesInTurn.has(call.params.path) || createdFilesInSession.has(call.params.path)) {
-                            console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after create_file on same path: ${call.params.path}`);
+                        if (createFilesInTurn.has(call.params.path)) {
+                            console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after create_file in same turn: ${call.params.path}`);
                             skippedUpdateFiles.push({ path: call.params.path });
                             return false;
                         }
@@ -258,10 +259,7 @@ export class SubAgentLoop {
                             hasExecutedWriteTools = true;
                             hasWriteToolInThisTurn = true;
                         }
-                        // create_file 경로 세션 추적
-                        if (uniqueCalls[i].name === 'create_file' && uniqueCalls[i].params.path) {
-                            createdFilesInSession.add(uniqueCalls[i].params.path);
-                        }
+                        // create_file 경로는 createFilesInTurn에서 같은 턴 내에서만 추적
                     }
                 }
 
@@ -299,6 +297,32 @@ export class SubAgentLoop {
                                 modifiedFiles.push(result.filePath);
                             }
                         }
+                    }
+                }
+
+                // 5.5. 🔥 v1.0.24: write 도구 실행 후 즉시 LSP diagnostics 검사
+                // SubAgentLoop도 ConversationManager와 동일하게 에러를 즉시 피드백
+                if (hasWriteToolInThisTurn && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
+                    try {
+                        const { TestRunner } = await import('../managers/conversation/handlers/TestRunner');
+                        const workspaceRoot = this.toolContext.workspaceRoot || this.toolContext.projectRoot || '';
+                        // LSP가 변경사항을 처리할 시간을 약간 대기
+                        await new Promise(resolve => setTimeout(resolve, 800));
+                        const diagnosticErrors = await TestRunner.checkDiagnostics(
+                            createdFiles,
+                            modifiedFiles,
+                            workspaceRoot,
+                        );
+                        if (diagnosticErrors.length > 0) {
+                            const errorLines = diagnosticErrors.slice(0, 10).map(
+                                (e) => `  - ${e.file}:${e.line} [${e.source}/${e.code}] ${e.message}`
+                            );
+                            const diagMsg = `[System] ⚠️ LSP Diagnostics: ${diagnosticErrors.length}개 에러 감지\n${errorLines.join('\n')}${diagnosticErrors.length > 10 ? `\n  ... 외 ${diagnosticErrors.length - 10}개` : ''}\n\n위 에러를 수정해주세요. 현재 파일 내용을 read_file로 확인한 후 update_file로 수정하세요.`;
+                            conversationParts.push({ text: diagMsg });
+                            console.log(`[SubAgentLoop:${this.subtask.id}] Inline diagnostics: ${diagnosticErrors.length} errors detected`);
+                        }
+                    } catch (e) {
+                        console.warn(`[SubAgentLoop:${this.subtask.id}] Inline diagnostics check failed:`, e);
                     }
                 }
 
@@ -371,6 +395,7 @@ ${projectSection}
 - 모든 응답은 한국어로 작성하세요
 - 다른 에이전트가 생성할 파일에 의존하지 마세요. read_file 실패 시 해당 파일을 직접 create_file로 작성하세요
 - 같은 도구를 동일한 파라미터로 반복 호출하지 마세요. 이미 성공한 도구 호출은 다시 실행할 필요가 없습니다
+- 프로젝트 초기화 시 create-vite, create-react-app, create-next-app 등 스캐폴딩 도구를 사용하지 마세요. package.json, tsconfig.json 등 설정 파일과 소스 코드를 create_file로 직접 생성하고, npm install로 의존성을 설치하세요
 
 ${toolSection}
 
