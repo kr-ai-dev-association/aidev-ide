@@ -5,11 +5,9 @@
  */
 
 import {
-  getNoInternalMonologueRules,
   getPlanFormatRules,
   getMultiFileReadRules,
   getNoDuplicateReadRules,
-  getNoThinkingLeakageRules,
   getFileExistenceCheckRules,
   getLargeFileChunkReadingRules,
 } from "./base";
@@ -75,13 +73,13 @@ ${skillSection}
 
 // ==================== Investigation Phase ====================
 export function getInvestigationPrompt(userQuery: string): string {
-  const noMonologueRules = getNoInternalMonologueRules();
   const planFormatRules = getPlanFormatRules();
   const multiFileRules = getMultiFileReadRules();
   const noDuplicateRules = getNoDuplicateReadRules();
-  const noThinkingLeakage = getNoThinkingLeakageRules();
   const fileExistenceRules = getFileExistenceCheckRules();
   const largeFileChunkRules = getLargeFileChunkReadingRules();
+  // NOTE: getNoThinkingLeakageRules(), getNoInternalMonologueRules()는
+  // base.ts의 getBaseRules()에 이미 포함되어 있으므로 여기서 중복 포함하지 않음
   return `
 ## 역할: 조사 관리자 (코드의 셜록 홈즈)
 
@@ -92,15 +90,16 @@ export function getInvestigationPrompt(userQuery: string): string {
 **조사 단계의 역할:**
 - **plan JSON 제출 또는 조사 도구 호출**
 - **조사 도구 허용**: 파일을 수정하지 않고 조사/검색만 하는 도구들입니다
-  - \`read_file\`: 파일 내용 읽기 (여러 파일을 한 번에 읽을 수 있습니다)
-  - \`list_files\`: 디렉토리 목록 확인
-  - \`ripgrep_search\`: 고성능 키워드 검색 (예: "어떤 파일들이 useState를 쓰나?", "API 엔드포인트가 어디 있나?")
-  - **다국어 검색**: 한글 키워드 검색 시 영문 동의어도 OR(\`|\`)로 병행하세요. 예: \`onboarding|온보딩\`, \`auth|인증|login\`
+
+**조사 도구 (허용):**
+- \`read_file\`: 파일 내용 읽기 (여러 파일을 한 번에 읽을 수 있습니다)
+- \`list_files\`: 디렉토리 목록 확인
+- \`ripgrep_search\`: 고성능 키워드 검색 (예: "어떤 파일들이 useState를 쓰나?", "API 엔드포인트가 어디 있나?")
+- **다국어 검색**: 한글 키워드 검색 시 영문 동의어도 OR(\`|\`)로 병행하세요. 예: \`onboarding|온보딩\`, \`auth|인증|login\`
 
 ⚠️ **함수 위치 찾기 규칙 (중요)**:
 - 사용자가 "함수 X가 어디에 있어?" 또는 "X 함수 위치" 같은 질문을 할 때는 **반드시 \`ripgrep_search\`만 사용**하세요.
 - ❌ **절대 금지**: 함수 위치를 찾기 위해 \`read_file\`를 사용하는 것
-- ✅ **올바른 방법**: plan의 detail에 "ripgrep_search를 사용하여 함수 X의 위치를 찾습니다"라고만 명시하세요.
 - ${multiFileRules.split("\n").slice(1).join("\n- ")}
 - **파일 리스트 활용**: 위 대화 기록의 "프로젝트 파일 구조"를 참고하여 필요한 파일만 선택적으로 읽으세요
 - 실행 도구 호출(\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\` 등)은 조사 단계에서 **절대 금지**됩니다.
@@ -109,10 +108,7 @@ export function getInvestigationPrompt(userQuery: string): string {
 - ❌ 실행 도구 호출 (\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\`)
 - ❌ plan과 실행 도구를 같은 응답에 포함하는 것
 - ❌ 계획 없이 실행 도구를 호출하는 것
-- ❌ ${noMonologueRules.split("\n").slice(1).join("\n- ❌ ")}
 - ❌ JSON 형식 없는 일반 텍스트만 출력하는 것
-
-${noThinkingLeakage}
 
 ${fileExistenceRules}
 
@@ -139,26 +135,12 @@ ${fileExistenceRules}
 { "investigation_done": true }
 \`\`\`
 
-❌ **잘못된 예시 (절대 금지):**
-- XML 태그 형식 사용
-- 조사 단계에서 실행 도구(create_file, update_file 등) 호출
-
 ## Constraints (지침)
 1. **Investigation 단계 규칙**:
    - **plan JSON 제출 또는 조사 도구 호출**
-   - **조사 도구 허용**: 파일을 수정하지 않고 조사/검색만 하는 도구들
-     - \`read_file\`: 파일 내용 읽기
-     - \`list_files\`: 디렉토리 목록 확인
-     - \`ripgrep_search\`: 고성능 키워드 검색
-   - ${multiFileRules
-      .split("\n")
-      .slice(1)
-      .map((line) => "     " + line)
-      .join("\n")}
    - 실행 도구 호출(\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\` 등)은 **절대 금지**됩니다.
 
 2. **Planning (필수)**: **작업을 시작하기 전에 반드시 plan JSON을 사용하여 단계별 계획을 수립해야 합니다.**
-   - **절대 금지**: 조사 단계에서 실행 도구 호출을 사용하는 것
    - **절대 금지**: plan과 함께 실행 도구를 같은 응답에 포함하는 것
    - **Investigation Item 병합 (중요)**: 여러 조사 작업을 가능한 한 한 번의 Investigation Item으로 병합하세요.
    - ${noDuplicateRules
@@ -168,7 +150,7 @@ ${fileExistenceRules}
       .join("\n")}
    - **조사 완료 선언**: 조사를 완료했다고 판단되면 \`{ "investigation_done": true }\`를 사용하여 명시적으로 선언하세요.
 
-3. **Execution 단계와 조사 단계 역할 분리 명확화**:
+3. **역할 분리**:
    - **조사 단계**: 필요한 정보 수집, 최소 LLM 호출을 통해 효율적으로 정보를 파악하는 데 집중하세요.
    - **실행 단계**: 실제 코드 생성/수정 및 \`run_command\`와 같은 부작용이 있는 도구 호출에 집중하세요.
 
@@ -179,16 +161,12 @@ ${planFormatRules}
 - ❌ 비효율적: "design.md 확인" + "App.tsx 구조 파악"을 별도 Item으로 분리
 - ✅ 효율적: "프로젝트 구조 조사" 하나의 Item으로 통합 (여러 파일을 한 번에 조사)
 
-## Investigation Phase 가이드 (최적화)
+## Investigation Phase 가이드
 
-**조사 단계와 실행 단계 역할 분리:**
-- **조사 단계 (Investigation)**: 필요한 정보 수집, 최소 LLM 호출
-  - 조사 도구(\`read_file\`, \`list_files\`, \`ripgrep_search\`)를 \`{ "tool": "..." }\` 형식으로 호출
-  - ${getNoDuplicateReadRules().split("\n").slice(1).join("\n  - ")}
-
-- **실행 단계 (Execution)**: 실제 코드 생성/수정 → LLM 호출
-  - 조사 단계에서 수집한 정보를 바탕으로 코드 생성/수정
-  - 실행 도구(\`create_file\`, \`update_file\`, \`remove_file\`, \`run_command\`) 사용
+**조사 → plan 제출 → 실행 흐름:**
+1. 조사 도구로 필요한 정보 수집
+2. 충분한 정보가 모이면 **즉시 plan JSON 제출**
+3. plan 승인 후 실행 단계에서 코드 생성/수정
 
 **효율적인 조사 패턴:**
 1. **한 번에 여러 파일 조사**: 여러 \`{ "tool": "read_file" }\`을 연속으로 작성
@@ -201,18 +179,19 @@ ${largeFileChunkRules}
 
 // ==================== Execution Phase ====================
 export function getExecutionPhasePrompt(): string {
-  const noMonologueRules = getNoInternalMonologueRules();
-  const noThinkingLeakage = getNoThinkingLeakageRules();
   const fileExistenceRules = getFileExistenceCheckRules();
+  // NOTE: getNoThinkingLeakageRules(), getNoInternalMonologueRules()는
+  // base.ts의 getBaseRules()에 이미 포함되어 있으므로 여기서 중복 포함하지 않음
   return (
     `\n\n⚠️ **실행 단계 - 절대 규칙 (예외 없음)**\n\n` +
     `현재 실행(EXECUTION) 단계입니다. 당신은 DSL 컴파일러이며, 인간 어시스턴트가 아닙니다.\n\n` +
-    `${noThinkingLeakage}\n\n` +
     `${fileExistenceRules}\n\n` +
     `** 파일 생성 규칙 (중요!):**\n` +
     `- 사용자가 **명시적으로 "생성", "만들어줘"**라고 요청한 경우에만 create_file 사용\n` +
     `- 사용자가 "수정해줘"라고 했는데 파일이 없으면 → create_file 하지 말고 "파일이 존재하지 않습니다" 응답\n` +
-    `- read_file 실패 후 자동으로 create_file 호출 금지\n\n` +
+    `- read_file 실패 후 자동으로 create_file 호출 금지\n` +
+    `- ❌ **run_command로 파일 내용 작성 절대 금지**: \`cat <<EOF >\`, \`echo >\`, \`tee\`, \`sed -i\` 등 셸 명령으로 파일을 생성/수정하지 마세요. 반드시 \`create_file\` 또는 \`update_file\` 도구를 사용하세요.\n` +
+    `- run_command는 \`npm install\`, \`mkdir\`, \`git\`, 빌드/실행 명령 등 **파일 내용을 직접 작성하지 않는 명령**에만 사용하세요.\n\n` +
     `**절대 금지 사항 (위반 시 작업 실패):**\n` +
     `- ❌ \`{ "plan": [...] }\` 출력 절대 금지 - plan은 이미 수립 완료됨. 다시 제출하면 무시됨.\n` +
     `- ❌ CODE 블록 내부에 자연어 삽입 절대 금지 - "We need to...", "Let me..." 등 삽입 시 파일 깨짐\n` +
@@ -220,8 +199,7 @@ export function getExecutionPhasePrompt(): string {
     `- ❌ 자연어 텍스트 출력 금지 (도구 파라미터 내부 제외)\n` +
     `- ❌ 파일 탐색만 반복하는 것 금지 (조사는 이미 완료됨 - 없으면 생성하세요)\n` +
     `- ❌ 작업에 명시적으로 필요하지 않은 파일 읽기 금지\n` +
-    `- ❌ XML 태그 형식 사용 금지\n` +
-    `- ${noMonologueRules.split("\n").slice(1).join("\n- ")}\n\n` +
+    `- ❌ XML 태그 형식 사용 금지\n\n` +
     `**필수 출력 형식 (이것만 허용됨):**\n` +
     `- ✅ \`{ "tool": "create_file" }\` 또는 \`{ "tool": "update_file" }\` 형식만 사용\n` +
     `- ✅ 파일 내용은 \`<file_content> ... </file_content>\` 블록 사용\n` +

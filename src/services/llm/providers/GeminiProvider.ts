@@ -76,6 +76,24 @@ export class GeminiProvider implements ILLMProvider {
 
         if (!response.ok) {
             const errorText = await response.text();
+            const userTextLen = typeof messageOrParts === 'string' ? messageOrParts.length : messageOrParts.reduce((s, p) => s + (p.text?.length || 0), 0);
+            const systemLen = systemPrompt?.length || 0;
+            const estimatedTokens = Math.round((userTextLen + systemLen) / 4);
+            console.error(
+                `[GeminiProvider] ❌ API Error ${response.status}`,
+                JSON.stringify({
+                    model,
+                    status: response.status,
+                    streaming: false,
+                    nativeTools: !!options?.nativeTools,
+                    userTextChars: userTextLen,
+                    systemPromptChars: systemLen,
+                    estimatedTokens,
+                    thinkingEnabled: !options?.disableThinking && !(options?.nativeTools?.length),
+                    maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 65536,
+                    errorPreview: errorText.substring(0, 500),
+                })
+            );
             throw new Error(`Admin Model API (Gemini) error: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
@@ -117,6 +135,24 @@ export class GeminiProvider implements ILLMProvider {
 
         if (!response.ok) {
             const errorText = await response.text();
+            const userTextLen = userText.length;
+            const systemLen = systemPrompt?.length || 0;
+            const estimatedTokens = Math.round((userTextLen + systemLen) / 4);
+            console.error(
+                `[GeminiProvider] ❌ API Error ${response.status}`,
+                JSON.stringify({
+                    model,
+                    status: response.status,
+                    streaming: true,
+                    nativeTools: !!options?.nativeTools,
+                    userTextChars: userTextLen,
+                    systemPromptChars: systemLen,
+                    estimatedTokens,
+                    thinkingEnabled: !options?.disableThinking && !(options?.nativeTools?.length),
+                    maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 65536,
+                    errorPreview: errorText.substring(0, 500),
+                })
+            );
             onChunk('', true);
             throw new Error(`Admin Model API (Gemini) error: ${response.status} ${response.statusText} - ${errorText}`);
         }

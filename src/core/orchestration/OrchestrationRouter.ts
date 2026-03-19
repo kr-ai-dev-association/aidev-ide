@@ -419,7 +419,7 @@ export class OrchestrationRouter {
                 if (collectedUIMessages && msgs) {
                     collectedUIMessages.push(...msgs);
                 }
-                WebviewBridge.sendProcessingStatus(webview, 'executing', '응답 생성 중...');
+                WebviewBridge.sendProcessingStatus(webview, 'executing', 'LLM 응답 대기 중...');
             },
             onThinking: (thinkingText) => {
                 WebviewBridge.sendThinkingContent(webview, thinkingText);
@@ -716,7 +716,8 @@ export class OrchestrationRouter {
             }
         }
 
-        context.push(`\n**⚠️ 위 파일 내용은 이미 제공되었습니다. read_file로 다시 읽지 마세요. 바로 create_file/update_file로 작업하세요.**`);
+        context.push(`\n**⚠️ 위 파일 내용은 이미 제공되었습니다. read_file로 다시 읽지 마세요.**`);
+        context.push(`**⚠️ 위에 나열된 파일은 이미 디스크에 존재합니다. 수정이 필요하면 반드시 update_file을 사용하세요. create_file로 덮어쓰지 마세요.**`);
 
         return {
             ...subtask,

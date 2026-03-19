@@ -2,7 +2,22 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.23**
+> **현재 버전: v1.0.24**
+
+---
+
+## v1.0.24
+
+### 버그 수정
+
+- **read_file 전용 retry 턴 TestRunner 스킵**: retry 중 LLM이 read_file만 실행하고 write tool을 사용하지 않은 턴에서 TestRunner가 동일한 코드를 다시 실행하여 retry 횟수를 낭비하던 문제 수정. `hasWriteToolSinceLastTest` 파라미터를 `runTestsAndTransition`에 추가하여 write tool 없는 턴에서는 테스트 스킵
+
+### 개선
+
+- **의존 태스크 update_file 안내 강화**: `enrichWithPriorResults`에서 선행 태스크가 생성한 파일을 의존 태스크에 알릴 때 `create_file`로 덮어쓰지 말고 `update_file`을 사용하라는 명시적 안내 추가
+- **스캐폴딩 도구 사용 금지 프롬프트 추가**: SubAgentLoop 및 base rules에 `create-vite`, `create-react-app` 등 스캐폴딩 도구 사용 금지 규칙 추가. 설정 파일과 소스 코드를 `create_file`로 직접 생성하도록 유도
+- **상태 메시지 개선**: `'응답 생성 중...'` → `'LLM 응답 대기 중...'`으로 변경 (ConversationManager, OrchestrationRouter)
+- **AgentConfig 타임아웃 주석 수정**: `SUB_AGENT_LLM_CALL_TIMEOUT` 주석 `(2분)` → `(6분)`으로 실제 값과 일치하도록 수정
 
 ---
 
