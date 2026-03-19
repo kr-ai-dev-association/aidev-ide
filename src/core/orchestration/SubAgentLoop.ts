@@ -5,7 +5,8 @@
  * 설계 원칙:
  * - LLMManager.getInstance() 공유 (HTTP 호출만 하므로 안전)
  * - ToolExecutor 독립 인스턴스 (각 에이전트별)
- * - NO FSM, NO streaming, NO session management, NO user approval
+ * - NO FSM, NO session management, NO user approval
+ * - 스트리밍 모드 지원 (useStreaming=true 시 타임아웃 없이 스트리밍)
  * - 단순 while 루프: LLM 호출 → 도구 파싱 → 도구 실행 → 결과 축적
  */
 
@@ -34,6 +35,7 @@ export class SubAgentLoop {
     private projectContext: string;
     private rulesContext: string;
     private callbacks?: AgentLoopCallbacks;
+    private useStreaming: boolean;
 
     constructor(
         subtask: SubTask,
@@ -42,6 +44,7 @@ export class SubAgentLoop {
         projectContext?: string,
         callbacks?: AgentLoopCallbacks,
         rulesContext?: string,
+        useStreaming?: boolean,
     ) {
         this.subtask = subtask;
         this.toolContext = toolContext;
@@ -49,6 +52,7 @@ export class SubAgentLoop {
         this.projectContext = projectContext || '';
         this.rulesContext = rulesContext || '';
         this.callbacks = callbacks;
+        this.useStreaming = useStreaming ?? false;
         this.llmManager = LLMManager.getInstance();
         this.toolExecutor = new ToolExecutor();
     }
@@ -58,11 +62,13 @@ export class SubAgentLoop {
         const createdFiles: string[] = [];
         const modifiedFiles: string[] = [];
         const errors: string[] = [];
+        const warnings: string[] = [];
         let turnCount = 0;
         let tokenEstimate = 0;
         let lastResponse = '';
         let consecutiveFailures = 0;
         let completedNormally = false;
+        let doneStatus: 'completed' | 'already_done' | undefined;
         let hasExecutedTools = false;
         let hasExecutedWriteTools = false;
         let consecutiveReadOnlyTurns = 0;
@@ -89,35 +95,82 @@ export class SubAgentLoop {
             turnCount++;
 
             try {
-                // 1. LLM 호출 (타임아웃 적용)
-                const timeoutController = new AbortController();
-                const timeoutId = setTimeout(() => timeoutController.abort(), AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT);
-                const signals = [timeoutController.signal];
-                if (this.abortSignal) { signals.push(this.abortSignal); }
-                const combinedSignal = AbortSignal.any(signals);
-
+                // 1. LLM 호출
                 let response: string;
                 try {
-                    response = await this.llmManager.sendMessageWithSystemPrompt(
-                        systemPrompt,
-                        conversationParts,
-                        { signal: combinedSignal, disableThinking: true }
-                    );
-                } catch (timeoutErr) {
-                    if (timeoutController.signal.aborted) {
-                        clearTimeout(timeoutId);
-                        consecutiveFailures++;
-                        errors.push(`LLM 호출 타임아웃 (${AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT / 1000}초)`);
-                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                            errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
-                            break;
+                    if (this.useStreaming) {
+                        // 스트리밍 모드: 개별 호출 타임아웃 불필요 (데이터가 계속 들어옴), 전체 타임아웃만 적용
+                        let streamBuffer = '';
+                        let lastReportedTool = '';
+                        let lastScanPos = 0;
+                        const onChunk = (chunk: string) => {
+                            streamBuffer += chunk;
+                            if (!this.callbacks?.onStreamingStatus) { return; }
+
+                            // 새로 추가된 부분만 스캔 (이전 매치 재감지 방지)
+                            const newContent = streamBuffer.substring(lastScanPos);
+                            const toolStatus = this.parseStreamingToolStatus(newContent);
+                            if (toolStatus && toolStatus !== lastReportedTool) {
+                                lastReportedTool = toolStatus;
+                                lastScanPos = streamBuffer.length;
+                                this.callbacks.onStreamingStatus(toolStatus);
+                                return;
+                            }
+
+                            // 툴 미감지 시 토큰 카운트 표시 (500자마다 업데이트)
+                            if (!lastReportedTool && streamBuffer.length % 500 < chunk.length) {
+                                const tokens = estimateTokens(streamBuffer);
+                                this.callbacks.onStreamingStatus(`응답 생성 중 (${tokens.toLocaleString()} 토큰...)`);
+                            }
+                        };
+                        response = await this.llmManager.sendMessageWithSystemPromptStreaming(
+                            systemPrompt,
+                            conversationParts,
+                            onChunk,
+                            { signal: this.abortSignal, disableThinking: true }
+                        );
+                    } else {
+                        // 비스트리밍 모드: 개별 호출 타임아웃 적용
+                        const timeoutController = new AbortController();
+                        const timeoutId = setTimeout(() => timeoutController.abort(), AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT);
+                        const signals = [timeoutController.signal];
+                        if (this.abortSignal) { signals.push(this.abortSignal); }
+                        const combinedSignal = AbortSignal.any(signals);
+                        try {
+                            response = await this.llmManager.sendMessageWithSystemPrompt(
+                                systemPrompt,
+                                conversationParts,
+                                { signal: combinedSignal, disableThinking: true }
+                            );
+                        } catch (timeoutErr) {
+                            if (timeoutController.signal.aborted) {
+                                clearTimeout(timeoutId);
+                                consecutiveFailures++;
+                                errors.push(`LLM 호출 타임아웃 (${AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT / 1000}초)`);
+                                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                                    errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
+                                    break;
+                                }
+                                conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
+                                continue;
+                            }
+                            throw timeoutErr;
+                        } finally {
+                            clearTimeout(timeoutId);
                         }
-                        conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
-                        continue;
                     }
-                    throw timeoutErr;
-                } finally {
-                    clearTimeout(timeoutId);
+                } catch (streamErr: any) {
+                    if (this.abortSignal?.aborted) {
+                        throw streamErr; // 외부 중단 시그널은 그대로 전파
+                    }
+                    consecutiveFailures++;
+                    errors.push(`LLM 호출 실패: ${streamErr?.message || streamErr}`);
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
+                        break;
+                    }
+                    conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
+                    continue;
                 }
 
                 tokenEstimate += estimateTokens(response);
@@ -147,25 +200,46 @@ export class SubAgentLoop {
                     continue;
                 }
                 // 2. 도구 파싱
-                const warnings: string[] = [];
-                const toolCalls = ToolParser.parseCodeBlockFormat(response, warnings);
+                const parseWarnings: string[] = [];
+                const toolCalls = ToolParser.parseCodeBlockFormat(response, parseWarnings);
 
                 // lastResponse 업데이트: tool call이 없고 JSON만 있는 응답(approve 등)은 무시
                 if (toolCalls.length > 0 || !this.isRawJsonOnly(response)) {
                     lastResponse = response;
                 }
 
+                // 2.5. __done__ 가상 도구 감지 (early stop)
+                const doneCall = toolCalls.find(tc => tc.name === '__done__');
+                if (doneCall) {
+                    const status = doneCall.params.status || 'completed';
+                    const summary = doneCall.params.summary || '';
+                    console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
+                    if (this.subtask.toolPermission === 'full' && !hasExecutedWriteTools && status !== 'already_done') {
+                        warnings.push(`파일 수정 없이 완료됨 — 모델이 __done__(${status})으로 작업 완료를 선언했습니다.`);
+                    }
+                    lastResponse = summary || response;
+                    completedNormally = true;
+                    doneStatus = status as 'completed' | 'already_done';
+                    break;
+                }
+
                 // 도구 없음: 실제 완료인지 판단
                 if (toolCalls.length === 0) {
-                    // full 권한 → 쓰기 도구 실행 필수, read-only → 읽기만으로 충분
                     const needsWrite = this.subtask.toolPermission === 'full';
-                    const hasCompletedWork = needsWrite ? hasExecutedWriteTools : hasExecutedTools;
 
-                    if (hasCompletedWork) {
+                    // Fallback 1: write 도구 실행 완료 → 정상 완료
+                    if (hasExecutedWriteTools) {
                         completedNormally = true;
                         break;
                     }
-                    // 작업을 수행하지 않았는데 텍스트만 출력 → 실패
+
+                    // Fallback 2: read-only 권한에서 읽기 도구 실행 완료 → 정상 완료
+                    if (!needsWrite && hasExecutedTools) {
+                        completedNormally = true;
+                        break;
+                    }
+
+                    // Fail: 아무 도구도 실행 안 했고 __done__도 없음 → 실패
                     consecutiveFailures++;
                     const reason = needsWrite && hasExecutedTools
                         ? 'read-only tools only, no write operations'
@@ -352,13 +426,32 @@ export class SubAgentLoop {
             }
         }
 
+        // 파일 작성을 했으면 성공으로 처리 (검증은 TestRunner 담당)
+        // 정상 종료가 아닌 경우(MAX_TURNS 도달, 검증 커맨드 실패 등)는 warnings로 기록
+        const hasWrittenFiles = hasExecutedWriteTools;
+        const effectiveSuccess = completedNormally || hasWrittenFiles;
+
+        if (!completedNormally && hasWrittenFiles) {
+            warnings.push(`에이전트가 정상 종료되지 않았으나 파일 작성은 완료됨 (${createdFiles.length}개 생성, ${modifiedFiles.length}개 수정). 시스템 검증으로 대체합니다.`);
+            // 기존 errors 중 자체 검증 관련은 warnings로 이동
+            const verificationErrors = errors.filter(e =>
+                e.includes('타임아웃') || e.includes('중단') || e.includes('초과')
+            );
+            for (const ve of verificationErrors) {
+                warnings.push(ve);
+                errors.splice(errors.indexOf(ve), 1);
+            }
+        }
+
         return {
             subtaskId: this.subtask.id,
-            success: completedNormally,
+            success: effectiveSuccess,
             response: lastResponse,
             createdFiles: [...new Set(createdFiles)],
             modifiedFiles: [...new Set(modifiedFiles)],
             errors,
+            warnings,
+            doneStatus,
             turnCount,
             tokenEstimate,
             executionTime: Date.now() - startTime,
@@ -389,7 +482,8 @@ ${this.subtask.description}
 ${projectSection}
 ## 규칙
 - 이 작업에만 집중하세요
-- 작업이 완료되면 수행한 내용을 **한국어로** 간략히 요약하세요
+- 작업이 완료되면 __done__ 도구를 호출하세요
+- 이미 구현되어 있어 추가 작업이 불필요한 경우에도 확인 후 __done__ 도구를 호출하세요
 - 할당된 범위 밖의 작업은 시도하지 마세요
 - 파일 구조가 제공된 경우 list_files 없이 바로 작업을 시작하세요
 - 모든 응답은 한국어로 작성하세요
@@ -425,7 +519,13 @@ const App = () => <div><MyComponent /></div>;
 파일 목록:
 { "tool": "list_files", "path": "src", "recursive": "true" }
 
-**중요: 도구를 사용하려면 위 JSON 형식을 response에 직접 출력하세요. 설명 텍스트 없이 JSON만 출력하세요. thinking에 도구 호출을 넣지 마세요.**`;
+작업 완료 선언:
+{ "tool": "__done__", "status": "completed", "summary": "수행한 내용 요약" }
+
+이미 구현되어 추가 작업 불필요:
+{ "tool": "__done__", "status": "already_done", "summary": "확인 결과 요약" }
+
+**중요: 도구를 사용하려면 위 JSON 형식을 response에 직접 출력하세요. 설명 텍스트 없이 JSON만 출력하세요. thinking에 도구 호출을 넣지 마세요. 작업이 끝나면 반드시 __done__ 도구를 호출하세요.**`;
     }
 
     private getAllowedTools(): Tool[] {
@@ -532,6 +632,48 @@ const App = () => <div><MyComponent /></div>;
                 } catch { return false; }
             });
         } catch { return false; }
+    }
+
+    /**
+     * 스트리밍 버퍼에서 마지막 툴콜 패턴을 감지하여 상태 메시지 반환
+     */
+    private parseStreamingToolStatus(content: string): string | null {
+        const toolLabels: Record<string, string> = {
+            create_file: '파일 생성 중',
+            update_file: '파일 수정 중',
+            read_file: '파일 읽는 중',
+            delete_file: '파일 삭제 중',
+            run_command: '명령 준비 중',
+            glob_search: '파일 검색 중',
+            list_files: '파일 목록 중',
+        };
+
+        // 호출 측에서 새로 추가된 부분만 전달하므로 전체/tail 스캔 불필요
+        // 줄의 시작이 { 인 경우만 감지 (텍스트 내 인라인 참조 제외)
+        let lastMatch: { tool: string; file: string } | null = null;
+        const jsonPattern = /^\s*\{\s*"tool"\s*:\s*"(\w+)"[^}]*"(?:path|filePath)"\s*:\s*"([^"]+)"/gm;
+        let m: RegExpExecArray | null;
+        while ((m = jsonPattern.exec(content)) !== null) {
+            lastMatch = { tool: m[1], file: m[2] };
+        }
+
+        if (lastMatch && toolLabels[lastMatch.tool]) {
+            const fileName = lastMatch.file.split('/').pop() || lastMatch.file;
+            return `${toolLabels[lastMatch.tool]}: ${fileName}...`;
+        }
+
+        // run_command: "command" 키로 감지
+        const cmdPattern = /^\s*\{\s*"tool"\s*:\s*"run_command"[^}]*"command"\s*:\s*"([^"]+)"/gm;
+        let cmdMatch: RegExpExecArray | null;
+        while ((cmdMatch = cmdPattern.exec(content)) !== null) {
+            lastMatch = { tool: 'run_command', file: cmdMatch[1] };
+        }
+        if (lastMatch && lastMatch.tool === 'run_command') {
+            const cmd = lastMatch.file.length > 30 ? lastMatch.file.substring(0, 30) + '...' : lastMatch.file;
+            return `명령 준비 중: ${cmd}`;
+        }
+
+        return null;
     }
 
     private buildRecoveryNudge(failureCount: number): string {

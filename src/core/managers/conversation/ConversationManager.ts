@@ -1591,6 +1591,27 @@ export class ConversationManager implements IConversationHandler {
             });
 
             // execution 의도일 때 Command 모델 사용
+            // 네이티브 툴 콜링 설정 (메인 루프 진입 전이므로 여기서 직접 확인)
+            let nativeToolsForPlanItem: any[] | undefined = undefined;
+            {
+              const isNativeEnabled = options.extensionContext
+                ? await SettingsManager.getInstance(options.extensionContext).isNativeToolCallingEnabled()
+                : false;
+              if (isNativeEnabled) {
+                const adminConfig = this.llmManager.getAdminModelConfig();
+                const nativeSupported = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
+                if (nativeSupported) {
+                  nativeToolsForPlanItem = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+                  console.log(`[ConversationManager] EXECUTION plan item: Native tool calling enabled for ${adminConfig?.model}`);
+                }
+              }
+            }
+
+            // 스트리밍 설정 확인
+            const isStreamingForPlanItem = options.extensionContext
+              ? await SettingsManager.getInstance(options.extensionContext).isStreamingEnabled()
+              : false;
+
             let llmResponseForExecution: string;
             if (
               intent &&
@@ -1607,12 +1628,55 @@ export class ConversationManager implements IConversationHandler {
                   this.stateManager,
                   { signal: abortSignal },
                 );
+            } else if (isStreamingForPlanItem) {
+              console.log(
+                `[ConversationManager] EXECUTION plan item: Streaming mode enabled`,
+              );
+              let planItemStreamBuffer = '';
+              let planItemLastTool = '';
+              const planItemOnChunk = (chunk: string) => {
+                planItemStreamBuffer += chunk;
+
+                // 툴 패턴 감지 (JSON 기반)
+                const toolLabels: Record<string, string> = {
+                  create_file: '파일 생성 중', update_file: '파일 수정 중',
+                  read_file: '파일 읽는 중', delete_file: '파일 삭제 중',
+                  run_command: '명령 준비 중', glob_search: '파일 검색 중', list_files: '파일 목록 중',
+                };
+                const jsonPattern = /"tool"\s*:\s*"(\w+)"[^}]*"(?:path|filePath)"\s*:\s*"([^"]+)"/g;
+                let tm: RegExpExecArray | null;
+                let lastToolMatch: { tool: string; file: string } | null = null;
+                while ((tm = jsonPattern.exec(planItemStreamBuffer)) !== null) {
+                  lastToolMatch = { tool: tm[1], file: tm[2] };
+                }
+                if (lastToolMatch && toolLabels[lastToolMatch.tool]) {
+                  const fileName = lastToolMatch.file.split('/').pop() || lastToolMatch.file;
+                  const status = `${toolLabels[lastToolMatch.tool]}: ${fileName}...`;
+                  if (status !== planItemLastTool) {
+                    planItemLastTool = status;
+                    WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', status);
+                  }
+                  return;
+                }
+                // 토큰 카운트 표시 (500자마다 업데이트)
+                if (!planItemLastTool && planItemStreamBuffer.length % 500 < chunk.length) {
+                  const tokens = estimateTokens(planItemStreamBuffer);
+                  WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `응답 생성 중 (${tokens.toLocaleString()} 토큰...)`);
+                }
+              };
+              llmResponseForExecution =
+                await this.llmManager.sendMessageWithSystemPromptStreaming(
+                  activeSystemPrompt + planContextForExecution,
+                  accumulatedUserParts,
+                  planItemOnChunk,
+                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
+                );
             } else {
               llmResponseForExecution =
                 await this.llmManager.sendMessageWithSystemPrompt(
                   activeSystemPrompt + planContextForExecution,
                   accumulatedUserParts,
-                  { signal: abortSignal, nativeTools: nativeToolsForCall },
+                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
                 );
             }
 

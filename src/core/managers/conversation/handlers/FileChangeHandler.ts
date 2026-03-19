@@ -8,6 +8,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import * as vscode from 'vscode';
 import { ExecutionManager } from '../../execution/ExecutionManager';
 import { LLMManager } from '../../model/LLMManager';
@@ -113,29 +114,95 @@ export class FileChangeHandler {
         const detector = new ProjectDetector();
         projectInfo = await detector.detectProjectType(workspaceRoot);
 
-        // Fallback: LLM으로 프로젝트 타입 감지
+        // Fallback: 루트 unknown → 서브디렉토리 탐색 먼저 → 실패 시 LLM 폴백
         if (projectInfo.type === ProjectType.UNKNOWN) {
           console.log(
-            "[FileChangeHandler] Unknown project type, trying LLM fallback...",
-          );
-          const llmManager = LLMManager.getInstance();
-
-          const llmResult = await detector.detectWithLLMFallback(
-            workspaceRoot,
-            llmManager,
+            "[FileChangeHandler] Unknown project type at root. Trying subdirectory detection first...",
           );
 
-          if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
+          // 서브디렉토리 탐색 (수정된 파일 경로 기반)
+          const allFiles = [...createdFiles, ...modifiedFiles];
+          let subDetected = false;
+          if (allFiles.length > 0) {
+            const seen = new Set<string>();
+            for (const file of allFiles) {
+              const relativePath = path.isAbsolute(file)
+                ? path.relative(workspaceRoot, file)
+                : file;
+              const segments = relativePath.split(path.sep);
+              for (let i = segments.length - 2; i >= 0; i--) {
+                const ancestorRelative = segments.slice(0, i + 1).join(path.sep);
+                if (seen.has(ancestorRelative)) continue;
+                seen.add(ancestorRelative);
+
+                const absDir = path.join(workspaceRoot, ancestorRelative);
+                try {
+                  const stat = await fs.stat(absDir);
+                  if (!stat.isDirectory()) continue;
+
+                  const subInfo = await detector.detectProjectType(absDir);
+                  if (subInfo.type !== ProjectType.UNKNOWN) {
+                    console.log(
+                      `[FileChangeHandler] Sub-project detected at: ${ancestorRelative} (type: ${subInfo.type})`,
+                    );
+                    Object.assign(projectInfo, subInfo);
+                    workspaceRoot = absDir;
+                    subDetected = true;
+                    break;
+                  }
+                } catch { /* ignore */ }
+              }
+              if (subDetected) break;
+            }
+          }
+
+          if (!subDetected) {
+            // 서브디렉토리에서도 못 찾음 → LLM 폴백 (서브디렉토리 구조 포함)
             console.log(
-              `[FileChangeHandler] LLM fallback detected project type: ${llmResult.type}`,
+              "[FileChangeHandler] Sub-project not found. Trying LLM fallback with directory structure...",
             );
-            Object.assign(projectInfo, llmResult);
-          } else {
-            console.log(
-              "[FileChangeHandler] Unknown project type, skipping formatter and validation.",
+            const llmManager = LLMManager.getInstance();
+
+            // 서브디렉토리 구조 정보 수집
+            let subDirInfo: string | undefined;
+            try {
+              const rootFiles = await fs.readdir(workspaceRoot);
+              const dirEntries: string[] = [];
+              for (const f of rootFiles.slice(0, 30)) {
+                const fullPath = path.join(workspaceRoot, f);
+                try {
+                  const stat = await fs.stat(fullPath);
+                  if (stat.isDirectory() && !f.startsWith('.') && f !== 'node_modules') {
+                    const subFiles = await fs.readdir(fullPath);
+                    dirEntries.push(`${f}/: ${subFiles.slice(0, 10).join(', ')}`);
+                  }
+                } catch { /* ignore */ }
+              }
+              if (dirEntries.length > 0) {
+                subDirInfo = dirEntries.join('\n');
+              }
+            } catch { /* ignore */ }
+
+            const llmResult = await detector.detectWithLLMFallback(
+              workspaceRoot,
+              llmManager,
+              undefined,
+              undefined,
+              subDirInfo,
             );
-            FileChangeHandler.projectTypeCache.set(workspaceRoot, ProjectType.UNKNOWN);
-            return;
+
+            if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
+              console.log(
+                `[FileChangeHandler] LLM fallback detected project type: ${llmResult.type}`,
+              );
+              Object.assign(projectInfo, llmResult);
+            } else {
+              console.log(
+                "[FileChangeHandler] Unknown project type, skipping formatter and validation.",
+              );
+              FileChangeHandler.projectTypeCache.set(workspaceRoot, ProjectType.UNKNOWN);
+              return;
+            }
           }
         }
 

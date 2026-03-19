@@ -32,6 +32,7 @@ import { LLMManager } from '../managers/model/LLMManager';
 import { PromptComposer } from '../managers/context/prompts/PromptComposer';
 import { AgentConfig } from '../config/AgentConfig';
 import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../services';
+import { SettingsManager } from '../managers/state/SettingsManager';
 import { ReferenceItem } from '../webview/types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -61,7 +62,7 @@ interface TaskQueueItem {
     id: string;
     title: string;
     detail?: string;
-    status: 'pending' | 'in_progress' | 'done' | 'failed';
+    status: 'pending' | 'in_progress' | 'done' | 'warning' | 'failed';
 }
 
 /** MCP 서버 최소 타입 (gatherRulesContext 내부용) */
@@ -191,6 +192,7 @@ export class OrchestrationRouter {
                             createdFiles: [],
                             modifiedFiles: [],
                             errors: [`선행 작업 미완료: ${missing.map(d => d.replace(/^task-/, '에이전트 ')).join(', ')}`],
+                            warnings: [],
                             turnCount: 0,
                             tokenEstimate: 0,
                             executionTime: 0,
@@ -422,19 +424,28 @@ export class OrchestrationRouter {
             onThinking: (thinkingText) => {
                 WebviewBridge.sendThinkingContent(webview, thinkingText);
             },
+            onStreamingStatus: (status) => {
+                WebviewBridge.sendProcessingStatus(webview, 'executing', status);
+            },
         };
 
         // 4. 에이전트 실행 (서브태스크별 conversationTurnId 생성)
         const agentTurnId = `sub_${subtask.id}_${Date.now().toString(36)}`;
         const agentToolContext: ToolExecutionContext = { ...toolContext, conversationTurnId: agentTurnId };
-        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext);
+        const useStreaming = options.extensionContext
+            ? await SettingsManager.getInstance(options.extensionContext).isStreamingEnabled()
+            : false;
+        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming);
         const result = await agent.run();
 
-        // 5. TaskQueue 상태 → done/failed
+        // 5. TaskQueue 상태 → done/warning/failed
         if (taskItems) {
+            let taskStatus: 'done' | 'warning' | 'failed' = 'failed';
+            if (result.success && result.warnings?.length > 0) { taskStatus = 'warning'; }
+            else if (result.success) { taskStatus = 'done'; }
             OrchestrationRouter.updateTaskItemStatus(
                 webview, taskItems, subtask.id,
-                result.success ? 'done' : 'failed'
+                taskStatus
             );
         }
 
@@ -454,7 +465,7 @@ export class OrchestrationRouter {
         webview: vscode.Webview,
         taskItems: TaskQueueItem[],
         subtaskId: string,
-        status: 'pending' | 'in_progress' | 'done' | 'failed',
+        status: 'pending' | 'in_progress' | 'done' | 'warning' | 'failed',
     ): void {
         const item = taskItems.find(t => t.id === subtaskId);
         if (item) { item.status = status; }
@@ -670,8 +681,15 @@ export class OrchestrationRouter {
         const MAX_TOTAL_CHARS = 30000; // 전체 주입 최대 문자 수
         let totalChars = 0;
 
+        const allAlreadyDone = depResults.every(r => r.doneStatus === 'already_done');
+
         for (const r of depResults) {
             context.push(`### ${r.subtaskId}`);
+
+            // already_done 상태 명시
+            if (r.doneStatus === 'already_done') {
+                context.push(`**상태: 이미 구현되어 있음 (already_done)** — 이 태스크는 기존 코드가 이미 완전히 구현되어 있어 추가 작업 없이 완료되었습니다.`);
+            }
 
             // 파일 내용 읽기 및 주입
             const allFiles = [...new Set([...r.createdFiles, ...r.modifiedFiles])];
@@ -714,8 +732,13 @@ export class OrchestrationRouter {
             }
         }
 
-        context.push(`\n**⚠️ 위 파일 내용은 이미 제공되었습니다. read_file로 다시 읽지 마세요.**`);
-        context.push(`**⚠️ 위에 나열된 파일은 이미 디스크에 존재합니다. 수정이 필요하면 반드시 update_file을 사용하세요. create_file로 덮어쓰지 마세요.**`);
+        if (allAlreadyDone) {
+            context.push(`\n**⚠️ 모든 선행 태스크가 already_done 상태입니다. 요청된 기능이 이미 완전히 구현되어 있습니다.**`);
+            context.push(`**필요한 파일을 간단히 확인한 후 추가 작업이 불필요하면 __done__(already_done)으로 완료하세요.**`);
+        } else {
+            context.push(`\n**⚠️ 위 파일 내용은 이미 제공되었습니다. read_file로 다시 읽지 마세요.**`);
+            context.push(`**⚠️ 위에 나열된 파일은 이미 디스크에 존재합니다. 수정이 필요하면 반드시 update_file을 사용하세요. create_file로 덮어쓰지 마세요.**`);
+        }
 
         return {
             ...subtask,

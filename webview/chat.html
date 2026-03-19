@@ -2544,6 +2544,10 @@
         background: var(--vscode-testing-iconFailed, #dc2626);
       }
 
+      .status-circle.warning {
+        background: var(--vscode-editorWarning-foreground, #cca700);
+      }
+
       /* Task Queue Popup Styles */
       .task-queue-popup {
         position: fixed;
@@ -2703,6 +2707,12 @@
         opacity: 0.8;
         background: rgba(220, 38, 38, 0.08);
         border-left: 2px solid var(--vscode-testing-iconFailed, #dc2626);
+      }
+
+      .task-item.warning {
+        opacity: 0.85;
+        background: rgba(204, 167, 0, 0.08);
+        border-left: 2px solid var(--vscode-editorWarning-foreground, #cca700);
       }
 
       .task-status-icon {
@@ -4197,7 +4207,7 @@
                 React.createElement(
                   "span",
                   { key: "title" },
-                  `Todos (${tasks.filter((t) => t.status === "done").length}/${tasks.length})`,
+                  `Todos (${tasks.filter((t) => t.status === "done" || t.status === "warning").length}/${tasks.length})`,
                 ),
                 React.createElement(
                   "div",
@@ -4260,9 +4270,11 @@
                 const isDone = task.status === "done";
                 const isWorking = task.status === "in_progress";
                 const isFailed = task.status === "failed";
+                const isWarning = task.status === "warning";
 
                 let statusClass = "pending";
                 if (isDone) statusClass = "done";
+                else if (isWarning) statusClass = "warning";
                 else if (isWorking) statusClass = "working";
                 else if (isFailed) statusClass = "failed";
 
@@ -4270,7 +4282,7 @@
                   "div",
                   {
                     key: task.id || index,
-                    className: `task-item ${isDone ? "done" : ""} ${isWorking ? "working" : ""} ${isFailed ? "failed" : ""}`,
+                    className: `task-item ${isDone ? "done" : ""} ${isWarning ? "warning" : ""} ${isWorking ? "working" : ""} ${isFailed ? "failed" : ""}`,
                   },
                   [
                     React.createElement(

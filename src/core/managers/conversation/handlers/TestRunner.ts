@@ -126,119 +126,124 @@ export class TestRunner {
             );
           }
         } else {
-          // LLM 프로젝트 타입 캐시 확인
-          const cachedLLMType = TestRunner.llmProjectTypeCache.get(workspaceRoot);
-          if (cachedLLMType !== undefined) {
-            if (cachedLLMType && cachedLLMType.type !== ProjectType.UNKNOWN) {
-              console.log(
-                `[TestRunner] Using cached LLM project type: ${cachedLLMType.type}`,
-              );
-              WebviewBridge.sendProcessingStatus(
-                webview,
-                uiStep,
-                `프로젝트 타입 (LLM 캐시): ${cachedLLMType.type}`,
-              );
-              Object.assign(projectInfo, cachedLLMType);
-            } else {
-              console.log(
-                "[TestRunner] Cached LLM result: UNKNOWN. Diagnostics only.",
-              );
-              WebviewBridge.sendProcessingStatus(
-                webview,
-                uiStep,
-                "프로젝트 타입 미확인 (LLM 캐시) — Diagnostics 검사만 실행",
-              );
-            }
-          } else {
-          // 캐시 미스: LLM fallback 실행
+          // 서브디렉토리 탐색 먼저 시도 (LLM 호출 절약)
           console.log(
-            "[TestRunner] Unknown project type, trying LLM fallback...",
+            "[TestRunner] Unknown project type at root. Trying subdirectory detection first...",
           );
           WebviewBridge.sendProcessingStatus(
             webview,
             uiStep,
-            "프로젝트 타입 LLM 감지 중...",
+            "서브 프로젝트 탐색 중...",
           );
-          const llmManager = LLMManager.getInstance();
-
-          const llmResult = await detector.detectWithLLMFallback(
+          const subProjectRoot = await TestRunner.findSubProjectRoot(
             workspaceRoot,
-            llmManager,
+            createdFiles,
+            modifiedFiles,
+            detector,
           );
 
-          // LLM 결과를 캐시에 저장
-          TestRunner.llmProjectTypeCache.set(workspaceRoot, llmResult || null);
-          console.log(
-            `[TestRunner] LLM project type cache set for ${workspaceRoot}: ${llmResult?.type || 'null'}`,
-          );
-
-          if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
+          if (subProjectRoot) {
+            // 서브디렉토리에서 프로젝트 발견 — LLM 불필요
             console.log(
-              `[TestRunner] LLM fallback detected project type: ${llmResult.type}`,
+              `[TestRunner] Sub-project detected at: ${subProjectRoot.root} (type: ${subProjectRoot.info.type})`,
             );
-            Object.assign(projectInfo, llmResult);
+            WebviewBridge.sendProcessingStatus(
+              webview,
+              uiStep,
+              `서브 프로젝트 감지: ${path.basename(subProjectRoot.root)} (${subProjectRoot.info.type})`,
+            );
+            Object.assign(projectInfo, subProjectRoot.info);
+            workspaceRoot = subProjectRoot.root;
+            TestRunner.subProjectCache.set(workspaceRoot, subProjectRoot);
+          } else {
+            // 서브디렉토리에서도 못 찾음 → LLM 폴백 (캐시 확인 후)
+            TestRunner.subProjectCache.set(workspaceRoot, null);
 
-            // 서브프로젝트 root 보정: LLM이 타입을 감지했어도 루트에 manifest가 없으면
-            // 실제 프로젝트는 서브디렉토리에 있을 수 있음 (모노레포)
-            const rootHasManifest = await TestRunner.hasManifestFile(workspaceRoot, llmResult.type);
-            if (!rootHasManifest) {
-              const subProjectRoot = await TestRunner.findSubProjectRoot(
-                workspaceRoot,
-                createdFiles,
-                modifiedFiles,
-                detector,
-              );
-              if (subProjectRoot) {
+            const cachedLLMType = TestRunner.llmProjectTypeCache.get(workspaceRoot);
+            if (cachedLLMType !== undefined) {
+              if (cachedLLMType && cachedLLMType.type !== ProjectType.UNKNOWN) {
                 console.log(
-                  `[TestRunner] LLM detected type but root has no manifest. Using sub-project: ${subProjectRoot.root}`,
+                  `[TestRunner] Using cached LLM project type: ${cachedLLMType.type}`,
                 );
-                Object.assign(projectInfo, subProjectRoot.info);
-                workspaceRoot = subProjectRoot.root;
-                TestRunner.subProjectCache.set(workspaceRoot, subProjectRoot);
+                WebviewBridge.sendProcessingStatus(
+                  webview,
+                  uiStep,
+                  `프로젝트 타입 (LLM 캐시): ${cachedLLMType.type}`,
+                );
+                Object.assign(projectInfo, cachedLLMType);
+              } else {
+                console.log(
+                  "[TestRunner] Cached LLM result: UNKNOWN. Diagnostics only.",
+                );
+                WebviewBridge.sendProcessingStatus(
+                  webview,
+                  uiStep,
+                  "프로젝트 타입 미확인 (LLM 캐시) — Diagnostics 검사만 실행",
+                );
+              }
+            } else {
+              // LLM 폴백 — 서브디렉토리 구조 정보를 함께 전달
+              console.log(
+                "[TestRunner] Sub-project not found. Trying LLM fallback with directory structure...",
+              );
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                uiStep,
+                "프로젝트 타입 LLM 감지 중...",
+              );
+              const llmManager = LLMManager.getInstance();
+
+              // 서브디렉토리 구조 정보 수집
+              let subDirInfo: string | undefined;
+              try {
+                const rootFiles = await fs.readdir(workspaceRoot);
+                const dirEntries: string[] = [];
+                for (const f of rootFiles.slice(0, 30)) {
+                  const fullPath = path.join(workspaceRoot, f);
+                  try {
+                    const stat = await fs.stat(fullPath);
+                    if (stat.isDirectory() && !f.startsWith('.') && f !== 'node_modules') {
+                      const subFiles = await fs.readdir(fullPath);
+                      dirEntries.push(`${f}/: ${subFiles.slice(0, 10).join(', ')}`);
+                    }
+                  } catch { /* ignore */ }
+                }
+                if (dirEntries.length > 0) {
+                  subDirInfo = dirEntries.join('\n');
+                }
+              } catch { /* ignore */ }
+
+              const llmResult = await detector.detectWithLLMFallback(
+                workspaceRoot,
+                llmManager,
+                undefined,
+                undefined,
+                subDirInfo,
+              );
+
+              TestRunner.llmProjectTypeCache.set(workspaceRoot, llmResult || null);
+              console.log(
+                `[TestRunner] LLM project type cache set for ${workspaceRoot}: ${llmResult?.type || 'null'}`,
+              );
+
+              if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
+                console.log(
+                  `[TestRunner] LLM fallback detected project type: ${llmResult.type}`,
+                );
+                Object.assign(projectInfo, llmResult);
+              } else {
+                console.log(
+                  "[TestRunner] No project type found. Diagnostics only.",
+                );
+                WebviewBridge.sendProcessingStatus(
+                  webview,
+                  uiStep,
+                  "프로젝트 타입 미확인 — Diagnostics 검사만 실행",
+                );
               }
             }
-          } else {
-            // 루트에서 감지 실패 → 수정된 파일 경로 기반으로 서브디렉토리 탐지
-            console.log(
-              "[TestRunner] Unknown project type at root. Trying subdirectory detection based on modified files...",
-            );
-            const subProjectRoot = await TestRunner.findSubProjectRoot(
-              workspaceRoot,
-              createdFiles,
-              modifiedFiles,
-              detector,
-            );
-
-            // 결과를 캐시에 저장 (null도 저장 — 반복 탐색 방지)
-            TestRunner.subProjectCache.set(workspaceRoot, subProjectRoot);
-            console.log(
-              `[TestRunner] Sub-project cache set for ${workspaceRoot}: ${subProjectRoot ? subProjectRoot.root : 'null'}`,
-            );
-
-            if (subProjectRoot) {
-              console.log(
-                `[TestRunner] Sub-project detected at: ${subProjectRoot.root} (type: ${subProjectRoot.info.type})`,
-              );
-              WebviewBridge.sendProcessingStatus(
-                webview,
-                uiStep,
-                `서브 프로젝트 감지: ${path.basename(subProjectRoot.root)} (${subProjectRoot.info.type})`,
-              );
-              Object.assign(projectInfo, subProjectRoot.info);
-              workspaceRoot = subProjectRoot.root;
-            } else {
-              console.log(
-                "[TestRunner] No sub-project found. Smoke Test/Lint Check will be skipped, but Diagnostics will still run.",
-              );
-              WebviewBridge.sendProcessingStatus(
-                webview,
-                uiStep,
-                "프로젝트 타입 미확인 — Diagnostics 검사만 실행",
-              );
-            }
           }
-        } // end LLM cache miss
-        } // end LLM cache check
+        }
       }
 
       const testResults: string[] = [];
