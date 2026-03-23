@@ -992,7 +992,8 @@ ${file.content}
 
     try {
       // JSON 배열 추출 시도
-      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const jsonMatch = stripped.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (Array.isArray(parsed)) {
@@ -1031,7 +1032,8 @@ ${file.content}
   ): { score: number; reasoning?: string } | null {
     try {
       // JSON 추출 시도
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const jsonMatch = stripped.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (

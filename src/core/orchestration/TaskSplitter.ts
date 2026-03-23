@@ -147,7 +147,9 @@ export class TaskSplitter {
 
     private parseResponse(response: string): TaskSplitResult {
         try {
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            // thinking 블록(<think>...</think>) 제거 후 JSON 추출
+            const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
             if (!jsonMatch) {
                 return { shouldSplit: false, subtasks: [], reasoning: '응답 파싱 실패' };
             }

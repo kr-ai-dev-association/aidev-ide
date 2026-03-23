@@ -919,6 +919,18 @@ export class InlineDiffManager {
 
         // ✅ formatter 방금 종료됨 플래그 설정 (다음 document 변경 1회만 무시)
         this.formatterJustFinished.add(filePath);
+
+        // ✅ Formatter가 실제 파일을 변경했으므로 shadow를 실제 파일 내용으로 동기화
+        // 이렇게 해야 LLM이 다음 턴에서 formatter 적용 후 내용을 기준으로 search pattern 생성
+        // (shadow 미동기화 시: LLM=single quotes, 실제 파일=double quotes → SEARCH 실패)
+        if (this.shadow.has(filePath)) {
+            try {
+                const fs = require('fs') as typeof import('fs');
+                const actualContent = fs.readFileSync(filePath, 'utf8');
+                this.shadow.set(filePath, actualContent);
+                console.log(`[InlineDiffManager] Shadow synced to formatter output: ${filePath}`);
+            } catch { /* 파일 읽기 실패 시 무시 (formatter가 파일 삭제했을 경우 등) */ }
+        }
     }
 
     public getCheckpointBeforeContent(filePath: string): string | undefined {

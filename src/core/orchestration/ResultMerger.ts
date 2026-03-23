@@ -14,6 +14,7 @@ export class ResultMerger {
     static merge(results: AgentLoopResult[]): AggregatedResult {
         const allCreated: string[] = [];
         const allModified: string[] = [];
+        const allDeleted: string[] = [];
         const allErrors: string[] = [];
         const allWarnings: string[] = [];
         let totalTokens = 0;
@@ -23,6 +24,7 @@ export class ResultMerger {
         for (const result of results) {
             allCreated.push(...result.createdFiles);
             allModified.push(...result.modifiedFiles);
+            allDeleted.push(...result.deletedFiles);
             totalTokens += result.tokenEstimate;
             maxTime = Math.max(maxTime, result.executionTime);
 
@@ -56,14 +58,17 @@ export class ResultMerger {
 
         const createdFiles = [...new Set(allCreated)];
         const modifiedFiles = [...new Set(allModified)];
+        const deletedFiles = [...new Set(allDeleted)];
 
         return {
             summary: summaries.join('\n\n'),
             createdFiles,
             modifiedFiles,
+            deletedFiles,
             fileChanges: [
                 ...createdFiles.map(p => ({ path: p, action: 'created' as const })),
                 ...modifiedFiles.map(p => ({ path: p, action: 'updated' as const })),
+                ...deletedFiles.map(p => ({ path: p, action: 'removed' as const })),
             ],
             errors: allErrors,
             warnings: allWarnings,

@@ -38,7 +38,13 @@ export class OpenAICompatProvider implements ILLMProvider {
             max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
         };
 
-        if (options?.disableThinking) {
+        const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
+        if (isGeminiCompat) {
+            // Gemini OpenAI-compat: reasoning_effort 사용 (top-level thinking_config/google 키는 미지원)
+            if (!options?.disableThinking) {
+                requestBody.reasoning_effort = 'high';
+            }
+        } else if (options?.disableThinking) {
             requestBody.think = false;
             console.log('[OpenAICompatProvider] Thinking disabled (tool calling mode)');
         }
@@ -49,7 +55,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         }
 
         const { url, headers } = buildRequest(this.config, this.config.endpoint);
-        console.log(`[OpenAICompatProvider] model=${this.config.model} streaming=false nativeTools=${!!options?.nativeTools}`);
+        console.log(`[OpenAICompatProvider] model=${this.config.model} streaming=false nativeTools=${!!options?.nativeTools} geminiCompat=${isGeminiCompat} thinking=${isGeminiCompat && !options?.disableThinking}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
@@ -101,7 +107,12 @@ export class OpenAICompatProvider implements ILLMProvider {
             max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
         };
 
-        if (options?.disableThinking) {
+        const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
+        if (isGeminiCompat) {
+            if (!options?.disableThinking) {
+                requestBody.reasoning_effort = 'high';
+            }
+        } else if (options?.disableThinking) {
             requestBody.think = false;
             console.log('[OpenAICompatProvider] Streaming: Thinking disabled (tool calling mode)');
         }
@@ -112,7 +123,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         }
 
         const { url, headers } = buildRequest(this.config, this.config.endpoint);
-        console.log(`[OpenAICompatProvider] model=${this.config.model} streaming=true nativeTools=${!!options?.nativeTools}`);
+        console.log(`[OpenAICompatProvider] model=${this.config.model} streaming=true nativeTools=${!!options?.nativeTools} geminiCompat=${isGeminiCompat} thinking=${isGeminiCompat && !options?.disableThinking}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
@@ -169,14 +180,28 @@ export class OpenAICompatProvider implements ILLMProvider {
                 }
                 try {
                     const parsed: any = JSON.parse(data);
-                    const content = parsed.choices?.[0]?.delta?.content;
+                    const delta = parsed.choices?.[0]?.delta;
+                    // 첫 청크: 어떤 필드가 오는지 확인
+                    if (delta && Object.keys(delta).length > 0 && fullText.length === 0 && thinkingText.length === 0) {
+                        console.log('[OpenAICompatProvider] 🔍 first delta keys:', JSON.stringify(Object.keys(delta)));
+                        if (delta.thinking !== undefined) console.log('[OpenAICompatProvider] 🧠 thinking field exists');
+                        if (delta.reasoning_content !== undefined) console.log('[OpenAICompatProvider] 🧠 reasoning_content field exists');
+                    }
+                    const content = delta?.content;
                     if (content) {
                         fullText += content;
                         onChunk(content, false);
                     }
-                    const reasoningContent = parsed.choices?.[0]?.delta?.reasoning_content;
+                    const reasoningContent = delta?.reasoning_content;
                     if (reasoningContent) {
+                        if (thinkingText.length === 0) console.log('[OpenAICompatProvider] 🧠 reasoning_content start');
                         thinkingText += reasoningContent;
+                    }
+                    // Gemini OpenAI compat은 'thinking' 필드로 올 수도 있음
+                    const thinkingField = delta?.thinking;
+                    if (thinkingField) {
+                        if (thinkingText.length === 0) console.log('[OpenAICompatProvider] 🧠 thinking field start');
+                        thinkingText += thinkingField;
                     }
                     const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
                     if (toolCallDeltas) {

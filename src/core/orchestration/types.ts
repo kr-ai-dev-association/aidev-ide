@@ -44,9 +44,11 @@ export interface AgentLoopResult {
     response: string;
     createdFiles: string[];
     modifiedFiles: string[];
+    deletedFiles: string[];
     errors: string[];
     warnings: string[];
     doneStatus?: 'completed' | 'already_done';
+    completionSummary: string;
     turnCount: number;
     tokenEstimate: number;
     executionTime: number;
@@ -66,6 +68,7 @@ export interface AggregatedResult {
     summary: string;
     createdFiles: string[];
     modifiedFiles: string[];
+    deletedFiles: string[];
     fileChanges: FileChange[];
     errors: string[];
     warnings: string[];

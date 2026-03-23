@@ -76,8 +76,9 @@ export class PlanManager {
             try { await ollamaApi.loadSettingsFromStorage(); } catch { }
             response = await ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
 
-            // JSON 파싱
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            // JSON 파싱 (think 블록 제거 후)
+            const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
                 if (parsed.actions && Array.isArray(parsed.actions) && parsed.actions.length > 0) {

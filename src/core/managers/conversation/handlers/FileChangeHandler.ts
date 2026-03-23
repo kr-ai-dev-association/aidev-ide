@@ -121,6 +121,7 @@ export class FileChangeHandler {
           );
 
           // 서브디렉토리 탐색 (수정된 파일 경로 기반)
+          const originalWorkspaceRoot = workspaceRoot;
           const allFiles = [...createdFiles, ...modifiedFiles];
           let subDetected = false;
           if (allFiles.length > 0) {
@@ -147,6 +148,15 @@ export class FileChangeHandler {
                     );
                     Object.assign(projectInfo, subInfo);
                     workspaceRoot = absDir;
+                    // 파일 경로를 새 workspaceRoot 기준으로 재계산 (ruff 등 포매터가 올바른 경로를 받도록)
+                    createdFiles = createdFiles.map(f => {
+                      const abs = path.isAbsolute(f) ? f : path.join(originalWorkspaceRoot, f);
+                      return path.relative(workspaceRoot, abs);
+                    });
+                    modifiedFiles = modifiedFiles.map(f => {
+                      const abs = path.isAbsolute(f) ? f : path.join(originalWorkspaceRoot, f);
+                      return path.relative(workspaceRoot, abs);
+                    });
                     subDetected = true;
                     break;
                   }
