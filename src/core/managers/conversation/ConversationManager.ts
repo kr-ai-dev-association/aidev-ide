@@ -2437,7 +2437,27 @@ export class ConversationManager implements IConversationHandler {
 
       // 🔥 중복 실행 방지: 전체 llmResponse에서 모든 tool call을 한 번만 파싱
       // ⚠️ llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
-      const allToolCallsFromResponse = ToolParser.parseToolCalls(llmResponse);
+      const allToolCallsParseWarnings: string[] = [];
+      const allToolCallsFromResponse = ToolParser.parseToolCalls(llmResponse, allToolCallsParseWarnings);
+
+      // ⚡ 알 수 없는 도구 이름 감지 → 즉시 재프롬프트 (루프 종료 방지)
+      const unknownToolWarnings = allToolCallsParseWarnings.filter(w => w.startsWith('알 수 없는 도구:'));
+      if (unknownToolWarnings.length > 0 && allToolCallsFromResponse.length === 0) {
+        const unknownNames = unknownToolWarnings.map(w => w.replace('알 수 없는 도구: ', '')).join(', ');
+        const availableTools = [
+          'read_file', 'update_file', 'create_file', 'remove_file',
+          'run_command', 'ripgrep_search', 'list_files', 'glob_search',
+          'expand_around_line', 'list_imports', 'stat_file', 'fetch_url', 'lsp',
+        ].join(', ');
+        console.warn(`[ConversationManager] Unknown tool names detected: ${unknownNames}. Re-prompting.`);
+        accumulatedUserParts.push({ text: llmResponse });
+        accumulatedUserParts.push({
+          text: `[시스템] 알 수 없는 도구를 호출했습니다: ${unknownNames}. 이 도구들은 존재하지 않습니다. 반드시 다음 도구 목록만 사용하세요: ${availableTools}. 도구 호출 형식: {"tool": "도구이름", ...파라미터}`,
+        });
+        turnCount++;
+        continue;
+      }
+
       const parsedToolCallsMap = new Map<string, any>();
       allToolCallsFromResponse.forEach((call) => {
         const key = `${call.name}:${JSON.stringify(call.params)}`;
@@ -4798,7 +4818,25 @@ export class ConversationManager implements IConversationHandler {
     const approvedToolCalls: ToolUse[] = [];
     const skippedToolResults: ToolResponse[] = [];
 
+    // ⚡ 동일 턴 read_file(A) + update_file(A) 차단: LLM이 파일 내용 모르고 SEARCH 생성하는 패턴
+    const readPathsInBatch = new Set<string>();
     for (const call of toolCalls) {
+      if (call.name === Tool.READ_FILE && call.params.path) {
+        readPathsInBatch.add(call.params.path);
+      }
+    }
+
+    for (const call of toolCalls) {
+      // read_file과 동턴 update_file → 스킵 (SEARCH 불일치 방지)
+      if (call.name === Tool.UPDATE_FILE && call.params.path && readPathsInBatch.has(call.params.path)) {
+        console.log(`[ConversationManager] Skipped update_file after read_file in same turn: ${call.params.path}`);
+        skippedToolResults.push({
+          success: true,
+          message: `[스킵됨] read_file(${call.params.path})과 update_file(${call.params.path})을 같은 턴에 실행할 수 없습니다. update_file은 자동 생략됩니다. 다음 턴에서 방금 read_file로 읽은 파일의 실제 내용을 기반으로 SEARCH 블록을 재생성하여 update_file만 실행하세요.`,
+        });
+        continue;
+      }
+
       const needsConfirmation = await this.checkToolNeedsConfirmation(
         call,
         isAutoToolEnabled,

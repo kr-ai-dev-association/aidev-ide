@@ -2,7 +2,26 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.25**
+> **현재 버전: v1.0.26**
+
+---
+
+## v1.0.26
+
+### 기능 추가
+
+- **SubAgentLoop Native Tool Calling 실제 구현**: `nativeToolCallingSupported=true` 설정 시 SubAgentLoop의 LLM 호출(스트리밍/비스트리밍 모두)에 `nativeTools`를 실제로 전달. 기존에는 `disableThinking` 제어에만 반영되고 실제 API-level function calling은 미동작하던 문제 해결. `isNativeAdmin` 및 `nativeTools` 계산을 루프 밖으로 이동하여 매 턴 중복 계산 제거
+
+### 버그 수정
+
+- **OpenAICompatProvider Gemini thinking 400 에러 수정**: Gemini OpenAI-compat 엔드포인트(`/v1beta/openai/chat/completions`)에서 지원하지 않는 `thinking_config`, `google` 키 전송으로 발생하던 400 Bad Request 수정. `reasoning_effort: 'high'`로 대체
+- **Think 블록 내 JSON이 tool call로 파싱되는 문제**: `<think>` 블록을 strip하지 않고 ToolParser에 전달하여 thinking 중 작성한 예시 JSON이 실제 tool call로 실행되던 문제 확인 (TaskSplitter, RelevantFilesFinder, PlanManager, ProjectManager의 JSON 추출은 이미 strip 적용)
+- **LLMManager `resolveDisableThinking` native tools 연동**: native tools 사용 시 thinking을 비활성화하지 않도록 `hasNativeTools` 파라미터 추가. 기존에는 시스템 프롬프트에 tool spec이 있으면 무조건 thinking 비활성화
+
+### 개선
+
+- **SubAgentLoop 턴 간 중복 read_file 방지**: `alreadyReadFiles` Set으로 이미 읽은 파일 경로를 추적하여 동일 파일을 다음 턴에서 재시도하는 할루시네이션 패턴 차단
+- **UpdateFileToolHandler SEARCH 실패 에러 메시지 개선**: SEARCH 블록 매칭 실패 시 "read_file로 현재 내용을 읽고 정확히 복사하세요" 안내 추가. 모델이 파일을 읽지 않고 메모리로 SEARCH 블록을 생성하는 패턴 방지 유도
 
 ---
 
@@ -15,6 +34,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ### 버그 수정
 
+- **`__done__`과 다른 도구가 같은 턴에 호출될 때 도구 실행 누락 수정**: LLM이 `create_file`, `update_file` 등과 함께 `__done__`을 같은 턴에 호출하면, `__done__`이 도구 실행 전에 감지되어 모든 실제 도구 호출이 스킵되던 치명적 버그 수정. `__done__`을 분리하여 다른 도구 실행 완료 후 처리하도록 변경
 - **`warnings` 변수 섀도잉 수정**: SubAgentLoop 내 ToolParser 결과 처리에서 `const warnings`가 외부 `warnings` 배열을 섀도잉하여 에이전트 레벨 경고가 누락되던 문제 수정. `parseWarnings`로 이름 변경
 - **스트리밍 상태 스팸 수정**: `parseStreamingToolStatus`가 성장하는 버퍼 전체를 반복 스캔하여 동일 도구 상태를 중복 감지하던 문제 수정. `lastScanPos` 추적으로 새 컨텐츠만 스캔
 - **ToolParser `__done__` 차단 수정**: `isValidToolName()`이 Tool enum과 ToolRegistry만 검사하여 `__done__` 가상 도구가 거부되던 문제 수정. `__done__` 예외 추가

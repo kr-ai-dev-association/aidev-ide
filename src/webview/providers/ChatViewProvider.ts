@@ -223,6 +223,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         }
 
                         // 빌트인 프리셋 모델 목록
+                        let adminModels: { key: string; name: string; displayName: string }[] = [];
                         let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
                         try {
                             const aiModelSettings = this.configurationService.getServerSettings('ai_model');
@@ -234,20 +235,50 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                     displayName: s.value?.name || s.key,
                                     group: s.group || 'default',
                                 }));
+                            adminModels = (aiModelSettings || [])
+                                .filter((s: any) => s.source === 'admin' && s.value && s.value.enabled !== false)
+                                .map((s: any) => ({
+                                    key: s.key,
+                                    name: `admin:${s.key}`,
+                                    displayName: s.value?.model || s.value?.model_name || s.key,
+                                }));
                         } catch { }
 
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models,
                             current: currentModel,
-                            adminModels: [],
+                            adminModels,
                             supportedModels,
                         });
                     } catch (e) {
+                        // Ollama 실패해도 admin/supported 모델은 표시
+                        let adminModels: { key: string; name: string; displayName: string }[] = [];
+                        let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
+                        try {
+                            const aiModelSettings = this.configurationService.getServerSettings('ai_model');
+                            supportedModels = (aiModelSettings || [])
+                                .filter((s: any) => s.source === 'preset' && s.value && s.value.enabled !== false)
+                                .map((s: any) => ({
+                                    key: s.key,
+                                    name: `supported:${s.key}`,
+                                    displayName: s.value?.name || s.key,
+                                    group: s.group || 'default',
+                                }));
+                            adminModels = (aiModelSettings || [])
+                                .filter((s: any) => s.source === 'admin' && s.value && s.value.enabled !== false)
+                                .map((s: any) => ({
+                                    key: s.key,
+                                    name: `admin:${s.key}`,
+                                    displayName: s.value?.model || s.value?.model_name || s.key,
+                                }));
+                        } catch { }
                         webviewView.webview.postMessage({
                             command: 'ollamaModels',
                             models: [],
-                            current: ''
+                            current: '',
+                            adminModels,
+                            supportedModels,
                         });
                     }
                     break;

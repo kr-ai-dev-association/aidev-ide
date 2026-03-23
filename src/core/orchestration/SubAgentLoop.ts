@@ -11,6 +11,7 @@
  */
 
 import { LLMManager, LLMMessagePart } from '../managers/model/LLMManager';
+import { AiModelType } from '../../services';
 import { estimateTokens } from '../../utils/tokenUtils';
 import { ToolExecutor } from '../tools/ToolExecutor';
 import { ToolParser } from '../tools/ToolParser';
@@ -61,6 +62,7 @@ export class SubAgentLoop {
         const startTime = Date.now();
         const createdFiles: string[] = [];
         const modifiedFiles: string[] = [];
+        const deletedFiles: string[] = [];
         const errors: string[] = [];
         const warnings: string[] = [];
         let turnCount = 0;
@@ -78,7 +80,16 @@ export class SubAgentLoop {
             { text: `Task: ${this.subtask.title}\n\n${this.subtask.description}` }
         ];
 
+        const alreadyReadFiles = new Set<string>();
+
         const systemPrompt = this.buildSystemPrompt();
+
+        // Native tool calling 설정 (루프 전 1회 계산)
+        const adminConfig = this.llmManager.getAdminModelConfig();
+        const isNativeAdmin = this.llmManager.getCurrentModel() === AiModelType.ADMIN
+            && (adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true');
+        const allowedTools = this.getAllowedTools();
+        const nativeTools = isNativeAdmin ? ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools) : undefined;
 
         while (turnCount < MAX_TURNS) {
             if (this.abortSignal?.aborted) {
@@ -127,7 +138,7 @@ export class SubAgentLoop {
                             systemPrompt,
                             conversationParts,
                             onChunk,
-                            { signal: this.abortSignal, disableThinking: true }
+                            { signal: this.abortSignal, disableThinking: !isNativeAdmin, nativeTools }
                         );
                     } else {
                         // 비스트리밍 모드: 개별 호출 타임아웃 적용
@@ -140,7 +151,7 @@ export class SubAgentLoop {
                             response = await this.llmManager.sendMessageWithSystemPrompt(
                                 systemPrompt,
                                 conversationParts,
-                                { signal: combinedSignal, disableThinking: true }
+                                { signal: combinedSignal, disableThinking: !isNativeAdmin, nativeTools }
                             );
                         } catch (timeoutErr) {
                             if (timeoutController.signal.aborted) {
@@ -208,9 +219,12 @@ export class SubAgentLoop {
                     lastResponse = response;
                 }
 
-                // 2.5. __done__ 가상 도구 감지 (early stop)
+                // 2.5. __done__ 가상 도구 분리 — 다른 도구 실행 후 처리
                 const doneCall = toolCalls.find(tc => tc.name === '__done__');
-                if (doneCall) {
+                const executableCalls = toolCalls.filter(tc => tc.name !== '__done__');
+
+                // __done__만 단독 호출 (다른 도구 없음) → 즉시 완료
+                if (executableCalls.length === 0 && doneCall) {
                     const status = doneCall.params.status || 'completed';
                     const summary = doneCall.params.summary || '';
                     console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
@@ -223,8 +237,25 @@ export class SubAgentLoop {
                     break;
                 }
 
-                // 도구 없음: 실제 완료인지 판단
-                if (toolCalls.length === 0) {
+                // 도구 없음 (+ __done__도 없음): 실제 완료인지 판단
+                if (executableCalls.length === 0) {
+                    // ⚡ 알 수 없는 도구 이름 → 재프롬프트 (루프 종료 방지)
+                    const unknownToolWarnings = parseWarnings.filter(w => w.startsWith('알 수 없는 도구:'));
+                    if (unknownToolWarnings.length > 0) {
+                        const unknownNames = unknownToolWarnings.map(w => w.replace('알 수 없는 도구: ', '')).join(', ');
+                        const availableTools = [
+                            'read_file', 'update_file', 'create_file', 'remove_file',
+                            'run_command', 'ripgrep_search', 'list_files', 'glob_search',
+                            'expand_around_line', 'list_imports', 'stat_file', 'fetch_url', 'lsp',
+                        ].join(', ');
+                        console.warn(`[SubAgentLoop:${this.subtask.id}] Unknown tool names: ${unknownNames}. Re-prompting.`);
+                        conversationParts.push({ text: response });
+                        conversationParts.push({
+                            text: `[시스템] 알 수 없는 도구를 호출했습니다: ${unknownNames}. 이 도구들은 존재하지 않습니다. 반드시 다음 도구 목록만 사용하세요: ${availableTools}. 도구 호출 형식: {"tool": "도구이름", ...파라미터}`,
+                        });
+                        continue;
+                    }
+
                     const needsWrite = this.subtask.toolPermission === 'full';
 
                     // Fallback 1: write 도구 실행 완료 → 정상 완료
@@ -259,7 +290,7 @@ export class SubAgentLoop {
                 }
 
                 // 3. 권한별 필터링
-                const allowedCalls = this.filterByPermission(toolCalls);
+                const allowedCalls = this.filterByPermission(executableCalls);
 
                 if (allowedCalls.length === 0) {
                     conversationParts.push({ text: response });
@@ -270,9 +301,20 @@ export class SubAgentLoop {
                 }
 
                 // 3.5. 같은 턴 내 동일 도구+경로 중복 제거 (e.g. read_file 같은 파일 2번)
-                const seenInTurn = new Set<string>();
+                // Pre-scan: read_file/create_file 경로 사전 수집 (순서와 무관하게 차단)
+                const readFilesInTurn = new Set<string>();
                 const createFilesInTurn = new Set<string>();
-                const skippedUpdateFiles: { path: string }[] = [];
+                for (const call of allowedCalls) {
+                    if (call.name === 'read_file' && call.params.path) {
+                        readFilesInTurn.add(call.params.path);
+                    }
+                    if (call.name === 'create_file' && call.params.path) {
+                        createFilesInTurn.add(call.params.path);
+                    }
+                }
+
+                const seenInTurn = new Set<string>();
+                const skippedUpdateFiles: { path: string; reason: 'create' | 'read' }[] = [];
                 const uniqueCalls = allowedCalls.filter(call => {
                     const key = `${call.name}:${call.params.path || call.params.command || ''}`;
                     if (seenInTurn.has(key)) {
@@ -281,17 +323,24 @@ export class SubAgentLoop {
                     }
                     seenInTurn.add(key);
 
-                    // create_file 경로 추적
-                    if (call.name === 'create_file' && call.params.path) {
-                        createFilesInTurn.add(call.params.path);
+                    if (call.name === 'read_file' && call.params.path) {
+                        if (alreadyReadFiles.has(call.params.path)) {
+                            console.log(`[SubAgentLoop:${this.subtask.id}] Cross-turn duplicate read skipped: ${call.params.path}`);
+                            return false;
+                        }
                     }
 
-                    // create_file 직후 **같은 턴** 내에서 update_file → 스킵 (SEARCH 불일치 방지)
-                    // 다음 턴에서의 update_file은 허용 (diagnostics 에러 수정 등)
                     if (call.name === 'update_file' && call.params.path) {
+                        // create_file 직후 같은 턴 update_file → 스킵 (다음 턴은 허용)
                         if (createFilesInTurn.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after create_file in same turn: ${call.params.path}`);
-                            skippedUpdateFiles.push({ path: call.params.path });
+                            skippedUpdateFiles.push({ path: call.params.path, reason: 'create' });
+                            return false;
+                        }
+                        // read_file + update_file 동턴 차단: LLM이 파일 내용 모르고 SEARCH 생성
+                        if (readFilesInTurn.has(call.params.path)) {
+                            console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after read_file in same turn: ${call.params.path}`);
+                            skippedUpdateFiles.push({ path: call.params.path, reason: 'read' });
                             return false;
                         }
                     }
@@ -309,16 +358,30 @@ export class SubAgentLoop {
                     )
                     : [];
 
+                // 4.1. 성공한 read_file은 alreadyReadFiles에 기록
+                for (const call of uniqueCalls) {
+                    if (call.name === 'read_file' && call.params.path) {
+                        alreadyReadFiles.add(call.params.path);
+                    }
+                }
+
                 // 4.5. skip된 update_file에 대한 synthetic 피드백 추가
                 for (const skipped of skippedUpdateFiles) {
                     uniqueCalls.push({
                         name: 'update_file',
                         params: { path: skipped.path }
                     } as ToolUse);
-                    results.push({
-                        success: true,
-                        message: `[스킵됨] ${skipped.path}는 이번 세션에서 create_file로 생성된 파일입니다. update_file이 자동 생략되었습니다. 파일 내용을 수정하려면 read_file로 현재 내용을 먼저 확인한 후 update_file을 사용하세요.`,
-                    });
+                    if (skipped.reason === 'create') {
+                        results.push({
+                            success: true,
+                            message: `[스킵됨] ${skipped.path}는 이번 세션에서 create_file로 생성된 파일입니다. update_file이 자동 생략되었습니다. 파일 내용을 수정하려면 read_file로 현재 내용을 먼저 확인한 후 update_file을 사용하세요.`,
+                        });
+                    } else {
+                        results.push({
+                            success: true,
+                            message: `[스킵됨] read_file(${skipped.path})과 update_file(${skipped.path})을 같은 턴에 실행할 수 없습니다. update_file은 자동 생략됩니다. 다음 턴에서 방금 read_file로 읽은 파일의 실제 내용을 기반으로 SEARCH 블록을 재생성하여 update_file만 실행하세요.`,
+                        });
+                    }
                 }
 
                 // 도구가 실행됐으므로 실패 카운터 리셋
@@ -362,7 +425,12 @@ export class SubAgentLoop {
                     const call = uniqueCalls[i];
                     const result = results[i];
                     if (result?.success && result.filePath) {
-                        if (result.fileContent !== undefined) {
+                        // remove_file: fileContent 없이 filePath만 반환
+                        if (call.name === 'remove_file') {
+                            if (!deletedFiles.includes(result.filePath)) {
+                                deletedFiles.push(result.filePath);
+                            }
+                        } else if (result.fileContent !== undefined) {
                             if (READ_ONLY_TOOLS.has(call.name)) { continue; }
                             const alreadyTracked = createdFiles.includes(result.filePath) || modifiedFiles.includes(result.filePath);
                             if (!alreadyTracked) {
@@ -405,6 +473,20 @@ export class SubAgentLoop {
                 conversationParts.push({ text: response });
                 conversationParts.push({ text: toolResultsText });
 
+                // 7. __done__ 처리 (도구 실행 후 — 같은 턴의 다른 도구가 먼저 실행됨)
+                if (doneCall) {
+                    const status = doneCall.params.status || 'completed';
+                    const summary = doneCall.params.summary || '';
+                    console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
+                    if (this.subtask.toolPermission === 'full' && !hasExecutedWriteTools && status !== 'already_done') {
+                        warnings.push(`파일 수정 없이 완료됨 — 모델이 __done__(${status})으로 작업 완료를 선언했습니다.`);
+                    }
+                    lastResponse = summary || response;
+                    completedNormally = true;
+                    doneStatus = status as 'completed' | 'already_done';
+                    break;
+                }
+
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
                 if (error instanceof Error && error.name === 'AbortError') {
@@ -443,15 +525,32 @@ export class SubAgentLoop {
             }
         }
 
+        const dedupCreated = [...new Set(createdFiles)];
+        const dedupModified = [...new Set(modifiedFiles)];
+        const dedupDeleted = [...new Set(deletedFiles)];
+
+        // completionSummary: 모든 완료 경로에서 통일된 구조화 요약
+        const completionSummary = [
+            doneStatus ? `상태: ${doneStatus}` : '상태: fallback 완료',
+            dedupCreated.length > 0 ? `생성: ${dedupCreated.join(', ')}` : null,
+            dedupModified.length > 0 ? `수정: ${dedupModified.join(', ')}` : null,
+            dedupDeleted.length > 0 ? `삭제: ${dedupDeleted.join(', ')}` : null,
+            warnings.length > 0 ? `경고: ${warnings.join('; ')}` : null,
+            errors.length > 0 ? `오류: ${errors.join('; ')}` : null,
+            lastResponse ? `요약: ${SubAgentLoop.extractHeadTail(lastResponse.replace(THINKING_TAG_REGEX, '').trim(), 800, 400)}` : null,
+        ].filter(Boolean).join('\n');
+
         return {
             subtaskId: this.subtask.id,
             success: effectiveSuccess,
             response: lastResponse,
-            createdFiles: [...new Set(createdFiles)],
-            modifiedFiles: [...new Set(modifiedFiles)],
+            createdFiles: dedupCreated,
+            modifiedFiles: dedupModified,
+            deletedFiles: dedupDeleted,
             errors,
             warnings,
             doneStatus,
+            completionSummary,
             turnCount,
             tokenEstimate,
             executionTime: Date.now() - startTime,
@@ -637,6 +736,15 @@ const App = () => <div><MyComponent /></div>;
     /**
      * 스트리밍 버퍼에서 마지막 툴콜 패턴을 감지하여 상태 메시지 반환
      */
+    /**
+     * 텍스트의 앞 head자 + 뒤 tail자를 추출 (중간 생략)
+     * 전체 길이가 head+tail 이하면 그대로 반환
+     */
+    private static extractHeadTail(text: string, head: number, tail: number): string {
+        if (text.length <= head + tail) { return text; }
+        return text.substring(0, head) + '\n...(중략)...\n' + text.substring(text.length - tail);
+    }
+
     private parseStreamingToolStatus(content: string): string | null {
         const toolLabels: Record<string, string> = {
             create_file: '파일 생성 중',

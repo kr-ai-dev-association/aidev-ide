@@ -191,8 +191,10 @@ export class OrchestrationRouter {
                             response: '',
                             createdFiles: [],
                             modifiedFiles: [],
+                            deletedFiles: [],
                             errors: [`선행 작업 미완료: ${missing.map(d => d.replace(/^task-/, '에이전트 ')).join(', ')}`],
                             warnings: [],
+                            completionSummary: '',
                             turnCount: 0,
                             tokenEstimate: 0,
                             executionTime: 0,
@@ -691,6 +693,16 @@ export class OrchestrationRouter {
                 context.push(`**상태: 이미 구현되어 있음 (already_done)** — 이 태스크는 기존 코드가 이미 완전히 구현되어 있어 추가 작업 없이 완료되었습니다.`);
             }
 
+            // completionSummary 우선 사용 (구조화된 요약), 없으면 response fallback
+            if (r.completionSummary) {
+                context.push(r.completionSummary);
+            } else if (r.response) {
+                const summary = r.response.replace(THINKING_TAG_REGEX, '').trim().substring(0, 1200);
+                if (summary) {
+                    context.push(`\n요약: ${summary}`);
+                }
+            }
+
             // 파일 내용 읽기 및 주입
             const allFiles = [...new Set([...r.createdFiles, ...r.modifiedFiles])];
             if (allFiles.length > 0) {
@@ -724,11 +736,9 @@ export class OrchestrationRouter {
                 }
             }
 
-            if (r.response) {
-                const summary = r.response.replace(THINKING_TAG_REGEX, '').trim().substring(0, 300);
-                if (summary) {
-                    context.push(`\n요약: ${summary}`);
-                }
+            // 삭제된 파일 표시
+            if (r.deletedFiles.length > 0) {
+                context.push(`**삭제된 파일 (${r.deletedFiles.length}개):** ${r.deletedFiles.join(', ')}`);
             }
         }
 
@@ -954,6 +964,7 @@ export class OrchestrationRouter {
         const fileList = [
             ...merged.createdFiles.map(f => `생성: ${f}`),
             ...merged.modifiedFiles.map(f => `수정: ${f}`),
+            ...merged.deletedFiles.map(f => `삭제: ${f}`),
         ].join('\n');
 
         // 프로젝트 실행 명령어 수집

@@ -40,9 +40,12 @@ export class GeminiProvider implements ILLMProvider {
             body.systemInstruction = { parts: [{ text: systemPrompt }] };
         }
 
-        // Gemini 2.5 thinking (tool calling과 함께 사용 불가)
-        if (!options?.disableThinking && !hasNativeTools) {
-            (body.generationConfig as Record<string, unknown>).thinkingConfig = { thinkingBudget: -1 };
+        // Gemini thinking: 3.x → thinkingLevel, 2.5 → thinkingBudget (Cline/litellm 기준)
+        if (!options?.disableThinking) {
+            const isGemini3 = this.config.model.includes('gemini-3');
+            (body.generationConfig as Record<string, unknown>).thinkingConfig = isGemini3
+                ? { thinkingLevel: 'high', includeThoughts: true }
+                : { thinkingBudget: -1, includeThoughts: true };
         }
 
         if (hasNativeTools) {
@@ -112,7 +115,15 @@ export class GeminiProvider implements ILLMProvider {
             }
         }
 
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const allParts = data.candidates?.[0]?.content?.parts || [];
+        const thinkParts: string[] = [];
+        const answerParts: string[] = [];
+        for (const part of allParts) {
+            if (part.thought === true && part.text) { thinkParts.push(part.text); }
+            else if (part.text) { answerParts.push(part.text); }
+        }
+        const answer = answerParts.join('');
+        return thinkParts.length > 0 ? `<think>${thinkParts.join('')}</think>\n${answer}` : answer;
     }
 
     async stream(
@@ -127,7 +138,8 @@ export class GeminiProvider implements ILLMProvider {
         const endpoint = this.config.endpoint.replace(/\/+$/, '');
         const model = this.config.model;
         const { url, headers } = buildRequest(this.config, `${endpoint}/models/${model}:streamGenerateContent`);
-        console.log(`[GeminiProvider] model=${model} streaming=true nativeTools=${!!options?.nativeTools}`);
+        const thinkingEnabled = !options?.disableThinking;
+        console.log(`[GeminiProvider] model=${model} streaming=true nativeTools=${!!options?.nativeTools} thinkingEnabled=${thinkingEnabled} thinkingConfig=${JSON.stringify((body.generationConfig as any)?.thinkingConfig)}`);
 
         const response = await fetch(url, {
             method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
@@ -167,6 +179,7 @@ export class GeminiProvider implements ILLMProvider {
         let fullText = '';
         let thinkingText = '';
         let buffer = '';
+        let inThinking = false;
         const streamingFunctionCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
         while (true) {
@@ -205,14 +218,36 @@ export class GeminiProvider implements ILLMProvider {
                 try {
                     const json: any = JSON.parse(buffer.substring(objStart, objEnd + 1));
                     const parts = json.candidates?.[0]?.content?.parts || [];
+                    if (parts.length > 0) {
+                        console.log(`[GeminiProvider] chunk parts:`, JSON.stringify(parts.map((p: any) => ({
+                            thought: p.thought,
+                            hasText: !!p.text,
+                            textLen: p.text?.length || 0,
+                            hasFunctionCall: !!p.functionCall,
+                        }))));
+                    }
                     for (const part of parts) {
                         if (part.thought === true && part.text) {
+                            if (!inThinking) {
+                                console.log('[GeminiProvider] 🧠 thinking start');
+                                onChunk('<think>', false);
+                                inThinking = true;
+                            }
                             thinkingText += part.text;
+                            onChunk(part.text, false);
                         } else if (part.text) {
+                            if (inThinking) {
+                                onChunk('</think>\n', false);
+                                inThinking = false;
+                            }
                             fullText += part.text;
                             onChunk(part.text, false);
                         }
                         if (part.functionCall) {
+                            if (inThinking) {
+                                onChunk('</think>\n', false);
+                                inThinking = false;
+                            }
                             streamingFunctionCalls.push({ name: part.functionCall.name, args: part.functionCall.args || {} });
                         }
                     }
@@ -224,6 +259,11 @@ export class GeminiProvider implements ILLMProvider {
             if (startIdx > 0) {
                 buffer = buffer.substring(startIdx);
             }
+        }
+
+        // 스트림 종료 후 thinking이 닫히지 않은 경우 처리
+        if (inThinking) {
+            onChunk('</think>\n', false);
         }
 
         if (streamingFunctionCalls.length > 0) {

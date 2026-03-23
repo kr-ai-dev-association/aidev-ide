@@ -52,8 +52,10 @@ export class LLMManager {
     }
 
     /** thinking 비활성화 여부 결정 */
-    private static resolveDisableThinking(systemPrompt: string, explicit?: boolean): boolean {
+    private static resolveDisableThinking(systemPrompt: string, explicit?: boolean, hasNativeTools?: boolean): boolean {
         if (explicit !== undefined) return explicit;
+        // 네이티브 툴콜 사용 시 시스템 프롬프트에 도구 스펙이 없으므로 자동 비활성화 스킵
+        if (hasNativeTools) return false;
         // 도구 스펙이 포함된 시스템 프롬프트 → thinking 자동 비활성화
         // thinking 모드에서는 모델이 tool call을 thinking 블록 안에 넣어 content가 비어버리는 문제 방지
         return LLMManager.hasToolSpecs(systemPrompt);
@@ -222,7 +224,7 @@ export class LLMManager {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
         // 도구 스펙 포함 시 자동으로 thinking 비활성화 (명시적 설정 우선)
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         const apiCall = async (): Promise<string> => {
             let response: string;
@@ -400,7 +402,7 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         try {
             let response: string;
@@ -897,7 +899,7 @@ export class LLMManager {
         onChunk: (chunk: string, done: boolean) => void,
         options?: LLMRequestOptions
     ): Promise<string> {
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         // Ollama의 경우
         if (modelType === AiModelType.OLLAMA) {
@@ -935,7 +937,7 @@ export class LLMManager {
         try {
             this.adminModelApi.setConfig(adminConfig);
             const signal = options?.signal || new AbortController().signal;
-            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
             return await this.adminModelApi.sendMessageWithSystemPrompt(
                 systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking }
             );
@@ -960,7 +962,7 @@ export class LLMManager {
         try {
             this.adminModelApi.setConfig(adminConfig);
             const signal = options?.signal || new AbortController().signal;
-            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
             return await this.adminModelApi.sendMessageWithSystemPromptStreaming(
                 systemPrompt, LLMManager.normalizeParts(userParts), onChunk, { signal, disableThinking }
             );
@@ -1007,7 +1009,7 @@ export class LLMManager {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
         // 도구 스펙 포함 시 자동으로 thinking 비활성화
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         const apiCall = async (): Promise<string> => {
             let response: string;

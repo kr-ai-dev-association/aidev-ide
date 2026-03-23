@@ -109,6 +109,19 @@ export class UpdateFileToolHandler implements IToolHandler {
       };
     }
 
+    // ✅ Shadow content가 있으면 SEARCH 기준으로 shadow 사용
+    // LLM은 shadow(누적된 수정 상태)를 보고 search pattern을 생성하므로
+    // SEARCH도 shadow 기준이어야 함 (껐다 켰을 때 pending change 불일치 방지)
+    try {
+      const diffModule = await import('../../managers/diff/InlineDiffManager');
+      const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
+      const shadowContent = inlineDiffManager.getCurrentDocumentContent(absolutePath);
+      if (shadowContent !== undefined) {
+        fileContent = shadowContent;
+        console.log(`[UpdateFileToolHandler] Using shadow content for SEARCH (pending changes included): ${filePath}`);
+      }
+    } catch { /* shadow 없으면 disk content 사용 */ }
+
     // --- 사전 파일 검사 (Preflight Inspection) ---
     const analysis = mutationManager.analyzeFile(fileContent);
 
@@ -216,7 +229,7 @@ export class UpdateFileToolHandler implements IToolHandler {
           if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
             llmMessage += `분석 결과: 에이전트가 예상한 메뉴나 네비게이션 구조가 아직 구현되지 않아 부분 수정(SEARCH/REPLACE)이 불가능합니다.\n\n`;
           } else {
-            llmMessage += `에이전트가 제시한 SEARCH 블록의 내용이 실제 파일의 내용과 일치하지 않습니다. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
+            llmMessage += `SEARCH 블록이 파일 내용과 일치하지 않습니다. read_file로 현재 내용을 읽고 정확히 복사하세요. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
           }
 
           // 파일이 짧으면 전체 내용, 길면 앞부분만 제공

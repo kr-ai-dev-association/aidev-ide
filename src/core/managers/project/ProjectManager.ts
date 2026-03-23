@@ -277,8 +277,9 @@ export class ProjectManager {
 
             console.log(`[ProjectManager] LLM 프로젝트 타입 감지 응답: ${response}`);
 
-            // JSON 응답 파싱 (LLM 응답만 사용)
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            // JSON 응답 파싱 (think 블록 제거 후)
+            const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 try {
                     const result = JSON.parse(jsonMatch[0]);
