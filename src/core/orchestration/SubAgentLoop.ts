@@ -131,6 +131,7 @@ export class SubAgentLoop {
                 let response: string;
                 // Fix 8: 스트리밍 중 완성된 create_file 즉시 실행 추적
                 let streamingCreatedPaths = new Set<string>();
+                let streamingHandledPaths = new Set<string>(); // pending 처리됨 (승인 무관)
                 try {
                     if (this.useStreaming) {
                         // 스트리밍 모드: 개별 호출 타임아웃 불필요 (데이터가 계속 들어옴), 전체 타임아웃만 적용
@@ -142,17 +143,27 @@ export class SubAgentLoop {
                         let streamingCreatePromise: Promise<void> = Promise.resolve();
 
                         // 스트리밍 즉시 파일 생성 공통 실행 함수
-                        const executeStreamingCreate = (path: string, capturedCall: ToolUse) => {
-                            streamingCreatedPaths.add(path);
+                        // needsApproval=true: 실행 전 onToolApprovalRequired 콜백으로 승인 요청
+                        const executeStreamingCreate = (path: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
+                            if (needsApproval) {
+                                streamingHandledPaths.add(path);
+                            } else {
+                                streamingCreatedPaths.add(path);
+                            }
                             this.callbacks?.onStreamingStatus?.(`파일 생성 중: ${path}`);
                             streamingCreatePromise = streamingCreatePromise.then(async () => {
                                 if (this.abortSignal?.aborted) { return; }
+                                if (needsApproval && this.callbacks?.onToolApprovalRequired) {
+                                    const approved = await this.callbacks.onToolApprovalRequired(capturedCall);
+                                    if (!approved) { return; }
+                                }
                                 const streamResults = await this.toolExecutor.executeTools(
                                     [capturedCall], this.toolContext,
                                     this.callbacks?.onToolComplete, this.callbacks?.onToolStart
                                 );
                                 if (streamResults[0]?.success && capturedCall.params.path) {
                                     const streamPath = capturedCall.params.path;
+                                    streamingCreatedPaths.add(streamPath);
                                     if (!createdFiles.includes(streamPath) && !modifiedFiles.includes(streamPath)) {
                                         createdFiles.push(streamPath);
                                     }
@@ -160,21 +171,22 @@ export class SubAgentLoop {
                             });
                         };
 
-                        // 네이티브 tool_call 완성 시 콜백 (ON+ON 일 때만 즉시 실행)
+                        // 네이티브 tool_call 완성 시 콜백
+                        // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
                         const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
                             if (toolName !== 'create_file' || !args.path) { return; }
-                            if (!isAutoToolEnabled || !isAutoUpdateEnabled) { return; }
                             const p = args.path as string;
-                            if (streamingCreatedPaths.has(p)) { return; }
+                            if (streamingCreatedPaths.has(p) || streamingHandledPaths.has(p)) { return; }
                             const capturedCall: ToolUse = { name: toolName, params: { ...args } };
-                            executeStreamingCreate(p, capturedCall);
+                            const needsApproval = !isAutoToolEnabled || !isAutoUpdateEnabled;
+                            executeStreamingCreate(p, capturedCall, needsApproval);
                         };
 
                         const onChunk = (chunk: string) => {
                             streamBuffer += chunk;
 
-                            // Fix 8: 완성된 create_file 블록 즉시 실행 (ON+ON 일 때만)
                             if (isAutoToolEnabled && isAutoUpdateEnabled) {
+                                // ON+ON: </file_content> 감지 즉시 실행
                                 let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 while (endIdx !== -1) {
                                     const segmentEnd = endIdx + FILE_END_MARKER.length;
@@ -183,16 +195,26 @@ export class SubAgentLoop {
                                     const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
                                     for (const call of segCalls) {
                                         if (call.name === 'create_file' && call.params.path && !streamingCreatedPaths.has(call.params.path)) {
-                                            executeStreamingCreate(call.params.path, call);
+                                            executeStreamingCreate(call.params.path, call, false);
                                         }
                                     }
                                     endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 }
                             } else {
-                                // 설정 OFF: 위치 추적만
+                                // 도구OFF 또는 파일OFF: </file_content> 감지 즉시 pending
                                 let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 while (endIdx !== -1) {
-                                    streamLastFileContentPos = endIdx + FILE_END_MARKER.length;
+                                    const segmentEnd = endIdx + FILE_END_MARKER.length;
+                                    const segment = streamBuffer.substring(0, segmentEnd).replace(THINKING_TAG_REGEX, '');
+                                    streamLastFileContentPos = segmentEnd;
+                                    const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+                                    for (const call of segCalls) {
+                                        if (call.name === 'create_file' && call.params.path &&
+                                            !streamingCreatedPaths.has(call.params.path) &&
+                                            !streamingHandledPaths.has(call.params.path)) {
+                                            executeStreamingCreate(call.params.path, call, true);
+                                        }
+                                    }
                                     endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 }
                             }
@@ -429,8 +451,9 @@ export class SubAgentLoop {
                     }
                     seenInTurn.add(key);
 
-                    if (call.name === 'create_file' && call.params.path && streamingCreatedPaths.has(call.params.path)) {
-                        // Fix 8: 스트리밍 중 이미 실행된 create_file — 재실행 방지
+                    if (call.name === 'create_file' && call.params.path &&
+                        (streamingCreatedPaths.has(call.params.path) || streamingHandledPaths.has(call.params.path))) {
+                        // Fix 8: 스트리밍 중 이미 실행/pending 처리된 create_file — 재실행 방지
                         console.log(`[SubAgentLoop:${this.subtask.id}] Skipping streaming-pre-executed create_file: ${call.params.path}`);
                         return false;
                     }

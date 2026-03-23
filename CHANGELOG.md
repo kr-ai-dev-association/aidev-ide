@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.30**
+> **현재 버전: v1.0.31**
+
+---
+
+## v1.0.31
+
+### 기능 추가
+
+- **스트리밍 중 파일 생성 즉시 pending 지원**: `도구 자동 실행 OFF` 또는 `파일 자동 업데이트 OFF` 상태에서 스트리밍 응답 중 `</file_content>` 감지 즉시 (혹은 네이티브 tool_call 완성 즉시) 승인 모달 표시. 기존에는 스트리밍 완료 후 일괄 처리했으나 이제 파일별로 즉시 순차 처리
+  - `executeStreamingCreateFile(needsApproval)` / `executeStreamingCreate(needsApproval)` — 승인 필요 여부 파라미터 추가
+  - `onNativeToolComplete` — ON+ON 제한 제거, 도구/파일 OFF 시에도 즉시 pending 처리
+  - `onChunk` else 브랜치 — 위치 추적만 하던 것에서 `</file_content>` 감지 즉시 `onToolApprovalRequired` 콜백 호출로 변경
+  - `streamingHandledPaths` Set 추가 — 스트리밍 중 pending 처리된 경로 추적, post-stream 중복 모달 방지
+  - 거부 시 post-stream에서 재처리하지 않음 (LLM에 "[거부됨]" 피드백 전달)
+  - `ConversationManager`, `SubAgentLoop` 모두 적용 (싱글/멀티에이전트)
 
 ---
 
