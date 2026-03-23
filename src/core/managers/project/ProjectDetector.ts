@@ -483,7 +483,7 @@ export class ProjectDetector {
         projectRoot: string,
         createdFiles: string[],
         modifiedFiles: string[]
-    ): Promise<{ command: string; description: string } | null> {
+    ): Promise<{ command: string; description: string; fromSettings?: boolean } | null> {
         // =========================================================
         // LEVEL 0: 서버 관리 빌드/테스트 설정 확인 (최우선)
         // =========================================================
@@ -491,7 +491,7 @@ export class ProjectDetector {
 
         const serverOverride = await this.getServerBuildTestOverride(allFiles);
         if (serverOverride) {
-            return serverOverride;
+            return { ...serverOverride, fromSettings: true };
         }
 
         // =========================================================

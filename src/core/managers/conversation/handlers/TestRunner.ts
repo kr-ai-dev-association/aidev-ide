@@ -444,31 +444,49 @@ export class TestRunner {
             uiStep,
           );
 
-          // COMMAND_NOT_FOUND 즉시 재시도: 같은 턴에서 LLM에 다음 후보 요청
+          // COMMAND_NOT_FOUND 즉시 재시도: 하드코딩 후보 먼저, 소진 시 LLM
           if (lintResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
             console.log(
-              `[TestRunner] Validation command not found: ${validationCmd.command}. Trying LLM fallback immediately.`,
+              `[TestRunner] Validation command not found: ${validationCmd.command}. Trying next hardcoded candidate first.`,
             );
             excludedValidationCommands.push(validationCmd.command);
-            WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 대체 명령어 탐색 중...");
 
-            const fallbackCmd = await TestRunner.getValidationCommandFromLLM(
-              webview,
-              projectInfo,
+            // 설정된 명령어가 없는 경우 사용자에게 알림, 하드코딩 명령어는 조용히 처리
+            if ((validationCmd as any).fromSettings) {
+              WebviewBridge.sendProcessingStatus(webview, uiStep, `설정하신 '${validationCmd.command}' 명령어를 찾을 수 없습니다. 자동 감지 명령어로 대체합니다.`);
+            } else {
+              WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 다음 후보 탐색 중...");
+            }
+
+            // 1. 하드코딩 후보 먼저 시도
+            let fallbackCmd = await detector.getNextValidationCandidate(
+              projectInfo.type,
               workspaceRoot,
               effectiveCreatedFiles,
               effectiveModifiedFiles,
               excludedValidationCommands,
-              uiStep,
             );
+
+            // 2. 하드코딩 후보 소진 시 LLM에게 명령어 추천 (마지막 수단)
+            if (!fallbackCmd) {
+              fallbackCmd = await TestRunner.getValidationCommandFromLLM(
+                webview,
+                projectInfo,
+                workspaceRoot,
+                effectiveCreatedFiles,
+                effectiveModifiedFiles,
+                excludedValidationCommands,
+                uiStep,
+              );
+            }
 
             if (fallbackCmd) {
               // fallback 명령어가 이미 제외된 명령과 정확히 일치하면 스킵
               const isDuplicate = excludedValidationCommands.some(
-                ex => fallbackCmd.command.trim() === ex.trim()
+                ex => fallbackCmd!.command.trim() === ex.trim()
               );
               if (isDuplicate) {
-                console.log(`[TestRunner] LLM fallback is duplicate of excluded command. Skipping validation.`);
+                console.log(`[TestRunner] Fallback is duplicate of excluded command. Skipping validation.`);
                 WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 검증 건너뜀");
               } else {
                 const fallbackResult = await TestRunner.runValidationCommand(
@@ -480,7 +498,7 @@ export class TestRunner {
                 );
                 // fallback도 COMMAND_NOT_FOUND면 더 이상 재시도하지 않음
                 if (fallbackResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
-                  console.log(`[TestRunner] LLM fallback also COMMAND_NOT_FOUND. Skipping validation.`);
+                  console.log(`[TestRunner] Fallback also COMMAND_NOT_FOUND. Skipping validation.`);
                   WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 검증 건너뜀");
                 } else {
                   testResults.push(fallbackResult.message);

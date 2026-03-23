@@ -2,7 +2,19 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.28**
+> **현재 버전: v1.0.29**
+
+---
+
+## v1.0.29
+
+### 개선
+
+- **검증 명령어 COMMAND_NOT_FOUND 처리 개선**: 설치되지 않은 명령어 발견 시 LLM에게 바로 물어보는 대신 하드코딩된 다음 후보를 먼저 시도하도록 변경. 후보 소진 후 LLM 추천 (마지막 수단)
+  - 설정된 명령어(`validationCommand`)가 없는 경우: UI에 "설정하신 '[명령어]'를 찾을 수 없습니다. 자동 감지 명령어로 대체합니다." 알림 표시
+  - 하드코딩 자동 감지 명령어가 없는 경우: 조용히 다음 후보 탐색
+  - `ProjectDetector.getValidationCommand()` 반환에 `fromSettings` 필드 추가로 출처 구분
+- **빌드/테스트 언어 목록 정리**: 설정 화면 언어 선택에서 중복된 "기타" 항목 제거 (`settings.html`)
 
 ---
 
