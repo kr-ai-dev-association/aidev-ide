@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.26",
+  "version": "1.0.28",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -196,6 +196,12 @@
           "type": "boolean",
           "default": true,
           "description": "네이티브 툴 콜링 활성화. ON이면 모델이 지원하는 경우 native tool_calls 사용, OFF이면 텍스트 기반 파싱만 사용합니다.",
+          "scope": "resource"
+        },
+        "codepilot.thinkingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Thinking(추론) 활성화. ON이면 모델이 지원하는 경우 thinking을 사용합니다. OFF이면 항상 비활성화합니다.",
           "scope": "resource"
         },
         "codepilot.autoUpdateFiles": {

@@ -37,7 +37,6 @@ export class ActionRegistry {
             console.warn(`[ActionRegistry] Action type "${definition.type}" is already registered. Overwriting.`);
         }
         this.actions.set(definition.type, definition);
-        console.log(`[ActionRegistry] Registered action: ${definition.type} - ${definition.name}`);
     }
 
     /**
@@ -217,7 +216,6 @@ export class ActionRegistry {
             handler: this.createPlaceholderHandler('refactor')
         });
 
-        console.log('[ActionRegistry] Default actions registered');
     }
 
     /**

@@ -37,6 +37,7 @@ export class SubAgentLoop {
     private rulesContext: string;
     private callbacks?: AgentLoopCallbacks;
     private useStreaming: boolean;
+    private thinkingEnabled: boolean;
 
     constructor(
         subtask: SubTask,
@@ -46,6 +47,7 @@ export class SubAgentLoop {
         callbacks?: AgentLoopCallbacks,
         rulesContext?: string,
         useStreaming?: boolean,
+        thinkingEnabled?: boolean,
     ) {
         this.subtask = subtask;
         this.toolContext = toolContext;
@@ -54,6 +56,7 @@ export class SubAgentLoop {
         this.rulesContext = rulesContext || '';
         this.callbacks = callbacks;
         this.useStreaming = useStreaming ?? false;
+        this.thinkingEnabled = thinkingEnabled ?? true;
         this.llmManager = LLMManager.getInstance();
         this.toolExecutor = new ToolExecutor();
     }
@@ -90,6 +93,8 @@ export class SubAgentLoop {
             && (adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true');
         const allowedTools = this.getAllowedTools();
         const nativeTools = isNativeAdmin ? ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools) : undefined;
+        // thinkingEnabled=false → 항상 비활성화; true → native admin 여부에 따라 결정
+        const disableThinking = !this.thinkingEnabled ? true : !isNativeAdmin;
 
         while (turnCount < MAX_TURNS) {
             if (this.abortSignal?.aborted) {
@@ -108,14 +113,45 @@ export class SubAgentLoop {
             try {
                 // 1. LLM 호출
                 let response: string;
+                // Fix 8: 스트리밍 중 완성된 create_file 즉시 실행 추적
+                let streamingCreatedPaths = new Set<string>();
                 try {
                     if (this.useStreaming) {
                         // 스트리밍 모드: 개별 호출 타임아웃 불필요 (데이터가 계속 들어옴), 전체 타임아웃만 적용
                         let streamBuffer = '';
                         let lastReportedTool = '';
                         let lastScanPos = 0;
+                        const FILE_END_MARKER = '</file_content>';
+                        let streamLastFileContentPos = 0;
+                        let streamingCreatePromise: Promise<void> = Promise.resolve();
+
                         const onChunk = (chunk: string) => {
                             streamBuffer += chunk;
+
+                            // Fix 8: 완성된 create_file 블록 즉시 실행
+                            let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+                            while (endIdx !== -1) {
+                                const segmentEnd = endIdx + FILE_END_MARKER.length;
+                                const segment = streamBuffer.substring(0, segmentEnd).replace(THINKING_TAG_REGEX, '');
+                                streamLastFileContentPos = segmentEnd;
+                                const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+                                for (const call of segCalls) {
+                                    if (call.name === 'create_file' && call.params.path && !streamingCreatedPaths.has(call.params.path)) {
+                                        streamingCreatedPaths.add(call.params.path);
+                                        const capturedCall = call;
+                                        this.callbacks?.onStreamingStatus?.(`파일 생성 중: ${capturedCall.params.path}`);
+                                        streamingCreatePromise = streamingCreatePromise.then(async () => {
+                                            if (this.abortSignal?.aborted) { return; }
+                                            await this.toolExecutor.executeTools(
+                                                [capturedCall], this.toolContext,
+                                                this.callbacks?.onToolComplete, this.callbacks?.onToolStart
+                                            );
+                                        });
+                                    }
+                                }
+                                endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+                            }
+
                             if (!this.callbacks?.onStreamingStatus) { return; }
 
                             // 새로 추가된 부분만 스캔 (이전 매치 재감지 방지)
@@ -138,8 +174,10 @@ export class SubAgentLoop {
                             systemPrompt,
                             conversationParts,
                             onChunk,
-                            { signal: this.abortSignal, disableThinking: !isNativeAdmin, nativeTools }
+                            { signal: this.abortSignal, disableThinking, nativeTools }
                         );
+                        // 스트리밍 중 시작된 create_file 모두 완료 대기
+                        await streamingCreatePromise;
                     } else {
                         // 비스트리밍 모드: 개별 호출 타임아웃 적용
                         const timeoutController = new AbortController();
@@ -151,7 +189,7 @@ export class SubAgentLoop {
                             response = await this.llmManager.sendMessageWithSystemPrompt(
                                 systemPrompt,
                                 conversationParts,
-                                { signal: combinedSignal, disableThinking: !isNativeAdmin, nativeTools }
+                                { signal: combinedSignal, disableThinking, nativeTools }
                             );
                         } catch (timeoutErr) {
                             if (timeoutController.signal.aborted) {
@@ -186,6 +224,13 @@ export class SubAgentLoop {
 
                 tokenEstimate += estimateTokens(response);
 
+                // 1.5a. max_tokens 감지 — 응답이 잘린 경우 다음 턴에 계속 요청
+                const maxTokensReached = response.includes('[MAX_TOKENS_REACHED]');
+                if (maxTokensReached) {
+                    response = response.replace('[MAX_TOKENS_REACHED]', '').trim();
+                    console.warn(`[SubAgentLoop:${this.subtask.id}] ⚠️ MAX_TOKENS detected — will inject continuation prompt`);
+                }
+
                 // 1.5. thinking 내용 UI 전송 + 빈 응답 감지
                 const thinkingMatch = response.match(/<think>([\s\S]*?)<\/think>/);
                 if (thinkingMatch && this.callbacks?.onThinking) {
@@ -210,9 +255,10 @@ export class SubAgentLoop {
                     });
                     continue;
                 }
-                // 2. 도구 파싱
+                // 2. 도구 파싱 (<think> 블록 제거 후 파싱 — think 내부 JSON이 tool call로 실행되는 것 방지)
                 const parseWarnings: string[] = [];
-                const toolCalls = ToolParser.parseCodeBlockFormat(response, parseWarnings);
+                const strippedForParse = response.replace(THINKING_TAG_REGEX, '').trim();
+                const toolCalls = ToolParser.parseCodeBlockFormat(strippedForParse, parseWarnings);
 
                 // lastResponse 업데이트: tool call이 없고 JSON만 있는 응답(approve 등)은 무시
                 if (toolCalls.length > 0 || !this.isRawJsonOnly(response)) {
@@ -315,6 +361,7 @@ export class SubAgentLoop {
 
                 const seenInTurn = new Set<string>();
                 const skippedUpdateFiles: { path: string; reason: 'create' | 'read' }[] = [];
+                const skippedReadFiles: string[] = [];
                 const uniqueCalls = allowedCalls.filter(call => {
                     const key = `${call.name}:${call.params.path || call.params.command || ''}`;
                     if (seenInTurn.has(key)) {
@@ -323,9 +370,16 @@ export class SubAgentLoop {
                     }
                     seenInTurn.add(key);
 
+                    if (call.name === 'create_file' && call.params.path && streamingCreatedPaths.has(call.params.path)) {
+                        // Fix 8: 스트리밍 중 이미 실행된 create_file — 재실행 방지
+                        console.log(`[SubAgentLoop:${this.subtask.id}] Skipping streaming-pre-executed create_file: ${call.params.path}`);
+                        return false;
+                    }
+
                     if (call.name === 'read_file' && call.params.path) {
                         if (alreadyReadFiles.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Cross-turn duplicate read skipped: ${call.params.path}`);
+                            skippedReadFiles.push(call.params.path);
                             return false;
                         }
                     }
@@ -363,6 +417,23 @@ export class SubAgentLoop {
                     if (call.name === 'read_file' && call.params.path) {
                         alreadyReadFiles.add(call.params.path);
                     }
+                }
+
+                // 4.4. Fix 8: 스트리밍 중 실행된 create_file에 대한 synthetic 피드백 추가
+                for (const path of streamingCreatedPaths) {
+                    if (allowedCalls.some(c => c.name === 'create_file' && c.params.path === path)) {
+                        uniqueCalls.push({ name: 'create_file', params: { path } } as ToolUse);
+                        results.push({ success: true, message: `[스트리밍 중 생성됨] ${path} 파일이 스트리밍 중 즉시 생성되었습니다.` });
+                    }
+                }
+
+                // 4.5a. 크로스턴 중복 read_file 스킵에 대한 synthetic 피드백 추가
+                for (const path of skippedReadFiles) {
+                    uniqueCalls.push({ name: 'read_file', params: { path } } as ToolUse);
+                    results.push({
+                        success: true,
+                        message: `[이미 읽음] ${path}는 이전 턴에서 이미 읽었습니다. 방금 제공된 내용을 그대로 사용하세요. 다시 read_file을 호출하지 마세요.`,
+                    });
                 }
 
                 // 4.5. skip된 update_file에 대한 synthetic 피드백 추가
@@ -472,6 +543,9 @@ export class SubAgentLoop {
                 const toolResultsText = this.formatToolResults(uniqueCalls, results);
                 conversationParts.push({ text: response });
                 conversationParts.push({ text: toolResultsText });
+                if (maxTokensReached) {
+                    conversationParts.push({ text: '[시스템] 이전 응답이 max_tokens로 인해 중간에 잘렸습니다. 잘린 도구 호출이나 파일 내용이 있다면 처음부터 다시 완전하게 출력하세요. 작업을 계속 진행하세요.' });
+                }
 
                 // 7. __done__ 처리 (도구 실행 후 — 같은 턴의 다른 도구가 먼저 실행됨)
                 if (doneCall) {

@@ -928,7 +928,6 @@ export class InlineDiffManager {
                 const fs = require('fs') as typeof import('fs');
                 const actualContent = fs.readFileSync(filePath, 'utf8');
                 this.shadow.set(filePath, actualContent);
-                console.log(`[InlineDiffManager] Shadow synced to formatter output: ${filePath}`);
             } catch { /* 파일 읽기 실패 시 무시 (formatter가 파일 삭제했을 경우 등) */ }
         }
     }
@@ -2532,7 +2531,6 @@ export class InlineDiffManager {
 
         if (!tc.fileSnapshots.has(filePath)) {
             tc.fileSnapshots.set(filePath, beforeContent);
-            console.log(`[InlineDiffManager] Turn snapshot captured: ${path.basename(filePath)} for turn ${conversationTurnId.substring(0, 8)}`);
         }
     }
 
@@ -2639,7 +2637,6 @@ export class InlineDiffManager {
                 turnCheckpointStack: serializedTurnStack,
             };
             await this.extensionContext.globalState.update('inlineDiffState_v2', state);
-            console.log(`[InlineDiffManager] Persisted state: ${pendingEntries.length} files, ${serializedTurnStack.length} turn checkpoints`);
         } catch (e) {
             console.error('[InlineDiffManager] Failed to persist state:', e);
         }

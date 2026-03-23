@@ -434,10 +434,10 @@ export class OrchestrationRouter {
         // 4. 에이전트 실행 (서브태스크별 conversationTurnId 생성)
         const agentTurnId = `sub_${subtask.id}_${Date.now().toString(36)}`;
         const agentToolContext: ToolExecutionContext = { ...toolContext, conversationTurnId: agentTurnId };
-        const useStreaming = options.extensionContext
-            ? await SettingsManager.getInstance(options.extensionContext).isStreamingEnabled()
-            : false;
-        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming);
+        const settingsMgr = options.extensionContext ? SettingsManager.getInstance(options.extensionContext) : null;
+        const useStreaming = settingsMgr ? await settingsMgr.isStreamingEnabled() : false;
+        const thinkingEnabled = settingsMgr ? await settingsMgr.isThinkingEnabled() : true;
+        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled);
         const result = await agent.run();
 
         // 5. TaskQueue 상태 → done/warning/failed

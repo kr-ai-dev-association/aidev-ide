@@ -40,6 +40,7 @@ export class OpenAICompatProvider implements ILLMProvider {
 
         const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
         if (isGeminiCompat) {
+            // Gemini OpenAI-compat: reasoning_effort 사용 (top-level thinking_config/google 키는 미지원)
             if (!options?.disableThinking) {
                 requestBody.reasoning_effort = 'high';
             }
@@ -82,7 +83,9 @@ export class OpenAICompatProvider implements ILLMProvider {
             }).join('\n');
         }
 
-        return data.choices[0]?.message?.content || '';
+        const content = data.choices[0]?.message?.content || '';
+        const finishReason = data.choices[0]?.finish_reason;
+        return finishReason === 'length' ? content + '\n[MAX_TOKENS_REACHED]' : content;
     }
 
     async stream(
@@ -144,6 +147,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         let fullText = '';
         let thinkingText = '';
         let buffer = '';
+        let lastFinishReason = '';
         // OpenCode 방식: 배열 위치 기반 (Gemini는 index 필드를 안 보냄 → length 폴백)
         const streamingToolCalls: Array<{ id: string; name: string; argumentsStr: string }> = [];
 
@@ -160,6 +164,8 @@ export class OpenAICompatProvider implements ILLMProvider {
                 if (!trimmed || !trimmed.startsWith('data:')) continue;
                 const data = trimmed.slice(5).trim();
                 if (data === '[DONE]') {
+                    const maxTokensReached = lastFinishReason === 'length';
+                    if (maxTokensReached) { console.log('[OpenAICompatProvider] ⚠️ MAX_TOKENS reached in streaming'); }
                     const validToolCalls = streamingToolCalls.filter(tc => tc.name);
                     if (validToolCalls.length > 0) {
                         const converted = validToolCalls.map(tc => {
@@ -173,12 +179,15 @@ export class OpenAICompatProvider implements ILLMProvider {
                     }
                     onChunk('', true);
                     if (thinkingText.trim()) {
-                        return `<think>${thinkingText}</think>\n${fullText}`;
+                        const text = `<think>${thinkingText}</think>\n${fullText}`;
+                        return maxTokensReached ? text + '\n[MAX_TOKENS_REACHED]' : text;
                     }
-                    return fullText;
+                    return maxTokensReached ? fullText + '\n[MAX_TOKENS_REACHED]' : fullText;
                 }
                 try {
                     const parsed: any = JSON.parse(data);
+                    const fr = parsed.choices?.[0]?.finish_reason;
+                    if (fr) { lastFinishReason = fr; }
                     const delta = parsed.choices?.[0]?.delta;
                     // 첫 청크: 어떤 필드가 오는지 확인
                     if (delta && Object.keys(delta).length > 0 && fullText.length === 0 && thinkingText.length === 0) {
@@ -225,6 +234,6 @@ export class OpenAICompatProvider implements ILLMProvider {
         }
 
         onChunk('', true);
-        return fullText;
+        return lastFinishReason === 'length' ? fullText + '\n[MAX_TOKENS_REACHED]' : fullText;
     }
 }

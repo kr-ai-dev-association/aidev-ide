@@ -802,6 +802,16 @@ export class SettingsManager extends BaseManager {
         await ConfigurationService.updateConfig('nativeToolCallingEnabled', enabled, vscode.ConfigurationTarget.Global);
     }
 
+    public async isThinkingEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('thinkingEnabled')?.globalValue;
+        return globalValue ?? (config.get('thinkingEnabled') as boolean) ?? true;
+    }
+
+    public async updateThinkingEnabled(enabled: boolean): Promise<void> {
+        await ConfigurationService.updateConfig('thinkingEnabled', enabled, vscode.ConfigurationTarget.Global);
+    }
+
     /**
      * 디버그 모드 On/Off 상태를 가져옵니다
      */

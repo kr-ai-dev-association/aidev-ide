@@ -39,7 +39,6 @@ export class ToolRegistry {
             handler,
             source: 'builtin',
         });
-        console.log(`[ToolRegistry] Registered tool: ${handler.name}`);
     }
 
     /**
