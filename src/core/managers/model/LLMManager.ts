@@ -30,6 +30,8 @@ export interface LLMRequestOptions {
     disableThinking?: boolean;
     /** 네이티브 툴 콜링용 tools 배열 (OpenAI/Ollama 포맷) */
     nativeTools?: any[];
+    /** 네이티브 tool_call 하나가 완성될 때마다 호출되는 콜백 */
+    onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void;
 }
 
 export interface LLMResponse {
@@ -1019,7 +1021,7 @@ export class LLMManager {
                     systemPrompt,
                     LLMManager.normalizeParts(userParts),
                     onChunk,
-                    { signal, disableThinking, nativeTools: options?.nativeTools }
+                    { signal, disableThinking, nativeTools: options?.nativeTools, onNativeToolComplete: options?.onNativeToolComplete }
                 );
             } else {
                 await this.loadOllamaSettingsSafe();
@@ -1027,7 +1029,7 @@ export class LLMManager {
                     systemPrompt,
                     LLMManager.normalizeParts(userParts),
                     onChunk,
-                    { signal, disableThinking, nativeTools: options?.nativeTools }
+                    { signal, disableThinking, nativeTools: options?.nativeTools, onNativeToolComplete: options?.onNativeToolComplete }
                 );
             }
 

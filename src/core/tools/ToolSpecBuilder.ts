@@ -232,6 +232,31 @@ export class ToolSpecBuilder {
             });
         }
 
+        // memory_save - 영속적 메모리 저장
+        if (!allowedTools || allowedTools.includes(Tool.MEMORY_SAVE)) {
+            specs.push({
+                name: Tool.MEMORY_SAVE,
+                description: '이전 대화에서 학습한 정보를 영속적으로 저장합니다. 사용자 선호도, 피드백, 프로젝트 맥락, 참조 정보 등 미래 대화에서 유용한 정보를 저장하세요. 저장된 정보는 다음 대화 시작 시 자동으로 로드됩니다.',
+                parameters: [
+                    { name: 'name', required: true, description: '메모리 항목 이름 (영문 snake_case 권장, 예: user_role, prefer_typescript)', type: 'string' },
+                    { name: 'description', required: true, description: '이 메모리가 언제 유용한지 한 줄 설명 (미래 대화에서 로드 여부 판단용)', type: 'string' },
+                    { name: 'type', required: true, description: '메모리 유형: user(사용자 역할/선호), feedback(작업 방식 피드백), project(프로젝트 현황/목표), reference(외부 시스템 참조)', type: 'string' },
+                    { name: 'content', required: true, description: '저장할 메모리 내용 (마크다운 형식 지원)', type: 'string' },
+                ]
+            });
+        }
+
+        // memory_delete - 영속적 메모리 삭제
+        if (!allowedTools || allowedTools.includes(Tool.MEMORY_DELETE)) {
+            specs.push({
+                name: Tool.MEMORY_DELETE,
+                description: '저장된 메모리를 삭제합니다. 오래되거나 잘못된 정보를 제거할 때 사용하세요.',
+                parameters: [
+                    { name: 'name', required: true, description: '삭제할 메모리 항목 이름', type: 'string' },
+                ]
+            });
+        }
+
         // MCP 도구 추가
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
@@ -261,9 +286,9 @@ export class ToolSpecBuilder {
     /**
      * @deprecated XML 형식은 더 이상 사용되지 않습니다. buildToolPromptSectionJson()을 사용하세요.
      */
-    static buildToolPromptSection(allowedTools?: Tool[]): string {
+    static buildToolPromptSection(allowedTools?: Tool[], nativeMode?: boolean): string {
         // JSON Function Calling으로 리다이렉트
-        return this.buildToolPromptSectionJson(allowedTools);
+        return this.buildToolPromptSectionJson(allowedTools, nativeMode);
     }
 
     // ==================== JSON Function Calling 지원 (v8.9.0) ====================
@@ -309,9 +334,9 @@ export class ToolSpecBuilder {
      * JSON 기반 도구 호출 프롬프트 섹션 생성
      * v8.9.0: XML 대신 JSON Function Calling 형식 사용
      */
-    static buildToolPromptSectionJson(allowedTools?: Tool[]): string {
+    static buildToolPromptSectionJson(allowedTools?: Tool[], nativeMode?: boolean): string {
         const specs = this.buildToolSpecs(allowedTools);
-        return buildToolPromptSection(specs);
+        return buildToolPromptSection(specs, nativeMode);
     }
 
     /**

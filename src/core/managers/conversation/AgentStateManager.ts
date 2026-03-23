@@ -33,6 +33,9 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.LSP,
         Tool.LIST_CODE_DEFINITIONS,
         Tool.GLOB_SEARCH,
+
+        Tool.MEMORY_SAVE,
+        Tool.MEMORY_DELETE,
     ], // Investigation에서는 조사 도구 허용 (파일 수정 없음, 조사 행위)
     [AgentPhase.EXECUTION]: [
         Tool.CREATE_FILE,
@@ -51,6 +54,9 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.LSP,
         Tool.LIST_CODE_DEFINITIONS,
         Tool.GLOB_SEARCH,
+
+        Tool.MEMORY_SAVE,
+        Tool.MEMORY_DELETE,
     ],
     [AgentPhase.REVIEW]: [], // REVIEW 단계에서는 도구 사용 불가 (시스템이 요약 생성)
     [AgentPhase.DONE]: [] // DONE 단계에서는 도구 사용 불가

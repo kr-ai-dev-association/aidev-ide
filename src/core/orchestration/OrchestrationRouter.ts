@@ -22,6 +22,7 @@ import { TestRunner, TestResult } from '../managers/conversation/handlers/TestRu
 import { ErrorClassifier } from '../managers/conversation/handlers/ErrorClassifier';
 import { buildClassifiedRetryPrompt, ModifiedFileContext } from '../managers/context/prompts/rules';
 import { ToolExecutionContext } from '../tools/IToolHandler';
+import { ToolUse, Tool } from '../tools/types';
 import { UIMessageEntry } from '../managers/state/types';
 import { TaskSplitter } from './TaskSplitter';
 import { SubAgentLoop } from './SubAgentLoop';
@@ -401,6 +402,7 @@ export class OrchestrationRouter {
         taskItems?: TaskQueueItem[],
         collectedUIMessages?: UIMessageEntry[],
         rulesContext?: string,
+        agentOptions?: { disableReadDedup?: boolean; isRepairAgent?: boolean },
     ): Promise<AgentLoopResult> {
         const webview = options.webviewToRespond;
 
@@ -439,7 +441,45 @@ export class OrchestrationRouter {
         const settingsMgr = options.extensionContext ? SettingsManager.getInstance(options.extensionContext) : null;
         const useStreaming = settingsMgr ? await settingsMgr.isStreamingEnabled() : false;
         const thinkingEnabled = settingsMgr ? await settingsMgr.isThinkingEnabled() : true;
-        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled);
+
+        // 도구 승인 설정 (싱글 에이전트와 동일한 pending 동작)
+        const isAutoToolEnabled = settingsMgr ? await settingsMgr.isAutoToolExecutionEnabled() : true;
+        const isAutoCommandEnabled = settingsMgr ? await settingsMgr.isAutoExecuteCommandsEnabled() : true;
+        const isAutoUpdateEnabled = settingsMgr ? await settingsMgr.isAutoUpdateEnabled() : true;
+        const isAutoDeleteEnabled = settingsMgr ? await settingsMgr.isAutoDeleteFilesEnabled() : true;
+
+        callbacks.onToolApprovalRequired = async (call: ToolUse): Promise<boolean> => {
+            const toolName = call.name as string;
+            // 승인 필요 여부 판단 (ConversationManager.checkToolNeedsConfirmation 동일 로직)
+            let needsConfirmation = false;
+            if (!isAutoToolEnabled) {
+                needsConfirmation = true;
+            } else if (!isAutoCommandEnabled && toolName === Tool.RUN_COMMAND) {
+                needsConfirmation = true;
+            } else if (!isAutoUpdateEnabled && (toolName === Tool.CREATE_FILE || toolName === Tool.UPDATE_FILE)) {
+                needsConfirmation = true;
+            } else if (!isAutoDeleteEnabled && toolName === Tool.REMOVE_FILE) {
+                needsConfirmation = true;
+            }
+            if (!needsConfirmation) { return true; }
+
+            // Webview에 pending 메시지 표시
+            const detail = call.params.path || call.params.command || '';
+            const detailDisplay = detail ? `: ${detail.substring(0, 50)}${detail.length > 50 ? '...' : ''}` : '';
+            const toolLabel = ToolExecutionCoordinator.getToolLabel(toolName);
+            WebviewBridge.receiveMessage(webview, 'System', `⏳ [Pending] ${toolLabel}${detailDisplay} - 사용자 승인 필요`);
+
+            // VS Code 네이티브 모달 (싱글 에이전트와 동일)
+            const dialogDetail = detail ? `\n${detail}` : '';
+            const result = await vscode.window.showInformationMessage(
+                `도구 실행: ${toolLabel}${dialogDetail}`,
+                { modal: true },
+                '실행',
+                '건너뛰기',
+            );
+            return result === '실행';
+        };
+        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled, agentOptions);
         const result = await agent.run();
 
         // 5. TaskQueue 상태 → done/warning/failed
@@ -635,6 +675,7 @@ export class OrchestrationRouter {
 
             const repairResult = await OrchestrationRouter.runAgent(
                 repairSubtask, repairToolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
+                { disableReadDedup: true, isRepairAgent: true },
             );
 
             // 수리 에이전트의 파일 변경 추적

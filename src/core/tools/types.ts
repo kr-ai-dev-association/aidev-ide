@@ -34,6 +34,9 @@ export enum Tool {
     LIST_CODE_DEFINITIONS = 'list_code_definitions',
     // 파일 경로 패턴 검색
     GLOB_SEARCH = 'glob_search',
+    // 영속적 메모리 관리
+    MEMORY_SAVE = 'memory_save',
+    MEMORY_DELETE = 'memory_delete',
 }
 
 /**
@@ -52,6 +55,9 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
     Tool.LSP,
     Tool.LIST_CODE_DEFINITIONS,
     Tool.GLOB_SEARCH,
+    // 메모리 도구는 프로젝트 파일을 수정하지 않으므로 read-only로 취급 (investigation→execution 전환 방지)
+    Tool.MEMORY_SAVE,
+    Tool.MEMORY_DELETE,
 ]);
 
 /**

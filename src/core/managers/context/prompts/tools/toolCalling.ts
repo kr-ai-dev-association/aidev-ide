@@ -196,6 +196,40 @@ export function getWorkflowGuidelinePrompt(): string {
 }
 
 /**
+ * 네이티브 모드용 작업 흐름 가이드라인 (코드블록 예시 없음)
+ */
+export function getNativeWorkflowGuidelinePrompt(): string {
+    let prompt = '### 작업 흐름 가이드라인\n\n';
+
+    prompt += '**⚠️ 파일 읽기 전략 (필수!):**\n';
+    prompt += '파일을 읽기 전에 **반드시** `stat_file`로 파일 크기를 먼저 확인하세요.\n';
+    prompt += '큰 파일을 전체 읽으면 컨텍스트가 낭비됩니다.\n\n';
+
+    prompt += '| 라인 수 | 권장 방법 |\n';
+    prompt += '|---------|----------|\n';
+    prompt += '| ~200줄 | `read_file` 전체 읽기 |\n';
+    prompt += '| 200~500줄 | `list_imports` + `read_file` 부분 읽기 |\n';
+    prompt += '| 500줄+ | `stat_file` → `list_imports` → 필요한 범위만 읽기 |\n\n';
+
+    prompt += '**파일 읽기 순서:** stat_file(1단계) → list_imports(2단계, 큰 파일) → read_file(3단계, 필요한 범위)\n\n';
+
+    prompt += '**검색 시 다국어 키워드 병행:**\n';
+    prompt += '- 한글 키워드로 검색할 때 영문 동의어도 함께 검색하세요\n';
+    prompt += '- 예: "온보딩" → `onboarding|온보딩`, "인증" → `auth|인증|login`\n';
+    prompt += '- ripgrep_search 후 expand_around_line으로 주변 컨텍스트 확인\n\n';
+
+    prompt += '**파일 수정 순서 (필수):** read_file → update_file 순서를 반드시 지키세요.\n';
+    prompt += '- update_file의 `diff` 파라미터: SEARCH 블록은 read_file로 읽은 현재 내용을 그대로 사용\n';
+    prompt += '- SEARCH 블록이 현재 파일 내용과 정확히 일치하지 않으면 수정이 실패합니다\n\n';
+
+    prompt += '**파일 삭제 규칙:**\n';
+    prompt += '- 에러 해결을 위해 기존 파일을 삭제하지 마세요\n';
+    prompt += '- remove_file은 사용자가 명시적으로 요청한 경우에만 사용\n\n';
+
+    return prompt;
+}
+
+/**
  * 중요 규칙 프롬프트
  */
 export function getImportantRulesPrompt(): string {
@@ -242,9 +276,69 @@ export function getImportantRulesPrompt(): string {
 }
 
 /**
- * 전체 도구 프롬프트 섹션 생성
+ * 네이티브 API Function Call 모드용 도구 호출 형식 프롬프트
  */
-export function buildToolPromptSection(specs: ToolSpec[]): string {
+export function getNativeToolCallingFormatPrompt(): string {
+    let prompt = '## 도구 호출 규칙 (필수)\n\n';
+    prompt += '### 도구 호출 형식\n';
+    prompt += '**API Function Call을 사용하세요** — 텍스트 응답에 JSON이나 코드 블록을 출력하지 마세요.\n\n';
+    prompt += '모든 도구 호출은 API가 제공하는 function call 메커니즘으로만 수행하세요.\n\n';
+    prompt += '**⛔ 절대 금지 (사용하면 파싱 실패):**\n';
+    prompt += '- 텍스트 내 `{ "tool": "create_file", ... }` JSON 직접 출력\n';
+    prompt += '- `<file_content>...</file_content>` 코드 블록 형식\n';
+    prompt += '- 마크다운 코드 블록 내 도구 JSON\n\n';
+    prompt += '**✅ 올바른 방법:**\n';
+    prompt += '- API function call을 통해서만 도구 호출 (system이 자동 처리)\n';
+    prompt += '- `create_file`: `content` 파라미터에 파일 전체 내용 직접 전달\n';
+    prompt += '- `update_file`: `diff` 파라미터에 SEARCH/REPLACE 블록 전달\n\n';
+    return prompt;
+}
+
+/**
+ * 네이티브 모드용 도구 스펙 프롬프트 (코드 블록 예시 없음)
+ */
+export function getNativeToolSpecPrompt(spec: ToolSpec): string {
+    let prompt = `#### ${spec.name}\n`;
+    prompt += `${spec.description}\n\n`;
+
+    if (spec.name === Tool.UPDATE_FILE) {
+        prompt += '**⚠️ CRITICAL WARNING ⚠️**\n';
+        prompt += '`update_file`을 사용하기 전에 **반드시** `read_file`로 최신 파일 내용을 먼저 읽어야 합니다!\n';
+        prompt += '- 파일이 이미 수정되었을 수 있습니다\n';
+        prompt += '- 이전에 읽은 내용이나 추측을 기반으로 SEARCH 패턴을 만들면 실패합니다\n';
+        prompt += '- **항상 `read_file` → `update_file` 순서로 사용하세요**\n\n';
+
+        prompt += '**⚠️ SEARCH 블록 무결성 규칙 (필수) ⚠️**\n';
+        prompt += 'SEARCH 블록에는 반드시:\n';
+        prompt += '- **현재 파일의 내용을 그대로 복사**해서 사용하세요 (read_file 결과에서 복사)\n';
+        prompt += '- **수정 전 코드에 오타, 중복, 누락을 절대 만들지 마세요**\n';
+        prompt += '- SEARCH 블록이 현재 파일 내용과 정확히 일치하지 않으면 수정이 실패합니다\n\n';
+    }
+
+    prompt += '**파라미터:**\n';
+    for (const param of spec.parameters) {
+        prompt += `- \`${param.name}\`${param.required ? ' (필수)' : ' (선택)'}: ${param.description}\n`;
+    }
+    prompt += '\n';
+
+    return prompt;
+}
+
+/**
+ * 전체 도구 프롬프트 섹션 생성
+ * @param nativeMode true이면 API Function Call 형식 (코드 블록 금지)
+ */
+export function buildToolPromptSection(specs: ToolSpec[], nativeMode?: boolean): string {
+    if (nativeMode) {
+        let prompt = getNativeToolCallingFormatPrompt();
+        prompt += '### 사용 가능한 도구\n\n';
+        for (const spec of specs) {
+            prompt += getNativeToolSpecPrompt(spec);
+        }
+        prompt += getNativeWorkflowGuidelinePrompt();
+        return prompt;
+    }
+
     let prompt = getToolCallingFormatPrompt();
     prompt += '### 사용 가능한 도구\n\n';
 

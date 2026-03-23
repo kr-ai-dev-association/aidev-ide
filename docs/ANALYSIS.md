@@ -670,6 +670,439 @@ git에서 파악 가능:
 - 잘못되거나 오래된 메모리 → 수정 또는 삭제
 ```
 
+### A5.7 메모리 생명주기 — 삭제·갱신·정리 전략
+
+Claude Code 시스템 프롬프트에 명시된 메모리 관리 규칙 전체:
+
+#### 삭제 트리거 (5가지)
+
+```
+1. 사용자 명시 요청:
+   "이거 잊어", "forget X"
+   → 시스템 프롬프트: "If they ask you to forget something,
+      find and remove the relevant entry."
+
+2. Stale Memory 감지 (읽을 때 검증):
+   메모리를 recall할 때마다 현재 상태와 대조
+   → "If a recalled memory conflicts with the current codebase
+      or conversation, trust what you observe now — and update
+      or remove the stale memory rather than acting on it."
+
+   예시:
+     메모리: "AuthService는 src/auth/AuthService.ts에 있다"
+     현재:   해당 파일이 src/services/auth/로 이동됨
+     → 메모리 업데이트 또는 삭제
+
+3. 중복 감지 (쓸 때 체크):
+   "Do not write duplicate memories. First check if there is
+    an existing memory you can update before writing a new one."
+   → 새 메모리 저장 전 기존 메모리 검색 → 있으면 덮어쓰기
+
+4. MEMORY.md 200줄 하드 리밋:
+   "lines after 200 will be truncated"
+   → 인덱스가 200줄 넘으면 하위 항목이 잘림
+   → 자연스럽게 오래된/덜 중요한 메모리 밀려남
+   → 능동적으로 인덱스를 간결하게 유지해야 함
+
+5. 저장 불가 항목 필터링:
+   아래 항목은 애초에 저장하지 않음 (저장 요청해도 거절):
+   - 코드에서 파악 가능한 것 (패턴, 구조, 경로)
+   - git에서 파악 가능한 것 (히스토리, blame)
+   - 이미 문서화된 것 (CLAUDE.md)
+   - 임시 상태 (TodoWrite 사용)
+```
+
+#### 갱신 트리거 (3가지)
+
+```
+1. 같은 토픽에 새 정보 발생:
+   기존 메모리 파일의 content를 업데이트
+   name, description, type 필드도 함께 갱신
+
+2. 상대 날짜 → 절대 날짜 변환:
+   사용자: "목요일까지 머지 동결"
+   저장: "2026-03-26까지 머지 동결"
+   → "so the memory remains interpretable after time passes"
+
+3. 현재 코드와 불일치 발견:
+   삭제하지 않고 현재 상태로 갱신하는 경우
+   (메모리 자체가 여전히 유용하지만 세부 내용이 변경된 경우)
+```
+
+#### 메모리 생명주기 전체 흐름
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    메모리 생성                             │
+│  ├─ 사용자 "이거 기억해" / "remember X"                     │
+│  ├─ 피드백 감지 ("그거 하지마" / "perfect, keep doing that") │
+│  ├─ 프로젝트 정보 파악 (마감일, 담당자, 제약사항)               │
+│  └─ 외부 시스템 참조 발견 (Linear, Slack URL 등)            │
+└──────────────────────┬──────────────────────────────────┘
+                       ↓
+           ┌───────────────────────┐
+           │  중복 체크 (쓰기 전)     │
+           │  기존 메모리 검색        │
+           │  있으면 → 업데이트       │
+           │  없으면 → 새 파일 생성   │
+           └───────────┬───────────┘
+                       ↓
+           ┌───────────────────────┐
+           │  MEMORY.md 인덱스 갱신  │
+           │  200줄 제한 확인        │
+           └───────────┬───────────┘
+                       ↓
+┌──────────────────────────────────────────────────────────┐
+│                   메모리 사용 (recall)                      │
+│                                                           │
+│  1. MEMORY.md 로드 (대화 시작 시 자동)                       │
+│  2. 관련 메모리 파일 읽기                                    │
+│  3. ★ 검증 단계 ★                                         │
+│     ├─ 파일 경로 → 존재 여부 확인                             │
+│     ├─ 함수/플래그 → grep으로 확인                            │
+│     ├─ 현재 코드와 충돌 → 현재 코드 우선                       │
+│     └─ 리포 상태 요약 → git log 우선                         │
+│  4. 검증 통과 → 활용                                        │
+│     검증 실패 → 업데이트 또는 삭제                              │
+└──────────────────────────────────────────────────────────┘
+                       ↓
+┌──────────────────────────────────────────────────────────┐
+│                   메모리 삭제/정리                           │
+│  ├─ 사용자 "잊어" → 즉시 삭제                                │
+│  ├─ stale 감지 → 자동 삭제/갱신                              │
+│  ├─ 중복 발견 → 기존 것에 병합                                │
+│  ├─ 200줄 초과 → 인덱스에서 밀림                              │
+│  └─ 더 이상 관련 없음 → 정리                                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### CodePilot MemoryManager 구현 시 반영 포인트
+
+```typescript
+class MemoryManager {
+  // 생성 (중복 체크 포함)
+  async save(memory: Memory): Promise<void> {
+    const existing = await this.findByTopic(memory.name);
+    if (existing) {
+      await this.update(existing.name, memory.content);
+      return;
+    }
+    await this.writeFile(memory);
+    await this.updateIndex();
+    await this.enforceIndexLimit(200); // 하드 리밋
+  }
+
+  // 읽기 (검증 포함)
+  async recall(query: string): Promise<ValidatedMemory[]> {
+    const memories = await this.search(query);
+    const validated: ValidatedMemory[] = [];
+
+    for (const mem of memories) {
+      const validation = await this.validate(mem);
+      if (validation === 'valid') {
+        validated.push(mem);
+      } else if (validation === 'stale') {
+        await this.remove(mem.name); // 또는 update
+      }
+      // validation === 'irrelevant' → 무시
+    }
+    return validated;
+  }
+
+  // 검증 로직
+  private async validate(mem: Memory): Promise<'valid' | 'stale' | 'irrelevant'> {
+    // 파일 경로 메모리 → fs.existsSync 체크
+    if (mem.content.match(/\/(src|lib|test)\//)) {
+      const paths = this.extractPaths(mem.content);
+      for (const p of paths) {
+        if (!fs.existsSync(p)) return 'stale';
+      }
+    }
+    // 함수/클래스 메모리 → grep 체크
+    if (mem.type === 'reference' && mem.content.match(/function|class|interface/)) {
+      const symbols = this.extractSymbols(mem.content);
+      for (const sym of symbols) {
+        const found = await this.grepProject(sym);
+        if (!found) return 'stale';
+      }
+    }
+    return 'valid';
+  }
+
+  // 삭제
+  async remove(name: string): Promise<void> {
+    await fs.promises.unlink(this.getMemoryPath(name));
+    await this.updateIndex(); // MEMORY.md에서도 제거
+  }
+
+  // 인덱스 제한 강제
+  private async enforceIndexLimit(maxLines: number): Promise<void> {
+    const index = await fs.promises.readFile(this.indexPath, 'utf-8');
+    const lines = index.split('\n');
+    if (lines.length > maxLines) {
+      // 하위 항목 트렁케이트 (오래된 순)
+      const trimmed = lines.slice(0, maxLines).join('\n');
+      await fs.promises.writeFile(this.indexPath, trimmed);
+    }
+  }
+
+  // 저장 불가 항목 필터
+  private shouldSave(content: string, type: string): boolean {
+    // 코드에서 파악 가능한 내용은 저장 안 함
+    const codeDerivable = [
+      /file structure/i, /project layout/i,
+      /import from/i, /export default/i
+    ];
+    if (codeDerivable.some(r => r.test(content))) return false;
+
+    // git에서 파악 가능한 내용은 저장 안 함
+    const gitDerivable = [
+      /commit history/i, /who changed/i,
+      /recent commits/i, /git blame/i
+    ];
+    if (gitDerivable.some(r => r.test(content))) return false;
+
+    return true;
+  }
+}
+```
+
+### A5.8 메모리 트리거 아키텍처 — LLM 판단 vs 코드 감지
+
+#### Claude Code의 실제 방식: LLM이 판단 + 기존 도구로 실행
+
+Claude Code에는 `memory_save` 같은 전용 도구가 **없다**.
+시스템 프롬프트의 메모리 매뉴얼(~1500토큰)이 LLM에게 "언제, 어떻게, 뭘 저장할지" 가르치고,
+LLM이 판단하여 **기존 Write/Edit 도구**로 메모리 디렉토리에 파일을 쓴다.
+
+```
+사용자: "이 프로젝트는 4/1에 배포 동결이야, 기억해"
+
+LLM 내부 판단:
+  1. "기억해" 키워드 → 저장 필요
+  2. 날짜 정보 + 프로젝트 제약 → type: project
+  3. 상대 날짜 "4/1" → 절대 날짜 "2026-04-01"로 변환
+  4. 기존 메모리 중복 확인 → 없음 → 새로 생성
+
+LLM 도구 호출:
+  → Write("~/.claude/projects/.../memory/project_deploy_freeze.md", content)
+  → Edit("~/.claude/projects/.../memory/MEMORY.md", 인덱스에 추가)
+
+코드 레벨:
+  Write 도구 실행 → 파일 저장  (그냥 파일 쓰기)
+  Edit 도구 실행 → 인덱스 갱신  (그냥 파일 편집)
+  "기억해"를 감지하는 코드는 없음
+```
+
+#### CodePilot 구현 시: 3가지 방식 비교
+
+```
+방식 A: memory_save / memory_recall / memory_delete 도구 추가 ✅ 추천
+────────────────────────────────────────────────────────────────
+  LLM이 필요하다 판단 → memory_save 도구 호출
+  코드는 도구 실행만 담당
+
+  장점:
+    - 가장 깔끔 (Claude Code 방식과 동일 원리)
+    - 오탐 없음 (LLM이 맥락을 이해하고 판단)
+    - 기존 도구 파이프라인 그대로 사용
+    - 저장할 내용의 type, name, description을 LLM이 직접 결정
+
+  단점:
+    - 시스템 프롬프트에 메모리 매뉴얼 추가 필요 (~800-1500토큰)
+    - LLM이 저장을 "잊을" 수 있음 (확률 낮음)
+
+  구현:
+    tools/memory_save.ts  → { name, type, description, content }
+    tools/memory_recall.ts → { query } → Memory[]
+    tools/memory_delete.ts → { name }
+    ToolParser에 3개 도구 등록
+    시스템 프롬프트에 메모리 가이드 섹션 추가
+
+방식 B: ConversationManager에서 LLM 응답 후 2차 질의 ❌ 비추천
+────────────────────────────────────────────────────────────────
+  매 턴 끝에 "이 대화에서 저장할 내용 있나?" LLM 추가 호출
+
+  장점: 빠뜨림 없음
+  단점: LLM 호출 2배, 비용 2배, 레이턴시 증가
+        사용자에게 보이지 않는 숨겨진 호출 = 디버깅 어려움
+
+방식 C: 코드에서 키워드 패턴 매칭 ❌ 비추천
+────────────────────────────────────────────────────────────────
+  사용자 메시지에서 "기억해", "remember", "맞아", "perfect" 감지
+
+  장점: LLM 무관, 간단
+  단점: 오탐 심각
+    - "맞아 그건 아닌데" → 잘못된 피드백 저장
+    - "remember to close the DB connection" → 코드 지시를 메모리로 오인
+    - "perfect storm of bugs" → 긍정 피드백으로 오인
+```
+
+#### 방식 A 상세 구현
+
+```typescript
+// tools/handlers/memory_save.ts
+interface MemorySaveParams {
+  name: string;          // 파일명 (예: "user_senior_dev")
+  type: 'user' | 'feedback' | 'project' | 'reference';
+  description: string;   // 1줄 설명 (검색에 사용)
+  content: string;       // 메모리 내용
+}
+
+// tools/handlers/memory_recall.ts
+interface MemoryRecallParams {
+  query: string;         // 검색 쿼리
+}
+
+// tools/handlers/memory_delete.ts
+interface MemoryDeleteParams {
+  name: string;          // 삭제할 메모리 파일명
+}
+
+// 시스템 프롬프트 주입 (PromptComposer에 추가)
+const MEMORY_PROMPT = `
+## 메모리 시스템
+너는 영속적 메모리를 가지고 있다. 대화 간 정보를 유지하려면 memory_save 도구를 사용해라.
+
+### 저장 시점
+- 사용자가 "기억해", "remember" 요청 시 → 즉시 저장
+- 사용자가 행동을 교정할 때 ("하지마", "그만", "그렇게 하지 말고") → feedback 저장
+- 사용자가 비자명한 접근법을 확인할 때 ("맞아", "좋아, 계속 그렇게") → feedback 저장
+- 프로젝트 마감, 동결, 담당자 정보 파악 시 → project 저장
+- 외부 시스템 위치 파악 시 → reference 저장
+- 사용자가 "잊어" 요청 시 → memory_delete 호출
+
+### 저장하지 않는 것
+- 코드에서 파악 가능한 것 (파일 구조, 패턴)
+- git에서 파악 가능한 것 (히스토리, blame)
+- 임시 작업 상태
+
+### 현재 메모리 인덱스
+${memoryIndex}
+`;
+```
+
+### A5.9 메모리 만료 & 고아 파일 정리
+
+#### project 타입 날짜 자동 만료
+
+project 타입 메모리는 날짜 기반 만료가 필요하다.
+"2026-04-01 배포 동결" 같은 메모리는 해당 날짜가 지나면 자동으로 stale 처리해야 한다.
+
+```typescript
+// MemoryManager.validate() 확장
+private async validate(mem: Memory): Promise<'valid' | 'stale' | 'irrelevant'> {
+
+  // 기존 검증 (파일 경로, 함수/클래스) ...
+
+  // ★ 추가: project 타입 날짜 만료 체크
+  if (mem.type === 'project') {
+    const datePattern = /(\d{4}-\d{2}-\d{2})/g;
+    const dates = mem.content.match(datePattern);
+    if (dates) {
+      const now = new Date();
+      // 메모리에 언급된 모든 날짜가 과거인지 확인
+      const allExpired = dates.every(d => new Date(d) < now);
+      // 날짜가 "~까지", "deadline", "동결", "freeze" 등과 함께 쓰이면 만료 대상
+      const isDeadlineMemory = /까지|deadline|동결|freeze|release|배포|마감/i
+        .test(mem.content);
+      if (allExpired && isDeadlineMemory) {
+        return 'stale'; // → 자동 삭제
+      }
+    }
+  }
+
+  return 'valid';
+}
+```
+
+#### 고아 파일 정리 (Orphan Cleanup)
+
+MEMORY.md에서 빠졌지만 디스크에 남아있는 파일을 정리:
+
+```typescript
+// MemoryManager에 추가
+async cleanupOrphans(): Promise<string[]> {
+  const MAX_MEMORY_FILES = 100; // 실제 파일 수 하드 리밋
+
+  // 1. 디스크의 모든 메모리 파일 목록
+  const diskFiles = await fs.promises.readdir(this.memoryDir);
+  const memoryFiles = diskFiles.filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
+
+  // 2. MEMORY.md에서 참조되는 파일 목록
+  const index = await fs.promises.readFile(this.indexPath, 'utf-8');
+  const referencedFiles = new Set(
+    [...index.matchAll(/\[([^\]]+\.md)\]/g)].map(m => m[1])
+  );
+
+  // 3. 고아 파일 = 디스크에 있지만 인덱스에 없는 파일
+  const orphans = memoryFiles.filter(f => !referencedFiles.has(f));
+
+  // 4. 고아 파일 삭제
+  const deleted: string[] = [];
+  for (const orphan of orphans) {
+    await fs.promises.unlink(path.join(this.memoryDir, orphan));
+    deleted.push(orphan);
+  }
+
+  // 5. 파일 수 하드 리밋 초과 시 오래된 것부터 삭제
+  if (memoryFiles.length - deleted.length > MAX_MEMORY_FILES) {
+    const remaining = memoryFiles
+      .filter(f => !deleted.includes(f))
+      .map(f => ({
+        name: f,
+        mtime: fs.statSync(path.join(this.memoryDir, f)).mtime
+      }))
+      .sort((a, b) => a.mtime.getTime() - b.mtime.getTime());
+
+    const toDelete = remaining.slice(0, remaining.length - MAX_MEMORY_FILES);
+    for (const file of toDelete) {
+      await fs.promises.unlink(path.join(this.memoryDir, file.name));
+      deleted.push(file.name);
+    }
+    // 인덱스에서도 제거
+    await this.rebuildIndex();
+  }
+
+  return deleted;
+}
+
+// 호출 시점: 대화 시작 시 1회
+async onConversationStart(): Promise<void> {
+  await this.cleanupOrphans();   // 고아 파일 정리
+  await this.enforceIndexLimit(200); // 인덱스 200줄 제한
+}
+```
+
+#### 메모리 파일 제한 요약
+
+```
+┌──────────────────────────────────────────────────┐
+│              메모리 용량 관리 3단계                  │
+├──────────────────────────────────────────────────┤
+│                                                   │
+│  1단계: MEMORY.md 인덱스 200줄 제한                 │
+│    → 200줄 초과 시 하위 항목 트렁케이트               │
+│    → LLM이 접근할 수 있는 메모리 수 제한              │
+│                                                   │
+│  2단계: 메모리 파일 수 100개 하드 리밋                │
+│    → 100개 초과 시 오래된 파일부터 삭제               │
+│    → 디스크 공간 보호                               │
+│                                                   │
+│  3단계: 고아 파일 자동 정리                          │
+│    → 인덱스에 없는 파일 삭제                         │
+│    → 대화 시작 시 1회 실행                           │
+│                                                   │
+│  추가: project 타입 날짜 만료                        │
+│    → 마감일/동결일이 과거 → 자동 stale → 삭제        │
+│                                                   │
+│  추가: LLM 판단 기반 트리거 (방식 A)                  │
+│    → 코드에서 키워드 감지 하지 않음                    │
+│    → LLM이 memory_save 도구 호출                    │
+│    → 오탐 방지, 맥락 이해 기반 판단                   │
+└──────────────────────────────────────────────────┘
+```
+
 ---
 
 ## A6. 퍼미션 & 훅 시스템
@@ -686,30 +1119,780 @@ git에서 파악 가능:
   3. 사용자 거부 → 동일 호출 재시도 금지
      → AskUserQuestion으로 이유 파악
      → 대안 접근법 모색
+
+퍼미션 설정 변경:
+  사용자: "npm 명령은 항상 허용해"
+  → /update-config Skill 호출
+  → settings.json에 퍼미션 규칙 추가:
+    {
+      "permissions": {
+        "allow": ["Bash(npm *)"]
+      }
+    }
+  → 이후 npm 관련 Bash 호출은 자동 승인
 ```
 
-### A6.2 훅 시스템
+### A6.2 훅 시스템 상세
+
+#### 훅이란?
+
+사용자가 settings.json에 등록하는 **이벤트 기반 자동 실행 셸 명령**.
+"~할 때마다 ~해줘" 류의 요청을 처리하는 시스템이다.
+
+**메모리와 훅의 차이 (핵심)**:
 
 ```
-사용자가 settings.json에 등록하는 이벤트 핸들러:
+메모리 = LLM이 참고하는 "지식"
+  → "이 사용자는 시니어 개발자다" → LLM이 톤 조절
+  → 코드가 자동 실행하는 것 아님
 
-hook_type: "shell_command"
-trigger: "on_tool_call" | "on_file_save" | "on_commit" | ...
-
-결과는 <user-prompt-submit-hook> 등의 태그로 전달
-→ 사용자 입력과 동일하게 취급
-
-훅 실패 시:
-  1. 조정 가능한지 판단
-  2. 조정 가능 → 대응
-  3. 조정 불가 → 사용자에게 훅 설정 확인 요청
+훅 = 코드가 자동 실행하는 "행동"
+  → "파일 수정하면 prettier 돌려" → 코드가 기계적으로 실행
+  → LLM이 매번 판단하는 것 아님
 ```
 
-### A6.3 퍼미션과 훅의 관계
+#### 훅 등록 방식
 
 ```
-도구 호출 → 퍼미션 확인 → (허용) → 훅 실행 → 도구 실행 → 결과
-                        → (거부) → 재시도 금지, 대안 모색
+사용자: "파일 수정할 때마다 prettier 돌려줘"
+
+→ Claude Code가 판단: 이건 메모리가 아니라 훅이다
+→ /update-config Skill 호출
+→ settings.json에 훅 추가
+
+// ~/.claude/settings.json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "npx prettier --write $CLAUDE_FILE_PATH"
+      }
+    ]
+  }
+}
+```
+
+시스템 프롬프트에 이 판단 기준이 명시되어 있다:
+
+```
+update-config Skill 설명:
+  "Automated behaviors ('from now on when X', 'each time X',
+   'whenever X', 'before/after X') require hooks configured
+   in settings.json — the harness executes these, not Claude,
+   so memory/preferences cannot fulfill them."
+```
+
+#### 훅 이벤트 타입
+
+```
+PreToolUse    → 도구 실행 "전"에 셸 명령 실행
+                matcher로 어떤 도구에 적용할지 필터링
+                예: Edit 전에 파일 백업
+
+PostToolUse   → 도구 실행 "후"에 셸 명령 실행
+                예: Write 후에 prettier, eslint 실행
+
+UserPromptSubmit → 사용자가 메시지를 보낼 때
+                   예: 메시지 로깅, 작업 시간 추적
+```
+
+#### 훅 환경 변수
+
+```
+훅 명령에서 사용 가능한 변수:
+  $CLAUDE_FILE_PATH   → 도구가 처리한 파일 경로
+  $CLAUDE_TOOL_NAME   → 실행된 도구 이름
+  $CLAUDE_TOOL_INPUT  → 도구 입력 (JSON)
+  $CLAUDE_TOOL_OUTPUT → 도구 출력
+```
+
+#### 훅 실행 흐름
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 사용자 메시지 → LLM 응답 → 도구 호출 감지                      │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ 1. 퍼미션 확인                                                │
+│    자동 허용? → 계속                                           │
+│    수동 승인? → 사용자 프롬프트 → 허용/거부                      │
+│    거부? → 중단, 동일 호출 재시도 금지                           │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ 2. PreToolUse 훅 실행                                        │
+│    matcher 패턴 매칭 → 해당 훅의 command 실행                   │
+│    훅 실패 시:                                                │
+│      → 조정 가능? → 대응                                       │
+│      → 불가? → 사용자에게 훅 설정 확인 요청                      │
+│    훅 결과 → <user-prompt-submit-hook> 태그로 LLM에 전달       │
+│    → LLM은 훅 결과를 사용자 입력과 동일하게 취급                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ 3. 도구 실행                                                  │
+│    Edit/Write/Bash/... 실제 실행                               │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ 4. PostToolUse 훅 실행                                        │
+│    matcher 패턴 매칭 → 해당 훅의 command 실행                   │
+│    예: prettier, eslint, 테스트 실행                            │
+│    훅 결과 → LLM에 전달                                        │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ 5. 도구 결과를 LLM에 반환                                      │
+│    도구 출력 + 훅 결과 모두 포함                                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### 훅 사용 예시
+
+```json
+// ~/.claude/settings.json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        // 파일 삭제 전 확인
+        "matcher": "Bash",
+        "command": "echo $CLAUDE_TOOL_INPUT | grep -q 'rm ' && echo 'WARNING: 삭제 명령 감지' || true"
+      }
+    ],
+    "PostToolUse": [
+      {
+        // TypeScript 파일 수정 후 타입 체크
+        "matcher": "Edit|Write",
+        "command": "echo $CLAUDE_FILE_PATH | grep -q '.ts$' && npx tsc --noEmit || true"
+      },
+      {
+        // 모든 파일 수정 후 포매팅
+        "matcher": "Edit|Write",
+        "command": "npx prettier --write $CLAUDE_FILE_PATH 2>/dev/null || true"
+      },
+      {
+        // 테스트 파일 수정 후 해당 테스트만 실행
+        "matcher": "Edit|Write",
+        "command": "echo $CLAUDE_FILE_PATH | grep -q '.test.' && npx jest $CLAUDE_FILE_PATH --no-coverage || true"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        // 작업 시간 로깅
+        "command": "echo \"$(date): user prompt\" >> ~/.claude/activity.log"
+      }
+    ]
+  }
+}
+```
+
+#### "~할 때마다 ~해줘" 요청 분류 체계
+
+```
+사용자 요청                          → 저장 위치    → 시스템
+──────────────────────────────────────────────────────────────
+"파일 수정하면 prettier 돌려"         → hooks        → Hook
+"커밋 전에 테스트 돌려"               → hooks        → Hook
+"npm은 항상 허용해"                  → permissions   → 퍼미션
+"이 사용자는 Go 전문가야"             → memory/       → 메모리
+"배포 동결은 4/1까지야"              → memory/       → 메모리
+"에러 메시지는 한국어로 써줘"          → memory/       → 메모리
+"DEBUG=true로 설정해"               → env           → 환경변수
+
+구분 기준:
+  자동 "실행"이 필요 → Hook (코드가 실행)
+  자동 "허용"이 필요 → 퍼미션 (도구 승인)
+  LLM이 "참고"하면 됨 → 메모리 (지식)
+  환경 변수 설정    → 환경변수
+```
+
+### A6.3 퍼미션과 훅의 실행 순서
+
+```
+사용자 메시지
+  ↓
+UserPromptSubmit 훅 (있으면)
+  ↓
+LLM 응답 생성
+  ↓
+도구 호출 감지
+  ↓
+퍼미션 확인 → 거부 시 중단
+  ↓
+PreToolUse 훅 → 실패 시 조정/중단
+  ↓
+도구 실행
+  ↓
+PostToolUse 훅
+  ↓
+결과 반환 → LLM 다음 턴
+```
+
+### A6.4 CodePilot과의 비교 & 구현 제안
+
+```
+현재 CodePilot:
+  - HotLoad 시스템 (키워드 → 명령 자동실행) → 훅과 유사하지만 방식 다름
+  - autoToolExecution: ON/OFF (전체 도구 일괄)
+  - validationCommand, formatterCommand (고정 2개만)
+
+Claude Code:
+  - Hook: 이벤트별 × 도구별 세분화된 자동 실행
+  - Permission: 도구별 세분화된 승인 정책
+  - /update-config Skill: 자연어로 훅/퍼미션 추가
+
+격차:
+  1. CodePilot은 validationCommand/formatterCommand가 고정
+     → 사용자가 "커밋 전에 lint 돌려"는 불가
+     → 훅 시스템으로 일반화 필요
+
+  2. CodePilot은 autoToolExecution이 전체 ON/OFF
+     → "read는 자동, write는 확인" 불가
+     → 도구별 퍼미션으로 세분화 필요
+
+  3. CodePilot은 HotLoad가 키워드 기반
+     → 훅은 이벤트 기반 → 더 정확하고 범용적
+
+구현 제안:
+  1. settings.json에 hooks 섹션 추가
+  2. ToolExecutor에서 Pre/PostToolUse 훅 실행 로직
+  3. 기존 validationCommand/formatterCommand를 훅으로 마이그레이션
+  4. /update-config 슬래시 커맨드로 자연어 훅 등록
+```
+
+```typescript
+// src/core/hooks/HookManager.ts
+interface Hook {
+  matcher?: string;   // 정규식: 어떤 도구에 적용할지
+  command: string;    // 실행할 셸 명령
+}
+
+interface HookConfig {
+  PreToolUse?: Hook[];
+  PostToolUse?: Hook[];
+  UserPromptSubmit?: Hook[];
+}
+
+class HookManager {
+  private config: HookConfig;
+
+  async executePreToolUse(toolName: string, input: any): Promise<HookResult> {
+    const hooks = this.config.PreToolUse || [];
+    for (const hook of hooks) {
+      if (!hook.matcher || new RegExp(hook.matcher).test(toolName)) {
+        const env = {
+          CLAUDE_TOOL_NAME: toolName,
+          CLAUDE_TOOL_INPUT: JSON.stringify(input),
+          CLAUDE_FILE_PATH: this.extractFilePath(input),
+        };
+        const result = await this.runCommand(hook.command, env);
+        if (result.exitCode !== 0) {
+          return { blocked: true, message: result.stderr };
+        }
+      }
+    }
+    return { blocked: false };
+  }
+
+  async executePostToolUse(toolName: string, input: any, output: any): Promise<string> {
+    const hooks = this.config.PostToolUse || [];
+    const results: string[] = [];
+    for (const hook of hooks) {
+      if (!hook.matcher || new RegExp(hook.matcher).test(toolName)) {
+        const env = {
+          CLAUDE_TOOL_NAME: toolName,
+          CLAUDE_TOOL_INPUT: JSON.stringify(input),
+          CLAUDE_TOOL_OUTPUT: JSON.stringify(output),
+          CLAUDE_FILE_PATH: this.extractFilePath(input),
+        };
+        const result = await this.runCommand(hook.command, env);
+        if (result.stdout.trim()) {
+          results.push(result.stdout.trim());
+        }
+      }
+    }
+    return results.join('\n');
+  }
+}
+```
+
+---
+
+## A17. System Reminder — 비동기 컨텍스트 주입
+
+### A17.1 개요
+
+Claude Code는 대화 도중 **비동기 이벤트**를 `<system-reminder>` 태그로 LLM 입력에 주입한다.
+도구 결과나 사용자 메시지 안에 삽입되며, LLM이 관련성을 판단하여 처리한다.
+
+### A17.2 시스템 프롬프트 명시 내용
+
+```
+"Tool results and user messages may include <system-reminder> or other tags.
+ Tags contain information from the system. They bear no direct relation to
+ the specific tool results or user messages in which they appear."
+```
+
+### A17.3 관찰된 System Reminder 종류
+
+```
+1. 현재 날짜 주입
+   <system-reminder>
+   Today's date is 2026-03-23.
+   IMPORTANT: this context may or may not be relevant to your tasks.
+   </system-reminder>
+
+2. 파일 외부 변경 알림
+   <system-reminder>
+   Note: /path/to/file.md was modified, either by the user or by a linter.
+   This change was intentional, so make sure to take it into account
+   (ie. don't revert it unless the user asks you to).
+   Don't tell the user this, since they are already aware.
+   Here are the relevant changes (shown with line numbers): ...
+   </system-reminder>
+
+3. Skill 목록 갱신
+   <system-reminder>
+   The following skills are available for use with the Skill tool:
+   - update-config: ...
+   - keybindings-help: ...
+   - simplify: ...
+   - loop: ...
+   - claude-api: ...
+   </system-reminder>
+
+4. TodoWrite 리마인더
+   <system-reminder>
+   The TodoWrite tool hasn't been used recently. If you're working on
+   tasks that would benefit from tracking progress, consider using it.
+   </system-reminder>
+
+5. IDE 파일 열기 알림
+   <ide_opened_file>
+   The user opened the file /path/to/file.ts in the IDE.
+   This may or may not be related to the current task.
+   </ide_opened_file>
+
+6. IDE 코드 선택 알림
+   <ide_selection>
+   The user selected lines 42-51 from /path/to/file.ts: ...
+   This may or may not be related to the current task.
+   </ide_selection>
+```
+
+### A17.4 핵심 설계 원칙
+
+```
+1. "관련 있을 수도 없을 수도 있다"
+   → 모든 리마인더에 "may or may not be relevant" 문구
+   → LLM이 맥락을 보고 판단
+
+2. 사용자에게 숨기는 정보
+   → 파일 외부 변경: "Don't tell the user this, since they are already aware"
+   → TodoWrite 리마인더: "NEVER mention this reminder to the user"
+   → LLM의 내부 행동 조절용, 사용자 대화에 노출하지 않음
+
+3. 주입 위치: 도구 결과 또는 메시지 내부
+   → 별도 메시지가 아닌 기존 메시지에 태그로 삽입
+   → API 메시지 수를 늘리지 않음 → 비용 절약
+```
+
+### A17.5 CodePilot 구현 제안
+
+```typescript
+// src/core/context/SystemReminderManager.ts
+class SystemReminderManager {
+  private pendingReminders: string[] = [];
+
+  // 리마인더 등록 (이벤트 발생 시)
+  addReminder(reminder: string): void {
+    this.pendingReminders.push(reminder);
+  }
+
+  // 다음 LLM 호출에 리마인더 주입
+  consumeReminders(): string {
+    if (this.pendingReminders.length === 0) return '';
+    const combined = this.pendingReminders
+      .map(r => `<system-reminder>\n${r}\n</system-reminder>`)
+      .join('\n');
+    this.pendingReminders = [];
+    return combined;
+  }
+}
+
+// 이벤트 소스들
+// 1. 파일 감시 (fs.watch)
+workspace.onDidSaveTextDocument(doc => {
+  if (isExternalChange(doc)) {
+    reminderManager.addReminder(
+      `${doc.fileName} was modified externally. Don't revert unless asked.`
+    );
+  }
+});
+
+// 2. IDE 파일 열기
+window.onDidChangeActiveTextEditor(editor => {
+  reminderManager.addReminder(
+    `User opened ${editor.document.fileName}. May or may not be relevant.`
+  );
+});
+
+// 3. 에디터 선택 변경
+window.onDidChangeTextEditorSelection(event => {
+  if (event.selections.length > 0 && !event.selections[0].isEmpty) {
+    const text = editor.document.getText(event.selections[0]);
+    reminderManager.addReminder(
+      `User selected code in ${editor.document.fileName}: ${text}`
+    );
+  }
+});
+
+// ConversationManager에서 LLM 호출 시 주입
+async sendToLLM(messages: Message[]): Promise<Response> {
+  const reminders = this.reminderManager.consumeReminders();
+  if (reminders) {
+    // 마지막 사용자 메시지에 리마인더 추가
+    const lastUserMsg = messages.findLast(m => m.role === 'user');
+    lastUserMsg.content += '\n' + reminders;
+  }
+  return await this.llm.send(messages);
+}
+```
+
+---
+
+## A18. TodoWrite — 대화 내 작업 추적
+
+### A18.1 개요
+
+Claude Code는 **대화 중** 작업 목록을 관리하는 TodoWrite 도구를 가지고 있다.
+메모리(대화 간 영속)와 달리 TodoWrite는 **현재 대화 내에서만** 유효하다.
+
+### A18.2 용도
+
+```
+메모리 ≠ Todo
+  메모리: 다음 대화에서도 기억해야 할 것
+  Todo: 지금 이 대화에서 해야 할 작업 목록
+
+사용 시점:
+  - 복잡한 멀티스텝 작업을 쪼갤 때
+  - 진행 상황을 사용자에게 보여줄 때
+  - 완료된 작업을 체크 표시할 때
+```
+
+### A18.3 시스템 프롬프트 지시
+
+```
+"Break down and manage your work with the TodoWrite tool.
+ These tools are helpful for planning your work and helping
+ the user track your progress. Mark each task as completed
+ as soon as you are done with the task. Do not batch up
+ multiple tasks before marking them as completed."
+```
+
+### A18.4 작업 흐름 예시
+
+```
+사용자: "로그인 시스템 만들어줘"
+
+LLM 판단: 복잡한 작업 → Todo로 분할
+
+TodoWrite 호출:
+  [
+    { id: "1", task: "User 모델 생성", status: "in_progress" },
+    { id: "2", task: "로그인 API 엔드포인트", status: "pending" },
+    { id: "3", task: "JWT 토큰 발급", status: "pending" },
+    { id: "4", task: "미들웨어 작성", status: "pending" },
+    { id: "5", task: "테스트 작성", status: "pending" }
+  ]
+
+→ User 모델 완료 후 즉시:
+  TodoWrite: task "1" → status: "completed"
+  TodoWrite: task "2" → status: "in_progress"
+
+→ 하나씩 진행하며 실시간 업데이트
+```
+
+### A18.5 CodePilot과의 비교
+
+```
+현재 CodePilot:
+  - TaskQueue/TaskPlan 시스템이 있음 (FSM PLAN 단계)
+  - 하지만 LLM이 직접 호출하는 "도구"가 아닌 코드 로직
+  - 사용자에게 진행 상황 표시는 processing-steps.js가 담당
+
+Claude Code:
+  - LLM이 TodoWrite 도구를 직접 호출
+  - LLM이 작업 분할, 진행 표시, 완료 체크를 자율적으로 결정
+  - 사용자 UI에 체크리스트로 표시
+
+격차:
+  CodePilot의 TaskQueue는 코드가 관리하지만,
+  Claude Code의 TodoWrite는 LLM이 관리한다.
+  → LLM이 더 유연하게 작업을 분할하고 재구성할 수 있음
+```
+
+---
+
+## A19. Cron — 반복 작업 스케줄링
+
+### A19.1 개요
+
+Claude Code는 반복적인 작업을 스케줄링하는 Cron 시스템을 가지고 있다.
+
+### A19.2 도구
+
+```
+CronCreate  → 반복 작업 생성
+CronDelete  → 반복 작업 삭제
+CronList    → 등록된 반복 작업 목록
+```
+
+### A19.3 /loop Skill과의 연동
+
+```
+사용자: "/loop 5m /babysit-prs"
+
+→ /loop Skill 호출
+→ 5분 간격으로 /babysit-prs 실행
+→ 내부적으로 CronCreate 사용
+
+사용 예:
+  /loop 5m "배포 상태 확인"
+  /loop 10m "PR 리뷰 코멘트 확인"
+  /loop 30m "테스트 결과 확인"
+```
+
+### A19.4 CodePilot 구현 제안
+
+```typescript
+// src/core/cron/CronManager.ts
+interface CronJob {
+  id: string;
+  interval: number;      // ms
+  prompt: string;        // 실행할 프롬프트 또는 슬래시 커맨드
+  lastRun?: number;
+  status: 'active' | 'paused';
+}
+
+class CronManager {
+  private jobs = new Map<string, CronJob>();
+  private timers = new Map<string, NodeJS.Timer>();
+
+  create(interval: number, prompt: string): string {
+    const id = generateId();
+    const job: CronJob = { id, interval, prompt, status: 'active' };
+    this.jobs.set(id, job);
+    this.timers.set(id, setInterval(() => {
+      this.execute(job);
+    }, interval));
+    return id;
+  }
+
+  private async execute(job: CronJob): Promise<void> {
+    job.lastRun = Date.now();
+    // ConversationManager에 프롬프트 전달
+    await this.conversationManager.sendSystemMessage(job.prompt);
+  }
+
+  delete(id: string): void {
+    clearInterval(this.timers.get(id));
+    this.timers.delete(id);
+    this.jobs.delete(id);
+  }
+
+  list(): CronJob[] {
+    return Array.from(this.jobs.values());
+  }
+}
+```
+
+---
+
+## A20. AskUserQuestion — 구조화된 사용자 질문
+
+### A20.1 개요
+
+LLM이 사용자에게 **구조화된 질문**을 보내는 도구.
+채팅 메시지와 달리 선택지, 확인 버튼 등을 제공할 수 있다.
+
+### A20.2 사용 시점
+
+```
+1. 모호한 요청의 명확화
+   사용자: "이거 수정해줘"
+   LLM: AskUserQuestion("어떤 파일을 수정할까요?",
+     options: ["src/app.ts", "src/index.ts", "src/main.ts"])
+
+2. 위험 작업 확인
+   LLM: AskUserQuestion("이 작업은 되돌릴 수 없습니다. 계속할까요?",
+     options: ["예, 계속", "아니오, 취소"])
+
+3. 퍼미션 거부 후 이유 파악
+   도구 거부됨 → AskUserQuestion("이 도구를 거부하신 이유를 알 수 있을까요?")
+```
+
+### A20.3 CodePilot과의 비교
+
+```
+현재 CodePilot: 채팅 메시지로 질문 → 사용자가 텍스트로 답변
+Claude Code: 구조화된 질문 → 선택지 UI 가능
+
+구현 제안:
+  - ask_user 도구 추가
+  - 웹뷰에 선택지 버튼 렌더링
+  - 사용자 선택을 tool_result로 LLM에 반환
+```
+
+---
+
+## A21. 백그라운드 작업 실행
+
+### A21.1 Bash 백그라운드 실행
+
+```
+Bash 도구 파라미터:
+  run_in_background: true
+  → 명령을 백그라운드에서 실행
+  → 완료 시 자동 알림
+  → 기다리지 않고 다른 작업 계속 가능
+
+시스템 프롬프트:
+  "You can use the run_in_background parameter to run the command
+   in the background. You will be automatically notified when it
+   completes — do NOT sleep, poll, or proactively check on progress."
+```
+
+### A21.2 TaskOutput / TaskStop 도구
+
+```
+TaskOutput → 백그라운드 작업의 출력 확인
+TaskStop   → 실행 중인 백그라운드 작업 중지
+```
+
+### A21.3 Agent 백그라운드 실행
+
+```
+Agent 도구 파라미터:
+  run_in_background: true
+  → 서브에이전트를 백그라운드에서 실행
+  → 완료 시 자동 알림
+
+시스템 프롬프트:
+  "Use foreground (default) when you need the agent's results
+   before you can proceed. Use background when you have
+   genuinely independent work to do in parallel."
+```
+
+### A21.4 실행 흐름
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 사용자: "테스트 돌리면서 다른 파일도 수정해줘"                 │
+└──────────────────────────┬───────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────┐
+│ LLM 판단: 테스트와 파일 수정은 독립적                        │
+│                                                           │
+│ 1. Bash(run_in_background: true)                          │
+│    command: "npm test"                                    │
+│    → 백그라운드에서 실행 시작                                │
+│                                                           │
+│ 2. (기다리지 않고) Edit 도구로 파일 수정                     │
+│    → 수정 완료                                             │
+│                                                           │
+│ 3. [시스템 알림] 백그라운드 작업 완료                         │
+│    → TaskOutput으로 결과 확인                               │
+│    → 테스트 실패 시 대응                                    │
+└──────────────────────────────────────────────────────────┘
+```
+
+### A21.5 CodePilot과의 비교
+
+```
+현재 CodePilot:
+  - run_command는 동기 실행만 지원
+  - 명령 완료까지 다음 작업 진행 불가
+  - 오래 걸리는 빌드/테스트 중 대기
+
+Claude Code:
+  - 백그라운드 실행 + 완료 알림
+  - 메인 작업과 병렬 진행
+  - TaskOutput/TaskStop으로 관리
+
+구현 제안:
+  run_command에 background 옵션 추가
+  → child_process.spawn (detached)
+  → 완료 시 system-reminder로 LLM에 알림
+  → 웹뷰에 실행 중 태스크 표시 UI
+```
+
+```typescript
+// src/tools/handlers/run_command.ts 확장
+interface RunCommandParams {
+  command: string;
+  cwd?: string;
+  timeout?: number;
+  background?: boolean;  // ★ 추가
+}
+
+class BackgroundTaskManager {
+  private tasks = new Map<string, ChildProcess>();
+
+  async runInBackground(command: string): Promise<string> {
+    const id = generateId();
+    const child = spawn('sh', ['-c', command], { detached: true });
+
+    this.tasks.set(id, child);
+
+    child.on('exit', (code) => {
+      const output = this.collectOutput(child);
+      // System Reminder로 완료 알림
+      this.reminderManager.addReminder(
+        `Background task "${command}" completed with exit code ${code}.\n` +
+        `Output: ${output.slice(0, 2000)}`
+      );
+      this.tasks.delete(id);
+    });
+
+    return id; // LLM에 task ID 반환
+  }
+
+  getOutput(id: string): string { /* ... */ }
+  stop(id: string): void { /* ... */ }
+}
+```
+
+---
+
+## A22. Fast Mode — 모델 속도 전환
+
+### A22.1 개요
+
+```
+시스템 프롬프트:
+  "Fast mode for Claude Code uses the same Claude Opus 4.6 model
+   with faster output. It does NOT switch to a different model.
+   It can be toggled with /fast."
+
+→ 같은 모델이지만 출력 속도 최적화
+→ /fast 명령으로 토글
+→ 추론 깊이 조절 (thinking 축소 등)로 속도 향상 추정
+```
+
+### A22.2 CodePilot 적용
+
+```
+CodePilot에는 이미 thinkingEnabled 토글이 있음.
+추가로 고려할 것:
+  - max_tokens 축소 (빠른 응답)
+  - temperature 조절
+  - 스트리밍 청크 크기 최적화
+  - "빠른 모드"에서는 탐색 단계 축소 (FSM 단계 간소화)
 ```
 
 ---

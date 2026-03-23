@@ -21,6 +21,7 @@ export function setupAgentPolicyFileUpload(config, vscode) {
     uploadCommand,
   } = config;
 
+  const { uploadCommand, category: configCategory } = config;
   const fileInput = document.getElementById(inputId);
   const selectButton = document.getElementById(selectButtonId);
   const uploadButton = document.getElementById(uploadButtonId);
@@ -57,6 +58,7 @@ export function setupAgentPolicyFileUpload(config, vscode) {
         uploadButton.disabled = false;
         uploadButton.dataset.mdContent = mdContent;
         uploadButton.dataset.xmlContent = mdContent; // 호환성을 위해 xmlContent도 저장
+        uploadButton.dataset.fileName = file.name; // 다중 파일 모드(global-rules)용
       };
       reader.onerror = () => {
         showStatus(statusElement, "파일 읽기 실패", "error");
@@ -78,19 +80,34 @@ export function setupAgentPolicyFileUpload(config, vscode) {
         "agent-policy-project-architecture-input": "project-architecture",
         "agent-policy-dependency-policy-input": "dependency-policy",
         "agent-policy-db-policy-input": "db-policy",
+        "agent-policy-global-rules-input": "global-rules",
       };
-      const category = categoryMap[inputId];
+      const category = configCategory || categoryMap[inputId];
       if (category) {
         const { type, description } = getPolicyTypeSelection(category);
         mdContent = injectFrontmatter(mdContent, type, description);
       }
       showStatus(statusElement, "저장 중...", "info");
       uploadButton.disabled = true;
-      vscode.postMessage({
-        command: uploadCommand,
-        mdContent: mdContent,
-        xmlContent: mdContent,
-      });
+      // addAgentPolicyFile 모드: 파일명과 함께 다중 파일 방식으로 전송
+      if (uploadCommand === "addAgentPolicyFile" && category) {
+        const fileName = uploadButton.dataset.fileName || "global-rules.md";
+        const { type: policyType, description: skillDescription } = getPolicyTypeSelection(category);
+        vscode.postMessage({
+          command: "addAgentPolicyFile",
+          category,
+          fileName,
+          content: mdContent,
+          policyType,
+          skillDescription,
+        });
+      } else {
+        vscode.postMessage({
+          command: uploadCommand,
+          mdContent: mdContent,
+          xmlContent: mdContent,
+        });
+      }
     }
   });
 
@@ -108,6 +125,7 @@ export function setupAgentPolicyFileUpload(config, vscode) {
         "agent-policy-dependency-policy-input":
           "deleteAgentPolicyDependencyPolicy",
         "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy",
+        // global-rules는 개별 파일 삭제(deleteAgentPolicyFile)를 사용하므로 레거시 삭제 없음
       };
       const deleteCommand = deleteCommandMap[inputId];
       if (deleteCommand && vscode) {
@@ -249,6 +267,15 @@ export function initAgentPolicyUploads(vscode) {
       fileNameId: "db-policy-file-name",
       uploadCommand: "uploadAgentPolicyDbPolicy",
     },
+    {
+      inputId: "agent-policy-global-rules-input",
+      selectButtonId: "select-global-rules-button",
+      uploadButtonId: "upload-global-rules-button",
+      statusId: "global-rules-status",
+      fileNameId: "global-rules-file-name",
+      uploadCommand: "addAgentPolicyFile",  // 글로벌은 다중 파일 방식 사용
+      category: "global-rules",
+    },
   ];
 
   policyConfigs.forEach((config) => {
@@ -262,6 +289,7 @@ export function initAgentPolicyUploads(vscode) {
     { category: "project-architecture", pathInputId: "path-project-architecture-input", buttonId: "add-path-project-architecture-button", statusId: "project-architecture-status" },
     { category: "dependency-policy", pathInputId: "path-dependency-policy-input", buttonId: "add-path-dependency-policy-button", statusId: "dependency-policy-status" },
     { category: "db-policy", pathInputId: "path-db-policy-input", buttonId: "add-path-db-policy-button", statusId: "db-policy-status" },
+    { category: "global-rules", pathInputId: "path-global-rules-input", buttonId: "add-path-global-rules-button", statusId: "global-rules-status" },
   ];
   pathConfigs.forEach(({ category, pathInputId, buttonId, statusId }) => {
     setupAgentPolicyPathInput({ category, pathInputId, buttonId, statusId }, vscode);
@@ -317,6 +345,7 @@ export function handleAgentPolicyPathAddResult(category, success, message) {
     "project-architecture": "project-architecture-status",
     "dependency-policy": "dependency-policy-status",
     "db-policy": "db-policy-status",
+    "global-rules": "global-rules-status",
   };
   const pathInputMap = {
     "stable-version": "path-stable-version-input",
@@ -324,6 +353,7 @@ export function handleAgentPolicyPathAddResult(category, success, message) {
     "project-architecture": "path-project-architecture-input",
     "dependency-policy": "path-dependency-policy-input",
     "db-policy": "path-db-policy-input",
+    "global-rules": "path-global-rules-input",
   };
   const buttonMap = {
     "stable-version": "add-path-stable-version-button",
@@ -331,6 +361,7 @@ export function handleAgentPolicyPathAddResult(category, success, message) {
     "project-architecture": "add-path-project-architecture-button",
     "dependency-policy": "add-path-dependency-policy-button",
     "db-policy": "add-path-db-policy-button",
+    "global-rules": "add-path-global-rules-button",
   };
 
   const statusElement = document.getElementById(statusMap[category]);

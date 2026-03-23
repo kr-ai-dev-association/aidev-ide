@@ -9,7 +9,7 @@ import { ILLMProvider } from './ILLMProvider';
 import { buildRequest, assertResponseField } from './providerUtils';
 
 export class OpenAICompatProvider implements ILLMProvider {
-    constructor(private config: AdminModelConfig) {}
+    constructor(private config: AdminModelConfig) { }
 
     async send(
         messageOrParts: string | AdminModelMessagePart[],
@@ -150,6 +150,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         let lastFinishReason = '';
         // OpenCode 방식: 배열 위치 기반 (Gemini는 index 필드를 안 보냄 → length 폴백)
         const streamingToolCalls: Array<{ id: string; name: string; argumentsStr: string }> = [];
+        const firedNativeIndices = new Set<number>();
 
         while (true) {
             const { done, value } = await reader.read();
@@ -166,6 +167,16 @@ export class OpenAICompatProvider implements ILLMProvider {
                 if (data === '[DONE]') {
                     const maxTokensReached = lastFinishReason === 'length';
                     if (maxTokensReached) { console.log('[OpenAICompatProvider] ⚠️ MAX_TOKENS reached in streaming'); }
+                    // Fire onNativeToolComplete for any remaining unfired tool_calls
+                    for (let i = 0; i < streamingToolCalls.length; i++) {
+                        if (streamingToolCalls[i] && !firedNativeIndices.has(i)) {
+                            firedNativeIndices.add(i);
+                            try {
+                                const args = streamingToolCalls[i].argumentsStr ? JSON.parse(streamingToolCalls[i].argumentsStr) : {};
+                                options?.onNativeToolComplete?.(streamingToolCalls[i].name, args);
+                            } catch { /* skip */ }
+                        }
+                    }
                     const validToolCalls = streamingToolCalls.filter(tc => tc.name);
                     if (validToolCalls.length > 0) {
                         const converted = validToolCalls.map(tc => {
@@ -191,7 +202,7 @@ export class OpenAICompatProvider implements ILLMProvider {
                     const delta = parsed.choices?.[0]?.delta;
                     // 첫 청크: 어떤 필드가 오는지 확인
                     if (delta && Object.keys(delta).length > 0 && fullText.length === 0 && thinkingText.length === 0) {
-                        console.log('[OpenAICompatProvider] 🔍 first delta keys:', JSON.stringify(Object.keys(delta)));
+                        console.log('[OpenAICompatProvider] first delta keys:', JSON.stringify(Object.keys(delta)));
                         if (delta.thinking !== undefined) console.log('[OpenAICompatProvider] 🧠 thinking field exists');
                         if (delta.reasoning_content !== undefined) console.log('[OpenAICompatProvider] 🧠 reasoning_content field exists');
                     }
@@ -216,6 +227,16 @@ export class OpenAICompatProvider implements ILLMProvider {
                         for (const tc of toolCallDeltas) {
                             const pos = (tc.index as number | undefined) ?? streamingToolCalls.length;
                             if (streamingToolCalls[pos] == null) {
+                                // New tool_call starting — fire callback for all previous unfired indices
+                                for (let i = 0; i < pos; i++) {
+                                    if (streamingToolCalls[i] && !firedNativeIndices.has(i)) {
+                                        firedNativeIndices.add(i);
+                                        try {
+                                            const args = streamingToolCalls[i].argumentsStr ? JSON.parse(streamingToolCalls[i].argumentsStr) : {};
+                                            options?.onNativeToolComplete?.(streamingToolCalls[i].name, args);
+                                        } catch { /* skip */ }
+                                    }
+                                }
                                 streamingToolCalls[pos] = {
                                     id: tc.id ?? `tc_${pos}`,
                                     name: tc.function?.name ?? '',

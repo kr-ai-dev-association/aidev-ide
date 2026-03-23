@@ -526,19 +526,25 @@ export class AgentPolicyHandler {
           })();
 
           // 카테고리 검증
-          const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+          const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy', 'global-rules'];
           if (!validCategories.includes(category)) {
             throw new Error(`유효하지 않은 카테고리: ${category}`);
           }
 
-          // 워크스페이스 루트 가져오기
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          if (!workspaceRoot) {
-            throw new Error("워크스페이스가 열려있지 않습니다.");
+          // 글로벌 규칙은 globalStorageUri에 저장 (워크스페이스 불필요)
+          // 그 외는 storageUri + 워크스페이스 필요
+          if (category !== 'global-rules') {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+              throw new Error("워크스페이스가 열려있지 않습니다.");
+            }
           }
 
-          // storageUri/rules/{category} 디렉토리 생성
-          const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
+          // storageUri/rules/{category} 또는 globalStorageUri/rules/global-rules 디렉토리 생성
+          const categoryBaseDir = category === 'global-rules'
+            ? context.globalStorageUri.fsPath
+            : context.storageUri!.fsPath;
+          const categoryDir = path.join(categoryBaseDir, "rules", category);
           const categoryDirUri = vscode.Uri.file(categoryDir);
           await vscode.workspace.fs.createDirectory(categoryDirUri);
 
@@ -576,7 +582,7 @@ export class AgentPolicyHandler {
       case "addPathAgentPolicy": // 경로 입력으로 파일 추가
         try {
           const { category, filePath: srcFilePath, policyType: pathPolicyType, skillDescription: pathSkillDesc } = data;
-          const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+          const validCategories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy', 'global-rules'];
           if (!category || !validCategories.includes(category)) {
             throw new Error(`유효하지 않은 카테고리: ${category}`);
           }
@@ -616,8 +622,11 @@ export class AgentPolicyHandler {
           }
           let safeFileName = baseName.replace(/[<>:"/\\|?*]/g, '_');
 
-          // storageUri/rules/{category} 디렉토리 생성
-          const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
+          // global-rules는 globalStorageUri, 나머지는 storageUri에 저장
+          const pathBaseDir = category === 'global-rules'
+            ? context.globalStorageUri.fsPath
+            : context.storageUri!.fsPath;
+          const categoryDir = path.join(pathBaseDir, "rules", category);
           await vscode.workspace.fs.createDirectory(vscode.Uri.file(categoryDir));
 
           // 파일 저장
@@ -666,9 +675,14 @@ export class AgentPolicyHandler {
 
           let deleted = false;
 
+          // global-rules는 globalStorageUri, 나머지는 storageUri
+          const deleteBaseDir = category === 'global-rules'
+            ? context.globalStorageUri.fsPath
+            : context.storageUri!.fsPath;
+
           if (isLegacy) {
-            // 레거시 파일: .agent/rules/{fileName}
-            const legacyPath = path.join(context.storageUri!.fsPath, "rules", targetFileName);
+            // 레거시 파일: rules/{fileName}
+            const legacyPath = path.join(deleteBaseDir, "rules", targetFileName);
             try {
               const legacyUri = vscode.Uri.file(legacyPath);
               await vscode.workspace.fs.stat(legacyUri);
@@ -678,8 +692,8 @@ export class AgentPolicyHandler {
               console.warn(`[SettingsPanel] Legacy file not found: ${legacyPath}`, e.message);
             }
           } else {
-            // 새 구조 파일: .agent/rules/{category}/{fileName}
-            const newStructurePath = path.join(context.storageUri!.fsPath, "rules", category, targetFileName);
+            // 새 구조 파일: rules/{category}/{fileName}
+            const newStructurePath = path.join(deleteBaseDir, "rules", category, targetFileName);
             try {
               const newUri = vscode.Uri.file(newStructurePath);
               await vscode.workspace.fs.stat(newUri);
@@ -717,7 +731,7 @@ export class AgentPolicyHandler {
 
       case "listAllAgentPolicyFiles": // 모든 카테고리의 파일 목록 조회
         try {
-          const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy'];
+          const categories = ['stable-version', 'coding-style', 'project-architecture', 'dependency-policy', 'db-policy', 'global-rules'];
           const allFiles: Record<string, string[]> = {};
           const allFileTypes: Record<string, Record<string, string>> = {}; // { category: { filename: 'rule'|'skill' } }
 
@@ -733,7 +747,11 @@ export class AgentPolicyHandler {
             allFiles[category] = [];
             allFileTypes[category] = {};
 
-            const categoryDir = path.join(context.storageUri!.fsPath, "rules", category);
+            // global-rules는 globalStorageUri, 나머지는 storageUri
+            const listBaseDir = category === 'global-rules'
+              ? context.globalStorageUri.fsPath
+              : context.storageUri!.fsPath;
+            const categoryDir = path.join(listBaseDir, "rules", category);
 
             // 디렉토리가 존재하면 파일 목록 조회
             try {
@@ -768,11 +786,12 @@ export class AgentPolicyHandler {
                   'coding-style': 'coding-style.md',
                   'project-architecture': 'project-architecture.md',
                   'dependency-policy': 'dependency-policy.md',
-                  'db-policy': 'db-policy.md'
+                  'db-policy': 'db-policy.md',
+                  'global-rules': 'global-rules.md',
                 };
                 const legacyFile = legacyFileMap[category];
                 if (legacyFile) {
-                  const legacyPath = path.join(context.storageUri!.fsPath, "rules", legacyFile);
+                  const legacyPath = path.join(listBaseDir, "rules", legacyFile);
                   try {
                     await vscode.workspace.fs.stat(vscode.Uri.file(legacyPath));
                     allFiles[category].push(legacyFile + ' (레거시)');

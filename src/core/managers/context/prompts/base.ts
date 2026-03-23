@@ -169,17 +169,14 @@ export function getFileExistenceCheckRules(): string {
 2. create_file("src/components/NewFeature.tsx") → 새 파일 생성`;
 }
 
-export function getNoThinkingLeakageRules(): string {
-  return `**⚠️ 중요: Thinking 누출 절대 금지**
-
-**절대 하지 말 것:**
-- ❌ "I think...", "I believe...", "Let me think...", "Let's see..." 같은 영어 사고 과정 출력
-- ❌ "생각해보니...", "아마도...", "추측하건대..." 같은 한국어 사고 과정 출력
-- ❌ "We need to...", "We should...", "According to..." 같은 추론 과정 출력
-- ❌ "But the rule says...", "However the instruction..." 같은 규칙 해석 출력
-- ❌ 내부 사고 과정을 설명하는 모든 텍스트
-
-**올바른 응답:**
+export function getNoThinkingLeakageRules(nativeMode?: boolean): string {
+  const toolCallExample = nativeMode
+    ? `**올바른 응답:**
+- ✅ API function call로 도구 호출
+- ✅ create_file은 content 파라미터에 파일 내용 직접 전달
+- ✅ 최종 결과나 요약만 한국어로 간결하게 출력
+- ✅ 사고 과정은 thinking 필드에만 포함 (시스템이 자동 처리)`
+    : `**올바른 응답:**
 - ✅ { "tool": "..." } 형식으로 도구 호출
 - ✅ 파일 내용은 <file_content> ... </file_content> 블록 사용
 - ✅ 최종 결과나 요약만 한국어로 간결하게 출력
@@ -198,14 +195,25 @@ export function getNoThinkingLeakageRules(): string {
 // Button component
 export const Button = () => <button>Click</button>;
 </file_content>
-\`\`\`
+\`\`\``;
+
+  return `**⚠️ 중요: Thinking 누출 절대 금지**
+
+**절대 하지 말 것:**
+- ❌ "I think...", "I believe...", "Let me think...", "Let's see..." 같은 영어 사고 과정 출력
+- ❌ "생각해보니...", "아마도...", "추측하건대..." 같은 한국어 사고 과정 출력
+- ❌ "We need to...", "We should...", "According to..." 같은 추론 과정 출력
+- ❌ "But the rule says...", "However the instruction..." 같은 규칙 해석 출력
+- ❌ 내부 사고 과정을 설명하는 모든 텍스트
+
+${toolCallExample}
 
 **⚠️ 중요:** 모든 thinking, reasoning, explanation은 시스템의 thinking 필드에만 있어야 하며, 최종 response에는 절대 포함되지 않아야 합니다.`;
 }
 
 // ==================== Base Rules ====================
-export function getBaseRules(): string {
-  const noThinkingLeakage = getNoThinkingLeakageRules();
+export function getBaseRules(nativeMode?: boolean): string {
+  const noThinkingLeakage = getNoThinkingLeakageRules(nativeMode);
 
   return `${noThinkingLeakage}
 
@@ -223,7 +231,7 @@ export function getBaseRules(): string {
 
 3. **행동 우선**:
    - "해야 한다", "조사하겠다" 같은 설명만 하지 말 것
-   - 즉시 { "tool": "..." } 형식으로 도구 호출
+   - 즉시 도구 호출 (${nativeMode ? 'API function call 사용' : '{ "tool": "..." } 형식 사용'})
    - 규칙 충돌로 멈추지 마세요. 의심스러우면 파일을 읽고 실행하세요.
 
 4. **실행 중심**:
@@ -251,7 +259,11 @@ export function getBaseRules(): string {
   시스템이 자동으로 차단하고 적절한 메시지를 반환합니다.
   직접 거부 메시지를 출력하지 말고 도구 호출 결과에 따라 대응하세요.
 
-**예시 (SQL 파일 생성):**
+${nativeMode ? `**예시 (SQL 파일 생성):**
+✅ 올바른 흐름: read_file로 기존 파일 확인 → create_file(backend/schema.sql, content 파라미터로 내용 전달)
+
+❌ 잘못된 흐름:
+"We need to read the file first. According to the rule..." (아무 행동 없음)` : `**예시 (SQL 파일 생성):**
 ✅ 올바른 흐름:
 \`\`\`
 { "tool": "read_file", "path": "backend/src/index.ts" }
@@ -263,12 +275,18 @@ CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));
 \`\`\`
 
 ❌ 잘못된 흐름:
-"We need to read the file first. According to the rule..." (아무 행동 없음)`;
+"We need to read the file first. According to the rule..." (아무 행동 없음)`}`;
 }
 
 // ==================== File Operations ====================
-export function getFileOperationsRules(): string {
-  return `파일 작업 형식:
+export function getFileOperationsRules(nativeMode?: boolean): string {
+  const formatHeader = nativeMode
+    ? `파일 작업 형식:
+
+**API function call 사용**
+- create_file: path + content 파라미터로 파일 내용 직접 전달
+- update_file: path + diff 파라미터로 SEARCH/REPLACE 블록 전달`
+    : `파일 작업 형식:
 
 **{ "tool": "..." } 형식 사용**
 - 파일 생성/수정 시 <file_content> ... </file_content> 블록으로 내용 지정
@@ -276,7 +294,9 @@ export function getFileOperationsRules(): string {
   { "tool": "create_file", "path": "src/App.tsx" }
   <file_content>
   export default function App() { return <div>Hello</div>; }
-  </file_content>
+  </file_content>`;
+
+  return `${formatHeader}
 
 **⚠️ 파일 수정 규칙 (필수)**
 - **기존 파일을 삭제하고 새로 만들지 마세요.** 반드시 기존 파일을 직접 수정(update_file)하세요.
@@ -308,12 +328,15 @@ export function getFileOperationsRules(): string {
 }
 
 // ==================== Code vs Script ====================
-export function getCodeVsScriptRules(): string {
+export function getCodeVsScriptRules(nativeMode?: boolean): string {
+  const codeWorkDesc = nativeMode
+    ? '프로젝트 생성 시: create_file function call로 파일 생성 (content 파라미터에 내용 직접 전달)'
+    : '프로젝트 생성 시: { "tool": "create_file" } + <file_content> 블록으로 파일 생성';
   return `**코드 작성 vs 쉘 스크립트 작업 구별:**
 - **code_work**: 소스 코드 파일만 생성/수정. 쉘 스크립트나 터미널 명령 블록 생성 금지.
-  - 프로젝트 생성 시: { "tool": "create_file" } + <file_content> 블록으로 파일 생성
+  - ${codeWorkDesc}
   - 쉘 명령(\`\`\`bash, cat <<EOF, mkdir, brew install 등) 절대 사용 금지
-- **execution_work**: 터미널 명령 실행만. 반드시 { "tool": "run_command" } 사용 (마크다운 코드 블록 금지)
+- **execution_work**: 터미널 명령 실행만. 반드시 run_command 사용 (마크다운 코드 블록 금지)
 - **taskType 확인 필수**: 사용자 의도 컨텍스트의 taskType을 반드시 확인하고 그에 맞게 작업하세요.`;
 }
 
@@ -347,8 +370,8 @@ export function getDefaultOutputFormat(): string {
  * 도구 프롬프트 생성
  * v8.9.0: JSON Function Calling 형식으로 변경
  */
-export function getToolsPrompt(allowedTools?: Tool[]): string {
-  return ToolSpecBuilder.buildToolPromptSectionJson(allowedTools);
+export function getToolsPrompt(allowedTools?: Tool[], nativeMode?: boolean): string {
+  return ToolSpecBuilder.buildToolPromptSectionJson(allowedTools, nativeMode);
 }
 
 // ==================== Terminal Commands ====================

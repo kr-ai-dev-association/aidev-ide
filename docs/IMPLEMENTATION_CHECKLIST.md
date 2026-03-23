@@ -174,13 +174,33 @@
 
 ### 영속성
 
-- [ ] 🟡 **GAP-04** 영속적 메모리 시스템
-  - `~/.codepilot/memory/{project-hash}/` 디렉토리
-  - `MemoryManager` 클래스: save, recall, update, remove
-  - 메모리 타입: user / feedback / project / reference
+- [x] 🟡 **GAP-04** 영속적 메모리 시스템 (핵심) ✅ 2026-03-23
+  - 저장 위치: `context.globalStorageUri.fsPath/memory/{project-hash}/`
+  - `MemoryManager` 클래스: save, recall, update, remove, validate
+  - 메모리 타입 4가지:
+    - `user`: 사용자 역할·선호·지식수준 (응답 톤 조절)
+    - `feedback`: 행동 교정 규칙 (Why/How to apply 포함)
+    - `project`: 마감일·담당자·제약사항 (절대 날짜로 저장)
+    - `reference`: 외부 시스템 URL·Linear·Slack 등
   - 대화 시작 시 `MEMORY.md` 로드 → 시스템 프롬프트 주입
-  - "기억해" / "remember" 키워드 감지 → 자동 저장
-  - 파일: 신규 `src/core/memory/MemoryManager.ts`, `src/prompts/PromptComposer.ts`
+  - 파일: `src/core/memory/MemoryManager.ts`, `src/prompts/PromptComposer.ts`
+
+- [x] 🟡 **GAP-04-a** 메모리 저장 트리거 ✅ 2026-03-23
+  - 방식 A: LLM이 `memory_save` / `memory_delete` 도구를 직접 호출 (키워드 패턴 매칭 없음)
+  - 도구 스펙: name, description, type(user/feedback/project/reference), content
+  - 저장 전 중복 체크 → 있으면 덮어쓰기 (같은 이름이면 업데이트)
+  - 파일: `src/core/tools/memory/MemorySaveToolHandler.ts`, `ToolSpecBuilder.ts`, `types.ts`
+
+- [x] 🟡 **GAP-04-b** 메모리 삭제/갱신 (Stale Memory 방지) ✅ 2026-03-23
+  - `memory_delete` 도구로 명시적 삭제
+  - 자동 정리: 50개 초과 시 silent cleanup (project 만료 → project 오래된 → reference → feedback, user 보호)
+  - MEMORY.md 인덱스 200줄 하드 리밋
+  - 파일: `src/core/tools/memory/MemoryDeleteToolHandler.ts`, `MemoryManager.autoCleanup()`
+
+- [x] 🟡 **GAP-04-c** 저장하지 않는 것 필터링 ✅ 2026-03-23
+  - 프롬프트 지시로 처리: 코드·git·문서에서 파악 가능한 것은 저장 금지
+  - 현재 대화 한정 임시 상태, 민감 정보(API 키 등) 저장 금지
+  - 시스템 프롬프트의 기존 memory 가이드라인 준용
 
 ---
 

@@ -2,7 +2,26 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.29**
+> **현재 버전: v1.0.30**
+
+---
+
+## v1.0.30
+
+### 기능 추가
+
+- **SubAgentLoop 도구 승인 pending 지원**: 멀티에이전트 실행 시에도 싱글에이전트와 동일하게 도구 자동 실행 설정을 준수하도록 변경
+  - `AgentLoopCallbacks`에 `onToolApprovalRequired` 콜백 추가
+  - `OrchestrationRouter`에서 설정 읽어 콜백 주입 — 기존 `checkToolNeedsConfirmation` 로직 동일하게 재현
+  - 도구 OFF: 모든 도구 pending, 파일 OFF: create/update_file pending, 명령어 OFF: run_command pending
+  - 승인 대기 시간은 `SUB_AGENT_TOTAL_TIMEOUT`에서 제외 (`pausedDuration` 추적)
+  - 거부된 도구는 LLM에 `[거부됨]` synthetic 피드백으로 전달
+
+- **Native tool calling 시스템 프롬프트 분기**: `nativeMode` 플래그를 전체 프롬프트 생성 체인에 전파하여 네이티브 모드에서 코드블록 형식 교육을 완전히 제거
+  - `getNativeToolCallingFormatPrompt()`, `getNativeToolSpecPrompt()`, `getNativeWorkflowGuidelinePrompt()` 추가
+  - `buildToolPromptSection(specs, nativeMode?)` — nativeMode 분기
+  - `PromptComposer`, `PromptBuilder`, `ConversationManager`, `SubAgentLoop` 전체 체인에 `nativeMode` 전파
+  - `getBaseRules`, `getFileOperationsRules`, `getCodeVsScriptRules`, `getNoThinkingLeakageRules` 모두 nativeMode 조건 분기
 
 ---
 

@@ -58,6 +58,9 @@ import { ListCodeDefinitionsToolHandler } from "./core/tools/file";
 import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
 import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
+import { MemoryManager } from "./core/memory/MemoryManager";
+import { MemorySaveToolHandler } from "./core/tools/memory/MemorySaveToolHandler";
+import { MemoryDeleteToolHandler } from "./core/tools/memory/MemoryDeleteToolHandler";
 import { AuthService } from "./services/auth/AuthService";
 import { DEFAULT_OLLAMA_URL } from './core/config/ApiDefaults';
 import {
@@ -95,6 +98,11 @@ export async function activate(context: vscode.ExtensionContext) {
     PromptComposer.setSkillsDir(skillsDir);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(skillsDir));
   }
+
+  // 글로벌 규칙 디렉토리 설정 (globalStorageUri — 모든 프로젝트 공통)
+  const globalRulesDir = path.join(context.globalStorageUri.fsPath, 'rules');
+  PromptComposer.setGlobalRulesDir(globalRulesDir);
+  await vscode.workspace.fs.createDirectory(vscode.Uri.file(globalRulesDir));
 
   // CodePilot Backend 인증 서비스 초기화
   authService = AuthService.initialize(context);
@@ -301,6 +309,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // HotLoadManager 초기화 (Hot Load 기능 사용을 위해)
   HotLoadManager.getInstance(context);
+
+  // MemoryManager 초기화 (영속적 메모리 시스템)
+  if (workspacePath) {
+    MemoryManager.getInstance().initialize(context, workspacePath);
+  }
 
   // 커스텀 제외 패턴 캐시 로드
   const { loadCustomExclusionPatterns } = await import('./core/utils/FileExclusionConstants');
@@ -569,6 +582,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // 코드 인텔리전스 도구들
   toolRegistry.register(new LspToolHandler());
   toolRegistry.register(new ListCodeDefinitionsToolHandler());
+  // 영속적 메모리 도구들
+  toolRegistry.register(new MemorySaveToolHandler());
+  toolRegistry.register(new MemoryDeleteToolHandler());
   // MCP Manager 초기화 및 도구 등록 브릿지
   const mcpManager = MCPManager.getInstance();
   await mcpManager.initialize(context);

@@ -5,8 +5,11 @@
 
 export {
     getToolCallingFormatPrompt,
+    getNativeToolCallingFormatPrompt,
     getToolSpecPrompt,
+    getNativeToolSpecPrompt,
     getWorkflowGuidelinePrompt,
+    getNativeWorkflowGuidelinePrompt,
     getImportantRulesPrompt,
     buildToolPromptSection
 } from './toolCalling';
