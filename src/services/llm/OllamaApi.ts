@@ -6,7 +6,7 @@ import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 import { Tool } from '../../core/tools/types';
 
-type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; nativeTools?: any[] };
+type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void };
 type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type MessageBuilder = (userContent: string) => OllamaMessage[];
 
@@ -645,6 +645,8 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                                         ? JSON.parse(fn.arguments)
                                         : (fn.arguments || {});
                                     streamingToolCalls.push({ name: fn.name, arguments: args });
+                                    // Ollama는 청크마다 완성된 tool_call이 옴 → 즉시 콜백
+                                    try { options?.onNativeToolComplete?.(fn.name, args); } catch { /* skip */ }
                                 }
                             }
                             if (parsed.done) {
@@ -673,12 +675,17 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                             }
                             const nativeToolCallsEnd = parsed.message?.tool_calls;
                             if (nativeToolCallsEnd?.length) {
+                                const prevLen = streamingToolCalls.length;
                                 for (const tc of nativeToolCallsEnd) {
                                     const fn = tc.function;
                                     const args = typeof fn.arguments === 'string'
                                         ? JSON.parse(fn.arguments)
                                         : (fn.arguments || {});
                                     streamingToolCalls.push({ name: fn.name, arguments: args });
+                                }
+                                // end 버퍼에서 새로 추가된 것만 콜백 (data 이벤트에서 이미 fired된 것 제외)
+                                for (let i = prevLen; i < streamingToolCalls.length; i++) {
+                                    try { options?.onNativeToolComplete?.(streamingToolCalls[i].name, streamingToolCalls[i].arguments); } catch { /* skip */ }
                                 }
                             }
                         } catch {}

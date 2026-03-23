@@ -26,5 +26,5 @@ export interface AdminModelConfig {
     nativeToolCallingSupported?: boolean;
 }
 
-export type SendOptions = { signal?: AbortSignal; disableThinking?: boolean; nativeTools?: any[] };
+export type SendOptions = { signal?: AbortSignal; disableThinking?: boolean; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void };
 export type ChunkCallback = (chunk: string, done: boolean) => void;

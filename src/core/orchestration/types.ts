@@ -86,6 +86,7 @@ export interface AgentLoopCallbacks {
     onToolComplete?: (toolUse: ToolUse, result: ToolResponse, index: number) => void;
     onThinking?: (thinkingText: string) => void;
     onStreamingStatus?: (status: string) => void;
+    onToolApprovalRequired?: (toolUse: ToolUse) => Promise<boolean>;
 }
 
 // ─── Parallel Execution Options ──────────────────────────

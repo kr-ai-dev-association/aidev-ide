@@ -27,12 +27,14 @@ export interface PromptComposerOptions {
     terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
     diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics (에러/경고)
     allowedTools?: Tool[]; // 사용 가능한 도구 목록 (v5.2.0: 조사 단계 등에서 제한 가능)
+    nativeMode?: boolean; // 네이티브 API Function Call 모드 (코드 블록 형식 교육 제외)
     frameworkRulesPrompt?: string; // v9.2.1: 동적 프레임워크 규칙 프롬프트
     hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
     mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
     ragContext?: string; // 서버 RAG 문서 컨텍스트
+    memoryContext?: string; // 영속적 메모리 컨텍스트 (이전 대화에서 저장된 정보)
     activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
-    subProjectStructure?: string; // 서브프로젝트 구조 (모노레포 경로 grounding)
+    subProjectStructure?: string; // 서브프로젝트 구조 (모노레포/멀티 디렉토리 grounding)
     repoMap?: string; // 프로젝트 파일 맵 (파일 경로 + 심볼)
 }
 
@@ -48,6 +50,9 @@ export interface SkillEntry {
 export class PromptComposer {
     /** storageUri 기반 스킬 디렉토리 (extension.ts activate 시 설정) */
     private static _skillsDir: string | null = null;
+
+    /** globalStorageUri 기반 글로벌 규칙 디렉토리 (extension.ts activate 시 설정) */
+    private static _globalRulesDir: string | null = null;
 
     /** Skill Registry: 조건부 주입 대상 스킬 저장소 */
     private static _skillRegistry: Map<string, SkillEntry> = new Map();
@@ -71,6 +76,14 @@ export class PromptComposer {
      */
     public static setSkillsDir(dir: string): void {
         PromptComposer._skillsDir = dir;
+    }
+
+    /**
+     * globalStorageUri 기반 글로벌 규칙 디렉토리 경로 설정.
+     * activate()에서 호출. 모든 프로젝트에 공통 적용되는 규칙을 저장하는 경로.
+     */
+    public static setGlobalRulesDir(dir: string): void {
+        PromptComposer._globalRulesDir = dir;
     }
 
     /**
@@ -121,6 +134,105 @@ export class PromptComposer {
         }
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
         return path.join(workspaceRoot, '.agent', 'rules');
+    }
+
+    /**
+     * 서버 설정 동기화가 완료될 때까지 대기합니다.
+     * 익스텐션 시작 직후 sync가 진행 중일 수 있으므로,
+     * 프롬프트 생성 전에 호출하여 최신 서버 스킬이 반영되도록 합니다.
+     */
+    public static async ensureServerSettingsSynced(): Promise<void> {
+        try {
+            const { SettingsManager } = require('../../state/SettingsManager');
+            const settingsManager = SettingsManager.getInstance();
+            await settingsManager.waitForSync();
+        } catch {
+            // SettingsManager가 초기화되지 않은 경우 무시
+        }
+    }
+
+    /**
+     * 글로벌 규칙을 로드합니다. (globalStorageUri/rules/global-rules/)
+     * 모든 프로젝트에 공통 적용되는 규칙/스킬로, 로컬 프로젝트 규칙보다 먼저 주입됩니다.
+     */
+    public static loadGlobalRulesWithKeys(): { text: string; ruleKeys: Set<string> } {
+        const ruleKeys = new Set<string>();
+        const skillEntries: SkillEntry[] = [];
+
+        if (!PromptComposer._globalRulesDir) {
+            return { text: '', ruleKeys };
+        }
+
+        try {
+            const globalDir = path.join(PromptComposer._globalRulesDir, 'global-rules');
+            const legacyFile = path.join(PromptComposer._globalRulesDir, 'global-rules.md');
+            const rules: string[] = [];
+
+            // 새 구조: global-rules/ 디렉토리
+            if (fs.existsSync(globalDir) && fs.statSync(globalDir).isDirectory()) {
+                const files = fs.readdirSync(globalDir)
+                    .filter(f => f.endsWith('.md') || f.endsWith('.markdown'))
+                    .sort();
+
+                for (const file of files) {
+                    const filePath = path.join(globalDir, file);
+                    try {
+                        const rawContent = fs.readFileSync(filePath, 'utf8').trim();
+                        if (!rawContent) { continue; }
+                        const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
+                        const fileKey = file.replace(/\.(md|markdown)$/, '');
+                        if (type === 'skill' && description) {
+                            skillEntries.push({ key: `global-rules--${fileKey}`, description, content: body, source: 'local' });
+                            ruleKeys.add(fileKey);
+                        } else {
+                            rules.push(`[${file}]\n${body}`);
+                            ruleKeys.add(fileKey);
+                        }
+                    } catch (e) {
+                        console.warn(`[PromptComposer] 글로벌 규칙 파일 읽기 실패: ${filePath}`, e);
+                    }
+                }
+            }
+
+            // 레거시: global-rules.md 단일 파일 (하위 호환)
+            if (rules.length === 0 && skillEntries.length === 0 && fs.existsSync(legacyFile)) {
+                const rawContent = fs.readFileSync(legacyFile, 'utf8').trim();
+                if (rawContent) {
+                    const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
+                    if (type === 'skill' && description) {
+                        skillEntries.push({ key: 'global-rules--global-rules', description, content: body, source: 'local' });
+                    } else {
+                        rules.push(body);
+                        ruleKeys.add('global-rules');
+                    }
+                }
+            }
+
+            // 글로벌 스킬 레지스트리에 등록
+            for (const entry of skillEntries) {
+                PromptComposer._skillRegistry.set(entry.key, entry);
+            }
+
+            if (skillEntries.length > 0) {
+                console.log(`[PromptComposer] 글로벌 Skills(조건부) 등록: ${skillEntries.length}개`);
+            }
+
+            if (rules.length === 0) {
+                return { text: '', ruleKeys };
+            }
+
+            console.log(`[PromptComposer] 글로벌 Rules 로드: ${rules.length}개`);
+            return {
+                text: `# ⚠️ 글로벌 Skills (모든 프로젝트 공통 필수 규칙)
+아래 Skills는 모든 프로젝트에 공통으로 적용되는 개발 규칙입니다. 프로젝트와 무관하게 **항상 반드시 반영**해야 합니다.
+
+${rules.join('\n\n---\n\n')}`,
+                ruleKeys,
+            };
+        } catch (error) {
+            console.warn('[PromptComposer] 글로벌 규칙 로드 실패:', error);
+            return { text: '', ruleKeys };
+        }
     }
 
     /**
@@ -243,11 +355,11 @@ export class PromptComposer {
 
             // 규칙이 하나도 없으면 빈 문자열 반환 (프롬프트에 포함하지 않음)
             if (rules.length === 0) {
-                console.log(`[PromptComposer] 로컬 Rules 로드: 0개 (디렉토리: ${agentRulesDir})`);
+                console.log(`[PromptComposer] 로컬 Rules 로드: 0개`);
                 return { text: '', ruleKeys };
             }
 
-            console.log(`[PromptComposer] 로컬 Rules 로드: ${rules.length}개 카테고리, 키: [${[...ruleKeys].join(', ')}] (디렉토리: ${agentRulesDir})`);
+            console.log(`[PromptComposer] 로컬 Rules 로드: ${rules.length}개 카테고리, 키: [${[...ruleKeys].join(', ')}]`);
 
             return {
                 text: `# ⚠️ Skills (필수 적용 강제 규칙)
@@ -369,7 +481,7 @@ ${formattedRules}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, activeSkillKeys, subProjectStructure, repoMap } = options;
+        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, nativeMode, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, memoryContext, activeSkillKeys, subProjectStructure, repoMap } = options;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -383,10 +495,10 @@ ${formattedRules}`;
         const basePrompt = [
             base.getAgentRole(),
             base.getObjective(),
-            base.getBaseRules(),
-            base.getFileOperationsRules(),
-            base.getCodeVsScriptRules(),
-            base.getToolsPrompt(allowedTools)
+            base.getBaseRules(nativeMode),
+            base.getFileOperationsRules(nativeMode),
+            base.getCodeVsScriptRules(nativeMode),
+            base.getToolsPrompt(allowedTools, nativeMode)
         ].join('\n\n');
 
         // OS별 프롬프트
@@ -447,6 +559,9 @@ ${diagnosticsContextContent}
 **반드시 첨부된 내용을 최우선으로 분석하고 작업을 수행하세요.**
 다른 파일을 먼저 읽거나 프로젝트 탐색을 하지 마세요.
 ` : '';
+
+        // 글로벌 규칙 로드 (globalStorageUri/rules/global-rules/) — 프로젝트 무관 공통 적용
+        const { text: globalRulesRaw } = this.loadGlobalRulesWithKeys();
 
         // Skills 통합 로드: 로컬(.agent/rules) + 서버(dev_rules)
         // 필수(required) 서버 규칙은 로컬보다 우선, 권장(recommended)은 로컬 우선
@@ -536,7 +651,9 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
         // 조합 (Skills를 최상단, 리마인더를 최하단에 배치)
         const parts = [
             hotLoadPrompt, // Hot Load 프롬프트 (최우선 규칙)
+            memoryContext, // 영속적 메모리 컨텍스트 (이전 대화에서 저장된 정보)
             attachedContextWarning, // 첨부 컨텍스트 경고
+            globalRulesRaw, // 글로벌 규칙 (모든 프로젝트 공통)
             agentRules, // 개발 규칙(Rule) — 최상단 배치 (서버 필수가 덮어쓴 것 제거)
             serverPromptTemplates, // 서버 관리자 프롬프트 템플릿(Rule) — 최상단 배치
             activeSkillsSection, // 조건부 스킬 — IntentDetector가 선택한 것만

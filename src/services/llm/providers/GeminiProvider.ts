@@ -245,6 +245,10 @@ export class GeminiProvider implements ILLMProvider {
                                 inThinking = false;
                             }
                             streamingFunctionCalls.push({ name: part.functionCall.name, args: part.functionCall.args || {} });
+                            // Gemini provides complete functionCalls per chunk — fire immediately
+                            try {
+                                options?.onNativeToolComplete?.(part.functionCall.name, part.functionCall.args || {});
+                            } catch { /* skip */ }
                         }
                     }
                 } catch { /* skip */ }

@@ -39,6 +39,7 @@ import { ToolExecutionCoordinator } from "./handlers/ToolExecutionCoordinator";
 import { AgentConfig } from "../../config/AgentConfig";
 import { InlineDiffManager } from "../diff/InlineDiffManager";
 import { HotLoadManager } from "../hotload/HotLoadManager";
+import { MemoryManager } from "../../memory/MemoryManager";
 import { FetchUrlToolHandler } from "../../tools/web/FetchUrlToolHandler";
 import { StringUtils } from "../../utils/StringUtils";
 import { getExecutionPhasePrompt } from "../context/prompts/phase";
@@ -315,6 +316,12 @@ export class ConversationManager implements IConversationHandler {
         );
       }
 
+      // 영속적 메모리 컨텍스트 로드
+      let memoryContext = "";
+      try {
+        memoryContext = await MemoryManager.getInstance().loadForPrompt();
+      } catch { /* 메모리 로드 실패 시 무시 */ }
+
       // MCP 커스텀 프롬프트 수집
       const mcpCustomPrompts = this.contextGatherer.collectMcpCustomPrompts();
 
@@ -325,13 +332,27 @@ export class ConversationManager implements IConversationHandler {
         hotLoadPrompt,
       );
 
+      // 네이티브 모드 여부 (시스템 프롬프트 형식 결정)
+      let isNativeMode = false;
+      try {
+        const isNativeEnabled = optionsWithAbort.extensionContext
+          ? await SettingsManager.getInstance(optionsWithAbort.extensionContext).isNativeToolCallingEnabled()
+          : false;
+        if (isNativeEnabled && optionsWithAbort.currentModelType === AiModelType.ADMIN) {
+          const adminConfig = this.llmManager.getAdminModelConfig();
+          isNativeMode = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
+        }
+      } catch { /* 설정 읽기 실패 시 기본값 사용 */ }
+
       const promptOptions: PromptBuilderOptions = {
         userOS: optionsWithAbort.userOS || process.platform,
         modelType: optionsWithAbort.currentModelType || AiModelType.OLLAMA,
         promptType: optionsWithAbort.promptType,
         hotLoadPrompt, // Hot Load 프롬프트 추가
+        memoryContext, // 영속적 메모리 컨텍스트 추가
         mcpCustomPrompts, // MCP 커스텀 프롬프트 추가
         activeSkillKeys: intent.requiredSkillKeys, // IntentDetector가 선택한 스킬
+        nativeMode: isNativeMode, // 네이티브 Function Call 모드
         ...context,
       };
       const systemPrompt =
@@ -1178,12 +1199,32 @@ export class ConversationManager implements IConversationHandler {
         // MCP 커스텀 프롬프트 수집
         const mcpCustomPromptsForInvestigation = this.contextGatherer.collectMcpCustomPrompts();
 
+        // 영속적 메모리 컨텍스트 로드
+        let memoryContextForInvestigation = "";
+        try {
+          memoryContextForInvestigation = await MemoryManager.getInstance().loadForPrompt();
+        } catch { /* 메모리 로드 실패 시 무시 */ }
+
+        // 네이티브 모드 여부 (조사 단계 프롬프트 형식 결정)
+        let isNativeModeForInvestigation = false;
+        try {
+          const isNativeEnabled = options.extensionContext
+            ? await SettingsManager.getInstance(options.extensionContext).isNativeToolCallingEnabled()
+            : false;
+          if (isNativeEnabled && options.currentModelType === AiModelType.ADMIN) {
+            const adminConfig = this.llmManager.getAdminModelConfig();
+            isNativeModeForInvestigation = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
+          }
+        } catch { /* 설정 읽기 실패 시 기본값 사용 */ }
+
         const promptOptions: PromptBuilderOptions = {
           userOS: options.userOS || process.platform,
           modelType: options.currentModelType || AiModelType.OLLAMA,
           promptType: options.promptType,
           allowedTools, // 도구 제한 전달
+          nativeMode: isNativeModeForInvestigation, // 네이티브 Function Call 모드
           hotLoadPrompt: hotLoadPromptForInvestigation, // Hot Load 프롬프트 추가
+          memoryContext: memoryContextForInvestigation, // 영속적 메모리 컨텍스트 추가
           mcpCustomPrompts: mcpCustomPromptsForInvestigation, // MCP 커스텀 프롬프트 추가
           // 사용자가 첨부한 컨텍스트 포함 (gatheredContext에서 가져옴)
           selectedFilesContent: gatheredContext?.selectedFilesContent,
@@ -2024,6 +2065,13 @@ export class ConversationManager implements IConversationHandler {
       // 스코프 밖(removeLastMessage 가드 등)에서도 접근해야 하므로 블록 밖에 선언
       const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation;
 
+      // 스트리밍 즉시 파일 생성 설정 (onChunk 동기 핸들러에서 사용)
+      const isAutoToolForStreaming = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
+      const isAutoUpdateForStreaming = await SettingsManager.getInstance().isAutoUpdateEnabled();
+
+      // Fix: 스트리밍 중 완성된 create_file 즉시 실행 추적 (턴별 리셋)
+      const streamingCreatedPaths = new Set<string>();
+
       if (isStreamingEnabled) {
         // 스트리밍 모드: 실시간으로 웹뷰에 청크 전송
         console.log(
@@ -2047,9 +2095,68 @@ export class ConversationManager implements IConversationHandler {
         }
 
         let accumulatedResponse = "";
+        let streamingCreatePromise: Promise<void> = Promise.resolve();
+        let streamLastFileContentPos = 0;
+        const FILE_END_MARKER = '</file_content>';
+
+        // 스트리밍 즉시 파일 생성 공통 실행 함수 (FILE_END_MARKER + onNativeToolComplete 공용)
+        const executeStreamingCreateFile = (path: string, capturedCall: ToolUse) => {
+          streamingCreatedPaths.add(path);
+          streamingCreatePromise = streamingCreatePromise.then(async () => {
+            if (abortSignal?.aborted) { return; }
+            const streamRoot = ProjectManager.getInstance().getCurrentProject()?.root || '';
+            const streamCtx: ToolExecutionContext = {
+              projectRoot: streamRoot, workspaceRoot: streamRoot,
+              actionManager, executionManager, terminalManager,
+              contextManager: this.contextManager,
+            };
+            const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx);
+            if (streamResults[0]?.success && capturedCall.params.path) {
+              const p = capturedCall.params.path as string;
+              if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) {
+                createdFiles.push(p);
+              }
+            }
+          });
+        };
+
+        // 네이티브 tool_call 완성 시 콜백 (ON+ON 일 때만 즉시 실행)
+        const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
+          if (toolName !== 'create_file' || !args.path) { return; }
+          if (!isAutoToolForStreaming || !isAutoUpdateForStreaming) { return; }
+          const p = args.path as string;
+          if (streamingCreatedPaths.has(p)) { return; }
+          const capturedCall: ToolUse = { name: toolName, params: { ...args } };
+          executeStreamingCreateFile(p, capturedCall);
+        };
+
         // 🔥 onChunk는 SYNC여야 함 (LLM API가 await 안 함)
         const onChunk = (chunk: string, done: boolean) => {
           accumulatedResponse += chunk;
+
+          // Fix: 스트리밍 중 완성된 create_file 블록 즉시 실행 (ON+ON 일 때만)
+          if (isAutoToolForStreaming && isAutoUpdateForStreaming) {
+            let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+            while (endIdx !== -1) {
+              const segmentEnd = endIdx + FILE_END_MARKER.length;
+              const segment = accumulatedResponse.substring(0, segmentEnd);
+              streamLastFileContentPos = segmentEnd;
+              const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+              for (const call of segCalls) {
+                if (call.name === 'create_file' && call.params.path && !streamingCreatedPaths.has(call.params.path as string)) {
+                  executeStreamingCreateFile(call.params.path as string, call);
+                }
+              }
+              endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+            }
+          } else {
+            // 설정 OFF: FILE_END_MARKER 위치 추적만 (이미 처리된 것 없음, 그냥 pos 업데이트)
+            let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+            while (endIdx !== -1) {
+              streamLastFileContentPos = endIdx + FILE_END_MARKER.length;
+              endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+            }
+          }
 
           // 🔥 채팅 타이핑 효과: textStreamer가 도구 호출 제외하고 텍스트만 출력
           if (textStreamer) {
@@ -2103,9 +2210,11 @@ export class ConversationManager implements IConversationHandler {
               activeSystemPrompt + planContext,
               accumulatedUserParts,
               onChunk,
-              { signal: abortSignal, nativeTools: nativeToolsForCall },
+              { signal: abortSignal, nativeTools: nativeToolsForCall, onNativeToolComplete },
             );
         }
+        // 스트리밍 중 시작된 create_file 모두 완료 대기
+        await streamingCreatePromise;
       } else {
         // 비스트리밍 모드: 기존 방식
         // 에러 폴백 모델 우선 적용 (동일 에러 3회 반복 시)
@@ -2642,7 +2751,15 @@ export class ConversationManager implements IConversationHandler {
             }
           });
 
-          const toolCalls = Array.from(toolCallsMap.values());
+          const toolCalls = Array.from(toolCallsMap.values()).filter((call) => {
+            // Fix: 스트리밍 중 이미 실행된 create_file 중복 실행 방지
+            if (call.name === 'create_file' && call.params.path && streamingCreatedPaths.has(call.params.path as string)) {
+              console.log(`[ConversationManager] Streaming-pre-executed create_file skipped: ${call.params.path}`);
+              turnResultsSummary += `\n[도구 결과] create_file(${call.params.path}): 성공 (스트리밍 중 즉시 생성됨)`;
+              return false;
+            }
+            return true;
+          });
 
           if (toolCalls.length > 0) {
             // FSM을 사용한 도구 허용 여부 검증
@@ -2914,6 +3031,37 @@ export class ConversationManager implements IConversationHandler {
       }
 
       if (postToolResult.turnAction.action === "continue") {
+        // 🔥 memory-only INVESTIGATION 턴: memory_save/memory_delete만 실행된 경우
+        // Turn 1 텍스트를 사용자에게 표시하고 DONE으로 전환 (불필요한 Turn 2 방지)
+        const MEMORY_TOOLS: string[] = [Tool.MEMORY_SAVE, Tool.MEMORY_DELETE];
+        const isMemoryOnlyTurn =
+          currentPhase === AgentPhase.INVESTIGATION &&
+          totalToolCalls.length > 0 &&
+          totalToolCalls.every((tc) => MEMORY_TOOLS.includes(tc.name));
+
+        if (isMemoryOnlyTurn) {
+          // tool call JSON 블록 제거 후 자연어 텍스트만 추출
+          let memoryTurnText = cleanResponse
+            .replace(/\{\s*["']tool["']\s*:\s*["']memory_(?:save|delete)["'][\s\S]*?\}/g, "")
+            .trim();
+
+          if (memoryTurnText && memoryTurnText.trim()) {
+            console.log(
+              "[ConversationManager] Memory-only INVESTIGATION turn: displaying accompanying text to user.",
+            );
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              memoryTurnText,
+            );
+          }
+          stateManager.transitionTo(AgentPhase.DONE, {});
+          console.log(
+            "[ConversationManager] Memory-only INVESTIGATION turn: transitioning to DONE.",
+          );
+          break;
+        }
+
         turnCount++;
         continue;
       }
@@ -3143,7 +3291,16 @@ export class ConversationManager implements IConversationHandler {
             .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
             .trim();
 
-          if (cleanResponse && cleanResponse.trim()) {
+          // investigation_done 토큰만 있고 cleanResponse가 비어있는 경우 (memory_save 등 완료 후) → 바로 DONE
+          if (!cleanResponse || !cleanResponse.trim()) {
+            if (investigationDoneToken) {
+              stateManager.transitionTo(AgentPhase.DONE, {});
+              console.log(
+                "[ConversationManager] investigation_done with empty response. Transitioning to DONE.",
+              );
+              break;
+            }
+          } else {
             await WebviewBridge.streamText(
               webviewToRespond,
               "CODEPILOT",

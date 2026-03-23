@@ -190,6 +190,14 @@ export class AnthropicProvider implements ILLMProvider {
                             const block = toolBlocks[evt.index!];
                             if (block) { block.partialJson += delta.partial_json; }
                         }
+                    } else if (currentEvent === 'content_block_stop') {
+                        const block = toolBlocks[evt.index!];
+                        if (block?.name) {
+                            try {
+                                const args = block.partialJson ? JSON.parse(block.partialJson) : {};
+                                options?.onNativeToolComplete?.(block.name, args);
+                            } catch { /* skip */ }
+                        }
                     } else if (currentEvent === 'message_delta') {
                         if (evt.delta?.stop_reason) { stopReason = evt.delta.stop_reason; }
                     }
