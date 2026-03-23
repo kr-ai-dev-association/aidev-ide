@@ -904,6 +904,22 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
+     * Thinking On/Off 상태를 읽습니다
+     */
+    public async isThinkingEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('thinkingEnabled')?.globalValue;
+        return globalValue ?? (config.get('thinkingEnabled') as boolean) ?? true;
+    }
+
+    /**
+     * Thinking On/Off 상태를 저장합니다
+     */
+    public async updateThinkingEnabled(enabled: boolean): Promise<void> {
+        await ConfigurationService.updateConfig('thinkingEnabled', enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
      * 디버그 모드 On/Off 상태를 가져옵니다
      */
     public async isDebugEnabled(): Promise<boolean> {

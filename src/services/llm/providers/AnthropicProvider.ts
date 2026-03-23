@@ -93,7 +93,8 @@ export class AnthropicProvider implements ILLMProvider {
             return toolUseParts.map(c => JSON.stringify({ tool: c.name, ...c.input })).join('\n');
         }
 
-        return content.find(c => c.type === 'text')?.text || '';
+        const text = content.find(c => c.type === 'text')?.text || '';
+        return data.stop_reason === 'max_tokens' ? text + '\n[MAX_TOKENS_REACHED]' : text;
     }
 
     async stream(
@@ -145,6 +146,7 @@ export class AnthropicProvider implements ILLMProvider {
         let fullText = '';
         let thinkingText = '';
         let buffer = '';
+        let stopReason = '';
         const toolBlocks: Array<{ id: string; name: string; partialJson: string }> = [];
         let currentEvent = '';
 
@@ -188,10 +190,15 @@ export class AnthropicProvider implements ILLMProvider {
                             const block = toolBlocks[evt.index!];
                             if (block) { block.partialJson += delta.partial_json; }
                         }
+                    } else if (currentEvent === 'message_delta') {
+                        if (evt.delta?.stop_reason) { stopReason = evt.delta.stop_reason; }
                     }
                 } catch { /* skip malformed events */ }
             }
         }
+
+        const maxTokensReached = stopReason === 'max_tokens';
+        if (maxTokensReached) { console.log('[AnthropicProvider] ⚠️ MAX_TOKENS reached in streaming'); }
 
         const validTools = toolBlocks.filter(t => t?.name);
         if (validTools.length > 0) {
@@ -207,8 +214,9 @@ export class AnthropicProvider implements ILLMProvider {
 
         onChunk('', true);
         if (thinkingText.trim()) {
-            return `<think>${thinkingText}</think>\n${fullText}`;
+            const text = `<think>${thinkingText}</think>\n${fullText}`;
+            return maxTokensReached ? text + '\n[MAX_TOKENS_REACHED]' : text;
         }
-        return fullText;
+        return maxTokensReached ? fullText + '\n[MAX_TOKENS_REACHED]' : fullText;
     }
 }

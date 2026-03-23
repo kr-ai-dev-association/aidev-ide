@@ -1650,14 +1650,21 @@
               <div class="toggle-switch-container" style="margin-top: 15px; margin-bottom: 15px">
                 <input type="checkbox" id="streaming-toggle" />
                 <label for="streaming-toggle"></label>
-                <span style="margin-left: 10px"><b>스트리밍 응답 활성화</b></span>
+                <span style="margin-left: 10px"><b>Streaming 활성화</b></span>
               </div>
 
               <!-- 네이티브 툴 콜링 설정 -->
               <div class="toggle-switch-container" style="margin-top: 15px; margin-bottom: 15px">
                 <input type="checkbox" id="native-tool-calling-toggle" />
                 <label for="native-tool-calling-toggle"></label>
-                <span style="margin-left: 10px"><b>네이티브 툴 콜링 활성화</b></span>
+                <span style="margin-left: 10px"><b>Native tool calls 활성화</b></span>
+              </div>
+
+              <!-- Thinking(추론) 설정 -->
+              <div class="toggle-switch-container" style="margin-top: 15px; margin-bottom: 15px">
+                <input type="checkbox" id="thinking-toggle" />
+                <label for="thinking-toggle"></label>
+                <span style="margin-left: 10px"><b>Thinking 활성화</b></span>
               </div>
 
               <!-- 지원 모델 설정 (동적 — 서버 프리셋 기반) -->
@@ -2195,11 +2202,15 @@
                   파일을 추가할 수 있습니다.
                 </p>
                 <div class="policy-type-selector" data-category="stable-version" style="margin-bottom:6px;">
-                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  <div
+                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule"
+                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill"
+                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
                   </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
+                    style="display:none;margin-top:4px;font-size:0.85em;" />
                 </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown,text/markdown"
@@ -2230,11 +2241,15 @@
                   여러 파일을 추가할 수 있습니다.
                 </p>
                 <div class="policy-type-selector" data-category="coding-style" style="margin-bottom:6px;">
-                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  <div
+                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule"
+                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill"
+                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
                   </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
+                    style="display:none;margin-top:4px;font-size:0.85em;" />
                 </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-coding-style-input" accept=".md,.markdown,text/markdown" multiple
@@ -2265,11 +2280,15 @@
                   저장하세요. 여러 파일을 추가할 수 있습니다.
                 </p>
                 <div class="policy-type-selector" data-category="project-architecture" style="margin-bottom:6px;">
-                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  <div
+                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule"
+                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill"
+                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
                   </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
+                    style="display:none;margin-top:4px;font-size:0.85em;" />
                 </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown,text/markdown"
@@ -2301,11 +2320,15 @@
                   여러 파일을 추가할 수 있습니다.
                 </p>
                 <div class="policy-type-selector" data-category="dependency-policy" style="margin-bottom:6px;">
-                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  <div
+                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule"
+                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill"
+                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
                   </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
+                    style="display:none;margin-top:4px;font-size:0.85em;" />
                 </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown,text/markdown"
@@ -2336,11 +2359,15 @@
                   여러 파일을 추가할 수 있습니다.
                 </p>
                 <div class="policy-type-selector" data-category="db-policy" style="margin-bottom:6px;">
-                  <div style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule" style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill" style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
+                  <div
+                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
+                    <button type="button" class="policy-type-btn active" data-type="rule"
+                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
+                    <button type="button" class="policy-type-btn" data-type="skill"
+                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
                   </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요" style="display:none;margin-top:4px;font-size:0.85em;" />
+                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
+                    style="display:none;margin-top:4px;font-size:0.85em;" />
                 </div>
                 <div class="api-key-input-group">
                   <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown,text/markdown" multiple

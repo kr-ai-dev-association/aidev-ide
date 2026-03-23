@@ -13,6 +13,7 @@ export function bindToggleEvents(elements) {
     autoDeleteToggle,
     streamingToggle,
     nativeToolCallingToggle,
+    thinkingToggle,
     autoTestRetryToggle,
     autoCorrectionToggle,
     autoExecuteToggle,
@@ -69,6 +70,16 @@ export function bindToggleEvents(elements) {
       const enabled = nativeToolCallingToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setNativeToolCallingEnabled", enabled });
+      }
+    });
+  }
+
+  // Thinking(추론) 토글
+  if (thinkingToggle) {
+    thinkingToggle.addEventListener("change", () => {
+      const enabled = thinkingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setThinkingEnabled", enabled });
       }
     });
   }

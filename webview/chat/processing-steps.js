@@ -392,8 +392,14 @@ export function updateThinkingContent(text) {
     thinkingBubbleElement.appendChild(thinkingContent);
   }
 
-  // CSS -webkit-line-clamp으로 2줄 접기 처리 → 전체 텍스트 저장 (펼치기 시 사용)
-  thinkingContent.textContent = text;
+  // inner div로 bottom-anchor: 접혀진 상태에서 최신 내용이 보이도록
+  let inner = thinkingContent.querySelector('.thinking-text-inner');
+  if (!inner) {
+    inner = document.createElement('div');
+    inner.className = 'thinking-text-inner';
+    thinkingContent.appendChild(inner);
+  }
+  inner.textContent = text;
   thinkingContent.style.display = '';
 
   // 사용자가 하단 근처에 있을 때만 자동 스크롤
@@ -410,7 +416,9 @@ export function clearThinkingContent() {
   const thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
   if (thinkingContent) {
     thinkingContent.style.display = 'none';
-    thinkingContent.textContent = '';
+    const inner = thinkingContent.querySelector('.thinking-text-inner');
+    if (inner) { inner.textContent = ''; }
+    else { thinkingContent.textContent = ''; }
   }
 }
 

@@ -123,7 +123,9 @@ export class GeminiProvider implements ILLMProvider {
             else if (part.text) { answerParts.push(part.text); }
         }
         const answer = answerParts.join('');
-        return thinkParts.length > 0 ? `<think>${thinkParts.join('')}</think>\n${answer}` : answer;
+        const maxTokensReached = data.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+        const text = thinkParts.length > 0 ? `<think>${thinkParts.join('')}</think>\n${answer}` : answer;
+        return maxTokensReached ? text + '\n[MAX_TOKENS_REACHED]' : text;
     }
 
     async stream(
@@ -180,6 +182,7 @@ export class GeminiProvider implements ILLMProvider {
         let thinkingText = '';
         let buffer = '';
         let inThinking = false;
+        let lastFinishReason = '';
         const streamingFunctionCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
         while (true) {
@@ -217,19 +220,12 @@ export class GeminiProvider implements ILLMProvider {
 
                 try {
                     const json: any = JSON.parse(buffer.substring(objStart, objEnd + 1));
-                    const parts = json.candidates?.[0]?.content?.parts || [];
-                    if (parts.length > 0) {
-                        console.log(`[GeminiProvider] chunk parts:`, JSON.stringify(parts.map((p: any) => ({
-                            thought: p.thought,
-                            hasText: !!p.text,
-                            textLen: p.text?.length || 0,
-                            hasFunctionCall: !!p.functionCall,
-                        }))));
-                    }
+                    const candidate0 = json.candidates?.[0];
+                    if (candidate0?.finishReason) { lastFinishReason = candidate0.finishReason; }
+                    const parts = candidate0?.content?.parts || [];
                     for (const part of parts) {
                         if (part.thought === true && part.text) {
                             if (!inThinking) {
-                                console.log('[GeminiProvider] 🧠 thinking start');
                                 onChunk('<think>', false);
                                 inThinking = true;
                             }
@@ -266,6 +262,9 @@ export class GeminiProvider implements ILLMProvider {
             onChunk('</think>\n', false);
         }
 
+        const maxTokensReached = lastFinishReason === 'MAX_TOKENS';
+        if (maxTokensReached) { console.log('[GeminiProvider] ⚠️ MAX_TOKENS reached in streaming'); }
+
         if (streamingFunctionCalls.length > 0) {
             const converted = streamingFunctionCalls
                 .map(fc => JSON.stringify({ tool: fc.name, ...fc.args }))
@@ -278,8 +277,9 @@ export class GeminiProvider implements ILLMProvider {
 
         onChunk('', true);
         if (thinkingText.trim()) {
-            return `<think>${thinkingText}</think>\n${fullText}`;
+            const text = `<think>${thinkingText}</think>\n${fullText}`;
+            return maxTokensReached ? text + '\n[MAX_TOKENS_REACHED]' : text;
         }
-        return fullText;
+        return maxTokensReached ? fullText + '\n[MAX_TOKENS_REACHED]' : fullText;
     }
 }

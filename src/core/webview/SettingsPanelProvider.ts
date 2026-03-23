@@ -111,6 +111,8 @@ export function openSettingsPanel(
               await settingsManager.isStreamingEnabled();
             const nativeToolCallingEnabled =
               await settingsManager.isNativeToolCallingEnabled();
+            const thinkingEnabled =
+              await settingsManager.isThinkingEnabled();
 
             // 채팅 테마 설정 로드
             const config = vscode.workspace.getConfiguration('codepilot');
@@ -163,6 +165,7 @@ export function openSettingsPanel(
               orchestrationEnabled: orchestrationEnabled || false, // 멀티 에이전트 설정
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               nativeToolCallingEnabled: nativeToolCallingEnabled, // 네이티브 툴 콜링 설정
+              thinkingEnabled: thinkingEnabled, // Thinking 설정
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
               compactorModelName: compactorModelName || "",
@@ -1365,6 +1368,18 @@ export function openSettingsPanel(
           }
           break;
         }
+        case "setThinkingEnabled": {
+          const thinkingEnabledToSet = data.enabled;
+          if (typeof thinkingEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateThinkingEnabled(thinkingEnabledToSet);
+              console.log(`[PanelManager] Thinking 설정 저장됨: ${thinkingEnabledToSet}`);
+            } catch (error: any) {
+              console.error('[PanelManager] Thinking 설정 저장 오류:', error);
+            }
+          }
+          break;
+        }
         case "saveAiModel": // AI 모델 저장 케이스 추가
           const aiModelToSave = data.aiModel || data.model;
           if (aiModelToSave && typeof aiModelToSave === "string") {
@@ -1785,6 +1800,8 @@ export function openSettingsPanel(
               await settingsManager.isStreamingEnabled();
             const nativeToolCallingEnabled2 =
               await settingsManager.isNativeToolCallingEnabled();
+            const thinkingEnabled2 =
+              await settingsManager.isThinkingEnabled();
             const aiModel = await stateManager.getAiModel();
             // UI 표시용 aiModel을 사용 (supported:key, admin:key, ollama 형태)
             const modelToUse = aiModel || "ollama";
@@ -1811,6 +1828,7 @@ export function openSettingsPanel(
               orchestrationEnabled: orchestrationEnabled || false,
               streamingEnabled: streamingEnabled || false,
               nativeToolCallingEnabled: nativeToolCallingEnabled2,
+              thinkingEnabled: thinkingEnabled2,
               aiModel: modelToUse,
               serverSettings: settingsManager.getAllServerSettings(),
             };
@@ -2735,6 +2753,7 @@ export function openSettingsPanel(
                 orchestrationEnabled: await settingsManager.isOrchestrationEnabled(),
                 streamingEnabled: await settingsManager.isStreamingEnabled(),
                 nativeToolCallingEnabled: await settingsManager.isNativeToolCallingEnabled(),
+                thinkingEnabled: await settingsManager.isThinkingEnabled(),
                 inlineCompletionEnabled: config.get<boolean>('inlineCompletion', false),
                 autoTestRetryEnabled: await settingsManager.isAutoTestRetryEnabled(),
                 testRetryCount: await settingsManager.getTestRetryCount(),
@@ -2821,6 +2840,7 @@ export function openSettingsPanel(
             if (typeof s.orchestrationEnabled === 'boolean') { await cfgImport.update('orchestration', s.orchestrationEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.streamingEnabled === 'boolean') { await cfgImport.update('streamingEnabled', s.streamingEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.nativeToolCallingEnabled === 'boolean') { await cfgImport.update('nativeToolCallingEnabled', s.nativeToolCallingEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.thinkingEnabled === 'boolean') { await cfgImport.update('thinkingEnabled', s.thinkingEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.inlineCompletionEnabled === 'boolean') { await cfgImport.update('inlineCompletion', s.inlineCompletionEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoTestRetryEnabled === 'boolean') { await cfgImport.update('autoTestRetryEnabled', s.autoTestRetryEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.testRetryCount === 'number') { await cfgImport.update('testRetryCount', s.testRetryCount, vscode.ConfigurationTarget.Global); }

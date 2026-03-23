@@ -107,7 +107,6 @@ export class WebviewBridge {
      * 처리 상태 전송 (호환성 유지)
      */
     public static sendProcessingStatus(webview: vscode.Webview | undefined, step: string, status: string): void {
-        console.log(`[WebviewBridge] sendProcessingStatus called: step=${step}, status=${status.substring(0, 30)}..., webview=${!!webview}`);
         if (webview) {
             safePostMessage(webview, { command: 'updateProcessingStatus', step, status });
         } else {

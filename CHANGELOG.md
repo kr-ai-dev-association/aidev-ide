@@ -2,7 +2,39 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.26**
+> **현재 버전: v1.0.28**
+
+---
+
+## v1.0.28
+
+### 개선
+
+- **Thinking 스트리밍 중 최신 내용 표시**: 접힌 상태에서 thinking 블록이 업데이트될 때 항상 최신 내용(하단)이 보이도록 수정. CSS `position: absolute; bottom: 0` bottom-anchor 방식으로 변경, `processing-steps.js`에서 `.thinking-text-inner` inner div 구조로 업데이트
+- **노이즈 로그 제거**: 디버그용 console.log 다수 제거
+  - `[WebviewBridge] sendProcessingStatus called` / `sendProcessingStep called`
+  - `[InlineDiffManager] Persisted state` / `Shadow synced to formatter output` / `Turn snapshot captured`
+  - `[GeminiProvider] chunk parts` / `🧠 thinking start`
+  - `[ToolRegistry] Registered tool`
+  - `[ActionRegistry] Registered action` / `Default actions registered`
+
+---
+
+## v1.0.27
+
+### 기능 추가
+
+- **Thinking On/Off 설정**: 세팅 화면에 Thinking 활성화 토글 추가. OFF 시 모델이 지원하는 경우에도 thinking 완전 비활성화. SettingsManager → OrchestrationRouter → SubAgentLoop 연동 (`codepilot.thinkingEnabled`)
+- **스트리밍 중 create_file 즉시 실행 (Fix 8)**: 스트리밍 응답 수신 중 `</file_content>` 닫는 태그가 완성될 때마다 즉시 파일 생성 실행. Promise 체인으로 직렬 실행 보장. 응답 완료 후 중복 실행 방지
+
+### 버그 수정
+
+- **`<think>` 블록 내 JSON이 tool call로 실행되는 문제 (Fix 1)**: SubAgentLoop에서 ToolParser 호출 전 `THINKING_TAG_REGEX`로 think 블록 제거. LLM 히스토리에는 원본 유지
+- **크로스턴 read_file 스킵 시 silent drop 제거 (Fix 4)**: `alreadyReadFiles`로 스킵된 read_file에 대해 synthetic 피드백 추가. "이미 읽었습니다, 다시 호출하지 마세요" 메시지를 LLM에 전달하여 루프 방지
+
+### 개선
+
+- **max_tokens 잘림 감지 및 LLM 피드백 (Fix 7)**: GeminiProvider (`finishReason=MAX_TOKENS`), OpenAICompatProvider (`finish_reason=length`), AnthropicProvider (`stop_reason=max_tokens`) 세 프로바이더 모두에서 응답 잘림 감지. `[MAX_TOKENS_REACHED]` 마커를 응답에 추가하고 SubAgentLoop에서 감지 후 계속 요청 메시지 주입
 
 ---
 

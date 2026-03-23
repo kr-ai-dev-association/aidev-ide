@@ -208,6 +208,7 @@ function bindToggleEvents(elements) {
     autoDeleteToggle,
     streamingToggle,
     nativeToolCallingToggle,
+    thinkingToggle,
     autoTestRetryToggle,
     autoCorrectionToggle,
     autoExecuteToggle,
@@ -277,6 +278,19 @@ function bindToggleEvents(elements) {
       if (vscode) {
         vscode.postMessage({
           command: "setNativeToolCallingEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // Thinking(추론) 토글
+  if (thinkingToggle) {
+    thinkingToggle.addEventListener("change", () => {
+      const enabled = thinkingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setThinkingEnabled",
           enabled
         });
       }
@@ -2022,6 +2036,7 @@ const inlineCompletionStatus = document.getElementById("inline-completion-status
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 const nativeToolCallingToggle = document.getElementById("native-tool-calling-toggle");
+const thinkingToggle = document.getElementById("thinking-toggle");
 
 // 빌드/테스트 개인 설정 요소
 const btTypeSelect = document.getElementById("bt-type-select");
@@ -2042,6 +2057,7 @@ const personalBuildTestList = document.getElementById("personal-build-test-list"
   autoDeleteToggle,
   streamingToggle,
   nativeToolCallingToggle,
+  thinkingToggle,
   autoTestRetryToggle,
   autoCorrectionToggle,
   autoExecuteToggle,
@@ -3162,6 +3178,9 @@ window.addEventListener("message", event => {
       }
       if (typeof message.nativeToolCallingEnabled === "boolean" && nativeToolCallingToggle) {
         nativeToolCallingToggle.checked = message.nativeToolCallingEnabled;
+      }
+      if (typeof message.thinkingEnabled === "boolean" && thinkingToggle) {
+        thinkingToggle.checked = message.thinkingEnabled;
       }
       if (typeof message.autoCorrectionEnabled === "boolean" && autoCorrectionToggle) {
         autoCorrectionToggle.checked = message.autoCorrectionEnabled;

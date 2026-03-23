@@ -1361,24 +1361,33 @@
         opacity: 0.8;
         word-break: break-word;
         cursor: pointer;
-        /* 기본 2줄 접기 */
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
+        /* 기본: 2줄 높이, 최신 내용(하단)이 보이도록 overflow hidden */
+        position: relative;
+        height: calc(1.4em * 2);
         overflow: hidden;
       }
 
-      /* 펼친 상태 */
-      .thinking-content.expanded {
-        display: block;
-        -webkit-line-clamp: unset;
-        overflow: visible;
+      /* 내부 텍스트: 하단 고정 → 접힌 상태에서 최신 내용이 항상 보임 */
+      .thinking-content .thinking-text-inner {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
         white-space: pre-wrap;
+      }
+
+      /* 펼친 상태: 전체 표시 */
+      .thinking-content.expanded {
+        height: auto;
+        overflow: visible;
+      }
+      .thinking-content.expanded .thinking-text-inner {
+        position: static;
       }
 
       /* is-forced-top 상태에서는 1줄로 더 축소 */
       .thinking-bubble.is-forced-top .thinking-content {
-        -webkit-line-clamp: 1;
+        height: 1.4em;
       }
 
       body[data-theme="light"] .thinking-content {
