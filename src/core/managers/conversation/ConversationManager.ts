@@ -2071,6 +2071,8 @@ export class ConversationManager implements IConversationHandler {
 
       // Fix: 스트리밍 중 완성된 create_file 즉시 실행 추적 (턴별 리셋)
       const streamingCreatedPaths = new Set<string>();
+      // 스트리밍 중 pending 처리된 경로 (승인 여부 무관 — post-stream 중복 방지용)
+      const streamingHandledPaths = new Set<string>();
 
       if (isStreamingEnabled) {
         // 스트리밍 모드: 실시간으로 웹뷰에 청크 전송
@@ -2100,10 +2102,26 @@ export class ConversationManager implements IConversationHandler {
         const FILE_END_MARKER = '</file_content>';
 
         // 스트리밍 즉시 파일 생성 공통 실행 함수 (FILE_END_MARKER + onNativeToolComplete 공용)
-        const executeStreamingCreateFile = (path: string, capturedCall: ToolUse) => {
-          streamingCreatedPaths.add(path);
+        // needsApproval=true: 실행 전 사용자 승인 모달 표시
+        const executeStreamingCreateFile = (path: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
+          if (needsApproval) {
+            streamingHandledPaths.add(path);
+          } else {
+            streamingCreatedPaths.add(path);
+          }
           streamingCreatePromise = streamingCreatePromise.then(async () => {
             if (abortSignal?.aborted) { return; }
+            if (needsApproval) {
+              const detailDisplay = `: ${path.substring(0, 50)}${path.length > 50 ? '...' : ''}`;
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', `⏳ [Pending] 파일 생성${detailDisplay} - 사용자 승인 필요`);
+              const result = await vscode.window.showInformationMessage(
+                `파일 생성: ${path}`,
+                { modal: true },
+                '실행',
+                '건너뛰기',
+              );
+              if (result !== '실행') { return; }
+            }
             const streamRoot = ProjectManager.getInstance().getCurrentProject()?.root || '';
             const streamCtx: ToolExecutionContext = {
               projectRoot: streamRoot, workspaceRoot: streamRoot,
@@ -2113,6 +2131,7 @@ export class ConversationManager implements IConversationHandler {
             const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx);
             if (streamResults[0]?.success && capturedCall.params.path) {
               const p = capturedCall.params.path as string;
+              streamingCreatedPaths.add(p);
               if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) {
                 createdFiles.push(p);
               }
@@ -2120,22 +2139,23 @@ export class ConversationManager implements IConversationHandler {
           });
         };
 
-        // 네이티브 tool_call 완성 시 콜백 (ON+ON 일 때만 즉시 실행)
+        // 네이티브 tool_call 완성 시 콜백
+        // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
         const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
           if (toolName !== 'create_file' || !args.path) { return; }
-          if (!isAutoToolForStreaming || !isAutoUpdateForStreaming) { return; }
           const p = args.path as string;
-          if (streamingCreatedPaths.has(p)) { return; }
+          if (streamingCreatedPaths.has(p) || streamingHandledPaths.has(p)) { return; }
           const capturedCall: ToolUse = { name: toolName, params: { ...args } };
-          executeStreamingCreateFile(p, capturedCall);
+          const needsApproval = !isAutoToolForStreaming || !isAutoUpdateForStreaming;
+          executeStreamingCreateFile(p, capturedCall, needsApproval);
         };
 
         // 🔥 onChunk는 SYNC여야 함 (LLM API가 await 안 함)
         const onChunk = (chunk: string, done: boolean) => {
           accumulatedResponse += chunk;
 
-          // Fix: 스트리밍 중 완성된 create_file 블록 즉시 실행 (ON+ON 일 때만)
           if (isAutoToolForStreaming && isAutoUpdateForStreaming) {
+            // ON+ON: </file_content> 감지 즉시 실행
             let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             while (endIdx !== -1) {
               const segmentEnd = endIdx + FILE_END_MARKER.length;
@@ -2144,16 +2164,26 @@ export class ConversationManager implements IConversationHandler {
               const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
               for (const call of segCalls) {
                 if (call.name === 'create_file' && call.params.path && !streamingCreatedPaths.has(call.params.path as string)) {
-                  executeStreamingCreateFile(call.params.path as string, call);
+                  executeStreamingCreateFile(call.params.path as string, call, false);
                 }
               }
               endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             }
           } else {
-            // 설정 OFF: FILE_END_MARKER 위치 추적만 (이미 처리된 것 없음, 그냥 pos 업데이트)
+            // 도구OFF 또는 파일OFF: </file_content> 감지 즉시 pending 처리
             let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             while (endIdx !== -1) {
-              streamLastFileContentPos = endIdx + FILE_END_MARKER.length;
+              const segmentEnd = endIdx + FILE_END_MARKER.length;
+              const segment = accumulatedResponse.substring(0, segmentEnd).replace(/<think>[\s\S]*?<\/think>/g, '');
+              streamLastFileContentPos = segmentEnd;
+              const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+              for (const call of segCalls) {
+                if (call.name === 'create_file' && call.params.path &&
+                    !streamingCreatedPaths.has(call.params.path as string) &&
+                    !streamingHandledPaths.has(call.params.path as string)) {
+                  executeStreamingCreateFile(call.params.path as string, call, true);
+                }
+              }
               endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             }
           }
@@ -2752,11 +2782,18 @@ export class ConversationManager implements IConversationHandler {
           });
 
           const toolCalls = Array.from(toolCallsMap.values()).filter((call) => {
-            // Fix: 스트리밍 중 이미 실행된 create_file 중복 실행 방지
-            if (call.name === 'create_file' && call.params.path && streamingCreatedPaths.has(call.params.path as string)) {
-              console.log(`[ConversationManager] Streaming-pre-executed create_file skipped: ${call.params.path}`);
-              turnResultsSummary += `\n[도구 결과] create_file(${call.params.path}): 성공 (스트리밍 중 즉시 생성됨)`;
-              return false;
+            if (call.name === 'create_file' && call.params.path) {
+              const p = call.params.path as string;
+              if (streamingCreatedPaths.has(p)) {
+                console.log(`[ConversationManager] Streaming-pre-executed create_file skipped: ${p}`);
+                turnResultsSummary += `\n[도구 결과] create_file(${p}): 성공 (스트리밍 중 즉시 생성됨)`;
+                return false;
+              }
+              if (streamingHandledPaths.has(p)) {
+                console.log(`[ConversationManager] Streaming-rejected create_file skipped: ${p}`);
+                turnResultsSummary += `\n[도구 결과] create_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
+                return false;
+              }
             }
             return true;
           });
