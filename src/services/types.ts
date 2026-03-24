@@ -5,7 +5,8 @@ export enum AiModelType {
 
 export enum PromptType {
     CODE_GENERATION = 'code_generation',
-    GENERAL_ASK = 'general_ask'
+    GENERAL_ASK = 'general_ask',
+    PLAN = 'plan'
 }
 
 /** LLM 메시지 파트 (텍스트 또는 인라인 데이터) */

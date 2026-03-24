@@ -359,8 +359,9 @@ export class ConversationManager implements IConversationHandler {
         this.promptBuilder.generateSystemPrompt(promptOptions);
 
       // 5. 작업 타입에 따른 실행 분기
-      if (optionsWithAbort.promptType === PromptType.CODE_GENERATION) {
+      if (optionsWithAbort.promptType === PromptType.CODE_GENERATION || optionsWithAbort.promptType === PromptType.PLAN) {
         // v9.5.0: AGENT 모드에서도 이전 대화 히스토리 포함 (대화 연속성 유지)
+        // PLAN 모드도 동일 에이전트 루프 사용 (단, 쓰기 도구는 차단)
         const userParts = await this.buildUserPartsWithUrlsAndHistory(
           userQuery,
           autoFetchedUrlContents,
@@ -977,6 +978,8 @@ export class ConversationManager implements IConversationHandler {
     let toolCallsFromPlanCreation: ToolUse[] = [];
     let hasInvestigationHistory = false; // 조사 이력 추적
     const preloadedFiles = new Set<string>(); // Pre-load된 파일 목록 추적 (중복 읽기 방지)
+    const alreadyStattedFiles = new Set<string>(); // 턴 간 중복 stat_file 방지
+    const isPlanMode = options.promptType === PromptType.PLAN; // PLAN 모드 쓰기 차단용
 
     // 파일 변경 추적 (요약 검증용)
     const createdFiles: string[] = [];
@@ -1371,11 +1374,13 @@ export class ConversationManager implements IConversationHandler {
             terminalManager,
             collectedUIMessages,
             preloadedFiles,
+            alreadyStattedFiles,
             createdFiles,
             modifiedFiles,
             false, // includeWebviewInContext
             conversationTurnId,
             executedCommands,
+            isPlanMode,
           );
           if (hasSuccessfulPlanExecution && hasWritePlanExecution) {
             lastTurnHadSuccessfulToolExecution = true;
@@ -1753,11 +1758,13 @@ export class ConversationManager implements IConversationHandler {
                 terminalManager,
                 collectedUIMessages,
                 preloadedFiles,
+                alreadyStattedFiles,
                 createdFiles,
                 modifiedFiles,
                 false, // includeWebviewInContext
                 conversationTurnId,
                 executedCommands,
+                isPlanMode,
               );
               if (hasSuccessfulToolExecution && hasWriteToolExecution2) {
                 lastTurnHadSuccessfulToolExecution = true;
@@ -1866,6 +1873,7 @@ export class ConversationManager implements IConversationHandler {
 
               if (
                 !hasFileChanges &&
+                !isPlanMode &&
                 executionNoToolRetryCount < maxExecutionNoToolRetries
               ) {
                 // 파일 변경 없이 도구 호출도 없음 → LLM에게 도구 호출 강제 프롬프트 추가 후 재시도
@@ -1883,11 +1891,11 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               }
 
-              // 첨부 컨텍스트가 있을 때는 분석 응답이므로 사용자에게 표시
+              // 첨부 컨텍스트 또는 PLAN 모드일 때는 텍스트 응답을 사용자에게 표시
               if (textResponse && textResponse.trim().length > 0) {
-                if (hasAttachedContext) {
+                if (hasAttachedContext || isPlanMode) {
                   console.log(
-                    `[ConversationManager] EXECUTION phase: Text response with attached context (length: ${textResponse.length}). Displaying to user.`,
+                    `[ConversationManager] EXECUTION phase: Text response displayed (length: ${textResponse.length}). isPlanMode=${isPlanMode}`,
                   );
                   await WebviewBridge.streamText(
                     webviewToRespond,
@@ -2912,11 +2920,13 @@ export class ConversationManager implements IConversationHandler {
                 terminalManager,
                 collectedUIMessages,
                 preloadedFiles,
+                alreadyStattedFiles,
                 createdFiles,
                 modifiedFiles,
                 true, // includeWebviewInContext
                 conversationTurnId,
                 executedCommands,
+                isPlanMode,
               );
               if (hasSuccessfulExecution && hasWriteToolExecution3) {
                 lastTurnHadSuccessfulToolExecution = true;
@@ -4981,11 +4991,13 @@ export class ConversationManager implements IConversationHandler {
       type?: "action" | "code" | "summary" | "message";
     }>,
     preloadedFiles: Set<string>,
+    alreadyStattedFiles: Set<string>,
     createdFiles: string[],
     modifiedFiles: string[],
     includeWebviewInContext: boolean = false,
     conversationTurnId?: string,
     executedCommands: string[] = [],
+    isPlanMode: boolean = false,
   ): Promise<{
     toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
@@ -5021,6 +5033,26 @@ export class ConversationManager implements IConversationHandler {
     }
 
     for (const call of toolCalls) {
+      // PLAN 모드: 쓰기 도구 차단
+      if (isPlanMode && [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE, Tool.RUN_COMMAND].includes(call.name as Tool)) {
+        console.log(`[ConversationManager] PLAN mode blocked write tool: ${call.name}`);
+        skippedToolResults.push({
+          success: false,
+          message: `[PLAN 모드] ${call.name}은 PLAN 모드에서 실행할 수 없습니다. PLAN 모드는 읽기 전용입니다. 탐색을 마치고 구현 계획 Markdown만 출력하세요.`,
+        });
+        continue;
+      }
+
+      // cross-turn 중복 stat_file → 스킵
+      if (call.name === Tool.STAT_FILE && call.params.path && alreadyStattedFiles.has(call.params.path)) {
+        console.log(`[ConversationManager] Cross-turn duplicate stat skipped: ${call.params.path}`);
+        skippedToolResults.push({
+          success: true,
+          message: `[이미 조회됨] ${call.params.path}는 이전 턴에서 이미 stat_file로 조회했습니다. 이전 결과를 그대로 사용하세요. 다시 stat_file을 호출하지 마세요.`,
+        });
+        continue;
+      }
+
       // read_file과 동턴 update_file → 스킵 (SEARCH 불일치 방지)
       if (call.name === Tool.UPDATE_FILE && call.params.path && readPathsInBatch.has(call.params.path)) {
         console.log(`[ConversationManager] Skipped update_file after read_file in same turn: ${call.params.path}`);
@@ -5144,6 +5176,13 @@ export class ConversationManager implements IConversationHandler {
         if (filePath) {
           preloadedFiles.add(filePath);
         }
+      }
+    });
+
+    // stat_file 결과를 alreadyStattedFiles에 추가 (턴 간 중복 방지)
+    toolCalls.forEach((call: ToolUse, index: number) => {
+      if (call.name === Tool.STAT_FILE && call.params.path && toolResults[index]?.success) {
+        alreadyStattedFiles.add(call.params.path);
       }
     });
 

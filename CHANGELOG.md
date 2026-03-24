@@ -2,7 +2,39 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.31**
+> **현재 버전: v1.0.32**
+
+---
+
+## v1.0.32
+
+### 기능 추가
+
+- **PLAN 모드 추가**: CODE / ASK 모드 외 새로운 세 번째 모드. 코드베이스 탐색 후 구현 계획 Markdown을 생성하는 읽기 전용 모드 (Cursor Plan Mode / Cline Plan-Act 패턴)
+  - `PromptType.PLAN` 열거값 추가 (`src/services/types.ts`)
+  - 드롭다운에 PLAN 옵션 추가 (`webview/chat.html`) — `applyMode()` 정규화 업데이트
+  - `ChatViewProvider`: `data.mode === 'PLAN'` → `PromptType.PLAN` 매핑
+  - `planPrompt.ts` 신규 생성: 읽기 전용 탐색 지시 + 구조화된 계획 출력 형식 (개요/분석결과/변경대상/구현단계/리스크/난이도)
+  - `PromptBuilder`: `PromptType.PLAN` 분기 추가
+  - `ConversationManager`: PLAN 모드를 `executeAgentLoop` 경로로 라우팅 (CODE 모드와 동일한 에이전트 루프)
+  - `executeToolsWithUI`에 `isPlanMode` 플래그 추가 — `create_file`, `update_file`, `delete_file`, `run_command` 호출 시 프레임워크 레벨에서 즉시 차단, LLM에 읽기 전용 안내 피드백 반환
+
+### 버그 수정
+
+- **PLAN 모드 실행 루프 무한 반복 수정** (`ConversationManager`): 쓰기 도구 차단 후 "파일 변경 없음 → 재시도 강제" 루프에 빠지던 문제 수정 — `isPlanMode`일 때 재시도 건너뛰고 텍스트 응답(플랜 내용)을 즉시 표시 후 REVIEW 단계로 종료
+- **SubAgentLoop 읽기 전용 모드 스트리밍 파일 생성 우회 수정**: `toolPermission !== 'full'`일 때 `onNativeToolComplete` 및 `onChunk` 스트리밍 핸들러에서 `create_file` 실행 차단 — 기존에는 post-stream 권한 검사 이전에 스트리밍 단계에서 파일이 생성되던 문제
+
+### 개선
+
+- **보내기 버튼 색상 통일** (`webview/chat/theme-language.js`, `webview/chat/input-handler.js`, `webview/chat.html`): ASK 모드는 라이트/다크 테마 모두 `#10B981` (초록), PLAN 모드는 라이트/다크 테마 모두 `#2563EB` (파란)으로 통일
+- **SubAgentLoop RAG 탐색 제한 규칙 제거**: "RAG에 있는 문서는 로컬 파일시스템에서 중복 탐색하지 마세요" 규칙 제거 — RAG 문서도 로컬 파일시스템에서 탐색 가능하도록 원복
+
+- **도구 설명 개선**: `stat_file` / `ripgrep_search` / `list_files` / `glob_search` 설명에 용도 구분 명확화 — 줄 번호 필요 시 `ripgrep_search` 직접 사용 유도
+- **집계 태스크 재조회 방지**: `OrchestrationRouter.generateUnifiedSummary()` 시스템 프롬프트에 "선행 태스크 결과는 이미 검증됨, 재조회 금지" 규칙 추가
+- **SubAgentLoop 크로스 턴 stat_file 중복 방지**: `alreadyStattedFiles` Set 추가 — 동일 파일 stat_file 재호출 스킵 및 synthetic 피드백 반환
+- **서브에이전트 __done__ 요약 품질 강화**: 파일 경로·크기·줄 번호 등 구체적 수치를 요약에 포함하도록 규칙 추가
+- **의존성 태스크 재조회 방지**: `buildSystemPrompt()`에서 `dependencies.length > 0`일 때 "선행 태스크 요약의 정보를 도구로 재조회하지 말 것" 규칙 주입
+- **ConversationManager 크로스 턴 stat_file 중복 방지**: 싱글에이전트 루프에도 `alreadyStattedFiles` Set 및 필터링 로직 적용
 
 ---
 

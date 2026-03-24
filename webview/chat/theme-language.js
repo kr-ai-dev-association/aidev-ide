@@ -71,7 +71,7 @@ export function applyTheme(theme) {
   console.log('[Chat] Theme applied:', effectiveTheme, 'html data-theme:', document.documentElement.getAttribute('data-theme'));
 }
 
-// ASK 모드 보내기 버튼 스타일 업데이트
+// ASK/PLAN 모드 보내기 버튼 스타일 업데이트
 // currentMode는 window.chatMode에서 읽음 (chat.js의 chat-mode-changed 이벤트로 갱신됨)
 export function updateSendButtonStyle() {
   const sendBtn = document.getElementById('send-button');
@@ -81,22 +81,28 @@ export function updateSendButtonStyle() {
 
   const currentMode = window.chatMode || 'CODE';
   const isAskMode = currentMode === 'ASK';
+  const isPlanMode = currentMode === 'PLAN';
   const iconImg = sendBtn.querySelector('.icon-img');
 
   if (isAskMode) {
     sendBtn.classList.add('ask-mode');
-    if (currentTheme === 'light') {
-      sendBtn.style.backgroundColor = '#2563EB';
-      sendBtn.style.borderRadius = '50%';
-    } else {
-      sendBtn.style.backgroundColor = '#10B981';
-      sendBtn.style.borderRadius = '50%';
+    sendBtn.classList.remove('plan-mode');
+    sendBtn.style.backgroundColor = '#10B981';
+    sendBtn.style.borderRadius = '50%';
+    if (iconImg) {
+      iconImg.style.filter = 'brightness(0) invert(1)';
     }
+  } else if (isPlanMode) {
+    sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.add('plan-mode');
+    sendBtn.style.backgroundColor = '#2563EB';
+    sendBtn.style.borderRadius = '50%';
     if (iconImg) {
       iconImg.style.filter = 'brightness(0) invert(1)';
     }
   } else {
     sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.remove('plan-mode');
     sendBtn.style.backgroundColor = 'transparent';
     sendBtn.style.borderRadius = '6px';
     if (iconImg) {
