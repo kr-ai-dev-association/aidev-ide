@@ -865,6 +865,9 @@ ${projectSection}
 - 이미 구현되어 있어 추가 작업이 불필요한 경우에도 확인 후 __done__ 도구를 호출하세요
 - 할당된 범위 밖의 작업은 시도하지 마세요
 - 파일 구조가 제공된 경우 list_files 없이 바로 작업을 시작하세요
+- 파일/코드를 찾을 때는 list_files 대신 glob_search(파일명) 또는 ripgrep_search(내용)를 사용하세요. list_files는 특정 디렉토리 구조를 확인할 때만 사용하세요
+- node_modules, .git, __pycache__, env, .venv, dist, build 디렉토리는 탐색하지 마세요
+- 컨텍스트에 "참고 문서 (RAG)" 섹션이 있으면 이를 우선 활용하세요. 이미 확보된 내용을 다시 검색하지 마세요. 부족한 정보만 추가로 탐색하세요
 - 모든 응답은 한국어로 작성하세요
 - 다른 에이전트가 생성할 파일에 의존하지 마세요. read_file 실패 시 해당 파일을 직접 create_file로 작성하세요
 - 같은 도구를 동일한 파라미터로 반복 호출하지 마세요. 이미 성공한 도구 호출은 다시 실행할 필요가 없습니다
@@ -880,7 +883,9 @@ ${nativeMode ? `## 도구 호출 예시 (API Function Call 형식)
 - 파일 읽기: read_file 함수 호출 (path 파라미터)
 - 파일 생성: create_file 함수 호출 (path, content 파라미터) — content에 파일 전체 내용 직접 전달
 - 파일 수정: update_file 함수 호출 (path, diff 파라미터) — SEARCH/REPLACE 블록
-- 파일 목록: list_files 함수 호출 (path, recursive 파라미터)
+- 파일 목록: list_files 함수 호출 (path, recursive 파라미터) — 특정 디렉토리 구조 확인 시만 사용
+- 파일 검색: glob_search 함수 호출 (pattern 파라미터) — 파일명/확장자로 찾을 때 사용
+- 코드 검색: ripgrep_search 함수 호출 (query, path 파라미터) — 내용/키워드로 찾을 때 사용
 - 작업 완료: __done__ 함수 호출 (status="completed", summary 파라미터)
 - 이미 완료: __done__ 함수 호출 (status="already_done", summary 파라미터)
 **중요: API function call로만 도구를 호출하세요. 텍스트에 { "tool": ... } JSON을 출력하지 마세요.**`
@@ -907,7 +912,13 @@ const App = () => <div><MyComponent /></div>;
 >>>> REPLACE
 </file_changes>
 
-파일 목록:
+파일명으로 검색:
+{ "tool": "glob_search", "pattern": "src/**/*.ts" }
+
+코드 내용 검색:
+{ "tool": "ripgrep_search", "query": "function handleLogin", "path": "src" }
+
+파일 목록 (특정 디렉토리 구조 확인 시만):
 { "tool": "list_files", "path": "src", "recursive": "true" }
 
 작업 완료 선언:

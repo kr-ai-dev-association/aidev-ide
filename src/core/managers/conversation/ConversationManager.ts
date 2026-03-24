@@ -3092,13 +3092,19 @@ export class ConversationManager implements IConversationHandler {
       if (postToolResult.turnAction.action === "continue") {
         // 🔥 memory-only INVESTIGATION 턴: memory_save/memory_delete만 실행된 경우
         // Turn 1 텍스트를 사용자에게 표시하고 DONE으로 전환 (불필요한 Turn 2 방지)
+        // 단, 에러 수정/코드 작업 등 실제 작업이 필요한 intent면 건너뜀 (수정 없이 끝나는 버그 방지)
         const MEMORY_TOOLS: string[] = [Tool.MEMORY_SAVE, Tool.MEMORY_DELETE];
         const isMemoryOnlyTurn =
           currentPhase === AgentPhase.INVESTIGATION &&
           totalToolCalls.length > 0 &&
           totalToolCalls.every((tc) => MEMORY_TOOLS.includes(tc.name));
 
-        if (isMemoryOnlyTurn) {
+        const isActionRequiredIntent = intent && (
+          intent.taskType === "terminal" ||
+          intent.taskType === "code_work"
+        );
+
+        if (isMemoryOnlyTurn && !isActionRequiredIntent) {
           // tool call JSON 블록 제거 후 자연어 텍스트만 추출
           let memoryTurnText = cleanResponse
             .replace(/\{\s*["']tool["']\s*:\s*["']memory_(?:save|delete)["'][\s\S]*?\}/g, "")
