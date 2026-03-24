@@ -151,6 +151,56 @@ export function registerSessionCommands(
       }
     ),
 
+    // 세션 삭제 (QuickPick 선택 후 삭제)
+    vscode.commands.registerCommand(
+      "codepilot.deleteSession",
+      async () => {
+        try {
+          const sessionManager = await getSessionManager();
+          const sessions = sessionManager.getAllSessions();
+
+          if (sessions.length === 0) {
+            vscode.window.showInformationMessage("삭제할 세션이 없습니다.");
+            return;
+          }
+
+          const items = sessions.map((session: any) => ({
+            label: path.basename(session.projectPath) || session.projectPath,
+            description: `메시지 ${session.conversationHistory.length}개`,
+            detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
+            sessionId: session.id,
+          }));
+
+          const selected = await vscode.window.showQuickPick(items, {
+            title: "세션 삭제",
+            placeHolder: "삭제할 세션을 선택하세요",
+            canPickMany: true,
+          });
+
+          if (!selected || selected.length === 0) return;
+
+          const confirm = await vscode.window.showWarningMessage(
+            `선택한 세션 ${selected.length}개를 삭제하시겠습니까?`,
+            { modal: true },
+            "삭제"
+          );
+
+          if (confirm !== "삭제") return;
+
+          let deleted = 0;
+          for (const item of selected) {
+            if (sessionManager.deleteSession((item as any).sessionId)) {
+              deleted++;
+            }
+          }
+
+          vscode.window.showInformationMessage(`세션 ${deleted}개가 삭제되었습니다.`);
+        } catch (error) {
+          vscode.window.showErrorMessage(`세션 삭제 실패: ${error}`);
+        }
+      }
+    ),
+
     // 대화 압축 (QuickPick 확인 추가)
     vscode.commands.registerCommand(
       "codepilot.compactConversation",

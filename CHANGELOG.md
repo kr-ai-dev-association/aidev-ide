@@ -8,6 +8,10 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ## v1.0.34
 
+### 기능 추가
+
+- **`/restore-session`, `/delete-session` 슬래시 커맨드 추가**: `/` 메뉴 세션 카테고리에 세션 복원(`/restore-session`)과 세션 삭제(`/delete-session`) 항목 추가 — 삭제는 QuickPick 다중 선택 후 확인 모달을 거쳐 처리 (`commands.js`, `sessionCommands.ts`, `ChatViewProvider.ts`)
+
 ### 버그 수정
 
 - **Formatter 중복 실행 수정** (`ConversationManager`, `executeToolsWithUI`): `afterFileChanges` 호출 시 누적된 전체 `modifiedFiles`를 넘기던 것을 이번 도구 실행에서 새로 변경된 파일만 넘기도록 수정 — 이전 턴의 pending diff가 남아있는 경우 `run_command` 등 파일 변경 없는 도구 실행 후에도 ruff 등 포매터가 반복 실행되던 문제 수정
