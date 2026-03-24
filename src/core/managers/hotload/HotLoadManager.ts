@@ -342,7 +342,7 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
         }
       }
 
-      console.log(`[HotLoadManager] LLM found no match for: "${userQuery}"`);
+      console.log(`[HotLoadManager] LLM found no match for query (${userQuery.length} chars)`);
       return null;
     } catch (error) {
       console.warn('[HotLoadManager] LLM matching failed, falling back to simple match:', error);

@@ -143,7 +143,7 @@ export class IntentDetector {
   ): Promise<IntentDetectionResult> {
     // 멘션 텍스트 제거 후 의도 판별
     const cleanedQuery = this.removeMentionsFromQuery(userQuery);
-    console.log('[IntentDetector] Cleaned query for intent:', cleanedQuery);
+    console.log(`[IntentDetector] Cleaned query for intent: "${cleanedQuery.substring(0, 20)}..." (${cleanedQuery.length} chars)`);
 
     // 사용 가능한 스킬 description 수집
     const skillDescriptions = PromptComposer.getSkillDescriptions();

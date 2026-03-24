@@ -19,6 +19,10 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **PLAN 모드 루프가 종료되지 않는 버그 수정** (`ConversationManager`): 계획 텍스트 출력 후에도 루프가 계속 돌던 문제 수정 — 실제 계획 텍스트가 있을 때 `break`로 루프 종료, `<think>` 태그만 있을 경우 재요청
 - **PLAN 모드 계획 텍스트가 UI에 표시되지 않는 버그 수정** (`ConversationManager`): EXECUTION 단계는 UI 스트리밍이 차단되어 있어 계획 텍스트가 화면에 나타나지 않던 근본 원인 수정 — `shouldStreamToUI` 조건에 `|| isPlanMode` 추가
 
+### 보안 개선
+
+- **콘솔 로그 민감 데이터 제거** (`OllamaApi`, `TerminalManager`, `IntentDetector`, `HotLoadManager`, `CreateFileToolHandler`, `UpdateFileToolHandler`, `ConversationManager`): LLM 응답 본문, 파일 내용, 터미널 출력, 사용자 쿼리 원문 등이 로그에 그대로 출력되던 부분을 길이(chars)만 표시하도록 일괄 변경
+
 ---
 
 ## v1.0.35

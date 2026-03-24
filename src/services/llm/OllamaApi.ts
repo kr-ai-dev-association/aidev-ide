@@ -327,7 +327,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
 
         const rawResponse = await this.makeHttpRequest(url, requestData, options);
 
-        console.log('[OllamaApi] Raw response received:', JSON.stringify(rawResponse).length > 500 ? JSON.stringify(rawResponse).substring(0, 500) + '...' : JSON.stringify(rawResponse));
+        console.log(`[OllamaApi] Raw response received: (${JSON.stringify(rawResponse).length} chars)`);
 
         // 네이티브 tool_calls가 있으면 텍스트 JSON 형식으로 변환 (기존 ToolParser 호환)
         const nativeToolCalls = rawResponse.message?.tool_calls;
