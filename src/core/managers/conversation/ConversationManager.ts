@@ -2328,12 +2328,7 @@ export class ConversationManager implements IConversationHandler {
         model: actualModelName,
       };
 
-      console.log(
-        `[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`,
-        llmResponse.length > AgentConfig.MAX_LOG_PREVIEW_LENGTH
-          ? llmResponse.substring(0, AgentConfig.MAX_LOG_PREVIEW_LENGTH) + "..."
-          : llmResponse,
-      );
+      console.log(`[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}): (${llmResponse.length} chars)`);
 
       // 0.5. thinking 내용을 UI processing-steps 영역에 표시
       const thinkingMatch = llmResponse.match(/<think>([\s\S]*?)<\/think>/);

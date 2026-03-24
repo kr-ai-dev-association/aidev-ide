@@ -1780,13 +1780,13 @@ ${compilationGuidelines || ''}
 
             console.log('[TerminalManager] LLM에게 오류 수정 요청 전송');
             console.log(`[TerminalManager] 컴파일 오류 감지 여부: ${hasCompilationError}`);
-            console.log(`[TerminalManager] 오류 출력 샘플 (처음 500자): ${cleanedErrorOutput.substring(0, 500)}...`);
+            console.log(`[TerminalManager] 오류 출력 길이: ${cleanedErrorOutput.length} chars`);
 
             // ErrorManager를 통해 LLM 호출
             const errorManager = ErrorManager.getInstance();
             const response = await errorManager.sendMessageForErrorCorrection(errorCorrectionPrompt, this.llmApiClient);
             console.log(`[TerminalManager] LLM 응답 받음 (길이: ${response.length})`);
-            console.log(`[TerminalManager] LLM 응답 샘플 (처음 300자): ${response.substring(0, 300)}...`);
+            console.log(`[TerminalManager] LLM 응답 길이: ${response.length} chars`);
 
             // Strip code fences and language headers if present
             const fenceStripped = response

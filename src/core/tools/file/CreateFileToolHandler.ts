@@ -51,7 +51,7 @@ export class CreateFileToolHandler implements IToolHandler {
         }
 
         if (!allowEmpty && this.isPlaceholderContent(trimmedContent)) {
-            console.warn(`[CreateFileToolHandler] Placeholder content rejected for ${filePath}: "${trimmedContent.substring(0, 50)}"`);
+            console.warn(`[CreateFileToolHandler] Placeholder content rejected for ${filePath} (${trimmedContent.length} chars)`);
             return {
                 success: false,
                 message: `파일 내용이 플레이스홀더입니다. 실제 코드를 작성해주세요: "${trimmedContent.substring(0, 30)}"`,
@@ -79,11 +79,7 @@ export class CreateFileToolHandler implements IToolHandler {
         await inlineDiffManager.showInlineDiff(absolutePath, originalContent, cleanedContent, context.conversationTurnId);
 
         // ✅ 디버깅: fileContent 반환 확인
-        console.log(`[CreateFileToolHandler] Returning response with fileContent:`, {
-            filePath,
-            cleanedContentLength: cleanedContent?.length || 0,
-            cleanedContentPreview: cleanedContent?.substring(0, 100) || 'empty'
-        });
+        console.log(`[CreateFileToolHandler] Returning response with fileContent: ${filePath} (${cleanedContent?.length || 0} chars)`);
 
         return {
             success: true,

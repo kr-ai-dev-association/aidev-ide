@@ -302,7 +302,7 @@ export class ErrorManager {
         try {
             // LLMApiClient의 sendMessage 메서드 사용
             const response = await llmApiClient.sendMessage(prompt, { signal: abortSignal });
-            console.log(`[ErrorManager] 오류 수정 응답: ${response}`);
+            console.log(`[ErrorManager] 오류 수정 응답 수신 (${response.length} chars)`);
             return response;
         } catch (error) {
             console.error('[ErrorManager] 오류 수정 메시지 전송 실패:', error);

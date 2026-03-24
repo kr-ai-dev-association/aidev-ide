@@ -365,7 +365,7 @@ export class SubAgentLoop {
                         continue;
                     }
 
-                    console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
+                    console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=(${summary.length} chars)`);
                     if (this.subtask.toolPermission === 'full' && !hasExecutedWriteTools && status !== 'already_done') {
                         warnings.push(`파일 수정 없이 완료됨 — 모델이 __done__(${status})으로 작업 완료를 선언했습니다.`);
                     }
@@ -757,7 +757,7 @@ export class SubAgentLoop {
                         }
                     }
 
-                    console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
+                    console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=(${summary.length} chars)`);
                     if (this.subtask.toolPermission === 'full' && !hasExecutedWriteTools && status !== 'already_done') {
                         warnings.push(`파일 수정 없이 완료됨 — 모델이 __done__(${status})으로 작업 완료를 선언했습니다.`);
                     }

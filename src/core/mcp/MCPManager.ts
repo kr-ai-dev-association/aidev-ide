@@ -16,7 +16,6 @@ import {
     MCPToolResult,
     MCPConnectionEvent,
     ApprovedMCPTool,
-    AdminMCPServer,
     DEFAULT_MCP_SETTINGS
 } from './types';
 
@@ -26,8 +25,6 @@ export class MCPManager {
 
     private clients: Map<string, MCPClient> = new Map();
     private settings: MCPSettings = DEFAULT_MCP_SETTINGS;
-    /** 관리자(서버)에서 푸시된 MCP 서버 (개인 설정과 분리) */
-    private adminServers: AdminMCPServer[] = [];
     private eventListeners: ((event: MCPConnectionEvent) => void)[] = [];
     private initialized = false;
 
@@ -90,8 +87,7 @@ export class MCPManager {
      * 활성화된 서버들에 자동 연결 (상태 업데이트 포함)
      */
     private async autoConnectEnabledServers(): Promise<void> {
-        // 개인 서버 + 관리자 서버 모두 연결
-        const allServers = [...this.settings.servers, ...this.adminServers];
+        const allServers = [...this.settings.servers];
         console.log(`[MCPManager] autoConnect: ${allServers.length} servers (${allServers.map(s => `${s.id}:enabled=${s.enabled}`).join(', ')})`);
         for (const server of allServers) {
             if (server.enabled) {
@@ -100,10 +96,7 @@ export class MCPManager {
                     console.error(`[MCPManager] Auto-connect failed for ${server.name}:`, errorMessage);
 
                     server.status = 'error';
-                    // 개인 서버만 StateManager에 저장
-                    if (!this.adminServers.find(s => s.id === server.id)) {
-                        await this.saveSettings();
-                    }
+                    await this.saveSettings();
 
                     this.emitEvent({
                         type: 'error',
@@ -152,62 +145,6 @@ export class MCPManager {
             approvedTools,
             enabled: true
         };
-
-        // 서버 관리 MCP 설정 병합
-        await this.mergeServerMCPConfigs();
-    }
-
-    /**
-     * 서버(백엔드)에서 관리되는 MCP 설정을 별도 adminServers 배열로 로드
-     * 개인 서버 목록(this.settings.servers)에는 병합하지 않음
-     */
-    private async mergeServerMCPConfigs(): Promise<void> {
-        try {
-            const { SettingsManager } = await import('../managers/state/SettingsManager');
-            const settingsManager = SettingsManager.getInstance();
-            const serverConfigs = settingsManager.getServerMCPConfigs();
-
-            this.adminServers = [];
-
-            if (!serverConfigs || serverConfigs.length === 0) {
-                return;
-            }
-
-            for (const serverConfig of serverConfigs) {
-                const configValue = serverConfig.value as MCPServerConfig;
-                if (!configValue) continue;
-
-                // transport type 추론
-                if (!configValue.type) {
-                    configValue.type = configValue.command ? 'stdio' : 'http';
-                }
-
-                const serverId = configValue.id || `server_${serverConfig.key}`;
-                const enforcement = serverConfig.enforcement as string;
-                // required가 아닌 모든 enforcement(recommended, preset 등)는 비활성화 가능
-                const isDisabled = enforcement !== 'required' && settingsManager.isSettingDisabled('mcp_server', serverConfig.key);
-                console.log(`[MCPManager] Admin server "${serverConfig.key}": enforcement=${enforcement}, isDisabled=${isDisabled}, enabled=${enforcement === 'required' ? true : !isDisabled}`);
-
-                // 개인 목록에서 동일 ID 제거 (이전 병합 마이그레이션)
-                const personalIdx = this.settings.servers.findIndex(s => s.id === serverId);
-                if (personalIdx !== -1) {
-                    this.settings.servers.splice(personalIdx, 1);
-                }
-
-                this.adminServers.push({
-                    ...configValue,
-                    id: serverId,
-                    name: configValue.name || serverConfig.key,
-                    enabled: enforcement === 'required' ? true : !isDisabled,
-                    status: 'disconnected',
-                    enforcement: enforcement as 'required' | 'recommended',
-                });
-            }
-
-            console.log(`[MCPManager] Loaded ${this.adminServers.length} admin MCP configs`);
-        } catch (error) {
-            console.warn('[MCPManager] Failed to load admin MCP configs (falling back to local-only):', error);
-        }
     }
 
     /**
@@ -225,9 +162,8 @@ export class MCPManager {
     /**
      * 개인/관리자 서버 통합 조회 (내부용)
      */
-    private findServer(serverId: string): MCPServerConfig | AdminMCPServer | undefined {
-        return this.settings.servers.find(s => s.id === serverId)
-            || this.adminServers.find(s => s.id === serverId);
+    private findServer(serverId: string): MCPServerConfig | undefined {
+        return this.settings.servers.find(s => s.id === serverId);
     }
 
     /**
@@ -235,13 +171,6 @@ export class MCPManager {
      */
     getServers(): MCPServerConfig[] {
         return [...this.settings.servers];
-    }
-
-    /**
-     * 관리자 MCP 서버 목록 조회
-     */
-    getAdminServers(): AdminMCPServer[] {
-        return [...this.adminServers];
     }
 
     /**
@@ -352,9 +281,7 @@ export class MCPManager {
             server.status = 'connected';
             server.tools = client.tools;
             server.lastConnected = Date.now();
-            if (!this.isAdminServer(serverId)) {
-                await this.saveSettings();
-            }
+            await this.saveSettings();
 
             // 이벤트 발행
             this.emitEvent({
@@ -366,9 +293,7 @@ export class MCPManager {
 
         } catch (error) {
             server.status = 'error';
-            if (!this.isAdminServer(serverId)) {
-                await this.saveSettings();
-            }
+            await this.saveSettings();
 
             const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -397,9 +322,7 @@ export class MCPManager {
         const server = this.findServer(serverId);
         if (server) {
             server.status = 'disconnected';
-            if (!this.isAdminServer(serverId)) {
-                await this.saveSettings();
-            }
+            await this.saveSettings();
 
             this.emitEvent({
                 type: 'disconnected',
@@ -432,52 +355,6 @@ export class MCPManager {
             const errorMessage = error instanceof Error ? error.message : String(error);
             return { success: false, error: errorMessage };
         }
-    }
-
-    /**
-     * 관리자 서버인지 확인
-     */
-    private isAdminServer(serverId: string): boolean {
-        return this.adminServers.some(s => s.id === serverId);
-    }
-
-    /**
-     * 관리자 MCP 서버 토글 (권장만 가능, 필수는 불가)
-     */
-    async toggleAdminServer(serverId: string, enabled: boolean): Promise<AdminMCPServer | null> {
-        const server = this.adminServers.find(s => s.id === serverId);
-        if (!server || server.enforcement === 'required') return null;
-
-        server.enabled = enabled;
-
-        if (enabled) {
-            try {
-                await this.connectToServer(serverId);
-            } catch {
-                // 연결 실패 시에도 enabled 상태 유지
-            }
-        } else {
-            if (this.clients.has(serverId)) {
-                await this.disconnectFromServer(serverId);
-            }
-            server.status = 'disconnected';
-            server.tools = [];
-        }
-
-        // SettingsManager에 비활성화 상태 저장 (globalState)
-        try {
-            const { SettingsManager } = await import('../managers/state/SettingsManager');
-            const settingsManager = SettingsManager.getInstance();
-            // key 추출: serverId에서 "server_" prefix 제거
-            const key = serverId.startsWith('server_') ? serverId.substring(7) : serverId;
-            console.log(`[MCPManager] toggleAdminServer: serverId="${serverId}", key="${key}", disabled=${!enabled}`);
-            await settingsManager.toggleRecommendedSetting('mcp_server', key, !enabled);
-            console.log(`[MCPManager] toggleAdminServer: disabled state saved successfully`);
-        } catch (err) {
-            console.error('[MCPManager] Failed to save admin server disabled state:', err);
-        }
-
-        return server;
     }
 
     // ==================== 도구 관리 ====================
@@ -620,7 +497,6 @@ export class MCPManager {
             await this.disconnectFromServer(serverId);
         }
         this.clients.clear();
-        this.adminServers = [];
         this.eventListeners = [];
         console.log('[MCPManager] Disposed');
     }

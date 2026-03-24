@@ -179,7 +179,7 @@ export class PlanManager {
         const maxItems = 20; // 최대 파싱 항목 수 제한 (모든 항목 표시를 위해 증가)
 
         console.log('[PlanManager] parseCheckboxItemsFromPlan 시작, 총 라인 수:', lines.length);
-        console.log('[PlanManager] planText 샘플 (처음 500자):', planMarkdown.substring(0, 500));
+        console.log(`[PlanManager] planText 길이: ${planMarkdown.length} chars`);
 
         for (const raw of lines) {
             if (itemCount >= maxItems) break;

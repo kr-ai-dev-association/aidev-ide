@@ -112,7 +112,7 @@ export class AutoErrorHandler {
 
             // 자동 오류 수정 시도
             const shortPrompt = `터미널 에러 해결: ${evt.message}`;
-            console.log('[AutoErrorHandler] Auto error fix prompt:', shortPrompt);
+            console.log(`[AutoErrorHandler] Auto error fix prompt (${shortPrompt.length} chars)`);
             console.log('[AutoErrorHandler] Starting auto error correction...');
 
             // ConversationHandler를 통해 오류 수정 요청

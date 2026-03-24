@@ -128,7 +128,7 @@ export class ResponseProcessor {
             // 🔥 에러 응답이 반환된 경우 기본 요약 생성
             // LLM API 에러가 문자열로 반환되는 경우 처리
             if (verifiedSummary.startsWith('Error:') || verifiedSummary.startsWith('OFFLINE:')) {
-                console.warn('[ResponseProcessor] LLM returned error response:', verifiedSummary.substring(0, 100));
+                console.warn(`[ResponseProcessor] LLM returned error response (${verifiedSummary.length} chars)`);
                 return this.generateDefaultSummary(createdFiles, modifiedFiles);
             }
 

@@ -21890,10 +21890,15 @@ const slashCommandsByCategory = {
     description: "저장된 대화 세션 목록 보기",
     action: "listSavedSessions"
   }, {
-    command: "/restore",
+    command: "/restore-session",
     label: "세션 복원",
     description: "저장된 세션 복원하기",
     action: "restoreSavedSession"
+  }, {
+    command: "/delete-session",
+    label: "세션 삭제",
+    description: "저장된 세션 삭제하기",
+    action: "deleteSession"
   }],
   cache: [{
     command: "/cache",
@@ -22883,18 +22888,25 @@ function removeAtSymbolFromInput(chatInput) {
 /**
  * 메시지 전송 버튼 스타일 업데이트
  * @param {HTMLElement} sendBtn - 전송 버튼 요소
- * @param {string} currentMode - 현재 모드 ('ASK' 또는 'CODE')
- * @param {boolean} isLightTheme - 라이트 테마 여부
+ * @param {string} currentMode - 현재 모드 ('ASK', 'PLAN', 'CODE')
+ * @param {boolean} isLightTheme - 라이트 테마 여부 (미사용, 하위 호환성 유지)
  */
 function updateSendButtonStyle(sendBtn, currentMode, isLightTheme) {
   if (!sendBtn) return;
   const iconImg = sendBtn.querySelector(".icon-img");
   const isAskMode = currentMode === "ASK";
+  const isPlanMode = currentMode === "PLAN";
   if (isAskMode) {
     sendBtn.classList.add("ask-mode");
-    sendBtn.style.backgroundColor = isLightTheme ? "#2563eb" : "var(--vscode-button-background)";
+    sendBtn.classList.remove("plan-mode");
+    sendBtn.style.backgroundColor = "#10B981";
+  } else if (isPlanMode) {
+    sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.add("plan-mode");
+    sendBtn.style.backgroundColor = "#2563EB";
   } else {
     sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.remove("plan-mode");
     sendBtn.style.backgroundColor = "transparent";
     if (iconImg) {
       iconImg.style.filter = "";
@@ -23572,6 +23584,9 @@ let chatContainer = null;
 // 버블 생성 직후 smooth scroll 완료 전에 handleScroll이 강제 고정하는 것을 방지
 let _suppressForcedTop = false;
 
+// 컨텐츠 변경(파일 생성/수정 등) 후 고정↔해제 반복을 방지하는 debounce 타이머
+let _scrollDebounceTimer = null;
+
 /**
  * 사용자가 위로 스크롤하여 하단에서 떨어져 있는지 판단
  * 하단 100px 이내이면 "하단에 있음" (auto-scroll 허용)
@@ -23716,7 +23731,8 @@ function setProcessingStep(stepName) {
     thinkingBubbleElement.style.display = "";
   }
 
-  // global array update
+  // global array update — 현재 활성 단계를 항상 배열 끝으로 이동
+  // (재시도 시 review→executing 전환 등에서 마지막 항목이 현재 단계여야 함)
   const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
   if (existingStepIndex === -1) {
     processingStepsArray.push({
@@ -23724,7 +23740,11 @@ function setProcessingStep(stepName) {
       status: "processing"
     });
   } else {
-    processingStepsArray[existingStepIndex].status = "processing";
+    processingStepsArray.splice(existingStepIndex, 1);
+    processingStepsArray.push({
+      step: stepName,
+      status: "processing"
+    });
   }
   updateThinkingBubbleText();
   const processingSteps = document.getElementById("processing-steps");
@@ -23773,7 +23793,11 @@ function updateProcessingStatus(stepName, status, handleScrollFn) {
   // global array update
   const existingStepIndex = processingStepsArray.findIndex(s => s.step === stepName);
   if (existingStepIndex !== -1) {
-    processingStepsArray[existingStepIndex].status = status;
+    processingStepsArray.splice(existingStepIndex, 1);
+    processingStepsArray.push({
+      step: stepName,
+      status: status
+    });
   } else {
     processingStepsArray.push({
       step: stepName,
@@ -23833,13 +23857,33 @@ function handleScroll() {
 
     // 버블 생성 직후에는 강제 고정하지 않음 (smooth scroll 완료 대기)
     if ((isBelow || isAbove) && !_suppressForcedTop) {
-      thinkingBubbleElement.classList.add("is-forced-top");
+      // debounce: 컨텐츠 추가로 순간적으로 밀릴 때 즉시 고정하지 않고 대기
+      if (!_scrollDebounceTimer) {
+        _scrollDebounceTimer = setTimeout(() => {
+          _scrollDebounceTimer = null;
+          // 타이머 만료 후 다시 확인 — 아직도 밖에 있으면 고정
+          if (!thinkingBubbleElement || !chatContainer) return;
+          const recheckedRect = thinkingBubbleElement.getBoundingClientRect();
+          const recheckedContainerRect = chatContainer.getBoundingClientRect();
+          const recheckedVisibleBottom = recheckedContainerRect.bottom - bottomHeight;
+          const stillBelow = recheckedRect.top > recheckedVisibleBottom - 20;
+          const stillAbove = recheckedRect.bottom < recheckedContainerRect.top + 10;
+          if ((stillBelow || stillAbove) && !_suppressForcedTop) {
+            thinkingBubbleElement.classList.add("is-forced-top");
+          }
+        }, 150);
+      }
     }
   } else {
     // 고정 상태 — 스크롤이 하단 근처이면 해제
     // 버블은 항상 chatMessages의 마지막 요소이므로, 최대 스크롤 근처면 자연 위치가 보임
     const scrollBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
     if (scrollBottom < 100) {
+      // debounce 중이면 취소 (고정→해제 직후 다시 고정되는 것 방지)
+      if (_scrollDebounceTimer) {
+        clearTimeout(_scrollDebounceTimer);
+        _scrollDebounceTimer = null;
+      }
       thinkingBubbleElement.classList.remove("is-forced-top");
       const tc = thinkingBubbleElement.querySelector(".thinking-content");
       if (tc) tc.classList.remove("expanded");
@@ -23854,6 +23898,10 @@ function resetProcessingStatuses() {
   processingStepsArray = [];
   lastFullText = "";
   _bubbleNaturalScrollOffset = null;
+  if (_scrollDebounceTimer) {
+    clearTimeout(_scrollDebounceTimer);
+    _scrollDebounceTimer = null;
+  }
   const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
   statuses.forEach(step => {
     const statusElement = document.getElementById(`${step}-status`);
@@ -23885,8 +23933,14 @@ function updateThinkingContent(text) {
     thinkingBubbleElement.appendChild(thinkingContent);
   }
 
-  // CSS -webkit-line-clamp으로 2줄 접기 처리 → 전체 텍스트 저장 (펼치기 시 사용)
-  thinkingContent.textContent = text;
+  // inner div로 bottom-anchor: 접혀진 상태에서 최신 내용이 보이도록
+  let inner = thinkingContent.querySelector('.thinking-text-inner');
+  if (!inner) {
+    inner = document.createElement('div');
+    inner.className = 'thinking-text-inner';
+    thinkingContent.appendChild(inner);
+  }
+  inner.textContent = text;
   thinkingContent.style.display = '';
 
   // 사용자가 하단 근처에 있을 때만 자동 스크롤
@@ -23903,7 +23957,12 @@ function clearThinkingContent() {
   const thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
   if (thinkingContent) {
     thinkingContent.style.display = 'none';
-    thinkingContent.textContent = '';
+    const inner = thinkingContent.querySelector('.thinking-text-inner');
+    if (inner) {
+      inner.textContent = '';
+    } else {
+      thinkingContent.textContent = '';
+    }
   }
 }
 
@@ -24320,7 +24379,7 @@ function applyTheme(theme) {
   console.log('[Chat] Theme applied:', effectiveTheme, 'html data-theme:', document.documentElement.getAttribute('data-theme'));
 }
 
-// ASK 모드 보내기 버튼 스타일 업데이트
+// ASK/PLAN 모드 보내기 버튼 스타일 업데이트
 // currentMode는 window.chatMode에서 읽음 (chat.js의 chat-mode-changed 이벤트로 갱신됨)
 function updateSendButtonStyle() {
   const sendBtn = document.getElementById('send-button');
@@ -24329,21 +24388,27 @@ function updateSendButtonStyle() {
   }
   const currentMode = window.chatMode || 'CODE';
   const isAskMode = currentMode === 'ASK';
+  const isPlanMode = currentMode === 'PLAN';
   const iconImg = sendBtn.querySelector('.icon-img');
   if (isAskMode) {
     sendBtn.classList.add('ask-mode');
-    if (currentTheme === 'light') {
-      sendBtn.style.backgroundColor = '#2563EB';
-      sendBtn.style.borderRadius = '50%';
-    } else {
-      sendBtn.style.backgroundColor = '#10B981';
-      sendBtn.style.borderRadius = '50%';
+    sendBtn.classList.remove('plan-mode');
+    sendBtn.style.backgroundColor = '#10B981';
+    sendBtn.style.borderRadius = '50%';
+    if (iconImg) {
+      iconImg.style.filter = 'brightness(0) invert(1)';
     }
+  } else if (isPlanMode) {
+    sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.add('plan-mode');
+    sendBtn.style.backgroundColor = '#2563EB';
+    sendBtn.style.borderRadius = '50%';
     if (iconImg) {
       iconImg.style.filter = 'brightness(0) invert(1)';
     }
   } else {
     sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.remove('plan-mode');
     sendBtn.style.backgroundColor = 'transparent';
     sendBtn.style.borderRadius = '6px';
     if (iconImg) {

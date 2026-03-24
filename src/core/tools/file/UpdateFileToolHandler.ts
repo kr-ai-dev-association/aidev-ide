@@ -73,11 +73,11 @@ export class UpdateFileToolHandler implements IToolHandler {
     cleanedDiff = removeCDataSections(cleanedDiff);
 
     // SEARCH/REPLACE 블록 파싱
-    console.log(`[UpdateFileToolHandler] Raw diff (first 500 chars): ${cleanedDiff.substring(0, 500)}`);
+    console.log(`[UpdateFileToolHandler] Raw diff: (${cleanedDiff.length} chars)`);
     const replacements = this.parseDiff(cleanedDiff);
     console.log(`[UpdateFileToolHandler] Parsed ${replacements.length} replacement(s)`);
     replacements.forEach((r, i) => {
-      console.log(`[UpdateFileToolHandler] Replacement ${i}: search="${r.search.substring(0, 50)}...", replace="${r.replace.substring(0, 50)}..."`);
+      console.log(`[UpdateFileToolHandler] Replacement ${i}: search=(${r.search.length} chars), replace=(${r.replace.length} chars)`);
     });
     if (replacements.length === 0) {
       return {

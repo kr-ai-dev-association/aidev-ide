@@ -275,7 +275,7 @@ export class ProjectManager {
                 };
             }
 
-            console.log(`[ProjectManager] LLM 프로젝트 타입 감지 응답: ${response}`);
+            console.log(`[ProjectManager] LLM 프로젝트 타입 감지 응답 수신 (${response.length} chars)`);
 
             // JSON 응답 파싱 (think 블록 제거 후)
             const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();

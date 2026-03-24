@@ -532,8 +532,8 @@ export class ToolExecutionCoordinator {
 
                         // 터미널 실행 결과가 있으면 추가로 표시 (사용자 요청 반영)
                         const output = res.data?.output || '';
-                        console.log(`[ToolExecutionCoordinator] 🔥 DEBUG run_command output: "${output?.substring(0, 200)}..." (${output?.length || 0} chars)`);
-                        console.log(`[ToolExecutionCoordinator] 🔥 DEBUG res.data:`, JSON.stringify(res.data || {}).substring(0, 500));
+                        console.log(`[ToolExecutionCoordinator] run_command output: (${output?.length || 0} chars)`);
+                        console.log(`[ToolExecutionCoordinator] run_command res.data: (${JSON.stringify(res.data || {}).length} chars)`);
                         if (output) {
                             // 헤더 먼저 전송
                             WebviewBridge.receiveMessage(webview, 'System', displayMsg);

@@ -13,7 +13,6 @@ import {
 } from './types';
 import { BaseManager } from '../base/BaseManager';
 import { ConfigurationService } from './ConfigurationService';
-import { SETTINGS_CACHE_TTL_MS } from '../../config/ApiDefaults';
 
 /**
  * 백엔드에서 받은 effective setting 항목
@@ -41,11 +40,8 @@ export class SettingsManager extends BaseManager {
     private listeners: Set<SettingChangeListener> = new Set();
     private _context: vscode.ExtensionContext;
     private serverSettingsCache: ServerSettingsCache | null = null;
-    private readonly CACHE_TTL_MS = SETTINGS_CACHE_TTL_MS;
     private readonly OFFLINE_CACHE_KEY = 'codepilot.serverSettingsCache';
     private readonly DISABLED_SETTINGS_KEY = 'codepilot.disabledRecommendedSettings';
-    private syncInProgress = false;
-
     private constructor(context: vscode.ExtensionContext) {
         super(context);
         this._context = context;
@@ -109,23 +105,6 @@ export class SettingsManager extends BaseManager {
                 ],
             },
         };
-    }
-
-    /**
-     * 백엔드에서 전체 effective settings 동기화
-     * 로그인 시, 주기적으로, 또는 수동 호출
-     */
-    public async syncServerSettings(): Promise<void> {
-        // No-op in standalone mode (no backend server)
-        return;
-    }
-
-    /**
-     * 캐시가 유효한지 확인
-     */
-    private isCacheValid(): boolean {
-        if (!this.serverSettingsCache) return false;
-        return (Date.now() - this.serverSettingsCache.fetchedAt) < this.CACHE_TTL_MS;
     }
 
     /**
@@ -294,17 +273,6 @@ export class SettingsManager extends BaseManager {
                 skill_type: s.skill_type || 'rule',
                 skill_description: s.skill_description || '',
             }));
-    }
-
-    /**
-     * 서버 MCP 서버 설정 목록
-     */
-    public getServerMCPConfigs(): { key: string; value: any; enforcement: string }[] {
-        return this.getServerSettings('mcp_server').map(s => ({
-            key: s.key,
-            value: s.value,
-            enforcement: s.enforcement,
-        }));
     }
 
     /**

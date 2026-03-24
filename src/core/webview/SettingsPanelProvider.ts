@@ -1947,7 +1947,6 @@ export function openSettingsPanel(
             const servers = await stateManager.getMcpServers();
             const { MCPManager: MCPMgrGet } = await import('../mcp/MCPManager');
             const mcpMgrGet = MCPMgrGet.getInstance();
-            const adminServers = mcpMgrGet.getAdminServers();
             // 라이브 연결 상태를 MCPManager에서 병합 (autoConnect 결과 반영)
             const liveServers = mcpMgrGet.getServers();
             const mergedServers = servers.map((s: any) => {
@@ -1960,7 +1959,7 @@ export function openSettingsPanel(
             safePostMessage(panel, {
               command: 'mcpServers',
               servers: mergedServers,
-              adminServers: adminServers,
+              adminServers: [],
             });
           } catch (error: any) {
             console.error('[SettingsPanel] Failed to get MCP servers:', error);
@@ -2081,32 +2080,6 @@ export function openSettingsPanel(
             });
           }
           break;
-        case "toggleAdminMcpServer": // 관리자 MCP 서버 토글 (권장만)
-          try {
-            const adminServerId = data.serverId;
-            const adminEnabled = data.enabled;
-            if (!adminServerId) {
-              throw new Error('서버 ID가 필요합니다.');
-            }
-
-            const { MCPManager: MCPMgrAdmin } = await import('../mcp/MCPManager');
-            const mcpMgrAdmin = MCPMgrAdmin.getInstance();
-            const toggled = await mcpMgrAdmin.toggleAdminServer(adminServerId, adminEnabled);
-
-            if (toggled) {
-              safePostMessage(panel, {
-                command: 'adminMcpServerToggled',
-                serverId: adminServerId,
-                enabled: adminEnabled,
-                status: toggled.status || 'disconnected',
-                tools: toggled.tools || [],
-              });
-              notificationService.showInfoMessage(`CODEPILOT: 관리자 MCP 서버 ${adminEnabled ? '활성화' : '비활성화'}됨`);
-            }
-          } catch (error: any) {
-            console.error('[SettingsPanel] Failed to toggle admin MCP server:', error);
-          }
-          break;
         case "testMcpServer": // MCP 서버 연결 테스트 (개인 + 관리자 모두)
           try {
             const serverId = data.serverId;
@@ -2117,36 +2090,30 @@ export function openSettingsPanel(
             const { MCPManager } = await import('../mcp/MCPManager');
             const mcpManager = MCPManager.getInstance();
 
-            // 개인 서버에서 찾기
+            // 서버 찾기 및 MCPManager에 등록
             const personalServers = await stateManager.getMcpServers();
             const personalServer = personalServers.find((s: any) => s.id === serverId);
-            const isAdmin = !personalServer;
 
             if (personalServer) {
-              // 개인 서버: MCPManager에 등록 후 연결
               const existingServers = mcpManager.getServers();
               if (!existingServers.find(s => s.id === serverId)) {
                 await mcpManager.addServer(personalServer);
               }
             }
-            // 관리자 서버는 이미 MCPManager.adminServers에 있음
 
             // 연결 테스트
             await mcpManager.connectToServer(serverId);
 
-            // 도구 목록 가져오기 (개인 + 관리자 모두에서 검색)
-            const allServers = [...mcpManager.getServers(), ...mcpManager.getAdminServers()];
-            const connectedServer = allServers.find(s => s.id === serverId);
+            // 도구 목록 가져오기
+            const connectedServer = mcpManager.getServers().find(s => s.id === serverId);
             const tools = connectedServer?.tools || [];
 
-            // 개인 서버만 StateManager에 상태 저장
-            if (!isAdmin) {
-              await stateManager.updateMcpServer(serverId, {
-                status: 'connected',
-                tools: tools,
-                lastConnected: Date.now()
-              });
-            }
+            // StateManager에 상태 저장
+            await stateManager.updateMcpServer(serverId, {
+              status: 'connected',
+              tools: tools,
+              lastConnected: Date.now()
+            });
 
             safePostMessage(panel, {
               command: 'mcpTestResult',
@@ -2498,8 +2465,6 @@ export function openSettingsPanel(
           try {
             const { SettingsManager } = await import("../../core/managers/state/SettingsManager");
             const sm = SettingsManager.getInstance();
-            await sm.syncServerSettings();
-            // 동기화 후 서버 설정도 다시 전송
             safePostMessage(panel, {
               command: 'serverSettingsLoaded',
               settings: sm.getAllServerSettings(),
