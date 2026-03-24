@@ -2,7 +2,19 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.32**
+> **현재 버전: v1.0.33**
+
+---
+
+## v1.0.33
+
+### 버그 수정
+
+- **update_file SEARCH 블록 생략 표현 감지 및 조기 실패** (`UpdateFileToolHandler`): LLM이 SEARCH 블록에 `... (생략됨)`, `// ...`, `...` 등 생략 표현을 사용할 경우 파일 매칭 시도 없이 즉시 `ELLIPSIS_IN_SEARCH` 에러 반환 — 기존에는 `PATTERN_NOT_FOUND` 실패 후 `__done__` 거부 루프가 반복되던 문제 수정
+
+### 개선
+
+- **SubAgentLoop 시스템 프롬프트 규칙 추가**: SEARCH 블록에 생략 표현 사용 금지 규칙 명시 — LLM이 처음부터 파일의 실제 코드를 그대로 작성하도록 예방
 
 ---
 
