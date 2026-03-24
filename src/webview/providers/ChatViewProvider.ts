@@ -662,6 +662,9 @@ ${JSON.stringify(errorContext, null, 2)}
                             case 'restoreSavedSession':
                                 await vscode.commands.executeCommand('codepilot.restoreSavedSession');
                                 break;
+                            case 'deleteSession':
+                                await vscode.commands.executeCommand('codepilot.deleteSession');
+                                break;
                             case 'compactConversation':
                                 await vscode.commands.executeCommand('codepilot.compactConversation');
                                 break;

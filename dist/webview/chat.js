@@ -21890,10 +21890,15 @@ const slashCommandsByCategory = {
     description: "저장된 대화 세션 목록 보기",
     action: "listSavedSessions"
   }, {
-    command: "/restore",
+    command: "/restore-session",
     label: "세션 복원",
     description: "저장된 세션 복원하기",
     action: "restoreSavedSession"
+  }, {
+    command: "/delete-session",
+    label: "세션 삭제",
+    description: "저장된 세션 삭제하기",
+    action: "deleteSession"
   }],
   cache: [{
     command: "/cache",
