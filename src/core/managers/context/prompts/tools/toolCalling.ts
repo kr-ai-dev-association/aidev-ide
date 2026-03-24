@@ -226,6 +226,12 @@ export function getNativeWorkflowGuidelinePrompt(): string {
     prompt += '- 에러 해결을 위해 기존 파일을 삭제하지 마세요\n';
     prompt += '- remove_file은 사용자가 명시적으로 요청한 경우에만 사용\n\n';
 
+    prompt += '**__done__ 전 자기 검증 (필수):**\n';
+    prompt += '__done__을 호출하기 전에 원래 요청을 다시 확인하세요:\n';
+    prompt += '- 사용자가 "몇 번째 줄"을 물었는데 stat_file만 사용했다면 → ripgrep_search로 실제 줄 번호를 찾은 후 완료하세요\n';
+    prompt += '- 사용자가 "함수 목록과 줄 번호"를 요청했는데 심볼 이름만 반환했다면 → ripgrep_search로 각 함수의 줄 번호를 확인하세요\n';
+    prompt += '- 도구 결과가 요청을 실제로 충족했는지 확인한 후에만 __done__을 호출하세요\n\n';
+
     return prompt;
 }
 
@@ -270,7 +276,13 @@ export function getImportantRulesPrompt(): string {
     prompt += '**올바른 응답:**\n';
     prompt += '```\n';
     prompt += '{ "tool": "read_file", "path": "src/App.tsx" }\n';
-    prompt += '```\n';
+    prompt += '```\n\n';
+
+    prompt += '**__done__ 전 자기 검증 (필수):**\n';
+    prompt += '__done__을 호출하기 전에 원래 요청을 다시 확인하세요:\n';
+    prompt += '- 사용자가 "몇 번째 줄"을 물었는데 stat_file만 사용했다면 → ripgrep_search로 실제 줄 번호를 찾은 후 완료하세요\n';
+    prompt += '- 사용자가 "함수 목록과 줄 번호"를 요청했는데 심볼 이름만 반환했다면 → ripgrep_search로 각 함수의 줄 번호를 확인하세요\n';
+    prompt += '- 도구 결과가 요청을 실제로 충족했는지 확인한 후에만 __done__을 호출하세요\n';
 
     return prompt;
 }

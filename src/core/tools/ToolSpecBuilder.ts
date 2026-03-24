@@ -97,7 +97,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.LIST_FILES)) {
             specs.push({
                 name: Tool.LIST_FILES,
-                description: '지정된 디렉토리 내의 파일과 디렉토리를 나열합니다.',
+                description: '지정된 디렉토리 내의 파일과 디렉토리를 나열합니다. ⚠️ 파일명 패턴(예: *.py, *manager*)으로 파일을 찾을 때는 glob_search를 사용하세요. list_files는 특정 디렉토리 구조를 파악할 때만 사용하세요.',
                 parameters: [
                     { name: 'path', required: false, description: '디렉토리 경로 (기본값: 프로젝트 루트)', type: 'string' },
                     { name: 'recursive', required: false, description: '재귀적으로 나열할지 여부 (true/false)', type: 'string' }
@@ -109,7 +109,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.RIPGREP_SEARCH)) {
             specs.push({
                 name: Tool.RIPGREP_SEARCH,
-                description: 'ripgrep(rg)을 사용하여 파일 내용을 검색합니다. 대규모 프로젝트에서 매우 빠릅니다. **권장 플로우**: 여러 파일에서 동일한 텍스트를 찾아 수정해야 할 때는 1) ripgrep_search로 패턴 검색, 2) read_file로 각 파일 내용 확인, 3) update_file로 SEARCH/REPLACE 블록 사용하여 수정. find + sed -i 같은 쉘 명령어는 절대 사용하지 마세요.',
+                description: '파일 내용에서 키워드나 패턴을 검색합니다. 결과에 파일 경로와 **정확한 줄 번호**가 포함됩니다. 대규모 프로젝트에서도 매우 빠릅니다. **줄 번호가 필요한 모든 검색**("몇 번째 줄", "def 함수 목록", "어디에 구현되어 있어?" 등)에 사용하세요. stat_file은 심볼 이름만 반환하고 줄 번호는 제공하지 않으므로, 줄 번호가 필요하면 반드시 ripgrep_search를 사용해야 합니다. **권장 플로우**: 1) ripgrep_search로 패턴 검색, 2) read_file로 각 파일 내용 확인, 3) update_file로 SEARCH/REPLACE 블록 사용하여 수정. find + sed -i 같은 쉘 명령어는 절대 사용하지 마세요.',
                 parameters: [
                     { name: 'pattern', required: true, description: '검색할 정규식 또는 키워드', type: 'string' },
                     { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
@@ -163,7 +163,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.STAT_FILE)) {
             specs.push({
                 name: Tool.STAT_FILE,
-                description: '파일의 메타데이터와 구조 요약을 조회합니다. 파일 크기, 라인 수, 수정 시간, 그리고 클래스/함수/인터페이스 등의 심볼 목록을 반환합니다. 파일 내용을 읽지 않고 구조만 파악할 때 유용합니다.',
+                description: '파일의 메타데이터와 구조 요약을 조회합니다. 파일 크기, 총 라인 수, 수정 시간, 그리고 클래스/함수/인터페이스 등의 **심볼 이름 목록**을 반환합니다. 파일을 읽기 전에 크기 확인, 또는 어떤 클래스/함수가 존재하는지 이름만 파악할 때 사용하세요. ⚠️ 제한: 심볼의 **정확한 줄 번호를 제공하지 않습니다**. "몇 번째 줄", "def 목록과 줄 번호", "어디에 구현됨" 등 줄 번호가 필요하면 ripgrep_search를 사용하세요.',
                 parameters: [
                     { name: 'path', required: true, description: '조회할 파일 경로', type: 'string' },
                     { name: 'symbols', required: false, description: '심볼(클래스, 함수 등) 추출 여부 (기본값: true)', type: 'string' }
@@ -223,7 +223,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.GLOB_SEARCH)) {
             specs.push({
                 name: Tool.GLOB_SEARCH,
-                description: 'glob 패턴으로 프로젝트 내 파일 경로를 검색합니다. 파일 이름이나 경로 패턴으로 파일 위치를 찾을 때 사용하세요. ripgrep_search는 파일 **내용**을 검색하고, glob_search는 파일 **경로/이름**을 검색합니다. **파일 위치를 모를 때는 glob_search를 먼저 사용하세요.**',
+                description: 'glob 패턴으로 프로젝트 내 파일 경로를 검색합니다. 파일 이름이나 경로 패턴으로 파일 위치를 찾을 때 사용하세요. ripgrep_search는 파일 **내용**을 검색하고, glob_search는 파일 **경로/이름**을 검색합니다. **파일 위치를 모를 때, 또는 파일명에 특정 단어가 포함된 파일을 찾을 때(예: *manager*, *service*)는 glob_search를 사용하세요.** list_files 대신 glob_search를 우선 사용하세요.',
                 parameters: [
                     { name: 'pattern', required: true, description: 'glob 패턴 (예: **/Dashboard.tsx, src/**/*.test.ts, **/*.config.{js,ts})', type: 'string' },
                     { name: 'path', required: false, description: '검색 시작 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },

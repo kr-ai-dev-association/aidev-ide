@@ -9,6 +9,7 @@
 
 import { AiModelType, PromptType } from '../../../services';
 import { getGeneralAskPrompt } from './prompts/general/generalAsk';
+import { getPlanPrompt } from './prompts/plan/planPrompt';
 export { PromptType };
 import { PromptComposer, PromptComposerOptions } from './prompts/PromptComposer';
 import { ProjectManager } from '../project/ProjectManager';
@@ -67,6 +68,23 @@ export class PromptBuilder {
         selectedFilesContent: options.selectedFilesContent,
         terminalContextContent: options.terminalContextContent,
         diagnosticsContextContent: options.diagnosticsContextContent,
+        hotLoadPrompt: options.hotLoadPrompt,
+        ragContext: options.ragContext,
+      });
+    }
+
+    if (promptType === PromptType.PLAN) {
+      return getPlanPrompt({
+        codebaseContext,
+        profileContext,
+        intentContext,
+        realTimeInfo,
+        gitContext,
+        languageInstruction,
+        selectedFilesContent: options.selectedFilesContent,
+        terminalContextContent: options.terminalContextContent,
+        diagnosticsContextContent: options.diagnosticsContextContent,
+        frameworkRulesPrompt: options.frameworkRulesPrompt,
         hotLoadPrompt: options.hotLoadPrompt,
         ragContext: options.ragContext,
       });

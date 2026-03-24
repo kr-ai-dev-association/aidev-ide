@@ -596,7 +596,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
 
                     // ConversationService를 통해 메시지 처리
-                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : PromptType.CODE_GENERATION;
+                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : data.mode === 'PLAN' ? PromptType.PLAN : PromptType.CODE_GENERATION;
 
                     await ConversationService.handleUserMessage({
                         userQuery: data.text,

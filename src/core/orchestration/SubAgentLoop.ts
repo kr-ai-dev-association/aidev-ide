@@ -96,6 +96,8 @@ export class SubAgentLoop {
 
         // 턴 간 중복 read_file 방지: 이미 읽은 경로 추적
         const alreadyReadFiles = new Set<string>();
+        // 턴 간 중복 stat_file 방지: 이미 stat한 경로 추적
+        const alreadyStattedFiles = new Set<string>();
 
         // Native tool calling 설정 (루프 전 1회 계산)
         const adminConfig = this.llmManager.getAdminModelConfig();
@@ -175,6 +177,8 @@ export class SubAgentLoop {
                         // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
                         const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
                             if (toolName !== 'create_file' || !args.path) { return; }
+                            // read-only 권한에서는 스트리밍 중 create_file 차단
+                            if (this.subtask.toolPermission !== 'full') { return; }
                             const p = args.path as string;
                             if (streamingCreatedPaths.has(p) || streamingHandledPaths.has(p)) { return; }
                             const capturedCall: ToolUse = { name: toolName, params: { ...args } };
@@ -185,7 +189,15 @@ export class SubAgentLoop {
                         const onChunk = (chunk: string) => {
                             streamBuffer += chunk;
 
-                            if (isAutoToolEnabled && isAutoUpdateEnabled) {
+                            // read-only 권한에서는 스트리밍 중 create_file 완전 차단
+                            if (this.subtask.toolPermission !== 'full') {
+                                // 스트리밍 위치만 업데이트 (실행 없음)
+                                let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+                                while (endIdx !== -1) {
+                                    streamLastFileContentPos = endIdx + FILE_END_MARKER.length;
+                                    endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+                                }
+                            } else if (isAutoToolEnabled && isAutoUpdateEnabled) {
                                 // ON+ON: </file_content> 감지 즉시 실행
                                 let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 while (endIdx !== -1) {
@@ -443,6 +455,7 @@ export class SubAgentLoop {
                 const seenInTurn = new Set<string>();
                 const skippedUpdateFiles: { path: string; reason: 'create' | 'read' }[] = [];
                 const skippedReadFiles: string[] = [];
+                const skippedStatFiles: string[] = [];
                 const uniqueCalls = allowedCalls.filter(call => {
                     const key = `${call.name}:${call.params.path || call.params.command || ''}`;
                     if (seenInTurn.has(key)) {
@@ -464,6 +477,15 @@ export class SubAgentLoop {
                         if (!this.disableReadDedup && alreadyReadFiles.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Cross-turn duplicate read skipped: ${call.params.path}`);
                             skippedReadFiles.push(call.params.path);
+                            return false;
+                        }
+                    }
+
+                    if (call.name === 'stat_file' && call.params.path) {
+                        // 이미 이전 턴에서 stat한 파일 스킵 (중복 조회 방지)
+                        if (alreadyStattedFiles.has(call.params.path)) {
+                            console.log(`[SubAgentLoop:${this.subtask.id}] Cross-turn duplicate stat skipped: ${call.params.path}`);
+                            skippedStatFiles.push(call.params.path);
                             return false;
                         }
                     }
@@ -528,6 +550,12 @@ export class SubAgentLoop {
                         alreadyReadFiles.add(call.params.path);
                     }
                 }
+                // 5.2. 성공한 stat_file은 alreadyStattedFiles에 기록 (턴 간 중복 방지)
+                for (const call of callsToExecute) {
+                    if (call.name === 'stat_file' && call.params.path) {
+                        alreadyStattedFiles.add(call.params.path);
+                    }
+                }
 
                 // 4.4. Fix 8: 스트리밍 중 실행된 create_file에 대한 synthetic 피드백 추가
                 for (const path of streamingCreatedPaths) {
@@ -543,6 +571,15 @@ export class SubAgentLoop {
                     results.push({
                         success: true,
                         message: `[이미 읽음] ${path}는 이전 턴에서 이미 읽었습니다. 방금 제공된 내용을 그대로 사용하세요. 다시 read_file을 호출하지 마세요.`,
+                    });
+                }
+
+                // 4.5b. 크로스턴 중복 stat_file 스킵에 대한 synthetic 피드백 추가
+                for (const path of skippedStatFiles) {
+                    uniqueCalls.push({ name: 'stat_file', params: { path } } as ToolUse);
+                    results.push({
+                        success: true,
+                        message: `[이미 조회됨] ${path}는 이전 턴에서 이미 stat_file로 조회했습니다. 이전 결과를 그대로 사용하세요. 다시 stat_file을 호출하지 마세요.`,
                     });
                 }
 
@@ -831,6 +868,9 @@ ${projectSection}
 - 모든 응답은 한국어로 작성하세요
 - 다른 에이전트가 생성할 파일에 의존하지 마세요. read_file 실패 시 해당 파일을 직접 create_file로 작성하세요
 - 같은 도구를 동일한 파라미터로 반복 호출하지 마세요. 이미 성공한 도구 호출은 다시 실행할 필요가 없습니다
+- __done__ summary에는 조사한 구체적 수치(파일 경로, 크기, 줄 번호 등)를 반드시 포함하세요. 집계 태스크가 이 데이터를 활용합니다.
+${this.subtask.dependencies.length > 0 ? '- 이 작업은 선행 태스크의 결과를 집계합니다. 선행 태스크 요약에 이미 포함된 정보(파일 크기, 경로, 줄 번호, 심볼 목록 등)를 도구로 재조회하지 마세요. 요약에 있는 데이터를 그대로 사용하여 분석하세요.' : ''}
+
 - 프로젝트 초기화 시 create-vite, create-react-app, create-next-app 등 스캐폴딩 도구를 사용하지 마세요. package.json, tsconfig.json 등 설정 파일과 소스 코드를 create_file로 직접 생성하고, npm install로 의존성을 설치하세요
 
 ${toolSection}

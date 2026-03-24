@@ -22883,18 +22883,25 @@ function removeAtSymbolFromInput(chatInput) {
 /**
  * 메시지 전송 버튼 스타일 업데이트
  * @param {HTMLElement} sendBtn - 전송 버튼 요소
- * @param {string} currentMode - 현재 모드 ('ASK' 또는 'CODE')
- * @param {boolean} isLightTheme - 라이트 테마 여부
+ * @param {string} currentMode - 현재 모드 ('ASK', 'PLAN', 'CODE')
+ * @param {boolean} isLightTheme - 라이트 테마 여부 (미사용, 하위 호환성 유지)
  */
 function updateSendButtonStyle(sendBtn, currentMode, isLightTheme) {
   if (!sendBtn) return;
   const iconImg = sendBtn.querySelector(".icon-img");
   const isAskMode = currentMode === "ASK";
+  const isPlanMode = currentMode === "PLAN";
   if (isAskMode) {
     sendBtn.classList.add("ask-mode");
-    sendBtn.style.backgroundColor = isLightTheme ? "#2563eb" : "var(--vscode-button-background)";
+    sendBtn.classList.remove("plan-mode");
+    sendBtn.style.backgroundColor = "#10B981";
+  } else if (isPlanMode) {
+    sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.add("plan-mode");
+    sendBtn.style.backgroundColor = "#2563EB";
   } else {
     sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.remove("plan-mode");
     sendBtn.style.backgroundColor = "transparent";
     if (iconImg) {
       iconImg.style.filter = "";
@@ -24368,7 +24375,7 @@ function applyTheme(theme) {
   console.log('[Chat] Theme applied:', effectiveTheme, 'html data-theme:', document.documentElement.getAttribute('data-theme'));
 }
 
-// ASK 모드 보내기 버튼 스타일 업데이트
+// ASK/PLAN 모드 보내기 버튼 스타일 업데이트
 // currentMode는 window.chatMode에서 읽음 (chat.js의 chat-mode-changed 이벤트로 갱신됨)
 function updateSendButtonStyle() {
   const sendBtn = document.getElementById('send-button');
@@ -24377,21 +24384,27 @@ function updateSendButtonStyle() {
   }
   const currentMode = window.chatMode || 'CODE';
   const isAskMode = currentMode === 'ASK';
+  const isPlanMode = currentMode === 'PLAN';
   const iconImg = sendBtn.querySelector('.icon-img');
   if (isAskMode) {
     sendBtn.classList.add('ask-mode');
-    if (currentTheme === 'light') {
-      sendBtn.style.backgroundColor = '#2563EB';
-      sendBtn.style.borderRadius = '50%';
-    } else {
-      sendBtn.style.backgroundColor = '#10B981';
-      sendBtn.style.borderRadius = '50%';
+    sendBtn.classList.remove('plan-mode');
+    sendBtn.style.backgroundColor = '#10B981';
+    sendBtn.style.borderRadius = '50%';
+    if (iconImg) {
+      iconImg.style.filter = 'brightness(0) invert(1)';
     }
+  } else if (isPlanMode) {
+    sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.add('plan-mode');
+    sendBtn.style.backgroundColor = '#2563EB';
+    sendBtn.style.borderRadius = '50%';
     if (iconImg) {
       iconImg.style.filter = 'brightness(0) invert(1)';
     }
   } else {
     sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.remove('plan-mode');
     sendBtn.style.backgroundColor = 'transparent';
     sendBtn.style.borderRadius = '6px';
     if (iconImg) {
