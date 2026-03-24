@@ -2,7 +2,23 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.34**
+> **현재 버전: v1.0.35**
+
+---
+
+## v1.0.35
+
+### 버그 수정
+
+- **에러 수정 요청 시 memory-only INVESTIGATION 턴에서 작업 없이 종료되는 버그 수정** (`ConversationManager`): `@diagnostics` 첨부 후 "에러 수정해줘" 요청 시 INVESTIGATION 페이즈에서 LLM이 `memory_save`만 호출하면 DONE으로 바로 전환되어 실제 수정이 이루어지지 않던 문제 수정 — `terminal` / `code_work` taskType인 경우 memory-only 조기 종료 로직을 건너뛰고 다음 턴에서 실제 작업을 수행하도록 처리
+
+### 개선
+
+- **`list_files` 툴 설명 명확화** (`ToolSpecBuilder`): "디렉토리 구조 파악 전용" 용도를 명시하고 파일 검색 시 `glob_search` / `ripgrep_search` 사용을 안내 — LLM이 파일 검색에 `list_files`를 남용하는 패턴 방지
+- **`ListFilesToolHandler` `.gitignore` 지원 추가**: 프로젝트 루트의 `.gitignore`를 읽어 파일 탐색 시 자동으로 제외 — 기본 제외 디렉토리 목록 확장 (`.venv`, `coverage`, `.pytest_cache`, `.gradle`, `Pods`, `.terraform`, `logs` 등 추가)
+- **`SubAgentLoop` 시스템 프롬프트 규칙 추가**: 파일 검색 시 `glob_search` / `ripgrep_search` 우선 사용, `node_modules` 등 빌드 아티팩트 탐색 금지, RAG 컨텍스트 재사용 규칙 명시
+- **`ToolParser` 응답당 최대 툴콜 수 조정**: 30개 → 20개로 축소 — LLM이 과도한 파일 탐색 툴콜을 반복하는 토큰 폭발 방지
+- **설정 패널 컨텍스트 제외 설명 추가** (`settings.html`): `.gitignore`에 등록된 경로는 LLM 파일 탐색 시 자동으로 제외됨을 안내
 
 ---
 

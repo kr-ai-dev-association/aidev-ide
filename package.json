@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.34",
+  "version": "1.0.35",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"

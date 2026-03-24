@@ -97,7 +97,7 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.LIST_FILES)) {
             specs.push({
                 name: Tool.LIST_FILES,
-                description: '지정된 디렉토리 내의 파일과 디렉토리를 나열합니다. ⚠️ 파일명 패턴(예: *.py, *manager*)으로 파일을 찾을 때는 glob_search를 사용하세요. list_files는 특정 디렉토리 구조를 파악할 때만 사용하세요.',
+                description: '**디렉토리 구조 파악 전용.** "src 안에 뭐가 있나", "이 폴더 구조가 어떻게 됐나" 확인 시 사용하세요. ⚠️ 파일 검색에는 사용 금지: 파일명/경로로 찾을 때 → glob_search, 파일 내용으로 찾을 때 → ripgrep_search.',
                 parameters: [
                     { name: 'path', required: false, description: '디렉토리 경로 (기본값: 프로젝트 루트)', type: 'string' },
                     { name: 'recursive', required: false, description: '재귀적으로 나열할지 여부 (true/false)', type: 'string' }

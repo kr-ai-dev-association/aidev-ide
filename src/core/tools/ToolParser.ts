@@ -250,8 +250,15 @@ export class ToolParser {
             console.log(`[ToolParser] Deduplicated: ${toolCalls.length} → ${deduped.length} tool calls`);
         }
 
-        console.log(`[ToolParser] parseCodeBlockFormat result: ${deduped.length} tool calls found`, deduped.map(c => c.name));
-        return deduped;
+        // 응답당 최대 30개 제한
+        const MAX_TOOL_CALLS_PER_RESPONSE = 20;
+        const capped = deduped.length > MAX_TOOL_CALLS_PER_RESPONSE ? deduped.slice(0, MAX_TOOL_CALLS_PER_RESPONSE) : deduped;
+        if (capped.length < deduped.length) {
+            console.warn(`[ToolParser] Tool call cap applied: ${deduped.length} → ${capped.length} (max ${MAX_TOOL_CALLS_PER_RESPONSE})`);
+        }
+
+        console.log(`[ToolParser] parseCodeBlockFormat result: ${capped.length} tool calls found`, capped.map(c => c.name));
+        return capped;
     }
 
     /**
