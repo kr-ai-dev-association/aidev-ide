@@ -2,7 +2,16 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.33**
+> **현재 버전: v1.0.34**
+
+---
+
+## v1.0.34
+
+### 버그 수정
+
+- **Formatter 중복 실행 수정** (`ConversationManager`, `executeToolsWithUI`): `afterFileChanges` 호출 시 누적된 전체 `modifiedFiles`를 넘기던 것을 이번 도구 실행에서 새로 변경된 파일만 넘기도록 수정 — 이전 턴의 pending diff가 남아있는 경우 `run_command` 등 파일 변경 없는 도구 실행 후에도 ruff 등 포매터가 반복 실행되던 문제 수정
+- **plan item 실행 중 `__done__` Unknown tool 에러 수정** (`ConversationManager`): LLM이 plan item 완료 시 `__done__`을 호출하면 `ToolExecutor`가 "Unknown tool: __done__" 에러를 반환하여 패널에 ❌가 표시되던 문제 수정 — `executeToolsWithUI` 전달 전에 `__done__`을 필터링하여 처리 (멀티에이전트 SubAgentLoop의 `__done__` 처리에는 영향 없음)
 
 ---
 

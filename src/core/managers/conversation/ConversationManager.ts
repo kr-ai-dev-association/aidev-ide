@@ -1741,7 +1741,15 @@ export class ConversationManager implements IConversationHandler {
               cleanExecutionResponse,
             );
 
-            if (toolCallsFromExecution.length > 0) {
+            // __done__은 SubAgentLoop 전용 — ConversationManager plan item 실행 시
+            // ToolExecutor에 넘기면 "Unknown tool: __done__" 에러로 패널에 ❌ 표시됨
+            // 여기서 필터링하여 ToolExecutor로 전달하지 않음
+            const filteredExecutionCalls = toolCallsFromExecution.filter(c => c.name !== '__done__');
+            if (toolCallsFromExecution.length !== filteredExecutionCalls.length) {
+              console.log(`[ConversationManager] __done__ intercepted in plan item execution (plan item: "${currentPlanItem?.title}")`);
+            }
+
+            if (filteredExecutionCalls.length > 0) {
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
@@ -1759,7 +1767,7 @@ export class ConversationManager implements IConversationHandler {
                 inlineDiagnosticErrors: inlineDiagErrors2,
               } = await this.executeToolsWithUI(
                 toolExecutor,
-                toolCallsFromExecution,
+                filteredExecutionCalls,
                 webviewToRespond,
                 actionManager,
                 executionManager,
@@ -1806,13 +1814,13 @@ export class ConversationManager implements IConversationHandler {
               const resultSummary =
                 ToolExecutionCoordinator.createToolResultSummary(
                   turnCount,
-                  toolCallsFromExecution,
+                  filteredExecutionCalls,
                   toolResults,
                 );
 
               if (
                 ToolExecutionCoordinator.hasSideEffects(
-                  toolCallsFromExecution,
+                  filteredExecutionCalls,
                   toolResults,
                 ) &&
                 currentPlanItem
@@ -5208,7 +5216,9 @@ export class ConversationManager implements IConversationHandler {
       }
     });
 
-    // 파일 변경 추적
+    // 파일 변경 추적 (이번 도구 실행에서 새로 변경된 파일만 추적하기 위해 스냅샷)
+    const prevCreatedCount = createdFiles.length;
+    const prevModifiedCount = modifiedFiles.length;
     ToolExecutionCoordinator.trackFileChanges(
       toolCalls,
       toolResults,
@@ -5238,13 +5248,16 @@ export class ConversationManager implements IConversationHandler {
       .map((result: ToolResponse) => result.message || result.error?.message)
       .filter((msg): msg is string => Boolean(msg));
 
-    // 파일 변경 후 formatter 및 validation 실행
-    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+    // 파일 변경 후 formatter 및 validation 실행 (이번 도구 실행에서 새로 변경된 파일만)
+    // 누적된 createdFiles/modifiedFiles 전체를 넘기면 이전 턴 pending diff가 남아 중복 포맷팅 발생
+    const newlyCreated = createdFiles.slice(prevCreatedCount);
+    const newlyModified = modifiedFiles.slice(prevModifiedCount);
+    if (newlyCreated.length > 0 || newlyModified.length > 0) {
       await FileChangeHandler.afterFileChanges(
         webview,
         workspaceRoot,
-        createdFiles,
-        modifiedFiles,
+        newlyCreated,
+        newlyModified,
       );
     }
 
