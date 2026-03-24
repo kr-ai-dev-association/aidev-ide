@@ -78,7 +78,8 @@ export class OrchestrationRouter {
     static async route(options: RouteOptions): Promise<void> {
         const orchestrationEnabled = ConfigurationService.get<boolean>('orchestration', false) ?? false;
 
-        if (!orchestrationEnabled) {
+        // PLAN/ASK 모드는 멀티 에이전트 불필요 — 항상 단일 에이전트로 처리
+        if (!orchestrationEnabled || options.promptType === PromptType.PLAN || options.promptType === PromptType.GENERAL_ASK) {
             return OrchestrationRouter.routeToSingleLoop(options);
         }
 
@@ -342,6 +343,9 @@ export class OrchestrationRouter {
                 console.error('[OrchestrationRouter] Post-merge validation threw:', validationError);
             }
 
+            // 사용자 취소 시 요약/표시 건너뜀
+            if (options.abortSignal?.aborted) { return; }
+
             // 통합 요약 생성 (LLM으로 자연어 요약)
             let unifiedSummary = '';
             try {
@@ -353,6 +357,7 @@ export class OrchestrationRouter {
             }
 
             // 요약 표시
+            if (options.abortSignal?.aborted) { return; }
             const summaryMessage = OrchestrationRouter.formatMergedResult(merged, validationResult, unifiedSummary);
             WebviewBridge.receiveMessage(webview, 'CODEPILOT', summaryMessage);
             collectedUIMessages.push({ sender: 'CODEPILOT', text: summaryMessage, type: 'summary' });

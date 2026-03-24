@@ -1289,9 +1289,15 @@ export class ConversationManager implements IConversationHandler {
           activeSystemPrompt += getExecutionFirstRulePrompt();
         }
       } else if (currentPhase === AgentPhase.EXECUTION) {
-        // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
-        // 🔥 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
-        activeSystemPrompt += getExecutionPhasePrompt();
+        if (isPlanMode) {
+          // PLAN 모드: execution phase prompt 금지 (planPrompt 지시와 충돌)
+          // 탐색 완료 후 텍스트로 계획 출력하도록 remind
+          activeSystemPrompt += `\n\n⚠️ **PLAN 모드**: 탐색이 완료되었습니다. 지금 즉시 구현 계획 Markdown을 텍스트로 출력하세요. 도구 호출 금지.`;
+        } else {
+          // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
+          // 🔥 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
+          activeSystemPrompt += getExecutionPhasePrompt();
+        }
       }
 
       // 🔥 최적화: 도구 실행이 성공했고 plan의 모든 item이 완료되면 LLM 호출 없이 바로 REVIEW로 전환
@@ -1315,6 +1321,7 @@ export class ConversationManager implements IConversationHandler {
           );
           lastTurnHadSuccessfulToolExecution = false; // 리셋
 
+          if (abortSignal?.aborted) { break; }
           const testTransition = await this.runTestsAndTransition(
             webviewToRespond,
             stateManager,
@@ -1443,6 +1450,7 @@ export class ConversationManager implements IConversationHandler {
             continue;
           } else {
             // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+            if (abortSignal?.aborted) { break; }
             const testTransition = await this.runTestsAndTransition(
               webviewToRespond,
               stateManager,
@@ -1501,6 +1509,7 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                if (abortSignal?.aborted) { break; }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
                   stateManager,
@@ -1734,6 +1743,7 @@ export class ConversationManager implements IConversationHandler {
                 );
             }
 
+            if (abortSignal?.aborted) { break; }
             const cleanExecutionResponse = llmResponseForExecution
               .replace(/<think>[\s\S]*?<\/think>/gi, "")
               .trim();
@@ -1853,6 +1863,7 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                if (abortSignal?.aborted) { break; }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
                   stateManager,
@@ -1951,6 +1962,7 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                if (abortSignal?.aborted) { break; }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
                   stateManager,
@@ -1993,6 +2005,7 @@ export class ConversationManager implements IConversationHandler {
               continue;
             } else {
               // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+              if (abortSignal?.aborted) { break; }
               const testTransition = await this.runTestsAndTransition(
                 webviewToRespond,
                 stateManager,
@@ -2089,8 +2102,9 @@ export class ConversationManager implements IConversationHandler {
 
       // REVIEW/DONE 단계에서만 실제 스트리밍 출력, EXECUTION은 제외 ([] 깜빡거림 방지)
       // 단, pendingMCPResultInterpretation=true면 INVESTIGATION에서도 MCP 결과 해석을 스트리밍
+      // PLAN 모드는 EXECUTION 단계에서 계획 텍스트를 직접 출력하므로 스트리밍 허용
       // 스코프 밖(removeLastMessage 가드 등)에서도 접근해야 하므로 블록 밖에 선언
-      const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation;
+      const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation || isPlanMode;
 
       // 스트리밍 즉시 파일 생성 설정 (onChunk 동기 핸들러에서 사용)
       const isAutoToolForStreaming = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
@@ -2309,6 +2323,8 @@ export class ConversationManager implements IConversationHandler {
         }
       }
 
+      if (abortSignal?.aborted) { break; }
+
       // v9.7.0: LLM 호출 메트릭 기록
       const llmResponseTime = Date.now() - llmStartTime;
       const estimatedTokenCount = estimateTokens(llmResponse);
@@ -2493,27 +2509,47 @@ export class ConversationManager implements IConversationHandler {
               (this as any).naturalLanguageRetry = 0;
             } else {
               // write tool 이력 없음 → thinking만 보낸 케이스 가능 → nudge 1회
-              const naturalLanguageRetryKey = "naturalLanguageRetry";
-              const currentRetryCount =
-                (this as any)[naturalLanguageRetryKey] || 0;
-              if (currentRetryCount < 1) {
-                (this as any)[naturalLanguageRetryKey] = currentRetryCount + 1;
-                console.log(
-                  `[ConversationManager] EXECUTION phase: Natural language response with no write history. Nudging once (attempt ${currentRetryCount + 1}/1)`,
-                );
-                // 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
-                if (isStreamingEnabled && shouldStreamToUI) {
-                  WebviewBridge.removeLastMessage(webviewToRespond);
+              // PLAN 모드는 텍스트 계획 출력이 목적 → nudge 금지
+              if (isPlanMode) {
+                if (cleanResponse.trim()) {
+                  console.log(
+                    `[ConversationManager] PLAN mode: Natural language response accepted as plan output. Done.`,
+                  );
+                  break; // 계획 출력 완료 → 루프 종료
+                } else {
+                  // think 태그만 있고 실제 계획 텍스트 없음 → 한 번 더 요청
+                  console.log(
+                    `[ConversationManager] PLAN mode: No visible plan text (only thinking). Requesting plan output.`,
+                  );
+                  accumulatedUserParts.push({
+                    text: "지금 바로 구현 계획을 Markdown 텍스트로 출력해주세요. 도구 호출 없이 텍스트만 출력하세요.",
+                  });
+                  turnCount++;
+                  continue;
                 }
-                accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
-                turnCount++;
-                continue; // 즉시 재요청
               } else {
-                // nudge 1회 후에도 텍스트만 → LLM 판단 존중, done
-                console.log(
-                  `[ConversationManager] EXECUTION phase: Nudge exhausted (1/1). Respecting LLM decision.`,
-                );
-                (this as any)[naturalLanguageRetryKey] = 0;
+                const naturalLanguageRetryKey = "naturalLanguageRetry";
+                const currentRetryCount =
+                  (this as any)[naturalLanguageRetryKey] || 0;
+                if (currentRetryCount < 1) {
+                  (this as any)[naturalLanguageRetryKey] = currentRetryCount + 1;
+                  console.log(
+                    `[ConversationManager] EXECUTION phase: Natural language response with no write history. Nudging once (attempt ${currentRetryCount + 1}/1)`,
+                  );
+                  // 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+                  if (isStreamingEnabled && shouldStreamToUI) {
+                    WebviewBridge.removeLastMessage(webviewToRespond);
+                  }
+                  accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
+                  turnCount++;
+                  continue; // 즉시 재요청
+                } else {
+                  // nudge 1회 후에도 텍스트만 → LLM 판단 존중, done
+                  console.log(
+                    `[ConversationManager] EXECUTION phase: Nudge exhausted (1/1). Respecting LLM decision.`,
+                  );
+                  (this as any)[naturalLanguageRetryKey] = 0;
+                }
               }
             }
             cleanResponse = "";
@@ -2586,7 +2622,8 @@ export class ConversationManager implements IConversationHandler {
         .trim();
 
       // 🔥 EXECUTION phase에서 텍스트만 나오면 즉시 재요청 (핵심 개선)
-      if (currentPhase === AgentPhase.EXECUTION && llmResponse.trim()) {
+      // PLAN 모드는 텍스트 계획 출력이 목적이므로 도구 호출 강제 금지
+      if (currentPhase === AgentPhase.EXECUTION && !isPlanMode && llmResponse.trim()) {
         // 도구 호출이 있는지 확인 (새 형식: { "tool": "..." })
         // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
         const hasToolCallInExecution = /\{\s*["']tool["']\s*:\s*["']/.test(
@@ -3582,6 +3619,7 @@ export class ConversationManager implements IConversationHandler {
           continue;
         } else {
           // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+          if (abortSignal?.aborted) { break; }
           const testTransition = await this.runTestsAndTransition(
             webviewToRespond,
             stateManager,
