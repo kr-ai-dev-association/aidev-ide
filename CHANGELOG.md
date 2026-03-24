@@ -2,7 +2,22 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.35**
+> **현재 버전: v1.0.36**
+
+---
+
+## v1.0.36
+
+### 버그 수정
+
+- **취소(Cancel) 후 REVIEW 단계가 계속 실행되는 버그 수정** (`ConversationManager`): AbortSignal이 발동된 후에도 `runTestsAndTransition` 호출이 이어져 REVIEW 단계까지 진행되던 문제 수정 — while 루프 내 7개 호출 지점 및 루프 외 2개 지점에 `abortSignal?.aborted` 조기 종료 체크 추가
+- **취소 후 OrchestrationRouter 요약 LLM 호출이 계속 실행되는 버그 수정** (`OrchestrationRouter`): 서브 에이전트 중단 후에도 `generateUnifiedSummary` 및 `formatMergedResult` 호출이 이어지던 문제 수정 — 요약 생성 전후에 `abortSignal?.aborted` 체크 추가
+- **PLAN 모드에서 파일이 생성되는 버그 수정** (`OrchestrationRouter`, `ConversationManager`): PLAN 모드가 멀티 에이전트로 분기되어 서브에이전트가 파일을 생성하던 문제 수정 — PLAN/ASK 모드는 단일 에이전트로 강제 라우팅
+- **PLAN 모드 EXECUTION 단계에서 도구 호출이 강제되는 버그 수정** (`ConversationManager`): EXECUTION 단계 프롬프트(`getExecutionPhasePrompt`)가 planPrompt를 덮어써 LLM이 계획 텍스트 대신 도구 호출을 생성하던 문제 수정 — `isPlanMode` 시 EXECUTION 단계 프롬프트를 "텍스트로 계획 출력" 지시로 교체
+- **PLAN 모드 자연어 응답이 nudge로 거부되는 버그 수정** (`ConversationManager`): LLM이 계획 텍스트를 출력해도 "write 이력 없음" nudge 로직이 도구 호출을 강제하던 문제 수정 — `isPlanMode` 시 nudge 건너뜀
+- **PLAN 모드 자연어 응답이 두 번째 거절 로직에 의해 재요청되는 버그 수정** (`ConversationManager`): EXECUTION 단계의 Output Contract 위반 거절 로직이 PLAN 모드 텍스트 응답도 거부하던 문제 수정 — `!isPlanMode` 조건 추가
+- **PLAN 모드 루프가 종료되지 않는 버그 수정** (`ConversationManager`): 계획 텍스트 출력 후에도 루프가 계속 돌던 문제 수정 — 실제 계획 텍스트가 있을 때 `break`로 루프 종료, `<think>` 태그만 있을 경우 재요청
+- **PLAN 모드 계획 텍스트가 UI에 표시되지 않는 버그 수정** (`ConversationManager`): EXECUTION 단계는 UI 스트리밍이 차단되어 있어 계획 텍스트가 화면에 나타나지 않던 근본 원인 수정 — `shouldStreamToUI` 조건에 `|| isPlanMode` 추가
 
 ---
 
