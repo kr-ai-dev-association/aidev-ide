@@ -90,6 +90,30 @@ export class UpdateFileToolHandler implements IToolHandler {
       };
     }
 
+    // ✅ 생략 패턴 감지: LLM이 SEARCH 블록에 "... (생략됨)", "// ..." 등을 사용하는 경우 조기 실패
+    // 이런 패턴은 파일 실제 내용과 일치하지 않아 무한 루프를 유발함
+    const ELLIPSIS_PATTERNS = [
+      /^\s*\.\.\.\s*\(생략됨\)\s*$/m,    // ... (생략됨)
+      /^\s*\/\/\s*\.\.\.\s*$/m,          // // ...
+      /^\s*#\s*\.\.\.\s*$/m,             // # ...
+      /^\s*\.\.\.\s*$/m,                 // ... (단독 줄)
+      /^\s*\/\*\s*\.\.\.\s*\*\/\s*$/m,  // /* ... */
+      /^\s*<!--\s*\.\.\.\s*-->\s*$/m,   // <!-- ... -->
+    ];
+
+    for (const replacement of replacements) {
+      const hasEllipsis = ELLIPSIS_PATTERNS.some(p => p.test(replacement.search));
+      if (hasEllipsis) {
+        console.warn(`[UpdateFileToolHandler] Ellipsis pattern detected in SEARCH block for ${filePath}`);
+        const llmMsg = `SEARCH 블록에 생략 표현("... (생략됨)", "// ...", "..." 등)이 포함되어 있습니다 (파일: ${filePath}).\n\nSEARCH 블록에는 반드시 파일의 실제 코드를 그대로 작성해야 합니다. 생략 표현은 절대 사용할 수 없습니다.\n\nread_file로 현재 파일 내용을 확인하고, 수정할 정확한 코드 범위를 SEARCH 블록에 그대로 복사하세요.`;
+        return {
+          success: false,
+          message: `❌ **수정 실패: SEARCH 블록에 생략 표현 사용 금지** (파일: ${filePath})`,
+          error: { code: 'ELLIPSIS_IN_SEARCH', message: llmMsg },
+        };
+      }
+    }
+
     // 파일 읽기
     const absolutePath = path.isAbsolute(filePath)
       ? filePath

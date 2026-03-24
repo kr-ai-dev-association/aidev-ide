@@ -987,6 +987,7 @@ export class ConversationManager implements IConversationHandler {
     const preloadedFiles = new Set<string>(); // Pre-load된 파일 목록 추적 (중복 읽기 방지)
     const alreadyStattedFiles = new Set<string>(); // 턴 간 중복 stat_file 방지
     const isPlanMode = options.promptType === PromptType.PLAN; // PLAN 모드 쓰기 차단용
+    let planTextResponse = ''; // PLAN 모드 응답 원문 (세션 히스토리 저장용)
 
     // 파일 변경 추적 (요약 검증용)
     const createdFiles: string[] = [];
@@ -1904,6 +1905,9 @@ export class ConversationManager implements IConversationHandler {
                   console.log(
                     `[ConversationManager] EXECUTION phase: Text response displayed (length: ${textResponse.length}). isPlanMode=${isPlanMode}`,
                   );
+                  if (isPlanMode) {
+                    planTextResponse = textResponse; // 플랜 원문 캡처 (세션 저장용)
+                  }
                   await WebviewBridge.streamText(
                     webviewToRespond,
                     "CODEPILOT",
@@ -4076,12 +4080,17 @@ export class ConversationManager implements IConversationHandler {
             ? `${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
             : "";
 
+          // PLAN 모드: 플랜 원문을 assistantResponse로 저장 (다음 턴 히스토리 참조용)
+          const assistantResponseToSave = isPlanMode && planTextResponse
+            ? planTextResponse
+            : finalSummary;
+
           console.log(`[ConversationManager] Saving CODE mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`);
           await sessionManager.addConversationEntry(currentSession.id, {
             id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
             timestamp: Date.now(),
             userRequest: userQuery || "",
-            assistantResponse: finalSummary,
+            assistantResponse: assistantResponseToSave,
             actions: collectedActions as any,
             filesCreated: createdFiles,
             filesModified: modifiedFiles,
