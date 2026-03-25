@@ -329,7 +329,7 @@ export class FileChangeHandler {
     const result = new Map<string, string[]>();
 
     try {
-      const { FileSearcher } = require('../../managers/context/file/FileSearcher');
+      const { FileSearcher } = require('../../context/file/FileSearcher');
       const searcher = FileSearcher.getInstance();
       const pathModule = require('path');
 

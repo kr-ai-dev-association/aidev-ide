@@ -35,13 +35,20 @@ export class RipgrepSearchToolHandler implements IToolHandler {
             };
         }
 
+        const outputMode = (toolUse.params.outputMode || 'content') as 'content' | 'files_with_matches' | 'count';
+        const multiline = toolUse.params.multiline === 'true';
+        const headLimit = toolUse.params.headLimit ? parseInt(toolUse.params.headLimit) : undefined;
+
         const searcher = FileSearcher.getInstance();
         const results = await searcher.searchFiles(pattern, searchPath, {
             include: include ? include.split(',').map(s => s.trim()) : (filePattern ? [filePattern] : undefined),
             exclude: exclude ? exclude.split(',').map(s => s.trim()) : undefined,
             caseSensitive,
             maxResults: toolUse.params.maxResults ? parseInt(toolUse.params.maxResults) : 100,
-            contextLines: toolUse.params.contextLines ? parseInt(toolUse.params.contextLines) : 2
+            contextLines: toolUse.params.contextLines ? parseInt(toolUse.params.contextLines) : 2,
+            outputMode,
+            multiline,
+            headLimit
         });
 
         // 은닉 파일 필터링
