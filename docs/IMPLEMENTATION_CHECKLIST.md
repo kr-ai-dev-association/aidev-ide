@@ -2,6 +2,7 @@
 
 > ANALYSIS.md 기반 — 35개 격차 항목을 구현 난이도 순으로 정렬
 > 작성일: 2026-03-23
+> 소스코드 기반 체크 갱신: 2026-03-25
 
 ---
 
@@ -17,7 +18,7 @@
 
 > `base.ts` 또는 `PromptComposer.ts`에 텍스트 섹션만 추가. 가장 빠른 효과.
 
-- [ ] ⚡ **GAP-07** 도구 호출 최적화 규칙 추가
+- [x] ⚡ **GAP-07** 도구 호출 최적화 규칙 추가 ✅ `base.ts:214` `getGap07ToolCallOptimizationRules()`
   - `base.ts`에 섹션 추가: "cat 대신 read_file", "grep 대신 ripgrep_search", "update_file 전 read_file 필수", "병렬 호출 최대화"
   - 파일: `src/prompts/base.ts`
   - 추가할 프롬프트 텍스트:
@@ -32,7 +33,7 @@
     ```
   - 테스트: LLM에게 "이 파일 수정해줘" 요청 → read_file 없이 update_file 시도하는지 확인
 
-- [ ] ⚡ **GAP-21** 오버엔지니어링 방지 규칙 추가
+- [x] ⚡ **GAP-21** 오버엔지니어링 방지 규칙 추가 ✅ `base.ts:223` `getGap21AntiOverEngineeringRules()`
   - `base.ts`에 섹션 추가: "요청된 변경만", "docstring 자동 추가 금지", "불가능한 에러핸들링 금지", "일회성 추상화 금지"
   - 파일: `src/prompts/base.ts`
   - 추가할 프롬프트 텍스트:
@@ -49,7 +50,7 @@
     ```
   - 테스트: "함수 하나 수정해줘" → 주변 함수까지 리팩토링하는지 확인
 
-- [ ] ⚡ **GAP-24** 출력 효율성 규칙 추가
+- [x] ⚡ **GAP-24** 출력 효율성 규칙 추가 ✅ `base.ts:232` `getGap24OutputEfficiencyRules()`
   - `base.ts`에 섹션 추가: "간결하고 직접적", "답변/행동으로 시작", "사용자 말 반복 금지", "도구 호출 전 콜론 금지"
   - 파일: `src/prompts/base.ts`
   - 추가할 프롬프트 텍스트:
@@ -64,7 +65,7 @@
     ```
   - 테스트: 간단한 파일 수정 후 불필요한 5줄 요약을 붙이는지 확인
 
-- [ ] ⚡ **GAP-25** 파일 참조 마크다운 링크 형식 규칙
+- [~] ⚡ **GAP-25** 파일 참조 마크다운 링크 형식 규칙 ⚠️ 부분 구현 — WebView `openFile` 핸들러 있음 (`ChatViewProvider.ts:888`), 프롬프트 규칙 미추가
   - `base.ts`에 추가: 파일 참조 시 `` `src/foo.ts` `` 대신 `[foo.ts](src/foo.ts)` 형식 사용 규칙
   - (선택) WebView에서 `[text](path#Lnn)` 클릭 → 에디터 이동 핸들러 추가
   - 파일: `src/prompts/base.ts`, `webview/chat/chat.js`
@@ -106,7 +107,7 @@
 
 ### 안정성
 
-- [ ] 🟢 **GAP-01** Git 위험 명령 안전 프로토콜
+- [x] 🟢 **GAP-01** Git 위험 명령 안전 프로토콜 ✅ `PreToolUseValidator.ts`에 git 위험 패턴 차단 구현됨
   - `PreToolUseValidator.ts`에 `GIT_DANGEROUS_COMMANDS` 패턴 배열 추가
   - 대상: `push --force`, `reset --hard`, `checkout --`, `clean -f`, `branch -D`
   - `autoExecuteCommands=true`여도 해당 명령은 확인 다이얼로그 강제 표시
@@ -183,7 +184,7 @@
   - 핵심: `USER_REJECTED` 메시지에 "재시도 금지, 대안 모색" 지시를 포함해야 LLM이 같은 호출 반복 안 함
   - 테스트: 도구 거부 → LLM이 같은 도구 재호출하는지 확인
 
-- [ ] 🟢 **GAP-29** Agentic Loop 최대 턴 수 하드 리밋
+- [x] 🟢 **GAP-29** Agentic Loop 최대 턴 수 하드 리밋 ✅ `AgentConfig.ts:8` `MAX_TURNS = 15`
   - `ConversationManager` 또는 에이전트 루프에 `MAX_AGENT_TURNS = 25` 추가
   - 20턴 도달 시 WebView에 경고 메시지 표시
   - 25턴 도달 시 루프 강제 종료 + 사용자 알림
@@ -227,7 +228,7 @@
 
 ### 도구 기능 확장
 
-- [ ] 🟢 **GAP-14** `ripgrep_search` 고급 옵션 추가
+- [x] 🟢 **GAP-14** `ripgrep_search` 고급 옵션 추가 ✅ `outputMode`, `multiline`, `headLimit` 추가 완료 (2026-03-25)
   - 파라미터 추가: `output_mode` (content/files/count), `context` (전후 줄 수), `multiline`, `glob`, `head_limit`
   - 기존 ripgrep 호출 래퍼에 옵션 전달
   - 파일: `src/core/tools/implementations/RipgrepSearchTool.ts`
@@ -351,7 +352,7 @@
 
 ### 비용 최적화
 
-- [ ] 🟡 **GAP-31** 프롬프트 캐싱 적용
+- [x] 🟡 **GAP-31** 프롬프트 캐싱 적용 ✅ `AnthropicProvider.ts:41-68` `cache_control` 구현됨
   - Anthropic API 호출 시 시스템 프롬프트 마지막 블록에 `cache_control: { type: "ephemeral" }` 추가
   - 캐시 히트율 로깅 추가 (비용 모니터링)
   - 파일: `src/services/llm/providers/AnthropicProvider.ts`
@@ -746,11 +747,7 @@
   - `~/.codepilot/rules/global.md` 개인 글로벌 규칙 지원
   - 파일: `src/core/rules/AgentRulesLoader.ts`
 
-- [ ] 🟡 **GAP-10** Plan 모드 명시적 전환
-  - `/plan` 슬래시 커맨드 추가
-  - Plan 모드에서 쓰기 도구 비활성화 (read_file, ripgrep_search, glob_search만)
-  - WebView에 "Plan Mode" 뱃지 표시
-  - 계획 확인 후 실행 모드 전환 버튼
+- [x] 🟡 **GAP-10** Plan 모드 명시적 전환 ✅ PLAN 모드 쓰기 도구 차단 구현됨 (`ConversationManager.ts:5106` — create_file/update_file/remove_file/run_command 차단, 읽기 도구만 허용)
   - 파일: `src/core/commands/`, `src/core/tools/ToolExecutor.ts`
 
 - [ ] 🟡 **GAP-17** 서브에이전트 모델 선택
@@ -848,7 +845,7 @@
   - 용도: 실험적 변경을 메인 프로젝트에 영향 없이 시도
   - 오케스트레이션에서 사용: `SubAgentManager.execute({ isolation: 'worktree' })`
 
-- [ ] 🔴 **GAP-13** 멀티모달 파일 읽기
+- [~] 🔴 **GAP-13** 멀티모달 파일 읽기 ⚠️ 부분 구현 — 텍스트 파일 청크 읽기 있음. PDF/이미지/노트북 미구현
   - `read_file`에 `type` 파라미터 추가: `text` / `image` / `pdf` / `notebook`
   - PDF: `pdf-parse` 라이브러리로 텍스트 추출 (최대 20페이지)
   - 이미지: base64 인코딩 → LLM 멀티모달 입력
@@ -956,7 +953,7 @@
     }
     ```
 
-- [ ] 🔴 **GAP-26** 크론 반복 작업
+- [~] 🔴 **GAP-26** 크론 반복 작업 ⚠️ 부분 구현 — TaskManager 있으나 Cron 스케줄링 미구현
   - `CronManager`: 반복 실행 스케줄러
   - `cron_create`, `cron_list`, `cron_delete` 도구
   - WebView에 활성 크론 목록 표시

@@ -2092,8 +2092,11 @@ export class ConversationManager implements IConversationHandler {
               );
             }
           }
-          // Ollama 로컬 모델: native tool calling이 명시적으로 ON인 경우에만 활성화
-          // 기본 OFF — 텍스트 기반 파싱이 다중 tool call을 지원하여 더 효과적
+          // Ollama 로컬 모델: 설정 ON이면 네이티브 툴 콜링 활성화
+          if (modelType === AiModelType.OLLAMA) {
+            nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+            console.log(`[ConversationManager] Native tool calling enabled for Ollama local model`);
+          }
         }
       }
 

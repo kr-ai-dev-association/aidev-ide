@@ -116,7 +116,10 @@ export class ToolSpecBuilder {
                     { name: 'include', required: false, description: '포함할 파일 패턴 (쉼표로 구분)', type: 'string' },
                     { name: 'exclude', required: false, description: '제외할 파일 패턴 (쉼표로 구분)', type: 'string' },
                     { name: 'caseSensitive', required: false, description: '대소문자 구분 여부 (true/false)', type: 'string' },
-                    { name: 'contextLines', required: false, description: '주변 컨텍스트 라인 수 (기본: 2)', type: 'string' }
+                    { name: 'contextLines', required: false, description: '주변 컨텍스트 라인 수 (기본: 2)', type: 'string' },
+                    { name: 'outputMode', required: false, description: '출력 모드: content(매치 라인+컨텍스트, 기본), files_with_matches(파일 경로만), count(매치 수만)', type: 'string' },
+                    { name: 'multiline', required: false, description: '여러 줄에 걸친 패턴 매칭 (true/false, 기본: false)', type: 'string' },
+                    { name: 'headLimit', required: false, description: '상위 N개 파일 결과만 반환', type: 'string' }
                 ]
             });
         }

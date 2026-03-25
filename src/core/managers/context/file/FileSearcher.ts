@@ -43,6 +43,9 @@ export interface SearchOptions {
     caseSensitive?: boolean;   // 대소문자 구분
     contextLines?: number;     // 주변 라인 수 (기본: 2)
     maxResults?: number;       // 최대 결과 수 (기본: 300)
+    outputMode?: 'content' | 'files_with_matches' | 'count';  // 출력 모드 (기본: content)
+    multiline?: boolean;       // 여러 줄 패턴 매칭 (기본: false)
+    headLimit?: number;        // 상위 N개 결과만 반환
 }
 
 /**
@@ -135,11 +138,28 @@ export class FileSearcher {
         const maxResults = options?.maxResults ?? 300;
         const caseSensitive = options?.caseSensitive ?? false;
 
+        const outputMode = options?.outputMode || 'content';
+        const multiline = options?.multiline ?? false;
+
         const args: string[] = [
             '--json',
             '-e', pattern,
-            '--context', contextLines.toString(),
         ];
+
+        // output_mode별 플래그
+        if (outputMode === 'files_with_matches') {
+            args.push('-l');
+        } else if (outputMode === 'count') {
+            args.push('-c');
+        } else {
+            // content 모드에서만 context 적용
+            args.push('--context', contextLines.toString());
+        }
+
+        // multiline 지원
+        if (multiline) {
+            args.push('-U', '--multiline-dotall');
+        }
 
         if (!caseSensitive) {
             args.push('-i');
@@ -254,10 +274,14 @@ export class FileSearcher {
                     });
                 }
 
-                if (errorOutput && !results.length) {
+                // headLimit 적용
+                const headLimit = options?.headLimit;
+                const limited = headLimit && headLimit > 0 ? results.slice(0, headLimit) : results;
+
+                if (errorOutput && !limited.length) {
                     reject(new Error(`ripgrep error: ${errorOutput}`));
                 } else {
-                    resolve(results);
+                    resolve(limited);
                 }
             });
 

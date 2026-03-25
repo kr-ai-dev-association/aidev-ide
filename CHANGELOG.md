@@ -2,7 +2,20 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.36**
+> **현재 버전: v1.0.37**
+
+---
+
+## v1.0.37
+
+### 기능 추가
+
+- **`ripgrep_search` 고급 옵션 추가** (`RipgrepSearchToolHandler`, `FileSearcher`, `ToolSpecBuilder`): `outputMode`(content/files_with_matches/count), `multiline`(여러 줄 패턴 매칭), `headLimit`(상위 N개 결과 제한) 파라미터 추가 — LLM이 파일 목록만 받거나 결과를 잘라서 토큰 절감 가능
+- **Ollama 네이티브 툴 콜링 활성화** (`ConversationManager`): 설정에서 네이티브 툴 콜링 ON 시 Ollama 로컬 모델에도 `tools` 배열이 API 요청에 포함되도록 분기 추가 — 기존에는 Admin 모델만 동작했고 Ollama는 설정 ON해도 무시됨
+
+### 버그 수정
+
+- **standalone `FileChangeHandler` import 경로 수정** (`FileChangeHandler.ts`): `../../managers/context/file/FileSearcher` → `../../context/file/FileSearcher`로 수정 — 빌드 warning 해소
 
 ---
 

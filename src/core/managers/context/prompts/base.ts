@@ -211,6 +211,33 @@ ${toolCallExample}
 **⚠️ 중요:** 모든 thinking, reasoning, explanation은 시스템의 thinking 필드에만 있어야 하며, 최종 response에는 절대 포함되지 않아야 합니다.`;
 }
 
+/** GAP-07: 비효율적 도구 사용 억제 */
+export function getGap07ToolCallOptimizationRules(): string {
+  return `**GAP-07 — 도구 호출 최적화:**
+- 소스·텍스트 파일 내용은 터미널 \`cat\`/\`type\`/\`head\` 등으로 보지 말고 **read_file**(동등한 파일 읽기 도구)을 사용하세요.
+- **update_file** 전에 해당 파일은 **read_file로 반드시** 최신 내용을 확인하세요. 캐시·기억만으로 SEARCH/REPLACE를 쓰지 마세요.
+- 서로 **의존하지 않는** read_file·검색·glob 등은 한 응답에서 **동시에(병렬)** 호출하세요.
+- 한 파일씩 순차만 호출해 같은 일 처리하지 말고, **다중 파일 읽기·중복 읽기 금지** 규칙과 함께 묶어 효율적으로 쓰세요.`;
+}
+
+/** GAP-21: 요청 범위 밖 리팩터 억제 */
+export function getGap21AntiOverEngineeringRules(): string {
+  return `**GAP-21 — 오버엔지니어링 방지:**
+- 사용자가 **요청한 변경만** 수행하세요. 범위 밖 리팩터·스타일 통일·“개선”은 하지 마세요.
+- 요청에 없는 **docstring·긴 주석**을 코드에 자동으로 추가하지 마세요.
+- **일회성** 작업에만 쓰일 **새 추상화·래퍼·유틸 레이어**를 만들지 마세요.
+- 주변 코드·공개 API를 **드라이브바이**로 바꾸지 마세요.`;
+}
+
+/** GAP-24: 최종 사용자에게 보내는 텍스트 길이 억제 */
+export function getGap24OutputEfficiencyRules(): string {
+  return `**GAP-24 — 출력 효율:**
+- 답변은 **핵심 결론·변경 요약**부터 시작하세요.
+- 사용자 말을 **길게 인용·반복**하거나 같은 내용을 두 번 풀어쓰지 마세요.
+- **한 문장으로 충분하면 여러 문장으로 늘리지** 마세요.
+- “이제 ~하겠습니다” 같은 **메타 서술**은 꼭 필요할 때만 쓰세요.`;
+}
+
 // ==================== Base Rules ====================
 export function getBaseRules(nativeMode?: boolean): string {
   const noThinkingLeakage = getNoThinkingLeakageRules(nativeMode);
@@ -237,6 +264,12 @@ export function getBaseRules(nativeMode?: boolean): string {
 4. **실행 중심**:
    - 작업 중에는 최소 하나 이상의 도구 호출을 포함하세요
    - 설명만 하지 마세요
+
+${getGap07ToolCallOptimizationRules()}
+
+${getGap21AntiOverEngineeringRules()}
+
+${getGap24OutputEfficiencyRules()}
 
 **기타 규칙:**
 - **실패 원인 분석**: 동일 파라미터 재시도 전 실패 원인을 분석하세요.
