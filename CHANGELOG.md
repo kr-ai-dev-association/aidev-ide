@@ -2,7 +2,23 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.37**
+> **현재 버전: v1.0.38**
+
+---
+
+## v1.0.38
+
+### 개선
+
+- **LLM 재시도 강화** (`LLMRetryHelper`, `OllamaApi`): 최대 retry 3→5회, base delay 1s→2s, max delay 30s로 통일 — 일시적 429/500/503 복구율 향상
+- **Hidden Retry** (`LLMRetryHelper`, `LLMManager`): 처음 2회 재시도는 UI에 표시하지 않음 — 1~2초에 복구되는 일시적 에러로 유저 불안감 제거
+- **에러별 재시도 메시지** (`LLMRetryHelper`): 429(요청 한도 초과), 500/503(응답 오류), 502(게이트웨이 오류), ECONNREFUSED(서버 연결 불가) 등 에러 유형별 한국어 메시지 + "N초 후 재시도합니다" 카운트다운 표시
+- **Retry-After 헤더 지원** (`OllamaApi`): HTTP 응답의 Retry-After 헤더를 파싱하여 서버 지정 대기 시간 준수
+- **스트리밍 기본값 ON** (`package.json`): `codepilot.streamingEnabled` 기본값 false→true로 변경
+
+### 기능 추가
+
+- **계정 탈퇴** (`SettingsPanelProvider`, `settings.html`): IDE 설정 하단에 계정 탈퇴 버튼 추가 — "탈퇴" 입력 확인 후 `DELETE /auth/me/` 호출
 
 ---
 

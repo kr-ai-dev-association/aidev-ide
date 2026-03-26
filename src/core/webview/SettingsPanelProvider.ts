@@ -2618,6 +2618,30 @@ export function openSettingsPanel(
           }
           break;
         }
+        case "deleteAccount": {
+          try {
+            const input = await vscode.window.showInputBox({
+              prompt: '계정을 탈퇴하려면 "탈퇴"를 입력하세요',
+              placeHolder: '탈퇴',
+              validateInput: (v) => v === '탈퇴' ? null : '"탈퇴"를 정확히 입력하세요',
+            });
+            if (input !== '탈퇴') break;
+
+            const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
+            const api = CodePilotApiClient.getInstance();
+            await api.delete("/auth/me/");
+
+            // 로컬 상태 정리
+            await context.globalState.update("codepilot.userInfo", undefined);
+            await context.globalState.update("codepilot.apiKey", undefined);
+
+            vscode.window.showInformationMessage('계정이 탈퇴 처리되었습니다.');
+            safePostMessage(panel, { command: 'logoutResult', success: true });
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`계정 탈퇴 실패: ${e?.message || '알 수 없는 오류'}`);
+          }
+          break;
+        }
         case "leaveTeam": {
           try {
             const confirm = await vscode.window.showWarningMessage(

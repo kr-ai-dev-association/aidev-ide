@@ -1282,11 +1282,8 @@
                   <span class="info-label">이메일</span>
                   <span class="info-value" id="settings-user-email">-</span>
                   <span class="info-label">조직</span>
-                  <span class="info-value" id="settings-org-name"
-                    style="display:flex; align-items:center; justify-content:space-between;">
+                  <span class="info-value" id="settings-org-name">
                     <span id="settings-org-name-text">-</span>
-                    <button id="settings-leave-team-btn" class="button"
-                      style="display:none; padding:5px 12px; font-size:12px; flex-shrink:0;">탈퇴</button>
                   </span>
                   <span class="info-label" id="settings-plan-label" style="display:none;">플랜</span>
                   <span class="info-value" id="settings-user-plan" style="display:none;">-</span>
@@ -1324,6 +1321,12 @@
               <!-- 로그아웃 -->
               <div style="text-align:center; margin-top:40px; padding-bottom:12px;">
                 <button id="settings-logout-btn" class="account-logout-link">로그아웃</button>
+              </div>
+
+              <!-- 계정 탈퇴 -->
+              <div style="text-align:center; padding-bottom:24px;">
+                <button id="settings-delete-account-btn"
+                  style="background:none; border:none; color:var(--vscode-errorForeground); font-size:11px; cursor:pointer; opacity:0.6;">계정 탈퇴</button>
               </div>
 
             </div>
@@ -2888,6 +2891,14 @@
       if (logoutBtn) {
         logoutBtn.addEventListener('click', function () {
           vscode.postMessage({ command: 'logout' });
+        });
+      }
+
+      // ── 계정 탈퇴 버튼 ──
+      const deleteAccountBtn = document.getElementById('settings-delete-account-btn');
+      if (deleteAccountBtn) {
+        deleteAccountBtn.addEventListener('click', function () {
+          vscode.postMessage({ command: 'deleteAccount' });
         });
       }
 

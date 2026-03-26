@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.37",
+  "version": "1.0.38",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -213,7 +213,7 @@
         },
         "codepilot.streamingEnabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "LLM 응답을 스트리밍 방식으로 받을지 여부를 설정합니다. 활성화하면 응답이 실시간으로 표시됩니다.",
           "scope": "resource"
         },

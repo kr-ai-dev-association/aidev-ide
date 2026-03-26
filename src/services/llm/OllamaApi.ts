@@ -222,7 +222,7 @@ export class OllamaApi {
         messageBuilder: MessageBuilder,
         options?: SendOptions
     ): Promise<string> {
-        const maxRetries = options?.retries || 3;
+        const maxRetries = options?.retries || 5;
         let lastError: Error | null = null;
         let lastThinking: string | null = null;
         let currentContent = initialContent;
@@ -281,7 +281,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 }
 
                 if (attempt < maxRetries) {
-                    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                    const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
@@ -482,7 +482,9 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 res.on('end', () => {
                     try {
                         if (res.statusCode && res.statusCode >= 400) {
-                            reject(new Error(`Ollama API error (${res.statusCode}): ${data}`));
+                            const retryAfter = res.headers['retry-after'];
+                            const retryInfo = retryAfter ? ` Retry-After: ${retryAfter}` : '';
+                            reject(new Error(`Ollama API error (${res.statusCode}):${retryInfo} ${data}`));
                             return;
                         }
                         resolve(JSON.parse(data));
@@ -613,7 +615,9 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                     res.on('data', (chunk) => { errorData += chunk; });
                     res.on('end', () => {
                         onChunk('', true);
-                        reject(new Error(`Ollama API error (${res.statusCode}): ${errorData}`));
+                        const retryAfter = res.headers['retry-after'];
+                        const retryInfo = retryAfter ? ` Retry-After: ${retryAfter}` : '';
+                        reject(new Error(`Ollama API error (${res.statusCode}):${retryInfo} ${errorData}`));
                     });
                     return;
                 }
