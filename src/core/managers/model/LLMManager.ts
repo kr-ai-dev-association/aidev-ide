@@ -6,7 +6,7 @@
 
 import { OllamaApi, AdminModelApi, AiModelType } from '../../../services';
 import type { AdminModelConfig } from '../../../services/llm/AdminModelApi';
-import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult } from './LLMRetryHelper';
+import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult, HIDDEN_RETRY_THRESHOLD, getRetryUserMessage } from './LLMRetryHelper';
 
 export interface LLMMessagePart {
     text?: string;
@@ -32,6 +32,8 @@ export interface LLMRequestOptions {
     nativeTools?: any[];
     /** 네이티브 tool_call 하나가 완성될 때마다 호출되는 콜백 */
     onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void;
+    /** 재시도 시 UI 알림 콜백 (attempt, 사용자 메시지). hidden retry 이후(3회차~)만 호출됨 */
+    onRetryNotify?: (attempt: number, message: string) => void;
 }
 
 export interface LLMResponse {
@@ -187,6 +189,9 @@ export class LLMManager {
                 signal,
                 (attempt, error, delayMs) => {
                     console.log(`[LLMManager] sendMessage retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
+                    if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
+                        options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
+                    }
                 }
             );
 
@@ -259,6 +264,9 @@ export class LLMManager {
                 signal,
                 (attempt, error, delayMs) => {
                     console.log(`[LLMManager] sendMessageWithSystemPrompt retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
+                    if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
+                        options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
+                    }
                 }
             );
 
@@ -1049,6 +1057,9 @@ export class LLMManager {
                 signal,
                 (attempt, error, delayMs) => {
                     console.log(`[LLMManager] streaming retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
+                    if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
+                        options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
+                    }
                 }
             );
 

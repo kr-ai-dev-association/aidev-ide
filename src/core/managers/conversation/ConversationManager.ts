@@ -2275,13 +2275,20 @@ export class ConversationManager implements IConversationHandler {
               activeSystemPrompt + planContext,
               accumulatedUserParts,
               onChunk,
-              { signal: abortSignal, nativeTools: nativeToolsForCall, onNativeToolComplete },
+              { signal: abortSignal, nativeTools: nativeToolsForCall, onNativeToolComplete,
+                onRetryNotify: (attempt, message) => {
+                  WebviewBridge.sendProcessingStatus(webviewToRespond, 'retrying', message);
+                }
+              },
             );
         }
         // 스트리밍 중 시작된 create_file 모두 완료 대기
         await streamingCreatePromise;
       } else {
         // 비스트리밍 모드: 기존 방식
+        const retryNotify = (attempt: number, message: string) => {
+          WebviewBridge.sendProcessingStatus(webviewToRespond, 'retrying', message);
+        };
         // 에러 폴백 모델 우선 적용 (동일 에러 3회 반복 시)
         if (useErrorFallbackModel && this.stateManager) {
           console.log(
@@ -2291,7 +2298,7 @@ export class ConversationManager implements IConversationHandler {
             activeSystemPrompt + planContext,
             accumulatedUserParts,
             this.stateManager,
-            { signal: abortSignal },
+            { signal: abortSignal, onRetryNotify: retryNotify },
           );
         } else if (intent && intent.category === "execution" && this.stateManager) {
           // execution 의도일 때 Command 모델 사용
@@ -2302,13 +2309,13 @@ export class ConversationManager implements IConversationHandler {
             activeSystemPrompt + planContext,
             accumulatedUserParts,
             this.stateManager,
-            { signal: abortSignal },
+            { signal: abortSignal, onRetryNotify: retryNotify },
           );
         } else {
           llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
             activeSystemPrompt + planContext,
             accumulatedUserParts,
-            { signal: abortSignal, nativeTools: nativeToolsForCall },
+            { signal: abortSignal, nativeTools: nativeToolsForCall, onRetryNotify: retryNotify },
           );
         }
       }

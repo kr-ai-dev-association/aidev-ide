@@ -35,12 +35,47 @@ export interface LLMRetryResult<T> {
  * 기본 재시도 설정
  */
 export const DEFAULT_RETRY_CONFIG: LLMRetryConfig = {
-    maxRetries: 3,
-    initialDelayMs: 1000,
+    maxRetries: 5,
+    initialDelayMs: 2000,
     maxDelayMs: 30000,
     backoffMultiplier: 2,
     useJitter: true,
 };
+
+/** 처음 N회 retry는 UI에 표시하지 않음 (hidden retry) */
+export const HIDDEN_RETRY_THRESHOLD = 2;
+
+/**
+ * HTTP 상태 코드별 사용자 메시지 생성
+ */
+export function getRetryUserMessage(error: unknown, delayMs: number): string {
+    if (!(error instanceof Error)) return '';
+    const msg = error.message;
+    const delaySec = Math.ceil(delayMs / 1000);
+
+    if (msg.includes('429') || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many requests')) {
+        return `LLM 요청 한도 초과(429). ${delaySec}초 후 재시도합니다`;
+    }
+    if (msg.includes('503') || msg.toLowerCase().includes('service unavailable')) {
+        return `LLM 응답 오류(503). ${delaySec}초 후 재시도합니다`;
+    }
+    if (msg.includes('500') || msg.toLowerCase().includes('server error')) {
+        return `LLM 응답 오류(500). ${delaySec}초 후 재시도합니다`;
+    }
+    if (msg.includes('502') || msg.toLowerCase().includes('bad gateway')) {
+        return `LLM 게이트웨이 오류(502). ${delaySec}초 후 재시도합니다`;
+    }
+    if (msg.includes('504') || msg.toLowerCase().includes('gateway timeout')) {
+        return `LLM 게이트웨이 시간 초과(504). ${delaySec}초 후 재시도합니다`;
+    }
+    if (msg.toLowerCase().includes('econnrefused')) {
+        return `Ollama 서버에 연결할 수 없습니다. ${delaySec}초 후 재시도합니다`;
+    }
+    if (msg.toLowerCase().includes('etimedout') || msg.toLowerCase().includes('timeout')) {
+        return `LLM 응답 시간 초과. ${delaySec}초 후 재시도합니다`;
+    }
+    return `LLM 오류 발생. ${delaySec}초 후 재시도합니다`;
+}
 
 /**
  * 재시도 가능한 에러인지 확인
