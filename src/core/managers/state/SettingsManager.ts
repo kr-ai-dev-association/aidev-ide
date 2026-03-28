@@ -781,6 +781,22 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
+     * Thinking 레벨을 읽습니다 (low/medium/high)
+     */
+    public async getThinkingLevel(): Promise<string> {
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<string>('thinkingLevel')?.globalValue;
+        return globalValue ?? (config.get('thinkingLevel') as string) ?? 'medium';
+    }
+
+    /**
+     * Thinking 레벨을 저장합니다
+     */
+    public async updateThinkingLevel(level: string): Promise<void> {
+        await ConfigurationService.updateConfig('thinkingLevel', level, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
      * 디버그 모드 On/Off 상태를 가져옵니다
      */
     public async isDebugEnabled(): Promise<boolean> {

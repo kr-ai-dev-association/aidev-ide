@@ -37,6 +37,8 @@ export enum Tool {
     // 영속적 메모리 관리
     MEMORY_SAVE = 'memory_save',
     MEMORY_DELETE = 'memory_delete',
+    // 스킬 로더 (서브에이전트용)
+    LOAD_SKILL = 'load_skill',
 }
 
 /**

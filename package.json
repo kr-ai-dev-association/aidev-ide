@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.38",
+  "version": "1.0.40",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -202,6 +202,13 @@
           "type": "boolean",
           "default": true,
           "description": "Thinking(추론) 활성화. ON이면 모델이 지원하는 경우 thinking을 사용합니다. OFF이면 항상 비활성화합니다.",
+          "scope": "resource"
+        },
+        "codepilot.thinkingLevel": {
+          "type": "string",
+          "default": "medium",
+          "enum": ["low", "medium", "high"],
+          "description": "Thinking 레벨. low(빠름/저비용), medium(균형), high(깊은 추론/고비용).",
           "scope": "resource"
         },
         "codepilot.autoUpdateFiles": {

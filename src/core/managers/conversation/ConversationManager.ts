@@ -631,6 +631,10 @@ export class ConversationManager implements IConversationHandler {
     const maxTurns = AgentConfig.MAX_TURNS;
     let turnCount = 0;
     let nativeToolCallingNoticeShown = false; // 네이티브 툴 콜링 미지원 안내 한 번만 표시
+    // thinking 레벨 설정 (세션 시작 시 1회 로드)
+    const thinkingLevel = options.extensionContext
+      ? await SettingsManager.getInstance(options.extensionContext).getThinkingLevel()
+      : 'medium';
     let conversationTurnId = crypto.randomUUID(); // 턴 단위 변경 그룹화용
     let lastExecutionTurnId = conversationTurnId; // 마지막 tool 실행 시의 turnId (review 메시지에 사용)
     let accumulatedUserParts = [...userParts];
@@ -2163,7 +2167,7 @@ export class ConversationManager implements IConversationHandler {
               actionManager, executionManager, terminalManager,
               contextManager: this.contextManager,
             };
-            const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx);
+            const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx, undefined, undefined, abortSignal);
             if (streamResults[0]?.success && capturedCall.params.path) {
               const p = capturedCall.params.path as string;
               streamingCreatedPaths.add(p);
@@ -2275,7 +2279,7 @@ export class ConversationManager implements IConversationHandler {
               activeSystemPrompt + planContext,
               accumulatedUserParts,
               onChunk,
-              { signal: abortSignal, nativeTools: nativeToolsForCall, onNativeToolComplete,
+              { signal: abortSignal, nativeTools: nativeToolsForCall, onNativeToolComplete, thinkingLevel,
                 onRetryNotify: (attempt, message) => {
                   WebviewBridge.sendProcessingStatus(webviewToRespond, 'retrying', message);
                 }
@@ -2298,7 +2302,7 @@ export class ConversationManager implements IConversationHandler {
             activeSystemPrompt + planContext,
             accumulatedUserParts,
             this.stateManager,
-            { signal: abortSignal, onRetryNotify: retryNotify },
+            { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
           );
         } else if (intent && intent.category === "execution" && this.stateManager) {
           // execution 의도일 때 Command 모델 사용
@@ -2309,13 +2313,13 @@ export class ConversationManager implements IConversationHandler {
             activeSystemPrompt + planContext,
             accumulatedUserParts,
             this.stateManager,
-            { signal: abortSignal, onRetryNotify: retryNotify },
+            { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
           );
         } else {
           llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
             activeSystemPrompt + planContext,
             accumulatedUserParts,
-            { signal: abortSignal, nativeTools: nativeToolsForCall, onRetryNotify: retryNotify },
+            { signal: abortSignal, nativeTools: nativeToolsForCall, thinkingLevel, onRetryNotify: retryNotify },
           );
         }
       }
@@ -5062,6 +5066,7 @@ export class ConversationManager implements IConversationHandler {
     conversationTurnId?: string,
     executedCommands: string[] = [],
     isPlanMode: boolean = false,
+    abortSignal?: AbortSignal,
   ): Promise<{
     toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
@@ -5211,6 +5216,7 @@ export class ConversationManager implements IConversationHandler {
       (toolUse: ToolUse, _index: number) => {
         ToolExecutionCoordinator.sendToolStartStatus(webview, toolUse);
       },
+      abortSignal,
     );
 
     // 스킵된 결과와 실행된 결과를 합침 (원래 순서 유지를 위해 재구성)
@@ -5461,6 +5467,7 @@ export class ConversationManager implements IConversationHandler {
     turnCount: number,
     allPlanItemsDone: boolean = false,
     hasWriteToolSinceLastTest: boolean = true,
+    abortSignal?: AbortSignal,
   ): Promise<{
     turnAction: TurnAction;
     testFixAttempts: number;
@@ -5506,6 +5513,8 @@ export class ConversationManager implements IConversationHandler {
       modifiedFiles,
       retryCoordinator.getValidationTimeout(),
       retryCoordinator.excludedValidationCommands,
+      'executing',
+      abortSignal,
     );
 
     if (testResult.success) {

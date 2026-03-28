@@ -43,8 +43,9 @@ export class GeminiProvider implements ILLMProvider {
         // Gemini thinking: 3.x → thinkingLevel, 2.5 → thinkingBudget (Cline/litellm 기준)
         if (!options?.disableThinking) {
             const isGemini3 = this.config.model.includes('gemini-3');
+            const level = options?.thinkingLevel || 'medium';
             (body.generationConfig as Record<string, unknown>).thinkingConfig = isGemini3
-                ? { thinkingLevel: 'high', includeThoughts: true }
+                ? { thinkingLevel: level, includeThoughts: true }
                 : { thinkingBudget: -1, includeThoughts: true };
         }
 

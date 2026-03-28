@@ -84,6 +84,16 @@ export function bindToggleEvents(elements) {
     });
   }
 
+  // Thinking 레벨 선택
+  const thinkingLevelSelect = document.getElementById("thinking-level-select");
+  if (thinkingLevelSelect) {
+    thinkingLevelSelect.addEventListener("change", () => {
+      if (vscode) {
+        vscode.postMessage({ command: "setThinkingLevel", level: thinkingLevelSelect.value });
+      }
+    });
+  }
+
   // 자동 테스트 재시도 토글
   if (autoTestRetryToggle) {
     autoTestRetryToggle.addEventListener("change", () => {

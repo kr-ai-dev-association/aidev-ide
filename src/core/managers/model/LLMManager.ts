@@ -28,6 +28,8 @@ export interface LLMRequestOptions {
     disableRetry?: boolean;
     /** thinking 비활성화 — tool calling과 충돌 방지 (Qwen3, DeepSeek 등) */
     disableThinking?: boolean;
+    /** thinking 레벨 (low/medium/high) */
+    thinkingLevel?: string;
     /** 네이티브 툴 콜링용 tools 배열 (OpenAI/Ollama 포맷) */
     nativeTools?: any[];
     /** 네이티브 tool_call 하나가 완성될 때마다 호출되는 콜백 */
@@ -238,13 +240,13 @@ export class LLMManager {
 
             if (this.currentModelType === AiModelType.ADMIN) {
                 response = await this.adminModelApi.sendMessageWithSystemPrompt(
-                    systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking, nativeTools: options?.nativeTools }
+                    systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools }
                 );
             } else {
                 await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessageWithSystemPrompt(
                     systemPrompt, LLMManager.normalizeParts(userParts),
-                    { signal, disableThinking, nativeTools: options?.nativeTools }
+                    { signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools }
                 );
             }
 
@@ -764,6 +766,114 @@ export class LLMManager {
             apiKey,
             systemPrompt,
             userParts,
+            options
+        );
+    }
+
+    /**
+     * 서브에이전트 모델로 메시지를 전송합니다 (비스트리밍)
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithSubAgentModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getSubagentModelType: () => Promise<string | undefined>;
+            getSubagentModelName?: () => Promise<string | undefined>;
+            getSubagentApiKey?: () => Promise<string | undefined>;
+            getSubagentAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getSubagentModelType();
+
+        if (!modelType) {
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getSubagentAdminConfig
+                ? await stateManager.getSubagentAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getSubagentApiKey
+                        ? await stateManager.getSubagentApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        const modelName = stateManager.getSubagentModelName
+            ? await stateManager.getSubagentModelName()
+            : undefined;
+        const apiKey = stateManager.getSubagentApiKey
+            ? await stateManager.getSubagentApiKey()
+            : undefined;
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * 서브에이전트 모델로 메시지를 전송합니다 (스트리밍)
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithSubAgentModelStreaming(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        stateManager: {
+            getSubagentModelType: () => Promise<string | undefined>;
+            getSubagentModelName?: () => Promise<string | undefined>;
+            getSubagentApiKey?: () => Promise<string | undefined>;
+            getSubagentAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getSubagentModelType();
+
+        if (!modelType) {
+            return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
+        }
+
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getSubagentAdminConfig
+                ? await stateManager.getSubagentAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getSubagentApiKey
+                        ? await stateManager.getSubagentApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwapStreaming(adminConfig, systemPrompt, userParts, onChunk, options);
+                } catch { }
+            }
+        }
+
+        const modelName = stateManager.getSubagentModelName
+            ? await stateManager.getSubagentModelName()
+            : undefined;
+        const apiKey = stateManager.getSubagentApiKey
+            ? await stateManager.getSubagentApiKey()
+            : undefined;
+        return this.sendMessageWithSpecificModelAndApiKeyStreaming(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            onChunk,
             options
         );
     }

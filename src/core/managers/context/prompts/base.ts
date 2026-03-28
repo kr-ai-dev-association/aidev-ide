@@ -384,6 +384,9 @@ export function getCodeGenerationGuide(): string {
 // ==================== Error Correction ====================
 export function getErrorCorrectionGuide(): string {
   return `에러 수정 지침:
+- **패키지 누락 에러**(ModuleNotFoundError, Cannot find module, ImportError 등)는 코드 수정이 아닌 **패키지 설치**로 해결하세요
+  - 반드시 프로젝트의 의존성 파일(uv.lock, package-lock.json, yarn.lock 등)을 확인하고 해당 패키지 매니저로 설치하세요
+  - uv.lock → \`uv add X\`, package-lock.json → \`npm install X\`, yarn.lock → \`yarn add X\`, pnpm-lock.yaml → \`pnpm add X\`
 - 에러 메시지와 터미널 출력을 면밀히 분석
 - 근본 원인을 먼저 파악한 뒤 수정안을 제시
 - 수정된 명령어나 코드 변화를 함께 제공
