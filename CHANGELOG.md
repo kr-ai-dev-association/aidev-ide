@@ -2,7 +2,35 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.38**
+> **현재 버전: v1.0.40**
+
+---
+
+## v1.0.40
+
+### 버그 수정
+
+- **서브에이전트 `__done__` 가상 도구 등록** (`ToolSpecBuilder`, `SubAgentLoop`): 네이티브 툴 콜링에서 `__done__`이 tools 목록에 없어 `run_command`로 실행되던 버그 수정 — `buildOpenAIToolsConfig(allowedTools, true)`로 서브에이전트용 `__done__` 도구 자동 등록
+- **서브에이전트 중복 read_file 무한 루프** (`SubAgentLoop`): 크로스턴 중복 read skip 시 파일 내용 미포함으로 LLM이 재요청 반복하던 문제 수정 — skip 피드백에 실제 파일 내용(최대 5,000자) 포함
+- **update_file 반복 실패 감지** (`UpdateFileToolHandler`): 같은 파일에 같은 SEARCH 패턴으로 2회+ 실패 시 "이미 수정된 파일" 경고 + 파일 프리뷰 확대 (3K→8K자)
+
+### 개선
+
+- **에러 수정 프롬프트 강화** (`base.ts`, `OrchestrationRouter`): 패키지 누락 에러는 코드 수정이 아닌 패키지 설치로 해결 지시 + lock 파일 기반 패키지 매니저 선택 (uv/npm/yarn/pnpm) — 서브에이전트/repair 에이전트에도 적용
+- **서브에이전트 토큰 최적화** (`OrchestrationRouter`, `SubAgentLoop`): Hot Load 제외, RAG 유사도 80%+ 필터링 (5→3개 제한), 대화 압축 (30K chars 초과 시 중간 도구 결과 요약)
+- **RepoMap 제외 패턴 확장** (`RepoMapGenerator`): `.venv`, `.pyenv`, `.gradle`, `target`, `.idea`, `cmake-build-*`, `bin`, `obj`, `.hg`, `.svn` 등 20+ 패턴 추가
+- **Thinking 레벨 선택** (`SettingsPanelProvider`, `settings.html`, `GeminiProvider`, `OpenAICompatProvider`): 설정에서 Low/Medium/High 선택 가능, 기본값 Medium — 설정 내보내기/가져오기에도 포함
+- **Abort signal 전파 강화** (`ToolExecutor`, `TestRunner`, `ConversationManager`, `SubAgentLoop`): 도구 실행, 테스트 실행에 abort signal 전달 — 취소 시 진행 중인 도구/테스트도 중단
+
+---
+
+## v1.0.39
+
+### 기능 추가
+
+- **서브에이전트 모델 라우팅** (`StateManager`, `LLMManager`, `SubAgentLoop`, `SettingsPanelProvider`, `settings.html`): 멀티 에이전트 실행 시 서브에이전트가 메인 모델과 다른 모델을 사용할 수 있도록 설정 UI + 모델 전환 로직 추가
+- **서브에이전트 스킬 로드 도구** (`LoadSkillToolHandler`, `ToolSpecBuilder`): 서브에이전트가 `load_skill` 도구로 필요한 스킬을 on-demand 로드 — 메인 IntentDetector가 추천한 candidateSkillKeys 힌트 + 스킬 description 목록 제공, 서브에이전트가 판단하여 필요한 스킬만 로드
+- **서브에이전트 스킬 전달 구조** (`OrchestrationRouter`): 메인 IntentDetector → candidateSkillKeys 수집 → 서브에이전트 시스템 프롬프트에 스킬 description + 후보 힌트 포함 (전체 스킬 포함 대신 선택적 로드)
 
 ---
 

@@ -32,6 +32,7 @@ import { SubTask, AggregatedResult, AgentLoopResult, AgentLoopCallbacks, THINKIN
 import { LLMManager } from '../managers/model/LLMManager';
 import { PromptComposer } from '../managers/context/prompts/PromptComposer';
 import { AgentConfig } from '../config/AgentConfig';
+import { StateManager } from '../managers/state/StateManager';
 import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../services';
 import { SettingsManager } from '../managers/state/SettingsManager';
 import { ReferenceItem } from '../webview/types';
@@ -54,6 +55,7 @@ export interface RouteOptions {
     userOS?: string;
     notificationService?: NotificationService;
     abortSignal?: AbortSignal;
+    candidateSkillKeys?: string[];
 }
 
 const MAX_CONCURRENT_AGENTS = AgentConfig.MAX_CONCURRENT_AGENTS;
@@ -138,11 +140,31 @@ export class OrchestrationRouter {
             const toolContext = OrchestrationRouter.buildToolContext();
             const results: AgentLoopResult[] = [];
 
+            // 스킬이 등록되어 있으면 IntentDetector로 candidateSkillKeys 수집
+            let candidateSkillKeys: string[] = [];
+            const skillDescriptions = PromptComposer.getSkillDescriptions();
+            if (skillDescriptions.length > 0) {
+                try {
+                    const { IntentDetector } = await import('../managers/action/IntentDetector');
+                    const intentDetector = new IntentDetector(LLMManager.getInstance());
+                    if (options.extensionContext) {
+                        intentDetector.setStateManager(StateManager.getInstance(options.extensionContext));
+                    }
+                    const intent = await intentDetector.detectIntent(options.userQuery);
+                    candidateSkillKeys = intent.requiredSkillKeys || [];
+                    if (candidateSkillKeys.length > 0) {
+                        console.log(`[OrchestrationRouter] candidateSkillKeys from IntentDetector: ${candidateSkillKeys.join(', ')}`);
+                    }
+                } catch (e) {
+                    console.warn('[OrchestrationRouter] Failed to detect candidateSkillKeys:', e);
+                }
+            }
+
             // 규칙/설정 컨텍스트 수집 (서브 에이전트 공유용)
             let rulesContext = '';
             let collectedReferences: ReferenceItem[] = [];
             try {
-                const gathered = await OrchestrationRouter.gatherRulesContext(options.userQuery);
+                const gathered = await OrchestrationRouter.gatherRulesContext(options.userQuery, candidateSkillKeys);
                 rulesContext = gathered.text;
                 collectedReferences = gathered.references;
                 if (rulesContext) {
@@ -484,7 +506,8 @@ export class OrchestrationRouter {
             );
             return result === '실행';
         };
-        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled, agentOptions);
+        const stateManager = options.extensionContext ? StateManager.getInstance(options.extensionContext) : undefined;
+        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled, agentOptions, stateManager);
         const result = await agent.run();
 
         // 5. TaskQueue 상태 → done/warning/failed
@@ -919,7 +942,7 @@ export class OrchestrationRouter {
      * 보안 규칙(차단 명령어, 보호 파일 등)은 PreToolUseValidator에서
      * 도구 실행 시 자동으로 적용되므로 여기서 별도로 수집하지 않음
      */
-    private static async gatherRulesContext(userQuery: string): Promise<{ text: string; references: ReferenceItem[] }> {
+    private static async gatherRulesContext(userQuery: string, candidateSkillKeys?: string[]): Promise<{ text: string; references: ReferenceItem[] }> {
         const parts: string[] = [];
         const references: ReferenceItem[] = [];
 
@@ -940,17 +963,27 @@ export class OrchestrationRouter {
             for (const rule of PromptComposer.getLastIncludedServerRuleKeys()) {
                 references.push({ type: 'server_rule', name: rule.title, source: 'server' });
             }
+
+            // 스킬 description 목록 + 메인 에이전트가 추천한 후보 힌트
+            const skillDescriptions = PromptComposer.getSkillDescriptions();
+            if (skillDescriptions.length > 0) {
+                const candidateHint = candidateSkillKeys && candidateSkillKeys.length > 0
+                    ? `\n\n**추천 스킬 (메인 에이전트가 이 작업에 필요하다고 판단):** ${candidateSkillKeys.join(', ')}\n추천된 스킬은 우선적으로 load_skill로 로드하세요. 그 외 스킬도 필요하면 로드할 수 있습니다.`
+                    : '';
+                parts.push(`## 사용 가능한 스킬\n아래 스킬이 필요하면 load_skill 도구로 로드하세요.\n${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}${candidateHint}`);
+            }
         } catch (e) {
             console.warn('[OrchestrationRouter] Failed to load Skills:', e);
         }
 
-        // 2. Hot Load 프롬프트
+        // 2. Hot Load — 서브에이전트에서는 제외 (메인 에이전트 전용 키워드→명령 매핑)
+
+        // 2.5. 에러 수정 지침 (서브에이전트/repair 에이전트도 적용)
         try {
-            const { HotLoadManager } = await import('../managers/hotload/HotLoadManager');
-            const hotLoadPrompt = await HotLoadManager.getInstance().getPromptSection();
-            if (hotLoadPrompt) { parts.push(hotLoadPrompt); }
+            const { getErrorCorrectionGuide } = await import('../managers/context/prompts/base');
+            parts.push(getErrorCorrectionGuide());
         } catch (e) {
-            console.warn('[OrchestrationRouter] Failed to load Hot Load prompt:', e);
+            console.warn('[OrchestrationRouter] Failed to load error correction guide:', e);
         }
 
         // 3. MCP 커스텀 프롬프트
@@ -976,7 +1009,8 @@ export class OrchestrationRouter {
             console.warn('[OrchestrationRouter] Failed to load framework rules:', e);
         }
 
-        // 5. RAG 컨텍스트
+        // 5. RAG 컨텍스트 — 서브에이전트용: 각 서브태스크 description으로 검색하여 관련 문서만 포함
+        // (원래 userQuery 대신 서브태스크 제목을 사용하면 더 정확하지만, 현재는 원래 질의로 검색)
         try {
             const { AuthService } = await import('../../services/auth/AuthService');
             const auth = AuthService.getInstance();
@@ -986,14 +1020,16 @@ export class OrchestrationRouter {
                 console.log(`[OrchestrationRouter] RAG: 검색 시작 (query: "${userQuery.substring(0, 50)}...", orgId: ${orgId})`);
                 const { CodePilotApiClient } = await import('../../services/api/CodePilotApiClient');
                 const ragRaw = await CodePilotApiClient.getInstance().searchRag(
-                    userQuery, orgId || undefined, undefined, 5,
+                    userQuery, orgId || undefined, undefined, 3, // 서브에이전트: 3개로 제한 (5→3)
                 ) as RagResult[] | { data?: RagResult[]; results?: RagResult[] };
                 const ragResults: RagResult[] = Array.isArray(ragRaw)
                     ? ragRaw
                     : ((ragRaw as { data?: RagResult[]; results?: RagResult[] }).data || (ragRaw as { data?: RagResult[]; results?: RagResult[] }).results || []);
-                if (ragResults.length > 0) {
-                    console.log(`[OrchestrationRouter] RAG: ${ragResults.length}개 문서 청크 검색됨`);
-                    const ragText = ragResults
+                // 유사도 80% 이상만 포함 (관련 없는 문서 필터링)
+                const filteredRag = ragResults.filter(r => !r.similarity || r.similarity >= 0.8);
+                if (filteredRag.length > 0) {
+                    console.log(`[OrchestrationRouter] RAG: ${filteredRag.length}/${ragResults.length}개 문서 청크 포함 (유사도 80%+)`);
+                    const ragText = filteredRag
                         .map((r, i) => {
                             const source = r.source_name || r.source || '';
                             const doc = r.document_name || r.document || '';
@@ -1003,7 +1039,7 @@ export class OrchestrationRouter {
                         .join('\n\n---\n\n');
                     parts.push(`## 참고 문서 (RAG) — 반드시 우선 활용\n${ragText}`);
                     // RAG 참조 추적
-                    for (const r of ragResults) {
+                    for (const r of filteredRag) {
                         references.push({
                             type: 'rag',
                             name: r.document_name || r.document || 'unknown',

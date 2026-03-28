@@ -6,7 +6,7 @@ import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 import { Tool } from '../../core/tools/types';
 
-type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void };
+type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; thinkingLevel?: string; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void };
 type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type MessageBuilder = (userContent: string) => OllamaMessage[];
 

@@ -74,9 +74,15 @@ export class TestRunner {
     excludedValidationCommands: string[] = [],
     /** UI step name — 호출 컨텍스트에 따라 'executing' 또는 'review' */
     uiStep: string = 'executing',
+    abortSignal?: AbortSignal,
   ): Promise<TestResult> {
     let workspaceRoot = _workspaceRoot;
     try {
+      // abort 체크
+      if (abortSignal?.aborted) {
+        return { success: true, errorMessage: 'Cancelled' };
+      }
+
       // 검증 시작
       WebviewBridge.sendProcessingStep(webview, uiStep);
       WebviewBridge.sendProcessingStatus(

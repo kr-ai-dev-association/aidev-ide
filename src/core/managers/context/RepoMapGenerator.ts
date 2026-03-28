@@ -29,20 +29,58 @@ const SYMBOL_EXTENSIONS = new Set([
 
 /** fast-glob 무시 패턴 */
 const IGNORE_PATTERNS = [
+    // JavaScript/TypeScript
     '**/node_modules/**',
-    '**/.git/**',
-    '**/dist/**',
-    '**/build/**',
-    '**/out/**',
     '**/.next/**',
     '**/.nuxt/**',
     '**/.svelte-kit/**',
-    '**/.cache/**',
-    '**/coverage/**',
-    '**/__pycache__/**',
-    '**/vendor/**',
     '**/.turbo/**',
     '**/.vercel/**',
+    '**/.netlify/**',
+    '**/.parcel-cache/**',
+    '**/bower_components/**',
+    // Python
+    '**/.venv/**',
+    '**/venv/**',
+    '**/.env/**',
+    '**/env/**',
+    '**/__pycache__/**',
+    '**/.tox/**',
+    '**/.mypy_cache/**',
+    '**/.pytest_cache/**',
+    '**/.ruff_cache/**',
+    '**/.pyenv/**',
+    '**/.eggs/**',
+    '**/*.egg-info/**',
+    '**/site-packages/**',
+    // Java/Kotlin/Gradle/Maven
+    '**/.gradle/**',
+    '**/target/**',
+    '**/.m2/**',
+    '**/.idea/**',
+    // Rust
+    '**/target/debug/**',
+    '**/target/release/**',
+    // Go
+    '**/vendor/**',
+    // C/C++
+    '**/cmake-build-*/**',
+    // .NET
+    '**/bin/**',
+    '**/obj/**',
+    // 공통 빌드/캐시/출력
+    '**/dist/**',
+    '**/build/**',
+    '**/out/**',
+    '**/.cache/**',
+    '**/coverage/**',
+    '**/.git/**',
+    '**/.DS_Store',
+    '**/.hg/**',
+    '**/.svn/**',
+    '**/tmp/**',
+    '**/temp/**',
+    '**/logs/**',
 ];
 
 /** 바이너리/불필요 파일 확장자 */

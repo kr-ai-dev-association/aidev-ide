@@ -23,6 +23,7 @@ import { buildToolPromptSection } from '../managers/context/prompts/tools/toolCa
 import { SubTask, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from './types';
 import { AgentConfig } from '../config/AgentConfig';
 import { SettingsManager } from '../managers/state/SettingsManager';
+import { StateManager } from '../managers/state/StateManager';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -43,6 +44,7 @@ export class SubAgentLoop {
     private thinkingEnabled: boolean;
     private disableReadDedup: boolean;
     private isRepairAgent: boolean;
+    private stateManager?: StateManager;
 
     constructor(
         subtask: SubTask,
@@ -54,6 +56,7 @@ export class SubAgentLoop {
         useStreaming?: boolean,
         thinkingEnabled?: boolean,
         agentOptions?: { disableReadDedup?: boolean; isRepairAgent?: boolean },
+        stateManager?: StateManager,
     ) {
         this.subtask = subtask;
         this.toolContext = toolContext;
@@ -65,6 +68,7 @@ export class SubAgentLoop {
         this.thinkingEnabled = thinkingEnabled ?? true;
         this.disableReadDedup = agentOptions?.disableReadDedup ?? false;
         this.isRepairAgent = agentOptions?.isRepairAgent ?? false;
+        this.stateManager = stateManager;
         this.llmManager = LLMManager.getInstance();
         this.toolExecutor = new ToolExecutor();
     }
@@ -110,7 +114,7 @@ export class SubAgentLoop {
         const isAutoToolEnabled = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
         const isAutoUpdateEnabled = await SettingsManager.getInstance().isAutoUpdateEnabled();
         const allowedTools = this.getAllowedTools();
-        const nativeTools = isNativeAdmin ? ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools) : undefined;
+        const nativeTools = isNativeAdmin ? ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools, true) : undefined;
         // thinkingEnabled=false → 항상 비활성화; true → native admin 여부에 따라 결정
         const disableThinking = !this.thinkingEnabled ? true : !isNativeAdmin;
 
@@ -118,6 +122,28 @@ export class SubAgentLoop {
             if (this.abortSignal?.aborted) {
                 errors.push('사용자에 의해 중단됨');
                 break;
+            }
+
+            // 서브에이전트 대화 압축: 컨텍스트가 커지면 오래된 도구 결과 축소
+            if (turnCount > 0 && conversationParts.length > 10) {
+                const totalChars = conversationParts.reduce((sum, p) => sum + (p.text?.length || 0), 0);
+                if (totalChars > 30000) {
+                    // 첫 번째(태스크 설명)와 마지막 4개는 유지, 중간 도구 결과를 요약
+                    const keepFirst = 1;
+                    const keepLast = 4;
+                    if (conversationParts.length > keepFirst + keepLast + 2) {
+                        const middle = conversationParts.slice(keepFirst, -keepLast);
+                        const middleFiles = new Set<string>();
+                        for (const p of middle) {
+                            const text = p.text || '';
+                            const fileMatches = text.match(/(?:read_file|create_file|update_file|remove_file)[:\s]+([^\n\]]+)/g);
+                            if (fileMatches) fileMatches.forEach(m => middleFiles.add(m.substring(0, 60)));
+                        }
+                        const summary = `[이전 턴 요약] ${middle.length}개 메시지 압축됨. 작업한 파일: ${[...middleFiles].join(', ') || '(도구 호출 없음)'}`;
+                        conversationParts.splice(keepFirst, middle.length, { text: summary });
+                        console.log(`[SubAgentLoop:${this.subtask.id}] Context compacted: ${middle.length} messages → 1 summary (${totalChars} → ${conversationParts.reduce((s, p) => s + (p.text?.length || 0), 0)} chars)`);
+                    }
+                }
             }
 
             // 전체 루프 타임아웃 체크 (사용자 승인 대기 시간 제외)
@@ -161,7 +187,8 @@ export class SubAgentLoop {
                                 }
                                 const streamResults = await this.toolExecutor.executeTools(
                                     [capturedCall], this.toolContext,
-                                    this.callbacks?.onToolComplete, this.callbacks?.onToolStart
+                                    this.callbacks?.onToolComplete, this.callbacks?.onToolStart,
+                                    this.abortSignal
                                 );
                                 if (streamResults[0]?.success && capturedCall.params.path) {
                                     const streamPath = capturedCall.params.path;
@@ -249,12 +276,13 @@ export class SubAgentLoop {
                                 this.callbacks.onStreamingStatus(`응답 생성 중 (${tokens.toLocaleString()} 토큰...)`);
                             }
                         };
-                        response = await this.llmManager.sendMessageWithSystemPromptStreaming(
-                            systemPrompt,
-                            conversationParts,
-                            onChunk,
-                            { signal: this.abortSignal, disableThinking, nativeTools, onNativeToolComplete }
-                        );
+                        response = this.stateManager
+                            ? await this.llmManager.sendMessageWithSubAgentModelStreaming(
+                                systemPrompt, conversationParts, onChunk, this.stateManager,
+                                { signal: this.abortSignal, disableThinking, nativeTools, onNativeToolComplete })
+                            : await this.llmManager.sendMessageWithSystemPromptStreaming(
+                                systemPrompt, conversationParts, onChunk,
+                                { signal: this.abortSignal, disableThinking, nativeTools, onNativeToolComplete });
                         // 스트리밍 중 시작된 create_file 모두 완료 대기
                         await streamingCreatePromise;
                     } else {
@@ -265,11 +293,13 @@ export class SubAgentLoop {
                         if (this.abortSignal) { signals.push(this.abortSignal); }
                         const combinedSignal = AbortSignal.any(signals);
                         try {
-                            response = await this.llmManager.sendMessageWithSystemPrompt(
-                                systemPrompt,
-                                conversationParts,
-                                { signal: combinedSignal, disableThinking, nativeTools }
-                            );
+                            response = this.stateManager
+                                ? await this.llmManager.sendMessageWithSubAgentModel(
+                                    systemPrompt, conversationParts, this.stateManager,
+                                    { signal: combinedSignal, disableThinking, nativeTools })
+                                : await this.llmManager.sendMessageWithSystemPrompt(
+                                    systemPrompt, conversationParts,
+                                    { signal: combinedSignal, disableThinking, nativeTools });
                         } catch (timeoutErr) {
                             if (timeoutController.signal.aborted) {
                                 clearTimeout(timeoutId);
@@ -532,6 +562,7 @@ export class SubAgentLoop {
                         this.toolContext,
                         this.callbacks?.onToolComplete,
                         this.callbacks?.onToolStart,
+                        this.abortSignal,
                     )
                     : [];
 
@@ -565,12 +596,21 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 4.5a. 크로스턴 중복 read_file 스킵에 대한 synthetic 피드백 추가
-                for (const path of skippedReadFiles) {
-                    uniqueCalls.push({ name: 'read_file', params: { path } } as ToolUse);
+                // 4.5a. 크로스턴 중복 read_file 스킵에 대한 synthetic 피드백 추가 (캐시된 내용 포함)
+                for (const skippedPath of skippedReadFiles) {
+                    uniqueCalls.push({ name: 'read_file', params: { path: skippedPath } } as ToolUse);
+                    // 캐시된 파일 내용을 포함하여 LLM이 다음 단계로 진행 가능하도록
+                    let cachedContent = '';
+                    try {
+                        const absPath = path.resolve(this.toolContext.workspaceRoot || this.toolContext.projectRoot, skippedPath);
+                        cachedContent = await fs.readFile(absPath, 'utf-8');
+                    } catch { /* ignore */ }
+                    const contentPreview = cachedContent
+                        ? `\n\n현재 파일 내용:\n\`\`\`\n${cachedContent.substring(0, 5000)}${cachedContent.length > 5000 ? '\n... (생략)' : ''}\n\`\`\``
+                        : '';
                     results.push({
                         success: true,
-                        message: `[이미 읽음] ${path}는 이전 턴에서 이미 읽었습니다. 방금 제공된 내용을 그대로 사용하세요. 다시 read_file을 호출하지 마세요.`,
+                        message: `[이미 읽음] ${skippedPath}는 이전 턴에서 이미 읽었습니다. 아래 내용을 사용하세요. 다시 read_file을 호출하지 마세요.${contentPreview}`,
                     });
                 }
 

@@ -42,7 +42,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         if (isGeminiCompat) {
             // Gemini OpenAI-compat: reasoning_effort 사용 (top-level thinking_config/google 키는 미지원)
             if (!options?.disableThinking) {
-                requestBody.reasoning_effort = 'high';
+                requestBody.reasoning_effort = options?.thinkingLevel || 'medium';
             }
         } else if (options?.disableThinking) {
             requestBody.think = false;
@@ -112,7 +112,7 @@ export class OpenAICompatProvider implements ILLMProvider {
         const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
         if (isGeminiCompat) {
             if (!options?.disableThinking) {
-                requestBody.reasoning_effort = 'high';
+                requestBody.reasoning_effort = options?.thinkingLevel || 'medium';
             }
         } else if (options?.disableThinking) {
             requestBody.think = false;

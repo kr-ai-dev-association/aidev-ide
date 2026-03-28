@@ -43,8 +43,14 @@ export class ToolExecutor {
      */
     async executeTool(
         toolUse: ToolUse,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        abortSignal?: AbortSignal
     ): Promise<ToolResponse> {
+        // abort 체크
+        if (abortSignal?.aborted) {
+            return { success: false, message: 'Cancelled', error: { code: 'ABORTED', message: 'Operation cancelled' } };
+        }
+
         // A2: PreToolUse 검증
         const validation = await PreToolUseValidator.validate(toolUse, context.projectRoot);
         if (!validation.allowed) {
@@ -137,10 +143,11 @@ export class ToolExecutor {
         toolUses: ToolUse[],
         context: ToolExecutionContext,
         onToolComplete?: (toolUse: ToolUse, result: ToolResponse, index: number) => void,
-        onToolStart?: (toolUse: ToolUse, index: number) => void
+        onToolStart?: (toolUse: ToolUse, index: number) => void,
+        abortSignal?: AbortSignal
     ): Promise<ToolResponse[]> {
         // 읽기 도구는 항상 병렬, 쓰기 도구는 순차 실행
-        return this.executeToolsParallel(toolUses, context, onToolComplete, onToolStart);
+        return this.executeToolsParallel(toolUses, context, onToolComplete, onToolStart, abortSignal);
     }
 
     /**
@@ -150,18 +157,24 @@ export class ToolExecutor {
         toolUses: ToolUse[],
         context: ToolExecutionContext,
         onToolComplete?: (toolUse: ToolUse, result: ToolResponse, index: number) => void,
-        onToolStart?: (toolUse: ToolUse, index: number) => void
+        onToolStart?: (toolUse: ToolUse, index: number) => void,
+        abortSignal?: AbortSignal
     ): Promise<ToolResponse[]> {
         const results: ToolResponse[] = [];
 
         for (let i = 0; i < toolUses.length; i++) {
+            if (abortSignal?.aborted) {
+                console.log(`[ToolExecutor] Aborted before tool ${i + 1}/${toolUses.length}`);
+                break;
+            }
+
             const toolUse = toolUses[i];
 
             if (onToolStart) {
                 onToolStart(toolUse, i);
             }
 
-            const result = await this.executeTool(toolUse, context);
+            const result = await this.executeTool(toolUse, context, abortSignal);
             results.push(result);
 
             if (onToolComplete) {
@@ -185,7 +198,8 @@ export class ToolExecutor {
         toolUses: ToolUse[],
         context: ToolExecutionContext,
         onToolComplete?: (toolUse: ToolUse, result: ToolResponse, index: number) => void,
-        onToolStart?: (toolUse: ToolUse, index: number) => void
+        onToolStart?: (toolUse: ToolUse, index: number) => void,
+        abortSignal?: AbortSignal
     ): Promise<ToolResponse[]> {
         const results: (ToolResponse | undefined)[] = new Array(toolUses.length);
 
@@ -206,11 +220,12 @@ export class ToolExecutor {
         // Phase 1: 읽기 도구 병렬 실행 (부분 실패 허용 — Promise.allSettled)
         if (readBatch.length > 0) {
             const settled = await Promise.allSettled(readBatch.map(async ({ toolUse, idx }) => {
+                if (abortSignal?.aborted) return;
                 if (onToolStart) {
                     onToolStart(toolUse, idx);
                 }
 
-                const result = await this.executeTool(toolUse, context);
+                const result = await this.executeTool(toolUse, context, abortSignal);
                 results[idx] = result;
 
                 if (onToolComplete) {
@@ -226,11 +241,16 @@ export class ToolExecutor {
 
         // Phase 2: 쓰기 도구 순차 실행
         for (const { toolUse, idx } of writeBatch) {
+            if (abortSignal?.aborted) {
+                console.log(`[ToolExecutor] Aborted before write tool ${idx}`);
+                break;
+            }
+
             if (onToolStart) {
                 onToolStart(toolUse, idx);
             }
 
-            const result = await this.executeTool(toolUse, context);
+            const result = await this.executeTool(toolUse, context, abortSignal);
             results[idx] = result;
 
             if (onToolComplete) {

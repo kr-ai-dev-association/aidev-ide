@@ -22,6 +22,8 @@ const UpdateFileParamsSchema = z.object({
 
 export class UpdateFileToolHandler implements IToolHandler {
   readonly name = Tool.UPDATE_FILE;
+  /** 파일별 실패한 SEARCH 패턴 추적 (같은 패턴 반복 감지용) */
+  private _failedSearchPatterns: Map<string, { pattern: string; count: number }[]> = new Map();
 
   async execute(
     toolUse: ToolUse,
@@ -250,14 +252,28 @@ export class UpdateFileToolHandler implements IToolHandler {
           // LLM 전달용 상세 메시지 (파일 내용 포함하여 재시도 가능)
           let llmMessage = `SEARCH 블록을 찾을 수 없습니다 (파일: ${filePath})\n\n`;
 
-          if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
+          // 같은 파일+같은 패턴 반복 실패 감지
+          const searchKey = replacement.search.substring(0, 80);
+          const failedList = this._failedSearchPatterns.get(filePath) || [];
+          const existing = failedList.find(f => f.pattern === searchKey);
+          if (existing) {
+            existing.count++;
+          } else {
+            failedList.push({ pattern: searchKey, count: 1 });
+          }
+          this._failedSearchPatterns.set(filePath, failedList);
+          const repeatCount = existing?.count || 1;
+
+          if (repeatCount >= 2) {
+            llmMessage += `⚠️ **같은 SEARCH 패턴으로 ${repeatCount}회 연속 실패했습니다.** 이 파일은 이전 턴에서 이미 수정되었을 수 있습니다. 이전 SEARCH 패턴은 더 이상 유효하지 않습니다. 반드시 read_file로 현재 파일 내용을 다시 읽고, 실제 내용을 기반으로 새 SEARCH 블록을 작성하세요.\n\n`;
+          } else if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
             llmMessage += `분석 결과: 에이전트가 예상한 메뉴나 네비게이션 구조가 아직 구현되지 않아 부분 수정(SEARCH/REPLACE)이 불가능합니다.\n\n`;
           } else {
-            llmMessage += `SEARCH 블록이 파일 내용과 일치하지 않습니다. read_file로 현재 내용을 읽고 정확히 복사하세요. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
+            llmMessage += `SEARCH 블록이 파일 내용과 일치하지 않습니다. 이 파일이 이전 턴에서 수정되었을 수 있습니다. read_file로 현재 내용을 다시 읽고 정확히 복사하세요. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
           }
 
-          // 파일이 짧으면 전체 내용, 길면 앞부분만 제공
-          const maxPreviewLength = 3000;
+          // 2회 이상 반복 실패 시 더 많은 내용 제공
+          const maxPreviewLength = repeatCount >= 2 ? 8000 : 3000;
           const preview = fileContent.length > maxPreviewLength
             ? fileContent.substring(0, maxPreviewLength) + `\n... (${fileContent.length - maxPreviewLength}자 생략)`
             : fileContent;

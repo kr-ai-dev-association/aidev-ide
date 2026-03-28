@@ -260,6 +260,17 @@ export class ToolSpecBuilder {
             });
         }
 
+        // load_skill - 스킬 로더 (서브에이전트용)
+        if (!allowedTools || allowedTools.includes(Tool.LOAD_SKILL)) {
+            specs.push({
+                name: Tool.LOAD_SKILL,
+                description: '등록된 스킬의 전체 내용을 로드합니다. 시스템 프롬프트의 스킬 목록에서 필요한 스킬을 확인한 후, 이 도구로 해당 스킬의 상세 지침을 가져와 작업에 적용하세요.',
+                parameters: [
+                    { name: 'skill_key', required: true, description: '로드할 스킬 키 (스킬 목록에 표시된 이름)', type: 'string' },
+                ]
+            });
+        }
+
         // MCP 도구 추가
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
@@ -356,15 +367,36 @@ export class ToolSpecBuilder {
     /**
      * OpenAI/Ollama 호환 tools 설정 객체 생성
      */
-    static buildOpenAIToolsConfig(allowedTools?: Tool[]): Array<{
+    static buildOpenAIToolsConfig(allowedTools?: Tool[], includeVirtualTools: boolean = false): Array<{
         type: 'function';
         function: FunctionDeclaration;
     }> {
         const declarations = this.buildFunctionDeclarations(allowedTools);
-        return declarations.map(decl => ({
+        const tools = declarations.map(decl => ({
             type: 'function' as const,
             function: decl
         }));
+
+        // 서브에이전트용 가상 도구 추가
+        if (includeVirtualTools) {
+            tools.push({
+                type: 'function' as const,
+                function: {
+                    name: '__done__',
+                    description: '작업이 완료되면 이 도구를 호출하세요. status와 summary를 포함해야 합니다.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            status: { type: 'string', description: '완료 상태: completed, already_done, failed' },
+                            summary: { type: 'string', description: '작업 결과 요약' },
+                        },
+                        required: ['status', 'summary'],
+                    },
+                } as FunctionDeclaration,
+            });
+        }
+
+        return tools;
     }
 }
 

@@ -113,6 +113,8 @@ export function openSettingsPanel(
               await settingsManager.isNativeToolCallingEnabled();
             const thinkingEnabled =
               await settingsManager.isThinkingEnabled();
+            const thinkingLevel =
+              await settingsManager.getThinkingLevel();
 
             // 채팅 테마 설정 로드
             const config = vscode.workspace.getConfiguration('codepilot');
@@ -138,6 +140,9 @@ export function openSettingsPanel(
             const completionModelType = await stateManager.getCompletionModelType();
             const completionModelName = await stateManager.getCompletionModelName();
             const completionApiKeySet = await stateManager.hasCompletionApiKey();
+            const subagentModelType = await stateManager.getSubagentModelType();
+            const subagentModelName = await stateManager.getSubagentModelName();
+            const subagentApiKeySet = await stateManager.hasSubagentApiKey();
             const inlineCompletionEnabled = vscode.workspace.getConfiguration('codepilot')
               .get<boolean>('inlineCompletion', false);
 
@@ -166,6 +171,7 @@ export function openSettingsPanel(
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               nativeToolCallingEnabled: nativeToolCallingEnabled, // 네이티브 툴 콜링 설정
               thinkingEnabled: thinkingEnabled, // Thinking 설정
+              thinkingLevel: thinkingLevel || 'medium', // Thinking 레벨
               // 모델 라우팅 설정 (타입, 모델명, API 키 여부)
               compactorModelType: compactorModelType || "",
               compactorModelName: compactorModelName || "",
@@ -182,6 +188,9 @@ export function openSettingsPanel(
               completionModelType: completionModelType || "",
               completionModelName: completionModelName || "",
               completionApiKeySet: completionApiKeySet,
+              subagentModelType: subagentModelType || "",
+              subagentModelName: subagentModelName || "",
+              subagentApiKeySet: subagentApiKeySet,
               inlineCompletionEnabled: inlineCompletionEnabled,
               chatTheme: chatTheme,
               extensionVersion: extensionVersion,
@@ -759,6 +768,87 @@ export function openSettingsPanel(
             notificationService.showInfoMessage("CODEPILOT: 자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.");
           } catch (error: any) {
             safePostMessage(panel, { command: "completionModelClearError", error: error.message });
+          }
+          break;
+
+        case "saveSubagentModel": // 서브에이전트 모델 저장
+          try {
+            const subagentType = data.modelType;
+            const subagentModelNameSave = data.modelName;
+            if (subagentType) {
+              await stateManager.saveSubagentModelType(subagentType);
+              if (subagentModelNameSave) {
+                await stateManager.saveSubagentModelName(subagentModelNameSave);
+              }
+              if ((subagentType.startsWith('group:') || subagentType === 'admin') && subagentModelNameSave) {
+                const aiModelSettings = settingsManager.getServerSettings('ai_model');
+                const preset = aiModelSettings.find((s: any) => s.key === subagentModelNameSave);
+                if (preset && preset.value) {
+                  const v = preset.value;
+                  const ch = v.customHeaders || v.custom_headers || {};
+                  const userApiKey = context.globalState.get<string>("codepilot.adminApiKey") || '';
+                  const adminConfig = {
+                    key: subagentModelNameSave,
+                    provider: v.provider || 'chat_completions',
+                    model: v.model || v.model_name || '',
+                    apiKey: userApiKey || v.api_key || v.apiKey || '',
+                    endpoint: v.base_url || v.endpoint || v.apiEndpoint || '',
+                    maxTokens: v.max_tokens || v.maxTokens || undefined,
+                    maxOutputTokens: v.maxOutputTokens || v.max_output_tokens || undefined,
+                    contextWindow: v.context_window || v.contextWindow || undefined,
+                    enabled: v.enabled !== false,
+                    authType: v.authType || v.auth_type || 'bearer',
+                    authHeaderName: v.authHeaderName || v.auth_header_name || undefined,
+                    customHeaders: typeof ch === 'string' ? JSON.parse(ch || '{}') : ch,
+                    defaultTemperature: v.defaultTemperature ?? v.default_temperature ?? 0.7,
+                    topP: v.topP ?? v.top_p ?? 0.9,
+                    streamingSupported: v.streamingSupported ?? v.streaming_supported ?? true,
+                  };
+                  await stateManager.saveSubagentAdminConfig(JSON.stringify(adminConfig));
+                }
+              }
+              safePostMessage(panel, { command: "subagentModelSaved" });
+              const typeLabel = { ollama: "Ollama", admin: "Admin" }[subagentType as string] || subagentType;
+              const modelInfo = subagentModelNameSave ? ` (${subagentModelNameSave})` : "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: 서브에이전트 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, { command: "subagentModelSaveError", error: "모델 타입을 선택해주세요." });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "subagentModelSaveError", error: error.message });
+            notificationService.showErrorMessage(`서브에이전트 모델 저장 오류: ${error.message}`);
+          }
+          break;
+
+        case "saveSubagentApiKey": // 서브에이전트 API 키 저장
+          try {
+            const subagentApiKey = data.apiKey;
+            const subagentApiType = data.modelType;
+            if (subagentApiKey) {
+              await stateManager.saveSubagentApiKey(subagentApiKey);
+              safePostMessage(panel, { command: "subagentApiKeySaved" });
+              const typeLabel = { admin: "Admin" }[subagentApiType as string] || "";
+              notificationService.showInfoMessage(
+                `CODEPILOT: 서브에이전트 ${typeLabel} API 키가 저장되었습니다.`,
+              );
+            } else {
+              safePostMessage(panel, { command: "subagentApiKeySaveError", error: "API 키를 입력해주세요." });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "subagentApiKeySaveError", error: error.message });
+            notificationService.showErrorMessage(`서브에이전트 API 키 저장 오류: ${error.message}`);
+          }
+          break;
+
+        case "clearSubagentModel": // 서브에이전트 모델 초기화
+          try {
+            await stateManager.clearSubagentModelConfig();
+            safePostMessage(panel, { command: "subagentModelCleared" });
+            notificationService.showInfoMessage("CODEPILOT: 서브에이전트 모델이 초기화되었습니다. 메인 모델이 사용됩니다.");
+          } catch (error: any) {
+            safePostMessage(panel, { command: "subagentModelClearError", error: error.message });
           }
           break;
 
@@ -1376,6 +1466,18 @@ export function openSettingsPanel(
               console.log(`[PanelManager] Thinking 설정 저장됨: ${thinkingEnabledToSet}`);
             } catch (error: any) {
               console.error('[PanelManager] Thinking 설정 저장 오류:', error);
+            }
+          }
+          break;
+        }
+        case "setThinkingLevel": {
+          const level = data.level;
+          if (level && ['low', 'medium', 'high'].includes(level)) {
+            try {
+              await settingsManager.updateThinkingLevel(level);
+              console.log(`[PanelManager] Thinking 레벨 저장됨: ${level}`);
+            } catch (error: any) {
+              console.error('[PanelManager] Thinking 레벨 저장 오류:', error);
             }
           }
           break;
@@ -2778,6 +2880,7 @@ export function openSettingsPanel(
                 streamingEnabled: await settingsManager.isStreamingEnabled(),
                 nativeToolCallingEnabled: await settingsManager.isNativeToolCallingEnabled(),
                 thinkingEnabled: await settingsManager.isThinkingEnabled(),
+                thinkingLevel: await settingsManager.getThinkingLevel(),
                 inlineCompletionEnabled: config.get<boolean>('inlineCompletion', false),
                 autoTestRetryEnabled: await settingsManager.isAutoTestRetryEnabled(),
                 testRetryCount: await settingsManager.getTestRetryCount(),
@@ -2799,6 +2902,8 @@ export function openSettingsPanel(
                 errorFallbackModelName: await stateManager.getErrorFallbackModelName() || '',
                 completionModelType: await stateManager.getCompletionModelType() || '',
                 completionModelName: await stateManager.getCompletionModelName() || '',
+                subagentModelType: await stateManager.getSubagentModelType() || '',
+                subagentModelName: await stateManager.getSubagentModelName() || '',
               },
               buildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
               mcpServers: await stateManager.getMcpServers(),
@@ -2865,6 +2970,7 @@ export function openSettingsPanel(
             if (typeof s.streamingEnabled === 'boolean') { await cfgImport.update('streamingEnabled', s.streamingEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.nativeToolCallingEnabled === 'boolean') { await cfgImport.update('nativeToolCallingEnabled', s.nativeToolCallingEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.thinkingEnabled === 'boolean') { await cfgImport.update('thinkingEnabled', s.thinkingEnabled, vscode.ConfigurationTarget.Global); }
+            if (s.thinkingLevel) { await cfgImport.update('thinkingLevel', s.thinkingLevel, vscode.ConfigurationTarget.Global); }
             if (typeof s.inlineCompletionEnabled === 'boolean') { await cfgImport.update('inlineCompletion', s.inlineCompletionEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoTestRetryEnabled === 'boolean') { await cfgImport.update('autoTestRetryEnabled', s.autoTestRetryEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.testRetryCount === 'number') { await cfgImport.update('testRetryCount', s.testRetryCount, vscode.ConfigurationTarget.Global); }
@@ -2888,6 +2994,8 @@ export function openSettingsPanel(
             if (s.errorFallbackModelName) { await stateManager.saveErrorFallbackModelName(s.errorFallbackModelName); }
             if (s.completionModelType) { await stateManager.saveCompletionModelType(s.completionModelType); }
             if (s.completionModelName) { await stateManager.saveCompletionModelName(s.completionModelName); }
+            if (s.subagentModelType) { await stateManager.saveSubagentModelType(s.subagentModelType); }
+            if (s.subagentModelName) { await stateManager.saveSubagentModelName(s.subagentModelName); }
 
             if (Array.isArray(imported.buildTestSettings)) {
               await context.globalState.update('personalBuildTestSettings', imported.buildTestSettings);

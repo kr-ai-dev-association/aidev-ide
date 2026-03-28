@@ -61,6 +61,7 @@ import { HotLoadManager } from "./core/managers/hotload";
 import { MemoryManager } from "./core/memory/MemoryManager";
 import { MemorySaveToolHandler } from "./core/tools/memory/MemorySaveToolHandler";
 import { MemoryDeleteToolHandler } from "./core/tools/memory/MemoryDeleteToolHandler";
+import { LoadSkillToolHandler } from "./core/tools/skill/LoadSkillToolHandler";
 import { AuthService } from "./services/auth/AuthService";
 import { DEFAULT_OLLAMA_URL } from './core/config/ApiDefaults';
 import {
@@ -585,6 +586,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // 영속적 메모리 도구들
   toolRegistry.register(new MemorySaveToolHandler());
   toolRegistry.register(new MemoryDeleteToolHandler());
+  // 스킬 로더 도구 (서브에이전트용)
+  toolRegistry.register(new LoadSkillToolHandler());
   // MCP Manager 초기화 및 도구 등록 브릿지
   const mcpManager = MCPManager.getInstance();
   await mcpManager.initialize(context);
