@@ -5,7 +5,7 @@ import { PromptType, NotificationService } from '../../services'; // PromptType 
 import { SettingsManager, StateManager, TerminalManager, ConversationService, ExecutionManager } from '../../core';
 
 export class AskViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'codepilot.askView'; // 새로운 뷰 타입
+    public static readonly viewType = 'codepilot-standalone.askView'; // 새로운 뷰 타입
     private _view?: vscode.WebviewView;
 
     constructor(

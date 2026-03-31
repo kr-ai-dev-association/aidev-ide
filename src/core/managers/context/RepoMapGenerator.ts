@@ -81,6 +81,25 @@ const IGNORE_PATTERNS = [
     '**/tmp/**',
     '**/temp/**',
     '**/logs/**',
+    // pnpm
+    '**/.pnpm-store/**',
+    // VuePress
+    '**/.vuepress/**',
+    // Coverage
+    '**/htmlcov/**',
+    '**/.nyc_output/**',
+    // Mobile
+    '**/.expo/**',
+    '**/android/build/**',
+    '**/ios/build/**',
+    // IaC
+    '**/.terraform.lock.hcl',
+    '**/.pulumi/**',
+    '**/.serverless/**',
+    '**/.amplify/**',
+    // OS
+    '**/desktop.ini',
+    '**/.AppleDouble/**',
 ];
 
 /** 바이너리/불필요 파일 확장자 */

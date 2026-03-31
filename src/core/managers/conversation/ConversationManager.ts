@@ -358,6 +358,27 @@ export class ConversationManager implements IConversationHandler {
       const systemPrompt =
         this.promptBuilder.generateSystemPrompt(promptOptions);
 
+      // ASK/PLAN에서도 Rule/Skill 참조를 수집
+      if (optionsWithAbort.promptType === PromptType.GENERAL_ASK || optionsWithAbort.promptType === PromptType.PLAN) {
+        const ruleRefs = PromptComposer.getLastIncludedServerRuleKeys().map(
+          (r: { key: string; title: string }) => ({ type: 'server_rule' as const, name: r.title, source: 'server' as const })
+        );
+        const skillRefs = (intent.requiredSkillKeys || []).map(
+          (key: string) => ({ type: 'server_skill' as const, name: key, source: 'server' as const })
+        );
+        if (ruleRefs.length > 0 || skillRefs.length > 0) {
+          const prevRefs = PromptComposer.getLastReferences();
+          const newRefs = [...ruleRefs, ...skillRefs];
+          for (const ref of newRefs) {
+            if (!prevRefs.some(r => r.type === ref.type && r.name === ref.name)) {
+              prevRefs.push(ref);
+            }
+          }
+          // @ts-ignore
+          PromptComposer['_lastReferences'] = prevRefs;
+        }
+      }
+
       // 5. 작업 타입에 따른 실행 분기
       if (optionsWithAbort.promptType === PromptType.CODE_GENERATION || optionsWithAbort.promptType === PromptType.PLAN) {
         // v9.5.0: AGENT 모드에서도 이전 대화 히스토리 포함 (대화 연속성 유지)
@@ -5122,14 +5143,19 @@ export class ConversationManager implements IConversationHandler {
         continue;
       }
 
-      // read_file과 동턴 update_file → 스킵 (SEARCH 불일치 방지)
+      // read_file과 동턴 update_file → 보호 파일만 차단
       if (call.name === Tool.UPDATE_FILE && call.params.path && readPathsInBatch.has(call.params.path)) {
-        console.log(`[ConversationManager] Skipped update_file after read_file in same turn: ${call.params.path}`);
-        skippedToolResults.push({
-          success: true,
-          message: `[스킵됨] read_file(${call.params.path})과 update_file(${call.params.path})을 같은 턴에 실행할 수 없습니다. update_file은 자동 생략됩니다. 다음 턴에서 방금 read_file로 읽은 파일의 실제 내용을 기반으로 SEARCH 블록을 재생성하여 update_file만 실행하세요.`,
-        });
-        continue;
+        const { PreToolUseValidator } = await import('../../tools/PreToolUseValidator');
+        if (PreToolUseValidator.isSensitiveFile(call.params.path)) {
+          console.log(`[ConversationManager] Skipped update_file (protected file): ${call.params.path}`);
+          const blockedMsg = `🚫 [보안 차단] 민감한 파일 수정 차단: ${call.params.path}`;
+          WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
+          skippedToolResults.push({
+            success: false,
+            message: blockedMsg,
+          });
+          continue;
+        }
       }
 
       const needsConfirmation = await this.checkToolNeedsConfirmation(

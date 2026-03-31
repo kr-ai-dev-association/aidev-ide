@@ -40,8 +40,8 @@ export class SettingsManager extends BaseManager {
     private listeners: Set<SettingChangeListener> = new Set();
     private _context: vscode.ExtensionContext;
     private serverSettingsCache: ServerSettingsCache | null = null;
-    private readonly OFFLINE_CACHE_KEY = 'codepilot.serverSettingsCache';
-    private readonly DISABLED_SETTINGS_KEY = 'codepilot.disabledRecommendedSettings';
+    private readonly OFFLINE_CACHE_KEY = 'codepilot-standalone.serverSettingsCache';
+    private readonly DISABLED_SETTINGS_KEY = 'codepilot-standalone.disabledRecommendedSettings';
     private constructor(context: vscode.ExtensionContext) {
         super(context);
         this._context = context;
@@ -532,7 +532,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoUpdateEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoUpdateFiles')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoUpdateFiles') ?? false;
         return value;
@@ -550,7 +550,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoDeleteFilesEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoDeleteFiles')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoDeleteFiles') ?? false;
         return value;
@@ -653,7 +653,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoCorrectionEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoCorrectionEnabled')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoCorrectionEnabled') ?? false;
         return value;
@@ -671,7 +671,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoExecuteCommandsEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoExecuteCommands')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoExecuteCommands') ?? true;
         return value;
@@ -689,7 +689,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoToolExecutionEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoToolExecution')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoToolExecution') ?? true;
         return value;
@@ -706,7 +706,7 @@ export class SettingsManager extends BaseManager {
      * MCP 도구 자동 실행 On/Off 상태를 읽습니다
      */
     public async isAutoMcpToolExecutionEnabled(): Promise<boolean> {
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoMcpToolExecution')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoMcpToolExecution') ?? false;
         return value;
@@ -723,7 +723,7 @@ export class SettingsManager extends BaseManager {
      * 오케스트레이션 On/Off 상태를 읽습니다
      */
     public async isOrchestrationEnabled(): Promise<boolean> {
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('orchestration')?.globalValue;
         const value = globalValue ?? config.get<boolean>('orchestration') ?? false;
         return value;
@@ -741,7 +741,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isStreamingEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('streamingEnabled')?.globalValue;
         const value = globalValue ?? config.get<boolean>('streamingEnabled') ?? false;
         return value;
@@ -758,7 +758,7 @@ export class SettingsManager extends BaseManager {
      * 네이티브 툴 콜링 On/Off 상태를 읽습니다
      */
     public async isNativeToolCallingEnabled(): Promise<boolean> {
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('nativeToolCallingEnabled')?.globalValue;
         return globalValue ?? (config.get('nativeToolCallingEnabled') as boolean) ?? true;
     }
@@ -771,7 +771,7 @@ export class SettingsManager extends BaseManager {
     }
 
     public async isThinkingEnabled(): Promise<boolean> {
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('thinkingEnabled')?.globalValue;
         return globalValue ?? (config.get('thinkingEnabled') as boolean) ?? true;
     }
@@ -784,7 +784,7 @@ export class SettingsManager extends BaseManager {
      * Thinking 레벨을 읽습니다 (low/medium/high)
      */
     public async getThinkingLevel(): Promise<string> {
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<string>('thinkingLevel')?.globalValue;
         return globalValue ?? (config.get('thinkingLevel') as string) ?? 'medium';
     }
@@ -815,7 +815,7 @@ export class SettingsManager extends BaseManager {
      */
     public async isAutoTestRetryEnabled(): Promise<boolean> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<boolean>('autoTestRetryEnabled')?.globalValue;
         const value = globalValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
         return value;
@@ -833,7 +833,7 @@ export class SettingsManager extends BaseManager {
      */
     public async getTestRetryCount(): Promise<number> {
         // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
         const globalValue = config.inspect<number>('testRetryCount')?.globalValue;
         const count = globalValue ?? config.get<number>('testRetryCount') ?? 5;
         const validCount = Math.max(1, Math.min(10, count));

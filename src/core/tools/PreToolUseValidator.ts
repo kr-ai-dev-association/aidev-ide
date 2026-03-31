@@ -34,39 +34,21 @@ export interface DefaultRule {
 export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [
     { id: 'rm_rf', pattern: 'rm\\s+-rf\\s+/', description: '루트 경로 삭제 (rm -rf /)' },
     { id: 'rm_recursive', pattern: 'rm\\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\\s+(\\/|~|\\.\\.\\/)', description: '상위/홈/루트 재귀 삭제' },
-    { id: 'format_disk', pattern: 'mkfs|format\\s+[cCdD]:', description: '디스크 포맷' },
-    { id: 'dd_disk', pattern: 'dd\\s+.*of=\\/dev\\/', description: '디스크 직접 쓰기 (dd)' },
     { id: 'chmod_777', pattern: 'chmod\\s+(-R\\s+)?777\\s+/', description: '루트 경로 전체 권한 부여' },
-    { id: 'shutdown', pattern: '(shutdown|reboot|halt|poweroff)\\s', description: '시스템 종료/재시작' },
+    { id: 'mkfs', pattern: 'mkfs|format\\s+[cCdD]:', description: '디스크 포맷' },
+    { id: 'dd_disk', pattern: 'dd\\s+.*of=\\/dev\\/', description: '디스크 직접 쓰기 (dd)' },
     { id: 'curl_pipe_sh', pattern: 'curl\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'URL에서 스크립트 다운로드 실행' },
     { id: 'wget_pipe_sh', pattern: 'wget\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'URL에서 스크립트 다운로드 실행' },
     { id: 'eval_remote', pattern: 'eval\\s+"?\\$\\(curl', description: '원격 코드 eval 실행' },
-    { id: 'drop_database', pattern: 'DROP\\s+(DATABASE|TABLE|SCHEMA)', description: '데이터베이스/테이블 삭제' },
-    { id: 'git_push_force', pattern: 'git\\s+push\\s+.*--force', description: 'Git 강제 푸시' },
-    { id: 'npm_publish', pattern: 'npm\\s+publish', description: 'npm 패키지 퍼블리시' },
+    { id: 'shutdown', pattern: '(shutdown|reboot|halt|poweroff)\\s', description: '시스템 종료/재시작' },
+    { id: 'fdisk', pattern: '\\b(fdisk|parted)\\b', description: '파티션 변경' },
     { id: 'sudo_rm', pattern: 'sudo\\s+rm\\s', description: 'sudo 권한 파일 삭제' },
-    { id: 'kill_all', pattern: 'killall|pkill\\s+-9', description: '프로세스 강제 종료' },
-    { id: 'env_export', pattern: 'printenv|env\\s*$|export\\s+-p', description: '환경 변수 전체 출력' },
 ];
 
 /**
  * 기본 보호 파일 목록 (standalone: 빌트인 기본값)
  */
-export const DEFAULT_PROTECTED_FILES: DefaultRule[] = [
-    { id: 'env_file', pattern: '\\.env$|\\.env\\.', description: '환경 변수 파일 (.env)' },
-    { id: 'credentials', pattern: 'credentials(\\.json|\\.yml|\\.yaml)?$', description: '인증 정보 파일' },
-    { id: 'ssh_keys', pattern: '\\.ssh\\/(id_|authorized_keys|known_hosts)', description: 'SSH 키/설정' },
-    { id: 'private_key', pattern: '\\.(pem|key|p12|pfx|jks)$', description: '개인 키/인증서 파일' },
-    { id: 'aws_config', pattern: '\\.aws\\/(credentials|config)', description: 'AWS 자격 증명' },
-    { id: 'docker_secrets', pattern: '\\.docker\\/config\\.json', description: 'Docker 인증 설정' },
-    { id: 'git_credentials', pattern: '\\.git-credentials|\\.gitconfig', description: 'Git 자격 증명' },
-    { id: 'npmrc', pattern: '\\.npmrc$', description: 'npm 인증 토큰 (.npmrc)' },
-    { id: 'pypirc', pattern: '\\.pypirc$', description: 'PyPI 인증 토큰' },
-    { id: 'kubeconfig', pattern: 'kubeconfig|\\.kube\\/config', description: 'Kubernetes 설정' },
-    { id: 'package_lock', pattern: 'package-lock\\.json$', description: 'package-lock.json (읽기 전용)' },
-    { id: 'yarn_lock', pattern: 'yarn\\.lock$', description: 'yarn.lock (읽기 전용)' },
-    { id: 'pnpm_lock', pattern: 'pnpm-lock\\.yaml$', description: 'pnpm-lock.yaml (읽기 전용)' },
-];
+export const DEFAULT_PROTECTED_FILES: DefaultRule[] = [];
 
 // 커스텀 규칙 캐시
 let customBlockedCommands: string[] = [];
@@ -201,6 +183,16 @@ export class PreToolUseValidator {
     private static _cachedSensitiveFiles: RegExp[] | null = null;
     private static _cachedReadOnlyFiles: RegExp[] | null = null;
     private static _cachedHiddenFilePatterns: RegExp[] | null = null;
+
+    /**
+     * 파일이 민감한 파일(보호/은닉)인지 체크
+     */
+    static isSensitiveFile(filePath: string): boolean {
+        for (const pattern of this.SENSITIVE_FILES) {
+            if (pattern.test(filePath)) return true;
+        }
+        return false;
+    }
 
     /**
      * 캐시 무효화 — 규칙 변경 시 호출

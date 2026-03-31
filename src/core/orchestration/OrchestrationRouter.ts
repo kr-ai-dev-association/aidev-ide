@@ -138,6 +138,10 @@ export class OrchestrationRouter {
             const toolContext = OrchestrationRouter.buildToolContext();
             const results: AgentLoopResult[] = [];
 
+            // 스킬 registry 사전 로드 (IntentDetector 전에 registry가 채워져야 함)
+            PromptComposer.loadAgentRulesWithKeys();
+            PromptComposer.loadServerPromptTemplates(new Set());
+
             // 스킬이 등록되어 있으면 IntentDetector로 candidateSkillKeys 수집
             let candidateSkillKeys: string[] = [];
             const skillDescriptions = PromptComposer.getSkillDescriptions();
@@ -952,6 +956,16 @@ export class OrchestrationRouter {
             // 참조 추적: 서버 규칙
             for (const rule of PromptComposer.getLastIncludedServerRuleKeys()) {
                 references.push({ type: 'server_rule', name: rule.title, source: 'server' });
+            }
+            // 참조 추적: 추천된 스킬만 (candidateSkillKeys가 있을 때)
+            if (candidateSkillKeys && candidateSkillKeys.length > 0) {
+                for (const skillKey of candidateSkillKeys) {
+                    const skill = PromptComposer.getSkillDescriptions().find(s => s.key === skillKey);
+                    if (skill) {
+                        const refType = skill.source === 'server' ? 'server_skill' : 'local_skill';
+                        references.push({ type: refType, name: skill.key, source: skill.source || 'local' });
+                    }
+                }
             }
 
             // 스킬 description 목록 + 메인 에이전트가 추천한 후보 힌트

@@ -525,12 +525,8 @@ export class SubAgentLoop {
                             skippedUpdateFiles.push({ path: call.params.path, reason: 'create' });
                             return false;
                         }
-                        // read_file + update_file 동턴 차단: LLM이 파일 내용 모르고 SEARCH 생성
-                        if (readFilesInTurn.has(call.params.path)) {
-                            console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after read_file in same turn: ${call.params.path}`);
-                            skippedUpdateFiles.push({ path: call.params.path, reason: 'read' });
-                            return false;
-                        }
+                        // read_file + update_file 동턴: 보호 파일만 차단
+                        // (일반 파일은 LLM이 context에서 이미 내용을 알고 있으므로 허용)
                     }
 
                     return true;

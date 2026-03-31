@@ -741,10 +741,18 @@ export class AgentPolicyHandler {
             const typeMatch = match[1].match(/^type:\s*(.+)$/m);
             return typeMatch ? typeMatch[1].trim().replace(/^["']|["']$/g, '') : 'rule';
           };
+          const parseFrontmatterDesc = (content: string): string => {
+            const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+            if (!match) return '';
+            const descMatch = match[1].match(/^description:\s*(.+)$/m);
+            return descMatch ? descMatch[1].trim().replace(/^["']|["']$/g, '') : '';
+          };
+          const allFileDescriptions: Record<string, Record<string, string>> = {};
 
           for (const category of categories) {
             allFiles[category] = [];
             allFileTypes[category] = {};
+            allFileDescriptions[category] = {};
 
             // global-rules는 globalStorageUri, 나머지는 storageUri
             const listBaseDir = category === 'global-rules'
@@ -772,6 +780,8 @@ export class AgentPolicyHandler {
                     const filePath = path.join(categoryDir, name);
                     const content = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(filePath))).toString('utf8');
                     allFileTypes[category][name] = parseFrontmatterType(content);
+                    const desc = parseFrontmatterDesc(content);
+                    if (desc) allFileDescriptions[category][name] = desc;
                   } catch {
                     allFileTypes[category][name] = 'rule';
                   }
@@ -806,7 +816,8 @@ export class AgentPolicyHandler {
           safePostMessage(panel, {
             command: "allAgentPolicyFilesList",
             files: allFiles,
-            fileTypes: allFileTypes
+            fileTypes: allFileTypes,
+            fileDescriptions: allFileDescriptions
           });
         } catch (error: any) {
           safePostMessage(panel, {

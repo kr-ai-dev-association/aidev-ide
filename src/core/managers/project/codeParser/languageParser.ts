@@ -27,7 +27,7 @@ export interface LanguageParser {
  */
 async function loadLanguage(langName: string): Promise<Parser.Language> {
     // VS Code extension path 가져오기
-    const extension = vscode.extensions.getExtension('banya.codepilot');
+    const extension = vscode.extensions.getExtension('banya.codepilot-standalone');
     if (!extension) {
         throw new Error('codepilot extension not found');
     }

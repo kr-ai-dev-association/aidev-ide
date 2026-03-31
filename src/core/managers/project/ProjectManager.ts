@@ -799,7 +799,7 @@ export class ProjectManager {
             return undefined;
         }
 
-        const PROFILE_KEY = 'codepilot.projectProfile';
+        const PROFILE_KEY = 'codepilot-standalone.projectProfile';
 
         // 스토리지에서 기존 프로필 로드
         if (storage) {
@@ -824,7 +824,7 @@ export class ProjectManager {
         const profile = await this.scanWorkspaceForProfile(this.projectRoot);
 
         if (storage) {
-            const PROFILE_KEY = 'codepilot.projectProfile';
+            const PROFILE_KEY = 'codepilot-standalone.projectProfile';
             await storage.update(PROFILE_KEY, profile);
         }
 

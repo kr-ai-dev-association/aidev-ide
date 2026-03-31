@@ -39,7 +39,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
 
   return [
     // Git 상태 보기
-    vscode.commands.registerCommand("codepilot.gitStatus", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitStatus", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -51,7 +51,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 변경사항 보기
-    vscode.commands.registerCommand("codepilot.gitDiff", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitDiff", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -67,7 +67,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 히스토리 보기
-    vscode.commands.registerCommand("codepilot.gitLog", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitLog", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -79,7 +79,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 브랜치 목록
-    vscode.commands.registerCommand("codepilot.gitBranch", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitBranch", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -94,7 +94,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 리포지토리 정보
-    vscode.commands.registerCommand("codepilot.gitInfo", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitInfo", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -124,7 +124,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 스테이징된 변경사항 보기
-    vscode.commands.registerCommand("codepilot.gitStaged", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitStaged", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -140,7 +140,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git Stash 목록 보기
-    vscode.commands.registerCommand("codepilot.gitStash", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.gitStash", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;

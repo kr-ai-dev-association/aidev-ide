@@ -658,7 +658,7 @@ export class TerminalManager {
      */
     public static getCodepilotTerminal(projectRoot?: string, alwaysNew: boolean = true): vscode.Terminal {
         if (alwaysNew) {
-            const name = `codepilot Terminal ${++TerminalManager.terminalSeq}`;
+            const name = `codepilot-standalone Terminal ${++TerminalManager.terminalSeq}`;
             console.log(`[TerminalManager] 새로운 터미널 생성: ${name}`);
             const terminalOptions: vscode.TerminalOptions = { name };
             if (projectRoot) {
@@ -680,7 +680,7 @@ export class TerminalManager {
         }
 
         // 기존 동작 (재사용) 경로
-        const existing = vscode.window.terminals.filter(t => t.name === 'codepilot Terminal');
+        const existing = vscode.window.terminals.filter(t => t.name === 'codepilot-standalone Terminal');
         if (existing.length > 0) {
             TerminalManager.codePilotTerminal = existing[0];
             // 나머지 중복 터미널 정리
@@ -692,7 +692,7 @@ export class TerminalManager {
         }
 
         if (!TerminalManager.codePilotTerminal || TerminalManager.codePilotTerminal.exitStatus !== undefined) {
-            const terminalOptions: vscode.TerminalOptions = { name: 'codepilot Terminal' };
+            const terminalOptions: vscode.TerminalOptions = { name: 'codepilot-standalone Terminal' };
 
             if (projectRoot) {
                 terminalOptions.cwd = projectRoot;
@@ -853,7 +853,7 @@ export class TerminalManager {
         this.pendingCommands = [];
         this.currentCommandIndex = 0;
         this.isWaitingForInput = false;
-        vscode.window.showInformationMessage('codepilot: 명령어 시퀀스가 중단되었습니다.');
+        vscode.window.showInformationMessage('codepilot-standalone: 명령어 시퀀스가 중단되었습니다.');
     }
 
     /**
@@ -1018,7 +1018,7 @@ export class TerminalManager {
                 // 1. VS Code 터미널에서 실행 중인 codepilot 터미널 찾아서 종료
                 try {
                     const aidevTerminals = vscode.window.terminals.filter(t =>
-                        t.name.startsWith('codepilot Terminal') && t.exitStatus === undefined
+                        t.name.startsWith('codepilot-standalone Terminal') && t.exitStatus === undefined
                     );
                     for (const terminal of aidevTerminals) {
                         try {
@@ -1105,7 +1105,7 @@ export class TerminalManager {
                 '실행', '취소'
             );
             if (answer !== '실행') {
-                vscode.window.showInformationMessage('codepilot: 위험 명령어 실행이 취소되었습니다.');
+                vscode.window.showInformationMessage('codepilot-standalone: 위험 명령어 실행이 취소되었습니다.');
                 return false;
             }
         }
@@ -1169,11 +1169,11 @@ export class TerminalManager {
                     }, 2000);
                 }
                 vscode.window.showInformationMessage(
-                    `codepilot: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`,
+                    `codepilot-standalone: 대화형 명령어 실행됨 - ${command}\n기본 응답이 자동으로 제공됩니다.`,
                     { modal: false }
                 );
             } else {
-                vscode.window.showInformationMessage(`codepilot: Bash 명령어 실행됨 - ${command}`);
+                vscode.window.showInformationMessage(`codepilot-standalone: Bash 명령어 실행됨 - ${command}`);
             }
 
             channel.appendLine(`----- Command Sent to VS Code Terminal -----`);
@@ -1299,7 +1299,7 @@ export class TerminalManager {
                         }
 
                         if (!retrySuccess) {
-                            vscode.window.showErrorMessage(`codepilot: Long-running 명령 실패 (${cleanCommand})`);
+                            vscode.window.showErrorMessage(`codepilot-standalone: Long-running 명령 실패 (${cleanCommand})`);
                         }
                     } else {
                         channel.appendLine(`----- Long-running Command Completed -----`);
@@ -1342,7 +1342,7 @@ export class TerminalManager {
                     }
 
                     if (!retrySuccess) {
-                        vscode.window.showErrorMessage(`codepilot: Long-running 명령 오류 (${cleanCommand})`);
+                        vscode.window.showErrorMessage(`codepilot-standalone: Long-running 명령 오류 (${cleanCommand})`);
                     }
                 });
                 channel.appendLine(`----- Long-running Command Started -----`);
@@ -1401,7 +1401,7 @@ export class TerminalManager {
                 }
 
                 if (!retrySuccess) {
-                    vscode.window.showErrorMessage(`codepilot: 명령 실패 (${cleanCommand})`);
+                    vscode.window.showErrorMessage(`codepilot-standalone: 명령 실패 (${cleanCommand})`);
                     return false;
                 }
 
@@ -1461,7 +1461,7 @@ export class TerminalManager {
             if (result.code !== 0 || isErrorLike(result.stderr)) {
                 channel.appendLine(`----- Exit code: ${result.code} -----`);
                 channel.show(true);
-                vscode.window.showErrorMessage(`codepilot: 명력 실패 (${cleanCommand})`);
+                vscode.window.showErrorMessage(`codepilot-standalone: 명력 실패 (${cleanCommand})`);
                 return false;
             }
             console.log(`[TerminalManager] Executed locally (fallback): ${cleanCommand}`);

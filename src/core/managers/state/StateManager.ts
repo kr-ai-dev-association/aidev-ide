@@ -191,7 +191,7 @@ export class StateManager {
      */
     private loadState(): void {
         try {
-            const stored = this.context.globalState.get<GlobalState>('codepilot.globalState');
+            const stored = this.context.globalState.get<GlobalState>('codepilot-standalone.globalState');
             if (stored) {
                 this.state = stored;
             }
@@ -205,7 +205,7 @@ export class StateManager {
      */
     private saveState(): void {
         try {
-            this.context.globalState.update('codepilot.globalState', this.state);
+            this.context.globalState.update('codepilot-standalone.globalState', this.state);
         } catch (error) {
             console.error('[StateManager] Failed to save state:', error);
         }
@@ -251,49 +251,49 @@ export class StateManager {
     }
 
     // API 키 및 모델 관련 키
-    private readonly API_KEY_SECRET_KEY = 'codepilot.geminiApiKey';
-    private readonly CURRENT_AI_MODEL_SECRET_KEY = 'codepilot.currentAiModel';
-    private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'codepilot.ollamaServerType';
-    private readonly OLLAMA_API_URL_SECRET_KEY = 'codepilot.ollamaApiUrl';
-    private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.ollamaEndpoint';
-    private readonly OLLAMA_MODEL_SECRET_KEY = 'codepilot.ollamaModel';
-    private readonly LOCAL_OLLAMA_API_URL_SECRET_KEY = 'codepilot.localOllamaApiUrl';
-    private readonly LOCAL_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.localOllamaEndpoint';
-    private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'codepilot.remoteOllamaApiUrl';
-    private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.remoteOllamaEndpoint';
-    private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'codepilot.remoteOllamaModel';
-    private readonly LANGUAGE_KEY = 'codepilot.language';
-    private readonly AUTO_UPDATE_ENABLED_KEY = 'codepilot.autoUpdateEnabled';
-    private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
-    private readonly AUTO_CORRECTION_ENABLED_KEY = 'codepilot.autoCorrectionEnabled';
+    private readonly API_KEY_SECRET_KEY = 'codepilot-standalone.geminiApiKey';
+    private readonly CURRENT_AI_MODEL_SECRET_KEY = 'codepilot-standalone.currentAiModel';
+    private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'codepilot-standalone.ollamaServerType';
+    private readonly OLLAMA_API_URL_SECRET_KEY = 'codepilot-standalone.ollamaApiUrl';
+    private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot-standalone.ollamaEndpoint';
+    private readonly OLLAMA_MODEL_SECRET_KEY = 'codepilot-standalone.ollamaModel';
+    private readonly LOCAL_OLLAMA_API_URL_SECRET_KEY = 'codepilot-standalone.localOllamaApiUrl';
+    private readonly LOCAL_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot-standalone.localOllamaEndpoint';
+    private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'codepilot-standalone.remoteOllamaApiUrl';
+    private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot-standalone.remoteOllamaEndpoint';
+    private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'codepilot-standalone.remoteOllamaModel';
+    private readonly LANGUAGE_KEY = 'codepilot-standalone.language';
+    private readonly AUTO_UPDATE_ENABLED_KEY = 'codepilot-standalone.autoUpdateEnabled';
+    private readonly ERROR_RETRY_COUNT_KEY = 'codepilot-standalone.errorRetryCount';
+    private readonly AUTO_CORRECTION_ENABLED_KEY = 'codepilot-standalone.autoCorrectionEnabled';
 
     // 모델 라우팅 관련 키
-    private readonly COMPACTOR_MODEL_TYPE_KEY = 'codepilot.compactorModelType';
-    private readonly COMPACTOR_MODEL_NAME_KEY = 'codepilot.compactorModelName';
-    private readonly COMPACTOR_API_KEY_KEY = 'codepilot.compactorApiKey';
-    private readonly COMMAND_MODEL_TYPE_KEY = 'codepilot.commandModelType';
-    private readonly COMMAND_MODEL_NAME_KEY = 'codepilot.commandModelName';
-    private readonly COMMAND_API_KEY_KEY = 'codepilot.commandApiKey';
-    private readonly INTENT_MODEL_TYPE_KEY = 'codepilot.intentModelType';
-    private readonly INTENT_MODEL_NAME_KEY = 'codepilot.intentModelName';
-    private readonly INTENT_API_KEY_KEY = 'codepilot.intentApiKey';
-    private readonly ERROR_FALLBACK_MODEL_TYPE_KEY = 'codepilot.errorFallbackModelType';
-    private readonly ERROR_FALLBACK_MODEL_NAME_KEY = 'codepilot.errorFallbackModelName';
-    private readonly ERROR_FALLBACK_API_KEY_KEY = 'codepilot.errorFallbackApiKey';
-    private readonly COMPLETION_MODEL_TYPE_KEY = 'codepilot.completionModelType';
-    private readonly COMPLETION_MODEL_NAME_KEY = 'codepilot.completionModelName';
-    private readonly COMPLETION_API_KEY_KEY = 'codepilot.completionApiKey';
-    private readonly SUBAGENT_MODEL_TYPE_KEY = 'codepilot.subagentModelType';
-    private readonly SUBAGENT_MODEL_NAME_KEY = 'codepilot.subagentModelName';
-    private readonly SUBAGENT_API_KEY_KEY = 'codepilot.subagentApiKey';
+    private readonly COMPACTOR_MODEL_TYPE_KEY = 'codepilot-standalone.compactorModelType';
+    private readonly COMPACTOR_MODEL_NAME_KEY = 'codepilot-standalone.compactorModelName';
+    private readonly COMPACTOR_API_KEY_KEY = 'codepilot-standalone.compactorApiKey';
+    private readonly COMMAND_MODEL_TYPE_KEY = 'codepilot-standalone.commandModelType';
+    private readonly COMMAND_MODEL_NAME_KEY = 'codepilot-standalone.commandModelName';
+    private readonly COMMAND_API_KEY_KEY = 'codepilot-standalone.commandApiKey';
+    private readonly INTENT_MODEL_TYPE_KEY = 'codepilot-standalone.intentModelType';
+    private readonly INTENT_MODEL_NAME_KEY = 'codepilot-standalone.intentModelName';
+    private readonly INTENT_API_KEY_KEY = 'codepilot-standalone.intentApiKey';
+    private readonly ERROR_FALLBACK_MODEL_TYPE_KEY = 'codepilot-standalone.errorFallbackModelType';
+    private readonly ERROR_FALLBACK_MODEL_NAME_KEY = 'codepilot-standalone.errorFallbackModelName';
+    private readonly ERROR_FALLBACK_API_KEY_KEY = 'codepilot-standalone.errorFallbackApiKey';
+    private readonly COMPLETION_MODEL_TYPE_KEY = 'codepilot-standalone.completionModelType';
+    private readonly COMPLETION_MODEL_NAME_KEY = 'codepilot-standalone.completionModelName';
+    private readonly COMPLETION_API_KEY_KEY = 'codepilot-standalone.completionApiKey';
+    private readonly SUBAGENT_MODEL_TYPE_KEY = 'codepilot-standalone.subagentModelType';
+    private readonly SUBAGENT_MODEL_NAME_KEY = 'codepilot-standalone.subagentModelName';
+    private readonly SUBAGENT_API_KEY_KEY = 'codepilot-standalone.subagentApiKey';
 
     // 라우팅 모델별 AdminModelConfig 저장 키 (group:/admin 선택 시)
-    private readonly COMPACTOR_ADMIN_CONFIG_KEY = 'codepilot.compactorAdminConfig';
-    private readonly COMMAND_ADMIN_CONFIG_KEY = 'codepilot.commandAdminConfig';
-    private readonly INTENT_ADMIN_CONFIG_KEY = 'codepilot.intentAdminConfig';
-    private readonly ERROR_FALLBACK_ADMIN_CONFIG_KEY = 'codepilot.errorFallbackAdminConfig';
-    private readonly COMPLETION_ADMIN_CONFIG_KEY = 'codepilot.completionAdminConfig';
-    private readonly SUBAGENT_ADMIN_CONFIG_KEY = 'codepilot.subagentAdminConfig';
+    private readonly COMPACTOR_ADMIN_CONFIG_KEY = 'codepilot-standalone.compactorAdminConfig';
+    private readonly COMMAND_ADMIN_CONFIG_KEY = 'codepilot-standalone.commandAdminConfig';
+    private readonly INTENT_ADMIN_CONFIG_KEY = 'codepilot-standalone.intentAdminConfig';
+    private readonly ERROR_FALLBACK_ADMIN_CONFIG_KEY = 'codepilot-standalone.errorFallbackAdminConfig';
+    private readonly COMPLETION_ADMIN_CONFIG_KEY = 'codepilot-standalone.completionAdminConfig';
+    private readonly SUBAGENT_ADMIN_CONFIG_KEY = 'codepilot-standalone.subagentAdminConfig';
 
     /**
      * API Key를 저장합니다
@@ -375,7 +375,7 @@ export class StateManager {
     }
 
     public async getOllamaModel(): Promise<string> {
-        return (await this.getSecret(this.OLLAMA_MODEL_SECRET_KEY)) || 'gemma3:27b';
+        return (await this.getSecret(this.OLLAMA_MODEL_SECRET_KEY)) || 'gemini-2.5-flash';
     }
 
     public async deleteOllamaModel(): Promise<void> {
@@ -423,19 +423,19 @@ export class StateManager {
     }
 
     public async getAiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.aiModel')) || 'ollama';
+        return (await this.getSecret('codepilot-standalone.aiModel')) || 'ollama';
     }
 
     public async saveAiModel(model: string): Promise<void> {
-        await this.saveSecret('codepilot.aiModel', model);
+        await this.saveSecret('codepilot-standalone.aiModel', model);
     }
 
     public async getAdminModelConfig(): Promise<string | undefined> {
-        return await this.getSecret('codepilot.adminModelConfig');
+        return await this.getSecret('codepilot-standalone.adminModelConfig');
     }
 
     public async saveAdminModelConfig(configJson: string): Promise<void> {
-        await this.saveSecret('codepilot.adminModelConfig', configJson);
+        await this.saveSecret('codepilot-standalone.adminModelConfig', configJson);
     }
 
     // Language
@@ -475,11 +475,11 @@ export class StateManager {
     }
 
     // ===== AgentPolicy 관련 메서드들 =====
-    private readonly AGENT_POLICY_STABLE_VERSION_KEY = 'codepilot.agentPolicy.stableVersion';
-    private readonly AGENT_POLICY_CODING_STYLE_KEY = 'codepilot.agentPolicy.codingStyle';
-    private readonly AGENT_POLICY_PROJECT_ARCHITECTURE_KEY = 'codepilot.agentPolicy.projectArchitecture';
-    private readonly AGENT_POLICY_DEPENDENCY_POLICY_KEY = 'codepilot.agentPolicy.dependencyPolicy';
-    private readonly AGENT_POLICY_DB_POLICY_KEY = 'codepilot.agentPolicy.dbPolicy';
+    private readonly AGENT_POLICY_STABLE_VERSION_KEY = 'codepilot-standalone.agentPolicy.stableVersion';
+    private readonly AGENT_POLICY_CODING_STYLE_KEY = 'codepilot-standalone.agentPolicy.codingStyle';
+    private readonly AGENT_POLICY_PROJECT_ARCHITECTURE_KEY = 'codepilot-standalone.agentPolicy.projectArchitecture';
+    private readonly AGENT_POLICY_DEPENDENCY_POLICY_KEY = 'codepilot-standalone.agentPolicy.dependencyPolicy';
+    private readonly AGENT_POLICY_DB_POLICY_KEY = 'codepilot-standalone.agentPolicy.dbPolicy';
 
     /**
      * Stable Version Markdown을 저장합니다
@@ -1142,8 +1142,8 @@ export class StateManager {
     }
 
     // ===== MCP 서버 관련 메서드들 =====
-    private readonly MCP_SERVERS_KEY = 'codepilot.mcpServers';
-    private readonly MCP_APPROVED_TOOLS_KEY = 'codepilot.mcpApprovedTools';
+    private readonly MCP_SERVERS_KEY = 'codepilot-standalone.mcpServers';
+    private readonly MCP_APPROVED_TOOLS_KEY = 'codepilot-standalone.mcpApprovedTools';
 
     /**
      * MCP 서버 목록을 저장합니다

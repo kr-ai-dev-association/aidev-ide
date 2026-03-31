@@ -375,7 +375,7 @@ export async function activate(context: vscode.ExtensionContext) {
           const providerGroup = (presetEntry as any)?.group || '';
           const perProviderKey = providerGroup
             ? context.globalState.get<string>(`codepilot.apiKey.${providerGroup}`)
-            : context.globalState.get<string>("codepilot.adminApiKey");
+            : context.globalState.get<string>("codepilot-standalone.adminApiKey");
           if (perProviderKey) {
             adminConfig.apiKey = perProviderKey;
           }
@@ -462,7 +462,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 커서 IDE 방식: 인라인 Diff 명령어 등록
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot.acceptChange",
+      "codepilot-standalone.acceptChange",
       async (filePath: string, changeId: string) => {
         const inlineDiffManager = InlineDiffManager.getInstance();
         await inlineDiffManager.acceptChange(filePath, changeId);
@@ -473,7 +473,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot.rejectChange",
+      "codepilot-standalone.rejectChange",
       async (filePath: string, changeId: string) => {
         const inlineDiffManager = InlineDiffManager.getInstance();
         await inlineDiffManager.rejectChange(filePath, changeId);
@@ -484,7 +484,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 커서 IDE 방식: 키보드 단축키 (Cmd+Enter: 모든 변경사항 수락, Cmd+Backspace: 모든 변경사항 거부)
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.acceptAllChanges", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.acceptAllChanges", async () => {
       const inlineDiffManager = InlineDiffManager.getInstance();
       const pendingFiles = inlineDiffManager.getAllPendingFiles();
 
@@ -496,7 +496,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.rejectAllChanges", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.rejectAllChanges", async () => {
       const inlineDiffManager = InlineDiffManager.getInstance();
       const pendingFiles = inlineDiffManager.getAllPendingFiles();
 
@@ -509,7 +509,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Diff 명령어 등록
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.showDiff", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.showDiff", async () => {
       const diffManager = DiffManager.getInstance();
       await diffManager.showWorkingDirectoryChanges();
     }),
@@ -517,7 +517,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot.showDiffForFile",
+      "codepilot-standalone.showDiffForFile",
       async (filePath?: string) => {
         const diffManager = DiffManager.getInstance();
         if (!filePath) {
@@ -634,7 +634,7 @@ export async function activate(context: vscode.ExtensionContext) {
   setTimeout(async () => {
     try {
       await vscode.commands.executeCommand(
-        "workbench.view.extension.codepilot",
+        "workbench.view.extension.codepilot-standalone",
       );
       // 뷰가 열릴 때까지 약간 대기
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -648,10 +648,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Command 등록
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.openChatView", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.openChatView", async () => {
       try {
         await vscode.commands.executeCommand(
-          "workbench.view.extension.codepilot",
+          "workbench.view.extension.codepilot-standalone",
         );
         await vscode.commands.executeCommand(
           `${ChatViewProvider.viewType}.focus`,
@@ -664,7 +664,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Registering commands
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.openSettingsPanel", () => {
+    vscode.commands.registerCommand("codepilot-standalone.openSettingsPanel", () => {
       // openSettingsPanel command called
       if (!openSettingsPanel) {
         console.error(
@@ -693,7 +693,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 언어 변경 브로드캐스트 명령어 등록
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot.broadcastLanguageChange",
+      "codepilot-standalone.broadcastLanguageChange",
       (language: string) => {
         // 모든 활성 webview에 언어 변경 메시지 브로드캐스트
         vscode.window.terminals.forEach((terminal) => {
@@ -719,13 +719,13 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   stopErrorCorrectionButton.text = "$(stop-circle)";
   stopErrorCorrectionButton.tooltip = "자동 오류 수정 중단";
-  stopErrorCorrectionButton.command = "codepilot.stopErrorCorrection";
+  stopErrorCorrectionButton.command = "codepilot-standalone.stopErrorCorrection";
   stopErrorCorrectionButton.show();
   context.subscriptions.push(stopErrorCorrectionButton);
 
   // 자동 오류 수정 중단 명령어 등록
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.stopErrorCorrection", () => {
+    vscode.commands.registerCommand("codepilot-standalone.stopErrorCorrection", () => {
       vscode.window.showInformationMessage(
         "자동 오류 수정 중단 기능은 AutoFixService로 이동되었습니다.",
       );
@@ -735,10 +735,10 @@ export async function activate(context: vscode.ExtensionContext) {
   // 설정 변경 시 TerminalManager에 반영
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (event.affectsConfiguration("codepilot.errorRetryCount")) {
+      if (event.affectsConfiguration("codepilot-standalone.errorRetryCount")) {
         const errorRetryCount = await settingsManager.getErrorRetryCount();
       }
-      if (event.affectsConfiguration("codepilot.autoCorrectionEnabled")) {
+      if (event.affectsConfiguration("codepilot-standalone.autoCorrectionEnabled")) {
         const enabled = await stateManager.getAutoCorrectionEnabled();
         // onDidChangeConfiguration: autoCorrectionEnabled
       }

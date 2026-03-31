@@ -66,7 +66,7 @@ export function openSettingsPanel(
         if (group) {
           return context.globalState.get<string>(`codepilot.apiKey.${group}`) || '';
         }
-        return context.globalState.get<string>("codepilot.adminApiKey") || '';
+        return context.globalState.get<string>("codepilot-standalone.adminApiKey") || '';
       };
 
       // 핸들러 위임 체크
@@ -121,11 +121,11 @@ export function openSettingsPanel(
               await settingsManager.getThinkingLevel();
 
             // 채팅 테마 설정 로드
-            const config = vscode.workspace.getConfiguration('codepilot');
+            const config = vscode.workspace.getConfiguration('codepilot-standalone');
             const chatTheme = config.get<string>('chatTheme') || 'dark';
 
             // 확장 버전 로드 (context에서)
-            const extension = vscode.extensions.getExtension('banya.codepilot');
+            const extension = vscode.extensions.getExtension('banya.codepilot-standalone');
             const extensionVersion = extension?.packageJSON?.version || '0.0.0';
 
             // 모델 라우팅 설정 로드 (타입, 모델명, API 키 여부)
@@ -147,7 +147,7 @@ export function openSettingsPanel(
             const subagentModelType = await stateManager.getSubagentModelType();
             const subagentModelName = await stateManager.getSubagentModelName();
             const subagentApiKeySet = await stateManager.hasSubagentApiKey();
-            const inlineCompletionEnabled = vscode.workspace.getConfiguration('codepilot')
+            const inlineCompletionEnabled = vscode.workspace.getConfiguration('codepilot-standalone')
               .get<boolean>('inlineCompletion', false);
 
             // duplicate removed
@@ -155,7 +155,7 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              ollamaModel: ollamaModel || "gemma3:27b",
+              ollamaModel: ollamaModel || "gemini-2.5-flash",
               ollamaServerType: ollamaServerType || "local",
               localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
@@ -855,7 +855,7 @@ export function openSettingsPanel(
           try {
             const inlineCompletionVal = data.enabled;
             if (typeof inlineCompletionVal === "boolean") {
-              await vscode.workspace.getConfiguration('codepilot')
+              await vscode.workspace.getConfiguration('codepilot-standalone')
                 .update('inlineCompletion', inlineCompletionVal, vscode.ConfigurationTarget.Global);
               safePostMessage(panel, { command: "inlineCompletionEnabledSet" });
             }
@@ -1842,7 +1842,7 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              ollamaModel: ollamaModel || "gemma3:27b",
+              ollamaModel: ollamaModel || "gemini-2.5-flash",
               ollamaServerType: ollamaServerType || "local",
               localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
@@ -1906,7 +1906,7 @@ export function openSettingsPanel(
               command: "currentSettings",
               apiKey: apiKey || "",
               ollamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
-              ollamaModel: ollamaModel || "gemma3:27b",
+              ollamaModel: ollamaModel || "gemini-2.5-flash",
               ollamaServerType: ollamaServerType || "local",
               localOllamaApiUrl: ollamaApiUrl || DEFAULT_OLLAMA_URL,
               remoteOllamaApiUrl: remoteOllamaApiUrl || "",
@@ -2012,7 +2012,7 @@ export function openSettingsPanel(
           try {
             const theme = data.theme;
             if (theme && ['dark', 'light', 'auto'].includes(theme)) {
-              const config = vscode.workspace.getConfiguration('codepilot');
+              const config = vscode.workspace.getConfiguration('codepilot-standalone');
               await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
               safePostMessage(panel, {
                 command: 'chatThemeSaved',
@@ -2029,7 +2029,7 @@ export function openSettingsPanel(
           break;
         case "getChatTheme": // 채팅 테마 로드
           try {
-            const config = vscode.workspace.getConfiguration('codepilot');
+            const config = vscode.workspace.getConfiguration('codepilot-standalone');
             const theme = config.get<string>('chatTheme') || 'dark';
             safePostMessage(panel, {
               command: 'chatTheme',
@@ -2558,7 +2558,7 @@ export function openSettingsPanel(
         }
         case "toggleErrorReporting": {
           try {
-            const config = vscode.workspace.getConfiguration('codepilot');
+            const config = vscode.workspace.getConfiguration('codepilot-standalone');
             await config.update('errorReportingEnabled', !!data.value, vscode.ConfigurationTarget.Global);
           } catch { /* ignore */ }
           break;
@@ -2652,10 +2652,10 @@ export function openSettingsPanel(
         // ========== 설정 내보내기 / 가져오기 ==========
         case "exportSettings": {
           try {
-            const config = vscode.workspace.getConfiguration('codepilot');
+            const config = vscode.workspace.getConfiguration('codepilot-standalone');
 
             const exportData: any = {
-              version: vscode.extensions.getExtension('banya.codepilot')?.packageJSON?.version || '0.0.0',
+              version: vscode.extensions.getExtension('banya.codepilot-standalone')?.packageJSON?.version || '0.0.0',
               exportedAt: new Date().toISOString(),
               settings: {
                 language: await stateManager.getLanguage() || 'ko',
@@ -2746,7 +2746,7 @@ export function openSettingsPanel(
             }
 
             const s = imported.settings;
-            const cfgImport = vscode.workspace.getConfiguration('codepilot');
+            const cfgImport = vscode.workspace.getConfiguration('codepilot-standalone');
 
             if (s.language) { await stateManager.saveLanguage(s.language); }
             if (s.chatTheme) { await cfgImport.update('chatTheme', s.chatTheme, vscode.ConfigurationTarget.Global); }

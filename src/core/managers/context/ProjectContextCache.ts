@@ -550,7 +550,7 @@ export class ProjectContextCache {
                 ttl: entry.ttl
             }));
 
-            await this.context.globalState.update('codepilot.projectContextCache', {
+            await this.context.globalState.update('codepilot-standalone.projectContextCache', {
                 cache: cacheData,
                 stats: this.stats
             });
@@ -567,7 +567,7 @@ export class ProjectContextCache {
             const stored = this.context.globalState.get<{
                 cache: Array<{ key: string; value: any; createdAt: number; ttl: number }>;
                 stats: { hits: number; misses: number };
-            }>('codepilot.projectContextCache');
+            }>('codepilot-standalone.projectContextCache');
 
             if (stored) {
                 const now = Date.now();
@@ -603,7 +603,7 @@ export class ProjectContextCache {
      * 옵션 로드
      */
     private async loadOptions(): Promise<void> {
-        const stored = this.context.globalState.get<Partial<CacheOptions>>('codepilot.projectContextCacheOptions');
+        const stored = this.context.globalState.get<Partial<CacheOptions>>('codepilot-standalone.projectContextCacheOptions');
         if (stored) {
             this.options = { ...this.options, ...stored };
         }
@@ -614,7 +614,7 @@ export class ProjectContextCache {
      */
     public async saveOptions(options: Partial<CacheOptions>): Promise<void> {
         this.options = { ...this.options, ...options };
-        await this.context.globalState.update('codepilot.projectContextCacheOptions', this.options);
+        await this.context.globalState.update('codepilot-standalone.projectContextCacheOptions', this.options);
 
         // 정리 타이머 재시작
         this.startCleanupTimer();

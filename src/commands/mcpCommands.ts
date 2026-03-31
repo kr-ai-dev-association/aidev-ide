@@ -23,7 +23,7 @@ export function registerMcpCommands(deps: CommandContext): vscode.Disposable[] {
 
   return [
     // MCP 서버 목록 보기 (패널에 출력 + QuickPick 선택)
-    vscode.commands.registerCommand("codepilot.viewMcpServers", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.viewMcpServers", async () => {
       try {
         const mcpManager = await getMcpManager();
         const servers = mcpManager.getServers();
@@ -81,7 +81,7 @@ export function registerMcpCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // MCP 서버 연결
-    vscode.commands.registerCommand("codepilot.connectMcpServer", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.connectMcpServer", async () => {
       try {
         const mcpManager = await getMcpManager();
         const servers = mcpManager.getServers();
@@ -123,7 +123,7 @@ export function registerMcpCommands(deps: CommandContext): vscode.Disposable[] {
 
     // MCP 서버 연결 해제
     vscode.commands.registerCommand(
-      "codepilot.disconnectMcpServer",
+      "codepilot-standalone.disconnectMcpServer",
       async () => {
         try {
           const mcpManager = await getMcpManager();

@@ -28,7 +28,7 @@ export function registerSessionCommands(
 
   return [
     // 캐시 통계 보기
-    vscode.commands.registerCommand("codepilot.viewCacheStats", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.viewCacheStats", async () => {
       try {
         const sessionManager = await getSessionManager();
         const stats = sessionManager.getCacheStats();
@@ -52,7 +52,7 @@ export function registerSessionCommands(
     }),
 
     // 캐시 초기화 (QuickPick 확인 + 패널에 결과 출력)
-    vscode.commands.registerCommand("codepilot.clearCache", async () => {
+    vscode.commands.registerCommand("codepilot-standalone.clearCache", async () => {
       try {
         const confirm = await vscode.window.showQuickPick(["예", "아니오"], {
           title: "캐시 초기화",
@@ -73,7 +73,7 @@ export function registerSessionCommands(
 
     // 저장된 세션 목록 보기 (QuickPick)
     vscode.commands.registerCommand(
-      "codepilot.listSavedSessions",
+      "codepilot-standalone.listSavedSessions",
       async () => {
         try {
           const sessionManager = await getSessionManager();
@@ -104,7 +104,7 @@ export function registerSessionCommands(
 
     // 저장된 세션 복원 (QuickPick)
     vscode.commands.registerCommand(
-      "codepilot.restoreSavedSession",
+      "codepilot-standalone.restoreSavedSession",
       async () => {
         try {
           const sessionManager = await getSessionManager();
@@ -153,7 +153,7 @@ export function registerSessionCommands(
 
     // 세션 삭제 (QuickPick 선택 후 삭제)
     vscode.commands.registerCommand(
-      "codepilot.deleteSession",
+      "codepilot-standalone.deleteSession",
       async () => {
         try {
           const sessionManager = await getSessionManager();
@@ -203,7 +203,7 @@ export function registerSessionCommands(
 
     // 대화 압축 (QuickPick 확인 추가)
     vscode.commands.registerCommand(
-      "codepilot.compactConversation",
+      "codepilot-standalone.compactConversation",
       async () => {
         try {
           const sessionManager = await getSessionManager();

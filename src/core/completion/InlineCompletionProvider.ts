@@ -30,7 +30,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         _context: vscode.InlineCompletionContext,
         token: vscode.CancellationToken
     ): Promise<vscode.InlineCompletionItem[]> {
-        const enabled = vscode.workspace.getConfiguration('codepilot')
+        const enabled = vscode.workspace.getConfiguration('codepilot-standalone')
             .get<boolean>('inlineCompletion', false);
         if (!enabled) return [];
 

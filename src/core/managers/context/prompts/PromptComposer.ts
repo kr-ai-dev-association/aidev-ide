@@ -65,6 +65,14 @@ export class PromptComposer {
         return [...PromptComposer._lastReferences];
     }
 
+    /** load_skill 호출 시 참조에 스킬 추가 */
+    public static addSkillReference(skillKey: string, source: 'local' | 'server'): void {
+        const refType = source === 'server' ? 'server_skill' : 'local_skill';
+        if (!PromptComposer._lastReferences.some(r => r.type === refType && r.name === skillKey)) {
+            PromptComposer._lastReferences.push({ type: refType, name: skillKey, source });
+        }
+    }
+
     /** 마지막 loadServerPromptTemplates에서 포함된 서버 규칙 키 반환 (참조 추적용) */
     public static getLastIncludedServerRuleKeys(): { key: string; title: string }[] {
         return [...PromptComposer._lastIncludedServerRuleKeys];
@@ -119,9 +127,9 @@ export class PromptComposer {
     }
 
     /** 스킬 description 목록 생성 (IntentDetector에 전달용) */
-    public static getSkillDescriptions(): { key: string; description: string }[] {
+    public static getSkillDescriptions(): { key: string; description: string; source: string }[] {
         return Array.from(PromptComposer._skillRegistry.values())
-            .map(s => ({ key: s.key, description: s.description }));
+            .map(s => ({ key: s.key, description: s.description, source: s.source }));
     }
 
     /**
@@ -295,7 +303,7 @@ ${rules.join('\n\n---\n\n')}`,
                                         content: body,
                                         source: 'local',
                                     });
-                                    ruleKeys.add(fileKey);
+                                    // ruleKeys에는 추가하지 않음 (스킬은 조건부)
                                 } else {
                                     // Rule → 기존처럼 무조건 주입
                                     categoryRules.push(`[${file}]\n${body}`);
@@ -337,9 +345,8 @@ ${rules.join('\n\n---\n\n')}`,
                     }
                 }
 
-                // 카테고리에 Rule(항상 주입)이 있으면 추가
+                // 카테고리에 Rule(항상 주입)이 있으면 추가 (디렉토리명은 ruleKeys에 넣지 않음)
                 if (categoryRules.length > 0) {
-                    ruleKeys.add(category.dir);
                     rules.push(`**${category.title} (강제 규칙):**\n${categoryRules.join('\n\n')}`);
                 }
             }
@@ -583,21 +590,28 @@ ${diagnosticsContextContent}
         }
 
         // 참조 추적: 사용된 로컬 규칙, 서버 규칙, 활성 스킬 기록
+        const prevNonRuleRefs = PromptComposer._lastReferences.filter(
+            r => r.type === 'server_skill' || r.type === 'local_skill'
+        );
         const references: ReferenceItem[] = [];
         for (const key of localRuleKeys) {
             references.push({ type: 'local_rule', name: key, source: 'local' });
         }
-        // 프롬프트에 포함된 모든 서버 규칙 추적 (override뿐 아니라 recommended도 포함)
         for (const rule of PromptComposer._lastIncludedServerRuleKeys) {
             references.push({ type: 'server_rule', name: rule.title, source: 'server' });
         }
-        if (activeSkillKeys) {
+        if (activeSkillKeys && activeSkillKeys.length > 0) {
             for (const skillKey of activeSkillKeys) {
                 const entry = PromptComposer._skillRegistry.get(skillKey);
                 if (entry) {
-                    const skillType = entry.source === 'server' ? 'server_skill' : 'local_skill';
-                    references.push({ type: skillType, name: entry.key, source: entry.source });
+                    const refType = entry.source === 'server' ? 'server_skill' : 'local_skill';
+                    references.push({ type: refType, name: entry.key, source: entry.source });
                 }
+            }
+        }
+        for (const prev of prevNonRuleRefs) {
+            if (!references.some(r => r.type === prev.type && r.name === prev.name)) {
+                references.push(prev);
             }
         }
         PromptComposer._lastReferences = references;

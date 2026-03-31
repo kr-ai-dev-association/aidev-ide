@@ -53,7 +53,7 @@ export class TaskManager {
     private context?: vscode.ExtensionContext;
     private planQueues: PlanQueue[] = [];
     private currentPlanQueueId: string | undefined;
-    private static PLAN_QUEUES_STORAGE_KEY = 'codepilot.planQueues.v2';
+    private static PLAN_QUEUES_STORAGE_KEY = 'codepilot-standalone.planQueues.v2';
 
     private constructor() {
         this.queue = new TaskQueue();
@@ -440,7 +440,7 @@ export class TaskManager {
         if (Array.isArray(stored) && stored.length > 0 && stored[0] && typeof stored[0] === 'object' && 'items' in stored[0]) {
             this.planQueues = stored as PlanQueue[];
         } else {
-            const legacy = this.context.globalState.get<PlanItem[]>('codepilot.planQueue', []);
+            const legacy = this.context.globalState.get<PlanItem[]>('codepilot-standalone.planQueue', []);
             const legacyQueue: PlanQueue = {
                 id: 'default',
                 title: '기본 작업 큐',

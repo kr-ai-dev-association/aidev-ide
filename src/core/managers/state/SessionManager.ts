@@ -259,7 +259,7 @@ export class SessionManager {
      */
     private loadSessions(): void {
         try {
-            const stored = this.context.globalState.get<{ sessions: Session[], currentSessionId?: string }>('codepilot.sessions');
+            const stored = this.context.globalState.get<{ sessions: Session[], currentSessionId?: string }>('codepilot-standalone.sessions');
             if (stored && stored.sessions) {
                 for (const session of stored.sessions) {
                     this.sessions.set(session.id, session);
@@ -278,7 +278,7 @@ export class SessionManager {
     private async saveSessions(): Promise<void> {
         try {
             const sessions = Array.from(this.sessions.values());
-            await this.context.globalState.update('codepilot.sessions', {
+            await this.context.globalState.update('codepilot-standalone.sessions', {
                 sessions,
                 currentSessionId: this.currentSessionId
             });

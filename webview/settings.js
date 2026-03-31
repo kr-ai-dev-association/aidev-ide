@@ -3866,8 +3866,9 @@ const agentPolicyFilesCache = {
 // 파일 목록 렌더링
 // 파일별 skill type 캐시 (extension에서 전달)
 let agentPolicyFileTypesCache = {};
+let agentPolicyFileDescsCache = {};
 
-function renderPolicyFileList(category, files, fileTypes) {
+function renderPolicyFileList(category, files, fileTypes, fileDescriptions) {
   const listContainer = document.getElementById(`${category}-file-list`);
   if (!listContainer) {
     return;
@@ -3877,6 +3878,9 @@ function renderPolicyFileList(category, files, fileTypes) {
   agentPolicyFilesCache[category] = files;
   if (fileTypes) {
     agentPolicyFileTypesCache[category] = fileTypes;
+  }
+  if (fileDescriptions) {
+    agentPolicyFileDescsCache[category] = fileDescriptions;
   }
 
   // 목록 초기화
@@ -3897,16 +3901,23 @@ function renderPolicyFileList(category, files, fileTypes) {
     const item = document.createElement("div");
     item.className = "policy-file-item";
 
+    const topRow = document.createElement("div");
+    topRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;width:100%;";
+
+    const nameGroup = document.createElement("div");
+    nameGroup.style.cssText = "display:flex;align-items:center;";
+
     const nameSpan = document.createElement("span");
     nameSpan.className = "file-name" + (isLegacy ? " legacy" : "");
     nameSpan.textContent = displayName + (isLegacy ? " (레거시)" : "");
-    item.appendChild(nameSpan);
+    nameGroup.appendChild(nameSpan);
 
-    // 규칙/스킬 타입 뱃지
     const typeBadge = document.createElement("span");
     typeBadge.textContent = isSkill ? "스킬" : "규칙";
-    typeBadge.style.cssText = `background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:500;margin-left:6px;`;
-    item.appendChild(typeBadge);
+    typeBadge.style.cssText = `background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:500;margin-left:3px;`;
+    nameGroup.appendChild(typeBadge);
+
+    topRow.appendChild(nameGroup);
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "delete-file-btn";
@@ -3931,7 +3942,17 @@ function renderPolicyFileList(category, files, fileTypes) {
         isLegacy: isLegacy,
       });
     });
-    item.appendChild(deleteBtn);
+    topRow.appendChild(deleteBtn);
+    item.appendChild(topRow);
+
+    const descs = agentPolicyFileDescsCache[category] || {};
+    const desc = descs[fileName] || descs[displayName];
+    if (isSkill && desc) {
+      const descDiv = document.createElement("div");
+      descDiv.textContent = desc;
+      descDiv.className = "skill-desc";
+      item.appendChild(descDiv);
+    }
 
     listContainer.appendChild(item);
   });
@@ -4041,6 +4062,9 @@ function setupAgentPolicyFileUpload(
     if (fileNameElement) {
       fileNameElement.textContent = "";
     }
+    if (skillDescInput) {
+      skillDescInput.value = "";
+    }
 
     if (errorCount > 0) {
       showStatus(
@@ -4149,6 +4173,9 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
     if (statusElement) showStatus(statusElement, "추가 중...", "info");
     addButton.disabled = true;
     vscode.postMessage({ command: "addPathAgentPolicy", category, filePath, policyType, skillDescription });
+    if (skillDescInput) {
+      skillDescInput.value = "";
+    }
   });
 
   pathInput.addEventListener("keydown", (e) => {
@@ -4171,8 +4198,9 @@ window.addEventListener("message", (event) => {
     case "allAgentPolicyFilesList":
       if (message.files) {
         const fileTypes = message.fileTypes || {};
+        const fileDescs = message.fileDescriptions || {};
         for (const category of Object.keys(message.files)) {
-          renderPolicyFileList(category, message.files[category], fileTypes[category]);
+          renderPolicyFileList(category, message.files[category], fileTypes[category], fileDescs[category]);
         }
       }
       break;
@@ -4930,61 +4958,21 @@ function renderSecurityRulesLists(
     }
   }
 
-  // 기본 차단 명령어 목록 (토글 가능, 개인 사용자만)
+  // 기본 차단 명령어 목록 (읽기 전용)
+  const defaultCmdSection = document.getElementById("default-blocked-cmd-section");
   const defaultCmdList = document.getElementById("blocked-command-default-list");
-  if (defaultCmdList && defaultBlockedCommands && !window.userHasOrganization) {
+  if (defaultCmdSection) defaultCmdSection.style.display = (defaultBlockedCommands && defaultBlockedCommands.length > 0) ? '' : 'none';
+  if (defaultCmdList && defaultBlockedCommands && defaultBlockedCommands.length > 0) {
     defaultCmdList.innerHTML = defaultBlockedCommands
       .map((rule) => {
-        const isDisabled = disabledCmds.includes(rule.id);
-        const bg = isDisabled ? "rgba(127,127,127,0.1)" : "var(--vscode-badge-background)";
-        const color = isDisabled ? "var(--vscode-disabledForeground, #888)" : "var(--vscode-badge-foreground)";
-        const textDecoration = isDisabled ? "line-through" : "none";
-        const opacity = isDisabled ? "0.5" : "1";
-        const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<div class="default-blocked-cmd-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: ${bg}; color: ${color}; border-radius: 4px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
+        return `<div style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 4px; font-size: 0.85em; user-select: none;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
       })
       .join("");
-
-    defaultCmdList.querySelectorAll(".default-blocked-cmd-tag").forEach((tag) => {
-      tag.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.id;
-        const isDisabled = e.currentTarget.dataset.disabled === "true";
-        if (isDisabled) {
-          vscode.postMessage({ command: "enableBlockedCommand", id: id });
-        } else {
-          vscode.postMessage({ command: "disableBlockedCommand", id: id });
-        }
-      });
-    });
   }
 
-  // 기본 보호 파일 목록 (토글 가능, 개인 사용자만)
-  const defaultFileList = document.getElementById("protected-file-default-list");
-  if (defaultFileList && defaultProtectedFiles && !window.userHasOrganization) {
-    defaultFileList.innerHTML = defaultProtectedFiles
-      .map((rule) => {
-        const isDisabled = disabledFiles.includes(rule.id);
-        const bg = isDisabled ? "rgba(127,127,127,0.1)" : "var(--vscode-badge-background)";
-        const color = isDisabled ? "var(--vscode-disabledForeground, #888)" : "var(--vscode-badge-foreground)";
-        const textDecoration = isDisabled ? "line-through" : "none";
-        const opacity = isDisabled ? "0.5" : "1";
-        const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<div class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: ${bg}; color: ${color}; border-radius: 4px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
-      })
-      .join("");
-
-    defaultFileList.querySelectorAll(".default-protected-file-tag").forEach((tag) => {
-      tag.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.id;
-        const isDisabled = e.currentTarget.dataset.disabled === "true";
-        if (isDisabled) {
-          vscode.postMessage({ command: "enableProtectedFile", id: id });
-        } else {
-          vscode.postMessage({ command: "disableProtectedFile", id: id });
-        }
-      });
-    });
-  }
+  // 기본 보호 파일 목록 (빈 배열이면 숨김)
+  const defaultFileSection = document.getElementById("default-protected-file-section");
+  if (defaultFileSection) defaultFileSection.style.display = (defaultProtectedFiles && defaultProtectedFiles.length > 0) ? '' : 'none';
 }
 
 /**

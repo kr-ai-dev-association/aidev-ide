@@ -26,7 +26,7 @@ class DiffDocumentProvider implements vscode.TextDocumentContentProvider {
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'codepilot.chatView';
+    public static readonly viewType = 'codepilot-standalone.chatView';
     private _view?: vscode.WebviewView;
     private diffDocumentProvider?: DiffDocumentProvider;
     private runTerminal: vscode.Terminal | null = null;
@@ -52,7 +52,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     ) {
         try {
             this._view = webviewView;
-            try { webviewView.title = 'Codepilot'; } catch { }
+            try { webviewView.title = 'Codepilot-Standalone'; } catch { }
 
             webviewView.webview.options = {
                 enableScripts: true,
@@ -130,8 +130,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // 🆕 VSCode 설정 변경 감지 (테마 등)
         const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('codepilot.chatTheme')) {
-                const config = vscode.workspace.getConfiguration('codepilot');
+            if (e.affectsConfiguration('codepilot-standalone.chatTheme')) {
+                const config = vscode.workspace.getConfiguration('codepilot-standalone');
                 const theme = config.get<string>('chatTheme') || 'dark';
                 webviewView.webview.postMessage({
                     command: 'chatTheme',
@@ -349,7 +349,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             const adminPresetGroup = (adminSetting as any).group || '';
                             const chatAdminUserApiKey = adminPresetGroup
                                 ? (this.context.globalState.get<string>(`codepilot.apiKey.${adminPresetGroup}`) || '')
-                                : (this.context.globalState.get<string>("codepilot.adminApiKey") || '');
+                                : (this.context.globalState.get<string>("codepilot-standalone.adminApiKey") || '');
                             const adminConfig = {
                                 key: adminKey,
                                 provider: v.provider || '',
@@ -402,7 +402,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             const presetGroup = (presetSetting as any).group || '';
                             const chatUserApiKey = presetGroup
                                 ? (this.context.globalState.get<string>(`codepilot.apiKey.${presetGroup}`) || '')
-                                : (this.context.globalState.get<string>("codepilot.adminApiKey") || '');
+                                : (this.context.globalState.get<string>("codepilot-standalone.adminApiKey") || '');
                             const adminConfig = {
                                 key: presetKey,
                                 provider: v.provider || 'chat_completions',
@@ -588,52 +588,52 @@ ${JSON.stringify(errorContext, null, 2)}
                     try {
                         switch (action) {
                             case 'viewCacheStats':
-                                await vscode.commands.executeCommand('codepilot.viewCacheStats');
+                                await vscode.commands.executeCommand('codepilot-standalone.viewCacheStats');
                                 break;
                             case 'clearCache':
-                                await vscode.commands.executeCommand('codepilot.clearCache');
+                                await vscode.commands.executeCommand('codepilot-standalone.clearCache');
                                 break;
                             case 'listSavedSessions':
-                                await vscode.commands.executeCommand('codepilot.listSavedSessions');
+                                await vscode.commands.executeCommand('codepilot-standalone.listSavedSessions');
                                 break;
                             case 'restoreSavedSession':
-                                await vscode.commands.executeCommand('codepilot.restoreSavedSession');
+                                await vscode.commands.executeCommand('codepilot-standalone.restoreSavedSession');
                                 break;
                             case 'deleteSession':
-                                await vscode.commands.executeCommand('codepilot.deleteSession');
+                                await vscode.commands.executeCommand('codepilot-standalone.deleteSession');
                                 break;
                             case 'compactConversation':
-                                await vscode.commands.executeCommand('codepilot.compactConversation');
+                                await vscode.commands.executeCommand('codepilot-standalone.compactConversation');
                                 break;
                             case 'gitStatus':
-                                await vscode.commands.executeCommand('codepilot.gitStatus');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitStatus');
                                 break;
                             case 'gitDiff':
-                                await vscode.commands.executeCommand('codepilot.gitDiff');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitDiff');
                                 break;
                             case 'gitLog':
-                                await vscode.commands.executeCommand('codepilot.gitLog');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitLog');
                                 break;
                             case 'gitBranch':
-                                await vscode.commands.executeCommand('codepilot.gitBranch');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitBranch');
                                 break;
                             case 'gitInfo':
-                                await vscode.commands.executeCommand('codepilot.gitInfo');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitInfo');
                                 break;
                             case 'gitStaged':
-                                await vscode.commands.executeCommand('codepilot.gitStaged');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitStaged');
                                 break;
                             case 'gitStash':
-                                await vscode.commands.executeCommand('codepilot.gitStash');
+                                await vscode.commands.executeCommand('codepilot-standalone.gitStash');
                                 break;
                             case 'viewMcpServers':
-                                await vscode.commands.executeCommand('codepilot.viewMcpServers');
+                                await vscode.commands.executeCommand('codepilot-standalone.viewMcpServers');
                                 break;
                             case 'connectMcpServer':
-                                await vscode.commands.executeCommand('codepilot.connectMcpServer');
+                                await vscode.commands.executeCommand('codepilot-standalone.connectMcpServer');
                                 break;
                             case 'disconnectMcpServer':
-                                await vscode.commands.executeCommand('codepilot.disconnectMcpServer');
+                                await vscode.commands.executeCommand('codepilot-standalone.disconnectMcpServer');
                                 break;
                             default:
                                 console.warn(`[ChatViewProvider] Unknown slash command: ${action}`);
@@ -1127,7 +1127,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     try {
                         const theme = data.theme;
                         if (theme && ['dark', 'light', 'auto'].includes(theme)) {
-                            const config = vscode.workspace.getConfiguration('codepilot');
+                            const config = vscode.workspace.getConfiguration('codepilot-standalone');
                             await config.update('chatTheme', theme, vscode.ConfigurationTarget.Global);
                             webviewView.webview.postMessage({
                                 command: 'chatThemeSaved',
@@ -1142,7 +1142,7 @@ ${JSON.stringify(errorContext, null, 2)}
 
                 case 'getChatTheme': {
                     try {
-                        const config = vscode.workspace.getConfiguration('codepilot');
+                        const config = vscode.workspace.getConfiguration('codepilot-standalone');
                         const theme = config.get<string>('chatTheme') || 'dark';
                         webviewView.webview.postMessage({
                             command: 'chatTheme',
@@ -1834,7 +1834,7 @@ ${JSON.stringify(errorContext, null, 2)}
 
                 // 2. 토큰 사용량 및 컨텍스트 수 복원
                 const stats = sessionManager.getCumulativeSessionStats();
-                const config = vscode.workspace.getConfiguration('codepilot');
+                const config = vscode.workspace.getConfiguration('codepilot-standalone');
                 const maxTokens = config.get<number>('maxInputTokens') || 128000;
 
                 webview.postMessage({

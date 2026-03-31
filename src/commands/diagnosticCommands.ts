@@ -12,7 +12,7 @@ export function registerDiagnosticCommands(
   return [
     // 터미널 모니터링 테스트
     vscode.commands.registerCommand(
-      "codepilot.testTerminalMonitoring",
+      "codepilot-standalone.testTerminalMonitoring",
       async () => {
         try {
           const { ErrorManager } = await import(

@@ -77,7 +77,7 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
             );
             const keepCommand: vscode.Command = {
                 title: `$(check) Keep`,
-                command: 'codepilot.acceptChange',
+                command: 'codepilot-standalone.acceptChange',
                 arguments: [filePath, change.id], // ✅ 고유한 change.id 전달
             };
             lenses.push(new vscode.CodeLens(keepRange, keepCommand));
@@ -91,7 +91,7 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
             );
             const undoCommand: vscode.Command = {
                 title: `$(close) Undo`,
-                command: 'codepilot.rejectChange',
+                command: 'codepilot-standalone.rejectChange',
                 arguments: [filePath, change.id], // ✅ 고유한 change.id 전달
             };
             lenses.push(new vscode.CodeLens(undoRange, undoCommand));
