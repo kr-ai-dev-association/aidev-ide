@@ -666,33 +666,38 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
 **Skills를 무시한 코드는 허용되지 않습니다.**`
             : '';
 
-        // 조합 (Skills를 최상단, 리마인더를 최하단에 배치)
+        // XML 태그로 감싸는 헬퍼
+        const wrapXml = (tag: string, content: string | undefined): string => {
+            if (!content || !content.trim()) return '';
+            return `<${tag}>\n${content.trim()}\n</${tag}>`;
+        };
+
+        // 조합 (XML 태그로 섹션 분리 — LLM 규칙 준수율 향상)
         const parts = [
-            hotLoadPrompt, // Hot Load 프롬프트 (최우선 규칙)
-            memoryContext, // 영속적 메모리 컨텍스트 (이전 대화에서 저장된 정보)
-            attachedContextWarning, // 첨부 컨텍스트 경고
-            globalRulesRaw, // 글로벌 규칙 (모든 프로젝트 공통)
-            agentRules, // 개발 규칙(Rule) — 최상단 배치 (서버 필수가 덮어쓴 것 제거)
-            serverPromptTemplates, // 서버 관리자 프롬프트 템플릿(Rule) — 최상단 배치
-            activeSkillsSection, // 조건부 스킬 — IntentDetector가 선택한 것만
-            osContextInfo,
-            subProjectStructure, // 서브프로젝트 구조 (모노레포 경로 grounding)
-            repoMap ? `## 프로젝트 파일 맵\n아래는 프로젝트의 파일 경로와 주요 심볼(함수/클래스/인터페이스 등) 목록입니다.\n**파일 경로를 추측하지 말고, 이 맵을 참고하여 정확한 경로를 사용하세요.**\n파일이 맵에 없으면 glob_search로 검색하세요.\n\n${repoMap}` : '',
-            basePrompt,
-            mcpCustomPrompts, // MCP 서버별 커스텀 프롬프트 (도구 정의 직후)
-            frameworkRulesSection, // v9.2.1: 동적 프레임워크 규칙
-            ragSection, // 서버 RAG 문서 컨텍스트
-            terminalCommandRules,
-            taskPrompt,
-            // 사용자가 첨부한 컨텍스트 (터미널, 파일, Diagnostics)를 코드베이스보다 앞에 배치
-            terminalContextSection, // 사용자가 @terminal로 첨부한 터미널 출력 (우선순위 높음)
-            selectedFilesSection, // 사용자가 @file로 선택한 파일들
-            diagnosticsContextSection, // 사용자가 @diagnostics로 선택한 에러/경고
-            codebaseSection, // 자동 수집된 코드베이스 컨텍스트
-            llmPrompt,
-            osPrompt,
-            skillDescriptionSection, // 스킬 description 목록 — 최하단 근처
-            skillsReminder, // Skills 리마인더 — 최하단 배치
+            wrapXml('hotload', hotLoadPrompt),
+            wrapXml('memory', memoryContext),
+            attachedContextWarning, // 이미 자체 포맷 포함
+            wrapXml('global_rules', globalRulesRaw),
+            wrapXml('dev_rules', agentRules),
+            wrapXml('server_rules', serverPromptTemplates),
+            wrapXml('active_skills', activeSkillsSection),
+            wrapXml('user_info', osContextInfo),
+            wrapXml('project_structure', subProjectStructure),
+            wrapXml('repo_map', repoMap ? `프로젝트의 파일 경로와 주요 심볼(함수/클래스/인터페이스 등) 목록입니다.\n파일 경로를 추측하지 말고, 이 맵을 참고하여 정확한 경로를 사용하세요.\n파일이 맵에 없으면 glob_search로 검색하세요.\n\n${repoMap}` : undefined),
+            wrapXml('identity_and_rules', basePrompt),
+            wrapXml('mcp_tools', mcpCustomPrompts),
+            wrapXml('framework_rules', frameworkRulesSection),
+            wrapXml('rag_context', ragSection),
+            wrapXml('terminal_rules', terminalCommandRules),
+            wrapXml('task_rules', taskPrompt),
+            terminalContextSection, // 이미 자체 포맷 포함
+            selectedFilesSection, // 이미 자체 포맷 포함
+            diagnosticsContextSection, // 이미 자체 포맷 포함
+            wrapXml('codebase_context', codebaseSection),
+            wrapXml('llm_specific', llmPrompt),
+            wrapXml('os_specific', osPrompt),
+            wrapXml('available_skills', skillDescriptionSection),
+            wrapXml('skills_reminder', skillsReminder),
         ].filter(part => part && part.trim() !== '');
 
         return parts.join('\n\n');
