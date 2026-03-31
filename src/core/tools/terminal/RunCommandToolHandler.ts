@@ -100,6 +100,18 @@ const COMMAND_MANIFEST_MAP: Record<string, string[]> = {
     'helm': ['Chart.yaml'],
 };
 
+const MAX_OUTPUT_CHARS = 30000;
+const HEAD_CHARS = 15000;
+const TAIL_CHARS = 15000;
+
+function truncateOutput(output: string | undefined): string | undefined {
+    if (!output || output.length <= MAX_OUTPUT_CHARS) return output;
+    const head = output.slice(0, HEAD_CHARS);
+    const tail = output.slice(-TAIL_CHARS);
+    const dropped = output.length - HEAD_CHARS - TAIL_CHARS;
+    return `${head}\n\n... [출력 잘림: ${dropped.toLocaleString()}자 생략 — 앞 ${HEAD_CHARS.toLocaleString()}자 + 뒤 ${TAIL_CHARS.toLocaleString()}자만 표시] ...\n\n${tail}`;
+}
+
 export class RunCommandToolHandler implements IToolHandler {
     readonly name = Tool.RUN_COMMAND;
 
@@ -146,8 +158,8 @@ export class RunCommandToolHandler implements IToolHandler {
                     ? `Command executed: ${command}`
                     : `Command failed: ${command}`,
                 data: {
-                    output: initialResult.stdout,
-                    error: initialResult.stderr,
+                    output: truncateOutput(initialResult.stdout),
+                    error: truncateOutput(initialResult.stderr),
                     exitCode: initialResult.exitCode,
                 }
             };
@@ -171,9 +183,9 @@ export class RunCommandToolHandler implements IToolHandler {
                     success: true,
                     message: `Long-running command started: ${command} (PID: ${pid})`,
                     data: {
-                        output: initialResult.stdout || `서버가 백그라운드에서 시작되었습니다 (PID: ${pid}).`,
+                        output: truncateOutput(initialResult.stdout) || `서버가 백그라운드에서 시작되었습니다 (PID: ${pid}).`,
                         llmNote: '이 명령어는 장기 실행 프로세스입니다. 이미 백그라운드에서 실행 중이므로 동일 명령어를 다시 실행하지 마세요.',
-                        error: initialResult.stderr,
+                        error: truncateOutput(initialResult.stderr),
                         exitCode: undefined,
                     }
                 };
@@ -195,8 +207,8 @@ export class RunCommandToolHandler implements IToolHandler {
                     ? `Command executed: ${command}`
                     : `Command failed: ${command}`,
                 data: {
-                    output: finalResult.stdout,
-                    error: finalResult.stderr,
+                    output: truncateOutput(finalResult.stdout),
+                    error: truncateOutput(finalResult.stderr),
                     exitCode: finalResult.exitCode,
                 }
             };

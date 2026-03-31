@@ -2,7 +2,16 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.42**
+> **현재 버전: v1.0.43**
+
+---
+
+## v1.0.43 (2026-03-31)
+
+### 최적화
+
+- **시스템 프롬프트 XML 태그 구조화** (`PromptComposer`): 모든 프롬프트 섹션을 XML 태그로 감싸기 — LLM 규칙 준수율 향상
+- **대형 출력 잘라내기** (`RunCommandToolHandler`): 30,000자 초과 시 앞 15K + 뒤 15K 보존, 중간 생략
 
 ---
 
